@@ -6,18 +6,43 @@ from pathlib import Path
 
 def enrich_network(n, case_dir, case_stem):
     """Attach lat/lng coords, fuel, substation info from pre-extracted CSVs."""
-
     FUEL_MAP = {
-        'NG': 'gas',
-        'NUC': 'nuclear',
-        'COA': 'coal',
+        # Natural Gas
+        'NG':  'gas',
+        'LFG': 'gas',   # landfill gas
+        'OG':  'gas',   # other gas
+
+        # Coal
+        'BIT': 'coal',  # bituminous
+        'SUB': 'coal',  # subbituminous
+        'LIG': 'coal',  # lignite
+        'RC':  'coal',  # refined coal
+
+        # Oil
+        'DFO': 'oil',   # distillate fuel oil
+        'RFO': 'oil',   # residual fuel oil
+        'JF':  'oil',   # jet fuel
+        'KER': 'oil',   # kerosene
+
+        # Renewables
         'WND': 'wind',
         'SUN': 'solar',
         'WAT': 'hydro',
-        'OIL': 'oil',
-        'BIO': 'biomass',
         'GEO': 'geothermal',
-        'MWH': 'battery'
+
+        # Other
+        'NUC': 'nuclear',
+        'MWH': 'battery',
+        'WDS': 'biomass',  # wood/wood waste
+        'OBL': 'biomass',  # other biomass liquids
+        'OBS': 'biomass',  # other biomass solids
+        'OBG': 'biomass',  # other biomass gas
+        'AB':  'biomass',  # agricultural byproducts
+        'MSW': 'biomass',  # municipal solid waste
+        'OTH': 'other',
+        'PUR': 'other',    # purchased steam
+        'WH':  'other',    # waste heat
+        'TDF': 'other',    # tire-derived fuel
     }
 
     d = Path(case_dir)
@@ -38,11 +63,10 @@ def enrich_network(n, case_dir, case_stem):
     n.generators['carrier'] = (
         n.generators['bus'].astype(int)
         .map(fuel_by_bus)
-        .replace(FUEL_MAP)
-        .str.lower()
+        .replace(FUEL_MAP)   # uppercase codes → canonical names
+        .str.lower()          # normalize any stragglers
         .fillna('unknown')
     )
-
 
 def build_network(name, case_dir, case_stem):
     """
@@ -217,7 +241,9 @@ if __name__ == '__main__':
     )
 
     # Save so skip re-import
-    # n.export_to_netcdf(".".join([file_name.split(".")[0], "nc"]))
+    processed_dir = Path('/data/processed')
+    out_file = str(processed_dir/f"{case_stem}.nc")
+    n.export_to_netcdf(out_file)
 
     describe_network(n)
 
