@@ -1,5 +1,5 @@
 """
-extract.py:
+extract_latlng_fuel.py:
 
 parse AUX, output bus_coords.csv, gen_fuels.csv, substations.csv
 
