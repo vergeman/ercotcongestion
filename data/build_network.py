@@ -2,48 +2,10 @@ import numpy as np, pypsa
 from matpowercaseframes import CaseFrames
 import pandas as pd
 from pathlib import Path
-
+from constants import EIA_TO_CARRIER
 
 def enrich_network(n, case_dir, case_stem):
     """Attach lat/lng coords, fuel, substation info from pre-extracted CSVs."""
-    FUEL_MAP = {
-        # Natural Gas
-        'NG':  'gas',
-        'LFG': 'gas',   # landfill gas
-        'OG':  'gas',   # other gas
-
-        # Coal
-        'BIT': 'coal',  # bituminous
-        'SUB': 'coal',  # subbituminous
-        'LIG': 'coal',  # lignite
-        'RC':  'coal',  # refined coal
-
-        # Oil
-        'DFO': 'oil',   # distillate fuel oil
-        'RFO': 'oil',   # residual fuel oil
-        'JF':  'oil',   # jet fuel
-        'KER': 'oil',   # kerosene
-
-        # Renewables
-        'WND': 'wind',
-        'SUN': 'solar',
-        'WAT': 'hydro',
-        'GEO': 'geothermal',
-
-        # Other
-        'NUC': 'nuclear',
-        'MWH': 'battery',
-        'WDS': 'biomass',  # wood/wood waste
-        'OBL': 'biomass',  # other biomass liquids
-        'OBS': 'biomass',  # other biomass solids
-        'OBG': 'biomass',  # other biomass gas
-        'AB':  'biomass',  # agricultural byproducts
-        'MSW': 'biomass',  # municipal solid waste
-        'OTH': 'other',
-        'PUR': 'other',    # purchased steam
-        'WH':  'other',    # waste heat
-        'TDF': 'other',    # tire-derived fuel
-    }
 
     d = Path(case_dir)
     bus_coords = pd.read_csv(d / f"{case_stem}_bus_coords.csv").set_index('bus')
@@ -63,8 +25,8 @@ def enrich_network(n, case_dir, case_stem):
     n.generators['carrier'] = (
         n.generators['bus'].astype(int)
         .map(fuel_by_bus)
-        .replace(FUEL_MAP)   # uppercase codes → canonical names
-        .str.lower()          # normalize any stragglers
+        .replace(EIA_TO_CARRIER)   # uppercase codes → canonical names
+        .str.lower()               # normalize any stragglers
         .fillna('unknown')
     )
 
