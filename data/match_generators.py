@@ -1,3 +1,4 @@
+from matplotlib.pyplot import summer
 from scipy.spatial import cKDTree
 import numpy as np
 import pypsa
@@ -5,56 +6,81 @@ import pandas as pd
 from pathlib import Path
 from constants import CARRIER_TO_EIA
 
-# Load pre-built enriched network — no need to re-import/re-enrich
-case_stem = "Texas2k_series25_case1_summerpeak"
-d = Path("/data/processed")
-n = pypsa.Network(d/f"{case_stem}.nc")
-
-
 
 def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
+    """Match Logic: for each Texas2K (TAMU) generator, finding closets EIA-860 plant
+
+    We pass each through sequence of filters to see what matches:
+
+    1. Proximity Pass: Convert EIA plant coordinates to radians
+       use cKDTree lib (kd tree) to run spatial nearest neighbor query within range.
+
+    2. Fuel Type Pass: Look to fuel type constants to reduce candidates
+       If nothing filters matches, then keep the candidate set for next pass
+
+    3. Capacity Pass: Lastly, filter if capacity exceeds 20% diff
+
+
+    Match quality labels: get a sense how effective all this is
+      matched_all      - location + fuel + capacity
+      matched_fuel     - location + fuel only (capacity out of range)
+      matched_location - location only (fuel type disagreement)
+      no_match         - no EIA plant within coord_tol_km
+
+    """
     eia_coords = np.radians(eia_df[["Latitude", "Longitude"]].values)
     tree = cKDTree(eia_coords)
-    tol_rad = coord_tol_km / 6371
+    tol_rad = coord_tol_km / 6371  # search range: 10km / 6371km (earth radius)
+                                   # converted to radians
     tamu_coords = np.radians(tamu_df[["lat", "lon"]].values)
 
     matches = []
     match_quality = []
 
     for tamu_row, coord in zip(tamu_df.itertuples(), tamu_coords):
+
+        # PROXIMITY PASS
+        # given a TAMU coord, return all EIA generators within tol_rad
         idxs = tree.query_ball_point(coord, tol_rad)
         if not idxs:
             matches.append(None)
-            match_quality.append('none')
+            match_quality.append('no match')
             continue
 
         candidates = eia_df.iloc[idxs].copy()
 
-        # Fuel filter
+        # FUEL PASS
+        # Fuel filter: of candidates to we have fuel matches
         eia_fuels = CARRIER_TO_EIA.get(tamu_row.carrier, [])
         fuel_filtered = (
             candidates[candidates["Energy Source 1"].isin(eia_fuels)]
             if eia_fuels else candidates
         )
 
+        # no match? Keep candidates for subsequent capacity filter
         if fuel_filtered.empty:
             fuel_filtered = candidates  # relax fuel
-            quality = 'relaxed_fuel'
+            quality = 'matched_location'
         else:
-            quality = 'exact'
+            quality = 'matched_all'
 
-        # Capacity filter
+
+        # CAPACITY PASS
+        # abs capacity difference in MW: (EIA - TAMU) / TAMU capacity
+        # normalized so as to filter at percentage
         cap_diff = (
             (fuel_filtered["Nameplate Capacity (MW)"] - tamu_row.capacity_mw)
             .abs()
             .div(tamu_row.capacity_mw)
         )
-        cap_filtered = fuel_filtered[cap_diff <= cap_tol_pct]
+        cap_filtered = fuel_filtered[cap_diff <= cap_tol_pct]  # cap_tol_pct e.g. 20% filter
 
+        # if capacity doesn't narrow, but excludes all, then make sure to
+        # indicate matched on above fuel filter
         if cap_filtered.empty:
-            cap_filtered = fuel_filtered  # relax capacity
-            if quality == 'exact':
-                quality = 'relaxed_cap'
+            cap_filtered = fuel_filtered
+            if quality == 'matched_all':
+                quality = 'matched_fuel'
 
         # Closest spatially among remaining
         sub_coords = np.radians(cap_filtered[["Latitude", "Longitude"]].values)
@@ -69,7 +95,10 @@ def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
 
 
 def build_tamu_df(n):
-    """Extract generator DataFrame from enriched PyPSA network."""
+    """
+    Extract generator DataFrame from enriched PyPSA network.
+    NB: kept x,y prior for quick plotting
+    """
     df = n.generators[['bus', 'carrier', 'p_nom']].copy()
     df = df.join(n.buses[['x', 'y', 'sub_id', 'sub_name']], on='bus')
     df = df.rename(columns={'x': 'lon', 'y': 'lat', 'p_nom': 'capacity_mw'})
@@ -80,6 +109,7 @@ def load_eia860(path="master_eia860.csv"):
     df = pd.read_csv(path)
     df.columns = df.columns.str.strip()
 
+    # need to make numeric on reload (csv)
     for col in ["Nameplate Capacity (MW)", "Latitude", "Longitude"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -93,8 +123,20 @@ def summarize_matches(result):
     print(f"\nMatch quality:\n{result['match_quality'].value_counts()}")
     print(f"\nUnmatched by carrier:\n{result[result['eia_plant_code'].isna()]['carrier'].value_counts()}")
 
-tamu_df = build_tamu_df(n)
-tamu_df = tamu_df.rename(columns={'p_nom': 'capacity_mw'})
 
-eia860_df = load_eia860("processed/master_eia860.csv")
-result = match_generators(tamu_df, eia860_df)
+if __name__ == '__main__':
+
+    # Load Network and EIA860 Data
+    d = Path("/data/processed")
+    case_stem = "Texas2k_series25_case1_summerpeak"
+    n = pypsa.Network(d/f"{case_stem}.nc")
+    eia860_df = load_eia860("processed/master_eia860.csv")
+
+    tamu_df = build_tamu_df(n)
+    tamu_df = tamu_df.rename(columns={'p_nom': 'capacity_mw'})
+
+    # MATCH
+    result = match_generators(tamu_df, eia860_df)
+    summarize_matches(result)
+
+    result.to_csv(d/"generator_matches.csv", index=False)
