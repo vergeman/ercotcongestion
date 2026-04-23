@@ -10,10 +10,13 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir \
     pypsa \
     pandas \
+    openpyxl \
     numpy \
     matpowercaseframes \
     scipy \
     fastapi \
     uvicorn
 
+RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
+USER shifty
 CMD ["python"]
