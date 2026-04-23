@@ -78,4 +78,4 @@ for d in dirs:
 master_df = master_df\
     .dropna(subset=["Latitude", "Longitude", "Nameplate Capacity (MW)", "Energy Source 1"])
 
-master_df.to_csv('eia860/master_eia860.csv', index=False)
+master_df.to_csv('processed/master_eia860.csv', index=False)
