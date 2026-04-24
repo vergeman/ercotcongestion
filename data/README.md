@@ -5,6 +5,8 @@
 3. `extract_eia860.py`: Extract EIA 860 lat/lng, fuel types
 4. `match_generators.py`: Match EIA with Texas2k data set via proximity, fuel type
 5. `assign_zones.py`: Given TAMU network Bus lat/lng, assign zone label
+6. `marginal_costs.py`: generates marginal_costs.csv for plant types (hardcoded
+    table lookups; so not plan specific for now)
 
 # Data
 
