@@ -1,5 +1,6 @@
 import pypsa
 import pandas as pd
+import numpy as np
 
 n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
@@ -51,7 +52,8 @@ TODO: real data from ERCOT MIS
 NP4-732-CD: real-time wind actuals (per zone)
 NP4-745-CD: real-time solar actuals
 
-Adding these cf_summer_peak factors changed dispatch composition:
+Adding the cf_summer_peak factors changed dispatch composition:
+
 gas        47804.0
 solar      21016.0
 wind        8365.0
@@ -100,8 +102,8 @@ for carrier, cf in cf_summer_peak.items():
 
 
 # derate by 10% lines, transformers 5%
-# Force binding constraints for Sprint 2 testing
-# no shadow prices right now?????
+# Force binding constraints for testing
+# doing this to artificially trigger LMP variation and verify model behavior.
 n.lines['s_nom'] = n.lines['s_nom'] * 0.9
 n.transformers['s_nom'] = n.transformers['s_nom'] * 0.95
 
@@ -128,3 +130,102 @@ print(f"LMP p5/p50/p95: {lmps.quantile([0.05, 0.5, 0.95]).round(2).values}")
 print("\nDispatch by fuel:")
 dispatch = n.generators.assign(p=n.generators_t.p.iloc[0]).groupby('carrier')['p'].sum().sort_values(ascending=False)
 print(dispatch.round(0))
+
+
+#
+# FRAGILITY
+#
+
+# ---- PTDF on current topology ----
+n.determine_network_topology()
+sub = n.sub_networks.obj.iloc[0]
+sub.calculate_PTDF()
+ptdf_full = sub.PTDF # (n_branches, n_buses) = (lines + transformers, buses)
+sub_buses = sub.buses_o  # ordered bus names for this sub-network
+
+# ---- Gather shadow prices and line data ----
+# Lines
+mu_up_ln = n.lines_t.mu_upper.iloc[0].abs()
+mu_lo_ln = n.lines_t.mu_lower.iloc[0].abs()
+shadow_ln = (mu_up_ln + mu_lo_ln).reindex(n.lines.index).fillna(0).values
+flow_ln = n.lines_t.p0.iloc[0].abs().reindex(n.lines.index).fillna(0).values
+s_nom_ln = n.lines['s_nom'].values
+headroom_ln = np.maximum(s_nom_ln - flow_ln, 1.0)  # floor at 1 MW to avoid divide-by-zero
+
+# ---- Fragility: Σ PTDF² × shadow / headroom per bus ----
+# PTDF is (n_lines, n_buses); we want per-bus sum over lines
+# PTDF includes transformers; slice to lines
+print(f"PTDF shape: {ptdf_full.shape}")
+print(f"Number of lines: {len(n.lines)}")
+print(f"Number of transformers: {len(n.transformers)}")
+print(f"Sum: {len(n.lines) + len(n.transformers)}")
+
+
+# Transformers
+mu_up_tx = n.transformers_t.mu_upper.iloc[0].abs() if not n.transformers_t.mu_upper.empty else pd.Series(0.0, index=n.transformers.index)
+mu_lo_tx = n.transformers_t.mu_lower.iloc[0].abs() if not n.transformers_t.mu_lower.empty else pd.Series(0.0, index=n.transformers.index)
+
+shadow_tx = (mu_up_tx + mu_lo_tx).reindex(n.transformers.index).fillna(0).values
+flow_tx = n.transformers_t.p0.iloc[0].abs().reindex(n.transformers.index).fillna(0).values
+s_nom_tx = n.transformers['s_nom'].values
+headroom_tx = np.maximum(s_nom_tx - flow_tx, 1.0)
+
+# Stack: PTDF rows are [lines, transformers]
+weights_full = np.concatenate([shadow_ln / headroom_ln, shadow_tx / headroom_tx])
+fragility_vec = ((ptdf_full ** 2) * weights_full[:, np.newaxis]).sum(axis=0)
+frag = pd.Series(fragility_vec, index=sub_buses, name='fragility')
+
+
+print(f"\nFragility stats:")
+print(frag.describe())
+print(f"\nTop 10 most fragile buses:")
+print(frag.sort_values(ascending=False).head(10))
+
+
+# Concentration — how many buses are meaningfully fragile?
+total_frag = frag.sum()
+mean_frag = frag.mean()
+p95 = frag.quantile(0.95)
+p99 = frag.quantile(0.99)
+
+print(f"Fragility: total={total_frag:.2f}, mean={mean_frag:.4f}, p95={p95:.4f}, p99={p99:.4f}")
+print(f"Buses above p95 ({p95:.3f}): {(frag > p95).sum()}")
+print(f"Buses above p99 ({p99:.3f}): {(frag > p99).sum()}")
+print(f"Buses with fragility > 0.1: {(frag > 0.1).sum()}")
+print(f"Buses with fragility > 0.01: {(frag > 0.01).sum()}")
+
+# Concentration ratio — what fraction of total fragility is in the top 10 buses?
+top10_share = frag.nlargest(10).sum() / total_frag
+print(f"Top 10 buses hold {top10_share:.1%} of total fragility")
+
+
+
+#
+# PLOT
+#
+import matplotlib.pyplot as plt
+
+# Build a dataframe with coords + fragility
+frag_map = pd.DataFrame({
+    'x': n.buses.loc[frag.index, 'x'],
+    'y': n.buses.loc[frag.index, 'y'],
+    'fragility': frag.values
+}).dropna()
+
+# Plot, log scale for readability
+fig, ax = plt.subplots(figsize=(10, 8))
+sc = ax.scatter(frag_map['x'], frag_map['y'],
+                c=np.log10(frag_map['fragility'].clip(lower=1e-6)),
+                cmap='plasma', s=3, alpha=0.7)
+plt.colorbar(sc, label='log10(fragility)')
+
+# Highlight the top-5 buses
+top5 = frag.nlargest(5).index
+ax.scatter(n.buses.loc[top5, 'x'], n.buses.loc[top5, 'y'],
+           s=100, edgecolor='red', facecolor='none', linewidth=2,
+           label='Top 5 most fragile')
+ax.legend()
+ax.set_title('Fragility map (log scale)')
+plt.savefig('fragility_map.png', dpi=120)
+plt.show()
+
