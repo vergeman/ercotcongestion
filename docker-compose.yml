@@ -3,6 +3,8 @@ services:
     build: ./app
     image: shifty
     container_name: app
+    env_file:
+      - .env
     volumes:
       - ./app:/app
       - ./data:/data
@@ -11,6 +13,8 @@ services:
     build: ./app
     image: shifty
     container_name: api
+    env_file:
+      - .env
     working_dir: /api
     depends_on:
       - app
