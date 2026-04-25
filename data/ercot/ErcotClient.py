@@ -42,7 +42,7 @@ PG_DSN = (
 
 
 class ErcotClient:
-    def __init__(self, min_interval: float = 2.5, max_retries: int = 5):
+    def __init__(self, min_interval: float = 3.0, max_retries: int = 5):
         self._token = None
         self._exp = 0
         self._min_interval = min_interval
