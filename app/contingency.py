@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 
-def compute_contingencies(n, lodf_full, radial_threshold: float = 5.0) -> pd.DataFrame:
+def compute_contingencies(n, lodf_full, top_k, radial_threshold: float = 5.0) -> pd.DataFrame:
 
     # We only simulate line outages, not transformer outages
     # (transformers are usually protected differently and we don't trip them for N-1)
@@ -36,7 +36,7 @@ def compute_contingencies(n, lodf_full, radial_threshold: float = 5.0) -> pd.Dat
         stress_scores.append((line, score))
 
     stress_df = pd.DataFrame(stress_scores, columns=['line', 'stress']).set_index('line')
-    stress_df = stress_df.sort_values('stress', ascending=False)
+    stress_df = stress_df.sort_values('stress', ascending=False).head(top_k)
     return stress_df
 
 

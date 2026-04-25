@@ -18,7 +18,7 @@ def _topology_key(n: pypsa.Network) -> str:
     return hashlib.sha1(repr(key).encode()).hexdigest()[:12]
 
 def get_ptdf_lodf(n):
-    """Return (PTDF, LODF_lines, line_names, bus_names) with caching."""
+    """Return (PTDF, LODF_lines, bus_names) with caching."""
     k = _topology_key(n)
     if k in _ptdf_lodf_cache:
         return _ptdf_lodf_cache[k]
@@ -33,9 +33,8 @@ def get_ptdf_lodf(n):
     bodf = np.asarray(sub.BODF)
     n_lines = len(n.lines)
     lodf_lines = bodf[:n_lines, :n_lines]
-    line_names = list(n.lines.index)
     bus_names = list(sub.buses_o)
-    result = (ptdf, lodf_lines, line_names, bus_names)
+    result = (ptdf, lodf_lines, bus_names)
     _ptdf_lodf_cache[k] = result
     return result
 
