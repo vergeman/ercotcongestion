@@ -15,13 +15,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import psycopg
 
-# Reuse the client + loaders from ingest.py
-from ingest import (
-    ErcotClient,
-    PG_DSN,
-    load_shadow_prices,
-    load_outages,
-)
+from ErcotClient import ErcotClient, PG_DSN
+from loaders import load_shadow_prices, load_outages
 
 
 ENDPOINTS = {
