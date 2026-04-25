@@ -1,10 +1,122 @@
 import pypsa
 import pandas as pd
 import numpy as np
+import logging
+from copy import deepcopy
 from operating_conditions import apply_operating_conditions
 from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
+
+logger = logging.getLogger(__name__)
+
+def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network = False) -> dict[str, any]:
+    """
+    Compute a full grid snapshot: OPF + fragility + N-1 contingencies.
+    Returns
+    -------
+    snapshot : dict with keys:
+        'status'           : 'ok' | 'infeasible'
+        'fragility'        : pd.Series (bus → fragility value)
+        'lmps'             : pd.Series (bus → $/MWh)
+        'dispatch'         : pd.Series (generator → MW)
+        'flows'            : pd.Series (line → MW)
+        'binding_lines'    : list of line names with non-zero shadow price
+        'shadow_prices'    : pd.Series (line → $/MWh, non-zero only)
+        'top_contingencies': pd.DataFrame
+        'meta'             : dict with totals, cost, counts
+    """
+
+    # Note: deepcopy of solved PyPSA networks can fail. Default False for now.
+    net = deepcopy(n) if copy_network else n
+
+    apply_operating_conditions(n, **operating_data)
+
+    #
+    # Solve DC-OPF
+    #
+    status, condition = net.optimize(solver_name="highs", assign_all_duals=True)
+
+    if status != 'ok':
+        logger.warning(f"OPF {status}: {condition}")
+        return {
+            'status': 'infeasible',
+            'condition': condition,
+            'meta': {'solver_status': status},
+        }
+
+    print_network_diagnostic(n)
+
+    #
+    # Calculate PTDF on current topology
+    # Given current dispatch, which buses are most exposed to binding constraints
+
+    ptdf, lodf_lines, bus_names = get_ptdf_lodf(net)
+
+    #
+    # FRAGILITY
+    #
+
+    fragility = compute_fragility(net, ptdf, bus_names)
+    fragility_diagnostics(fragility)
+    fragility_plot(n, fragility)
+
+    #
+    #  N-1 CONTINGENCY
+    #
+    #  stress value: if Line X trips, stress is the sum of all the resulting
+    #  fractional overloads across all lines after that N-1 contingency
+
+    contingencies = compute_contingencies(net, lodf_lines, top_k_contingencies) # line | stress
+    contingency_diagnostics(n, contingencies, lodf_lines)
+
+
+    # OUTPUTS
+
+    # Market outputs
+    lmps = net.buses_t.marginal_price.iloc[0]
+    dispatch = net.generators_t.p.iloc[0]
+    flows = net.lines_t.p0.iloc[0]
+
+    # Binding constraints
+    mu_up = net.lines_t.mu_upper.iloc[0].abs()
+    mu_lo = net.lines_t.mu_lower.iloc[0].abs()
+    shadow = (mu_up + mu_lo).reindex(net.lines.index).fillna(0)
+    binding_mask = shadow > 0.01
+    binding_lines = shadow[binding_mask].sort_values(ascending=False)
+
+    # Meta
+    total_load = net.loads_t.p_set.iloc[0].sum()
+    total_gen = dispatch.sum()
+    meta = {
+        'solver_status': status,
+        'total_load_mw': float(total_load),
+        'total_gen_mw': float(total_gen),
+        'balance_mw': float(total_gen - total_load),
+        'objective_cost': float(net.objective) if hasattr(net, 'objective') else None,
+        'n_binding_lines': int(binding_mask.sum()),
+        'lmp_min': float(lmps.min()),
+        'lmp_mean': float(lmps.mean()),
+        'lmp_max': float(lmps.max()),
+        'fragility_total': float(fragility.sum()),
+        'fragility_top10_share': float(
+            fragility.nlargest(10).sum() / fragility.sum()
+            if fragility.sum() > 0 else 0.0
+        ),
+    }
+
+    return {
+        'status': 'ok',
+        'fragility': fragility,
+        'lmps': lmps,
+        'dispatch': dispatch,
+        'flows': flows,
+        'binding_lines': list(binding_lines.index),
+        'shadow_prices': binding_lines,
+        'top_contingencies': contingencies,
+        'meta': meta,
+    }
+
 
 n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
@@ -32,35 +144,4 @@ operating_data = {
     'tx_derate': 0.95
 }
 
-
-apply_operating_conditions(n, **operating_data)
-
-#
-# Solve DC-OPF
-#
-status, cond = n.optimize(solver_name="highs", assign_all_duals=True)
-print(f"Status: {status}, {cond}")
-
-print_network_diagnostic(n)
-
-#
-# Calculate PTDF on current topology
-# Given current dispatch, which buses are most exposed to binding constraints
-ptdf, lodf_lines, line_names, bus_names = get_ptdf_lodf(n)
-
-#
-# FRAGILITY
-#
-
-fragility = compute_fragility(n, ptdf, bus_names)
-fragility_diagnostics(fragility)
-fragility_plot(n, fragility)
-
-#
-#  N-1 CONTINGENCY
-#
-#  stress value: if Line X trips, stress is the sum of all the resulting
-#  fractional overloads across all lines after that N-1 contingency
-
-stress_df = compute_contingencies(n, lodf_lines) # line | stress
-contingency_diagnostics(n, stress_df, lodf_lines)
+res = compute_snapshot(n, operating_data)
