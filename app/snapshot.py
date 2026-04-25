@@ -4,6 +4,7 @@ import numpy as np
 from operating_conditions import apply_operating_conditions
 from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
+from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
 
 n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
@@ -34,43 +35,24 @@ operating_data = {
 
 apply_operating_conditions(n, **operating_data)
 
-
 #
 # Solve DC-OPF
 #
 status, cond = n.optimize(solver_name="highs", assign_all_duals=True)
 print(f"Status: {status}, {cond}")
 
-# Sanity checks
-gen = n.generators_t.p.iloc[0].sum()
-load = n.loads_t.p_set.iloc[0].sum()
-lmps = n.buses_t.marginal_price.iloc[0]
-
-print(f"\nGen: {gen:.0f} MW | Load: {load:.0f} MW | Balance: {gen - load:+.1f}")
-print(f"LMP: min={lmps.min():.2f}, mean={lmps.mean():.2f}, max={lmps.max():.2f}")
-print(f"LMP p5/p50/p95: {lmps.quantile([0.05, 0.5, 0.95]).round(2).values}")
-
-print("\nDispatch by fuel:")
-dispatch = n.generators.assign(p=n.generators_t.p.iloc[0]).groupby('carrier')['p'].sum().sort_values(ascending=False)
-print(dispatch.round(0))
-
+print_network_diagnostic(n)
 
 #
 # Calculate PTDF on current topology
 # Given current dispatch, which buses are most exposed to binding constraints
-
-n.determine_network_topology()
-sub = n.sub_networks.obj.iloc[0]
-sub.calculate_PTDF()
-ptdf_full = sub.PTDF # (n_branches, n_buses) = (lines + transformers, buses)
-sub_buses = sub.buses_o  # ordered bus names for this sub-network
-
+ptdf, lodf_lines, line_names, bus_names = get_ptdf_lodf(n)
 
 #
 # FRAGILITY
 #
 
-fragility = compute_fragility(n, ptdf_full, sub_buses)
+fragility = compute_fragility(n, ptdf, bus_names)
 fragility_diagnostics(fragility)
 fragility_plot(n, fragility)
 
@@ -80,8 +62,5 @@ fragility_plot(n, fragility)
 #  stress value: if Line X trips, stress is the sum of all the resulting
 #  fractional overloads across all lines after that N-1 contingency
 
-sub.calculate_BODF()   # PyPSA uses BODF (same as LODF for single-line outages)
-lodf_full = sub.BODF  # shape: (n_branches, n_branches)
-
-stress_df = compute_contingencies(n, lodf_full) # line | stress
-contingency_diagnostics(n, stress_df, lodf_full)
+stress_df = compute_contingencies(n, lodf_lines) # line | stress
+contingency_diagnostics(n, stress_df, lodf_lines)
