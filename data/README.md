@@ -52,3 +52,5 @@
 
   * `docker compose run --rm app python /data/ercot/backfill.py \
      --start 2026-02-23 --end 2026-04-23 --resume`
+
+  * `docker compose run --rm updater`

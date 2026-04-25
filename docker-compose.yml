@@ -62,5 +62,20 @@ services:
     entrypoint: ["npx", "--yes", "wrangler@latest"]
     command: ["--help"]
 
+  # TODO: replace w/ cron
+  updater:
+      build: ./app
+      image: shifty
+      container_name: updater
+      env_file:
+        - .env
+      depends_on:
+        db:
+          condition: service_healthy
+      volumes:
+        - ./data:/data
+      command: python /data/ercot/live_updater.py
+      restart: unless-stopped
+
 volumes:
   pgdata:
