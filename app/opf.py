@@ -114,7 +114,9 @@ n.lines['s_nom_extendable'] = False
 # Patch zero-resistance lines (PTDF numerical stability)
 n.lines.loc[n.lines.r == 0, 'r'] = 1e-4
 
+#
 # Solve DC-OPF
+#
 status, cond = n.optimize(solver_name="highs", assign_all_duals=True)
 print(f"Status: {status}, {cond}")
 
@@ -145,8 +147,8 @@ sub_buses = sub.buses_o  # ordered bus names for this sub-network
 
 # ---- Gather shadow prices and line data ----
 # Lines
-mu_up_ln = n.lines_t.mu_upper.iloc[0].abs()
-mu_lo_ln = n.lines_t.mu_lower.iloc[0].abs()
+mu_up_ln = n.lines_t.mu_upper.iloc[0].abs() # line is congested.
+mu_lo_ln = n.lines_t.mu_lower.iloc[0].abs() # line is congested in the reverse direction.
 shadow_ln = (mu_up_ln + mu_lo_ln).reindex(n.lines.index).fillna(0).values
 flow_ln = n.lines_t.p0.iloc[0].abs().reindex(n.lines.index).fillna(0).values
 s_nom_ln = n.lines['s_nom'].values
@@ -229,3 +231,71 @@ ax.set_title('Fragility map (log scale)')
 plt.savefig('fragility_map.png', dpi=120)
 plt.show()
 
+
+
+#
+# Top N-1 Contingency
+# If any single line were to trip, which trip would cause the most stress?
+#
+# flow_post[line] = flow_base[line] + LODF[line, c] × flow_base[c]
+#
+import numpy as np
+import pandas as pd
+
+# ---- Compute LODF on current topology ----
+sub.calculate_BODF()   # PyPSA uses BODF (same as LODF for single-line outages)
+lodf_full = sub.BODF  # shape: (n_branches, n_branches)
+
+# We only simulate line outages, not transformer outages
+# (transformers are usually protected differently and we don't trip them for N-1)
+n_lines_n = len(n.lines)
+lodf_line_line = lodf_full[:n_lines_n, :n_lines_n]  # line outages affect lines only
+
+# Base flows on lines
+flow_base = n.lines_t.p0.iloc[0].reindex(n.lines.index).fillna(0).values
+s_nom_line = n.lines['s_nom'].values
+
+# For each candidate line outage, compute post-outage stress metric
+def contingency_stress(outage_idx):
+    """Return post-outage stress (sum of overloads) when line at outage_idx trips."""
+    # Radial lines: BODF diagonal is -1, but outage would disconnect grid. Skip.
+    if np.isnan(lodf_line_line[0, outage_idx]):
+        return 0.0, None
+
+    # Post-outage flows on all lines
+    shift = lodf_line_line[:, outage_idx] * flow_base[outage_idx]
+    flow_post = flow_base + shift
+    flow_post[outage_idx] = 0.0  # tripped line carries no flow
+
+    # Loading ratio for each line under the outage
+    loading = np.abs(flow_post) / s_nom_line
+
+    # Overload: how much each line exceeds its limit (0 if under)
+    overload = np.maximum(loading - 1.0, 0.0)
+
+    # Stress score: sum of overload percentages (could weight by MW instead)
+    return overload.sum(), overload
+
+# Rank all line outages by stress
+stress_scores = []
+for i, line in enumerate(n.lines.index):
+    score, _ = contingency_stress(i)
+    stress_scores.append((line, score))
+
+stress_df = pd.DataFrame(stress_scores, columns=['line', 'stress']).set_index('line')
+stress_df = stress_df.sort_values('stress', ascending=False)
+
+print(f"\nTop 10 most dangerous N-1 contingencies:")
+print(stress_df.head(10))
+
+# For the top contingency, show what overloads
+top_line = stress_df.index[0]
+top_idx = list(n.lines.index).index(top_line)
+_, overload_arr = contingency_stress(top_idx)
+overload_series = pd.Series(overload_arr, index=n.lines.index)
+newly_overloaded = overload_series[overload_series > 0].sort_values(ascending=False)
+
+print(f"\nIf {top_line} trips (base flow: {flow_base[top_idx]:.0f} MW, s_nom: {s_nom_line[top_idx]:.0f} MW):")
+print(f"  {len(newly_overloaded)} lines become overloaded")
+print(f"  Top 5 newly-overloaded lines:")
+print(newly_overloaded.head(5))
