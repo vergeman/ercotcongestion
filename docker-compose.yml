@@ -49,6 +49,18 @@ services:
       - ./api:/api
       - ./data:/data
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+  ercot-proxy:
+    image: node:20-alpine
+    container_name: ercot-proxy
+    working_dir: /data/ercot/proxy
+    volumes:
+      - ./data/ercot/proxy:/data/ercot/proxy
+      - proxy-wrangler-config:/root/.config/.wrangler
+    env_file:
+      - .env
+    profiles: ["tools"]
+    entrypoint: ["npx", "--yes", "wrangler@latest"]
+    command: ["--help"]
 
 volumes:
   pgdata:
