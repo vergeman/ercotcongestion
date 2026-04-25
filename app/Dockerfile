@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir \
     pypsa \
     pandas \
     dotenv \
+    psycopg \
+    psycopg[binary] \
     openpyxl \
     numpy \
     matpowercaseframes \
