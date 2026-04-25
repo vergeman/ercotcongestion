@@ -15,15 +15,28 @@ from psycopg.rows import dict_row
 load_dotenv()
 
 # --- ERCOT API ---
+# NB: string concatenation not tuples
 USERNAME = os.environ["ERCOT_USERNAME"]
 PASSWORD = os.environ["ERCOT_PASSWORD"]
 SUB_KEY = os.environ["ERCOT_SUBSCRIPTION_KEY"]
+PROXY_BASE = os.environ["PROXY_BASE"]
+PROXY_SECRET = os.environ["WRANGLER_PROXY_SECRET"]
 CLIENT_ID = "fec253ea-0d06-4272-a5e6-b478baeecd70"
+
+# TOKEN_URL = (
+#     "https://ercotb2c.b2clogin.com/ercotb2c.onmicrosoft.com/"
+#     "B2C_1_PUBAPI-ROPC-FLOW/oauth2/v2.0/token"
+# )
+# BASE_URL = "https://api.ercot.com/api/public-reports"
+
+# Route through the Cloudflare Worker. The Worker maps:
+#   /token/* → https://ercotb2c.b2clogin.com/*
+#   /api/*   → https://api.ercot.com/*
 TOKEN_URL = (
-    "https://ercotb2c.b2clogin.com/ercotb2c.onmicrosoft.com/"
+    f"{PROXY_BASE}/token/ercotb2c.onmicrosoft.com/"
     "B2C_1_PUBAPI-ROPC-FLOW/oauth2/v2.0/token"
 )
-BASE_URL = "https://api.ercot.com/api/public-reports"
+BASE_URL = f"{PROXY_BASE}/api/public-reports"
 
 # --- Postgres ---
 PG_DSN = (
@@ -39,10 +52,13 @@ class ErcotClient:
         self._exp = 0
 
     def _get_token(self):
+        # reuse token if available
         if self._token and time.time() < self._exp - 60:
             return self._token
-        r = requests.post(
+
+        response = requests.post(
             TOKEN_URL,
+            headers={"X-Proxy-Auth": PROXY_SECRET},
             data={
                 "grant_type": "password",
                 "username": USERNAME,
@@ -53,44 +69,66 @@ class ErcotClient:
             },
             timeout=30,
         )
-        r.raise_for_status()
-        body = r.json()
+
+        response.raise_for_status()
+
+        body = response.json()
+
         self._token = body["id_token"]
         self._exp = time.time() + int(body.get("expires_in", 3600))
         return self._token
 
     def get(self, endpoint, **params):
+
+        token = self._get_token()
         headers = {
-            "Authorization": f"Bearer {self._get_token()}",
+            "Authorization": f"Bearer {token}",
             "Ocp-Apim-Subscription-Key": SUB_KEY,
+            "X-Proxy-Auth": PROXY_SECRET
         }
+
         url = f"{BASE_URL}{endpoint}"
+
         rows, fields, page = [], None, 1
+
         while True:
-            r = requests.get(
+            response = requests.get(
                 url, headers=headers,
                 params={**params, "page": page, "size": 1000},
                 timeout=60,
             )
-            if r.status_code >= 400:
-                print(f"HTTP {r.status_code}: {r.text[:500]}")
-                r.raise_for_status()
-            p = r.json()
+            if response.status_code >= 400:
+                print(f"HTTP {response.status_code}: {response.text[:500]}")
+                response.raise_for_status()
+
+            payload = response.json()
             if fields is None:
-                fields = [f["name"] for f in p.get("fields", [])]
-            rows.extend(p.get("data", []))
-            meta = p.get("_meta", {})
-            if page >= meta.get("totalPages", 1):
+                fields = [field["name"] for field in payload.get("fields", [])]
+            rows.extend(payload.get("data", []))
+
+            total_pages = payload.get("_meta", {}).get("totalPages", 1)
+            if page >= total_pages:
                 break
             page += 1
+
         return pd.DataFrame(rows, columns=fields) if fields else pd.DataFrame()
 
+#
+# LOADERS
+#
+#
 
-# --- Loaders ---
+# NB: records is a list comprehension of tuples passed to cursor
+# loop through each dataframe row, process each column (_f)
+# required columns use r[] (vs. r.get() )to trigger error
+# executemany() batch inserts
+#
 
 def load_shadow_prices(conn, df: pd.DataFrame) -> int:
+
     if df.empty:
         return 0
+
     records = [
         (
             r["SCEDTimestamp"], bool(r["repeatedHourFlag"]), int(r["constraintID"]),
@@ -103,6 +141,7 @@ def load_shadow_prices(conn, df: pd.DataFrame) -> int:
         )
         for _, r in df.iterrows()
     ]
+
     sql = """
         INSERT INTO shadow_prices (
             sced_timestamp, repeated_hour_flag, constraint_id, constraint_name,
@@ -111,14 +150,17 @@ def load_shadow_prices(conn, df: pd.DataFrame) -> int:
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT DO NOTHING
     """
+
     with conn.cursor() as cur:
         cur.executemany(sql, records)
         return cur.rowcount
 
 
 def load_outages(conn, df: pd.DataFrame) -> int:
+
     if df.empty:
         return 0
+
     records = [
         (
             r["postedDatetime"], r["operatingDate"], int(r["hourEnding"]),
@@ -131,6 +173,7 @@ def load_outages(conn, df: pd.DataFrame) -> int:
         )
         for _, r in df.iterrows()
     ]
+
     sql = """
         INSERT INTO outages_zonal (
             posted_datetime, operating_date, hour_ending,
@@ -140,6 +183,7 @@ def load_outages(conn, df: pd.DataFrame) -> int:
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT DO NOTHING
     """
+
     with conn.cursor() as cur:
         cur.executemany(sql, records)
         return cur.rowcount
@@ -155,7 +199,54 @@ def _f(x):
         return None
 
 
-# --- Main ---
+def print_top_shadow_prices(conn, start_iso, end_iso, limit = 5) -> None:
+    """Quick sanity check: top N binding constraints in a window."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT sced_timestamp, constraint_name, contingency_name, shadow_price
+            FROM shadow_prices
+            WHERE sced_timestamp BETWEEN %s AND %s
+              AND shadow_price > 0
+            ORDER BY shadow_price DESC
+            LIMIT %s
+            """,
+            (start_iso, end_iso, limit),
+        )
+        print(f"\nTop {limit} binding constraints:")
+        for row in cur.fetchall():
+            print(
+                f"  {row['sced_timestamp']}  "
+                f"{row['constraint_name']:25s}  "
+                f"{row['contingency_name']:15s}  "
+                f"${row['shadow_price']:.2f}"
+            )
+
+
+def print_recent_outages(conn, start_iso, end_iso, limit = 5) -> None:
+    """Quick sanity check: first N outage hours from latest publish in window."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT operating_date, hour_ending,
+                   total_mw_south + total_mw_north + total_mw_west + total_mw_houston
+                   AS total_outage_mw
+            FROM outages_zonal
+            WHERE posted_datetime BETWEEN %s AND %s
+            ORDER BY posted_datetime DESC, operating_date, hour_ending
+            LIMIT %s
+            """,
+            (start_iso, end_iso, limit),
+        )
+        print(f"\nFirst {limit} outage hours (latest publish):")
+        for row in cur.fetchall():
+            print(
+                f"  {row['operating_date']} HE{row['hour_ending']:02d}  "
+                f"{row['total_outage_mw']:.0f} MW total"
+            )
+#
+# MAIN
+#
 
 def main():
     end = datetime.now(timezone.utc) - timedelta(days=2)
@@ -167,6 +258,11 @@ def main():
 
     client = ErcotClient()
 
+
+    #
+    # Shadow
+    #
+
     print("\nFetching NP6-86-CD…")
     shadow = client.get(
         "/np6-86-cd/shdw_prices_bnd_trns_const",
@@ -174,12 +270,22 @@ def main():
     )
     print(f"  {len(shadow)} rows")
 
+
+    #
+    # Outages
+    #
+
     print("Fetching NP3-233-CD…")
     outages = client.get(
         "/np3-233-cd/hourly_res_outage_cap",
         postedDatetimeFrom=iso_from, postedDatetimeTo=iso_to,
     )
     print(f"  {len(outages)} rows")
+
+
+    #
+    # INSERT DB
+    #
 
     print("\nWriting to Postgres…")
     with psycopg.connect(PG_DSN) as conn:
@@ -189,35 +295,9 @@ def main():
         print(f"  shadow_prices: {n_shadow} inserted")
         print(f"  outages_zonal: {n_outages} inserted")
 
-        # Read back: top-5 highest shadow prices in window
         print("\n--- Verification queries ---")
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("""
-                SELECT sced_timestamp, constraint_name, contingency_name, shadow_price
-                FROM shadow_prices
-                WHERE sced_timestamp BETWEEN %s AND %s
-                  AND shadow_price > 0
-                ORDER BY shadow_price DESC
-                LIMIT 5
-            """, (iso_from, iso_to))
-            print("\nTop 5 binding constraints:")
-            for row in cur.fetchall():
-                print(f"  {row['sced_timestamp']}  {row['constraint_name']:25s}  "
-                      f"{row['contingency_name']:15s}  ${row['shadow_price']:.2f}")
-
-            cur.execute("""
-                SELECT operating_date, hour_ending,
-                       total_mw_south + total_mw_north + total_mw_west + total_mw_houston AS total_outage_mw
-                FROM outages_zonal
-                WHERE posted_datetime BETWEEN %s AND %s
-                ORDER BY posted_datetime DESC, operating_date, hour_ending
-                LIMIT 5
-            """, (iso_from, iso_to))
-            print("\nFirst 5 outage hours (latest publish):")
-            for row in cur.fetchall():
-                print(f"  {row['operating_date']} HE{row['hour_ending']:02d}  "
-                      f"{row['total_outage_mw']:.0f} MW total")
-
+        print_top_shadow_prices(conn, iso_from, iso_to)
+        print_recent_outages(conn, iso_from, iso_to)
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- NB: create_hypertable is timescaledb concept where a hypertable partitions a
+-- postgres table by time
 
 -- SCED shadow prices: one row per (timestamp, constraint, contingency)
 CREATE TABLE IF NOT EXISTS shadow_prices (
