@@ -2,6 +2,7 @@ import pypsa
 import pandas as pd
 import numpy as np
 from fragility import compute_fragility, fragility_diagnostics, fragility_plot
+from contingency import compute_contingencies, contingency_diagnostics
 
 n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
@@ -135,8 +136,10 @@ dispatch = n.generators.assign(p=n.generators_t.p.iloc[0]).groupby('carrier')['p
 print(dispatch.round(0))
 
 
+#
+# Calculate PTDF on current topology
+# Given current dispatch, which buses are most exposed to binding constraints
 
-# ---- PTDF on current topology ----
 n.determine_network_topology()
 sub = n.sub_networks.obj.iloc[0]
 sub.calculate_PTDF()
@@ -153,68 +156,13 @@ fragility_diagnostics(fragility)
 fragility_plot(n, fragility)
 
 #
-# Top N-1 Contingency
-# If any single line were to trip, which trip would cause the most stress?
+#  N-1 CONTINGENCY
 #
-# flow_post[line] = flow_base[line] + LODF[line, c] × flow_base[c]
-#
-import numpy as np
-import pandas as pd
+#  stress value: if Line X trips, stress is the sum of all the resulting
+#  fractional overloads across all lines after that N-1 contingency
 
-# ---- Compute LODF on current topology ----
 sub.calculate_BODF()   # PyPSA uses BODF (same as LODF for single-line outages)
 lodf_full = sub.BODF  # shape: (n_branches, n_branches)
 
-# We only simulate line outages, not transformer outages
-# (transformers are usually protected differently and we don't trip them for N-1)
-n_lines_n = len(n.lines)
-lodf_line_line = lodf_full[:n_lines_n, :n_lines_n]  # line outages affect lines only
-
-# Base flows on lines
-flow_base = n.lines_t.p0.iloc[0].reindex(n.lines.index).fillna(0).values
-s_nom_line = n.lines['s_nom'].values
-
-# For each candidate line outage, compute post-outage stress metric
-def contingency_stress(outage_idx):
-    """Return post-outage stress (sum of overloads) when line at outage_idx trips."""
-    # Radial lines: BODF diagonal is -1, but outage would disconnect grid. Skip.
-    if np.isnan(lodf_line_line[0, outage_idx]):
-        return 0.0, None
-
-    # Post-outage flows on all lines
-    shift = lodf_line_line[:, outage_idx] * flow_base[outage_idx]
-    flow_post = flow_base + shift
-    flow_post[outage_idx] = 0.0  # tripped line carries no flow
-
-    # Loading ratio for each line under the outage
-    loading = np.abs(flow_post) / s_nom_line
-
-    # Overload: how much each line exceeds its limit (0 if under)
-    overload = np.maximum(loading - 1.0, 0.0)
-
-    # Stress score: sum of overload percentages (could weight by MW instead)
-    return overload.sum(), overload
-
-# Rank all line outages by stress
-stress_scores = []
-for i, line in enumerate(n.lines.index):
-    score, _ = contingency_stress(i)
-    stress_scores.append((line, score))
-
-stress_df = pd.DataFrame(stress_scores, columns=['line', 'stress']).set_index('line')
-stress_df = stress_df.sort_values('stress', ascending=False)
-
-print(f"\nTop 10 most dangerous N-1 contingencies:")
-print(stress_df.head(10))
-
-# For the top contingency, show what overloads
-top_line = stress_df.index[0]
-top_idx = list(n.lines.index).index(top_line)
-_, overload_arr = contingency_stress(top_idx)
-overload_series = pd.Series(overload_arr, index=n.lines.index)
-newly_overloaded = overload_series[overload_series > 0].sort_values(ascending=False)
-
-print(f"\nIf {top_line} trips (base flow: {flow_base[top_idx]:.0f} MW, s_nom: {s_nom_line[top_idx]:.0f} MW):")
-print(f"  {len(newly_overloaded)} lines become overloaded")
-print(f"  Top 5 newly-overloaded lines:")
-print(newly_overloaded.head(5))
+stress_df = compute_contingencies(n, lodf_full) # line | stress
+contingency_diagnostics(n, stress_df, lodf_full)
