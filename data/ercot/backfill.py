@@ -2,9 +2,10 @@
 Backfill NP6-86-CD and NP3-233-CD over a date range.
 
 Usage:
-    python backfill.py --start 2026-02-23 --end 2026-04-23
-    python backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint shadow
-    python backfill.py --start 2026-02-23 --end 2026-04-23 --resume
+    docker compose run --rm app
+    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23
+    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint shadow
+    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23 --resume
 
 Chunks by day. Idempotent: re-running skips completed (endpoint, day) pairs.
 """
@@ -16,7 +17,8 @@ from datetime import date, datetime, timedelta, timezone
 import psycopg
 
 from ErcotClient import ErcotClient, PG_DSN
-from loaders import load_shadow_prices, load_outages
+from loaders import (load_shadow_prices, load_outages,
+                     load_load_by_zone, load_wind_hourly, load_solar_hourly)
 
 
 ENDPOINTS = {
@@ -25,15 +27,37 @@ ENDPOINTS = {
         "loader": load_shadow_prices,
         "from_param": "SCEDTimestampFrom",
         "to_param": "SCEDTimestampTo",
+        "param_format": "datetime",  # yyyy-MM-ddTHH:mm:ss
     },
     "outages": {
         "path": "/np3-233-cd/hourly_res_outage_cap",
         "loader": load_outages,
         "from_param": "postedDatetimeFrom",
         "to_param": "postedDatetimeTo",
+        "param_format": "datetime",
+    },
+    "loads": {
+        "path": "/np6-345-cd/act_sys_load_by_wzn",
+        "loader": load_load_by_zone,
+        "from_param": "operatingDayFrom",
+        "to_param": "operatingDayTo",
+        "param_format": "date",  # yyyy-MM-dd
+    },
+    "wind": {
+        "path": "/np4-732-cd/wpp_hrly_avrg_actl_fcast",
+        "loader": load_wind_hourly,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
+    },
+    "solar": {
+        "path": "/np4-737-cd/spp_hrly_avrg_actl_fcast",
+        "loader": load_solar_hourly,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
     },
 }
-
 
 def is_completed(conn, endpoint: str, start: datetime, end: datetime) -> bool:
     with conn.cursor() as cur:
@@ -78,12 +102,18 @@ def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
         print(f"  [{endpoint_key}] {start.date()} — skip (already done)")
         return
 
-    iso_from = start.strftime("%Y-%m-%dT%H:%M:%S")
-    iso_to = end.strftime("%Y-%m-%dT%H:%M:%S")
+    if cfg["param_format"] == "date":
+        from_value = start.strftime("%Y-%m-%d")
+        # 'date' filters are typically inclusive on both ends and operate on whole days,
+        # so for a 1-day window, from == to (the same day).
+        to_value = (end - timedelta(seconds=1)).strftime("%Y-%m-%d")
+    else:
+        from_value = start.strftime("%Y-%m-%dT%H:%M:%S")
+        to_value = end.strftime("%Y-%m-%dT%H:%M:%S")
 
     df = client.get(cfg["path"], **{
-        cfg["from_param"]: iso_from,
-        cfg["to_param"]: iso_to,
+        cfg["from_param"]: from_value,
+        cfg["to_param"]: to_value,
     })
 
     rows_fetched = len(df)
@@ -98,7 +128,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
-    parser.add_argument("--endpoint", choices=["shadow", "outages", "both"], default="both")
+    parser.add_argument("--endpoint",
+                        choices=["shadow", "outages", "loads", "wind", "solar", "all"],
+                        default="all")
     parser.add_argument("--resume", action="store_true",
                         help="Skip windows already in ingest_log")
     args = parser.parse_args()
@@ -108,7 +140,7 @@ def main():
     if start_date > end_date:
         sys.exit("--start must be on or before --end")
 
-    keys = ["shadow", "outages"] if args.endpoint == "both" else [args.endpoint]
+    keys = list(ENDPOINTS.keys()) if args.endpoint == "all" else [args.endpoint]
 
     client = ErcotClient()
 
