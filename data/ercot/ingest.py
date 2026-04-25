@@ -3,6 +3,8 @@ Ingest 1 hour of NP6-86-CD + NP3-233-CD into Postgres.
 Idempotent: re-running same window inserts zero new rows.
 """
 import os
+import random
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -14,20 +16,12 @@ from psycopg.rows import dict_row
 
 load_dotenv()
 
-# --- ERCOT API ---
-# NB: string concatenation not tuples
 USERNAME = os.environ["ERCOT_USERNAME"]
 PASSWORD = os.environ["ERCOT_PASSWORD"]
 SUB_KEY = os.environ["ERCOT_SUBSCRIPTION_KEY"]
 PROXY_BASE = os.environ["PROXY_BASE"]
 PROXY_SECRET = os.environ["WRANGLER_PROXY_SECRET"]
 CLIENT_ID = "fec253ea-0d06-4272-a5e6-b478baeecd70"
-
-# TOKEN_URL = (
-#     "https://ercotb2c.b2clogin.com/ercotb2c.onmicrosoft.com/"
-#     "B2C_1_PUBAPI-ROPC-FLOW/oauth2/v2.0/token"
-# )
-# BASE_URL = "https://api.ercot.com/api/public-reports"
 
 # Route through the Cloudflare Worker. The Worker maps:
 #   /token/* → https://ercotb2c.b2clogin.com/*
@@ -38,7 +32,6 @@ TOKEN_URL = (
 )
 BASE_URL = f"{PROXY_BASE}/api/public-reports"
 
-# --- Postgres ---
 PG_DSN = (
     f"host={os.environ['PG_HOST']} port={os.environ['PG_PORT']} "
     f"dbname={os.environ['PG_DATABASE']} "
@@ -47,18 +40,60 @@ PG_DSN = (
 
 
 class ErcotClient:
-    def __init__(self):
+    def __init__(self, min_interval: float = 2.5, max_retries: int = 5):
         self._token = None
         self._exp = 0
+        self._min_interval = min_interval
+        self._max_retries = max_retries
+        self._last_call = 0.0
+        self._session = requests.Session()
+        self._session.headers["X-Proxy-Auth"] = PROXY_SECRET
+
+    def _throttle(self):
+        elapsed = time.time() - self._last_call
+        if elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_call = time.time()
+
+    @staticmethod
+    def _parse_retry_after(response: requests.Response) -> float:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return float(retry_after)
+            except ValueError:
+                pass
+        match = re.search(r"Try again in (\d+)", response.text or "")
+        if match:
+            return float(match.group(1)) + 1  # +1s buffer
+        return 60.0
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        for attempt in range(self._max_retries):
+            self._throttle()
+            response = self._session.request(method, url, timeout=60, **kwargs)
+
+            if response.status_code == 429:
+                wait = self._parse_retry_after(response)
+                print(f"  HTTP 429, waiting {wait:.1f}s (server-requested)")
+                time.sleep(wait)
+                continue
+
+            if response.status_code >= 500:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                print(f"  HTTP {response.status_code}, retry {attempt+1}/{self._max_retries} in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            return response
+        return response  # last response, even if still failing
 
     def _get_token(self):
-        # reuse token if available
         if self._token and time.time() < self._exp - 60:
             return self._token
-
-        response = requests.post(
+        response = self._request(
+            "POST",
             TOKEN_URL,
-            headers={"X-Proxy-Auth": PROXY_SECRET},
             data={
                 "grant_type": "password",
                 "username": USERNAME,
@@ -67,35 +102,25 @@ class ErcotClient:
                 "client_id": CLIENT_ID,
                 "response_type": "id_token",
             },
-            timeout=30,
         )
-
         response.raise_for_status()
-
         body = response.json()
-
         self._token = body["id_token"]
         self._exp = time.time() + int(body.get("expires_in", 3600))
         return self._token
 
     def get(self, endpoint, **params):
-
         token = self._get_token()
         headers = {
             "Authorization": f"Bearer {token}",
             "Ocp-Apim-Subscription-Key": SUB_KEY,
-            "X-Proxy-Auth": PROXY_SECRET
         }
-
         url = f"{BASE_URL}{endpoint}"
-
         rows, fields, page = [], None, 1
-
         while True:
-            response = requests.get(
-                url, headers=headers,
+            response = self._request(
+                "GET", url, headers=headers,
                 params={**params, "page": page, "size": 1000},
-                timeout=60,
             )
             if response.status_code >= 400:
                 print(f"HTTP {response.status_code}: {response.text[:500]}")
@@ -113,9 +138,9 @@ class ErcotClient:
 
         return pd.DataFrame(rows, columns=fields) if fields else pd.DataFrame()
 
+
 #
 # LOADERS
-#
 #
 
 # NB: records is a list comprehension of tuples passed to cursor
