@@ -1,4 +1,4 @@
-# /data/assign_zones.py
+# /data/assign_weather_zones.py
 from pathlib import Path
 import pandas as pd
 import geopandas as gpd
