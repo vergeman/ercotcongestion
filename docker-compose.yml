@@ -1,8 +1,32 @@
 services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ercot
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ercot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   app:
     build: ./app
     image: shifty
     container_name: app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - ./app:/app
       - ./data:/data
@@ -11,13 +35,47 @@ services:
     build: ./app
     image: shifty
     container_name: api
+    env_file:
+      - .env
     working_dir: /api
     depends_on:
-      - app
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
       - ./api:/api
       - ./data:/data
     command: uvicorn main:app --host 0.0.0.0 --port 8000
- 
+  ercot-proxy:
+    image: node:20-alpine
+    container_name: ercot-proxy
+    working_dir: /data/ercot/proxy
+    volumes:
+      - ./data/ercot/proxy:/data/ercot/proxy
+      - proxy-wrangler-config:/root/.config/.wrangler
+    env_file:
+      - .env
+    profiles: ["tools"]
+    entrypoint: ["npx", "--yes", "wrangler@latest"]
+    command: ["--help"]
+
+  # TODO: replace w/ cron
+  updater:
+      build: ./app
+      image: shifty
+      container_name: updater
+      env_file:
+        - .env
+      depends_on:
+        db:
+          condition: service_healthy
+      volumes:
+        - ./data:/data
+      command: python /data/ercot/live_updater.py
+      restart: unless-stopped
+
+volumes:
+  pgdata:

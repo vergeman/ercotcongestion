@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir \
     pypsa \
     pandas \
+    dotenv \
+    psycopg \
+    psycopg[binary] \
     openpyxl \
     numpy \
     matpowercaseframes \

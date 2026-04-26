@@ -25,3 +25,32 @@
 * [Zone Data Shapefiles](https://figshare.com/ndownloader/files/39478540)
   * Shapefiles that provide polygons for the 8 ERCOT zones.
   * `/data/ercot_zones/Weather_Zone.*`*
+
+* ERCOT Data
+  * API: https://developer.ercot.com/applications/pubapi/relnotes/
+  * NP6-86-CD — SCED Shadow Prices and Binding Transmission Constraints
+    * https://www.ercot.com/mp/data-products/data-product-details?id=NP6-86-CD
+    * API Shadow Prices 5-min Increments: /np6-86-cd/shdw_prices_bnd_trns_const
+  * NP3-233-CD — Hourly Resource Outage Capacity
+    * https://www.ercot.com/mp/data-products/data-product-details?id=NP3-233-CD
+    * API Outage Info: /np3-233-cd/hourly_res_outage_cap
+
+  * Zone Loads 15min
+    * API: /np6-345-cd/act_sys_load_by_wzn
+
+  * Wind hourly
+    * API: actual+forecast/np4-732-cd/wpp_hrly_avrg_actl_fcast
+
+  * Solar actual + forecast (hourly)
+    * API: /np4-737-cd/spp_hrly_avrg_actl_fcast
+      * np4-745-cd is by geographical region - not sure
+
+  * Daylight Saving Time
+    * `dst_flag`: ERCOT publishes CST; publishes `dst_flag` True on "second" instance of time.
+    * `repeated_hour_flag`: same for shadow prices
+    * `interval_ts`: calculates UTC using the flag
+
+  * `docker compose run --rm app python /data/ercot/backfill.py \
+     --start 2026-02-23 --end 2026-04-23 --resume`
+
+  * `docker compose run --rm updater`
