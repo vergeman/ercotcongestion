@@ -1,0 +1,1100 @@
+bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_quality,county,load_zone,pv_region,wind_region
+1006,32.240278,-101.473611,wind,120.0,4,BIG SPRING 5,56776.0,Howard,matched_all,Howard,west,,West
+1008,30.976638,-102.257753,solar,28.0,6,IRAAN 2,61346.0,Pecos,matched_all,Pecos,west,FarWest,
+1009,30.976638,-102.257753,solar,222.0,6,IRAAN 2,61346.0,Pecos,matched_all,Pecos,west,FarWest,
+1011,29.6,-104.3,solar,10.0,7,PRESIDIO 1,58488.0,Presidio,matched_all,Presidio,west,FarWest,
+1021,31.9925,-101.1167,wind,231.5,16,BIG SPRING 1,56979.0,Sterling,matched_all,Sterling,west,,West
+1023,32.929014,-101.578617,wind,180.0,17,O DONNELL 2,56956.0,Borden,matched_all,Borden,west,,West
+1024,32.0015,-102.6337,solar,16.8,18,ODESSA 6,63388.0,Ector,matched_all,Ector,west,FarWest,
+1026,32.039,-101.22,wind,124.2,19,BIG SPRINGS,56394.0,Glasscock,matched_all,Sterling,west,,West
+1033,31.219444,-102.19222,battery,50.0,25,MCCAMEY 1,62561.0,Upton,matched_fuel,Upton,west,,
+1035,31.991442,-101.302637,wind,89.5,26,BIG SPRING 4,56479.0,Glasscock,matched_all,Glasscock,west,,West
+1039,30.772575,-102.505808,wind,132.0,29,FORT STOCKTON 1,57415.0,Pecos,matched_all,Pecos,west,,West
+1042,32.1408,-101.3986,wind,121.9,31,FORSAN,56783.0,Howard,matched_all,Howard,west,,West
+1048,31.5839,-102.9633,gas,65.0,35,MONAHANS 1,3494.0,Ward,matched_fuel,Ward,west,,
+1049,31.5839,-102.9633,gas,64.0,35,MONAHANS 1,3494.0,Ward,matched_fuel,Ward,west,,
+1050,31.5839,-102.9633,gas,64.0,35,MONAHANS 1,3494.0,Ward,matched_fuel,Ward,west,,
+1051,31.5839,-102.9633,gas,64.0,35,MONAHANS 1,3494.0,Ward,matched_fuel,Ward,west,,
+1052,31.5839,-102.9633,gas,63.0,35,MONAHANS 1,3494.0,Ward,matched_fuel,Ward,west,,
+1057,32.2353,-101.8367,wind,120.0,38,LENORAH,56644.0,Martin,matched_all,Martin,west,,West
+1062,32.273178,-101.422386,gas,71.0,40,BIG SPRING 6,52176.0,Howard,matched_all,Howard,west,,
+1063,32.273178,-101.422386,gas,71.0,40,BIG SPRING 6,52176.0,Howard,matched_all,Howard,west,,
+1066,32.100823,-101.451385,wind,142.5,42,BIG SPRING 3,56920.0,Howard,matched_all,Howard,west,,West
+1067,32.1217,-101.3853,wind,58.8,43,BIG SPRING 7,56959.0,Howard,matched_all,Howard,west,,West
+1070,30.9178,-102.0867,wind,167.7,45,IRAAN 1,55992.0,Pecos,matched_all,Pecos,west,,West
+1072,31.8403,-102.3264,gas,206.0,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1073,31.8403,-102.3264,gas,206.0,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1074,31.8403,-102.3264,gas,166.7,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1075,31.8403,-102.3264,gas,166.7,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1076,31.8403,-102.3264,gas,158.2,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1077,31.8403,-102.3264,gas,158.2,46,ODESSA 1,55215.0,Ector,matched_all,Ector,west,,
+1090,31.995,-102.828333,battery,36.0,55,GOLDSMITH,56961.0,Ector,matched_all,Winkler,west,,
+1090,31.995,-102.828333,battery,60.0,55,GOLDSMITH,56961.0,Ector,matched_fuel,Winkler,west,,
+2001,33.63291,-95.39071,solar,10.0,57,PARIS 3,61810.0,Lamar,matched_all,Lamar,north,FarEast,
+2013,35.238333,-101.310833,wind,211.2,63,PANHANDLE 2,58596.0,Carson,matched_all,Carson,west,,Panhandle
+2019,35.4275,-101.253056,wind,218.0,67,PANHANDLE 4,58242.0,Carson,matched_all,Carson,west,,Panhandle
+2023,33.6968,-95.5577,gas,87.0,69,PARIS 2,50109.0,Lamar,matched_all,Lamar,north,,
+2024,33.6968,-95.5577,gas,76.0,69,PARIS 2,50109.0,Lamar,matched_all,Lamar,north,,
+2042,35.386038,-101.578572,wind,79.6,86,PANHANDLE 3,58363.0,Carson,matched_all,Carson,west,,Panhandle
+2062,34.292913,-99.367734,wind,135.4,101,VERNON 1,58372.0,Wilbarger,matched_all,Wilbarger,west,,West
+2063,33.8181,-96.5692,hydro,50.0,102,DENISON 2,6416.0,Grayson,matched_all,Grayson,north,,
+2063,33.8181,-96.5692,hydro,50.0,102,DENISON 2,6416.0,Grayson,matched_all,Grayson,north,,
+2071,33.493056,-98.581944,wind,161.0,109,ARCHER 2,57974.0,Archer,matched_all,Archer,west,,West
+2076,32.96736,-100.56428,wind,250.0,111,JAYTON,62142.0,Fisher,matched_all,Kent,west,,West
+2078,33.733006,-97.428406,wind,112.5,112,MUENSTER 1,58080.0,Cooke,matched_all,Cooke,north,,North
+2082,33.8625,-98.5894,gas,17.0,116,WICHITA FALLS 2,50127.0,Wichita,matched_all,Wichita,west,,
+2083,33.8625,-98.5894,gas,19.7,116,WICHITA FALLS 2,50127.0,Wichita,matched_all,Wichita,west,,
+2084,33.8625,-98.5894,gas,19.7,116,WICHITA FALLS 2,50127.0,Wichita,matched_all,Wichita,west,,
+2085,33.8625,-98.5894,gas,19.7,116,WICHITA FALLS 2,50127.0,Wichita,matched_all,Wichita,west,,
+2089,33.495278,-98.5,wind,67.6,119,ARCHER 1,59238.0,Archer,matched_all,Archer,west,,West
+2091,33.57824,-99.1921,wind,30.2,121,SEYMOUR,62227.0,Baylor,matched_all,Baylor,west,,West
+2099,33.713671,-101.433811,wind,150.0,124,RALLS 1,59417.0,Crosby,matched_fuel,Crosby,west,,Panhandle
+2103,33.582573,-96.617893,gas,287.0,125,SHERMAN 1,58005.0,Grayson,matched_all,Grayson,north,,
+2104,33.582573,-96.617893,gas,199.0,125,SHERMAN 1,58005.0,Grayson,matched_all,Grayson,north,,
+2105,33.582573,-96.617893,gas,199.0,125,SHERMAN 1,58005.0,Grayson,matched_all,Grayson,north,,
+2106,33.498186,-96.378894,solar,10.0,126,WHITEWRIGHT,61524.0,Fannin,matched_all,Fannin,north,FarEast,
+2115,33.6308,-95.59,gas,204.0,133,PARIS 1,55097.0,Lamar,matched_all,Lamar,north,,
+2116,33.6308,-95.59,gas,204.0,133,PARIS 1,55097.0,Lamar,matched_all,Lamar,north,,
+2117,33.6308,-95.59,gas,153.0,133,PARIS 1,55097.0,Lamar,matched_all,Lamar,north,,
+2118,33.6308,-95.59,gas,153.0,133,PARIS 1,55097.0,Lamar,matched_all,Lamar,north,,
+2119,33.6308,-95.59,gas,145.0,133,PARIS 1,55097.0,Lamar,matched_fuel,Lamar,north,,
+2120,33.6308,-95.59,gas,145.0,133,PARIS 1,55097.0,Lamar,matched_fuel,Lamar,north,,
+3004,32.3606,-100.3389,wind,37.5,145,SWEETWATER 4,56211.0,Nolan,matched_all,Nolan,west,,West
+3014,30.731599,-98.385422,hydro,13.8,155,KINGSLAND,3598.0,Burnet,matched_all,Llano,south,,
+3017,32.255978,-100.320309,wind,418.9,157,BLACKWELL,62587.0,Nolan,matched_all,Nolan,west,,West
+3020,31.048557,-100.623114,wind,199.5,158,CHRISTOVAL,61782.0,Schleicher,matched_all,Schleicher,west,,West
+3028,32.6256,-99.4928,wind,200.0,164,ABILENE 2,56395.0,Shackelford,matched_all,Shackelford,west,,West
+3034,32.631073,-101.008494,wind,311.0,169,SNYDER 1,60271.0,Scurry,matched_all,Scurry,west,,West
+3039,32.4694,-100.6664,wind,209.0,172,ROSCOE 2,56593.0,Nolan,matched_all,Mitchell,west,,West
+3055,32.214024,-100.05712,wind,299.0,179,WINGATE,56291.0,Taylor,matched_all,Taylor,west,,West
+3056,32.214024,-100.05712,wind,223.5,179,WINGATE,56291.0,Taylor,matched_all,Taylor,west,,West
+3057,32.214024,-100.05712,wind,213.0,179,WINGATE,56291.0,Taylor,matched_all,Taylor,west,,West
+3060,31.951958,-101.018936,wind,214.5,180,STERLING CITY 1,56763.0,Sterling,matched_all,Sterling,west,,West
+3061,31.951958,-101.018936,wind,186.0,180,STERLING CITY 1,56763.0,Sterling,matched_all,Sterling,west,,West
+3062,31.951958,-101.018936,wind,149.5,180,STERLING CITY 1,56763.0,Sterling,matched_all,Sterling,west,,West
+3063,31.951958,-101.018936,wind,112.5,180,STERLING CITY 1,56763.0,Sterling,matched_all,Sterling,west,,West
+3065,32.199366,-100.491908,wind,182.4,181,ROSCOE 4,62836.0,Nolan,matched_all,Nolan,west,,West
+3068,32.4301,-100.235652,wind,152.0,183,TRENT 1,55968.0,Nolan,matched_all,Nolan,west,,West
+3071,32.2878,-100.1,wind,170.2,185,NOLAN,56638.0,Nolan,matched_all,Taylor,west,,West
+3074,29.234722,-100.209167,wind,99.8,187,BRACKETTVILLE 2,58000.0,Kinney,matched_all,Kinney,south,,South
+3081,32.5886,-100.6728,wind,249.0,191,HERMLEIGH,56981.0,Fisher,matched_all,Scurry,west,,West
+3084,32.318221,-100.176986,wind,232.5,192,MERKEL 1,56484.0,Nolan,matched_all,Nolan,west,,West
+3086,32.4375,-100.7444,wind,75.0,193,LORAINE 1,57303.0,Mitchell,matched_all,Mitchell,west,,West
+3087,32.4375,-100.7444,wind,73.5,193,LORAINE 1,57303.0,Mitchell,matched_all,Mitchell,west,,West
+3092,32.5144,-99.6564,wind,200.0,194,ABILENE 1,56483.0,Shackelford,matched_all,Taylor,west,,West
+3095,32.311556,-100.061589,wind,120.6,196,MERKEL 2,56240.0,Taylor,matched_all,Taylor,west,,West
+3098,32.94793,-101.147784,wind,182.4,197,FLUVANNA 2,56111.0,Scurry,matched_all,Scurry,west,,West
+3104,30.7507,-98.4176,hydro,18.3,203,BUCHANAN DAM 1,3595.0,Llano,matched_all,Llano,south,,
+3105,30.7507,-98.4176,hydro,18.3,203,BUCHANAN DAM 1,3595.0,Llano,matched_all,Llano,south,,
+3106,30.7507,-98.4176,hydro,18.3,203,BUCHANAN DAM 1,3595.0,Llano,matched_all,Llano,south,,
+3110,32.931944,-101.143611,wind,155.4,206,FLUVANNA 1,59245.0,Scurry,matched_all,Scurry,west,,West
+3112,31.951944,-100.791389,wind,80.0,207,STERLING CITY 2,56754.0,Sterling,matched_all,Coke,west,,West
+3113,31.951944,-100.791389,wind,69.6,207,STERLING CITY 2,56754.0,Sterling,matched_all,Coke,west,,West
+3115,32.969722,-100.524167,wind,30.0,209,ROTAN,58048.0,Kent,matched_all,Kent,west,,West
+3117,32.718056,-100.793333,wind,120.0,210,SYNDER,56775.0,Scurry,matched_all,Scurry,west,,West
+3120,29.325033,-100.391847,battery,100.0,211,BRACKETTVILLE 1,58717.0,Kinney,matched_location,Kinney,south,,
+3122,32.4969,-100.5797,wind,197.0,212,ROSCOE 1,56984.0,Nolan,matched_all,Nolan,west,,West
+4007,26.189433,-98.322929,battery,10.0,239,MCALLEN 2,66927.0,Hidalgo,matched_all,Hidalgo,south,,
+4010,27.022112,-97.498478,wind,201.6,241,SARITA 3,56795.0,Kenedy,matched_all,Kenedy,south,,Coastal
+4026,28.7044,-98.4775,coal,391.0,254,CHRISTINE,6183.0,Atascosa,matched_all,Atascosa,south,,
+4030,28.7128,-97.214167,coal,655.0,256,FANNIN,6178.0,Goliad,matched_all,Goliad,south,,
+4035,27.811083,-97.595813,gas,33.0,261,CORPUS CHRISTI 18,50475.0,Nueces,matched_fuel,Nueces,south,,
+4041,26.230677,-98.114039,battery,10.0,266,SAN JUAN,66929.0,Hidalgo,matched_all,Hidalgo,south,,
+4045,26.5575,-99.1642,hydro,10.5,268,FALCON HEIGHTS 1,6410.0,Starr,matched_all,Starr,south,,
+4046,26.5575,-99.1642,hydro,10.0,268,FALCON HEIGHTS 1,6410.0,Starr,matched_all,Starr,south,,
+4047,26.5575,-99.1642,hydro,10.0,268,FALCON HEIGHTS 1,6410.0,Starr,matched_all,Starr,south,,
+4050,26.364843,-97.545341,wind,272.6,270,SEBASTIAN 2,63739.0,Willacy,matched_all,Willacy,south,,Coastal
+4052,27.5697,-97.8228,gas,32.5,271,BISHOP,10243.0,Nueces,matched_fuel,Nueces,south,,
+4058,27.882778,-97.242778,gas,155.0,275,GREGORY,55313.0,San Patricio,matched_all,San Patricio,south,,
+4059,27.882778,-97.242778,gas,155.0,275,GREGORY,55313.0,San Patricio,matched_all,San Patricio,south,,
+4060,27.882778,-97.242778,gas,150.0,275,GREGORY,55313.0,San Patricio,matched_all,San Patricio,south,,
+4065,27.81922,-97.535461,battery,150.0,276,CORPUS CHRISTI 2,66783.0,Nueces,matched_fuel,Nueces,south,,
+4067,26.179999,-97.725607,battery,10.0,278,HARLINGEN 1,66933.0,Cameron,matched_all,Cameron,south,,
+4068,26.296101,-98.0096,battery,10.0,279,ELSA,66931.0,Hidalgo,matched_all,Hidalgo,south,,
+4069,27.8175,-97.4814,oil,26.6,280,CORPUS CHRISTI 17,50121.0,Nueces,matched_location,Nueces,south,,
+4069,27.8175,-97.4814,oil,26.6,280,CORPUS CHRISTI 17,50121.0,Nueces,matched_location,Nueces,south,,
+4069,27.8175,-97.4814,oil,12.0,280,CORPUS CHRISTI 17,50121.0,Nueces,matched_location,Nueces,south,,
+4075,26.208,-98.3992,gas,181.0,283,MISSION 1,55098.0,Hidalgo,matched_all,Hidalgo,south,,
+4076,26.208,-98.3992,gas,177.0,283,MISSION 1,55098.0,Hidalgo,matched_all,Hidalgo,south,,
+4077,26.208,-98.3992,gas,177.0,283,MISSION 1,55098.0,Hidalgo,matched_all,Hidalgo,south,,
+4082,27.6064,-97.3117,gas,319.0,286,CORPUS CHRISTI 3,4939.0,Nueces,matched_all,Nueces,south,,
+4083,27.6064,-97.3117,gas,292.0,286,CORPUS CHRISTI 3,4939.0,Nueces,matched_fuel,Nueces,south,,
+4084,27.6064,-97.3117,gas,157.0,286,CORPUS CHRISTI 3,4939.0,Nueces,matched_fuel,Nueces,south,,
+4085,27.6064,-97.3117,gas,157.0,286,CORPUS CHRISTI 3,4939.0,Nueces,matched_fuel,Nueces,south,,
+4090,26.269683,-97.867012,biomass,10.0,290,SANTA ROSA 1,54338.0,Hidalgo,matched_fuel,Hidalgo,south,,
+4100,27.833756,-97.496523,other,11.7,292,CORPUS CHRISTI 13,50121.0,Nueces,matched_all,Nueces,south,,
+4100,27.833756,-97.496523,other,11.7,292,CORPUS CHRISTI 13,50121.0,Nueces,matched_all,Nueces,south,,
+4102,26.074676,-97.52318,battery,10.0,294,OLMITO,66932.0,Cameron,matched_all,Cameron,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4103,26.451111,-98.1775,gas,18.3,295,EDINBURG 1,59391.0,Hidalgo,matched_all,Hidalgo,south,,
+4105,27.9386,-97.4586,wind,180.0,296,TAFT 2,56983.0,San Patricio,matched_all,San Patricio,south,,Coastal
+4111,26.232466,-97.823173,battery,10.0,302,HARLINGEN 2,66928.0,Cameron,matched_all,Cameron,south,,
+4115,27.5667,-99.5089,gas,90.1,304,LAREDO 1,3439.0,Webb,matched_fuel,Webb,south,,
+4116,27.5667,-99.5089,gas,87.3,304,LAREDO 1,3439.0,Webb,matched_fuel,Webb,south,,
+4121,26.100103,-97.798453,solar,45.0,309,SANTA MARIA,65662.0,Cameron,matched_all,Cameron,south,SouthEast,
+4133,28.9377,-99.10765,solar,200.0,319,PEARSALL,65308.0,Frio,matched_all,Frio,south,SouthEast,
+4153,27.0011,-97.5994,wind,283.2,329,ARMSTRONG 1,56661.0,Kenedy,matched_all,Kenedy,south,,Coastal
+4160,27.819412,-97.419203,gas,319.0,334,CORPUS CHRISTI 1,3441.0,Nueces,matched_all,Nueces,south,,
+4161,27.819412,-97.419203,gas,157.0,334,CORPUS CHRISTI 1,3441.0,Nueces,matched_fuel,Nueces,south,,
+4162,27.819412,-97.419203,gas,157.0,334,CORPUS CHRISTI 1,3441.0,Nueces,matched_fuel,Nueces,south,,
+4166,27.122529,-97.557372,wind,201.6,336,SARITA 2,57095.0,Kenedy,matched_all,Kenedy,south,,Coastal
+4177,27.576111,-98.905278,wind,150.0,346,BRUNI 1,57260.0,Webb,matched_all,Webb,south,,South
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5012,33.214869,-97.209692,gas,18.8,371,DENTON 5,61643.0,Denton,matched_all,Denton,north,,
+5020,33.052226,-98.328415,wind,120.0,376,JACKSBORO 1,57156.0,Jack,matched_all,Jack,north,,North
+5029,31.291151,-97.260738,solar,10.0,383,TROY,61874.0,McLennan,matched_all,McLennan,north,CenterEast,
+5049,33.1707,-96.1264,oil,23.0,392,GREENVILLE 1,4195.0,Hunt,matched_all,Hunt,north,,
+5049,33.1707,-96.1264,oil,18.0,392,GREENVILLE 1,4195.0,Hunt,matched_fuel,Hunt,north,,
+5051,33.1707,-96.1264,oil,41.0,392,GREENVILLE 1,4195.0,Hunt,matched_all,Hunt,north,,
+5057,33.1344,-98.6117,gas,390.0,395,GRAHAM,3490.0,Young,matched_all,Young,west,,
+5058,33.1344,-98.6117,gas,239.0,395,GRAHAM,3490.0,Young,matched_all,Young,west,,
+5080,31.34904,-97.21786,solar,44.2,407,LORENA,61874.0,McLennan,matched_fuel,McLennan,north,CenterEast,
+5081,31.114983,-97.845111,solar,15.4,408,FORT HOOD,60774.0,Bell,matched_all,Coryell,north,CenterEast,
+5089,31.8594,-97.3586,gas,208.0,414,CLIFTON 1,55172.0,Bosque,matched_fuel,Bosque,north,,
+5115,33.16114,-96.239739,solar,10.0,437,CADDO MILLS,61532.0,Hunt,matched_all,Hunt,north,FarEast,
+5154,32.116002,-97.343521,battery,52.2,472,RIO VISTA,63180.0,Bosque,matched_location,Hill,north,,
+5166,33.1975,-97.1061,gas,61.0,482,DENTON 1,4266.0,Denton,matched_all,Denton,north,,
+5167,33.1975,-97.1061,gas,61.0,482,DENTON 1,4266.0,Denton,matched_all,Denton,north,,
+5170,32.338659,-98.476051,wind,52.8,484,DUBLIN 1,56771.0,Erath,matched_all,Eastland,west,,North
+5174,31.8932,-96.8751,solar,49.6,488,MALONE,67024.0,Hill,matched_all,Hill,north,CenterEast,
+5198,33.205801,-98.365069,wind,150.0,508,BRYSON 1,57981.0,Jack,matched_all,Jack,north,,North
+5206,33.101,-97.9574,gas,290.5,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+5207,33.101,-97.9574,gas,290.5,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+5208,33.101,-97.9574,gas,165.0,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+5219,32.533273,-96.428985,battery,50.0,525,SCURRY,63892.0,Kaufman,matched_all,Kaufman,north,,
+5231,31.738177,-98.213739,battery,10.0,537,HAMILTON,66410.0,Hamilton,matched_location,Hamilton,north,,
+5238,33.383611,-98.711944,wind,198.0,542,OLNEY 1,57520.0,Young,matched_all,Young,west,,West
+5243,31.383333,-98.466667,wind,150.0,543,GOLDTHWAITE 1,58321.0,Mills,matched_all,Mills,north,,North
+5262,32.298365,-97.785515,nuclear,1205.0,560,GLEN ROSE 1,6145.0,Somervell,matched_all,Somervell,north,,
+5263,32.298365,-97.785515,nuclear,1195.0,560,GLEN ROSE 1,6145.0,Somervell,matched_all,Somervell,north,,
+5281,31.055833,-97.317222,gas,326.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+5282,31.055833,-97.317222,gas,326.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+5283,31.055833,-97.317222,gas,232.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+5284,32.986,-96.085998,solar,50.0,577,QUINLAN,67849.0,Hunt,matched_all,Hunt,north,FarEast,
+5290,31.8694,-97.3667,hydro,21.0,583,WHITNEY,6414.0,Bosque,matched_all,Hill,north,,
+5290,31.8694,-97.3667,hydro,21.0,583,WHITNEY,6414.0,Bosque,matched_all,Hill,north,,
+5319,32.337679,-97.734612,gas,446.3,601,GRANBURY 1,59812.0,Hood,matched_all,Hood,north,,
+5320,32.337679,-97.734612,gas,329.3,601,GRANBURY 1,59812.0,Hood,matched_all,Hood,north,,
+5321,32.337679,-97.734612,gas,327.8,601,GRANBURY 1,59812.0,Hood,matched_all,Hood,north,,
+5324,32.7231,-96.9358,gas,568.0,602,DALLAS 2,3453.0,Dallas,matched_all,Dallas,north,,
+5325,32.7231,-96.9358,gas,122.0,602,DALLAS 2,3453.0,Dallas,matched_all,Dallas,north,,
+5326,32.7231,-96.9358,gas,118.0,602,DALLAS 2,3453.0,Dallas,matched_all,Dallas,north,,
+5360,31.474378,-96.957149,coal,932.6,631,RIESEL 1,56611.0,McLennan,matched_all,McLennan,north,,
+5382,32.32,-96.675,gas,245.1,643,ENNIS,55223.0,Ellis,matched_all,Ellis,north,,
+5383,32.32,-96.675,gas,114.4,643,ENNIS,55223.0,Ellis,matched_all,Ellis,north,,
+5399,32.7683,-99.4228,wind,162.3,650,ALBANY 1,56823.0,Shackelford,matched_all,Shackelford,west,,West
+5403,32.33422,-97.731686,gas,280.0,652,GRANBURY 2,55139.0,Hood,matched_all,Hood,north,,
+5404,32.33422,-97.731686,gas,236.0,652,GRANBURY 2,55139.0,Hood,matched_all,Hood,north,,
+5405,32.33422,-97.731686,gas,234.5,652,GRANBURY 2,55139.0,Hood,matched_all,Hood,north,,
+5415,32.6581,-98.3103,gas,200.0,658,PALO PINTO 1,3628.0,Palo Pinto,matched_all,Palo Pinto,north,,
+5416,32.6581,-98.3103,gas,104.0,658,PALO PINTO 1,3628.0,Palo Pinto,matched_all,Palo Pinto,north,,
+5417,32.6581,-98.3103,gas,104.0,658,PALO PINTO 1,3628.0,Palo Pinto,matched_all,Palo Pinto,north,,
+5418,32.6581,-98.3103,gas,100.0,658,PALO PINTO 1,3628.0,Palo Pinto,matched_all,Palo Pinto,north,,
+5419,32.6581,-98.3103,gas,66.0,658,PALO PINTO 1,3628.0,Palo Pinto,matched_fuel,Palo Pinto,north,,
+6001,29.47982,-98.29926,solar,39.6,716,CONVERSE,59204.0,Bexar,matched_fuel,Bexar,south,SouthEast,
+6006,30.1456,-97.2708,gas,335.0,718,BASTROP,3601.0,Bastrop,matched_all,Bastrop,south,,
+6007,30.1456,-97.2708,gas,136.0,718,BASTROP,3601.0,Bastrop,matched_all,Bastrop,south,,
+6008,30.1456,-97.2708,gas,136.0,718,BASTROP,3601.0,Bastrop,matched_all,Bastrop,south,,
+6027,30.41432,-97.35518,battery,50.0,733,ELGIN,65700.0,Williamson,matched_all,Williamson,south,,
+6069,29.6244,-98.1419,gas,197.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6070,29.6244,-98.1419,gas,196.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6071,29.6244,-98.1419,gas,160.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6072,29.6244,-98.1419,gas,160.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6073,29.6244,-98.1419,gas,153.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6074,29.6244,-98.1419,gas,153.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+6078,29.9172,-96.7506,coal,590.0,752,LA GRANGE,6179.0,Fayette,matched_all,Fayette,south,,
+6079,29.9172,-96.7506,coal,590.0,752,LA GRANGE,6179.0,Fayette,matched_all,Fayette,south,,
+6080,29.9172,-96.7506,coal,435.0,752,LA GRANGE,6179.0,Fayette,matched_all,Fayette,south,,
+6082,30.555288,-98.257593,hydro,19.8,753,MARBLE FALLS 1,3599.0,Burnet,matched_all,Burnet,south,,
+6083,30.555288,-98.257593,hydro,19.8,753,MARBLE FALLS 1,3599.0,Burnet,matched_all,Burnet,south,,
+6101,30.02547,-96.9945,gas,44.0,765,WINCHESTER,56674.0,Fayette,matched_fuel,Fayette,south,,
+6104,30.02547,-96.9945,gas,44.0,765,WINCHESTER,56674.0,Fayette,matched_fuel,Fayette,south,,
+6105,30.02547,-96.9945,gas,44.0,765,WINCHESTER,56674.0,Fayette,matched_fuel,Fayette,south,,
+6106,30.02547,-96.9945,gas,44.0,765,WINCHESTER,56674.0,Fayette,matched_fuel,Fayette,south,,
+6116,30.41477,-97.35701,battery,50.0,771,TAYLOR,65699.0,Williamson,matched_all,Williamson,south,,
+6137,30.3899,-97.9073,hydro,36.0,790,AUSTIN 35,3600.0,Travis,matched_all,Travis,south,,
+6137,30.3899,-97.9073,hydro,36.0,790,AUSTIN 35,3600.0,Travis,matched_all,Travis,south,,
+6137,30.3899,-97.9073,hydro,36.0,790,AUSTIN 35,3600.0,Travis,matched_all,Travis,south,,
+6155,29.271667,-98.444722,solar,40.7,799,SAN ANTONIO 26,58537.0,Bexar,matched_all,Bexar,south,SouthEast,
+6164,29.593056,-97.973215,gas,303.0,805,SEGUIN 1,55137.0,Guadalupe,matched_fuel,Guadalupe,south,,
+6165,29.593056,-97.973215,gas,165.5,805,SEGUIN 1,55137.0,Guadalupe,matched_all,Guadalupe,south,,
+6166,29.593056,-97.973215,gas,158.0,805,SEGUIN 1,55137.0,Guadalupe,matched_all,Guadalupe,south,,
+6167,29.593056,-97.973215,gas,158.0,805,SEGUIN 1,55137.0,Guadalupe,matched_all,Guadalupe,south,,
+6168,29.43445,-98.61765,battery,10.0,806,SAN ANTONIO 45,62609.0,Bexar,matched_all,Bexar,south,,
+6175,30.2867,-97.7356,gas,46.5,810,AUSTIN 16,50118.0,Travis,matched_all,Travis,south,,
+6175,30.2867,-97.7356,gas,33.0,810,AUSTIN 16,50118.0,Travis,matched_all,Travis,south,,
+6175,30.2867,-97.7356,gas,27.6,810,AUSTIN 16,50118.0,Travis,matched_all,Travis,south,,
+6175,30.2867,-97.7356,gas,26.1,810,AUSTIN 16,50118.0,Travis,matched_all,Travis,south,,
+6182,29.3525,-98.5761,gas,46.0,816,SAN ANTONIO 38,3609.0,Bexar,matched_fuel,Bexar,south,,
+6182,29.3525,-98.5761,gas,46.0,816,SAN ANTONIO 38,3609.0,Bexar,matched_fuel,Bexar,south,,
+6182,29.3525,-98.5761,gas,46.0,816,SAN ANTONIO 38,3609.0,Bexar,matched_fuel,Bexar,south,,
+6182,29.3525,-98.5761,gas,46.0,816,SAN ANTONIO 38,3609.0,Bexar,matched_fuel,Bexar,south,,
+6213,30.556,-98.3384,hydro,27.0,840,MARBLE FALLS 2,3597.0,Burnet,matched_all,Burnet,south,,
+6214,30.556,-98.3384,hydro,27.0,840,MARBLE FALLS 2,3597.0,Burnet,matched_all,Burnet,south,,
+6233,30.3033,-97.6128,gas,52.0,854,AUSTIN 4,3548.0,Travis,matched_all,Travis,south,,
+6233,30.3033,-97.6128,gas,52.0,854,AUSTIN 4,3548.0,Travis,matched_all,Travis,south,,
+6233,30.3033,-97.6128,gas,52.0,854,AUSTIN 4,3548.0,Travis,matched_all,Travis,south,,
+6233,30.3033,-97.6128,gas,52.0,854,AUSTIN 4,3548.0,Travis,matched_all,Travis,south,,
+6242,29.308056,-98.3242,gas,420.0,858,ELMENDORF,3611.0,Bexar,matched_all,Bexar,south,,
+6243,29.308056,-98.3242,gas,410.0,858,ELMENDORF,3611.0,Bexar,matched_all,Bexar,south,,
+6254,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6254,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6254,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6254,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6257,30.2098,-97.6129,gas,161.0,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6258,30.2098,-97.6129,gas,151.0,863,AUSTIN 2,7900.0,Travis,matched_fuel,Travis,south,,
+6259,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6260,30.2098,-97.6129,gas,47.3,863,AUSTIN 2,7900.0,Travis,matched_all,Travis,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6277,29.875,-97.807,gas,18.4,870,KYLE,,,no match,Caldwell,south,,
+6295,30.1458,-97.55,gas,233.0,881,CEDAR CREEK 1,55168.0,Bastrop,matched_all,Bastrop,south,,
+6296,30.1458,-97.55,gas,171.0,881,CEDAR CREEK 1,55168.0,Bastrop,matched_all,Bastrop,south,,
+6297,30.1458,-97.55,gas,171.0,881,CEDAR CREEK 1,55168.0,Bastrop,matched_all,Bastrop,south,,
+6301,29.7806,-97.9894,gas,231.0,882,NEW BRAUNFELS 1,55144.0,Hays,matched_all,Hays,south,,
+6302,29.7806,-97.9894,gas,229.0,882,NEW BRAUNFELS 1,55144.0,Hays,matched_all,Hays,south,,
+6303,29.7806,-97.9894,gas,228.0,882,NEW BRAUNFELS 1,55144.0,Hays,matched_all,Hays,south,,
+6304,29.7806,-97.9894,gas,228.0,882,NEW BRAUNFELS 1,55144.0,Hays,matched_all,Hays,south,,
+6329,28.871642,-97.696944,solar,10.0,900,NORDHEIM,64079.0,Karnes,matched_all,Karnes,south,SouthEast,
+7005,29.72475,-95.176479,gas,171.0,923,PASADENA 2,55047.0,Harris,matched_all,Harris,houston,,
+7006,29.72475,-95.176479,gas,171.0,923,PASADENA 2,55047.0,Harris,matched_all,Harris,houston,,
+7007,29.72475,-95.176479,gas,167.0,923,PASADENA 2,55047.0,Harris,matched_all,Harris,houston,,
+7008,29.72475,-95.176479,gas,166.0,923,PASADENA 2,55047.0,Harris,matched_all,Harris,houston,,
+7009,29.72475,-95.176479,gas,71.0,923,PASADENA 2,55047.0,Harris,matched_all,Harris,houston,,
+7021,28.8947,-97.135,gas,49.0,931,NURSERY,3631.0,Victoria,matched_all,Victoria,south,,
+7022,28.8947,-97.135,gas,49.0,931,NURSERY,3631.0,Victoria,matched_all,Victoria,south,,
+7023,28.8947,-97.135,gas,48.0,931,NURSERY,3631.0,Victoria,matched_all,Victoria,south,,
+7024,28.8947,-97.135,gas,37.0,931,NURSERY,3631.0,Victoria,matched_all,Victoria,south,,
+7029,28.5105,-96.7706,gas,15.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7029,28.5105,-96.7706,gas,15.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7029,28.5105,-96.7706,gas,12.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7031,28.5105,-96.7706,gas,30.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7032,28.5105,-96.7706,gas,30.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7033,28.5105,-96.7706,gas,30.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7034,28.5105,-96.7706,gas,15.0,935,PORT LAVACA,50150.0,Calhoun,matched_all,Calhoun,south,,
+7045,28.7883,-97.01,gas,176.0,939,VICTORIA 2,3443.0,Victoria,matched_all,Victoria,south,,
+7046,28.7883,-97.01,gas,112.0,939,VICTORIA 2,3443.0,Victoria,matched_fuel,Victoria,south,,
+7054,29.883214,-95.111345,gas,43.0,945,HOUSTON 11,62548.0,Harris,matched_all,Harris,houston,,
+7054,29.883214,-95.111345,gas,43.0,945,HOUSTON 11,62548.0,Harris,matched_all,Harris,houston,,
+7058,28.6917,-96.5417,gas,58.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7058,28.6917,-96.5417,gas,47.3,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7058,28.6917,-96.5417,gas,38.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7058,28.6917,-96.5417,gas,32.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7058,28.6917,-96.5417,gas,28.5,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7061,28.6917,-96.5417,gas,97.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7062,28.6917,-96.5417,gas,97.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7063,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7064,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7065,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7066,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+7075,29.723185,-95.128856,other,45.0,955,HOUSTON 10,50304.0,Harris,matched_all,Harris,houston,,
+7075,29.723185,-95.128856,other,45.0,955,HOUSTON 10,50304.0,Harris,matched_all,Harris,houston,,
+7079,29.75,-94.9256,gas,749.0,956,BAYTOWN 2,3460.0,Chambers,matched_all,Chambers,houston,,
+7080,29.75,-94.9256,gas,745.0,956,BAYTOWN 2,3460.0,Chambers,matched_all,Chambers,houston,,
+7086,29.739444,-95.194722,other,14.0,959,HOUSTON 16,58870.0,Harris,matched_all,Harris,houston,,
+7098,28.795,-96.0481,nuclear,1300.0,968,WADSWORTH,6251.0,Matagorda,matched_all,Matagorda,south,,
+7099,28.795,-96.0481,nuclear,1280.0,968,WADSWORTH,6251.0,Matagorda,matched_all,Matagorda,south,,
+7107,29.713414,-95.134508,gas,282.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7108,29.713414,-95.134508,gas,182.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7109,29.713414,-95.134508,gas,182.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7110,29.713414,-95.134508,gas,182.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7111,29.713414,-95.134508,gas,182.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7112,29.713414,-95.134508,gas,182.0,973,DEER PARK,55464.0,Harris,matched_all,Harris,houston,,
+7116,29.631324,-96.076894,solar,10.0,974,WALLIS,61867.0,Austin,matched_all,Austin,south,FarEast,
+7133,29.759124,-95.009648,gas,140.0,984,LAPORTE,10692.0,Harris,matched_all,Harris,houston,,
+7134,29.759124,-95.009648,gas,78.0,984,LAPORTE,7325.0,Harris,matched_all,Harris,houston,,
+7135,29.759124,-95.009648,gas,29.0,984,LAPORTE,10436.0,Harris,matched_all,Harris,houston,,
+7136,29.759124,-95.009648,gas,29.0,984,LAPORTE,10436.0,Harris,matched_all,Harris,houston,,
+7137,29.759124,-95.009648,gas,29.0,984,LAPORTE,10436.0,Harris,matched_all,Harris,houston,,
+7144,29.6981,-95.2547,gas,35.0,986,HOUSTON 14,50229.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7159,29.9417,-95.5306,gas,14.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7162,29.9417,-95.5306,gas,110.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7163,29.9417,-95.5306,gas,110.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7164,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7165,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7166,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7167,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7168,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7169,29.9417,-95.5306,gas,56.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7170,29.9417,-95.5306,gas,54.0,998,HOUSTON 5,3469.0,Harris,matched_all,Harris,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7184,29.480277,-95.620277,gas,44.5,1009,MISSOURI CITY 2,64383.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7224,29.703454,-95.398317,gas,50.0,1027,HOUSTON 43,57504.0,Harris,matched_all,Harris,houston,,
+7224,29.703454,-95.398317,gas,47.0,1027,HOUSTON 43,57504.0,Harris,matched_all,Harris,houston,,
+7230,29.537482,-95.969548,solar,10.0,1031,BEASLEY,61868.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+7266,29.6225,-95.0458,gas,75.0,1062,PASADENA 3,10298.0,Harris,matched_all,Harris,houston,,
+7267,29.6225,-95.0458,gas,75.0,1062,PASADENA 3,10298.0,Harris,matched_all,Harris,houston,,
+7268,29.6225,-95.0458,gas,75.0,1062,PASADENA 3,10298.0,Harris,matched_all,Harris,houston,,
+7269,29.6225,-95.0458,gas,75.0,1062,PASADENA 3,10298.0,Harris,matched_all,Harris,houston,,
+7280,29.7731,-94.9019,gas,258.0,1069,MONT BELVIEU,55327.0,Chambers,matched_all,Chambers,houston,,
+7281,29.7731,-94.9019,gas,198.0,1069,MONT BELVIEU,55327.0,Chambers,matched_all,Chambers,houston,,
+7284,29.751645,-94.92312,gas,178.0,1070,BAYTOWN 3,56806.0,Chambers,matched_all,Chambers,houston,,
+7285,29.751645,-94.92312,gas,163.0,1070,BAYTOWN 3,56806.0,Chambers,matched_all,Chambers,houston,,
+7286,29.751645,-94.92312,gas,163.0,1070,BAYTOWN 3,56806.0,Chambers,matched_all,Chambers,houston,,
+7307,29.289415,-96.065399,gas,478.4,1085,WHARTON 1,60122.0,Wharton,matched_all,Wharton,south,,
+7308,29.289415,-96.065399,gas,335.0,1085,WHARTON 1,60122.0,Wharton,matched_all,Wharton,south,,
+7309,29.289415,-96.065399,gas,329.3,1085,WHARTON 1,60122.0,Wharton,matched_all,Wharton,south,,
+7312,29.002,-95.394,other,11.7,1086,LAKE JACKSON,55311.0,Brazoria,matched_all,Brazoria,houston,,
+7323,28.9802,-95.342,gas,160.0,1093,FREEPORT 1,56152.0,Brazoria,matched_all,Brazoria,houston,,
+7324,28.9802,-95.342,gas,73.0,1093,FREEPORT 1,59145.0,Brazoria,matched_all,Brazoria,houston,,
+7325,28.9802,-95.342,gas,73.0,1093,FREEPORT 1,59145.0,Brazoria,matched_all,Brazoria,houston,,
+7326,28.9802,-95.342,gas,73.0,1093,FREEPORT 1,59145.0,Brazoria,matched_all,Brazoria,houston,,
+7329,29.2639,-95.8997,gas,69.0,1094,NEWGULF,50137.0,Wharton,matched_fuel,Wharton,south,,
+7334,29.7189,-95.2319,gas,241.0,1096,PASADENA 1,55299.0,Harris,matched_all,Harris,houston,,
+7335,29.7189,-95.2319,gas,173.0,1096,PASADENA 1,55047.0,Harris,matched_all,Harris,houston,,
+7349,29.4828,-95.6311,coal,664.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7350,29.4828,-95.6311,coal,663.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7351,29.4828,-95.6311,coal,610.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7352,29.4828,-95.6311,coal,577.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7353,29.4828,-95.6311,gas,552.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7354,29.4828,-95.6311,gas,240.0,1105,THOMPSONS,55357.0,Fort Bend,matched_all,Fort Bend,houston,,
+7355,29.4828,-95.6311,gas,169.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7356,29.4828,-95.6311,gas,169.0,1105,THOMPSONS,3470.0,Fort Bend,matched_all,Fort Bend,houston,,
+7357,29.4828,-95.6311,gas,13.0,1105,THOMPSONS,3470.0,Fort Bend,matched_fuel,Fort Bend,houston,,
+7369,29.836952,-95.121744,gas,163.0,1110,CHANNELVIEW 1,55187.0,Harris,matched_all,Harris,houston,,
+7370,29.836952,-95.121744,gas,163.0,1110,CHANNELVIEW 1,55187.0,Harris,matched_all,Harris,houston,,
+7371,29.836952,-95.121744,gas,160.0,1110,CHANNELVIEW 1,55187.0,Harris,matched_all,Harris,houston,,
+7372,29.836952,-95.121744,gas,159.0,1110,CHANNELVIEW 1,55187.0,Harris,matched_all,Harris,houston,,
+7373,29.836952,-95.121744,gas,126.0,1110,CHANNELVIEW 1,55187.0,Harris,matched_all,Harris,houston,,
+7392,29.838138,-94.900661,gas,12.3,1121,BAYTOWN 4,57322.0,Chambers,matched_fuel,Chambers,houston,,
+7400,29.822201,-95.219429,gas,57.0,1129,HOUSTON 6,3464.0,Harris,matched_fuel,Harris,houston,,
+7400,29.822201,-95.219429,gas,53.0,1129,HOUSTON 6,3464.0,Harris,matched_fuel,Harris,houston,,
+7400,29.822201,-95.219429,gas,53.0,1129,HOUSTON 6,3464.0,Harris,matched_fuel,Harris,houston,,
+7400,29.822201,-95.219429,gas,47.0,1129,HOUSTON 6,3464.0,Harris,matched_fuel,Harris,houston,,
+7400,29.822201,-95.219429,gas,56.0,1129,HOUSTON 6,3464.0,Harris,matched_fuel,Harris,houston,,
+7403,29.7028,-95.0718,gas,36.0,1130,PASADENA 4,10692.0,Harris,matched_all,Harris,houston,,
+7403,29.7028,-95.0718,gas,36.0,1130,PASADENA 4,10692.0,Harris,matched_all,Harris,houston,,
+7403,29.7028,-95.0718,gas,36.0,1130,PASADENA 4,10692.0,Harris,matched_all,Harris,houston,,
+7403,29.7028,-95.0718,gas,36.0,1130,PASADENA 4,10692.0,Harris,matched_all,Harris,houston,,
+7414,28.69637,-96.9453,gas,43.0,1138,VICTORIA 1,61242.0,Victoria,matched_all,Victoria,south,,
+7414,28.69637,-96.9453,gas,43.0,1138,VICTORIA 1,61242.0,Victoria,matched_all,Victoria,south,,
+7422,29.432362,-95.250698,battery,50.0,1143,ALVIN,65493.0,Brazoria,matched_all,Brazoria,houston,,
+7428,28.991289,-95.407481,gas,35.0,1147,FREEPORT 2,52120.0,Brazoria,matched_fuel,Brazoria,houston,,
+8020,32.4744,-95.7156,solar,59.0,1167,BEN WHEELER,62774.0,Van Zandt,matched_all,Van Zandt,north,FarEast,
+8033,30.65991,-95.973798,battery,100.0,1176,SHIRO,65698.0,Grimes,matched_all,Grimes,north,,
+8046,31.8907,-96.1131,gas,182.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8047,31.8907,-96.1131,gas,182.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8048,31.8907,-96.1131,gas,167.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8049,31.8907,-96.1131,gas,167.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8050,31.8907,-96.1131,gas,167.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8051,31.8907,-96.1131,gas,167.0,1183,FAIRFIELD 1,55226.0,Freestone,matched_all,Freestone,north,,
+8070,31.4219,-96.2525,coal,836.0,1195,JEWETT 1,298.0,Limestone,matched_all,Limestone,north,,
+8071,31.4219,-96.2525,coal,824.0,1195,JEWETT 1,298.0,Limestone,matched_all,Limestone,north,,
+8077,32.017826,-94.619743,gas,405.0,1198,MT. ENTERPRISE,55132.0,Rusk,matched_all,Rusk,north,,
+8078,32.017826,-94.619743,gas,148.0,1198,MT. ENTERPRISE,55132.0,Rusk,matched_fuel,Rusk,north,,
+8079,32.017826,-94.619743,gas,146.0,1198,MT. ENTERPRISE,55132.0,Rusk,matched_fuel,Rusk,north,,
+8080,32.017826,-94.619743,gas,146.0,1198,MT. ENTERPRISE,55132.0,Rusk,matched_fuel,Rusk,north,,
+8087,31.1803,-96.4866,coal,855.0,1200,FRANKLIN,6180.0,Robertson,matched_all,Robertson,north,,
+8088,31.1803,-96.4866,coal,855.0,1200,FRANKLIN,6180.0,Robertson,matched_all,Robertson,north,,
+8099,31.832132,-94.90064,biomass,100.0,1208,CUSHING 1,55708.0,Nacogdoches,matched_all,Nacogdoches,north,,
+8115,31.93985,-94.989834,gas,502.0,1220,JACKSONVILLE 1,3504.0,Cherokee,matched_all,Cherokee,north,,
+8116,31.93985,-94.989834,gas,167.0,1220,JACKSONVILLE 1,3504.0,Cherokee,matched_all,Cherokee,north,,
+8139,30.617778,-96.343333,gas,32.4,1236,COLLEGE STATION 2,58151.0,Brazos,matched_all,Brazos,north,,
+8139,30.617778,-96.343333,gas,11.0,1236,COLLEGE STATION 2,58151.0,Brazos,matched_all,Brazos,north,,
+8141,30.881424,-96.62542,battery,50.0,1237,HEARNE,65694.0,Robertson,matched_all,Robertson,north,,
+8152,30.64741,-96.372316,gas,21.0,1246,BRYAN 2,3561.0,Brazos,matched_all,Brazos,north,,
+8158,30.7217,-96.4608,gas,47.1,1250,BRYAN 1,6243.0,Brazos,matched_all,Brazos,north,,
+8158,30.7217,-96.4608,gas,47.1,1250,BRYAN 1,6243.0,Brazos,matched_all,Brazos,north,,
+12502,32.2606,-94.5706,coal,805.0,1271,TATUM 1,6146.0,Rusk,matched_all,Rusk,north,,
+12503,32.2606,-94.5706,coal,805.0,1271,TATUM 1,6146.0,Rusk,matched_all,Rusk,north,,
+12504,32.2606,-94.5706,coal,800.0,1271,TATUM 1,6146.0,Rusk,matched_all,Rusk,north,,
+12506,32.7563,-96.4916,gas,406.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12507,32.7563,-96.4916,gas,406.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12508,32.7563,-96.4916,gas,165.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12509,32.7563,-96.4916,gas,165.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12510,32.7563,-96.4916,gas,157.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12511,32.7563,-96.4916,gas,157.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12512,32.7563,-96.4916,gas,157.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12513,32.7563,-96.4916,gas,157.0,558,FORNEY,55480.0,Kaufman,matched_all,Kaufman,north,,
+12514,32.4302,-97.0537,gas,270.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12515,32.4302,-97.0537,gas,270.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12516,32.4302,-97.0537,gas,270.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12517,32.4302,-97.0537,gas,270.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12518,32.4302,-97.0537,gas,270.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12519,32.4302,-97.0537,gas,255.0,681,MIDLOTHIAN 1,55091.0,Ellis,matched_all,Ellis,north,,
+12520,31.055833,-97.317222,gas,232.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+12521,31.055833,-97.317222,gas,232.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+12522,31.055833,-97.317222,gas,232.0,576,TEMPLE 1,58001.0,Bell,matched_all,Bell,south,,
+12524,29.309722,-98.3203,coal,785.0,895,SAN ANTONIO 7,7097.0,Bexar,matched_all,Bexar,south,,
+12525,29.309722,-98.3203,coal,560.0,895,SAN ANTONIO 7,7097.0,Bexar,matched_all,Bexar,south,,
+12526,29.6244,-98.1419,gas,153.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+12527,29.6244,-98.1419,gas,153.0,751,MARION 1,55153.0,Guadalupe,matched_all,Guadalupe,south,,
+12529,32.7283,-97.2192,gas,435.0,670,FORT WORTH 3,3491.0,Tarrant,matched_all,Tarrant,north,,
+12530,32.7283,-97.2192,gas,435.0,670,FORT WORTH 3,3491.0,Tarrant,matched_all,Tarrant,north,,
+12531,32.7283,-97.2192,gas,375.0,670,FORT WORTH 3,3491.0,Tarrant,matched_all,Tarrant,north,,
+12532,33.101,-97.9574,gas,165.0,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+12533,33.101,-97.9574,gas,165.0,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+12534,33.101,-97.9574,gas,165.0,514,POOLVILLE,55230.0,Wise,matched_all,Jack,north,,
+12537,32.8358,-96.5458,gas,523.0,592,SUNNYVALE,3452.0,Dallas,matched_all,Dallas,north,,
+12538,32.8358,-96.5458,gas,392.0,592,SUNNYVALE,3452.0,Dallas,matched_all,Dallas,north,,
+12540,29.7731,-94.9019,gas,198.0,1069,MONT BELVIEU,55327.0,Chambers,matched_all,Chambers,houston,,
+12541,29.7731,-94.9019,gas,198.0,1069,MONT BELVIEU,55327.0,Chambers,matched_all,Chambers,houston,,
+12542,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+12543,28.6917,-96.5417,gas,72.0,948,POINT COMFORT 2,10554.0,Calhoun,matched_all,Calhoun,south,,
+12545,29.191296,-95.967518,solar,510.0,1122,VAN VLECK,61875.0,Wharton,matched_fuel,Wharton,south,FarEast,
+12546,29.191296,-95.967518,battery,305.0,1122,VAN VLECK,61875.0,Wharton,matched_location,Wharton,south,,
+12548,31.8594,-97.3586,gas,158.0,414,CLIFTON 1,55172.0,Bosque,matched_all,Bosque,north,,
+12549,31.8594,-97.3586,gas,158.0,414,CLIFTON 1,55172.0,Bosque,matched_all,Bosque,north,,
+12550,31.8594,-97.3586,gas,157.0,414,CLIFTON 1,55172.0,Bosque,matched_all,Bosque,north,,
+12551,31.8594,-97.3586,gas,82.0,414,CLIFTON 1,55172.0,Bosque,matched_all,Bosque,north,,
+12552,29.7189,-95.2319,gas,173.0,1096,PASADENA 1,55047.0,Harris,matched_all,Harris,houston,,
+12553,29.7189,-95.2319,gas,173.0,1096,PASADENA 1,55047.0,Harris,matched_all,Harris,houston,,
+12557,33.0583,-97.9103,gas,245.0,1272,POOLVILLE 1,55320.0,Wise,matched_all,Wise,north,,
+12558,33.0583,-97.9103,gas,245.0,1272,POOLVILLE 1,55320.0,Wise,matched_all,Wise,north,,
+12559,33.0583,-97.9103,gas,245.0,1272,POOLVILLE 1,55320.0,Wise,matched_all,Wise,north,,
+12561,26.3403,-98.19,gas,237.0,244,EDINBURG 2,55123.0,Hidalgo,matched_all,Hidalgo,south,,
+12562,26.3403,-98.19,gas,215.0,244,EDINBURG 2,55545.0,Hidalgo,matched_all,Hidalgo,south,,
+12563,26.3403,-98.19,gas,215.0,244,EDINBURG 2,55545.0,Hidalgo,matched_all,Hidalgo,south,,
+12568,29.378097,-94.932773,gas,158.0,999,TEXAS CITY 1,55470.0,Galveston,matched_all,Galveston,houston,,
+12569,29.378097,-94.932773,gas,158.0,999,TEXAS CITY 1,55470.0,Galveston,matched_all,Galveston,houston,,
+12570,29.378097,-94.932773,gas,158.0,999,TEXAS CITY 1,55470.0,Galveston,matched_all,Galveston,houston,,
+12571,29.378097,-94.932773,gas,75.0,999,TEXAS CITY 1,52132.0,Galveston,matched_all,Galveston,houston,,
+12572,29.378097,-94.932773,gas,75.0,999,TEXAS CITY 1,52132.0,Galveston,matched_all,Galveston,houston,,
+12574,29.2878,-96.0683,gas,31.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12574,29.2878,-96.0683,gas,31.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12575,29.2878,-96.0683,gas,103.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12576,29.2878,-96.0683,gas,103.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12577,29.2878,-96.0683,gas,85.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12578,29.2878,-96.0683,gas,85.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12579,29.2878,-96.0683,gas,85.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12580,29.2878,-96.0683,gas,85.0,1273,WHARTON 3,56350.0,Wharton,matched_all,Wharton,south,,
+12583,34.485162,-101.971401,solar,600.0,1274,TULIA 1,,,no match,Swisher,west,NorthWest,
+12586,29.013637,-96.220536,solar,600.0,1275,EL CAMPO 1,,,no match,Wharton,south,FarEast,
+12588,30.998647,-97.259017,solar,320.0,648,ROGERS,66420.0,Bell,matched_all,Bell,south,CenterEast,
+12589,30.998647,-97.259017,battery,259.0,648,ROGERS,66420.0,Bell,matched_all,Bell,south,,
+12591,31.461242,-96.824928,battery,51.8,1276,RIESEL 3,65028.0,Falls,matched_all,Falls,north,,
+12592,31.461242,-96.824928,solar,500.0,1276,RIESEL 3,65998.0,Falls,matched_fuel,Falls,north,FarEast,
+12594,31.171652,-101.881147,wind,50.0,1277,RANKIN 1,62562.0,Upton,matched_all,Upton,west,,West
+12594,31.171652,-101.881147,wind,51.1,1277,RANKIN 1,62562.0,Upton,matched_all,Upton,west,,West
+12595,31.171652,-101.881147,wind,449.5,1277,RANKIN 1,62562.0,Upton,matched_all,Upton,west,,West
+12597,29.4731,-95.6244,gas,204.0,944,RICHMOND 1,55357.0,Fort Bend,matched_all,Fort Bend,houston,,
+12598,29.4731,-95.6244,gas,167.0,944,RICHMOND 1,55357.0,Fort Bend,matched_all,Fort Bend,houston,,
+12599,29.4731,-95.6244,gas,167.0,944,RICHMOND 1,55357.0,Fort Bend,matched_all,Fort Bend,houston,,
+12602,32.403056,-97.700556,battery,260.0,1278,GRANBURY 4,8063.0,Hood,matched_all,Hood,north,,
+12603,32.403056,-97.700556,gas,69.0,1278,GRANBURY 4,8063.0,Hood,matched_fuel,Hood,north,,
+12604,32.403056,-97.700556,gas,69.0,1278,GRANBURY 4,8063.0,Hood,matched_fuel,Hood,north,,
+12605,32.403056,-97.700556,gas,68.0,1278,GRANBURY 4,8063.0,Hood,matched_fuel,Hood,north,,
+12606,32.403056,-97.700556,gas,68.0,1278,GRANBURY 4,8063.0,Hood,matched_fuel,Hood,north,,
+12609,31.79261,-100.69729,wind,525.0,1279,ROBERT LEE 1,63209.0,Coke,matched_all,Coke,west,,West
+12610,29.257046,-98.384045,gas,190.0,797,SAN ANTONIO 22,7512.0,Bexar,matched_all,Bexar,south,,
+12611,29.257046,-98.384045,gas,164.0,797,SAN ANTONIO 22,7512.0,Bexar,matched_all,Bexar,south,,
+12612,29.257046,-98.384045,gas,164.0,797,SAN ANTONIO 22,7512.0,Bexar,matched_all,Bexar,south,,
+12614,30.558,-98.3721,gas,180.0,728,HORSESHOE BAY,4937.0,Llano,matched_all,Llano,south,,
+12615,30.558,-98.3721,gas,168.0,728,HORSESHOE BAY,4937.0,Llano,matched_all,Llano,south,,
+12616,30.558,-98.3721,gas,168.0,728,HORSESHOE BAY,4937.0,Llano,matched_all,Llano,south,,
+12619,34.913,-102.2706,solar,515.0,1280,DAWN 1,,,no match,Deaf Smith,west,NorthWest,
+12622,30.1478,-97.2714,gas,172.0,1281,BASTROP 1,55154.0,Bastrop,matched_all,Bastrop,south,,
+12623,30.1478,-97.2714,gas,169.0,1281,BASTROP 1,55154.0,Bastrop,matched_all,Bastrop,south,,
+12624,30.1478,-97.2714,gas,169.0,1281,BASTROP 1,55154.0,Bastrop,matched_all,Bastrop,south,,
+12626,27.8139,-97.4283,gas,173.0,338,CORPUS CHRISTI 14,55206.0,Nueces,matched_all,Nueces,south,,
+12627,27.8139,-97.4283,gas,173.0,338,CORPUS CHRISTI 14,55206.0,Nueces,matched_all,Nueces,south,,
+12628,27.8139,-97.4283,gas,160.0,338,CORPUS CHRISTI 14,3441.0,Nueces,matched_all,Nueces,south,,
+12631,30.91,-101.263,wind,500.6,1282,OZONA 1,64710.0,Crockett,matched_all,Crockett,west,,West
+12634,34.4067,-101.59661,solar,500.0,1283,KRESS 1,64233.0,Swisher,matched_all,Swisher,west,NorthWest,
+12635,29.122,-96.276,solar,500.0,950,EL CAMPO,64927.0,Wharton,matched_all,Wharton,south,FarEast,
+12638,33.119213,-98.852577,wind,500.0,1284,GRAHAM 1,65763.0,Young,matched_all,Young,west,,West
+12641,29.02939,-96.2362,battery,500.0,1285,EL CAMPO 2,,,no match,Wharton,south,,
+12643,26.34172,-98.175759,gas,177.0,310,MCALLEN 1,55545.0,Hidalgo,matched_all,Hidalgo,south,,
+12644,26.34172,-98.175759,gas,159.0,310,MCALLEN 1,55545.0,Hidalgo,matched_all,Hidalgo,south,,
+12645,26.34172,-98.175759,gas,157.0,310,MCALLEN 1,55545.0,Hidalgo,matched_all,Hidalgo,south,,
+12647,31.262546,-99.843961,wind,491.6,222,EDEN,62853.0,Concho,matched_all,Concho,west,,West
+12649,29.8161,-95.10773,gas,85.5,929,HOUSTON 9,50815.0,Harris,matched_all,Harris,houston,,
+12650,29.8161,-95.10773,gas,68.2,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12651,29.8161,-95.10773,gas,66.6,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12652,29.8161,-95.10773,gas,66.2,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12653,29.8161,-95.10773,gas,65.9,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12654,29.8161,-95.10773,gas,65.1,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12655,29.8161,-95.10773,gas,64.4,929,HOUSTON 9,60460.0,Harris,matched_all,Harris,houston,,
+12657,31.5481,-99.1872,solar,320.0,171,RICHLAND SPRINGS,64859.0,Brown,matched_all,Brown,north,CenterEast,
+12658,31.5481,-99.1872,battery,160.0,171,RICHLAND SPRINGS,64859.0,Brown,matched_location,Brown,north,,
+12661,32.883528,-100.746389,solar,320.0,1286,SNYDER 3,65644.0,Scurry,matched_all,Scurry,west,CenterWest,
+12662,32.883528,-100.746389,battery,160.0,1286,SNYDER 3,65644.0,Scurry,matched_location,Scurry,west,,
+12665,32.901081,-100.982695,solar,320.0,1287,SNYDER 4,65645.0,Scurry,matched_all,Scurry,west,CenterWest,
+12666,32.901081,-100.982695,battery,160.0,1287,SNYDER 4,65696.0,Scurry,matched_fuel,Scurry,west,,
+12668,31.8414,-102.315,gas,98.1,1,ODESSA 2,56349.0,Ector,matched_all,Ector,west,,
+12669,31.8414,-102.315,gas,98.1,1,ODESSA 2,56349.0,Ector,matched_all,Ector,west,,
+12670,31.8414,-102.315,gas,70.0,1,ODESSA 2,56349.0,Ector,matched_fuel,Ector,west,,
+12671,31.8414,-102.315,gas,70.0,1,ODESSA 2,56349.0,Ector,matched_fuel,Ector,west,,
+12672,31.8414,-102.315,gas,68.0,1,ODESSA 2,56349.0,Ector,matched_fuel,Ector,west,,
+12673,31.8414,-102.315,gas,68.0,1,ODESSA 2,56349.0,Ector,matched_fuel,Ector,west,,
+12675,33.39167,-95.42519,solar,471.0,94,PATTONVILLE,64347.0,Lamar,matched_all,Delta,north,FarEast,
+12677,33.169139,-99.266006,wind,350.2,703,THROCKMORTON,64164.0,Throckmorton,matched_all,Throckmorton,west,,West
+12678,33.169139,-99.266006,battery,120.0,703,THROCKMORTON,64164.0,Throckmorton,matched_all,Throckmorton,west,,
+12680,32.116388,-102.528333,battery,40.0,1288,ANDREWS 1,63255.0,Andrews,matched_all,Andrews,west,,
+12681,32.116388,-102.528333,solar,420.0,1288,ANDREWS 1,63255.0,Andrews,matched_all,Andrews,west,FarWest,
+12682,28.991289,-95.407481,gas,95.6,1147,FREEPORT 2,52120.0,Brazoria,matched_all,Brazoria,houston,,
+12683,28.991289,-95.407481,gas,95.6,1147,FREEPORT 2,52120.0,Brazoria,matched_all,Brazoria,houston,,
+12684,28.991289,-95.407481,gas,95.2,1147,FREEPORT 2,52120.0,Brazoria,matched_all,Brazoria,houston,,
+12685,28.991289,-95.407481,gas,68.3,1147,FREEPORT 2,52120.0,Brazoria,matched_all,Brazoria,houston,,
+12686,28.991289,-95.407481,gas,68.3,1147,FREEPORT 2,52120.0,Brazoria,matched_all,Brazoria,houston,,
+12687,31.219444,-102.19222,solar,200.0,25,MCCAMEY 1,62561.0,Upton,matched_all,Upton,west,FarWest,
+12688,31.219444,-102.19222,solar,200.0,25,MCCAMEY 1,62561.0,Upton,matched_all,Upton,west,FarWest,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12689,29.426389,-94.976667,gas,44.5,1065,TEXAS CITY 2,63688.0,Galveston,matched_fuel,Galveston,houston,,
+12692,29.0728,-95.745,gas,109.0,1289,OLD OCEAN 1,55015.0,Brazoria,matched_fuel,Brazoria,houston,,
+12693,29.0728,-95.745,gas,109.0,1289,OLD OCEAN 1,55015.0,Brazoria,matched_fuel,Brazoria,houston,,
+12694,29.0728,-95.745,gas,109.0,1289,OLD OCEAN 1,55015.0,Brazoria,matched_fuel,Brazoria,houston,,
+12695,29.0728,-95.745,gas,109.0,1289,OLD OCEAN 1,55015.0,Brazoria,matched_fuel,Brazoria,houston,,
+12697,29.33355,-95.82544,solar,430.0,1100,NEEDVILLE,64133.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+12700,29.378697,-94.943829,gas,142.0,1033,LA MARQUE,52088.0,Galveston,matched_all,Galveston,houston,,
+12701,29.378697,-94.943829,gas,92.0,1033,LA MARQUE,52088.0,Galveston,matched_all,Galveston,houston,,
+12702,29.378697,-94.943829,gas,92.0,1033,LA MARQUE,52088.0,Galveston,matched_all,Galveston,houston,,
+12703,29.378697,-94.943829,gas,92.0,1033,LA MARQUE,52088.0,Galveston,matched_all,Galveston,houston,,
+12705,29.943892,-95.531254,gas,204.0,1073,HOUSTON 69,3469.0,Harris,matched_fuel,Harris,houston,,
+12706,29.943892,-95.531254,gas,204.0,1073,HOUSTON 69,3469.0,Harris,matched_fuel,Harris,houston,,
+12708,32.139,-97.06,solar,405.0,413,MILFORD,66324.0,Hill,matched_fuel,Hill,north,CenterEast,
+12710,33.261505,-97.238057,solar,275.0,599,DENTON 6,65271.0,Denton,matched_all,Denton,north,CenterEast,
+12711,33.261505,-97.238057,battery,125.0,599,DENTON 6,65271.0,Denton,matched_all,Denton,north,,
+12713,31.710422,-96.818676,solar,400.0,511,COOLIDGE,65762.0,Limestone,matched_all,Limestone,north,FarEast,
+12716,33.22392,-95.730767,solar,300.0,1290,SULPHUR SPRINGS 1,,,no match,Hopkins,north,FarEast,
+12717,33.22392,-95.730767,battery,100.0,1290,SULPHUR SPRINGS 1,,,no match,Hopkins,north,,
+12720,32.5557,-101.660063,battery,400.0,1291,GAIL 1,,,no match,Borden,west,,
+12722,32.3358,-100.9156,oil,67.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12723,32.3358,-100.9156,oil,67.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12724,32.3358,-100.9156,oil,67.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12725,32.3358,-100.9156,oil,66.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12726,32.3358,-100.9156,oil,65.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12727,32.3358,-100.9156,oil,65.0,160,COLORADO CITY,3492.0,Mitchell,matched_fuel,Mitchell,west,,
+12729,33.068055,-96.452481,gas,138.0,559,LAVON,3576.0,Collin,matched_all,Collin,north,,
+12730,33.068055,-96.452481,gas,107.0,559,LAVON,3576.0,Collin,matched_all,Collin,north,,
+12731,33.068055,-96.452481,gas,75.0,559,LAVON,3576.0,Collin,matched_all,Collin,north,,
+12732,33.068055,-96.452481,gas,75.0,559,LAVON,3576.0,Collin,matched_all,Collin,north,,
+12733,32.926389,-101.647778,wind,211.0,3,O DONNELL 1,57983.0,Borden,matched_all,Borden,west,,West
+12734,32.926389,-101.647778,wind,165.0,3,O DONNELL 1,57983.0,Borden,matched_all,Borden,west,,West
+12737,33.85245,-99.06509,wind,366.6,1292,ELECTRA 1,64149.0,Wilbarger,matched_all,Wilbarger,west,,West
+12739,27.88929,-97.258417,gas,141.0,299,INGLESIDE,55086.0,San Patricio,matched_fuel,San Patricio,south,,
+12740,27.88929,-97.258417,gas,140.0,299,INGLESIDE,55086.0,San Patricio,matched_fuel,San Patricio,south,,
+12741,27.88929,-97.258417,gas,85.0,299,INGLESIDE,55086.0,San Patricio,matched_all,San Patricio,south,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12742,29.64536,-95.45169,gas,44.5,1078,HOUSTON 50,57504.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12743,29.848372,-95.016398,gas,44.5,1060,CHANNELVIEW 2,10692.0,Harris,matched_all,Harris,houston,,
+12745,33.915315,-99.740278,wind,350.3,62,VERNON 2,61402.0,Foard,matched_all,Foard,west,,West
+12748,29.159228,-96.141572,solar,350.0,1293,PIERCE 1,66157.0,Wharton,matched_all,Wharton,south,FarEast,
+12750,29.263123,-95.258004,solar,350.0,958,LIVERPOOL,65521.0,Brazoria,matched_fuel,Brazoria,houston,FarEast,
+12753,33.303497,-101.65722,wind,338.4,1294,WILSON 1,62620.0,Lynn,matched_all,Lynn,west,,West
+12756,33.746323,-99.665516,wind,336.0,1295,TRUSCOTT 1,64639.0,Knox,matched_all,Knox,west,,West
+12758,33.201315,-95.319229,solar,255.9,1238,MOUNT VERNON,67762.0,Hopkins,matched_location,Hopkins,north,FarEast,
+12759,33.201315,-95.319229,battery,72.2,1238,MOUNT VERNON,67762.0,Hopkins,matched_all,Hopkins,north,,
+12760,29.822201,-95.219429,gas,61.0,1129,HOUSTON 6,3464.0,Harris,matched_all,Harris,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12761,29.49233,-94.98483,gas,54.0,932,BACLIFF,63688.0,Galveston,matched_all,Galveston,houston,,
+12764,32.072844,-96.22393,solar,240.8,1296,CORSICANA 3,66801.0,Navarro,matched_all,Navarro,north,FarEast,
+12765,32.072844,-96.22393,battery,73.1,1296,CORSICANA 3,66801.0,Navarro,matched_all,Navarro,north,,
+12766,29.228486,-95.427444,solar,313.0,1053,ANGLETON,65372.0,Brazoria,matched_location,Brazoria,houston,FarEast,
+12769,33.481551,-95.269247,solar,310.0,72,DEPORT,,,no match,Red River,north,FarEast,
+12771,31.819958,-97.517494,solar,310.0,653,CLIFTON 2,67023.0,Hill,matched_fuel,Bosque,north,CenterEast,
+12773,28.170179,-97.817507,wind,307.1,339,MATHIS,61343.0,San Patricio,matched_all,San Patricio,south,,Coastal
+12775,31.10409,-102.60625,solar,306.0,27,CRANE,67006.0,Pecos,matched_all,Pecos,west,FarWest,
+12776,31.091925,-96.69503,coal,153.0,1249,BREMOND,7030.0,Robertson,matched_all,Robertson,north,,
+12777,31.091925,-96.69503,coal,152.0,1249,BREMOND,7030.0,Robertson,matched_all,Robertson,north,,
+12779,33.457143,-95.667897,solar,202.8,455,COOPER,,,no match,Delta,north,FarEast,
+12780,33.457143,-95.667897,battery,101.6,455,COOPER,,,no match,Delta,north,,
+12782,29.45566,-95.31001,battery,304.0,1045,MANVEL,65493.0,Brazoria,matched_fuel,Brazoria,houston,,
+12785,33.021601,-99.61463,solar,225.0,1297,HASKELL 1,63905.0,Haskell,matched_all,Haskell,west,CenterWest,
+12786,33.021601,-99.61463,battery,77.6,1297,HASKELL 1,63905.0,Haskell,matched_all,Haskell,west,,
+12789,32.772889,-101.39102,solar,159.0,1298,LAMESA 1,63328.0,Borden,matched_all,Borden,west,CenterWest,
+12790,32.772889,-101.39102,solar,143.5,1298,LAMESA 1,63328.0,Borden,matched_all,Borden,west,CenterWest,
+12792,31.207988,-101.110787,wind,302.4,32,BIG LAKE,62038.0,Irion,matched_all,Irion,west,,West
+12794,31.5481,-98.49491,wind,302.4,449,GOLDTHWAITE 2,64165.0,Mills,matched_all,Mills,north,,North
+12797,31.729906,-101.29894,wind,301.3,1299,STERLING CITY 3,65162.0,Sterling,matched_all,Glasscock,west,,West
+12799,33.186882,-99.595332,wind,301.0,142,HASKELL,65546.0,Haskell,matched_all,Haskell,west,,West
+12800,26.500883,-97.599064,wind,301.0,351,SAN PERLITA,,,no match,Willacy,south,,Coastal
+12802,27.576111,-98.905278,wind,150.0,346,BRUNI 1,57260.0,Webb,matched_all,Webb,south,,South
+12805,32.069167,-102.585556,gas,150.0,1300,GOLDSMITH 1,58471.0,Ector,matched_all,Ector,west,,
+12806,32.069167,-102.585556,gas,150.0,1300,GOLDSMITH 1,58471.0,Ector,matched_all,Ector,west,,
+12809,34.196962,-101.381494,wind,300.0,1301,LOCKNEY 1,60087.0,Floyd,matched_all,Floyd,west,,Panhandle
+12812,31.181377,-101.318787,wind,300.0,1302,BIG LAKE 1,60987.0,Reagan,matched_all,Reagan,west,,West
+12815,33.150904,-101.679188,wind,300.0,1303,TAHOKA 1,61921.0,Lynn,matched_all,Lynn,west,,West
+12818,27.614411,-98.7945,wind,300.0,1304,BRUNI 3,61969.0,Webb,matched_all,Duval,south,,South
+12821,30.594908,-101.453021,wind,300.0,1305,IRAAN 4,62259.0,Crockett,matched_all,Crockett,west,,West
+12824,32.287873,-102.840399,solar,300.0,1306,ANDREWS 2,62755.0,Andrews,matched_all,Andrews,west,FarWest,
+12827,31.549868,-96.904072,wind,300.0,1307,MART 1,63100.0,Limestone,matched_all,McLennan,north,,North
+12828,33.284418,-95.163557,solar,300.0,1214,MOUNT PLEASANT 2,63194.0,Red River,matched_all,Franklin,north,FarEast,
+12830,31.77471,-96.828196,wind,300.0,603,MOUNT CALM,65048.0,Limestone,matched_all,Hill,north,,North
+12833,28.4279,-97.4544,solar,300.0,1308,GOLLAD 1,,,no match,Goliad,south,SouthEast,
+12836,31.36,-103.33,battery,300.0,1309,PECOS 1,67175.0,Reeves,matched_all,Reeves,west,,
+12839,34.72,-102.253333,wind,299.7,1310,HEREFORD 1,59621.0,Deaf Smith,matched_all,Castro,west,,Panhandle
+12841,31.85346,-96.624458,wind,299.2,572,DAWSON,65306.0,Navarro,matched_all,Navarro,north,,North
+12844,32.28938,-99.291596,wind,293.3,1311,BAIRD 1,62809.0,Callahan,matched_all,Callahan,west,,West
+12845,35.653889,-100.538611,wind,288.6,140,MIAMI,58765.0,Roberts,matched_all,Hemphill,non_ercot,,Panhandle
+12848,34.511944,-102.051944,wind,288.0,1312,NAZARETH 1,,,no match,Castro,west,,Panhandle
+12849,28.650278,-96.539722,gas,143.1,1133,POINT COMFORT 1,56708.0,Calhoun,matched_all,Calhoun,south,,
+12850,28.650278,-96.539722,gas,143.1,1133,POINT COMFORT 1,56708.0,Calhoun,matched_all,Calhoun,south,,
+12853,29.894053,-97.270537,solar,200.0,1313,ROSANKY 1,,,no match,Bastrop,south,FarEast,
+12854,29.894053,-97.270537,battery,80.0,1313,ROSANKY 1,,,no match,Bastrop,south,,
+12856,31.2092,-102.2417,wind,278.0,53,MCCAMEY 2,55581.0,Upton,matched_all,Upton,west,,West
+12859,28.621959,-97.937625,wind,268.2,313,PETTUS,63738.0,Bee,matched_all,Bee,south,,South
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12861,29.227109,-95.430756,gas,44.6,1314,ANGLETON 1,65372.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12862,29.364128,-95.435068,gas,44.6,1114,ROSHARON,65373.0,Brazoria,matched_fuel,Brazoria,houston,,
+12864,32.3994,-97.4078,gas,163.0,687,CLEBURNE 1,54817.0,Johnson,matched_all,Johnson,north,,
+12865,32.3994,-97.4078,gas,104.0,687,CLEBURNE 1,54817.0,Johnson,matched_all,Johnson,north,,
+12868,35.093889,-101.326111,wind,265.5,1315,CLAUDE 1,59246.0,Armstrong,matched_all,Armstrong,west,,Panhandle
+12870,29.7314,-95.0839,gas,69.0,1141,LA PORTE,55365.0,Harris,matched_all,Harris,houston,,
+12871,29.7314,-95.0839,gas,66.0,1141,LA PORTE,55365.0,Harris,matched_all,Harris,houston,,
+12872,29.7314,-95.0839,gas,66.0,1141,LA PORTE,55365.0,Harris,matched_all,Harris,houston,,
+12873,29.7314,-95.0839,gas,62.0,1141,LA PORTE,55365.0,Harris,matched_all,Harris,houston,,
+12874,30.705329,-96.069829,battery,51.6,1239,IOLA,64672.0,Grimes,matched_all,Grimes,north,,
+12875,30.705329,-96.069829,solar,210.0,1239,IOLA,64672.0,Grimes,matched_location,Grimes,north,FarEast,
+12878,31.70038,-104.458136,solar,260.0,1316,VAN HORN 1,63320.0,Culberson,matched_all,Culberson,west,FarWest,
+12881,29.240399,-96.011535,battery,260.0,1317,LANE CITY 1,61875.0,Wharton,matched_location,Wharton,south,,
+12884,33.825,-101.099722,wind,257.0,1318,FLOYDADA 1,58766.0,Crosby,matched_all,Crosby,west,,Panhandle
+12887,32.437418,-99.108907,wind,256.0,1319,CISCO 1,66902.0,Eastland,matched_all,Eastland,west,,North
+12890,28.628,-97.724,solar,255.2,1320,PETTUS 1,,,no match,Goliad,south,SouthEast,
+12892,31.165245,-103.125868,solar,255.0,10,GRANDFALLS,62483.0,Pecos,matched_all,Pecos,west,FarWest,
+12895,31.030996,-102.488209,solar,255.0,1321,FORT STOCKTON 4,62804.0,Pecos,matched_all,Pecos,west,FarWest,
+12896,25.94113,-97.53276,battery,255.0,359,BROWNSVILLE 1,3559.0,Cameron,matched_location,Cameron,south,,
+12899,32.863769,-100.975128,wind,253.0,1322,SNYDER 5,60902.0,Scurry,matched_all,Scurry,west,,West
+12902,33.320637,-100.982201,solar,252.0,1323,SPUR 1,65654.0,Kent,matched_all,Kent,west,NorthWest,
+12904,32.819566,-96.184835,solar,151.0,404,TERRELL 1,,,no match,Kaufman,north,FarEast,
+12905,32.819566,-96.184835,battery,100.0,404,TERRELL 1,,,no match,Kaufman,north,,
+12907,26.465556,-98.411111,wind,250.0,1324,MCCOOK 1,57617.0,Hidalgo,matched_all,Hidalgo,south,,South
+12908,33.345366,-99.624257,wind,250.0,128,ROCHESTER,60901.0,Haskell,matched_all,Haskell,west,,West
+12909,31.843422,-102.868295,solar,250.0,1251,IND W TWFV 0,61906.0,Winkler,matched_all,Winkler,west,FarWest,
+12911,31.435932,-99.796613,solar,250.0,1325,PAINT ROCK 1,61920.0,Concho,matched_all,Concho,west,CenterWest,
+12913,33.25102,-95.193426,solar,250.0,1326,CUNNINGHAM 1,63211.0,Franklin,matched_all,Franklin,north,FarEast,
+12915,28.655277,-98.001388,solar,250.0,1327,PAWNEE 1,63840.0,Bee,matched_all,Bee,south,SouthEast,
+12917,33.426498,-95.357449,solar,250.0,1328,CUNNINGHAM 2,63883.0,Lamar,matched_all,Lamar,north,FarEast,
+12919,32.275814,-102.844806,solar,250.0,1329,ANDREWS 3,64325.0,Andrews,matched_all,Andrews,west,FarWest,
+12920,31.86976,-97.01498,solar,250.0,705,ABBOTT,65303.0,Hill,matched_all,Hill,north,CenterEast,
+12921,31.896737,-96.467327,solar,250.0,1203,WORTHAM,65631.0,Navarro,matched_all,Navarro,north,FarEast,
+12923,29.388758,-94.947928,battery,250.0,1330,TEXAS CITY 3,64297.0,Galveston,matched_fuel,Galveston,houston,,
+12924,30.960219,-97.12452,solar,250.0,856,BURLINGTON,66821.0,Milam,matched_all,Bell,south,CenterEast,
+12925,31.029028,-96.934783,solar,250.0,477,ROSEBUD,66941.0,Milam,matched_all,Milam,south,FarEast,
+12927,31.45,-96.86,solar,150.0,1331,RIESEL 4,67019.0,McLennan,matched_all,Falls,north,FarEast,
+12928,31.45,-96.86,battery,100.0,1331,RIESEL 4,67019.0,McLennan,matched_all,Falls,north,,
+12929,33.21732,-95.4621,solar,250.0,1194,DIKE,67424.0,Hopkins,matched_all,Hopkins,north,FarEast,
+12930,27.32,-99.0,wind,249.7,238,BRUNI 2,60104.0,Webb,matched_all,Webb,south,,South
+12931,27.5925,-97.500833,wind,249.0,250,CORPUS CHRISTI 16,59193.0,Nueces,matched_all,Nueces,south,,Coastal
+12932,33.310446,-97.369773,solar,245.0,435,KRUM,65937.0,Denton,matched_all,Denton,north,CenterEast,
+12933,29.723185,-95.128856,gas,78.0,955,HOUSTON 10,50304.0,Harris,matched_all,Harris,houston,,
+12934,29.723185,-95.128856,gas,75.0,955,HOUSTON 10,50304.0,Harris,matched_all,Harris,houston,,
+12936,28.896781,-95.865183,wind,243.0,1332,BAY CITY 1,62417.0,Matagorda,matched_fuel,Matagorda,south,,Coastal
+12938,33.732181,-99.726392,wind,242.8,1333,TRUSCOTT 2,62765.0,Knox,matched_all,Knox,west,,West
+12940,32.84879,-100.866458,wind,242.5,1334,SNYDER 6,63655.0,Scurry,matched_all,Scurry,west,,West
+12941,32.3122,-100.5303,wind,241.0,175,ROSCOE 5,56337.0,Nolan,matched_all,Nolan,west,,West
+12943,28.905346,-96.978078,solar,180.0,1335,VICTORIA 4,66563.0,Victoria,matched_location,Victoria,south,SouthEast,
+12944,28.905346,-96.978078,battery,61.0,1335,VICTORIA 4,66563.0,Victoria,matched_location,Victoria,south,,
+12946,34.380532,-100.099625,solar,240.0,1336,CHILDRESS 1,62249.0,Childress,matched_all,Childress,west,NorthWest,
+12947,29.560311,-95.98036,solar,240.0,1038,FULSHEAR,63985.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+12949,29.806984,-97.07408,solar,240.0,1337,MULDOON 1,,,no match,Fayette,south,FarEast,
+12950,31.468564,-96.794168,solar,240.0,573,MART,65998.0,Falls,matched_all,Falls,north,FarEast,
+12952,31.045676,-96.858633,solar,240.0,1338,ROSEBUD 1,66941.0,Milam,matched_all,Milam,south,FarEast,
+12954,33.599167,-95.525056,solar,240.0,1339,PARIS 4,66471.0,Lamar,matched_all,Lamar,north,FarEast,
+12955,32.552083,-96.539931,battery,240.0,634,SEAGOVILLE,,,no match,Dallas,north,,
+12956,26.376651,-97.993045,wind,239.8,251,EDCOUCH,62855.0,Willacy,matched_all,Hidalgo,south,,South
+12957,28.2078,-97.522673,wind,239.6,263,SINTON,62783.0,Bee,matched_all,Bee,south,,South
+12958,33.6968,-95.5577,gas,76.0,69,PARIS 2,50109.0,Lamar,matched_all,Lamar,north,,
+12959,26.461461,-98.285881,wind,238.5,236,EDINBURG 3,,,no match,Hidalgo,south,,South
+12960,26.649,-99.0387,wind,237.6,267,FALCON HEIGHTS 2,61865.0,Starr,matched_all,Starr,south,,South
+12961,32.124519,-96.101277,gas,235.0,1243,TRINIDAD 1,3507.0,Henderson,matched_all,Henderson,north,,
+12963,34.6675,-102.577778,wind,230.4,1340,FRIONA 1,59005.0,Parmer,matched_all,Parmer,west,,Panhandle
+12964,34.102943,-99.118746,wind,230.0,93,ELECTRA,60338.0,Wilbarger,matched_all,Wilbarger,west,,West
+12966,33.35,-99.54,wind,230.0,1341,WEINERT 1,60339.0,Haskell,matched_all,Haskell,west,,West
+12967,29.45527,-96.088253,solar,230.0,1022,HUNGERFORD,65034.0,Wharton,matched_all,Wharton,south,FarEast,
+12968,32.160767,-96.195272,solar,152.7,1193,TRINIDAD 2,,,no match,Navarro,north,FarEast,
+12969,32.160767,-96.195272,battery,76.8,1193,TRINIDAD 2,,,no match,Navarro,north,,
+12971,26.522222,-97.691111,wind,228.0,1342,RAYMONDVILLE 1,59066.0,Willacy,matched_all,Willacy,south,,Coastal
+12973,29.358425,-95.746388,solar,227.5,1343,NEEDVILLE 1,62945.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+12975,28.974482,-95.993814,battery,226.8,1344,BAY CITY 2,66930.0,Matagorda,matched_fuel,Matagorda,south,,
+12977,27.580489,-97.640077,wind,226.1,1345,BISHOP 1,58614.0,Nueces,matched_all,Nueces,south,,Coastal
+12979,33.609313,-99.58229,wind,225.6,1346,E SEYMOUR 1,62411.0,Knox,matched_all,Knox,west,,West
+12981,32.741383,-101.621793,solar,225.0,1347,GAIL 2,62845.0,Borden,matched_all,Borden,west,CenterWest,
+12983,29.295201,-95.42685,solar,225.0,1348,BONNEY 1,65372.0,Brazoria,matched_location,Brazoria,houston,FarEast,
+12985,30.936,-101.607,wind,223.9,1349,TBD 1,66540.0,Crockett,matched_all,Crockett,west,,West
+12986,33.639193,-95.629049,battery,50.4,1350,PARIS 5,55097.0,Lamar,matched_location,Lamar,north,,
+12987,33.639193,-95.629049,solar,171.7,1350,PARIS 5,55097.0,Lamar,matched_location,Lamar,north,FarEast,
+12988,29.109147,-96.528761,solar,150.5,1068,GANADO,67284.0,Jackson,matched_all,Jackson,south,FarEast,
+12989,29.109147,-96.528761,battery,70.5,1068,GANADO,67284.0,Jackson,matched_all,Jackson,south,,
+12990,28.197778,-97.444953,wind,220.0,248,WOODSBORO,62416.0,Refugio,matched_all,Refugio,south,,Coastal
+12992,27.553355,-97.675284,solar,145.0,1351,KINGSVILLE 1,58614.0,Nueces,matched_location,Kleberg,south,SouthEast,
+12993,27.553355,-97.675284,battery,75.0,1351,KINGSVILLE 1,58614.0,Nueces,matched_location,Kleberg,south,,
+12994,28.988761,-95.395417,gas,50.0,1352,FREEPORT 4,56152.0,Brazoria,matched_fuel,Brazoria,houston,,
+12995,28.988761,-95.395417,gas,169.4,1352,FREEPORT 4,56152.0,Brazoria,matched_all,Brazoria,houston,,
+12997,32.781168,-100.006455,solar,215.0,1353,HAMLIN 1,,,no match,Jones,west,CenterWest,
+12998,32.273178,-101.422386,gas,70.0,40,BIG SPRING 6,52176.0,Howard,matched_all,Howard,west,,
+13000,33.433264,-95.574442,solar,150.0,1354,DELTA 1,,,no match,Delta,north,FarEast,
+13001,33.433264,-95.574442,battery,61.5,1354,DELTA 1,,,no match,Delta,north,,
+13003,32.7,-101.741111,wind,211.2,1355,LAMESA 2,59332.0,Dawson,matched_all,Dawson,west,,West
+13005,35.200164,-102.315517,wind,210.1,1356,VEGA 1,63030.0,Deaf Smith,matched_all,Oldham,west,,Panhandle
+13007,30.967591,-97.165108,solar,210.0,1357,ROGERS 1,66821.0,Milam,matched_all,Bell,south,CenterEast,
+13009,30.651189,-96.091337,solar,210.0,1358,LOLA 1,64672.0,Grimes,matched_location,Grimes,north,FarEast,
+13011,27.03028,-99.388388,wind,209.4,1359,SAN YGNACIO 1,62207.0,Zapata,matched_all,Zapata,south,,South
+13013,33.182414,-99.389888,wind,209.0,1360,THROCKMORTON 1,66323.0,Throckmorton,matched_all,Throckmorton,west,,West
+13014,31.74325,-101.493407,wind,207.2,12,GARDEN CITY,59943.0,Glasscock,matched_all,Glasscock,west,,West
+13015,29.87404,-95.018244,battery,206.0,1044,CROSBY,67738.0,Harris,matched_all,Harris,houston,,
+13016,30.7217,-96.4608,gas,110.0,1250,BRYAN 1,6243.0,Brazos,matched_all,Brazos,north,,
+13017,33.509722,-98.360833,wind,204.0,107,WINDTHORST,59034.0,Clay,matched_all,Clay,west,,West
+13019,32.089488,-98.178531,solar,204.0,1361,STEPHENVILLE 1,,,no match,Erath,north,CenterEast,
+13020,32.796921,-99.880885,solar,204.0,176,ANSON,64026.0,Jones,matched_all,Jones,west,CenterWest,
+13021,32.783669,-99.720186,solar,204.0,159,LUEDERS,,,no match,Jones,west,CenterWest,
+13023,31.186,-103.128,solar,203.8,1362,COYANOSA 1,64075.0,Pecos,matched_all,Pecos,west,FarWest,
+13024,29.291845,-99.612368,solar,203.5,216,SABINAL,64258.0,Uvalde,matched_all,Uvalde,south,SouthEast,
+13026,26.475278,-97.691111,wind,203.0,1363,SAN PERLITA 1,57802.0,Willacy,matched_all,Willacy,south,,Coastal
+13028,31.191687,-102.317227,battery,203.0,1364,CRANE 1,66009.0,Crane,matched_all,Crane,west,,
+13030,33.841272,-99.657805,wind,202.5,1365,CROWELL 1,,,no match,Foard,west,,West
+13032,29.209729,-96.029597,wind,202.5,1366,LANE CITY 2,61875.0,Wharton,matched_location,Wharton,south,,South
+13033,26.34892,-97.6668,wind,201.6,361,SEBASTIAN 1,57752.0,Cameron,matched_all,Willacy,south,,Coastal
+13035,26.69842,-99.05745,wind,201.6,1367,FALCON 1,63101.0,Zapata,matched_all,Zapata,south,,South
+13037,26.941667,-97.6425,wind,201.0,1368,ARMSTRONG 3,59063.0,Kenedy,matched_all,Kenedy,south,,Coastal
+13039,34.49,-101.97,solar,201.0,1369,TULIA 2,,,no match,Swisher,west,NorthWest,
+13040,29.137519,-95.667972,battery,200.9,1014,WEST COLUMBIA,62753.0,Brazoria,matched_fuel,Brazoria,houston,,
+13042,33.719262,-99.023013,wind,102.0,1370,SEYMOUR 1,67601.0,Baylor,matched_all,Baylor,west,,West
+13043,33.719262,-99.023013,wind,98.6,1370,SEYMOUR 1,67601.0,Baylor,matched_all,Baylor,west,,West
+13044,29.350992,-100.562028,battery,40.4,1371,BRACKETTVILLE 4,66137.0,Kinney,matched_all,Kinney,south,,
+13045,29.350992,-100.562028,solar,160.0,1371,BRACKETTVILLE 4,66137.0,Kinney,matched_all,Kinney,south,SouthEast,
+13047,34.170488,-99.563436,wind,200.2,1372,CHILICOTHE 1,62566.0,Hardeman,matched_all,Hardeman,west,,West
+13048,26.364153,-97.780439,wind,200.2,353,SANTA ROSA 2,62909.0,Willacy,matched_all,Willacy,south,,Coastal
+13049,27.992706,-97.743983,wind,200.2,291,ODEM,64591.0,San Patricio,matched_all,San Patricio,south,,Coastal
+13050,27.9958,-97.2967,wind,200.1,350,TAFT 1,57212.0,San Patricio,matched_all,San Patricio,south,,Coastal
+13052,31.8225,-98.690556,wind,200.1,1373,COMANCHE 1,59442.0,Comanche,matched_all,Comanche,north,,North
+13054,26.33072,-97.5857,wind,200.0,1374,SEBASTIAN 3,57751.0,Cameron,matched_all,Willacy,south,,Coastal
+13056,34.311111,-101.251111,wind,200.0,1375,SILVERTON 1,58772.0,Briscoe,matched_all,Floyd,west,,Panhandle
+13058,34.748056,-102.174444,wind,200.0,1376,HEREFORD 2,58773.0,Deaf Smith,matched_all,Deaf Smith,west,,Panhandle
+13060,35.254184,-101.186622,wind,200.0,1377,GROOM 1,59068.0,Carson,matched_all,Carson,west,,Panhandle
+13062,26.388611,-98.806111,wind,200.0,1378,RIO GRANDE CITY 1,59320.0,Starr,matched_all,Starr,south,,South
+13064,26.380556,-98.818333,wind,200.0,1379,RIO GRANDE CITY 2,59321.0,Starr,matched_all,Starr,south,,South
+13066,34.080556,-101.323611,wind,200.0,1380,FLOYDADA 2,59384.0,Floyd,matched_all,Floyd,west,,Panhandle
+13068,27.44,-98.91,wind,200.0,1381,MIRANDO 1,60645.0,Webb,matched_all,Webb,south,,South
+13070,31.684511,-98.603358,wind,200.0,1382,MULLIN 1,61212.0,Mills,matched_all,Mills,north,,North
+13072,32.104125,-100.162375,solar,200.0,1383,WINGATE 1,61962.0,Nolan,matched_all,Nolan,west,CenterWest,
+13074,31.517,-100.6,solar,200.0,1384,SAN ANGELO 4,62141.0,Tom Green,matched_all,Tom Green,west,CenterWest,
+13076,26.523692,-98.745522,wind,200.0,1385,RIO GRANDE CITY 3,62258.0,Starr,matched_all,Starr,south,,South
+13078,33.26102,-95.193426,solar,200.0,1386,CUNNINGHAM 3,63211.0,Franklin,matched_fuel,Franklin,north,FarEast,
+13080,32.811041,-99.91749,solar,200.0,1387,ANSON 1,64026.0,Jones,matched_all,Jones,west,CenterWest,
+13081,29.191,-95.663,solar,200.0,1048,DAMON,64447.0,Brazoria,matched_all,Brazoria,houston,FarEast,
+13082,27.634677,-99.258329,solar,200.0,293,LAREDO 3,64538.0,Webb,matched_all,Webb,south,SouthEast,
+13084,28.44208,-99.75582,solar,200.0,1388,CARRIZO SPRINGS 1,65333.0,Dimmit,matched_all,Dimmit,south,SouthEast,
+13086,33.781077,-100.883227,battery,200.0,1389,AFTON 1,65489.0,Dickens,matched_all,Dickens,west,,
+13088,30.992905,-102.289475,battery,200.0,1390,FORT STOCKTON 5,65490.0,Pecos,matched_all,Pecos,west,,
+13090,33.889462,-101.80158,battery,200.0,1391,ABERNATHY 1,65491.0,Hale,matched_all,Hale,west,,
+13092,33.32056,-100.981664,solar,200.0,1392,SPUR 2,65660.0,Kent,matched_all,Kent,west,NorthWest,
+13094,26.652863,-98.014871,battery,200.0,1393,SEGUIN 3,,,no match,Hidalgo,south,,
+13096,29.150279,-95.651179,battery,200.0,1394,WEST COLUMBIA 1,62753.0,Brazoria,matched_fuel,Brazoria,houston,,
+13098,29.063305,-95.735431,battery,200.0,1395,SWEENY 1,64321.0,Brazoria,matched_fuel,Brazoria,houston,,
+13100,29.1779,-95.7612,solar,200.0,1396,DAMON 1,66046.0,Brazoria,matched_all,Brazoria,houston,FarEast,
+13102,29.39,-95.78,solar,200.0,1397,RICHMOND 3,66262.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+13103,31.09828,-96.66368,battery,200.0,1211,CALVERT,7030.0,Robertson,matched_location,Robertson,north,,
+13105,28.947973,-99.067186,solar,200.0,1398,PEARSALL 1,65308.0,Frio,matched_all,Frio,south,SouthEast,
+13107,30.996511,-97.001505,solar,200.0,1399,BURLINGTON 1,66859.0,Milam,matched_all,Milam,south,FarEast,
+13109,26.45,-98.48,battery,200.0,1400,EDINBURG 4,67236.0,Hidalgo,matched_all,Hidalgo,south,,
+13110,29.620088,-98.334481,battery,200.0,824,SAN ANTONIO 3,67237.0,Comal,matched_all,Comal,south,,
+13112,33.213466,-99.47612,wind,200.0,1401,HASKELL 2,66321.0,Haskell,matched_all,Haskell,west,,West
+13113,29.484448,-95.621636,battery,200.0,981,SUGAR LAND 2,3470.0,Fort Bend,matched_location,Fort Bend,houston,,
+13115,33.467803,-95.370856,solar,198.5,1402,DEPORT 1,63222.0,Lamar,matched_all,Lamar,north,FarEast,
+13116,26.249888,-97.511842,wind,198.5,287,RIO HONDO,63624.0,Cameron,matched_all,Cameron,south,,Coastal
+13118,31.39376,-98.35936,wind,196.8,1403,GOLDTHWAITE 3,65790.0,Mills,matched_all,Mills,north,,North
+13120,31.727237,-101.582,wind,196.7,1404,ST. LAWRENCE 1,59972.0,Glasscock,matched_all,Glasscock,west,,West
+13121,32.533273,-96.428985,solar,146.7,525,SCURRY,63892.0,Kaufman,matched_all,Kaufman,north,FarEast,
+13123,28.68851,-96.509833,solar,196.3,1405,PORT LAVACA 1,65947.0,Calhoun,matched_all,Calhoun,south,SouthEast,
+13125,35.295,-102.721111,wind,194.0,1406,ADRIAN 1,58775.0,Oldham,matched_all,Oldham,west,,Panhandle
+13126,29.2567,-98.3825,gas,48.0,1407,ELMENDORF 1,3612.0,Bexar,matched_fuel,Bexar,south,,
+13126,29.2567,-98.3825,gas,48.0,1407,ELMENDORF 1,3612.0,Bexar,matched_fuel,Bexar,south,,
+13126,29.2567,-98.3825,gas,48.0,1407,ELMENDORF 1,3612.0,Bexar,matched_fuel,Bexar,south,,
+13126,29.2567,-98.3825,gas,47.0,1407,ELMENDORF 1,3612.0,Bexar,matched_fuel,Bexar,south,,
+13127,33.004305,-96.075913,battery,190.0,688,GREENVILLE 2,65410.0,Hunt,matched_all,Hunt,north,,
+13128,26.195278,-97.466111,battery,24.0,1408,RIO HONDO 1,59118.0,Cameron,matched_fuel,Cameron,south,,
+13129,26.195278,-97.466111,wind,165.0,1408,RIO HONDO 1,59118.0,Cameron,matched_all,Cameron,south,,Coastal
+13130,31.995,-102.828333,wind,92.5,55,GOLDSMITH,56961.0,Ector,matched_all,Winkler,west,,West
+13132,27.184652,-97.59818,wind,188.0,1409,SARITA 4,57927.0,Kenedy,matched_all,Kenedy,south,,Coastal
+13134,33.268,-99.468,wind,184.0,1410,THROCKMORTON 2,66321.0,Haskell,matched_all,Throckmorton,west,,West
+13136,34.072251,-99.264676,wind,183.8,1411,VERNON 3,62356.0,Wilbarger,matched_all,Wilbarger,west,,West
+13138,30.995503,-102.223537,solar,182.0,1412,FORT STOCKTON 6,61368.0,Pecos,matched_all,Pecos,west,FarWest,
+13139,35.442778,-101.372778,wind,181.7,136,PANHANDLE 1,58720.0,Carson,matched_all,Carson,west,,Panhandle
+13141,31.255,-102.272,solar,180.0,1413,MCCARNEY 1,60123.0,Upton,matched_all,Upton,west,FarWest,
+13143,31.242177,-99.421266,wind,180.0,1414,BRADY 1,61032.0,McCulloch,matched_all,McCulloch,south,,South
+13145,31.719983,-104.442292,solar,180.0,1415,VAN HORN 2,63329.0,Culberson,matched_all,Culberson,west,FarWest,
+13146,33.54915,-97.32958,wind,175.3,82,LINDSAY,62715.0,Cooke,matched_all,Cooke,north,,North
+13148,30.885123,-102.42261,battery,175.0,1416,FORT STOCKTON 7,65492.0,Pecos,matched_all,Pecos,west,,
+13150,35.18172,-100.934408,wind,174.0,1417,CLARENDON 1,60657.0,Donley,matched_all,Donley,west,,Panhandle
+13151,29.281605,-95.295533,battery,174.0,1136,DANBURY,67083.0,Brazoria,matched_all,Brazoria,houston,,
+13152,29.378164,-94.92195,gas,34.0,1418,TEXAS CITY 4,52132.0,Galveston,matched_fuel,Galveston,houston,,
+13153,29.378164,-94.92195,gas,69.0,1418,TEXAS CITY 4,52132.0,Galveston,matched_all,Galveston,houston,,
+13154,29.378164,-94.92195,gas,69.0,1418,TEXAS CITY 4,52132.0,Galveston,matched_all,Galveston,houston,,
+13156,31.157269,-101.831603,wind,171.8,1419,RANKIN 2,65335.0,Upton,matched_all,Upton,west,,West
+13158,32.1981,-100.2686,wind,169.5,1420,BLACKWELL 1,56774.0,Nolan,matched_all,Nolan,west,,West
+13160,35.259819,-102.06431,wind,167.8,1421,AMARILLO 1,,,no match,Potter,west,,Panhandle
+13162,34.378546,-102.053717,wind,166.4,1422,CASTRO 1,,,no match,Castro,west,,Panhandle
+13164,29.0919,-96.09,wind,163.2,1423,EL CAMPO 3,66157.0,Wharton,matched_location,Wharton,south,,South
+13166,34.769544,-102.052422,wind,163.0,1424,HAPPY 1,60856.0,Randall,matched_all,Randall,west,,Panhandle
+13168,27.954976,-97.300202,wind,162.9,1425,TAFT 3,61776.0,San Patricio,matched_all,San Patricio,south,,Coastal
+13170,31.754037,-101.67516,wind,162.1,1426,GARDEN CITY 1,,,no match,Glasscock,west,,West
+13172,35.276944,-102.682778,wind,161.0,1427,ADRIAN 2,58774.0,Oldham,matched_all,Oldham,west,,Panhandle
+13173,31.694792,-97.374883,solar,161.0,649,CHINA SPRING,67580.0,Bosque,matched_all,McLennan,north,CenterEast,
+13175,32.386,-102.949,wind,160.7,1428,ANDREWS 4,62630.0,Andrews,matched_all,Andrews,west,,West
+13177,29.694838,-95.040622,gas,80.0,1429,LA PORTE 1,7325.0,Harris,matched_all,Harris,houston,,
+13178,29.694838,-95.040622,gas,80.0,1429,LA PORTE 1,7325.0,Harris,matched_all,Harris,houston,,
+13180,31.360331,-99.551356,wind,160.0,1430,BRADY 2,60743.0,McCulloch,matched_all,McCulloch,south,,South
+13182,30.904629,-102.915916,battery,160.0,1431,FORT STOCKTON 8,66336.0,Pecos,matched_fuel,Pecos,west,,
+13184,31.214,-100.255,solar,159.8,1432,SAN ANGELO 5,65793.0,Tom Green,matched_all,Tom Green,west,CenterWest,
+13185,32.875073,-101.208955,wind,158.0,21,COAHOMA,61417.0,Borden,matched_all,Borden,west,,West
+13187,30.960209,-103.306662,solar,157.5,1433,FORT STOCKTON 9,59994.0,Pecos,matched_all,Pecos,west,FarWest,
+13188,32.116002,-97.343521,solar,104.0,472,RIO VISTA,63180.0,Bosque,matched_fuel,Hill,north,CenterEast,
+13190,30.57552,-102.551292,solar,154.0,1434,FT. STOCKTON 1,60044.0,Pecos,matched_all,Pecos,west,FarWest,
+13192,32.635105,-98.677196,wind,152.0,1435,STEPHENS 1,,,no match,Stephens,west,,North
+13193,32.428686,-99.159114,wind,151.5,440,BAIRD,67425.0,Eastland,matched_all,Callahan,west,,West
+13195,34.070333,-101.187628,wind,151.2,1436,FLOYDADA 3,60366.0,Floyd,matched_all,Floyd,west,,Panhandle
+13196,28.8433,-95.8631,wind,151.2,1061,BAY CITY,62417.0,Matagorda,matched_all,Matagorda,south,,Coastal
+13197,33.752201,-100.967402,wind,150.0,92,CROSBYTON,56773.0,Dickens,matched_all,Dickens,west,,Panhandle
+13199,31.085435,-100.67882,wind,150.0,1437,CHRISTOVAL 1,57153.0,Tom Green,matched_all,Schleicher,west,,West
+13201,35.205278,-101.434167,wind,150.0,1438,PANHANDLE 7,58681.0,Carson,matched_all,Carson,west,,Panhandle
+13203,33.628222,-99.411169,wind,150.0,1439,SEYMOUR 2,59732.0,Baylor,matched_all,Baylor,west,,West
+13205,33.645964,-99.532944,wind,150.0,1440,SEYMOUR 3,59733.0,Knox,matched_all,Knox,west,,West
+13206,34.432267,-101.237233,wind,150.0,74,SILVERTON,59734.0,Briscoe,matched_all,Briscoe,west,,Panhandle
+13208,34.668882,-102.351727,wind,150.0,1441,HART 1,,,no match,Castro,west,,Panhandle
+13210,33.8093,-101.342405,wind,150.0,1442,CROSBY 1,,,no match,Crosby,west,,Panhandle
+13212,31.241808,-102.29027,solar,150.0,1443,MCCAMEY 3,60581.0,Upton,matched_all,Upton,west,FarWest,
+13213,31.703258,-102.701206,solar,150.0,1253,IND W TWFV 2,62933.0,Ector,matched_all,Ector,west,FarWest,
+13215,31.254361,-102.31165,solar,150.0,1444,CRANE 2,63519.0,Crane,matched_all,Crane,west,FarWest,
+13217,30.010255,-94.486313,solar,150.0,1445,LIBERTY 1,,,no match,Liberty,non_ercot,FarEast,
+13219,31.233457,-102.308519,battery,150.0,1446,MCCAMEY 4,66170.0,Crane,matched_all,Crane,west,,
+13221,33.00659,-99.60541,battery,150.0,1447,MCCARNEY 2,63905.0,Haskell,matched_fuel,Haskell,west,,
+13223,33.01659,-99.60541,battery,150.0,1448,HASKELL 3,63905.0,Haskell,matched_fuel,Haskell,west,,
+13225,28.430335,-97.452375,battery,150.0,1449,GOLIAD 1,,,no match,Goliad,south,,
+13227,28.440335,-97.452375,battery,150.0,1450,GOLIAD 2,,,no match,Goliad,south,,
+13229,27.577207,-99.276018,battery,150.0,1451,LAREDO 8,66616.0,Webb,matched_all,Webb,south,,
+13231,32.72233,-101.638499,battery,150.0,1452,GAIL 3,66804.0,Borden,matched_all,Borden,west,,
+13233,29.227753,-95.428061,battery,150.0,1453,ANGLETON 2,64295.0,Brazoria,matched_fuel,Brazoria,houston,,
+13235,29.023637,-96.220536,battery,150.0,1454,EL CAMPO 4,,,no match,Wharton,south,,
+13236,32.452281,-97.072628,battery,150.0,499,VENUS,63797.0,Ellis,matched_location,Ellis,north,,
+13238,33.457356,-97.289614,solar,150.0,1455,GAINSVILLE 1,,,no match,Cooke,north,CenterEast,
+13240,29.72753,-100.79431,wind,149.3,1456,DEL RIO 1,60217.0,Val Verde,matched_all,Val Verde,west,,West
+13242,31.112474,-100.028142,wind,148.4,1457,EDEN 1,61001.0,Concho,matched_all,Concho,west,,West
+13244,32.308524,-99.164198,wind,148.0,1458,CISCO 2,64544.0,Callahan,matched_all,Callahan,west,,West
+13245,32.18398,-97.07141,solar,145.0,622,ITASCA,66324.0,Hill,matched_all,Hill,north,CenterEast,
+13246,32.290833,-100.4219,wind,144.0,217,SWEETWATER 2,56311.0,Nolan,matched_all,Nolan,west,,West
+13248,26.288889,-97.496389,wind,142.6,1459,RIO HONDO 2,61773.0,Cameron,matched_all,Cameron,south,,Coastal
+13249,31.7983,-101.9043,wind,140.0,1260,IND W TWFV 9,66531.0,Midland,matched_all,Midland,west,,West
+13250,26.523359,-99.017108,solar,136.0,307,ROMA,65975.0,Starr,matched_all,Starr,south,SouthEast,
+13251,26.090103,-97.798453,solar,135.0,249,MERCEDES,65661.0,Cameron,matched_all,Cameron,south,SouthEast,
+13252,32.23256,-96.706121,solar,134.7,419,BARDWELL,63764.0,Ellis,matched_all,Ellis,north,CenterEast,
+13253,29.753517,-94.997277,gas,31.0,1460,BAYTOWN 5,10436.0,Harris,matched_all,Harris,houston,,
+13253,29.753517,-94.997277,gas,31.0,1460,BAYTOWN 5,10436.0,Harris,matched_all,Harris,houston,,
+13253,29.753517,-94.997277,gas,18.0,1460,BAYTOWN 5,10436.0,Harris,matched_fuel,Harris,houston,,
+13253,29.753517,-94.997277,gas,18.0,1460,BAYTOWN 5,10436.0,Harris,matched_fuel,Harris,houston,,
+13253,29.753517,-94.997277,gas,18.0,1460,BAYTOWN 5,10436.0,Harris,matched_fuel,Harris,houston,,
+13253,29.753517,-94.997277,gas,18.0,1460,BAYTOWN 5,10436.0,Harris,matched_fuel,Harris,houston,,
+13254,30.009659,-95.040827,solar,67.2,1123,HUFFMAN,,,no match,Harris,houston,FarEast,
+13255,30.009659,-95.040827,battery,65.0,1123,HUFFMAN,,,no match,Harris,houston,,
+13257,27.918286,-97.98045,solar,131.0,1461,JIM WELLS 1,,,no match,Jim Wells,south,SouthEast,
+13258,32.7204,-100.9952,wind,130.5,223,SNYDER 2,56506.0,Scurry,matched_all,Scurry,west,,West
+13260,28.883196,-99.178605,solar,130.0,1462,PEARSALL 2,64204.0,Frio,matched_all,Frio,south,SouthEast,
+13261,32.067483,-96.585136,solar,127.0,493,CORSICANA 2,63769.0,Navarro,matched_all,Navarro,north,FarEast,
+13262,32.3983,-100.6481,wind,126.5,219,ROSCOE 3,56592.0,Nolan,matched_all,Nolan,west,,West
+13263,33.703851,-97.372009,wind,125.0,130,MUENSTER 2,60502.0,Cooke,matched_all,Cooke,north,,North
+13264,31.534768,-100.113803,solar,125.0,186,MILES,,,no match,Tom Green,west,CenterWest,
+13265,30.228276,-97.618833,battery,125.0,726,AUSTIN 6,67860.0,Travis,matched_all,Travis,south,,
+13267,33.210732,-97.418986,battery,125.0,1463,DECATUR 1,67861.0,Wise,matched_all,Wise,north,,
+13269,33.404486,-96.082472,solar,123.6,1464,WOLFE CITY 1,62772.0,Fannin,matched_all,Fannin,north,FarEast,
+13270,33.5211,-101.7906,gas,42.0,1465,LUBBOCK 1,3602.0,Lubbock,matched_fuel,Lubbock,west,,
+13270,33.5211,-101.7906,gas,46.0,1465,LUBBOCK 1,3602.0,Lubbock,matched_fuel,Lubbock,west,,
+13270,33.5211,-101.7906,gas,16.0,1465,LUBBOCK 1,3602.0,Lubbock,matched_all,Lubbock,west,,
+13270,33.5211,-101.7906,gas,16.0,1465,LUBBOCK 1,3602.0,Lubbock,matched_all,Lubbock,west,,
+13272,29.242304,-95.658144,solar,120.0,1466,DAMON 2,63273.0,Brazoria,matched_all,Brazoria,houston,FarEast,
+13273,33.030354,-96.357203,battery,120.0,531,NEVADA,67739.0,Collin,matched_all,Collin,north,,
+13275,31.000883,-102.281744,solar,118.5,1467,MCCAMEY 5,60436.0,Pecos,matched_all,Pecos,west,FarWest,
+13276,29.647267,-95.451516,gas,117.0,1041,HOUSTON 63,60468.0,Harris,matched_all,Harris,houston,,
+13278,30.993056,-102.270833,solar,116.0,1468,FORT STOCKTON 10,59206.0,Pecos,matched_all,Pecos,west,FarWest,
+13279,31.9361,-101.2983,wind,115.5,49,BIG SPRING 2,56921.0,Glasscock,matched_all,Glasscock,west,,West
+13281,31.888,-100.825,solar,115.0,1469,STERLING 1,63351.0,Sterling,matched_all,Sterling,west,CenterWest,
+13283,32.308524,-99.164498,wind,114.9,1470,CISCO 3,64551.0,Callahan,matched_all,Callahan,west,,West
+13284,32.303889,-100.021667,wind,114.0,221,TUSOCOLA,56270.0,Taylor,matched_all,Taylor,west,,West
+13286,29.409669,-95.73405,solar,110.9,1471,RICHMOND 4,66310.0,Fort Bend,matched_all,Fort Bend,houston,FarEast,
+13287,29.2293,-95.1952,gas,40.0,1472,ALVIN 1,10154.0,Brazoria,matched_all,Brazoria,houston,,
+13287,29.2293,-95.1952,gas,40.0,1472,ALVIN 1,10154.0,Brazoria,matched_all,Brazoria,houston,,
+13287,29.2293,-95.1952,gas,30.0,1472,ALVIN 1,10154.0,Brazoria,matched_fuel,Brazoria,houston,,
+13288,33.143056,-98.161111,wind,110.0,613,JACKSBORO 2,58838.0,Jack,matched_all,Jack,north,,North
+13290,26.411689,-98.571554,wind,110.0,1473,RIO GRANDE CITY 4,60059.0,Starr,matched_all,Starr,south,,South
+13292,31.446237,-99.902973,solar,110.0,1474,PAINT ROCK 2,63343.0,Concho,matched_all,Concho,west,CenterWest,
+13293,31.738177,-98.213739,solar,100.0,537,HAMILTON,66410.0,Hamilton,matched_all,Hamilton,north,CenterEast,
+13295,31.09331,-102.35964,solar,108.0,1475,CRANE 3,63233.0,Pecos,matched_all,Crane,west,FarWest,
+13296,25.9131,-97.5214,gas,45.0,1476,BROWNSVILLE 4,3559.0,Cameron,matched_all,Cameron,south,,
+13296,25.9131,-97.5214,gas,20.0,1476,BROWNSVILLE 4,3559.0,Cameron,matched_fuel,Cameron,south,,
+13296,25.9131,-97.5214,gas,42.0,1476,BROWNSVILLE 4,3559.0,Cameron,matched_all,Cameron,south,,
+13298,28.69954,-100.40353,battery,102.6,1477,EAGLE PASS 1,64318.0,Maverick,matched_fuel,Maverick,south,,
+13299,32.4081,-100.1286,wind,101.2,224,SWEETWATER 1,56649.0,Nolan,matched_all,Taylor,west,,West
+13301,32.290724,-100.865736,solar,101.0,1478,COLORADO CITY 1,3492.0,Mitchell,matched_location,Mitchell,west,CenterWest,
+13303,31.197285,-103.361771,battery,101.0,1479,PECOS 2,66007.0,Reeves,matched_all,Reeves,west,,
+13305,31.45115,-103.361771,battery,101.0,1480,PYOTE 1,66008.0,Ward,matched_all,Ward,west,,
+13307,32.7171,-101.9378,battery,100.8,1481,LAMESA 3,67721.0,Dawson,matched_all,Dawson,west,,
+13308,32.371306,-98.377389,wind,100.5,702,MINGUS,60983.0,Erath,matched_all,Erath,north,,North
+13309,31.346717,-97.082774,solar,100.1,604,RIESEL 2,64260.0,Falls,matched_all,Falls,north,FarEast,
+13311,31.356717,-97.082774,solar,100.1,1482,CHILTON 1,64260.0,Falls,matched_all,Falls,north,FarEast,
+13312,32.747058,-100.954661,gas,42.0,1483,SNYDER 7,56233.0,Scurry,matched_fuel,Scurry,west,,
+13312,32.747058,-100.954661,gas,42.0,1483,SNYDER 7,56233.0,Scurry,matched_fuel,Scurry,west,,
+13312,32.747058,-100.954661,gas,16.0,1483,SNYDER 7,56233.0,Scurry,matched_fuel,Scurry,west,,
+13314,29.216667,-99.716111,solar,100.0,1484,UVALDE 1,59205.0,Uvalde,matched_all,Uvalde,south,SouthEast,
+13316,33.04,-99.5525,solar,100.0,1485,HASKELL 4,59207.0,Haskell,matched_all,Haskell,west,CenterWest,
+13318,32.715611,-101.926522,solar,100.0,1486,LAMESA 4,60372.0,Dawson,matched_all,Dawson,west,NorthWest,
+13320,31.4308,-103.7289,solar,100.0,1487,TBD 2,62415.0,Reeves,matched_all,Reeves,west,FarWest,
+13321,32.460054,-102.672809,solar,100.0,1254,IND W TWFV 3,62448.0,Andrews,matched_all,Andrews,west,FarWest,
+13322,32.904444,-97.386111,battery,100.0,608,FORT WORTH 16,63737.0,Tarrant,matched_all,Tarrant,north,,
+13323,26.169846,-98.329793,battery,100.0,265,MISSION 4,63757.0,Hidalgo,matched_all,Hidalgo,south,,
+13324,26.166944,-98.325,battery,100.0,255,MCALLEN 3,64089.0,Hidalgo,matched_all,Hidalgo,south,,
+13326,30.737745,-99.231778,battery,100.0,1488,MASON 1,64312.0,Mason,matched_all,Mason,south,,
+13327,30.748955,-97.875708,battery,100.0,865,LIBERTY HILL,64317.0,Williamson,matched_all,Williamson,south,,
+13329,29.16801,-95.445062,battery,100.0,1489,ANGLETON 3,64528.0,Brazoria,matched_all,Brazoria,houston,,
+13331,33.3256,-97.31433,battery,100.0,1490,KRUM 1,65693.0,Denton,matched_all,Denton,north,,
+13332,30.41217,-97.57405,battery,100.0,738,PFLUGERVILLE,65695.0,Travis,matched_all,Travis,south,,
+13334,29.170545,-95.741574,solar,100.0,1491,WEST COLUMBIA 2,65981.0,Brazoria,matched_all,Brazoria,houston,FarEast,
+13336,29.225956,-99.700281,battery,100.0,1492,UVALDE 2,59205.0,Uvalde,matched_location,Uvalde,south,,
+13338,29.21997,-99.746383,battery,100.0,1493,UVALDE 3,59205.0,Uvalde,matched_location,Uvalde,south,,
+13340,30.924381,-102.953583,battery,100.0,1494,FT. STOCKTON 2,66336.0,Pecos,matched_all,Pecos,west,,
+13341,29.646811,-95.450539,battery,100.0,1139,HOUSTON 64,66338.0,Harris,matched_fuel,Harris,houston,,
+13343,31.54,-97.409,solar,100.0,1495,CRAWFORD 1,,,no match,McLennan,north,CenterEast,
+13344,29.271,-98.456,battery,100.0,875,SAN ANTONIO 16,58537.0,Bexar,matched_location,Bexar,south,,
+13345,27.456115,-99.417339,battery,100.0,357,LAREDO 5,,,no match,Webb,south,,
+13346,29.56318,-95.80023,battery,100.0,1126,ROSENBERG,66690.0,Fort Bend,matched_all,Fort Bend,houston,,
+13347,29.50069,-95.08195,battery,100.0,957,LEAGUE CITY,64314.0,Galveston,matched_fuel,Galveston,houston,,
+13348,28.852327,-96.556418,battery,100.0,983,LOLITA,,,no match,Jackson,south,,
+13350,34.225882,-99.477986,wind,99.4,1496,VERNON 4,61970.0,Wilbarger,matched_all,Hardeman,west,,West
+13351,32.3472,-100.3703,wind,98.8,228,SWEETWATER 3,56212.0,Nolan,matched_all,Nolan,west,,West
+13352,26.125979,-97.377599,wind,95.3,297,PORT ISABEL,59712.0,Cameron,matched_all,Cameron,south,,Coastal
+13353,27.488056,-99.005278,wind,92.3,913,OILTON,58021.0,Webb,matched_all,Webb,south,,South
+13354,29.002,-95.394,gas,75.0,1086,LAKE JACKSON,55311.0,Brazoria,matched_all,Brazoria,houston,,
+13355,28.64807,-96.54621,gas,43.0,1497,POINT COMFORT 3,10554.0,Calhoun,matched_all,Calhoun,south,,
+13355,28.64807,-96.54621,gas,43.0,1497,POINT COMFORT 3,10554.0,Calhoun,matched_all,Calhoun,south,,
+13356,28.7853,-97.0093,gas,43.0,1498,VICTORIA 5,61241.0,Victoria,matched_all,Victoria,south,,
+13356,28.7853,-97.0093,gas,43.0,1498,VICTORIA 5,61241.0,Victoria,matched_all,Victoria,south,,
+13357,28.698477,-96.946125,gas,43.0,1499,VICTORIA 6,61966.0,Victoria,matched_all,Victoria,south,,
+13357,28.698477,-96.946125,gas,43.0,1499,VICTORIA 6,61966.0,Victoria,matched_all,Victoria,south,,
+13358,29.88193,-95.11148,gas,43.0,1500,HOUSTON 92,62548.0,Harris,matched_all,Harris,houston,,
+13358,29.88193,-95.11148,gas,43.0,1500,HOUSTON 92,62548.0,Harris,matched_all,Harris,houston,,
+13360,32.92544,-101.219397,wind,84.0,1501,FLUVANNA 3,56457.0,Borden,matched_all,Borden,west,,West
+13362,30.931467,-102.201433,wind,82.5,1502,IRAAN 5,55747.0,Pecos,matched_all,Pecos,west,,West
+13363,33.500378,-96.146489,solar,82.5,78,LEONARD,62505.0,Fannin,matched_all,Fannin,north,FarEast,
+13365,30.9614,-102.414067,wind,82.0,1503,GIRVIN 1,55795.0,Pecos,matched_all,Pecos,west,,West
+13367,32.236944,-100.4833,wind,80.5,1504,ROSCOE 7,56372.0,Nolan,matched_all,Nolan,west,,West
+13368,32.467194,-97.054333,solar,80.0,566,MIDLOTHIAN 2,63797.0,Ellis,matched_all,Ellis,north,CenterEast,
+13370,29.289809,-95.298609,solar,78.1,1505,LIVERPOOL 1,65521.0,Brazoria,matched_all,Brazoria,houston,FarEast,
+13372,30.9514,-102.414067,wind,78.0,1506,GIRVIN 2,55795.0,Pecos,matched_all,Pecos,west,,West
+13374,27.18,-98.916667,wind,78.0,1507,HEBBRONVILLE 1,59654.0,Jim Hogg,matched_all,Jim Hogg,south,,South
+13376,28.675088,-96.956014,gas,75.0,1508,VICTORIA 7,10790.0,Victoria,matched_fuel,Victoria,south,,
+13377,33.6039,-101.8408,gas,18.0,1509,LUBOCK 1,7131.0,Lubbock,matched_all,Lubbock,west,,
+13377,33.6039,-101.8408,gas,18.0,1509,LUBOCK 1,7131.0,Lubbock,matched_all,Lubbock,west,,
+13377,33.6039,-101.8408,gas,38.0,1509,LUBOCK 1,3604.0,Lubbock,matched_all,Lubbock,west,,
+13379,29.475278,-95.634167,gas,74.0,1510,THOMPSONS 1,58378.0,Fort Bend,matched_all,Fort Bend,houston,,
+13381,32.318524,-99.164198,battery,71.5,1511,CISCO 4,64545.0,Callahan,matched_all,Callahan,west,,
+13383,31.78,-97.51,solar,71.4,1512,CLIFTON 3,67023.0,Hill,matched_all,Bosque,north,CenterEast,
+13384,28.979167,-95.306944,gas,70.0,1111,FREEPORT 3,56152.0,Brazoria,matched_all,Brazoria,houston,,
+13386,29.806021,-100.804452,battery,70.0,1513,DEL RIO 2,60217.0,Val Verde,matched_location,Val Verde,west,,
+13388,30.310524,-96.47887,solar,60.2,1514,BRENHAM 1,,,no match,Washington,south,FarEast,
+13389,30.495668,-103.450965,battery,60.0,1515,ALPINE 1,66006.0,Brewster,matched_fuel,Brewster,west,,
+13390,33.5493,-97.1798,solar,59.0,1516,GAINSVILLE 2,62773.0,Cooke,matched_all,Cooke,north,CenterEast,
+13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,non_ercot,,
+13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,non_ercot,,
+13392,34.105,-101.0986,wind,57.0,1518,FLOYDADA 4,56673.0,Floyd,matched_all,Floyd,west,,Panhandle
+13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,non_ercot,,
+13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,non_ercot,,
+13394,28.430988,-97.889555,solar,50.7,1520,BEEVILLE 1,63223.0,Bee,matched_all,Bee,south,SouthEast,
+13395,34.060333,-101.187628,wind,50.4,1521,FLOYDADA 5,60210.0,Floyd,matched_all,Floyd,west,,Panhandle
+13396,26.492862,-98.448267,wind,50.4,1522,EDINBURG 5,62618.0,Hidalgo,matched_all,Hidalgo,south,,South
+13397,30.96,-103.35,solar,30.2,1523,FORT STOCKTON 11,58710.0,Pecos,matched_all,Pecos,west,FarWest,
+13397,30.96,-103.35,solar,20.0,1523,FORT STOCKTON 11,58710.0,Pecos,matched_fuel,Pecos,west,FarWest,
+13398,30.3419,-94.0656,biomass,32.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,non_ercot,,
+13398,30.3419,-94.0656,biomass,18.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,non_ercot,,
+13399,30.98784,-102.26831,solar,50.0,1525,FORT STOCKTON 12,60682.0,Pecos,matched_all,Pecos,west,FarWest,
+13400,30.45512,-103.4747,solar,50.0,1526,ALPINE 2,60989.0,Brewster,matched_all,Brewster,west,FarWest,
+13401,32.713326,-101.885218,solar,50.0,1527,LAMESA 5,61697.0,Dawson,matched_all,Dawson,west,NorthWest,
+13402,29.056,-95.686,battery,50.0,1528,SWEENY 2,65259.0,Brazoria,matched_all,Brazoria,houston,,
+13403,32.85583,-100.991681,battery,50.0,1529,SNYDER 8,65696.0,Scurry,matched_all,Scurry,west,,
+13404,29.15923,-95.6626,battery,50.0,1530,WEST COLUMBIA 3,65701.0,Brazoria,matched_all,Brazoria,houston,,
+13405,35.9454,-101.9005,wind,49.5,1531,SUNRAY 1,57326.0,Moore,matched_all,Moore,non_ercot,,Panhandle
+13406,29.2558,-95.2103,gas,42.5,1532,ALVIN 2,10418.0,Brazoria,matched_all,Brazoria,houston,,
+13407,28.5707,-96.8333,other,23.8,1533,PORT LAVACA 2,50404.0,Calhoun,matched_all,Calhoun,south,,
+13407,28.5707,-96.8333,other,15.0,1533,PORT LAVACA 2,50404.0,Calhoun,matched_all,Calhoun,south,,
+13408,29.37612,-94.946477,other,38.0,1534,TEXAS CITY 5,50153.0,Galveston,matched_all,Galveston,houston,,
+13409,32.2075,-101.388333,wind,34.3,1535,BIG SPRING 8,54979.0,Howard,matched_all,Howard,west,,West
+13410,27.8322,-97.5281,gas,32.0,1536,CORPUS CHRISTI 19,50026.0,Nueces,matched_fuel,Nueces,south,,
+13411,30.238492,-97.508812,solar,30.0,1537,MANOR 1,57699.0,Travis,matched_all,Travis,south,CenterEast,
+13412,34.299,-99.399,battery,30.0,1538,VERNON 5,60690.0,Wilbarger,matched_all,Wilbarger,west,,
+13413,31.87,-100.828,solar,30.0,1539,STERLING CITY 4,60789.0,Sterling,matched_all,Sterling,west,CenterWest,
+13414,31.692358,-102.69743,solar,30.0,1540,ODESSA 7,62932.0,Ector,matched_all,Ector,west,FarWest,
+13415,31.23924,-102.32169,battery,24.8,1541,MCCAMEY 6,64811.0,Upton,matched_all,Crane,west,,
+13416,31.815992,-104.085297,solar,24.8,1542,ORLA 1,66880.0,Culberson,matched_all,Culberson,west,FarWest,
+13417,33.585257,-101.886093,gas,20.0,1543,LUBBOCK 2,7131.0,Lubbock,matched_all,Lubbock,west,,
+13418,29.304177,-98.400339,solar,13.5,1544,SAN ANTONIO 53,57197.0,Bexar,matched_all,Bexar,south,SouthEast,
+13419,35.964272,-101.540238,wind,10.0,1545,MORSE 1,57264.0,Hutchinson,matched_all,Hutchinson,non_ercot,,Panhandle
+13420,35.924858,-101.541363,wind,10.0,1546,MORSE 2,57264.0,Hutchinson,matched_all,Hutchinson,non_ercot,,Panhandle
+13421,33.166173,-96.172617,solar,10.0,1547,GREENVILLE 3,61871.0,Hunt,matched_all,Hunt,north,FarEast,
+13422,29.205355,-96.023384,solar,10.0,1548,WHARTON 4,61875.0,Wharton,matched_all,Wharton,south,FarEast,
+13423,27.421553,-98.834962,solar,10.0,1549,BRUNI 4,63027.0,Webb,matched_all,Webb,south,SouthEast,
+13424,32.494346,-101.276601,solar,10.0,1550,COAHOMA 1,66572.0,Howard,matched_all,Howard,west,CenterWest,
+13425,26.230501,-97.912557,battery,10.0,1551,MERCEDES 1,66926.0,Hidalgo,matched_all,Hidalgo,south,,
+13426,28.987572,-95.969842,battery,10.0,1552,BAY CITY 3,66930.0,Matagorda,matched_all,Matagorda,south,,
+13427,26.408729,-98.937425,battery,10.0,1553,RIO GRANDE CITY 5,66934.0,Starr,matched_all,Starr,south,,
+13428,26.390951,-98.820386,battery,10.0,1554,RIO GRANDE CITY 6,66935.0,Starr,matched_all,Starr,south,,

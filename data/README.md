@@ -7,13 +7,18 @@
 3. `extract_eia860.py`: Extract EIA 860 lat/lng, fuel types
 
 4. `match_generators.py`: Match EIA with Texas2k data set via proximity, fuel type
-   * Note: extractiing eia860 attempted to match TAMU vs real generation 1-1,
-     but given ERCOT's load/outage/fuel-type (lack of) data granularity, steps
-     3-4 might not be needed. TBD.
+   * Note: extracting eia860 attempts to match TAMU vs real generation 1-1.
+   * Helps with human-readable display and real-world counterpart, but not exact
 
-5. `assign_weather_zones.py`: Given TAMU network Bus lat/lng, assign EROCT 8 Weather Zone label
+5. `enrich_generators.py`: augments `generator_matches.csv`
+   * For each generator:
+     * Adds TIGER county column via lat/lng lookup for each generator
+     * Adds respective Load Zone label from geojson lookup
+     * For solar and wind generators, take TIGER county and apply `pv_region` and `wind_region`
 
-6. `marginal_costs.py`: generates marginal_costs.csv for plant types (hardcoded
+6. `assign_weather_zones.py`: Given TAMU network Bus lat/lng, assign EROCT 8 Weather Zone label
+
+7. `marginal_costs.py`: generates `marginal_costs.csv` for plant types (hardcoded
     table lookups; so not plan specific for now)
 
 # Model Data
