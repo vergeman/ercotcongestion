@@ -2,3 +2,9 @@ __pycache__/
 /data/processed/*.nc
 .wrangler
 .env
+
+# Data
+data/TIGER/*
+!data/TIGER/README.md
+data/ercot_load_zones/*
+!data/ercot_load_zones/README.md
