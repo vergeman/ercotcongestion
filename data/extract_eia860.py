@@ -59,19 +59,16 @@ for d in dirs:
     for col in ["Nameplate Capacity (MW)"]:
         gen_tx[col] = pd.to_numeric(gen_tx[col], errors="coerce")
 
-
-    #plant_tx = plant_tx.groupby('Utility ID').agg('first').reset_index()
-    #gen_tx = gen_tx.groupby('Utility ID').agg('first').reset_index()
-
-    # join on Utility ID
-    df = plant_tx.merge(gen_tx, on='Plant Code', how='outer')
-    df.drop_duplicates(subset='Plant Code', keep='first', inplace=True)
-    df = df.dropna(subset=["Latitude", "Longitude", "Nameplate Capacity (MW)", "Energy Source 1"])
-
+    # Inner merge: every operating generator gets its plant info
+    gen_tx = gen_tx.drop(columns=['County',  'Utility ID', 'Utility Name', 'Plant Name',
+                                  'State', 'Sector', 'Sector Name'], errors='ignore')
+    df = gen_tx.merge(plant_tx, on='Plant Code', how='inner')
+    df = df.dropna(subset=['Latitude', 'Longitude',
+                            'Nameplate Capacity (MW)', 'Energy Source 1'])
 
     # merge any missing
     master_df = pd.concat([master_df, df])\
-                  .drop_duplicates(subset='Plant Code', keep='first')\
+                  .drop_duplicates(subset=['Plant Code', 'Generator ID'])\
                   .reset_index(drop=True)
 
 
