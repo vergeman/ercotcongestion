@@ -86,7 +86,7 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
     binding_lines = shadow[binding_mask].sort_values(ascending=False)
 
     # Meta
-    total_load = net.loads_t.p_set.iloc[0].sum()
+    total_load = net.loads['p_set'].sum()
     total_gen = dispatch.sum()
     meta = {
         'solver_status': status,

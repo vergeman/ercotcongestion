@@ -45,7 +45,7 @@ def print_network_diagnostic(n):
 
     # Sanity checks
     gen = n.generators_t.p.iloc[0].sum()
-    load = n.loads_t.p_set.iloc[0].sum()
+    load = n.loads['p_set'].sum()
     lmps = n.buses_t.marginal_price.iloc[0]
 
     print(f"\nGen: {gen:.0f} MW | Load: {load:.0f} MW | Balance: {gen - load:+.1f}")
