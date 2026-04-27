@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import logging
 from copy import deepcopy
+from constants import DEFAULT_P_MAX_PU
 from operating_conditions import apply_operating_conditions
 from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
@@ -119,6 +120,16 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
 
 
 if __name__ == '__main__':
+    """
+    Run compute_snapshot on the bare TAMU network with synthetic carrier-level
+    availability.
+
+    No ERCOT data, no timestamp, no DB required.
+
+    Useful for testing OPF / fragility / contingency math in isolation.
+
+    For the real pipeline, see test_snapshot.py and write_snapshots.py.
+    """
     n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
     # Apply marginal costs
@@ -128,16 +139,9 @@ if __name__ == '__main__':
 
     operating_data = {
         'p_max_pu_by_carrier': {
+            **DEFAULT_P_MAX_PU,
             'wind': 0.20,      # ERCOT wind typically 15-30% at peak
             'solar': 0.65,     # still producing but sun dropping
-            'battery': 0.25,   # partial SOC, limited duration
-            'nuclear': 0.95,
-            'hydro': 0.50,
-            'coal': 0.90,      # available but not forced on
-            'gas': 0.90,
-            'oil': 0.80,
-            'biomass': 0.80,
-            'other': 0.80,
         },
         'loads': None,
         'outages': None,
