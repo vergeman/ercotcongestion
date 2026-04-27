@@ -65,17 +65,20 @@
   * https://www.ercot.com/mp/data-products/data-product-details?id=NP3-233-CD
   * By Load Zone
   * API Outage Info: /np3-233-cd/hourly_res_outage_cap
+  * NB: includes scheduled future outages, hence dates extending into future
 
 * Zone Loads 15min win
   * By Weather Zone
+  * No forecasts
   * API: /np6-345-cd/act_sys_load_by_wzn
 
-* Wind hourly
-  * API: actual+forecast/np4-732-cd/wpp_hrly_avrg_actl_fcast
+* Wind hourly:
+  * API: /np4-742-cd/wpp_hrly_actual_fcast_geo
+  * actual (gen_zone) + forecast if future
 
 * Solar actual + forecast (hourly)
-  * API: /np4-737-cd/spp_hrly_avrg_actl_fcast
-    * np4-745-cd is by geographical region - not sure
+  * API: /np4-745-cd/spp_hrly_actual_fcast_geo
+  * actual (gen_zone) + forecast if future
 
 * Daylight Saving Time
   * `dst_flag`: ERCOT publishes CST; publishes `dst_flag` True on "second" instance of time.
