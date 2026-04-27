@@ -118,30 +118,31 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
     }
 
 
-n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
+if __name__ == '__main__':
+    n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
 
-# Apply marginal costs
-mc = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
-n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
+    # Apply marginal costs
+    mc = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
+    n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
 
 
-operating_data = {
-    'p_max_pu_by_carrier': {
-        'wind': 0.20,      # ERCOT wind typically 15-30% at peak
-        'solar': 0.65,     # still producing but sun dropping
-        'battery': 0.25,   # partial SOC, limited duration
-        'nuclear': 0.95,
-        'hydro': 0.50,
-        'coal': 0.90,      # available but not forced on
-        'gas': 0.90,
-        'oil': 0.80,
-        'biomass': 0.80,
-        'other': 0.80,
-    },
-    'loads': None,
-    'outages': None,
-    'line_derate': .9,
-    'tx_derate': 0.95
-}
+    operating_data = {
+        'p_max_pu_by_carrier': {
+            'wind': 0.20,      # ERCOT wind typically 15-30% at peak
+            'solar': 0.65,     # still producing but sun dropping
+            'battery': 0.25,   # partial SOC, limited duration
+            'nuclear': 0.95,
+            'hydro': 0.50,
+            'coal': 0.90,      # available but not forced on
+            'gas': 0.90,
+            'oil': 0.80,
+            'biomass': 0.80,
+            'other': 0.80,
+        },
+        'loads': None,
+        'outages': None,
+        'line_derate': .9,
+        'tx_derate': 0.95
+    }
 
-res = compute_snapshot(n, operating_data)
+    res = compute_snapshot(n, operating_data)
