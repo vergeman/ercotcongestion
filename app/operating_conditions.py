@@ -15,14 +15,18 @@ def apply_operating_conditions(n,
                                ):
 
     """Mutate n in place to reflect boundary conditions."""
+    #
     # Loads: copy static values into time-series for the snapshot
+    #
     if loads is not None:
         load_vec = pd.Series(loads) if not isinstance(loads, pd.Series) else loads
         load_vec = load_vec.reindex(n.loads.index).fillna(n.loads['p_set'])
         n.loads['p_set'] = load_vec   # static — PyPSA uses this when loads_t is empty
 
 
-    # Per-generator p_max_pu (new path — preferred)
+    #
+    # Per-generator p_max_pu (preferred)
+    #
     if p_max_pu_per_gen is not None:
         # Adapter should already cover all gens via DEFAULT_P_MAX_PU.
         other_default = DEFAULT_P_MAX_PU['other']
@@ -44,13 +48,17 @@ def apply_operating_conditions(n,
             mask = n.generators['carrier'] == carrier
             n.generators.loc[mask, 'p_max_pu'] = cf
 
+    #
     # Line derate
+    #
     if line_derate != 1.0:
         n.lines['s_nom'] = n.lines['s_nom'] * line_derate
     if tx_derate != 1.0:
         n.transformers['s_nom'] = n.transformers['s_nom'] * tx_derate
 
+    #
     # Outages: set s_nom to tiny value rather than 0 (avoids numerical issues)
+    #
     if outages:
         for line in outages:
             if line in n.lines.index:

@@ -101,6 +101,8 @@ class OperatingDataAdapter:
         gen_enriched: pd.DataFrame,
         bus_zones: pd.DataFrame,
         network,
+        line_derate=0.9,
+        tx_derate=0.95
     ):
         """
         Parameters
@@ -111,9 +113,16 @@ class OperatingDataAdapter:
             load_zone, pv_region, wind_region.
         bus_zones : bus_zones.csv. Required columns: name, ercot_zone.
         network : pypsa.Network. Used to read n.generators and n.loads.
+        line_derate :: float, default 0.9
+            Multiplier applied to line thermal capacity (s_nom) in OPF.
+        tx_derate :: float, default 0.95
+            Multiplier applied to transformer thermal capacity (s_nom) in OPF.
         """
         self.conn = conn
         self._static = self._precompute(gen_enriched, bus_zones, network)
+        self.line_derate = line_derate
+        self.tx_derate = tx_derate
+
 
     # ------------------------------------------------------------------
     # Public API
@@ -153,8 +162,8 @@ class OperatingDataAdapter:
         return {
             'p_max_pu_per_gen': p_max_pu,
             'loads': loads,
-            'line_derate': 0.9,
-            'tx_derate': 0.95,
+            'line_derate': self.line_derate,
+            'tx_derate': self.tx_derate,
             'meta': {
                 'ts': ts,
                 'load_total_mw': float(loads.sum()),
