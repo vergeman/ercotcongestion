@@ -60,14 +60,6 @@ def main():
     # Build operating data
     op = adapter.build(ts)
 
-    # Apply to network
-    n.loads['p_set'] = (
-        op['loads'].reindex(n.loads.index).fillna(n.loads['p_set']).values
-    )
-    n.generators['p_max_pu'] = (
-        op['p_max_pu_per_gen'].reindex(n.generators.index).fillna(0.8)
-    )
-
     # Run OPF
     result = compute_snapshot(n, op)
 

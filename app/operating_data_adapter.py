@@ -59,29 +59,7 @@ import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
 
-
-# ============================================================================
-# Constants
-# ============================================================================
-
-IRR_CARRIERS = ('wind', 'solar', 'battery')
-THERMAL_CARRIERS = ('gas', 'coal', 'nuclear', 'oil', 'biomass', 'hydro')
-
-# Carrier-level availability ceilings for non-renewable carriers
-DEFAULT_P_MAX_PU: dict[str, float] = {
-    'battery': 0.25,   # arbitrary SOC proxy — not a true availability signal
-    'nuclear': 0.95,
-    'hydro':   0.50,
-    'coal':    0.90,
-    'gas':     0.90,
-    'oil':     0.80,
-    'biomass': 0.80,
-    'other':   0.80,
-}
-
-PV_REGIONS = ('centerwest', 'northwest', 'farwest', 'fareast', 'southeast', 'centereast')
-WIND_REGIONS = ('panhandle', 'coastal', 'south', 'west', 'north')
-LOAD_ZONES = ('houston', 'north', 'south', 'west')
+from constants import IRR_CARRIERS, THERMAL_CARRIERS, DEFAULT_P_MAX_PU, PV_REGIONS, WIND_REGIONS, LOAD_ZONES
 
 
 # ============================================================================

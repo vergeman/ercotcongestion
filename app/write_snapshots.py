@@ -223,14 +223,6 @@ def compute_one(
         n.generators.index.map(mc['marginal_cost']).fillna(0)
     )
 
-    # Apply boundary conditions
-    n.loads['p_set'] = (
-        op['loads'].reindex(n.loads.index).fillna(n.loads['p_set']).values
-    )
-    n.generators['p_max_pu'] = (
-        op['p_max_pu_per_gen'].reindex(n.generators.index).fillna(0.8)
-    )
-
     try:
         result = compute_snapshot(n, op)
     except Exception as e:

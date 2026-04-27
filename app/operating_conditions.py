@@ -1,4 +1,8 @@
 import pandas as pd
+from constants import DEFAULT_P_MAX_PU
+import logging
+logger = logging.getLogger(__name__)
+
 
 def apply_operating_conditions(n,
                                p_max_pu_by_carrier=None,  # kept for backward compat
@@ -20,10 +24,22 @@ def apply_operating_conditions(n,
 
     # Per-generator p_max_pu (new path — preferred)
     if p_max_pu_per_gen is not None:
-        n.generators.loc[p_max_pu_per_gen.index, 'p_max_pu'] = p_max_pu_per_gen.values
+        # Adapter should already cover all gens via DEFAULT_P_MAX_PU.
+        other_default = DEFAULT_P_MAX_PU['other']
+        missing = n.generators.index.difference(p_max_pu_per_gen.index)
+        if len(missing) > 0:
+            # Hitting here means a generator escaped adapter coverage entirely.
+            logger.warning(
+                f"{len(missing)} generators escaped adapter coverage, "
+                f"using p_max_pu=0.8 fallback: {list(missing)[:5]}..."
+            )
+
+        full = p_max_pu_per_gen.reindex(n.generators.index).fillna(other_default)
+        n.generators['p_max_pu'] = full.values
+
     elif p_max_pu_by_carrier:
         # Backward-compat path for old hardcoded boundary conditions
-            # Generator availability factors
+        # Generator availability factors
         for carrier, cf in p_max_pu_by_carrier.items():
             mask = n.generators['carrier'] == carrier
             n.generators.loc[mask, 'p_max_pu'] = cf
