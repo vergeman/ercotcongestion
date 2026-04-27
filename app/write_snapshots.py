@@ -29,25 +29,11 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import psycopg
 import pypsa
-
-from operating_data_adapter import OperatingDataAdapter
-from snapshot import compute_snapshot
-
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-PG_DSN = (
-    f"host={os.environ['PG_HOST']} port={os.environ['PG_PORT']} "
-    f"dbname={os.environ['PG_DATABASE']} "
-    f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}"
+from config import (
+    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
 )
-
-NETWORK_PATH        = "/data/processed/Texas2k_series25_case1_summerpeak.nc"
-MARGINAL_COSTS_PATH = "/data/processed/marginal_costs.csv"
-BUS_ZONES_PATH      = "/data/processed/bus_zones.csv"
-GEN_ENRICHED_PATH   = "/data/processed/generator_matches_enriched.csv"
+from operating_data_adapter import OperatingDataAdapter
+from snapshot import run_snapshot_for_ts
 
 
 # ---------------------------------------------------------------------------
@@ -206,25 +192,16 @@ def compute_one(
 ) -> tuple[str, dict | None, dict | None, pypsa.Network | None]:
     """Build operating_data, run OPF, return (status, result, op, network).
 
-    Returns ('ok', result, op, n) on success.
-    Returns ('error_<reason>', None, None, None) on failure.
+    Returns (result['status'], result, op, n) on success.
+    Returns ('<category>:<reason>', None, None, None) on failure.
     """
+
     try:
-        op = adapter.build(ts)
+        result, op, n = run_snapshot_for_ts(ts, adapter, mc)
     except LookupError as e:
-        # Missing data in one of the source tables for this ts
         return f'missing_data:{e}', None, None, None
-    except Exception as e:
-        return f'adapter_error:{type(e).__name__}:{e}', None, None, None
-
-    # Fresh network — load every iteration, no shared mutation
-    n = pypsa.Network(NETWORK_PATH)
-    n.generators['marginal_cost'] = (
-        n.generators.index.map(mc['marginal_cost']).fillna(0)
-    )
-
-    try:
-        result = compute_snapshot(n, op)
+    except FileNotFoundError as e:
+        return f'config_error:{e}', None, None, None
     except Exception as e:
         return f'opf_error:{type(e).__name__}:{e}', None, None, None
 

@@ -9,6 +9,11 @@ from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
 
+from config import NETWORK_PATH
+from datetime import datetime
+from operating_data_adapter import OperatingDataAdapter
+
+
 logger = logging.getLogger(__name__)
 
 def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network = False) -> dict[str, any]:
@@ -117,6 +122,32 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
         'top_contingencies': contingencies,
         'meta': meta,
     }
+
+def run_snapshot_for_ts(
+    ts: datetime,
+    adapter: OperatingDataAdapter,
+    mc: pd.DataFrame,
+    network_path: str = NETWORK_PATH,
+) -> tuple[dict, dict, pypsa.Network]:
+    """Build operating data, load network, run OPF for one timestamp.
+
+    Returns (result, op, network). Raises on failure.
+    """
+
+    # Build operating data
+    op = adapter.build(ts)
+
+    n = pypsa.Network(network_path)
+
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
+
+    # Run OPF
+    result = compute_snapshot(n, op)
+
+    return result, op, n
+
 
 
 if __name__ == '__main__':

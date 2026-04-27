@@ -17,20 +17,12 @@ import pandas as pd
 import psycopg
 import pypsa
 
-from operating_data_adapter import OperatingDataAdapter
-from snapshot import compute_snapshot
-
-
-PG_DSN = (
-    f"host={os.environ['PG_HOST']} port={os.environ['PG_PORT']} "
-    f"dbname={os.environ['PG_DATABASE']} "
-    f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}"
+from config import (
+    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
 )
+from operating_data_adapter import OperatingDataAdapter
+from snapshot import run_snapshot_for_ts
 
-NETWORK_PATH = "/data/processed/Texas2k_series25_case1_summerpeak.nc"
-MARGINAL_COSTS_PATH = "/data/processed/marginal_costs.csv"
-BUS_ZONES_PATH = "/data/processed/bus_zones.csv"
-GEN_ENRICHED_PATH = "/data/processed/generator_matches_enriched.csv"
 
 
 def main():
@@ -44,24 +36,17 @@ def main():
 
     ts = datetime.fromisoformat(args.ts).replace(tzinfo=timezone.utc)
 
-    # Load network fresh
-    n = pypsa.Network(NETWORK_PATH)
-    mc = pd.read_csv(MARGINAL_COSTS_PATH, index_col=0)
-    n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
-
     # Reference data
+    mc = pd.read_csv(MARGINAL_COSTS_PATH, index_col=0)
     bus_zones = pd.read_csv(BUS_ZONES_PATH)
     gen_enriched = pd.read_csv(GEN_ENRICHED_PATH)
 
     # Adapter
+    n_init = pypsa.Network(NETWORK_PATH) # network for static precomputation
     conn = psycopg.connect(PG_DSN)
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_zones, n)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_zones, n_init)
 
-    # Build operating data
-    op = adapter.build(ts)
-
-    # Run OPF
-    result = compute_snapshot(n, op)
+    result, op, n = run_snapshot_for_ts(ts, adapter, mc)
 
     # Report
     print(f"\n{'=' * 60}")
