@@ -27,6 +27,8 @@ def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
       matched_location - location only (fuel type disagreement)
       no_match         - no EIA plant within coord_tol_km
 
+    TOOD: remove County depending on TIGER lookup.
+
     """
     eia_coords = np.radians(eia_df[["Latitude", "Longitude"]].values)
     tree = cKDTree(eia_coords)
@@ -35,6 +37,7 @@ def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
     tamu_coords = np.radians(tamu_df[["lat", "lon"]].values)
 
     matches = []
+    counties = []
     match_quality = []
 
     for tamu_row, coord in zip(tamu_df.itertuples(), tamu_coords):
@@ -45,6 +48,7 @@ def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
         if not idxs:
             matches.append(None)
             match_quality.append('no match')
+            counties.append(None)
             continue
 
         candidates = eia_df.iloc[idxs].copy()
@@ -85,11 +89,15 @@ def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
         # Closest spatially among remaining
         sub_coords = np.radians(cap_filtered[["Latitude", "Longitude"]].values)
         dists = np.linalg.norm(sub_coords - coord, axis=1)
-        matches.append(cap_filtered.iloc[np.argmin(dists)]["Plant Code"])
+
+        best = cap_filtered.iloc[np.argmin(dists)]
+        matches.append(best["Plant Code"])
+        counties.append(best["County"])
         match_quality.append(quality)
 
     result = tamu_df.copy()
     result["eia_plant_code"] = matches
+    result["eia_county"] = counties
     result["match_quality"] = match_quality
     return result
 
@@ -122,7 +130,14 @@ def summarize_matches(result):
     print(f"Unmatched: {result['eia_plant_code'].isna().sum()}")
     print(f"\nMatch quality:\n{result['match_quality'].value_counts()}")
     print(f"\nUnmatched by carrier:\n{result[result['eia_plant_code'].isna()]['carrier'].value_counts()}")
+    print(result['eia_county'].notna().sum(), "of", len(result), "have eia county")
 
+    missing = result[result['eia_county'].isna()]
+    print(f"Missing county: {len(missing)}")
+    print("\nBy match_quality:")
+    print(missing['match_quality'].value_counts())
+    print("\nBy carrier:")
+    print(missing['carrier'].value_counts())
 
 if __name__ == '__main__':
 

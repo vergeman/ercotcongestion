@@ -129,17 +129,15 @@ def load_load_by_zone(conn, df: pd.DataFrame) -> int:
 
 
 def load_wind_hourly(conn, df: pd.DataFrame) -> int:
+    """Load NP4-742-CD: Wind Power Production by Geographical Region.
 
+    5 wind regions: Panhandle, Coastal, South, West, North.
+    Replaces the old NP4-732-CD system-wide + 3-zone subset loader.
+    """
     if df.empty:
         return 0
-    # print(f"  load_wind_hourly columns: {df.columns.tolist()}")
-    # print(f"  first row: {df.iloc[0].to_dict()}")
 
-    # Each unique (deliveryDate, hourEnding) pair has multiple rows because the
-    # report republishes hourly with updated forecasts.
-    #
-    # Keep only the most recent publish per (delivery_date, hour_ending,
-    # dst_flag)
+    # Dedup: keep most recent posting per (delivery_date, hour_ending, dst_flag)
     df = df.sort_values("postedDatetime").drop_duplicates(
         subset=["deliveryDate", "hourEnding", "DSTFlag"],
         keep="last",
@@ -152,51 +150,77 @@ def load_wind_hourly(conn, df: pd.DataFrame) -> int:
         hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
         dst = bool(r.get("DSTFlag", False))
         ts = _to_interval_ts(op_day, hour, 1, dst)
+
         records.append((
-            op_day, hour, pd.to_datetime(r["postedDatetime"]),
+            op_day, hour, pd.to_datetime(r["postedDatetime"]), dst, ts,
+            # System-wide
             _f(r.get("genSystemWide")), _f(r.get("COPHSLSystemWide")),
             _f(r.get("STWPFSystemWide")), _f(r.get("WGRPPSystemWide")),
             _f(r.get("HSLSystemWide")),
-            _f(r.get("genLoadZoneSouthHouston")), _f(r.get("COPHSLLoadZoneSouthHouston")),
-            _f(r.get("STWPFLoadZoneSouthHouston")), _f(r.get("WGRPPLoadZoneSouthHouston")),
-            _f(r.get("genLoadZoneWest")), _f(r.get("COPHSLLoadZoneWest")),
-            _f(r.get("STWPFLoadZoneWest")), _f(r.get("WGRPPLoadZoneWest")),
-            _f(r.get("genLoadZoneNorth")), _f(r.get("COPHSLLoadZoneNorth")),
-            _f(r.get("STWPFLoadZoneNorth")), _f(r.get("WGRPPLoadZoneNorth")),
-            dst, ts,
+            # Panhandle
+            _f(r.get("genPanhandle")), _f(r.get("COPHSLPanhandle")),
+            _f(r.get("STWPFPanhandle")), _f(r.get("WGRPPPanhandle")),
+            # Coastal
+            _f(r.get("genCoastal")), _f(r.get("COPHSLCoastal")),
+            _f(r.get("STWPFCoastal")), _f(r.get("WGRPPCoastal")),
+            # South
+            _f(r.get("genSouth")), _f(r.get("COPHSLSouth")),
+            _f(r.get("STWPFSouth")), _f(r.get("WGRPPSouth")),
+            # West
+            _f(r.get("genWest")), _f(r.get("COPHSLWest")),
+            _f(r.get("STWPFWest")), _f(r.get("WGRPPWest")),
+            # North
+            _f(r.get("genNorth")), _f(r.get("COPHSLNorth")),
+            _f(r.get("STWPFNorth")), _f(r.get("WGRPPNorth")),
         ))
 
     sql = """
-        INSERT INTO wind_hourly (
-            delivery_date, hour_ending, posted_datetime,
+        INSERT INTO wind_hourly_regional (
+            delivery_date, hour_ending, posted_datetime, dst_flag, interval_ts,
             gen_system_wide, cop_hsl_system_wide, stwpf_system_wide,
             wgrpp_system_wide, hsl_system_wide,
-            gen_lz_south_houston, cop_hsl_lz_south_houston,
-            stwpf_lz_south_houston, wgrpp_lz_south_houston,
-            gen_lz_west, cop_hsl_lz_west, stwpf_lz_west, wgrpp_lz_west,
-            gen_lz_north, cop_hsl_lz_north, stwpf_lz_north, wgrpp_lz_north,
-            dst_flag, interval_ts
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            gen_panhandle, cop_hsl_panhandle, stwpf_panhandle, wgrpp_panhandle,
+            gen_coastal,   cop_hsl_coastal,   stwpf_coastal,   wgrpp_coastal,
+            gen_south,     cop_hsl_south,     stwpf_south,     wgrpp_south,
+            gen_west,      cop_hsl_west,      stwpf_west,      wgrpp_west,
+            gen_north,     cop_hsl_north,     stwpf_north,     wgrpp_north
+        ) VALUES (
+            %s,%s,%s,%s,%s,
+            %s,%s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s
+        )
         ON CONFLICT (interval_ts, dst_flag) DO UPDATE SET
-            posted_datetime = EXCLUDED.posted_datetime,
-            gen_system_wide = EXCLUDED.gen_system_wide,
+            posted_datetime     = EXCLUDED.posted_datetime,
+            gen_system_wide     = EXCLUDED.gen_system_wide,
             cop_hsl_system_wide = EXCLUDED.cop_hsl_system_wide,
-            stwpf_system_wide = EXCLUDED.stwpf_system_wide,
-            wgrpp_system_wide = EXCLUDED.wgrpp_system_wide,
-            hsl_system_wide = EXCLUDED.hsl_system_wide,
-            gen_lz_south_houston = EXCLUDED.gen_lz_south_houston,
-            cop_hsl_lz_south_houston = EXCLUDED.cop_hsl_lz_south_houston,
-            stwpf_lz_south_houston = EXCLUDED.stwpf_lz_south_houston,
-            wgrpp_lz_south_houston = EXCLUDED.wgrpp_lz_south_houston,
-            gen_lz_west = EXCLUDED.gen_lz_west,
-            cop_hsl_lz_west = EXCLUDED.cop_hsl_lz_west,
-            stwpf_lz_west = EXCLUDED.stwpf_lz_west,
-            wgrpp_lz_west = EXCLUDED.wgrpp_lz_west,
-            gen_lz_north = EXCLUDED.gen_lz_north,
-            cop_hsl_lz_north = EXCLUDED.cop_hsl_lz_north,
-            stwpf_lz_north = EXCLUDED.stwpf_lz_north,
-            wgrpp_lz_north = EXCLUDED.wgrpp_lz_north
-        WHERE wind_hourly.posted_datetime < EXCLUDED.posted_datetime
+            stwpf_system_wide   = EXCLUDED.stwpf_system_wide,
+            wgrpp_system_wide   = EXCLUDED.wgrpp_system_wide,
+            hsl_system_wide     = EXCLUDED.hsl_system_wide,
+            gen_panhandle       = EXCLUDED.gen_panhandle,
+            cop_hsl_panhandle   = EXCLUDED.cop_hsl_panhandle,
+            stwpf_panhandle     = EXCLUDED.stwpf_panhandle,
+            wgrpp_panhandle     = EXCLUDED.wgrpp_panhandle,
+            gen_coastal         = EXCLUDED.gen_coastal,
+            cop_hsl_coastal     = EXCLUDED.cop_hsl_coastal,
+            stwpf_coastal       = EXCLUDED.stwpf_coastal,
+            wgrpp_coastal       = EXCLUDED.wgrpp_coastal,
+            gen_south           = EXCLUDED.gen_south,
+            cop_hsl_south       = EXCLUDED.cop_hsl_south,
+            stwpf_south         = EXCLUDED.stwpf_south,
+            wgrpp_south         = EXCLUDED.wgrpp_south,
+            gen_west            = EXCLUDED.gen_west,
+            cop_hsl_west        = EXCLUDED.cop_hsl_west,
+            stwpf_west          = EXCLUDED.stwpf_west,
+            wgrpp_west          = EXCLUDED.wgrpp_west,
+            gen_north           = EXCLUDED.gen_north,
+            cop_hsl_north       = EXCLUDED.cop_hsl_north,
+            stwpf_north         = EXCLUDED.stwpf_north,
+            wgrpp_north         = EXCLUDED.wgrpp_north
+        WHERE wind_hourly_regional.posted_datetime < EXCLUDED.posted_datetime
     """
     with conn.cursor() as cur:
         cur.executemany(sql, records)
@@ -204,6 +228,11 @@ def load_wind_hourly(conn, df: pd.DataFrame) -> int:
 
 
 def load_solar_hourly(conn, df: pd.DataFrame) -> int:
+    """Load NP4-745-CD: Solar Power Production by Geographical Region.
+
+    6 PV regions: CenterWest, NorthWest, FarWest, FarEast, SouthEast, CenterEast.
+    Replaces the old NP4-737-CD system-wide-only loader.
+    """
     if df.empty:
         return 0
 
@@ -213,42 +242,96 @@ def load_solar_hourly(conn, df: pd.DataFrame) -> int:
     )
 
     records = []
-
     for _, r in df.iterrows():
-
         op_day = pd.to_datetime(r["deliveryDate"]).date()
         he_raw = r["hourEnding"]
         hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
         dst = bool(r.get("DSTFlag", False))
         ts = _to_interval_ts(op_day, hour, 1, dst)
+
         records.append((
-            op_day, hour, pd.to_datetime(r["postedDatetime"]),
+            op_day, hour, pd.to_datetime(r["postedDatetime"]), dst, ts,
+            # System-wide
             _f(r.get("genSystemWide")), _f(r.get("COPHSLSystemWide")),
             _f(r.get("STPPFSystemWide")), _f(r.get("PVGRPPSystemWide")),
             _f(r.get("HSLSystemWide")),
-            dst, ts,
+            # CenterWest
+            _f(r.get("genCenterWest")), _f(r.get("COPHSLCenterWest")),
+            _f(r.get("STPPFCenterWest")), _f(r.get("PVGRPPCenterWest")),
+            # NorthWest
+            _f(r.get("genNorthWest")), _f(r.get("COPHSLNorthWest")),
+            _f(r.get("STPPFNorthWest")), _f(r.get("PVGRPPNorthWest")),
+            # FarWest
+            _f(r.get("genFarWest")), _f(r.get("COPHSLFarWest")),
+            _f(r.get("STPPFFarWest")), _f(r.get("PVGRPPFarWest")),
+            # FarEast
+            _f(r.get("genFarEast")), _f(r.get("COPHSLFarEast")),
+            _f(r.get("STPPFFarEast")), _f(r.get("PVGRPPFarEast")),
+            # SouthEast
+            _f(r.get("genSouthEast")), _f(r.get("COPHSLSouthEast")),
+            _f(r.get("STPPFSouthEast")), _f(r.get("PVGRPPSouthEast")),
+            # CenterEast
+            _f(r.get("genCenterEast")), _f(r.get("COPHSLCenterEast")),
+            _f(r.get("STPPFCenterEast")), _f(r.get("PVGRPPCenterEast")),
         ))
 
     sql = """
-        INSERT INTO solar_hourly (
-            delivery_date, hour_ending, posted_datetime,
-            gen_system_wide, cop_hsl_system_wide,
-            stppf_system_wide, pvgrpp_system_wide, hsl_system_wide,
-            dst_flag, interval_ts
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        INSERT INTO solar_hourly_regional (
+            delivery_date, hour_ending, posted_datetime, dst_flag, interval_ts,
+            gen_system_wide, cop_hsl_system_wide, stppf_system_wide,
+            pvgrpp_system_wide, hsl_system_wide,
+            gen_centerwest, cop_hsl_centerwest, stppf_centerwest, pvgrpp_centerwest,
+            gen_northwest,  cop_hsl_northwest,  stppf_northwest,  pvgrpp_northwest,
+            gen_farwest,    cop_hsl_farwest,    stppf_farwest,    pvgrpp_farwest,
+            gen_fareast,    cop_hsl_fareast,    stppf_fareast,    pvgrpp_fareast,
+            gen_southeast,  cop_hsl_southeast,  stppf_southeast,  pvgrpp_southeast,
+            gen_centereast, cop_hsl_centereast, stppf_centereast, pvgrpp_centereast
+        ) VALUES (
+            %s,%s,%s,%s,%s,
+            %s,%s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s,
+            %s,%s,%s,%s
+        )
         ON CONFLICT (interval_ts, dst_flag) DO UPDATE SET
             posted_datetime     = EXCLUDED.posted_datetime,
             gen_system_wide     = EXCLUDED.gen_system_wide,
             cop_hsl_system_wide = EXCLUDED.cop_hsl_system_wide,
             stppf_system_wide   = EXCLUDED.stppf_system_wide,
             pvgrpp_system_wide  = EXCLUDED.pvgrpp_system_wide,
-            hsl_system_wide     = EXCLUDED.hsl_system_wide
-        WHERE solar_hourly.posted_datetime < EXCLUDED.posted_datetime
+            hsl_system_wide     = EXCLUDED.hsl_system_wide,
+            gen_centerwest      = EXCLUDED.gen_centerwest,
+            cop_hsl_centerwest  = EXCLUDED.cop_hsl_centerwest,
+            stppf_centerwest    = EXCLUDED.stppf_centerwest,
+            pvgrpp_centerwest   = EXCLUDED.pvgrpp_centerwest,
+            gen_northwest       = EXCLUDED.gen_northwest,
+            cop_hsl_northwest   = EXCLUDED.cop_hsl_northwest,
+            stppf_northwest     = EXCLUDED.stppf_northwest,
+            pvgrpp_northwest    = EXCLUDED.pvgrpp_northwest,
+            gen_farwest         = EXCLUDED.gen_farwest,
+            cop_hsl_farwest     = EXCLUDED.cop_hsl_farwest,
+            stppf_farwest       = EXCLUDED.stppf_farwest,
+            pvgrpp_farwest      = EXCLUDED.pvgrpp_farwest,
+            gen_fareast         = EXCLUDED.gen_fareast,
+            cop_hsl_fareast     = EXCLUDED.cop_hsl_fareast,
+            stppf_fareast       = EXCLUDED.stppf_fareast,
+            pvgrpp_fareast      = EXCLUDED.pvgrpp_fareast,
+            gen_southeast       = EXCLUDED.gen_southeast,
+            cop_hsl_southeast   = EXCLUDED.cop_hsl_southeast,
+            stppf_southeast     = EXCLUDED.stppf_southeast,
+            pvgrpp_southeast    = EXCLUDED.pvgrpp_southeast,
+            gen_centereast      = EXCLUDED.gen_centereast,
+            cop_hsl_centereast  = EXCLUDED.cop_hsl_centereast,
+            stppf_centereast    = EXCLUDED.stppf_centereast,
+            pvgrpp_centereast   = EXCLUDED.pvgrpp_centereast
+        WHERE solar_hourly_regional.posted_datetime < EXCLUDED.posted_datetime
     """
     with conn.cursor() as cur:
         cur.executemany(sql, records)
         return cur.rowcount
-
 
 
 def _to_interval_ts(operating_day, hour_ending: int, interval_id: int = 1, dst_flag: bool = False):

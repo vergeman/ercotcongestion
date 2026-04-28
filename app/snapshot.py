@@ -3,10 +3,16 @@ import pandas as pd
 import numpy as np
 import logging
 from copy import deepcopy
+from constants import DEFAULT_P_MAX_PU
 from operating_conditions import apply_operating_conditions
 from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
+
+from config import NETWORK_PATH
+from datetime import datetime
+from operating_data_adapter import OperatingDataAdapter
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +92,7 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
     binding_lines = shadow[binding_mask].sort_values(ascending=False)
 
     # Meta
-    total_load = net.loads_t.p_set.iloc[0].sum()
+    total_load = net.loads['p_set'].sum()
     total_gen = dispatch.sum()
     meta = {
         'solver_status': status,
@@ -117,31 +123,61 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
         'meta': meta,
     }
 
+def run_snapshot_for_ts(
+    ts: datetime,
+    adapter: OperatingDataAdapter,
+    mc: pd.DataFrame,
+    network_path: str = NETWORK_PATH,
+) -> tuple[dict, dict, pypsa.Network]:
+    """Build operating data, load network, run OPF for one timestamp.
 
-n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
+    Returns (result, op, network). Raises on failure.
+    """
 
-# Apply marginal costs
-mc = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
-n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
+    # Build operating data
+    op = adapter.build(ts)
+
+    n = pypsa.Network(network_path)
+
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
+
+    # Run OPF
+    result = compute_snapshot(n, op)
+
+    return result, op, n
 
 
-operating_data = {
-    'p_max_pu_by_carrier': {
-        'wind': 0.20,      # ERCOT wind typically 15-30% at peak
-        'solar': 0.65,     # still producing but sun dropping
-        'battery': 0.25,   # partial SOC, limited duration
-        'nuclear': 0.95,
-        'hydro': 0.50,
-        'coal': 0.90,      # available but not forced on
-        'gas': 0.90,
-        'oil': 0.80,
-        'biomass': 0.80,
-        'other': 0.80,
-    },
-    'loads': None,
-    'outages': None,
-    'line_derate': .9,
-    'tx_derate': 0.95
-}
 
-res = compute_snapshot(n, operating_data)
+if __name__ == '__main__':
+    """
+    Run compute_snapshot on the bare TAMU network with synthetic carrier-level
+    availability.
+
+    No ERCOT data, no timestamp, no DB required.
+
+    Useful for testing OPF / fragility / contingency math in isolation.
+
+    For the real pipeline, see test_snapshot.py and write_snapshots.py.
+    """
+    n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
+
+    # Apply marginal costs
+    mc = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
+    n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
+
+
+    operating_data = {
+        'p_max_pu_by_carrier': {
+            **DEFAULT_P_MAX_PU,
+            'wind': 0.20,      # ERCOT wind typically 15-30% at peak
+            'solar': 0.65,     # still producing but sun dropping
+        },
+        'loads': None,
+        'outages': None,
+        'line_derate': .9,
+        'tx_derate': 0.95
+    }
+
+    res = compute_snapshot(n, operating_data)

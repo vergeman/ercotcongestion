@@ -13,3 +13,25 @@
 
 * Remove ingest_log to re-query (bad data):
   * `docker compose exec db psql -U <user> -d <db> -c "DELETE FROM ingest_log WHERE endpoint = 'loads';"`
+
+
+## SQL Notes
+
+### Data Types
+
+* `TIMESTAMPTZ`: timestamp w/ time zone; stored in UTC, displayed in current
+  session timezone.
+  * ERCOT "default" for any timestamp, `sced_timestamp` `interval_ts`, etc
+* `DOUBLE PRECISION`: 64bit float - corresponds to `float` in pandas.
+
+* `INSERT INTO ... ON CONFICT DO UPDATE SET ... EXCLUDED.<fieldname>`: upsert
+  behavior; `EXCLUDED` is a temporary table of new data - these are the fields
+  being updated.
+* `INSERT INTO ... ON CONFICT DO NOTHING`: silent skip - immutable data
+
+### Tables / Fields / Conventions
+
+* `solar_hourly_regional`, `wind_hourly_regional`, `load_by_zone`:
+  * Query by (`interval_ts`, `dst_flag`)
+  * NB: `PRIMARY KEY (interval_ts, dst_flag)`
+  * See [daylight savings notes](/data/README.md#ERCOT Data)

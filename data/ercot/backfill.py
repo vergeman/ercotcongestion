@@ -44,14 +44,14 @@ ENDPOINTS = {
         "param_format": "date",  # yyyy-MM-dd
     },
     "wind": {
-        "path": "/np4-732-cd/wpp_hrly_avrg_actl_fcast",
+        "path": "/np4-742-cd/wpp_hrly_actual_fcast_geo",
         "loader": load_wind_hourly,
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
     },
     "solar": {
-        "path": "/np4-737-cd/spp_hrly_avrg_actl_fcast",
+        "path": "/np4-745-cd/spp_hrly_actual_fcast_geo",
         "loader": load_solar_hourly,
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
