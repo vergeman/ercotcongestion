@@ -59,7 +59,10 @@ import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
 
-from constants import IRR_CARRIERS, THERMAL_CARRIERS, DEFAULT_P_MAX_PU, PV_REGIONS, WIND_REGIONS, LOAD_ZONES
+from constants import (
+    IRR_CARRIERS, THERMAL_CARRIERS, DEFAULT_P_MAX_PU,
+    PV_REGIONS, WIND_REGIONS, LOAD_ZONES
+)
 
 
 # ============================================================================
@@ -369,7 +372,26 @@ class OperatingDataAdapter:
     # Translation logic
     # ------------------------------------------------------------------
 
+    # cap: total nameplate capacity
+    # mw: ERCOT data
+    # (capacity) factors: acutal / nameplate
+
     def _wind_factors(self, wind_row: dict) -> dict[str, float]:
+        """
+        Args: wind_row ERCOT data
+
+        Example: {'gen_panhandle': 1441.2, 'gen_coastal': 2894.84, 'gen_south':
+        2058.36, 'gen_west': 11490.06, 'gen_north': 1657.53, 'gen_system_wide':
+        19541.99}
+
+        Returns: factors: capacity % of nameplate
+        (mw per region / mw nameplate capacity per region)
+
+        Example: { 'panhandle': 0.2449312554171411, 'coastal':
+        0.5338275429667331, 'south': 0.4407056909176551, 'west':
+        0.5096884661961647, 'north': 0.5018863925392115}
+
+        """
         out = {}
         for r in WIND_REGIONS:
             cap = self._static.wind_region_nameplate.get(r, 0.0)
@@ -378,6 +400,22 @@ class OperatingDataAdapter:
         return out
 
     def _solar_factors(self, solar_row: dict) -> dict[str, float]:
+        """
+        Args: solar_region ERCOT data
+
+        Example: {'gen_centerwest': 2371.73, 'gen_northwest': 2026.5,
+        'gen_farwest': 2829.17, 'gen_fareast': 11384.61, 'gen_southeast':
+        2579.81, 'gen_centereast': 3322.35, 'gen_system_wide': 24514.17}
+
+        Returns: factors: capacity % of nameplate
+        (mw per region / mw nameplate capacity per region)
+
+        Example: {'centerwest': 0.6558443713187512, 'northwest':
+        0.7624153498871332, 'farwest': 0.5411986379983166, 'fareast':
+        0.8460745552103927, 'southeast': 0.7743689028965931, 'centereast':
+        0.8216926767739222}
+
+        """
         out = {}
         for r in PV_REGIONS:
             cap = self._static.pv_region_nameplate.get(r, 0.0)
@@ -390,7 +428,26 @@ class OperatingDataAdapter:
         wind_row: dict,
         solar_row: dict,
     ) -> pd.Series:
-        """Per-generator p_max_pu before outage derates and non-ERCOT zeroing."""
+        """
+        Returns: Per-generator p_max_pu before outage derates and non-ERCOT zeroing.
+
+        Lookup operational capacity, then build Series: matching generator
+        name, and wind/solar/DEFAULT P_MAX_PU to get physical/operational
+        availability for that hour [0, 1]
+
+        Get acutal ERCOT data to capture generator availability by zone for solar/wind
+
+        Example:
+
+        name
+        G0       0.509688  <- p_max_pu
+        G1       0.541199
+        G2       0.541199
+        G3       0.541199
+        G4       0.509688
+           ...
+
+        """
         wind_factors = self._wind_factors(wind_row)
         solar_factors = self._solar_factors(solar_row)
 
@@ -406,13 +463,33 @@ class OperatingDataAdapter:
                 out.loc[gen_name] = wind_factors.get(region, 0.0) if region else 0.0
             else:
                 out.loc[gen_name] = DEFAULT_P_MAX_PU.get(carrier, 0.8)
-
         return out
 
     def _derate_by_load_zone_carrier(
         self,
         outage_row: dict | None,
     ) -> dict[tuple[str, str], float]:
+        """Args: outage_row; query from ERCOT gives total generation offline
+        (IRR, THERMAL) by zone
+        * IRR: renewables
+        * THERMAL: gas, nuke, etc.
+
+        Example:{..., 'total_mw_south': 9481.0, 'total_mw_north': 11497.0,
+        'total_mw_west': 1446.0, 'total_mw_houston': 7489.0, 'irr_mw_south':
+        1199.0, 'irr_mw_north': 996.0, 'irr_mw_west': 3057.0, 'irr_mw_houston':
+        85.0}
+
+        Need to figure out how to spread that across generators; or in this
+        case zonal level of generation.
+
+        Returns: {
+          (zone x carrier): availability derate factors
+        }
+
+        Example:
+
+        """
+
         if outage_row is None:
             return {}
 
@@ -422,6 +499,7 @@ class OperatingDataAdapter:
             irr_out = outage_row.get(f'irr_mw_{lz}') or 0.0
             self._allocate_pool(derates, lz, irr_out, IRR_CARRIERS)
             self._allocate_pool(derates, lz, thermal_out, THERMAL_CARRIERS)
+
         return derates
 
     def _allocate_pool(
@@ -431,8 +509,46 @@ class OperatingDataAdapter:
         outage_mw: float,
         carriers: tuple[str, ...],
     ) -> None:
+        """Goal: How do we split outage from a zone across types: proportional
+        according to nameplate capacity
+
+        Args:
+        derates  : dict to be populated:
+          * shape: {(load zone, carrier): availability factor}
+        load_zone: EROCT's 4 load zones (hou, n,s, w)
+        outage_mw: total outage by IRR or THERMAL carrier group
+        carriers:  tuples of carrier types
+
+        Returns: updates derates
+
+
+        pool_cap = total nameplate capacity per load zone - sum across all
+        carriers in (IRR or THERMAL)
+
+        cap = single carrier's nameplate capacity for zone (e.g. 5000 gas)
+
+        allocated = outage MW * cap / pool_cap
+
+        proportion of outage assigned to carrier type in load zone.
+
+         e.g. South gas = 25,000 / 50,000 (total all THERMAL) = 50% of thermal pool
+              Outage of 1500MW in South; gas gets allocated 750MW.
+
+        Populate derates with (zone, carrier) and availability factor
+
+        derates[(zone, carrier)] = 1 - allocated / cap
+
+        e.g. (South, gas) = 1 - 750 MW allocated / 25,000 MW (cap)
+                          = 1 - 0.3
+                          = .97
+
+        97% of capacity is available, and 3% is derated.
+        return per-unit availability multiplier
+        """
+
         if outage_mw <= 0:
             return
+
         pool_cap = sum(
             self._static.load_zone_carrier_nameplate.get((load_zone, c), 0.0)
             for c in carriers
@@ -473,9 +589,25 @@ class OperatingDataAdapter:
         Trade-off: loses zonal fidelity (a load increase in West Texas in real
         life shows up everywhere proportionally rather than localized), but
         avoids infeasibilities from network mismatch with ERCOT's distribution.
+
+        Args: load_row
+
+        Example: {'operating_day': datetime.date(2026, 3, 25), 'hour_ending':
+        18, 'coast': 16641.15, 'east': 2048.82, 'far_west': 8002.97, 'north':
+        2378.65, 'north_central': 18716.61, 'south_central': 11419.08,
+        'southern': 5427.2, 'west': 1839.0, 'total': 66473.48}
+
+        ERCOT data total load / TAMU model load:
+
+        scale factor = 66473.48 / 85758.89 = .77512
+
+        Apply .775 factor to TAMU model to keep "shape" but scale to ERCOT
+        data.
+
         """
         ercot_total = load_row.get('total') or 0.0
         if ercot_total <= 0 or self._static.static_total <= 0:
             return pd.Series(0.0, index=self._static.static_loads.index)
+
         scale_factor = ercot_total / self._static.static_total
         return self._static.static_loads * scale_factor

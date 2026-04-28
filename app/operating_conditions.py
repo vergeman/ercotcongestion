@@ -58,7 +58,12 @@ def apply_operating_conditions(n,
 
     #
     # Outages: set s_nom to tiny value rather than 0 (avoids numerical issues)
+    # s_nom: set line to carry 0.001 MW
     #
+    # NB: Don't have real line level data - outage data is on zone-based
+    # generators and can't map TAMU to ERCOT at the line level.
+    #
+    # But keep for N-1 contingency
     if outages:
         for line in outages:
             if line in n.lines.index:
