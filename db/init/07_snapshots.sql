@@ -1,4 +1,4 @@
--- Sprint 4 snapshot storage
+-- Snapshot storage
 -- One row per (interval_ts, bus) for per-bus signals.
 -- One row per interval_ts for snapshot-wide metadata.
 

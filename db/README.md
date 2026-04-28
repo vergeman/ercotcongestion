@@ -29,7 +29,7 @@
   being updated.
 * `INSERT INTO ... ON CONFICT DO NOTHING`: silent skip - immutable data
 
-### Fields / Conventions
+### Tables / Fields / Conventions
 
 * `solar_hourly_regional`, `wind_hourly_regional`, `load_by_zone`:
   * Query by (`interval_ts`, `dst_flag`)
