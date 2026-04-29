@@ -13,3 +13,14 @@
   * Reminder at this point it's "faking" the cursor calls as called in router
     code order. The db returns the raw fixtures; which then get turned to json
     via response.
+
+## "patch"
+
+* NB: not request type, this is is from unittest.mock; temporarily replaces a
+  Python object with a fake during a test.
+
+* `test_topology.py`: it's replacing the function in the block with the mock,
+  `FAKE_TOPO`.
+
+* Because of our paths, right now it's at top level (so normally
+  `api.routes.topology....`) but right now just `topology....()`

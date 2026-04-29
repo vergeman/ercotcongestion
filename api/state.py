@@ -45,7 +45,9 @@ def _coerce_utc(ts: datetime) -> datetime:
 # NB: prefix /api
 # ---------------------------------------------------------------------------
 
-@router.get('/state', response_model=StateResponse, summary='Snapshot at one timestamp')
+@router.get('/state',
+            response_model=StateResponse,
+            summary='Snapshot at one timestamp')
 def get_state(t: datetime = Query(..., description='ISO-8601 UTC timestamp')) -> StateResponse:
     ts = _coerce_utc(t)
     pool = get_pool()
@@ -79,6 +81,10 @@ def get_state_range(
     start: datetime = Query(..., description='ISO-8601 UTC start (inclusive)'),
     end:   datetime = Query(..., description='ISO-8601 UTC end (exclusive)'),
 ) -> StateRangeResponse:
+
+    #
+    # Param Validation
+    #
     s = _coerce_utc(start)
     e = _coerce_utc(end)
     if e <= s:
@@ -120,9 +126,15 @@ def get_state_range(
             )
             bus_rows = cur.fetchall()
 
-    # Group bus rows by interval_ts in a single pass. Pop interval_ts off each
-    # row before constructing BusState (the model doesn't carry it — the
-    # parent StateRangeEntry does).
+    # Idea is to make two queries: meta [start, end], buses: [start, end]
+    # then join them together, versus an N+1: meta then buses, meta then buses...
+    #
+    # Group bus rows by interval_ts:
+    # grab interval_ts, then append to dict of lists
+    # dict[interval_ts] -> [BusState]
+    #
+    # iterate meta_rows, and given interval_ts, pass the list of BusState at
+    # that interval.
     bus_by_ts: dict[datetime, list[BusState]] = {}
     for row in bus_rows:
         ts = row.pop('interval_ts')

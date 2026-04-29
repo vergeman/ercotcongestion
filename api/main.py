@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGINS
 from db import lifespan
-import state
+import state, topology
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -36,7 +36,9 @@ app.add_middleware(
 )
 
 app.include_router(state.router,    prefix='/api', tags=['state'])
+app.include_router(topology.router,    prefix='/api', tags=['topology'])
 
 @app.get('/healthz', tags=['meta'])
 def healthz() -> dict[str, str]:
     return {'status': 'ok'}
+

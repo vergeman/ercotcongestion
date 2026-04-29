@@ -25,7 +25,7 @@ PG_DSN = (
 
 
 FRONTEND_ORIGINS = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:5173')
-TOPOLOGY_CACHE = os.environ.get('TOPOLOGY_CACHE', '/data/processed/topology.json')
+TOPOLOGY_CACHE = os.environ.get('TOPOLOGY_CACHE', 'static/topology.json')
 
 # Validation endpoint guardrails
 MIN_VALIDATION_HOURS = 24       # warn below this
