@@ -1,7 +1,7 @@
 # Notes
 
 * Run Migration:
-  * `docker compose exec -T db psql -U <user> -d <db> < db/init/<migration>.sql`
+  * `docker compose exec -T db psql -U <user> -d <db> < db/migrations/<migration>.sql`
 
 ## Import ERCOT
 
