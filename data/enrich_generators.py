@@ -17,13 +17,13 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 
+from config import(
+    TIGER_SHP, ERCOT_REGIONS_XLSX,
+    BUS_WEATHER_LOAD_ZONES_CSV,
+    GENERATOR_MATCHES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
+)
 
-INPUT_CSV       = Path('/data/processed/generator_matches.csv')
-BUS_ZONES_PATH  = Path('/data/processed/bus_ercot_weather_load_zones.csv')
-TIGER_SHP       = Path('TIGER/tl_2024_us_county.shp')
-LOAD_ZONES_GEOJSON = Path('ercot_load_zones/Load_Zones.geojson')
-ERCOT_REGIONS_XLSX = Path('ercot_wind_solar_zones_counties/Wind and Solar Regions to County Mapping.xlsx')
-OUTPUT_CSV      = Path('/data/processed/generator_matches_enriched.csv')
+
 
 def normalize_county(s: pd.Series) -> pd.Series:
     """Normalize county names for join: uppercase, strip whitespace, no 'County' suffix."""
@@ -41,8 +41,8 @@ def normalize_county(s: pd.Series) -> pd.Series:
 
 def main():
 
-    print(f"Loading {INPUT_CSV}")
-    gens = pd.read_csv(INPUT_CSV)
+    print(f"Loading {GENERATOR_MATCHES_CSV}")
+    gens = pd.read_csv(GENERATOR_MATCHES_CSV)
     n_in = len(gens)
 
     # Rename existing 'county' (from EIA matching) to 'eia_county' to preserve
@@ -79,11 +79,11 @@ def main():
 
     # ---- 2. Apply ercot_load_zone from previous lookup  ---------------
 
-    print(f"Loading bus -> ercot_load_zone from {BUS_ZONES_PATH}")
-    bus_zones = pd.read_csv(BUS_ZONES_PATH)
+    print(f"Loading bus -> ercot_load_zone from {BUS_WEATHER_LOAD_ZONES_CSV}")
+    bus_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     if 'ercot_load_zone' not in bus_zones.columns:
         raise ValueError(
-            f"{BUS_ZONES_PATH} is missing 'ercot_load_zone' column. "
+            f"{BUS_WEATHER_LOAD_ZONES_CSV} is missing 'ercot_load_zone' column. "
             f"Run scripts/assign_zones.py to regenerate it."
         )
     print(f"  Load zones: {sorted(bus_zones['ercot_load_zone'].dropna().unique().tolist())}")
@@ -160,8 +160,8 @@ def main():
 
     # ---- 5. Save ------------------------------------------------------------
     out = pd.DataFrame(gdf.drop(columns=['geometry', 'county_key']))
-    out.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nWrote {len(out)} rows to {OUTPUT_CSV}")
+    out.to_csv(GENERATOR_MATCHES_ENRICHED_CSV, index=False)
+    print(f"\nWrote {len(out)} rows to {GENERATOR_MATCHES_ENRICHED_CSV}")
     print(f"Columns: {out.columns.tolist()}")
 
 

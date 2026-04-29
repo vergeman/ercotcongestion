@@ -7,10 +7,12 @@ import pypsa
 
 log = logging.getLogger(__name__)
 
-WEATHER_ZONES_PATH  = Path("/data/ercot_weather_zones/Weather_Zone.shp")
-NETWORK_PATH = Path("/data/processed/Texas2k_series25_case1_summerpeak.nc")
-BUS_ZONES_OUTPUT_PATH  = Path("/data/processed/bus_ercot_weather_load_zones.csv")
-LOAD_ZONES_GEOJSON = Path('ercot_load_zones/Load_Zones.geojson')
+from config import(
+    NETWORK_NC,
+    WEATHER_ZONES_SHP, LOAD_ZONES_GEOJSON,
+    BUS_WEATHER_LOAD_ZONES_CSV
+)
+
 
 ERCOT_WEATHER_ZONE_CANONICAL = {
     'South': 'Southern',  # ERCOT uses 'Southern', not 'South'
@@ -23,7 +25,7 @@ LOAD_ZONE_CANONICAL: dict[str, str] = {
 }
 
 
-def load_zones(path=WEATHER_ZONES_PATH):
+def load_zones(path=WEATHER_ZONES_SHP):
     """loads shapefile into a GeoDataFrame (geopandas)
     NB: quietly reads .dbf, .shx, .prj
     """
@@ -101,14 +103,14 @@ def assign_zone(
 
 if __name__ == '__main__':
 
-    log.info(f"Loading network from {NETWORK_PATH}")
-    n = pypsa.Network(NETWORK_PATH)
+    log.info(f"Loading network from {NETWORK_NC}")
+    n = pypsa.Network(NETWORK_NC)
     buses_gdf = build_bus_gdf(n)
     log.info(f"  {len(buses_gdf)} buses")
 
     # ---- Weather zones ----
-    log.info(f"Loading weather zones from {WEATHER_ZONES_PATH}")
-    weather_zones = gpd.read_file(WEATHER_ZONES_PATH).to_crs('EPSG:4326')
+    log.info(f"Loading weather zones from {WEATHER_ZONES_SHP}")
+    weather_zones = gpd.read_file(WEATHER_ZONES_SHP).to_crs('EPSG:4326')
     log.info(f"  {len(weather_zones)} weather zone polygons: "
              f"{sorted(weather_zones['Zone_name'].unique().tolist())}")
     weather_assigned = assign_zone(
@@ -162,5 +164,5 @@ if __name__ == '__main__':
     for z, n_buses in out['ercot_load_zone'].value_counts().items():
         log.info(f"  {z:20s} {n_buses}")
 
-    out.to_csv(BUS_ZONES_OUTPUT_PATH, index=False)
-    log.info(f"Wrote {BUS_ZONES_OUTPUT_PATH} ({len(out)} buses)")
+    out.to_csv(BUS_WEATHER_LOAD_ZONES_CSV, index=False)
+    log.info(f"Wrote {BUS_WEATHER_LOAD_ZONES_CSV} ({len(out)} buses)")

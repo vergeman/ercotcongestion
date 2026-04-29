@@ -36,8 +36,11 @@ from pathlib import Path
 import pandas as pd
 import pypsa
 
-NETWORK_PATH = Path("/data/processed/Texas2k_series25_case1_summerpeak.nc")
-OUTPUT_PATH  = Path("/data/processed/marginal_costs.csv")
+from config import (
+    NETWORK_NC, MARGINAL_COSTS_CSV
+)
+
+
 
 # EIA average fuel prices $/MMBtu TX
 # Source: EIA Electric Power Annual 2024 (Tables 7.17-7.20) +
@@ -105,11 +108,11 @@ def compute_marginal_costs(n):
 
 
 if __name__ == '__main__':
-    n = pypsa.Network(NETWORK_PATH)
+    n = pypsa.Network(NETWORK_NC)
     result = compute_marginal_costs(n)
 
     print(result.groupby('carrier')['marginal_cost'].describe().round(2))
     print(f"\nMarginal cost range: ${result['marginal_cost'].min()} - ${result['marginal_cost'].max()}/MWh")
 
-    result.to_csv(OUTPUT_PATH)
-    print(f"Saved to {OUTPUT_PATH}")
+    result.to_csv(MARGINAL_COSTS_CSV)
+    print(f"Saved to {MARGINAL_COSTS_CSV}")
