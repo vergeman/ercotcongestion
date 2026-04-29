@@ -6,12 +6,13 @@ from pathlib import Path
 #
 # PATHS
 #
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data/processed"))
+CASE_STEM = "Texas2k_series25_case1_summerpeak"
+PROCESSED_DIR = Path(os.getenv("DATA_DIR", "/data/processed"))
 
-NETWORK_PATH        = DATA_DIR / "Texas2k_series25_case1_summerpeak.nc"
-MARGINAL_COSTS_PATH = DATA_DIR / "marginal_costs.csv"
-BUS_WEATHER_ZONES_PATH      = DATA_DIR / "bus_weather_zones.csv"
-GEN_ENRICHED_PATH   = DATA_DIR / "generator_matches_enriched.csv"
+NETWORK_NC                          = Path(f"{PROCESSED_DIR}/{CASE_STEM}.nc")
+MARGINAL_COSTS_CSV                  = Path(f"{PROCESSED_DIR}/marginal_costs.csv")
+BUS_WEATHER_LOAD_ZONES_CSV          = Path(f"{PROCESSED_DIR}/bus_ercot_weather_load_zones.csv")
+GENERATOR_MATCHES_ENRICHED_CSV      = Path(f"{PROCESSED_DIR}/generator_matches_enriched.csv")
 
 #
 # DB

@@ -18,7 +18,7 @@ import psycopg
 import pypsa
 
 from config import (
-    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_WEATHER_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
+    NETWORK_NC, MARGINAL_COSTS_PATH, BUS_WEATHER_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
 )
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import run_snapshot_for_ts
@@ -42,7 +42,7 @@ def main():
     gen_enriched = pd.read_csv(GEN_ENRICHED_PATH)
 
     # Adapter
-    n_init = pypsa.Network(NETWORK_PATH) # network for static precomputation
+    n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
     conn = psycopg.connect(PG_DSN)
     adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
 

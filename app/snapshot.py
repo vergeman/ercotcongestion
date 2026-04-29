@@ -9,7 +9,7 @@ from fragility import compute_fragility, fragility_diagnostics, fragility_plot
 from contingency import compute_contingencies, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
 
-from config import NETWORK_PATH
+from config import NETWORK_NC
 from datetime import datetime
 from operating_data_adapter import OperatingDataAdapter
 
@@ -127,7 +127,7 @@ def run_snapshot_for_ts(
     ts: datetime,
     adapter: OperatingDataAdapter,
     mc: pd.DataFrame,
-    network_path: str = NETWORK_PATH,
+    network_path: str = NETWORK_NC,
 ) -> tuple[dict, dict, pypsa.Network]:
     """Build operating data, load network, run OPF for one timestamp.
 

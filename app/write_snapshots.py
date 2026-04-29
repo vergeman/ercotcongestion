@@ -30,7 +30,7 @@ import pandas as pd
 import psycopg
 import pypsa
 from config import (
-    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_WEATHER_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
+    NETWORK_NC, MARGINAL_COSTS_PATH, BUS_WEATHER_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
 )
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import run_snapshot_for_ts
@@ -255,7 +255,7 @@ def main():
 
     # The adapter needs a network for static precomputation; load once for this purpose
     log.info("Initializing adapter...")
-    n_init = pypsa.Network(NETWORK_PATH)
+    n_init = pypsa.Network(NETWORK_NC)
     adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
 
     # Optionally skip already-computed timestamps
