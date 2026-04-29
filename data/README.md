@@ -10,13 +10,17 @@
    * Note: extracting eia860 attempts to match TAMU vs real generation 1-1.
    * Helps with human-readable display and real-world counterpart, but not exact
 
-5. `enrich_generators.py`: augments `generator_matches.csv`
+5. `assign_bus_weather_load_zones.py`: Given TAMU network Bus lat/lng lookup and
+   assign to each bus:
+   * EROCT 8 Weather Zone labels: `ercot_weather_zone`
+     * ERCOT 4 Load Zone labels: `ercot_load_zone`
+
+6. `enrich_generators.py`: augments `generator_matches.csv`
    * For each generator:
      * Adds TIGER county column via lat/lng lookup for each generator
      * Adds respective Load Zone label from geojson lookup
      * For solar and wind generators, take TIGER county and apply `pv_region` and `wind_region`
 
-6. `assign_weather_zones.py`: Given TAMU network Bus lat/lng, assign EROCT 8 Weather Zone label
 
 7. `marginal_costs.py`: generates `marginal_costs.csv` for plant types (hardcoded
     table lookups; so not plan specific for now)
