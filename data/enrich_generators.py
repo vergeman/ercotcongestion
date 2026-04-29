@@ -3,7 +3,7 @@ Enrich TAMU generators with the zone tags
 
 Adds four columns to generator_matches.csv:
   county      - via spatial join against Census TIGER county polygons
-  load_zone   - via spatial join against ERCOT load zone polygons (4 zones)
+  ercot_load_zone   - via spatial join against ERCOT load zone polygons (4 zones)
   pv_region   - via county lookup against ERCOT XLSX (solar generators only)
   wind_region - via county lookup against ERCOT XLSX (wind generators only)
 
@@ -19,6 +19,7 @@ import geopandas as gpd
 
 
 INPUT_CSV       = Path('/data/processed/generator_matches.csv')
+BUS_ZONES_PATH  = Path('/data/processed/bus_ercot_weather_load_zones.csv')
 TIGER_SHP       = Path('TIGER/tl_2024_us_county.shp')
 LOAD_ZONES_GEOJSON = Path('ercot_load_zones/Load_Zones.geojson')
 ERCOT_REGIONS_XLSX = Path('ercot_wind_solar_zones_counties/Wind and Solar Regions to County Mapping.xlsx')
@@ -76,19 +77,24 @@ def main():
         print("  (likely lat/lon outside Texas)")
         print(outside.head(10).to_string(index=False))
 
-    # ---- 2. Load zone via ERCOT polygon spatial join ------------------------
-    print(f"Loading load zones from {LOAD_ZONES_GEOJSON}")
-    load_zones = gpd.read_file(LOAD_ZONES_GEOJSON)
-    load_zones = load_zones[['NAME', 'geometry']].copy()
-    load_zones['NAME'] = load_zones['NAME'].str.lower()
-    load_zones = load_zones.to_crs('EPSG:4326')
-    print(f"  Load zones: {sorted(load_zones['NAME'].tolist())}")
+    # ---- 2. Apply ercot_load_zone from previous lookup  ---------------
 
-    gdf = (
-        gpd.sjoin(gdf, load_zones, how='left', predicate='within')
-        .rename(columns={'NAME': 'load_zone'})
-        .drop(columns=['index_right'])
-    )
+    print(f"Loading bus -> ercot_load_zone from {BUS_ZONES_PATH}")
+    bus_zones = pd.read_csv(BUS_ZONES_PATH)
+    if 'ercot_load_zone' not in bus_zones.columns:
+        raise ValueError(
+            f"{BUS_ZONES_PATH} is missing 'ercot_load_zone' column. "
+            f"Run scripts/assign_zones.py to regenerate it."
+        )
+    print(f"  Load zones: {sorted(bus_zones['ercot_load_zone'].dropna().unique().tolist())}")
+
+    # gdf['bus'] holds the PyPSA bus name; bus_zones['name'] is the same key.
+    gdf = gdf.merge(
+        bus_zones[['name', 'ercot_load_zone']],
+        left_on='bus',
+        right_on='name',
+        how='left',
+    ).drop(columns=['name'])
 
     # Some TAMU generators are not in ERCOT:
     # North Texas Panhandle: Hemphill, Moore, Hutchinson counties are served by SPP
@@ -97,10 +103,10 @@ def main():
     #
     # TODO: remember to set 'non_ercot' generators p_max_pu / p_max_pu_ceiling to 0
 
-    gdf['load_zone'] = gdf['load_zone'].fillna('non_ercot')
+    gdf['ercot_load_zone'] = gdf['ercot_load_zone'].fillna('non_ercot')
 
-    n_no_lz = gdf['load_zone'].isna().sum()
-    print(f"  Generators without load_zone: {n_no_lz}/{n_in}")
+    n_no_lz = gdf['ercot_load_zone'].isna().sum()
+    print(f"  Generators without ercot_load_zone: {n_no_lz}/{n_in}")
 
     # ---- 3. PV / wind region via ERCOT XLSX lookup --------------------------
     print(f"Loading ERCOT region XLSX from {ERCOT_REGIONS_XLSX}")
