@@ -17,11 +17,19 @@ from datetime import date, datetime, timedelta, timezone
 import psycopg
 
 from ErcotClient import ErcotClient, PG_DSN
-from loaders import (load_shadow_prices, load_outages,
+from loaders import (load_zonal_lmp, load_shadow_prices, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly)
 
 
 ENDPOINTS = {
+    "zonal_lmp": {
+        "path": "/np6-905-cd/spp_node_zone_hub",
+        "loader": load_zonal_lmp,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
+        "extra_params": {"settlementPointType": "HU"}
+    },
     "shadow": {
         "path": "/np6-86-cd/shdw_prices_bnd_trns_const",
         "loader": load_shadow_prices,
@@ -114,6 +122,7 @@ def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
     df = client.get(cfg["path"], **{
         cfg["from_param"]: from_value,
         cfg["to_param"]: to_value,
+        **cfg.get("extra_params", {})
     })
 
     rows_fetched = len(df)
@@ -129,7 +138,7 @@ def main():
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
-                        choices=["shadow", "outages", "loads", "wind", "solar", "all"],
+                        choices=["shadow", "outages", "loads", "wind", "solar", "zonal_lmp", "all"],
                         default="all")
     parser.add_argument("--resume", action="store_true",
                         help="Skip windows already in ingest_log")

@@ -150,10 +150,27 @@ def main():
     start = end - timedelta(hours=1)
     iso_from = start.strftime("%Y-%m-%dT%H:%M:%S")
     iso_to = end.strftime("%Y-%m-%dT%H:%M:%S")
+
+    date_from = start.strftime("%Y-%m-%d")
+    date_to = end.strftime("%Y-%m-%d")
+    hour_from = start.hour
+    hour_to = end.hour
     print(f"Window: {iso_from} → {iso_to}")
 
     client = ErcotClient()
 
+    #
+    # Zonal LMP
+    #
+
+    print("\nFetching NP6-905-CD")
+    zonal_lmp = client.get(
+        "/np6-905-cd/spp_node_zone_hub",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+        #deliveryHourFrom=hour_from, deliveryHourTo=hour_to,
+        settlementPointType="HU"  # filter to relevant hubs
+    )
+    print(f"  {len(zonal_lmp)} rows")
 
     #
     # Shadow
