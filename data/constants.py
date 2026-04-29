@@ -50,3 +50,4 @@ for eia_code, carrier in EIA_TO_CARRIER.items():
     CARRIER_TO_EIA[carrier].append(eia_code)
 CARRIER_TO_EIA['unknown'] = []
 CARRIER_TO_EIA = dict(CARRIER_TO_EIA)
+

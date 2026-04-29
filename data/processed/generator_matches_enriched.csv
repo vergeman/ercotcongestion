@@ -1,4 +1,4 @@
-bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_quality,county,load_zone,pv_region,wind_region
+bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_quality,county,ercot_load_zone,pv_region,wind_region
 1006,32.240278,-101.473611,wind,120.0,4,BIG SPRING 5,56776.0,Howard,matched_all,Howard,west,,West
 1008,30.976638,-102.257753,solar,28.0,6,IRAAN 2,61346.0,Pecos,matched_all,Pecos,west,FarWest,
 1009,30.976638,-102.257753,solar,222.0,6,IRAAN 2,61346.0,Pecos,matched_all,Pecos,west,FarWest,
@@ -681,7 +681,7 @@ bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_
 12839,34.72,-102.253333,wind,299.7,1310,HEREFORD 1,59621.0,Deaf Smith,matched_all,Castro,west,,Panhandle
 12841,31.85346,-96.624458,wind,299.2,572,DAWSON,65306.0,Navarro,matched_all,Navarro,north,,North
 12844,32.28938,-99.291596,wind,293.3,1311,BAIRD 1,62809.0,Callahan,matched_all,Callahan,west,,West
-12845,35.653889,-100.538611,wind,288.6,140,MIAMI,58765.0,Roberts,matched_all,Hemphill,non_ercot,,Panhandle
+12845,35.653889,-100.538611,wind,288.6,140,MIAMI,58765.0,Roberts,matched_all,Hemphill,west,,Panhandle
 12848,34.511944,-102.051944,wind,288.0,1312,NAZARETH 1,,,no match,Castro,west,,Panhandle
 12849,28.650278,-96.539722,gas,143.1,1133,POINT COMFORT 1,56708.0,Calhoun,matched_all,Calhoun,south,,
 12850,28.650278,-96.539722,gas,143.1,1133,POINT COMFORT 1,56708.0,Calhoun,matched_all,Calhoun,south,,
@@ -920,7 +920,7 @@ bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_
 13212,31.241808,-102.29027,solar,150.0,1443,MCCAMEY 3,60581.0,Upton,matched_all,Upton,west,FarWest,
 13213,31.703258,-102.701206,solar,150.0,1253,IND W TWFV 2,62933.0,Ector,matched_all,Ector,west,FarWest,
 13215,31.254361,-102.31165,solar,150.0,1444,CRANE 2,63519.0,Crane,matched_all,Crane,west,FarWest,
-13217,30.010255,-94.486313,solar,150.0,1445,LIBERTY 1,,,no match,Liberty,non_ercot,FarEast,
+13217,30.010255,-94.486313,solar,150.0,1445,LIBERTY 1,,,no match,Liberty,houston,FarEast,
 13219,31.233457,-102.308519,battery,150.0,1446,MCCAMEY 4,66170.0,Crane,matched_all,Crane,west,,
 13221,33.00659,-99.60541,battery,150.0,1447,MCCARNEY 2,63905.0,Haskell,matched_fuel,Haskell,west,,
 13223,33.01659,-99.60541,battery,150.0,1448,HASKELL 3,63905.0,Haskell,matched_fuel,Haskell,west,,
@@ -1055,25 +1055,25 @@ bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_
 13388,30.310524,-96.47887,solar,60.2,1514,BRENHAM 1,,,no match,Washington,south,FarEast,
 13389,30.495668,-103.450965,battery,60.0,1515,ALPINE 1,66006.0,Brewster,matched_fuel,Brewster,west,,
 13390,33.5493,-97.1798,solar,59.0,1516,GAINSVILLE 2,62773.0,Cooke,matched_all,Cooke,north,CenterEast,
-13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,non_ercot,,
-13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,non_ercot,,
+13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,west,,
+13391,29.449827,-101.06011,hydro,29.0,1517,DEL RIO 3,6128.0,Val Verde,matched_all,,west,,
 13392,34.105,-101.0986,wind,57.0,1518,FLOYDADA 4,56673.0,Floyd,matched_all,Floyd,west,,Panhandle
-13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,non_ercot,,
-13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,non_ercot,,
+13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,north,,
+13393,31.060893,-94.1062,hydro,26.0,1519,JASPER 1,6413.0,Jasper,matched_all,Jasper,north,,
 13394,28.430988,-97.889555,solar,50.7,1520,BEEVILLE 1,63223.0,Bee,matched_all,Bee,south,SouthEast,
 13395,34.060333,-101.187628,wind,50.4,1521,FLOYDADA 5,60210.0,Floyd,matched_all,Floyd,west,,Panhandle
 13396,26.492862,-98.448267,wind,50.4,1522,EDINBURG 5,62618.0,Hidalgo,matched_all,Hidalgo,south,,South
 13397,30.96,-103.35,solar,30.2,1523,FORT STOCKTON 11,58710.0,Pecos,matched_all,Pecos,west,FarWest,
 13397,30.96,-103.35,solar,20.0,1523,FORT STOCKTON 11,58710.0,Pecos,matched_fuel,Pecos,west,FarWest,
-13398,30.3419,-94.0656,biomass,32.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,non_ercot,,
-13398,30.3419,-94.0656,biomass,18.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,non_ercot,,
+13398,30.3419,-94.0656,biomass,32.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,houston,,
+13398,30.3419,-94.0656,biomass,18.0,1524,EVADALE 1,50101.0,Jasper,matched_location,Jasper,houston,,
 13399,30.98784,-102.26831,solar,50.0,1525,FORT STOCKTON 12,60682.0,Pecos,matched_all,Pecos,west,FarWest,
 13400,30.45512,-103.4747,solar,50.0,1526,ALPINE 2,60989.0,Brewster,matched_all,Brewster,west,FarWest,
 13401,32.713326,-101.885218,solar,50.0,1527,LAMESA 5,61697.0,Dawson,matched_all,Dawson,west,NorthWest,
 13402,29.056,-95.686,battery,50.0,1528,SWEENY 2,65259.0,Brazoria,matched_all,Brazoria,houston,,
 13403,32.85583,-100.991681,battery,50.0,1529,SNYDER 8,65696.0,Scurry,matched_all,Scurry,west,,
 13404,29.15923,-95.6626,battery,50.0,1530,WEST COLUMBIA 3,65701.0,Brazoria,matched_all,Brazoria,houston,,
-13405,35.9454,-101.9005,wind,49.5,1531,SUNRAY 1,57326.0,Moore,matched_all,Moore,non_ercot,,Panhandle
+13405,35.9454,-101.9005,wind,49.5,1531,SUNRAY 1,57326.0,Moore,matched_all,Moore,west,,Panhandle
 13406,29.2558,-95.2103,gas,42.5,1532,ALVIN 2,10418.0,Brazoria,matched_all,Brazoria,houston,,
 13407,28.5707,-96.8333,other,23.8,1533,PORT LAVACA 2,50404.0,Calhoun,matched_all,Calhoun,south,,
 13407,28.5707,-96.8333,other,15.0,1533,PORT LAVACA 2,50404.0,Calhoun,matched_all,Calhoun,south,,
@@ -1088,8 +1088,8 @@ bus,lat,lon,carrier,capacity_mw,sub_id,sub_name,eia_plant_code,eia_county,match_
 13416,31.815992,-104.085297,solar,24.8,1542,ORLA 1,66880.0,Culberson,matched_all,Culberson,west,FarWest,
 13417,33.585257,-101.886093,gas,20.0,1543,LUBBOCK 2,7131.0,Lubbock,matched_all,Lubbock,west,,
 13418,29.304177,-98.400339,solar,13.5,1544,SAN ANTONIO 53,57197.0,Bexar,matched_all,Bexar,south,SouthEast,
-13419,35.964272,-101.540238,wind,10.0,1545,MORSE 1,57264.0,Hutchinson,matched_all,Hutchinson,non_ercot,,Panhandle
-13420,35.924858,-101.541363,wind,10.0,1546,MORSE 2,57264.0,Hutchinson,matched_all,Hutchinson,non_ercot,,Panhandle
+13419,35.964272,-101.540238,wind,10.0,1545,MORSE 1,57264.0,Hutchinson,matched_all,Hutchinson,west,,Panhandle
+13420,35.924858,-101.541363,wind,10.0,1546,MORSE 2,57264.0,Hutchinson,matched_all,Hutchinson,west,,Panhandle
 13421,33.166173,-96.172617,solar,10.0,1547,GREENVILLE 3,61871.0,Hunt,matched_all,Hunt,north,FarEast,
 13422,29.205355,-96.023384,solar,10.0,1548,WHARTON 4,61875.0,Wharton,matched_all,Wharton,south,FarEast,
 13423,27.421553,-98.834962,solar,10.0,1549,BRUNI 4,63027.0,Webb,matched_all,Webb,south,SouthEast,

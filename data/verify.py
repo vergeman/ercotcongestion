@@ -2,7 +2,9 @@ import pypsa
 import numpy as np
 import pandas as pd
 
-n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
+from config import MARGINAL_COSTS_CSV, NETWORK_NC
+
+n = pypsa.Network(NETWORK_NC)
 
 # Set a snapshot
 n.set_snapshots([0])
@@ -11,7 +13,7 @@ n.set_snapshots([0])
 # Apply marginal costs
 # n.optimize() will use later for DC-OPF merit order dispatch.
 #
-marginal_costs = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
+marginal_costs = pd.read_csv(MARGINAL_COSTS_CSV, index_col=0)
 n.generators['marginal_cost'] = n.generators.index.map(marginal_costs['marginal_cost'])
 
 

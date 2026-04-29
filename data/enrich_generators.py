@@ -3,7 +3,7 @@ Enrich TAMU generators with the zone tags
 
 Adds four columns to generator_matches.csv:
   county      - via spatial join against Census TIGER county polygons
-  load_zone   - via spatial join against ERCOT load zone polygons (4 zones)
+  ercot_load_zone   - via spatial join against ERCOT load zone polygons (4 zones)
   pv_region   - via county lookup against ERCOT XLSX (solar generators only)
   wind_region - via county lookup against ERCOT XLSX (wind generators only)
 
@@ -17,12 +17,13 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 
+from config import(
+    TIGER_SHP, ERCOT_REGIONS_XLSX,
+    BUS_WEATHER_LOAD_ZONES_CSV,
+    GENERATOR_MATCHES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
+)
 
-INPUT_CSV       = Path('/data/processed/generator_matches.csv')
-TIGER_SHP       = Path('TIGER/tl_2024_us_county.shp')
-LOAD_ZONES_GEOJSON = Path('ercot_load_zones/Load_Zones.geojson')
-ERCOT_REGIONS_XLSX = Path('ercot_wind_solar_zones_counties/Wind and Solar Regions to County Mapping.xlsx')
-OUTPUT_CSV      = Path('/data/processed/generator_matches_enriched.csv')
+
 
 def normalize_county(s: pd.Series) -> pd.Series:
     """Normalize county names for join: uppercase, strip whitespace, no 'County' suffix."""
@@ -40,8 +41,8 @@ def normalize_county(s: pd.Series) -> pd.Series:
 
 def main():
 
-    print(f"Loading {INPUT_CSV}")
-    gens = pd.read_csv(INPUT_CSV)
+    print(f"Loading {GENERATOR_MATCHES_CSV}")
+    gens = pd.read_csv(GENERATOR_MATCHES_CSV)
     n_in = len(gens)
 
     # Rename existing 'county' (from EIA matching) to 'eia_county' to preserve
@@ -76,19 +77,24 @@ def main():
         print("  (likely lat/lon outside Texas)")
         print(outside.head(10).to_string(index=False))
 
-    # ---- 2. Load zone via ERCOT polygon spatial join ------------------------
-    print(f"Loading load zones from {LOAD_ZONES_GEOJSON}")
-    load_zones = gpd.read_file(LOAD_ZONES_GEOJSON)
-    load_zones = load_zones[['NAME', 'geometry']].copy()
-    load_zones['NAME'] = load_zones['NAME'].str.lower()
-    load_zones = load_zones.to_crs('EPSG:4326')
-    print(f"  Load zones: {sorted(load_zones['NAME'].tolist())}")
+    # ---- 2. Apply ercot_load_zone from previous lookup  ---------------
 
-    gdf = (
-        gpd.sjoin(gdf, load_zones, how='left', predicate='within')
-        .rename(columns={'NAME': 'load_zone'})
-        .drop(columns=['index_right'])
-    )
+    print(f"Loading bus -> ercot_load_zone from {BUS_WEATHER_LOAD_ZONES_CSV}")
+    bus_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
+    if 'ercot_load_zone' not in bus_zones.columns:
+        raise ValueError(
+            f"{BUS_WEATHER_LOAD_ZONES_CSV} is missing 'ercot_load_zone' column. "
+            f"Run scripts/assign_zones.py to regenerate it."
+        )
+    print(f"  Load zones: {sorted(bus_zones['ercot_load_zone'].dropna().unique().tolist())}")
+
+    # gdf['bus'] holds the PyPSA bus name; bus_zones['name'] is the same key.
+    gdf = gdf.merge(
+        bus_zones[['name', 'ercot_load_zone']],
+        left_on='bus',
+        right_on='name',
+        how='left',
+    ).drop(columns=['name'])
 
     # Some TAMU generators are not in ERCOT:
     # North Texas Panhandle: Hemphill, Moore, Hutchinson counties are served by SPP
@@ -97,10 +103,10 @@ def main():
     #
     # TODO: remember to set 'non_ercot' generators p_max_pu / p_max_pu_ceiling to 0
 
-    gdf['load_zone'] = gdf['load_zone'].fillna('non_ercot')
+    gdf['ercot_load_zone'] = gdf['ercot_load_zone'].fillna('non_ercot')
 
-    n_no_lz = gdf['load_zone'].isna().sum()
-    print(f"  Generators without load_zone: {n_no_lz}/{n_in}")
+    n_no_lz = gdf['ercot_load_zone'].isna().sum()
+    print(f"  Generators without ercot_load_zone: {n_no_lz}/{n_in}")
 
     # ---- 3. PV / wind region via ERCOT XLSX lookup --------------------------
     print(f"Loading ERCOT region XLSX from {ERCOT_REGIONS_XLSX}")
@@ -154,8 +160,8 @@ def main():
 
     # ---- 5. Save ------------------------------------------------------------
     out = pd.DataFrame(gdf.drop(columns=['geometry', 'county_key']))
-    out.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nWrote {len(out)} rows to {OUTPUT_CSV}")
+    out.to_csv(GENERATOR_MATCHES_ENRICHED_CSV, index=False)
+    print(f"\nWrote {len(out)} rows to {GENERATOR_MATCHES_ENRICHED_CSV}")
     print(f"Columns: {out.columns.tolist()}")
 
 

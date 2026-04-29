@@ -5,6 +5,7 @@ import pypsa
 import pandas as pd
 from pathlib import Path
 from constants import CARRIER_TO_EIA
+from config import GENERATOR_MATCHES_CSV, MASTER_EIA860_CSV, NETWORK_NC
 
 
 def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
@@ -142,10 +143,8 @@ def summarize_matches(result):
 if __name__ == '__main__':
 
     # Load Network and EIA860 Data
-    d = Path("/data/processed")
-    case_stem = "Texas2k_series25_case1_summerpeak"
-    n = pypsa.Network(d/f"{case_stem}.nc")
-    eia860_df = load_eia860("processed/master_eia860.csv")
+    n = pypsa.Network(NETWORK_NC)
+    eia860_df = load_eia860(str(MASTER_EIA860_CSV))
 
     tamu_df = build_tamu_df(n)
     tamu_df = tamu_df.rename(columns={'p_nom': 'capacity_mw'})
@@ -154,4 +153,4 @@ if __name__ == '__main__':
     result = match_generators(tamu_df, eia860_df)
     summarize_matches(result)
 
-    result.to_csv(d/"generator_matches.csv", index=False)
+    result.to_csv(GENERATOR_MATCHES_CSV, index=False)
