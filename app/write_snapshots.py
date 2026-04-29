@@ -30,7 +30,7 @@ import pandas as pd
 import psycopg
 import pypsa
 from config import (
-    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
+    NETWORK_PATH, MARGINAL_COSTS_PATH, BUS_WEATHER_ZONES_PATH, GEN_ENRICHED_PATH, PG_DSN,
 )
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import run_snapshot_for_ts
@@ -249,14 +249,14 @@ def main():
 
     # Load static reference data once
     log.info("Loading static reference data...")
-    mc           = pd.read_csv(MARGINAL_COSTS_PATH, index_col=0)
-    bus_zones    = pd.read_csv(BUS_ZONES_PATH)
-    gen_enriched = pd.read_csv(GEN_ENRICHED_PATH)
+    mc                   = pd.read_csv(MARGINAL_COSTS_PATH, index_col=0)
+    bus_weather_zones    = pd.read_csv(BUS_WEATHER_ZONES_PATH)
+    gen_enriched         = pd.read_csv(GEN_ENRICHED_PATH)
 
     # The adapter needs a network for static precomputation; load once for this purpose
     log.info("Initializing adapter...")
     n_init = pypsa.Network(NETWORK_PATH)
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_zones, n_init)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
 
     # Optionally skip already-computed timestamps
     existing = set()
