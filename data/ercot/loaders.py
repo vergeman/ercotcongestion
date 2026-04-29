@@ -4,9 +4,12 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
+import logging
 import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
+
+log = logging.getLogger(__name__)
 
 
 #
@@ -18,6 +21,67 @@ from psycopg.rows import dict_row
 # required columns use r[] (vs. r.get() )to trigger error
 # executemany() batch inserts
 #
+
+# ERCOT Load Zone hubs
+ERCOT_LOAD_ZONE_HUBS: dict[str, str] = {
+    'HB_NORTH':   'north',
+    'HB_HOUSTON': 'houston',
+    'HB_SOUTH':   'south',
+    'HB_WEST':    'west',
+}
+
+def load_zonal_lmp(conn, df: pd.DataFrame) -> int:
+    """Load NP6-905-CD: Settlement Point Prices for the 4 load zone hubs.
+
+    ERCOT publishes SPP at 15-min intervals. We store every interval; the
+    validation query averages to hourly when joining against bus_snapshots.
+    """
+    if df.empty:
+        return 0
+
+    # Filter to load zone hubs. Drops the ~10K nodal rows we don't need yet.
+    df = df[df["settlementPoint"].isin(ERCOT_LOAD_ZONE_HUBS)].copy()
+    if df.empty:
+        log.warning("NP6-905-CD response had no load zone hub rows")
+        return 0
+
+    records = []
+    for _, r in df.iterrows():
+        op_day = pd.to_datetime(r["deliveryDate"]).date()
+
+        he_raw = r["deliveryHour"]
+        if isinstance(he_raw, str) and ":" in he_raw:
+            hour = int(he_raw.split(":")[0])
+        else:
+            hour = int(he_raw)
+
+        # 15-min sub-hour interval, 1..4
+        interval = int(r["deliveryInterval"])
+
+        dst = bool(r.get("DSTFlag", False))
+        ts = _to_interval_ts(op_day, hour, interval, dst)
+
+        sp = r["settlementPoint"]
+        records.append((
+            ts,
+            sp,
+            ERCOT_LOAD_ZONE_HUBS[sp],
+            _f(r.get("settlementPointPrice")),
+            dst,
+        ))
+
+    sql = """
+        INSERT INTO ercot_zonal_lmp (
+            interval_ts, settlement_point, load_zone, lmp, dst_flag
+        ) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (interval_ts, settlement_point) DO UPDATE SET
+            lmp             = EXCLUDED.lmp,
+            dst_flag        = EXCLUDED.dst_flag
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
 
 def load_shadow_prices(conn, df: pd.DataFrame) -> int:
 
