@@ -4,12 +4,12 @@ import pandas as pd
 import geopandas as gpd
 import pypsa
 
-ZONES_PATH  = Path("/data/ercot_weather_zones/Weather_Zone.shp")
+WEATHER_ZONES_PATH  = Path("/data/ercot_weather_zones/Weather_Zone.shp")
 NETWORK_PATH = Path("/data/processed/Texas2k_series25_case1_summerpeak.nc")
-OUTPUT_PATH  = Path("/data/processed/bus_zones.csv")
+OUTPUT_PATH  = Path("/data/processed/bus_weather_zones.csv")
 
 
-def load_zones(path=ZONES_PATH):
+def load_zones(path=WEATHER_ZONES_PATH):
     """loads shapefile into a GeoDataFrame (geopandas)
     NB: quietly reads .dbf, .shx, .prj
     """
@@ -36,7 +36,7 @@ def assign_zones(buses_gdf, zones_gdf, zone_col='Zone_name'):
     zone of nearest polygon edge
 
     """
-    ERCOT_ZONE_CANONICAL = {
+    ERCOT_WEATHER_ZONE_CANONICAL = {
         'South': 'Southern',  # ERCOT uses 'Southern', not 'South'
         # Other zones already match ERCOT canonical names
     }
@@ -63,10 +63,10 @@ def assign_zones(buses_gdf, zones_gdf, zone_col='Zone_name'):
             joined.loc[idx, zone_col] = zones_gdf.loc[nearest, zone_col] # lookup nearest zone and assign
 
     # normalize to canonical ERCOT name
-    joined[zone_col] = joined[zone_col].replace(ERCOT_ZONE_CANONICAL)
+    joined[zone_col] = joined[zone_col].replace(ERCOT_WEATHER_ZONE_CANONICAL)
     return (
         joined[['lat', 'lon', zone_col]]
-        .rename(columns={zone_col: 'ercot_zone'})
+        .rename(columns={zone_col: 'ercot_weather_zone'})
     )
 
 
@@ -79,8 +79,8 @@ if __name__ == '__main__':
     result = assign_zones(buses_gdf, zones_gdf)
 
     print(f"Buses: {len(result)}")
-    print(f"Zone distribution:\n{result['ercot_zone'].value_counts()}")
-    print(f"Unassigned: {result['ercot_zone'].isna().sum()}")
+    print(f"Zone distribution:\n{result['ercot_weather_zone'].value_counts()}")
+    print(f"Unassigned: {result['ercot_weather_zone'].isna().sum()}")
 
     result.to_csv(OUTPUT_PATH)
     print(f"Saved to {OUTPUT_PATH}")
