@@ -102,7 +102,7 @@ class OperatingDataAdapter:
         self,
         conn: "psycopg.Connection",
         gen_enriched: pd.DataFrame,
-        bus_zones: pd.DataFrame,
+        bus_weather_zones: pd.DataFrame,
         network,
         line_derate=0.9,
         tx_derate=0.95
@@ -114,7 +114,7 @@ class OperatingDataAdapter:
         gen_enriched : output of enrich_generators.py.
             Required columns: bus, carrier, capacity_mw,
             load_zone, pv_region, wind_region.
-        bus_zones : bus_zones.csv. Required columns: name, ercot_zone.
+        bus_weather_zones : bus_weather_zones.csv. Required columns: name, ercot_weather_zone.
         network : pypsa.Network. Used to read n.generators and n.loads.
         line_derate :: float, default 0.9
             Multiplier applied to line thermal capacity (s_nom) in OPF.
@@ -122,7 +122,7 @@ class OperatingDataAdapter:
             Multiplier applied to transformer thermal capacity (s_nom) in OPF.
         """
         self.conn = conn
-        self._static = self._precompute(gen_enriched, bus_zones, network)
+        self._static = self._precompute(gen_enriched, bus_weather_zones, network)
         self.line_derate = line_derate
         self.tx_derate = tx_derate
 
@@ -183,13 +183,13 @@ class OperatingDataAdapter:
     @staticmethod
     def _precompute(
         gen_enriched: pd.DataFrame,
-        bus_zones: pd.DataFrame,
+        bus_weather_zones: pd.DataFrame,
         network,
     ) -> _Static:
-        # Normalize bus_zones (Title_Case -> lowercase)
-        bz = bus_zones.copy()
-        bz['ercot_zone'] = bz['ercot_zone'].astype(str).str.lower().str.replace(' ', '_')
-        bus_to_weather_zone = dict(zip(bz['name'].astype(str), bz['ercot_zone']))
+        # Normalize bus_weather_zones (Title_Case -> lowercase)
+        bz = bus_weather_zones.copy()
+        bz['ercot_weather_zone'] = bz['ercot_weather_zone'].astype(str).str.lower().str.replace(' ', '_')
+        bus_to_weather_zone = dict(zip(bz['name'].astype(str), bz['ercot_weather_zone']))
 
         # Normalize gen_enriched
         gen = gen_enriched.copy()
@@ -259,7 +259,7 @@ class OperatingDataAdapter:
             n_missing = int(load_weather_zone.isna().sum())
             raise ValueError(
                 f"{n_missing} loads have no weather zone mapping. "
-                f"Check that load bus values exist in bus_zones.csv 'name' column."
+                f"Check that load bus values exist in bus_weather_zones.csv 'name' column."
             )
 
         load_df = pd.DataFrame({

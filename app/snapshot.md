@@ -104,7 +104,7 @@
   * `adapter = OperatingDataAdaptor()` -> (`__init__()`)
     * `_precompute()`: normalize and create lookups pd.Series from csv data
       * Normalize
-        * lowercase: (`bus_zones.csv`): `ercot_zones`
+        * lowercase: (`bus_weather_zones.csv`): `ercot_weather_zones`
         * lowercase: `generator_matches_enriched.csv` fields:
           * `bus` as str, `carrier`, `load_zone`, `pv_region`, `wind_region`
       * Generator lookup pd.Series: (bus, carrier, _field_)
