@@ -88,6 +88,10 @@ GeoPands (`gpd` runs a spatial join):
   * API Outage Info: /np3-233-cd/hourly_res_outage_cap
   * NB: includes scheduled future outages, hence dates extending into future
 
+* Zonal LMP prices
+  * By Load Zone
+  * API: /np6-905-cd/spp_node_zone_hub
+
 * Zone Loads 15min win
   * By Weather Zone
   * No forecasts
