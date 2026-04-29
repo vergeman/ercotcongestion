@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir \
     dotenv \
     psycopg \
     psycopg[binary] \
+    psycopg[pool] \
+    pytest \
+    httpx \
     openpyxl \
     numpy \
     matpowercaseframes \

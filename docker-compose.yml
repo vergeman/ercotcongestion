@@ -32,7 +32,6 @@ services:
       - ./data:/data
     command: python
   api:
-    build: ./app
     image: shifty
     container_name: api
     env_file:
@@ -46,9 +45,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./app:/app
       - ./api:/api
       - ./data:/data
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
   ercot-proxy:
     image: node:20-alpine
     container_name: ercot-proxy
