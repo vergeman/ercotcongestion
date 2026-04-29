@@ -10,6 +10,9 @@ import sys
 from pathlib import Path
 import pandas as pd
 
+from config import (NETWORK_BUS_COORDS_CSV, NETWORK_GEN_FUELS_CSV,
+                    NETWORK_SUBSTATIONS_CSV)
+
 
 def _find_block(text, obj_name, must_contain=None):
     for m in re.finditer(rf'^{obj_name}\s*\(([^)]*)\)', text, re.IGNORECASE | re.MULTILINE):
@@ -38,7 +41,6 @@ def extract(aux_path):
     out_dir = aux_path.parent
     stem = aux_path.stem # NB: filename sans extension
     text = aux_path.read_text(encoding='utf-8', errors='ignore')
-
 
     # SUBSTATIONS (source of lat/lon)
     result = _find_block(text, 'Substation')
@@ -87,9 +89,9 @@ def extract(aux_path):
     })
 
     # OUT
-    buses.to_csv(out_dir / f"{stem}_bus_coords.csv", index=False)
-    subs.to_csv(out_dir / f"{stem}_substations.csv", index=False)
-    gens.to_csv(out_dir / f"{stem}_gen_fuels.csv", index=False)
+    buses.to_csv(out_dir / NETWORK_BUS_COORDS_CSV, index=False)
+    subs.to_csv(out_dir / NETWORK_SUBSTATIONS_CSV, index=False)
+    gens.to_csv(out_dir / NETWORK_GEN_FUELS_CSV, index=False)
 
     missing = buses[['lat', 'lon']].isna().any(axis=1).sum()
     print(f"bus_coords:  {len(buses)} rows, {missing} missing coords")
@@ -99,4 +101,5 @@ def extract(aux_path):
 
 
 if __name__ == '__main__':
-    extract(sys.argv[1])
+    aux_file = "Texas2k_series25_case1_summerpeak/Texas2k_series25_case1_summerpeak.AUX"
+    extract(aux_file or sys.argv[1])

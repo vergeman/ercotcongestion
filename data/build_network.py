@@ -3,14 +3,15 @@ from matpowercaseframes import CaseFrames
 import pandas as pd
 from pathlib import Path
 from constants import EIA_TO_CARRIER
+from config import CASE_STEM, NETWORK_BUS_COORDS_CSV, NETWORK_GEN_FUELS_CSV, NETWORK_SUBSTATIONS_CSV, PROCESSED_DIR
 
-def enrich_network(n, case_dir, case_stem):
+def enrich_network(n, case_dir):
     """Attach lat/lng coords, fuel, substation info from pre-extracted CSVs."""
 
     d = Path(case_dir)
-    bus_coords = pd.read_csv(d / f"{case_stem}_bus_coords.csv").set_index('bus')
-    gens = pd.read_csv(d / f"{case_stem}_gen_fuels.csv")
-    subs = pd.read_csv(d / f"{case_stem}_substations.csv").set_index('sub')
+    bus_coords = pd.read_csv(d / NETWORK_BUS_COORDS_CSV).set_index('bus')
+    gens = pd.read_csv(d / NETWORK_GEN_FUELS_CSV)
+    subs = pd.read_csv(d / NETWORK_SUBSTATIONS_CSV).set_index('sub')
 
     bus_ids = n.buses.index.astype(int)
     n.buses['x'] = bus_ids.map(bus_coords['lon']).values   # PyPSA convention: x=lon, y=lat expected for n.plot()
@@ -188,7 +189,8 @@ if __name__ == '__main__':
 
 
     data_dir = Path('/data')
-    case_stem = "Texas2k_series25_case1_summerpeak"
+    case_stem = CASE_STEM
+    processed_dir = PROCESSED_DIR
     #n = pypsa.Network(name=name)
     #n.import_from_netcdf(f"{case_stem}.nc")
 
@@ -199,11 +201,9 @@ if __name__ == '__main__':
     enrich_network(
         n,
         case_dir=data_dir/f"{case_stem}",
-        case_stem=case_stem,
     )
 
     # Save so skip re-import
-    processed_dir = Path('/data/processed')
     out_file = str(processed_dir/f"{case_stem}.nc")
     n.export_to_netcdf(out_file)
 

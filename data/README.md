@@ -2,28 +2,32 @@
 
 1. `extract_latlng_fuel.py`: .AUX file supporting grid
 
-2. `build_network.py`: Texas2k series gives tentative synthetic grid, enriched with latlng fuel
+2. `build_network.py`: Texas2k series gives tentative synthetic grid, enriched
+   with latlng fuel
 
-3. `extract_eia860.py`: Extract EIA 860 lat/lng, fuel types
-
-4. `match_generators.py`: Match EIA with Texas2k data set via proximity, fuel type
-   * Note: extracting eia860 attempts to match TAMU vs real generation 1-1.
-   * Helps with human-readable display and real-world counterpart, but not exact
-
-5. `assign_bus_weather_load_zones.py`: Given TAMU network Bus lat/lng lookup and
+3. `assign_bus_weather_load_zones.py`: Given TAMU network Bus lat/lng lookup and
    assign to each bus:
    * EROCT 8 Weather Zone labels: `ercot_weather_zone`
    * ERCOT 4 Load Zone labels: `ercot_load_zone`
    * writes to `bus_ercot_weather_load_zones.csv`
 
+4. `extract_eia860.py`: Extract EIA 860 lat/lng, fuel types
+
+5. `match_generators.py`: Match EIA with Texas2k data set via proximity, fuel
+   type
+   * Note: extracting eia860 attempts to match TAMU vs real generation 1-1.
+   * Helps with human-readable display and real-world counterpart, but not exact
+
 6. `enrich_generators.py`: augments `generator_matches.csv`
    * For each generator:
      * Adds TIGER county column via lat/lng lookup for each generator
-     * Applies respective Load Zone label from bus applied `assign_bus_weather_load_zones.py`
-     * For solar and wind generators, take TIGER county and apply `pv_region` and `wind_region`
+     * Applies respective Load Zone label from bus applied
+       `assign_bus_weather_load_zones.py`
+     * For solar and wind generators, take TIGER county and apply `pv_region`
+       and `wind_region`
 
-7. `marginal_costs.py`: generates `marginal_costs.csv` for plant types (hardcoded
-    table lookups; so not plan specific for now)
+7. `marginal_costs.py`: generates `marginal_costs.csv` for plant types
+    (hardcoded table lookups; so not plan specific for now)
 
 # Model Data
 
