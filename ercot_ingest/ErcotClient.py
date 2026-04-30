@@ -11,6 +11,9 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import psycopg
 import requests
+
+from shared.settings import settings
+
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
@@ -34,11 +37,7 @@ TOKEN_URL = (
 )
 BASE_URL = f"{PROXY_BASE}/api/public-reports"
 
-PG_DSN = (
-    f"host={os.environ['PG_HOST']} port={os.environ['PG_PORT']} "
-    f"dbname={os.environ['PG_DATABASE']} "
-    f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}"
-)
+PG_DSN = settings.pg_dsn
 
 
 class ErcotClient:

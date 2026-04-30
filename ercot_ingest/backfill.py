@@ -2,10 +2,10 @@
 Backfill NP6-86-CD and NP3-233-CD over a date range.
 
 Usage:
-    docker compose run --rm app
-    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23
-    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint shadow
-    python /data/ercot/backfill.py --start 2026-02-23 --end 2026-04-23 --resume
+    docker compose run --rm compute
+    python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23
+    python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint shadow
+    python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23 --resume
 
 Chunks by day. Idempotent: re-running skips completed (endpoint, day) pairs.
 """
