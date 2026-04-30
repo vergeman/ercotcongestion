@@ -24,11 +24,14 @@ services:
     container_name: compute
     env_file:
       - .env
+    environment:
+      PYTHONPATH: /api:/compute:/opt
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./compute:/compute
+      - ./shared:/opt/shared:ro
       - ./data:/data
     command: python
   api:
@@ -36,6 +39,8 @@ services:
     container_name: api
     env_file:
       - .env
+    environment:
+      PYTHONPATH: /api:/compute:/opt
     working_dir: /api
     depends_on:
       db:
@@ -47,6 +52,7 @@ services:
     volumes:
       - ./compute:/compute
       - ./api:/api
+      - ./shared:/opt/shared:ro
       - ./data:/data
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
   ercot-proxy:
