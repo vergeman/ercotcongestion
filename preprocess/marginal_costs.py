@@ -35,10 +35,10 @@ AEO2025 VOM Table 3: https://www.eia.gov/outlooks/aeo/assumptions/pdf/EMM_Assump
 from pathlib import Path
 import pandas as pd
 import pypsa
+from shared.settings import settings
 
-from config import (
-    NETWORK_NC, MARGINAL_COSTS_CSV
-)
+NETWORK_NC=settings.network_nc
+MARGINAL_COSTS_CSV=settings.marginal_costs_csv
 
 
 

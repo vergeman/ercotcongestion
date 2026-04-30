@@ -9,9 +9,11 @@ import re
 import sys
 from pathlib import Path
 import pandas as pd
+from shared.settings import settings
 
-from config import (NETWORK_BUS_COORDS_CSV, NETWORK_GEN_FUELS_CSV,
-                    NETWORK_SUBSTATIONS_CSV)
+NETWORK_BUS_COORDS_CSV=settings.network_bus_coords_csv
+NETWORK_GEN_FUELS_CSV=settings.network_gen_fuels_csv
+NETWORK_SUBSTATIONS_CSV=settings.network_substations_csv
 
 
 def _find_block(text, obj_name, must_contain=None):

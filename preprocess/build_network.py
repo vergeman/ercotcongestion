@@ -3,7 +3,14 @@ from matpowercaseframes import CaseFrames
 import pandas as pd
 from pathlib import Path
 from constants import EIA_TO_CARRIER
-from config import CASE_STEM, NETWORK_BUS_COORDS_CSV, NETWORK_GEN_FUELS_CSV, NETWORK_SUBSTATIONS_CSV, PROCESSED_DIR
+from shared.settings import settings
+
+CASE_STEM = settings.case_stem
+NETWORK_BUS_COORDS_CSV = settings.network_bus_coords_csv
+NETWORK_GEN_FUELS_CSV = settings.network_gen_fuels_csv
+NETWORK_SUBSTATIONS_CSV = settings.network_substations_csv
+PROCESSED_DIR = settings.processed_dir
+
 
 def enrich_network(n, case_dir):
     """Attach lat/lng coords, fuel, substation info from pre-extracted CSVs."""
