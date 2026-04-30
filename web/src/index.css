@@ -1,0 +1,99 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap');
+
+:root {
+  /* Background layers */
+  --bg-base: #0a0c0f;
+  --bg-panel: #0f1217;
+  --bg-surface: #161b22;
+  --bg-hover: #1c222d;
+
+  /* Borders */
+  --border: #252d3a;
+  --border-bright: #2e3a4e;
+
+  /* Text */
+  --text-primary: #e2e8f0;
+  --text-secondary: #8899aa;
+  --text-muted: #4a5568;
+  --text-mono: 'Space Mono', monospace;
+
+  /* Fragility color scale (green → yellow → red) */
+  --frag-0: #1a4731;
+  --frag-low: #22c55e;
+  --frag-mid: #eab308;
+  --frag-high: #ef4444;
+  --frag-max: #991b1b;
+
+  /* Basis overlay */
+  --basis-pos: #3b82f6;
+  --basis-neg: #f97316;
+
+  /* Accents */
+  --accent: #38bdf8;
+  --accent-dim: #0e4a6e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --ok: #22c55e;
+
+  /* Layout */
+  --panel-w: 320px;
+  --header-h: 48px;
+  --scrubber-h: 72px;
+
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 3px;
+  padding: 4px 10px;
+  transition: background 0.15s, border-color 0.15s;
+}
+button:hover { background: var(--bg-hover); border-color: var(--border-bright); }
+button.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-base);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-panel); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+
+.mono { font-family: var(--text-mono); }
+.label { font-family: 'Barlow Condensed', sans-serif; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; color: var(--text-secondary); }

@@ -82,6 +82,23 @@ services:
     entrypoint: ["npx", "--yes", "wrangler@latest"]
     command: ["--help"]
 
+  web:
+    build: ./web
+    image: shifty-web
+    container_name: web
+    working_dir: /web
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/web
+      - /web/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
   # TODO: replace w/ cron
   updater:
       build: ./compute
