@@ -62,7 +62,8 @@ export default function GridMap({ topology, buses, viewMode, onBusHover }: Props
 
     const onLoad = () => {
       if (!map.getSource('buses')) {
-        map.addSource('buses', { type: 'geojson', data: topo.buses as GeoJSON.FeatureCollection });
+        map.addSource('buses', { type: 'geojson', data: topo.buses as GeoJSON.FeatureCollection,
+                                 promoteId: 'bus_id' });
       }
       if (!map.getSource('lines')) {
         map.addSource('lines', { type: 'geojson', data: topo.lines as GeoJSON.FeatureCollection });
