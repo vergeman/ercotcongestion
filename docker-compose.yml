@@ -18,6 +18,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  preprocess:
+    image: shifty
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /preprocess:/opt
+    volumes:
+      - ./preprocess:/preprocess
+      - ./data:/data
+      - ./shared:/opt/shared:ro
+    working_dir: /preprocess
+    profiles: ["tools"]
+    command: python
   compute:
     build: ./compute
     image: shifty
@@ -32,7 +45,6 @@ services:
     volumes:
       - ./compute:/compute
       - ./shared:/opt/shared:ro
-      - ./preprocess:/preprocess
       - ./ercot_ingest:/ercot_ingest
       - ./data:/data
     command: python
