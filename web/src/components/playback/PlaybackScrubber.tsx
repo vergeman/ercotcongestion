@@ -82,7 +82,7 @@ export default function PlaybackScrubber({ timestamps, currentIndex, onIndexChan
           height: var(--scrubber-h);
           background: var(--bg-panel);
           border-top: 1px solid var(--border);
-          padding: 8px 16px;
+          padding: 10px 16px 14px;
           display: flex;
           flex-direction: column;
           gap: 6px;
