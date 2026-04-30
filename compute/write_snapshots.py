@@ -12,9 +12,9 @@ Failures (infeasibility, missing data, etc.) are logged in snapshot_meta
 with status != 'ok' and don't block the loop.
 
 Usage:
-    docker compose run --rm app python scripts/write_snapshots.py \
+    docker compose run --rm compute python /compute/write_snapshots.py \
         --start 2026-02-19 --end 2026-04-23
-    docker compose run --rm app python scripts/write_snapshots.py \
+    docker compose run --rm compute python /compute/write_snapshots.py \
         --start 2026-03-25T22 --end 2026-03-25T22  # single hour test
 """
 from __future__ import annotations

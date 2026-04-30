@@ -195,7 +195,7 @@ class OperatingDataAdapter:
         gen = gen_enriched.copy()
         gen['bus'] = gen['bus'].astype(str)
         gen['carrier'] = gen['carrier'].astype(str).str.lower()
-        for col in ('load_zone', 'pv_region', 'wind_region'):
+        for col in ('ercot_load_zone', 'pv_region', 'wind_region'):
             if col in gen.columns:
                 gen[col] = gen[col].where(gen[col].notna(), None)
                 gen[col] = gen[col].apply(
@@ -219,7 +219,7 @@ class OperatingDataAdapter:
                 return None
 
         gen_carrier     = n_gens['carrier']
-        gen_load_zone   = n_gens.apply(lambda r: _lookup(r, 'load_zone'), axis=1)
+        gen_load_zone   = n_gens.apply(lambda r: _lookup(r, 'ercot_load_zone'), axis=1)
         gen_pv_region   = n_gens.apply(lambda r: _lookup(r, 'pv_region'), axis=1)
         gen_wind_region = n_gens.apply(lambda r: _lookup(r, 'wind_region'), axis=1)
 
@@ -242,11 +242,11 @@ class OperatingDataAdapter:
 
         # (load_zone, carrier) nameplate for outage allocation, ERCOT-only
         gen_in_ercot = gen[
-            gen['load_zone'].notna() & (gen['load_zone'] != 'non_ercot')
+            gen['ercot_load_zone'].notna() & (gen['ercot_load_zone'] != 'non_ercot')
         ]
         lz_carrier_nameplate = (
             gen_in_ercot
-            .groupby(['load_zone', 'carrier'])['capacity_mw']
+            .groupby(['ercot_load_zone', 'carrier'])['capacity_mw']
             .sum()
             .to_dict()
         )

@@ -6,8 +6,8 @@ runs the OPF, and prints the result. Reproducible from a clean state
 every run.
 
 Usage:
-    docker compose run --rm app python scripts/test_snapshot.py
-    docker compose run --rm app python scripts/test_snapshot.py --ts 2026-04-22T18:00
+    docker compose run --rm compute python /compute/test_snapshot.py
+    docker compose run --rm compute python /compute/test_snapshot.py --ts 2026-04-22T18:00
 """
 import argparse
 import os
@@ -45,6 +45,7 @@ def main():
     # Adapter
     n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
     conn = psycopg.connect(PG_DSN)
+
     adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
 
     result, op, n = run_snapshot_for_ts(ts, adapter, mc)
