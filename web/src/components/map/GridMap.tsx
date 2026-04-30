@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { BusState, SnapshotMeta, ViewMode } from '../../api/types';
-import { fragilityColor, lmpColor, normalizeFragility } from '../../lib/colors';
+import { fragilityColor, lmpColor, normalizeFragility, normalizeLmp } from '../../lib/colors';
 
 interface Props {
   topology: unknown | null;
@@ -198,8 +198,7 @@ export default function GridMap({ topology, buses, meta, viewMode, onBusHover }:
       if (viewMode === 'fragility') {
         color = fragilityColor(normMap.get(bus.bus_id) ?? 0);
       } else {
-        const normLmp = ((bus.lmp ?? 0) - lmpMin) / lmpRange;
-        color = lmpColor(normLmp);
+        color = lmpColor(normalizeLmp(bus.lmp));
       }
       map.setFeatureState(
         { source: 'buses', id: bus.bus_id },
