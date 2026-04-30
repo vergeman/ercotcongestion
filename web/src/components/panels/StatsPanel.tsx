@@ -3,6 +3,7 @@ import type { SnapshotMeta, BusState } from '../types';
 interface Props {
   meta: SnapshotMeta | null;
   hoveredBus: { busId: string; props: Record<string, unknown>; busState: BusState | null } | null;
+  hoveredLine: { lineId: string; props: Record<string, unknown> } | null;
 }
 
 function Stat({ label, value }: { label: string; value: string | number | null }) {
@@ -19,7 +20,7 @@ function fmt(v: number | null, decimals = 1): string {
   return v.toLocaleString('en-US', { maximumFractionDigits: decimals });
 }
 
-export default function StatsPanel({ meta, hoveredBus }: Props) {
+export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
   return (
     <div className="stats-panel">
       <div className="panel-section">
@@ -132,6 +133,26 @@ export default function StatsPanel({ meta, hoveredBus }: Props) {
         </div>
       )}
 
+      {hoveredLine && (
+        <div className="panel-section panel-section--hovered">
+          <div className="panel-section__header label">Line Detail</div>
+          <Stat label="Line ID" value={hoveredLine.lineId} />
+          <Stat label="From" value={String(hoveredLine.props.bus0 ?? '—')} />
+          <Stat label="To" value={String(hoveredLine.props.bus1 ?? '—')} />
+          <Stat label="Capacity" value={
+          hoveredLine.props.s_nom != null ? `${fmt(Number(hoveredLine.props.s_nom), 0)} MVA` : null
+          } />
+          <Stat label="Length" value={
+          hoveredLine.props.length != null ? `${fmt(Number(hoveredLine.props.length), 1)} km` : null
+          } />
+          {(() => {
+            const binding = meta?.binding_lines?.find((bl) => bl.line === hoveredLine.lineId);
+            return binding ? (
+              <Stat label="Shadow Price" value={`$${fmt(binding.shadow_price, 2)}/MWh`} />
+            ) : null;
+          })()}
+        </div>
+      )}
       <style>{`
         .stats-panel {
           width: var(--panel-w);

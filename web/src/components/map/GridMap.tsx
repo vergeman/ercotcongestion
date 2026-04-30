@@ -10,15 +10,19 @@ interface Props {
   meta: SnapshotMeta | null;
   viewMode: ViewMode;
   onBusHover: (busId: string | null, props: Record<string, unknown> | null) => void;
+  onLineHover: (lineId: string | null, props: Record<string, unknown> | null) => void;
 }
 
-export default function GridMap({ topology, buses, meta, viewMode, onBusHover }: Props) {
+export default function GridMap({ topology, buses, meta, viewMode, onBusHover, onLineHover}: Props) {
   const prevBindingRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
+  const metaRef = useRef<SnapshotMeta | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Track tooltip overlay
   const tooltipRef = useRef<maplibregl.Popup | null>(null);
+
+  useEffect(() => { metaRef.current = meta; }, [meta]);
 
   // Initialize map once
   useEffect(() => {
@@ -101,6 +105,20 @@ export default function GridMap({ topology, buses, meta, viewMode, onBusHover }:
         });
       }
 
+      // Invisible thick layer for hover detection
+      if (!map.getLayer('lines-hit')) {
+        map.addLayer({
+          id: 'lines-hit',
+          type: 'line',
+          source: 'lines',
+          paint: {
+            'line-color': '#000',
+            'line-opacity': 0,        // invisible
+            'line-width': 8,          // wide hit area
+          },
+        });
+      }
+
       // Buses layer (circles, colored by fragility via feature-state)
       if (!map.getLayer('buses')) {
         map.addLayer({
@@ -150,6 +168,43 @@ export default function GridMap({ topology, buses, meta, viewMode, onBusHover }:
         tooltipRef.current?.remove();
       });
     };
+
+
+      // Line hover
+      map.on('mousemove', 'lines-hit', (e) => {
+          if (!e.features?.length) return;
+
+          // If a bus is currently hovered, let bus tooltip win
+          const busesAtPoint = map.queryRenderedFeatures(e.point, { layers: ['buses'] });
+          if (busesAtPoint.length > 0) return;
+
+          map.getCanvas().style.cursor = 'crosshair';
+          const feat = e.features[0];
+          const props = feat.properties as Record<string, unknown>;
+          const lineId = props.line_id as string;
+
+          // Look up binding status from meta
+          const binding = metaRef.current?.binding_lines?.find((bl) => bl.line === lineId);
+          const statusHtml = binding
+              ? `<div class="tip-binding">⚡ BINDING · $${binding.shadow_price.toFixed(1)}/MWh</div>`
+              : `<div class="tip-zone">normal</div>`;
+
+          onLineHover(lineId, props);
+
+          tooltipRef.current
+              ?.setLngLat(e.lngLat)
+              .setHTML(
+                  `<div class="tip-id">${lineId}</div>
+       ${statusHtml}`
+              )
+              .addTo(map);
+      });
+
+      map.on('mouseleave', 'lines-hit', () => {
+          map.getCanvas().style.cursor = '';
+          onLineHover(null, null);
+          tooltipRef.current?.remove();
+      });
 
     if (map.isStyleLoaded()) {
       onLoad();

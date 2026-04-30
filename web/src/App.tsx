@@ -26,6 +26,10 @@ export default function App() {
     props: Record<string, unknown>;
     busState: BusState | null;
   } | null>(null);
+  const [hoveredLine, setHoveredLine] = useState<{
+    lineId: string;
+    props: Record<string, unknown>;
+  } | null>(null);
 
   // Load topology on mount
   useEffect(() => {
@@ -89,6 +93,17 @@ export default function App() {
     [buses]
   );
 
+  const handleLineHover = useCallback(
+      (lineId: string | null, props: Record<string, unknown> | null) => {
+          if (!lineId || !props) {
+              setHoveredLine(null);
+              return;
+          }
+          setHoveredLine({ lineId, props });
+      },
+      []
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
@@ -107,12 +122,13 @@ export default function App() {
             meta={meta}
             viewMode={viewMode}
             onBusHover={handleBusHover}
+            onLineHover={handleLineHover}
           />
           <Legend viewMode={viewMode} />
         </div>
 
         {/* Right panel */}
-        <StatsPanel meta={meta} hoveredBus={hoveredBus} />
+        <StatsPanel meta={meta} hoveredBus={hoveredBus} hoveredLine={hoveredLine} />
       </div>
 
       {/* Bottom scrubber */}
