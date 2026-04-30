@@ -10,7 +10,7 @@ class Settings:
     case_stem: str = os.environ.get('CASE_STEM', 'Texas2k_series25_case1_summerpeak')
 
     # ---- Paths (overridable; default to container conventions) -----------
-    data_dir:      Path = Path(os.environ.get('DATA_DIR',      '/data'))
+    data_dir:      Path = Path(os.environ.get('DATA_DIR',      '/data/raw'))
     processed_dir: Path = Path(os.environ.get('PROCESSED_DIR', '/data/processed'))
 
     # ---- Database (required) ---------------------------------------------

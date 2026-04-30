@@ -10,7 +10,7 @@ NETWORK_BUS_COORDS_CSV = settings.network_bus_coords_csv
 NETWORK_GEN_FUELS_CSV = settings.network_gen_fuels_csv
 NETWORK_SUBSTATIONS_CSV = settings.network_substations_csv
 PROCESSED_DIR = settings.processed_dir
-
+DATA_DIR = settings.data_dir
 
 def enrich_network(n, case_dir):
     """Attach lat/lng coords, fuel, substation info from pre-extracted CSVs."""
@@ -194,24 +194,20 @@ def describe_network(n):
 
 if __name__ == '__main__':
 
-
-    data_dir = Path('/data')
-    case_stem = CASE_STEM
-    processed_dir = PROCESSED_DIR
     #n = pypsa.Network(name=name)
     #n.import_from_netcdf(f"{case_stem}.nc")
 
     n, ppc, cf = build_network(name="Texas2k Series 25",
-                               case_dir=data_dir/f"{case_stem}",
-                               case_stem=f"{case_stem}")
+                               case_dir=DATA_DIR/f"{CASE_STEM}",
+                               case_stem=f"{CASE_STEM}")
 
     enrich_network(
         n,
-        case_dir=data_dir/f"{case_stem}",
+        case_dir=DATA_DIR/f"{CASE_STEM}",
     )
 
     # Save so skip re-import
-    out_file = str(processed_dir/f"{case_stem}.nc")
+    out_file = str(PROCESSED_DIR/f"{CASE_STEM}.nc")
     n.export_to_netcdf(out_file)
 
     describe_network(n)
