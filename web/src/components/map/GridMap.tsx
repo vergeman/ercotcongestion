@@ -1,17 +1,19 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { BusState, ViewMode } from '../../api/types';
+import type { BusState, SnapshotMeta, ViewMode } from '../../api/types';
 import { fragilityColor, lmpColor, normalizeFragility } from '../../lib/colors';
 
 interface Props {
   topology: unknown | null;
   buses: BusState[];
+  meta: SnapshotMeta | null;
   viewMode: ViewMode;
   onBusHover: (busId: string | null, props: Record<string, unknown> | null) => void;
 }
 
-export default function GridMap({ topology, buses, viewMode, onBusHover }: Props) {
+export default function GridMap({ topology, buses, meta, viewMode, onBusHover }: Props) {
+  const prevBindingRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -66,7 +68,8 @@ export default function GridMap({ topology, buses, viewMode, onBusHover }: Props
                                  promoteId: 'bus_id' });
       }
       if (!map.getSource('lines')) {
-        map.addSource('lines', { type: 'geojson', data: topo.lines as GeoJSON.FeatureCollection });
+          map.addSource('lines', { type: 'geojson', data: topo.lines as GeoJSON.FeatureCollection,
+                                   promoteId: 'line_id'});
       }
 
       // Lines layer
@@ -76,9 +79,24 @@ export default function GridMap({ topology, buses, viewMode, onBusHover }: Props
           type: 'line',
           source: 'lines',
           paint: {
-            'line-color': '#1e2d3e',
-            'line-width': 0.8,
-            'line-opacity': 0.7,
+            'line-color': [
+                'case',
+                ['boolean', ['feature-state', 'binding'], false],
+                '#f59e0b',
+                '#1e2d3e',
+            ],
+            'line-width': [
+                'interpolate', ['linear'], ['zoom'],
+                4, ['case', ['boolean', ['feature-state', 'binding'], false], 1.5, 0.6],
+                8, ['case', ['boolean', ['feature-state', 'binding'], false], 3.0, 1.2],
+                12, ['case', ['boolean', ['feature-state', 'binding'], false], 5.0, 2.0],
+            ],
+            'line-opacity': [
+                'case',
+                ['boolean', ['feature-state', 'binding'], false],
+                0.95,
+                0.5,
+            ],
           },
         });
       }
@@ -139,6 +157,28 @@ export default function GridMap({ topology, buses, viewMode, onBusHover }: Props
       map.once('load', onLoad);
     }
   }, [topology, onBusHover]);
+
+
+    // Update binding-line highlights when meta changes
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !map.getSource('lines')) return;
+
+        const nextBinding = new Set(meta?.binding_lines?.map((bl) => bl.line) ?? []);
+
+        // Clear previously-binding lines that aren't in the new set
+        for (const lineId of prevBindingRef.current) {
+            if (!nextBinding.has(lineId)) {
+                map.setFeatureState({ source: 'lines', id: lineId }, { binding: false });
+            }
+        }
+        // Mark current binding lines
+        for (const lineId of nextBinding) {
+            map.setFeatureState({ source: 'lines', id: lineId }, { binding: true });
+        }
+        prevBindingRef.current = nextBinding;
+    }, [meta]);
+
 
   // Update bus colors when buses/viewMode changes
   useEffect(() => {

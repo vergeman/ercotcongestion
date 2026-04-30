@@ -104,6 +104,7 @@ export default function App() {
           <GridMap
             topology={topology}
             buses={buses}
+            meta={meta}
             viewMode={viewMode}
             onBusHover={handleBusHover}
           />
