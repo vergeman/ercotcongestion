@@ -52,7 +52,7 @@ export default function App() {
     setLoading(true);
     setConnState('loading');
     try {
-      await prefetchWindow(new Date((start.getTime() + end.getTime()) / 2));
+      await prefetchWindow(start, end);
       const ts = getAvailableTimestamps();
       setTimestamps(ts);
       if (ts.length > 0) {
