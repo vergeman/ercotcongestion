@@ -4,8 +4,8 @@ __pycache__/
 .env
 
 # Data
-data/TIGER/*
-!data/TIGER/README.md
-data/ercot_load_zones/*
-!data/ercot_load_zones/README.md
+data/raw/TIGER/*
+!data/raw/TIGER/README.md
+data/raw/ercot_load_zones/*
+!data/raw/ercot_load_zones/README.md
 api/static/*
