@@ -4,15 +4,14 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 import pypsa
+from shared.settings import settings
 
 log = logging.getLogger(__name__)
 
-from config import(
-    NETWORK_NC,
-    WEATHER_ZONES_SHP, LOAD_ZONES_GEOJSON,
-    BUS_WEATHER_LOAD_ZONES_CSV
-)
-
+NETWORK_NC = settings.network_nc
+WEATHER_ZONES_SHP = settings.weather_zones_shp
+LOAD_ZONES_GEOJSON = settings.load_zones_geojson
+BUS_WEATHER_LOAD_ZONES_CSV = settings.bus_weather_load_zones_csv
 
 ERCOT_WEATHER_ZONE_CANONICAL = {
     'South': 'Southern',  # ERCOT uses 'Southern', not 'South'

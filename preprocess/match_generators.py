@@ -5,8 +5,11 @@ import pypsa
 import pandas as pd
 from pathlib import Path
 from constants import CARRIER_TO_EIA
-from config import GENERATOR_MATCHES_CSV, MASTER_EIA860_CSV, NETWORK_NC
+from shared.settings import settings
 
+GENERATOR_MATCHES_CSV=settings.generator_matches_csv
+MASTER_EIA860_CSV=settings.master_eia860_csv
+NETWORK_NC=settings.network_nc
 
 def match_generators(tamu_df, eia_df, coord_tol_km=10, cap_tol_pct=0.20):
     """Match Logic: for each Texas2K (TAMU) generator, finding closets EIA-860 plant

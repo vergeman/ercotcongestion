@@ -1,8 +1,10 @@
 import pypsa
 import numpy as np
 import pandas as pd
+from shared.settings import settings
 
-from config import MARGINAL_COSTS_CSV, NETWORK_NC
+MARGINAL_COSTS_CSV=settings.marginal_costs_csv
+NETWORK_NC=settings.network_nc
 
 n = pypsa.Network(NETWORK_NC)
 

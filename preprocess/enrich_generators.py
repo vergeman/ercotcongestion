@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pandas as pd
 import geopandas as gpd
+from shared.settings import settings
 
-from config import(
-    TIGER_SHP, ERCOT_REGIONS_XLSX,
-    BUS_WEATHER_LOAD_ZONES_CSV,
-    GENERATOR_MATCHES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
-)
-
+TIGER_SHP=settings.tiger_shp
+ERCOT_REGIONS_XLSX=settings.ercot_regions_xlsx
+BUS_WEATHER_LOAD_ZONES_CSV=settings.bus_weather_load_zones_csv
+GENERATOR_MATCHES_CSV=settings.generator_matches_csv
+GENERATOR_MATCHES_ENRICHED_CSV=settings.generator_matches_enriched_csv
 
 
 def normalize_county(s: pd.Series) -> pd.Series:

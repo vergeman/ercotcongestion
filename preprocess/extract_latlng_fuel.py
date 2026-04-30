@@ -9,10 +9,12 @@ import re
 import sys
 from pathlib import Path
 import pandas as pd
+from shared.settings import settings
 
-from config import (NETWORK_BUS_COORDS_CSV, NETWORK_GEN_FUELS_CSV,
-                    NETWORK_SUBSTATIONS_CSV)
-
+NETWORK_BUS_COORDS_CSV=settings.network_bus_coords_csv
+NETWORK_GEN_FUELS_CSV=settings.network_gen_fuels_csv
+NETWORK_SUBSTATIONS_CSV=settings.network_substations_csv
+CASE_STEM=f"{settings.data_dir}/{settings.case_stem}/{settings.case_stem}"
 
 def _find_block(text, obj_name, must_contain=None):
     for m in re.finditer(rf'^{obj_name}\s*\(([^)]*)\)', text, re.IGNORECASE | re.MULTILINE):
@@ -101,5 +103,5 @@ def extract(aux_path):
 
 
 if __name__ == '__main__':
-    aux_file = "Texas2k_series25_case1_summerpeak/Texas2k_series25_case1_summerpeak.AUX"
+    aux_file = f"{CASE_STEM}.AUX"
     extract(aux_file or sys.argv[1])

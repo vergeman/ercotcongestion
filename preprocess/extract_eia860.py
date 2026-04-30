@@ -21,8 +21,10 @@ import re
 import sys
 from pathlib import Path
 import pandas as pd
+from shared.settings import settings
 
-from config import EIA860_BASE_PATH, MASTER_EIA860_CSV
+EIA860_BASE_PATH=settings.eia860_base_path
+MASTER_EIA860_CSV=settings.master_eia860_csv
 
 dirs = ["2024", "2023", "2022"]
 
