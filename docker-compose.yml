@@ -18,17 +18,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-  app:
-    build: ./app
+  compute:
+    build: ./compute
     image: shifty
-    container_name: app
+    container_name: compute
     env_file:
       - .env
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./app:/app
+      - ./compute:/compute
       - ./data:/data
     command: python
   api:
@@ -40,12 +40,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      app:
+      compute:
         condition: service_started
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app
+      - ./compute:/compute
       - ./api:/api
       - ./data:/data
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -64,7 +64,7 @@ services:
 
   # TODO: replace w/ cron
   updater:
-      build: ./app
+      build: ./compute
       image: shifty
       container_name: updater
       env_file:
