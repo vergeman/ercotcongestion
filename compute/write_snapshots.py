@@ -57,11 +57,12 @@ for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
 # ---------------------------------------------------------------------------
 
 UPSERT_BUS_SNAPSHOT_SQL = """
-    INSERT INTO bus_snapshots (interval_ts, bus_id, fragility, lmp)
-    VALUES (%s, %s, %s, %s)
+    INSERT INTO bus_snapshots (interval_ts, bus_id, fragility, lmp, basis)
+    VALUES (%s, %s, %s, %s, %s)
     ON CONFLICT (interval_ts, bus_id) DO UPDATE SET
         fragility = EXCLUDED.fragility,
-        lmp       = EXCLUDED.lmp
+        lmp       = EXCLUDED.lmp,
+        basis     = EXCLUDED.basis
 """
 
 UPSERT_META_SQL = """
@@ -105,10 +106,20 @@ UPSERT_META_SQL = """
 """
 
 
+def _f(series, key):
+    """Series lookup -> float or None (NaN-safe)."""
+    if series is None or key not in series.index:
+        return None
+    v = series.get(key)
+    if v is None or pd.isna(v):
+        return None
+    return float(v)
+
 def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     """Persist a successful snapshot to Postgres."""
     fragility = result['fragility']
     lmps      = result['lmps']
+    basis     = result.get('basis')
 
     # bus_snapshots: one row per bus
     bus_rows = []
@@ -116,8 +127,9 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         bus_rows.append((
             ts,
             str(bus_id),
-            float(fragility.get(bus_id, 0.0)) if bus_id in fragility.index else None,
-            float(lmps.get(bus_id, 0.0))      if bus_id in lmps.index      else None,
+            _f(fragility, bus_id),
+            _f(lmps, bus_id),
+            _f(basis, bus_id)
         ))
 
     # snapshot_meta: per-snapshot diagnostics

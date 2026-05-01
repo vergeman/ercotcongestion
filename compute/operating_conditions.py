@@ -11,6 +11,8 @@ def apply_operating_conditions(n,
                                outages=None,
                                line_derate=1.0,
                                tx_derate=1.0,
+                               bus_load_zone = None,
+                               zonal_lmp_by_zone = None,
                                meta = None
                                ):
 
