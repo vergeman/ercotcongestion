@@ -270,3 +270,16 @@ Preserve TAMU's load shape while capturing ERCOT's temporal variation.
   * fragility/LMP per bus per hour
 
 * `snapshot_meta`: per-snapshot OPF status, totals, JSONB diagnostics
+
+
+## Basis Calculation
+
+* Definition: `basis = bus_lmp (model)  -  zonal_lmp (ERCOT, hourly mean)`
+* `zonal_lmp` comes from `ercot_zonal_lmp_hourly`, joined on a bus's
+  `ercot_load_zone` (north / houston / south / west).
+* Buses of load_zone 'non_ercot' get NULL; undefined basis.
+
+* Implementation:
+  * `compute/snapshot.py`: `_compute_basis()` - actual calculation
+  * `compute/write_snapshots.py`: stores at write time
+  * `compute/backfill_basis.py`: repopulate previous historical rows
