@@ -94,6 +94,9 @@ class _Static:
     # Generators outside ERCOT — get p_max_pu = 0
     non_ercot_gens: pd.Index
 
+    # Per-bus ERCOT LOAD_ZONE, indexed by network bus name (str).
+    bus_load_zone: pd.Series
+
 
 class OperatingDataAdapter:
     """Build operating_data dicts for compute_snapshot from a UTC timestamp."""
@@ -138,19 +141,24 @@ class OperatingDataAdapter:
         Returns
         -------
         dict with keys:
-            'p_max_pu_per_gen' : pd.Series indexed by n.generators.index.
-                                 Final per-generator availability factor,
-                                 accounting for region availability x carrier
-                                 defaults x outage derates x non-ERCOT zeroing.
-            'loads'            : pd.Series indexed by n.loads.index, MW.
-            'line_derate'      : float
-            'tx_derate'        : float
-            'meta'             : diagnostic dict
+            'p_max_pu_per_gen'    : pd.Series indexed by n.generators.index.
+                                    Final per-generator availability factor,
+                                    accounting for region availability x carrier
+                                    defaults x outage derates x non-ERCOT zeroing.
+            'loads'               : pd.Series indexed by n.loads.index, MW.
+            'line_derate'         : float
+            'tx_derate'           : float
+            'bus_load_zone'       : pd.Series, bus name -> ERCOT LOAD_ZONE
+            'zonal_lmp_by_zone'   : dict[str, float | None], one entry per
+                                    LOAD_ZONES key; 'None' when no data is
+                                    available for ts.
+            'meta'                : diagnostic dict
         """
         load_row   = self._query_load(ts)
         wind_row   = self._query_wind(ts)
         solar_row  = self._query_solar(ts)
         outage_row = self._query_outages(ts, load_row)
+        zonal_lmp  = self._query_zonal_lmp(ts)
 
         p_max_pu = self._build_p_max_pu_per_gen(wind_row, solar_row)
 
@@ -167,6 +175,8 @@ class OperatingDataAdapter:
             'loads': loads,
             'line_derate': self.line_derate,
             'tx_derate': self.tx_derate,
+            'bus_load_zone': self._static.bus_load_zone,
+            'zonal_lmp_by_zone': zonal_lmp,
             'meta': {
                 'ts': ts,
                 'load_total_mw': float(loads.sum()),
@@ -190,6 +200,26 @@ class OperatingDataAdapter:
         bz = bus_weather_zones.copy()
         bz['ercot_weather_zone'] = bz['ercot_weather_zone'].astype(str).str.lower().str.replace(' ', '_')
         bus_to_weather_zone = dict(zip(bz['name'].astype(str), bz['ercot_weather_zone']))
+
+        # Per-bus ERCOT load zone
+        # For basis computation: each bus's LMP subtracted against the zonal
+        # LMP at its load zone hub.
+
+        if 'ercot_load_zone' not in bz.columns:
+            raise ValueError(
+                "bus_weather_zones is missing 'ercot_load_zone' column; "
+                "regenerate via preprocess/assign_bus_weather_load_zones.py"
+            )
+        bz['ercot_load_zone'] = (
+            bz['ercot_load_zone']
+            .where(bz['ercot_load_zone'].notna(), 'non_ercot')
+            .astype(str).str.lower().str.replace(' ', '_')
+        )
+        bus_load_zone = pd.Series(
+            bz['ercot_load_zone'].values,
+            index=bz['name'].astype(str).values,
+            name='bus_load_zone',
+        )
 
         # Normalize gen_enriched
         gen = gen_enriched.copy()
@@ -288,6 +318,7 @@ class OperatingDataAdapter:
             static_loads=static_loads,
             static_total=static_total,
             non_ercot_gens=non_ercot_gens,
+            bus_load_zone=bus_load_zone
         )
 
     # ------------------------------------------------------------------
@@ -367,6 +398,30 @@ class OperatingDataAdapter:
             cur.execute(sql, (ts, op_date, hour_ending))
             row = cur.fetchone()
         return row
+
+    def _query_zonal_lmp(self, ts: datetime) -> dict[str, float | None]:
+        """Hourly-mean ERCOT zonal LMPs for ts, keyed by load zone.
+
+        Reads ercot_zonal_lmp_hourly (view: hourly mean over the 15-min
+        settlement-point prices). Returns one entry per LOAD_ZONES key;
+        zones with no data for ts get None.
+
+        """
+        sql = """
+            SELECT load_zone, lmp
+            FROM ercot_zonal_lmp_hourly
+            WHERE interval_ts = %s
+        """
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (ts,))
+            rows = cur.fetchall()
+
+        out: dict[str, float | None] = {z: None for z in LOAD_ZONES}
+        for r in rows:
+            zone = (r['load_zone'] or '').lower()
+            if zone in out and r['lmp'] is not None:
+                out[zone] = float(r['lmp'])
+        return out
 
     # ------------------------------------------------------------------
     # Translation logic

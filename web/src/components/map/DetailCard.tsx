@@ -1,4 +1,4 @@
-import type { SnapshotMeta, BusState } from '../../api/types';
+import type { SnapshotMeta, BusState } from "../../api/types";
 
 interface HoveredBus {
   busId: string;
@@ -21,15 +21,21 @@ interface Props {
 }
 
 function fmt(v: number | null, decimals = 1): string {
-  if (v == null) return '—';
-  return v.toLocaleString('en-US', { maximumFractionDigits: decimals });
+  if (v == null) return "—";
+  return v.toLocaleString("en-US", { maximumFractionDigits: decimals }); /*  */
 }
 
-function Row({ label, value }: { label: string; value: string | number | null }) {
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null;
+}) {
   return (
     <div className="dc-row">
       <span className="label">{label}</span>
-      <span className="dc-val mono">{value ?? '—'}</span>
+      <span className="dc-val mono">{value ?? "—"}</span>
     </div>
   );
 }
@@ -37,31 +43,71 @@ function Row({ label, value }: { label: string; value: string | number | null })
 function BusBody({ bus }: { bus: HoveredBus }) {
   return (
     <>
-      <Row label="Load Zone" value={String(bus.props.load_zone ?? '—')} />
-      <Row label="Weather Zone" value={String(bus.props.weather_zone ?? '—')} />
-      <Row label="Voltage" value={bus.props.voltage != null ? `${bus.props.voltage} kV` : null} />
+      <Row label="Load Zone" value={String(bus.props.load_zone ?? "—")} />
+      <Row label="Weather Zone" value={String(bus.props.weather_zone ?? "—")} />
+      <Row
+        label="Voltage"
+        value={bus.props.voltage != null ? `${bus.props.voltage} kV` : null}
+      />
       {bus.busState && (
         <>
-          <Row label="Fragility" value={bus.busState.fragility != null ? fmt(bus.busState.fragility, 4) : null} />
-          <Row label="LMP" value={bus.busState.lmp != null ? `$${fmt(bus.busState.lmp, 2)}/MWh` : null} />
+          <Row
+            label="Fragility"
+            value={
+              bus.busState.fragility != null
+                ? fmt(bus.busState.fragility, 4)
+                : null
+            }
+          />
+          <Row
+            label="LMP"
+            value={
+              bus.busState.lmp != null
+                ? `$${fmt(bus.busState.lmp, 2)}/MWh`
+                : null
+            }
+          />
+          <Row
+            label="Basis"
+            value={
+              bus.busState.basis != null ? fmt(bus.busState.basis, 4) : null
+            }
+          />
         </>
       )}
     </>
   );
 }
 
-function LineBody({ line, meta }: { line: HoveredLine; meta: SnapshotMeta | null }) {
+function LineBody({
+  line,
+  meta,
+}: {
+  line: HoveredLine;
+  meta: SnapshotMeta | null;
+}) {
   const binding = meta?.binding_lines?.find((bl) => bl.line === line.lineId);
   const sNom = line.props.s_nom != null ? Number(line.props.s_nom) : null;
   const length = line.props.length != null ? Number(line.props.length) : null;
   return (
     <>
-      <Row label="From" value={String(line.props.bus0 ?? '—')} />
-      <Row label="To" value={String(line.props.bus1 ?? '—')} />
-      <Row label="Capacity" value={sNom != null ? `${fmt(sNom, 0)} MVA` : null} />
-      <Row label="Length" value={length != null ? `${fmt(length, 1)} km` : null} />
-      <Row label="Status" value={binding ? '⚡ binding' : 'normal'} />
-      {binding && <Row label="Shadow Price" value={`$${fmt(binding.shadow_price, 2)}/MWh`} />}
+      <Row label="From" value={String(line.props.bus0 ?? "—")} />
+      <Row label="To" value={String(line.props.bus1 ?? "—")} />
+      <Row
+        label="Capacity"
+        value={sNom != null ? `${fmt(sNom, 0)} MVA` : null}
+      />
+      <Row
+        label="Length"
+        value={length != null ? `${fmt(length, 1)} km` : null}
+      />
+      <Row label="Status" value={binding ? "⚡ binding" : "normal"} />
+      {binding && (
+        <Row
+          label="Shadow Price"
+          value={`$${fmt(binding.shadow_price, 2)}/MWh`}
+        />
+      )}
     </>
   );
 }
@@ -77,29 +123,40 @@ export default function DetailCard({
   // Pinned wins over hover. Bus wins over line if both present.
   const isPinned = !!(pinnedBus || pinnedLine);
   const bus = pinnedBus ?? hoveredBus;
-  const line = !bus ? (pinnedLine ?? hoveredLine) : null;
+  const line = !bus ? pinnedLine ?? hoveredLine : null;
 
   if (!bus && !line) return null;
 
   const id = bus ? bus.busId : line!.lineId;
-  const kind = bus ? 'BUS' : 'LINE';
+  const kind = bus ? "BUS" : "LINE";
 
   return (
-    <div className={`detail-card ${isPinned ? 'detail-card--pinned' : ''}`}>
+    <div className={`detail-card ${isPinned ? "detail-card--pinned" : ""}`}>
       <div className="detail-card__header">
         <div className="detail-card__title">
-          <span className="detail-card__kind label">{isPinned ? '📌 ' : ''}{kind}</span>
+          <span className="detail-card__kind label">
+            {isPinned ? "📌 " : ""}
+            {kind}
+          </span>
           <span className="detail-card__id mono">{id}</span>
         </div>
         {isPinned && onClose && (
-          <button className="detail-card__close" onClick={onClose} aria-label="Close">
+          <button
+            className="detail-card__close"
+            onClick={onClose}
+            aria-label="Close"
+          >
             ×
           </button>
         )}
       </div>
 
       <div className="detail-card__body">
-        {bus ? <BusBody bus={bus} /> : line ? <LineBody line={line} meta={meta} /> : null}
+        {bus ? (
+          <BusBody bus={bus} />
+        ) : line ? (
+          <LineBody line={line} meta={meta} />
+        ) : null}
       </div>
 
       <style>{`
@@ -136,7 +193,7 @@ export default function DetailCard({
           min-width: 0;
         }
         .detail-card__kind {
-          color: ${'var(--accent)'};
+          color: ${"var(--accent)"};
           font-size: 9px;
           letter-spacing: 0.1em;
         }

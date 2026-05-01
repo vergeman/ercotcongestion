@@ -25,6 +25,7 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
         'status'           : 'ok' | 'infeasible'
         'fragility'        : pd.Series (bus → fragility value)
         'lmps'             : pd.Series (bus → $/MWh)
+        'basis'            : pd.Series (bus → bus_lmp - zonal_lmp) or NaN
         'dispatch'         : pd.Series (generator → MW)
         'flows'            : pd.Series (line → MW)
         'binding_lines'    : list of line names with non-zero shadow price
@@ -84,6 +85,22 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
     dispatch = net.generators_t.p.iloc[0]
     flows = net.lines_t.p0.iloc[0]
 
+    #
+    # BASIS
+    #
+    #   basis = bus_lmp (model)  -  ERCOT zonal_lmp (real, hourly mean)
+    #
+    # bus_load_zone and zonal_lmp_by_zone are supplied by the
+    # OperatingDataAdapter (adapter).
+    #
+    # Try to keep compute_snapshot DB-free: the ODA is component that talks to
+    # Postgres.
+
+
+    bus_load_zone     = operating_data.get('bus_load_zone')
+    zonal_lmp_by_zone = operating_data.get('zonal_lmp_by_zone') or {}
+    basis = _compute_basis(lmps, bus_load_zone, zonal_lmp_by_zone)
+
     # Binding constraints
     mu_up = net.lines_t.mu_upper.iloc[0].abs()
     mu_lo = net.lines_t.mu_lower.iloc[0].abs()
@@ -109,12 +126,15 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
             fragility.nlargest(10).sum() / fragility.sum()
             if fragility.sum() > 0 else 0.0
         ),
+        'basis_n_resolved': int(basis.notna().sum()),
+        'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None
     }
 
     return {
         'status': 'ok',
         'fragility': fragility,
         'lmps': lmps,
+        'basis': basis,
         'dispatch': dispatch,
         'flows': flows,
         'binding_lines': list(binding_lines.index),
@@ -122,6 +142,31 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
         'top_contingencies': contingencies,
         'meta': meta,
     }
+
+def _compute_basis(
+    lmps: pd.Series,
+    bus_load_zone: pd.Series | None,
+    zonal_lmp_by_zone: dict[str, float | None],
+) -> pd.Series:
+    """basis[bus] = lmp[bus] - zonal_lmp[zone(bus)].
+
+    NaN where the bus has no ERCOT zone (non_ercot) or where the zone has no
+    zonal LMP at this timestamp. Caller writes NaN as NULL to the DB.
+    """
+    if bus_load_zone is None:
+        # No mapping supplied — return all-NaN series aligned to lmps.
+        return pd.Series(np.nan, index=lmps.index, name='basis')
+
+    zone_for_bus = bus_load_zone.reindex(lmps.index)
+
+    # Non-ERCOT buses: zonal LMP is undefined.
+    zone_lmp_series = zone_for_bus.map(
+        {z: v for z, v in zonal_lmp_by_zone.items() if v is not None}
+    )
+    basis = lmps - zone_lmp_series
+    basis.name = 'basis'
+    return basis
+
 
 def run_snapshot_for_ts(
     ts: datetime,
