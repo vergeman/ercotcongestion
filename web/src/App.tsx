@@ -67,7 +67,7 @@ export default function App() {
             const ts = getAvailableTimestamps();
             setTimestamps(ts);
             if (ts.length > 0) {
-                setCurrentIndex(ts.length - 1);
+                setCurrentIndex(0); // start at begining on load
                 setLastUpdated(new Date());
                 setConnState('ok');
             } else {
