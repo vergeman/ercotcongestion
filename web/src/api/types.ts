@@ -2,6 +2,7 @@ export interface BusState {
   bus_id: string;
   fragility: number | null;
   lmp: number | null;
+  basis: number | null;
 }
 
 export interface BindingLine {
