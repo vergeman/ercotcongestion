@@ -1,9 +1,7 @@
-import type { SnapshotMeta, BusState } from '../types';
+import type { SnapshotMeta } from '../../api/types';
 
 interface Props {
   meta: SnapshotMeta | null;
-  hoveredBus: { busId: string; props: Record<string, unknown>; busState: BusState | null } | null;
-  hoveredLine: { lineId: string; props: Record<string, unknown> } | null;
 }
 
 function Stat({ label, value }: { label: string; value: string | number | null }) {
@@ -20,7 +18,7 @@ function fmt(v: number | null, decimals = 1): string {
   return v.toLocaleString('en-US', { maximumFractionDigits: decimals });
 }
 
-export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
+export default function StatsPanel({ meta }: Props) {
   return (
     <div className="stats-panel">
       <div className="panel-section">
@@ -79,7 +77,7 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
         <div className="panel-section">
           <div className="panel-section__header label">Top N-1 Contingencies</div>
           <div className="list-items">
-            {meta.top_contingencies.map((c) => (
+            {meta.top_contingencies.slice(0, 5).map((c) => (
               <div key={c.line} className="list-item">
                 <span className="mono" style={{ fontSize: 11 }}>{c.line}</span>
                 <span className="mono" style={{ color: '#ef4444', fontSize: 11 }}>
@@ -96,7 +94,7 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
           <div className="panel-section__header label">Dispatch by Carrier</div>
           {Object.entries(meta.dispatch_by_carrier)
             .sort(([, a], [, b]) => b - a)
-            .slice(0, 6)
+            .slice(0, 5)
             .map(([carrier, mw]) => (
               <div key={carrier} className="dispatch-row">
                 <span className="dispatch-label label">{carrier}</span>
@@ -109,50 +107,12 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
                     }}
                   />
                 </div>
-                <span className="mono" style={{ fontSize: 10, color: 'var(--text-secondary)', minWidth: 60, textAlign: 'right' }}>
-                  {fmt(mw, 0)} MW
-                </span>
+                <span className="mono dispatch-mw">{fmt(mw, 0)} MW</span>
               </div>
             ))}
         </div>
       )}
 
-      {hoveredBus && (
-        <div className="panel-section panel-section--hovered">
-          <div className="panel-section__header label">Bus Detail</div>
-          <Stat label="Bus ID" value={hoveredBus.busId} />
-          <Stat label="Load Zone" value={String(hoveredBus.props.load_zone ?? '—')} />
-          <Stat label="Weather Zone" value={String(hoveredBus.props.weather_zone ?? '—')} />
-          <Stat label="Voltage" value={hoveredBus.props.voltage != null ? `${hoveredBus.props.voltage} kV` : null} />
-          {hoveredBus.busState && (
-            <>
-              <Stat label="Fragility" value={hoveredBus.busState.fragility != null ? fmt(hoveredBus.busState.fragility, 4) : null} />
-              <Stat label="LMP" value={hoveredBus.busState.lmp != null ? `$${fmt(hoveredBus.busState.lmp, 2)}/MWh` : null} />
-            </>
-          )}
-        </div>
-      )}
-
-      {hoveredLine && (
-        <div className="panel-section panel-section--hovered">
-          <div className="panel-section__header label">Line Detail</div>
-          <Stat label="Line ID" value={hoveredLine.lineId} />
-          <Stat label="From" value={String(hoveredLine.props.bus0 ?? '—')} />
-          <Stat label="To" value={String(hoveredLine.props.bus1 ?? '—')} />
-          <Stat label="Capacity" value={
-          hoveredLine.props.s_nom != null ? `${fmt(Number(hoveredLine.props.s_nom), 0)} MVA` : null
-          } />
-          <Stat label="Length" value={
-          hoveredLine.props.length != null ? `${fmt(Number(hoveredLine.props.length), 1)} km` : null
-          } />
-          {(() => {
-            const binding = meta?.binding_lines?.find((bl) => bl.line === hoveredLine.lineId);
-            return binding ? (
-              <Stat label="Shadow Price" value={`$${fmt(binding.shadow_price, 2)}/MWh`} />
-            ) : null;
-          })()}
-        </div>
-      )}
       <style>{`
         .stats-panel {
           width: var(--panel-w);
@@ -162,18 +122,13 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
           border-left: 1px solid var(--border);
           display: flex;
           flex-direction: column;
-          gap: 0;
         }
         .panel-section {
-          padding: 12px 14px;
+          padding: 10px 12px;
           border-bottom: 1px solid var(--border);
         }
-        .panel-section--hovered {
-          background: var(--bg-hover);
-          border-top: 1px solid var(--accent-dim);
-        }
         .panel-section__header {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
           color: var(--text-secondary);
         }
         .panel-empty {
@@ -185,34 +140,34 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 3px 0;
+          padding: 2px 0;
         }
-        .stat__val { font-size: 12px; color: var(--text-primary); }
-        .lmp-range {
-          display: flex;
-          gap: 0;
-        }
+        .stat__val { font-size: 11px; color: var(--text-primary); }
+
+        .lmp-range { display: flex; }
         .lmp-item {
           flex: 1;
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 2px;
-          padding: 4px 0;
+          gap: 1px;
+          padding: 3px 0;
         }
         .lmp-item .mono { font-size: 11px; }
-        .list-items { display: flex; flex-direction: column; gap: 2px; }
+
+        .list-items { display: flex; flex-direction: column; gap: 1px; }
         .list-item {
           display: flex;
           justify-content: space-between;
           padding: 2px 0;
           border-bottom: 1px solid var(--border);
         }
+
         .dispatch-row {
           display: flex;
           align-items: center;
           gap: 6px;
-          padding: 3px 0;
+          padding: 2px 0;
         }
         .dispatch-label { min-width: 52px; color: var(--text-secondary); }
         .dispatch-bar-wrap {
@@ -226,6 +181,12 @@ export default function StatsPanel({ meta, hoveredBus, hoveredLine }: Props) {
           height: 100%;
           border-radius: 3px;
           transition: width 0.3s;
+        }
+        .dispatch-mw {
+          font-size: 10px;
+          color: var(--text-secondary);
+          min-width: 56px;
+          text-align: right;
         }
       `}</style>
     </div>

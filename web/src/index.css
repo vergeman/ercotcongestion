@@ -38,7 +38,7 @@
   /* Layout */
   --panel-w: 320px;
   --header-h: 48px;
-  --scrubber-h: 72px;
+  --scrubber-h: 96px;
 
   font-family: 'Barlow', sans-serif;
   font-size: 14px;
