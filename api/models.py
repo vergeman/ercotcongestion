@@ -12,7 +12,7 @@ class BusState(BaseModel):
     bus_id: str
     fragility: float | None
     lmp: float | None
-
+    basis: float | None = None
 
 class BindingLine(BaseModel):
     line: str

@@ -62,7 +62,7 @@ def get_state(t: datetime = Query(..., description='ISO-8601 UTC timestamp')) ->
                 raise HTTPException(status_code=404, detail=f'No snapshot at {ts.isoformat()}')
 
             cur.execute(
-                "SELECT bus_id, fragility, lmp FROM bus_snapshots WHERE interval_ts = %s",
+                "SELECT bus_id, fragility, lmp, basis FROM bus_snapshots WHERE interval_ts = %s",
                 (ts,),
             )
             bus_rows = cur.fetchall()
@@ -117,7 +117,7 @@ def get_state_range(
 
             cur.execute(
                 """
-                SELECT interval_ts, bus_id, fragility, lmp
+                SELECT interval_ts, bus_id, fragility, lmp, basis
                 FROM bus_snapshots
                 WHERE interval_ts >= %s AND interval_ts < %s
                 ORDER BY interval_ts, bus_id
