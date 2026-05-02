@@ -3,6 +3,7 @@ import type { ValidationResponse, ScatterPoint } from "../../api/types";
 import { fetchValidation } from "../../api/client";
 
 interface Props {
+  /** Start/end of the currently-loaded playback window. Drives the fetch. */
   start: Date | null;
   end: Date | null;
 }
@@ -128,6 +129,11 @@ export default function ValidationPanel({ start, end }: Props) {
       </div>
 
       <div className="panel-section">
+        <div className="panel-section__header label">By load zone</div>
+        <ZoneBreakdown byZone={data.by_zone} />
+      </div>
+
+      <div className="panel-section">
         <div className="panel-section__header label">Scatter (log–log)</div>
         <ScatterPlot
           points={data.scatter}
@@ -196,6 +202,62 @@ function RhoTile({
       <div className="label vp-tile-meta">
         n={fmtInt(result.n)} · {strength}
       </div>
+    </div>
+  );
+}
+
+// Stable display order — falls back to alphabetical for any zone we don't
+// know about (future-proof if a fifth load zone shows up).
+const ZONE_ORDER = ["north", "houston", "south", "west"];
+
+function ZoneBreakdown({
+  byZone,
+}: {
+  byZone: Record<string, { n: number; rho: number | null }>;
+}) {
+  const zones = Object.keys(byZone).sort((a, b) => {
+    const ai = ZONE_ORDER.indexOf(a);
+    const bi = ZONE_ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  if (zones.length === 0) {
+    return <div className="panel-empty label">no zone data</div>;
+  }
+
+  return (
+    <div className="vp-zones">
+      {zones.map((z) => {
+        const r = byZone[z];
+        const rho = r.rho;
+        // Bar width tracks |ρ|; sign drives color so a negative
+        // correlation visually distinguishes itself from a strong one.
+        const widthPct = rho == null ? 0 : Math.abs(rho) * 100;
+        const color =
+          rho == null
+            ? "var(--text-muted)"
+            : rho >= 0
+            ? "var(--accent)"
+            : "var(--basis-neg)";
+        return (
+          <div key={z} className="vp-zone-row">
+            <span className="label vp-zone-name">{z}</span>
+            <div className="vp-zone-bar-wrap">
+              <div
+                className="vp-zone-bar"
+                style={{ width: `${widthPct}%`, background: color }}
+              />
+            </div>
+            <span className="mono vp-zone-rho" style={{ color }}>
+              {rho == null ? "—" : rho.toFixed(3)}
+            </span>
+            <span className="label vp-zone-n">n={fmtIntCompact(r.n)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -479,6 +541,13 @@ function fmtInt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+function fmtIntCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString("en-US", {
@@ -540,6 +609,43 @@ const styles = `
     font-size: 9px;
     text-align: center;
     margin-top: 2px;
+}
+.vp-zones {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.vp-zone-row {
+    display: grid;
+    grid-template-columns: 56px 1fr 48px 36px;
+    align-items: center;
+    gap: 6px;
+}
+.vp-zone-name {
+    color: var(--text-secondary);
+    text-transform: capitalize;
+    letter-spacing: 0.06em;
+}
+.vp-zone-bar-wrap {
+    height: 6px;
+    background: var(--bg-surface);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.vp-zone-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+.vp-zone-rho {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: right;
+}
+.vp-zone-n {
+    color: var(--text-muted);
+    text-align: right;
+    font-size: 9px;
 }
 .vp-scatter {
     display: block;

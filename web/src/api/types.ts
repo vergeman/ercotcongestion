@@ -78,6 +78,7 @@ export interface ValidationResponse {
   quiet: CorrelationResult;
   congested_threshold_n_binding: number;
   scatter: ScatterPoint[];
+  by_zone: Record<string, CorrelationResult>;
   warnings: string[];
 }
 
