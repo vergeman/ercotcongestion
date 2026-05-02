@@ -100,9 +100,9 @@ def get_validation(
             f'{MIN_VALIDATION_HOURS}h for stable correlation estimates.'
         )
 
-    # Single query: join bus_snapshots to snapshot_meta to tag each row with its
-    # regime. Filter at the SQL layer to drop nulls and bad snapshots — keeps
-    # Python-side bookkeeping minimal.
+    # Single query: join bus_snapshots to snapshot_meta for the regime tag,
+    # plus a LEFT JOIN to bus_load_zones so each row also carries its zone
+    # Filter at the SQL layer keeps Python-side bookkeeping minimal.
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -111,9 +111,11 @@ def get_validation(
                 SELECT
                     bs.fragility,
                     bs.basis,
-                    (sm.n_binding_lines >= %s) AS is_congested
+                    (sm.n_binding_lines >= %s) AS is_congested,
+                    blz.load_zone
                 FROM bus_snapshots bs
                 JOIN snapshot_meta sm ON sm.interval_ts = bs.interval_ts
+                LEFT JOIN bus_load_zones blz ON blz.bus_id = bs.bus_id
                 WHERE bs.interval_ts >= %s AND bs.interval_ts < %s
                   AND sm.status = 'ok'
                   AND bs.fragility IS NOT NULL
@@ -144,6 +146,7 @@ def get_validation(
             quiet=CorrelationResult(n=0, rho=None),
             congested_threshold_n_binding=congested_threshold,
             scatter=[],
+            by_zone={},
             warnings=warnings + ['No (fragility, basis) observations in window.'],
         )
 
@@ -157,6 +160,18 @@ def get_validation(
     overall   = _pearson(overall_pairs)
     congested = _pearson(congested_pairs)
     quiet     = _pearson(quiet_pairs)
+
+    # Per-zone breakdown. Skip rows without a zone (NULL from the LEFT JOIN)
+    # and drop the 'non_ercot' fallback bucket — neither tells us anything
+    # about ERCOT model performance. Group with a dict-of-lists; with O(100k)
+    # rows and ~4 zones this is negligible memory.
+    pairs_by_zone: dict[str, list[tuple[float, float]]] = {}
+    for r in rows:
+        zone = r[3]
+        if zone is None or zone == 'non_ercot':
+            continue
+        pairs_by_zone.setdefault(zone, []).append((r[0], abs(r[1])))
+    by_zone = {z: _pearson(p) for z, p in pairs_by_zone.items()}
 
     # Scatter sample. If we're under the cap take everything; otherwise stride
     # so we get a uniform sample across the window rather than a head-of-list
@@ -186,5 +201,6 @@ def get_validation(
         quiet=quiet,
         congested_threshold_n_binding=congested_threshold,
         scatter=scatter,
+        by_zone=by_zone,
         warnings=warnings,
     )
