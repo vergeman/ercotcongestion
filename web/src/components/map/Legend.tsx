@@ -1,24 +1,24 @@
-import type { ViewMode } from '../types';
+import type { ViewMode } from "../../api/types";
 
 interface Props {
   viewMode: ViewMode;
 }
 
 export default function Legend({ viewMode }: Props) {
-  const isFragility = viewMode === 'fragility';
+  const isFragility = viewMode === "fragility";
 
   return (
-      <div className="legend">
-        <div className="legend__title label">
-         {isFragility ? 'Fragility' : 'LMP ($/MWh)'}
-        </div>
-        <div className="legend__bar" />
-        <div className="legend__labels">
-          <span className="label mono">{isFragility ? '0' : '-$50'}</span>
-          <span className="label mono">{isFragility ? '100' : '$500+'}</span>
-        </div>
+    <div className="legend">
+      <div className="legend__title label">
+        {isFragility ? "Fragility" : "LMP ($/MWh)"}
+      </div>
+      <div className="legend__bar" />
+      <div className="legend__labels">
+        <span className="label mono">{isFragility ? "0" : "-$50"}</span>
+        <span className="label mono">{isFragility ? "100" : "$500+"}</span>
+      </div>
 
-       <style>{`
+      <style>{`
         .legend {
           position: absolute;
           bottom: 88px;
@@ -37,9 +37,11 @@ export default function Legend({ viewMode }: Props) {
         .legend__bar {
           height: 8px;
           border-radius: 4px;
-          background: ${isFragility
-                    ? 'linear-gradient(to right, #22c55e, #eab308, #ef4444)'
-                    : 'linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)'};
+          background: ${
+            isFragility
+              ? "linear-gradient(to right, #22c55e, #eab308, #ef4444)"
+              : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
+          };
           margin-bottom: 3px;
         }
         .legend__labels {
@@ -47,6 +49,6 @@ export default function Legend({ viewMode }: Props) {
           justify-content: space-between;
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 }

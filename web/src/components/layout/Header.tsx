@@ -1,33 +1,42 @@
-import type { ViewMode } from '../types';
+import type { ViewMode } from "../../api/types";
 
 interface Props {
   viewMode: ViewMode;
   onViewMode: (v: ViewMode) => void;
   lastUpdated: Date | null;
-  connectionState: 'ok' | 'error' | 'loading';
+  connectionState: "ok" | "error" | "loading";
 }
 
-export default function Header({ viewMode, onViewMode, lastUpdated, connectionState }: Props) {
+export default function Header({
+  viewMode,
+  onViewMode,
+  lastUpdated,
+  connectionState,
+}: Props) {
   return (
     <header className="header">
       <div className="header__brand">
         <span className="header__logo">⚡</span>
         <span className="header__title">ERCOT Grid Stress</span>
-        <span className="header__sub label">DC-OPF · 2751 buses · TAMU synthetic</span>
+        <span className="header__sub label">
+          DC-OPF · 2751 buses · TAMU synthetic
+        </span>
       </div>
 
       <div className="header__controls">
         <div className="view-toggle">
-          <span className="label" style={{ marginRight: 6 }}>View</span>
+          <span className="label" style={{ marginRight: 6 }}>
+            View
+          </span>
           <button
-            className={viewMode === 'fragility' ? 'active' : ''}
-            onClick={() => onViewMode('fragility')}
+            className={viewMode === "fragility" ? "active" : ""}
+            onClick={() => onViewMode("fragility")}
           >
             Fragility
           </button>
           <button
-            className={viewMode === 'lmp' ? 'active' : ''}
-            onClick={() => onViewMode('lmp')}
+            className={viewMode === "lmp" ? "active" : ""}
+            onClick={() => onViewMode("lmp")}
           >
             LMP
           </button>
@@ -36,10 +45,14 @@ export default function Header({ viewMode, onViewMode, lastUpdated, connectionSt
 
       <div className="header__status">
         <div className={`status-dot status-dot--${connectionState}`} />
-        <span className="label" style={{ color: 'var(--text-secondary)' }}>
-          {connectionState === 'loading' ? 'connecting…'
-            : connectionState === 'error' ? 'api error'
-            : lastUpdated ? `updated ${lastUpdated.toLocaleTimeString()}` : 'live'}
+        <span className="label" style={{ color: "var(--text-secondary)" }}>
+          {connectionState === "loading"
+            ? "connecting…"
+            : connectionState === "error"
+            ? "api error"
+            : lastUpdated
+            ? `updated ${lastUpdated.toLocaleTimeString()}`
+            : "live"}
         </span>
       </div>
 
