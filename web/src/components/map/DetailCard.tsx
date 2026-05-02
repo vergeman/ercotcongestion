@@ -87,8 +87,21 @@ function LineBody({
   meta: SnapshotMeta | null;
 }) {
   const binding = meta?.binding_lines?.find((bl) => bl.line === line.lineId);
+  const conts = meta?.top_contingencies ?? [];
+  const contIdx = conts.findIndex((c) => c.line === line.lineId);
+  const contingency = contIdx >= 0 ? conts[contIdx] : null;
   const sNom = line.props.s_nom != null ? Number(line.props.s_nom) : null;
   const length = line.props.length != null ? Number(line.props.length) : null;
+
+  let statusLabel: string;
+  if (contingency && contIdx < 5) {
+    statusLabel = `⚠ N-1 #${contIdx + 1}`;
+  } else if (binding) {
+    statusLabel = "⚡ binding";
+  } else {
+    statusLabel = "normal";
+  }
+
   return (
     <>
       <Row label="From" value={String(line.props.bus0 ?? "—")} />
@@ -101,12 +114,15 @@ function LineBody({
         label="Length"
         value={length != null ? `${fmt(length, 1)} km` : null}
       />
-      <Row label="Status" value={binding ? "⚡ binding" : "normal"} />
+      <Row label="Status" value={statusLabel} />
       {binding && (
         <Row
           label="Shadow Price"
           value={`$${fmt(binding.shadow_price, 2)}/MWh`}
         />
+      )}
+      {contingency && (
+        <Row label="Trip Stress" value={fmt(contingency.stress, 2)} />
       )}
     </>
   );
