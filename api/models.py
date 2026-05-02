@@ -73,6 +73,13 @@ class CorrelationResult(BaseModel):
     rho: float | None  # None if degenerate (e.g. zero variance, n<2)
 
 
+class ScatterPoint(BaseModel):
+    """Single (fragility, |basis|) observation for the validation scatter plot."""
+    fragility: float
+    abs_basis: float
+    congested: bool
+
+
 class ValidationResponse(BaseModel):
     start: datetime
     end: datetime
@@ -83,6 +90,12 @@ class ValidationResponse(BaseModel):
     quiet: CorrelationResult
     congested_threshold_n_binding: int = Field(
         ..., description="Snapshots with n_binding_lines >= this count classified as congested",
+    )
+    scatter: list[ScatterPoint] = Field(default_factory=list)
+    by_zone: dict[str, CorrelationResult] = Field(
+        default_factory=dict,
+        description="Pearson ρ by ERCOT load zone (north, houston, south, west). "
+                    "Buses without a zone mapping (e.g. non_ercot) are excluded.",
     )
     warnings: list[str] = Field(default_factory=list)
 

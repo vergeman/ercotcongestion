@@ -55,7 +55,32 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
-export type ViewMode = 'fragility' | 'lmp';
+export type ViewMode = "fragility" | "lmp";
+
+export interface CorrelationResult {
+  n: number;
+  rho: number | null;
+}
+
+export interface ScatterPoint {
+  fragility: number;
+  abs_basis: number;
+  congested: boolean;
+}
+
+export interface ValidationResponse {
+  start: string;
+  end: string;
+  n_snapshots: number;
+  n_observations: number;
+  overall: CorrelationResult;
+  congested: CorrelationResult;
+  quiet: CorrelationResult;
+  congested_threshold_n_binding: number;
+  scatter: ScatterPoint[];
+  by_zone: Record<string, CorrelationResult>;
+  warnings: string[];
+}
 
 export interface BusFeatureProperties {
   bus_id: string;
