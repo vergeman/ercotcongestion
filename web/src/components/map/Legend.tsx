@@ -77,10 +77,10 @@ export default function Legend({ viewMode }: Props) {
           height: 2px;
           flex-shrink: 0;
         }
-        .legend__swatch--binding { background: #f59e0b; }
+        .legend__swatch--binding { background: #ec4899; }
         .legend__swatch--contingency {
           background: repeating-linear-gradient(
-            to right, #ef4444 0, #ef4444 4px, transparent 4px, transparent 7px);
+            to right, #cbd5e1 0, #cbd5e1 4px, transparent 4px, transparent 7px);
         }
       `}</style>
     </div>

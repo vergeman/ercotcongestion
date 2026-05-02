@@ -129,10 +129,10 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "selected"], false],
               "#38bdf8",
-              ["boolean", ["feature-state", "contingency"], false],
-              "#ef4444",
               ["boolean", ["feature-state", "binding"], false],
-              "#f59e0b",
+              "#ec4899",
+              ["boolean", ["feature-state", "contingency"], false],
+              "#cbd5e1",
               "#1e2d3e",
             ],
             "line-width": [
@@ -144,9 +144,9 @@ export default function GridMap({
                 "case",
                 ["boolean", ["feature-state", "selected"], false],
                 2.5,
-                ["boolean", ["feature-state", "contingency"], false],
-                1.8,
                 ["boolean", ["feature-state", "binding"], false],
+                2.0,
+                ["boolean", ["feature-state", "contingency"], false],
                 1.5,
                 0.6,
               ],
@@ -155,10 +155,10 @@ export default function GridMap({
                 "case",
                 ["boolean", ["feature-state", "selected"], false],
                 4.5,
-                ["boolean", ["feature-state", "contingency"], false],
-                3.5,
                 ["boolean", ["feature-state", "binding"], false],
-                3.0,
+                3.8,
+                ["boolean", ["feature-state", "contingency"], false],
+                2.8,
                 1.2,
               ],
               12,
@@ -166,10 +166,10 @@ export default function GridMap({
                 "case",
                 ["boolean", ["feature-state", "selected"], false],
                 6.5,
-                ["boolean", ["feature-state", "contingency"], false],
-                5.5,
                 ["boolean", ["feature-state", "binding"], false],
-                5.0,
+                6.0,
+                ["boolean", ["feature-state", "contingency"], false],
+                4.5,
                 2.0,
               ],
             ],
@@ -181,10 +181,10 @@ export default function GridMap({
             ],
             "line-opacity": [
               "case",
-              ["boolean", ["feature-state", "contingency"], false],
-              0.95,
               ["boolean", ["feature-state", "binding"], false],
-              0.95,
+              1.0,
+              ["boolean", ["feature-state", "contingency"], false],
+              0.85,
               0.5,
             ],
           },
@@ -511,8 +511,8 @@ export default function GridMap({
         .grid-tooltip .maplibregl-popup-tip { display: none; }
         .tip-id { color: #38bdf8; font-size: 11px; }
         .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
-        .tip-binding { color: #f59e0b; font-size: 10px; margin-top: 2px; }
-        .tip-contingency { color: #ef4444; font-size: 10px; margin-top: 2px; font-weight: 600; }
+        .tip-binding { color: #ec4899; font-size: 10px; margin-top: 2px; font-weight: 600; }
+        .tip-contingency { color: #cbd5e1; font-size: 10px; margin-top: 2px; }
       `}</style>
     </>
   );

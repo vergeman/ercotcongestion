@@ -123,7 +123,7 @@ export default function StatsPanel({ meta }: Props) {
                 </span>
                 <span
                   className="mono"
-                  style={{ color: "#f59e0b", fontSize: 11 }}
+                  style={{ color: "#ec4899", fontSize: 11 }}
                 >
                   ${fmt(bl.shadow_price, 1)}
                 </span>
@@ -146,7 +146,7 @@ export default function StatsPanel({ meta }: Props) {
                 </span>
                 <span
                   className="mono"
-                  style={{ color: "#ef4444", fontSize: 11 }}
+                  style={{ color: "#cbd5e1", fontSize: 11 }}
                 >
                   {fmt(c.stress, 2)}
                 </span>
