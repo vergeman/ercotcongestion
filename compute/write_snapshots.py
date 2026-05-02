@@ -73,7 +73,7 @@ UPSERT_META_SQL = """
         fragility_total, fragility_top10_share,
         binding_lines, top_contingencies, dispatch_by_carrier,
         wind_factor_by_region, solar_factor_by_region,
-        outage_posting_ts, error_message
+        outage_posting_ts, outages_by_zone, error_message
     )
     VALUES (
         %s, %s, now(),
@@ -82,7 +82,7 @@ UPSERT_META_SQL = """
         %s, %s,
         %s::jsonb, %s::jsonb, %s::jsonb,
         %s::jsonb, %s::jsonb,
-        %s, %s
+        %s, %s::jsonb, %s
     )
     ON CONFLICT (interval_ts) DO UPDATE SET
         status                 = EXCLUDED.status,
@@ -102,6 +102,7 @@ UPSERT_META_SQL = """
         wind_factor_by_region  = EXCLUDED.wind_factor_by_region,
         solar_factor_by_region = EXCLUDED.solar_factor_by_region,
         outage_posting_ts      = EXCLUDED.outage_posting_ts,
+        outages_by_zone        = EXCLUDED.outages_by_zone,
         error_message          = EXCLUDED.error_message
 """
 
@@ -168,6 +169,7 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         json.dumps(op_meta.get('wind_factor_by_region', {})),
         json.dumps(op_meta.get('solar_factor_by_region', {})),
         op_meta.get('outage_posting_ts'),
+        json.dumps(op_meta.get('outages_by_zone')),
         None,  # error_message
     )
 
@@ -186,7 +188,9 @@ def write_failure(conn, ts: datetime, status: str, error_message: str) -> None:
         None, None,
         None, None, None,
         None, None,
-        None, error_message,
+        None,           # outage_posting_ts
+        None,           # outages_by_zone
+        error_message,
     )
     with conn.cursor() as cur:
         cur.execute(UPSERT_META_SQL, meta_row)
