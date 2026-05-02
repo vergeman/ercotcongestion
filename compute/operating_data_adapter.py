@@ -183,6 +183,7 @@ class OperatingDataAdapter:
                 'wind_factor_by_region': self._wind_factors(wind_row),
                 'solar_factor_by_region': self._solar_factors(solar_row),
                 'outage_posting_ts': outage_row['posted_datetime'] if outage_row else None,
+                'outages_by_zone': self._outages_by_zone(outage_row)
             },
         }
 
@@ -426,6 +427,24 @@ class OperatingDataAdapter:
     # ------------------------------------------------------------------
     # Translation logic
     # ------------------------------------------------------------------
+
+    def _outages_by_zone(self, outage_row: dict | None) -> dict | None:
+        """Reshape a flat outage_row from outages_zonal into per-zone dicts.
+
+        Returns None when no outage posting is available; persisted as JSONB
+        null. Zone-level NULLs become 0.0 to keep the JSON well-formed on the
+        read path.
+        """
+        if outage_row is None:
+            return None
+
+        out: dict[str, dict[str, float]] = {}
+        for lz in ('south', 'north', 'west', 'houston'):
+            out[lz] = {
+                'thermal_mw': float(outage_row.get(f'total_mw_{lz}') or 0.0),
+                'irr_mw':     float(outage_row.get(f'irr_mw_{lz}')   or 0.0),
+            }
+        return out
 
     # cap: total nameplate capacity
     # mw: ERCOT data

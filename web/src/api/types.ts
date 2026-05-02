@@ -15,6 +15,11 @@ export interface Contingency {
   stress: number;
 }
 
+export interface ZoneOutage {
+  thermal_mw: number;
+  irr_mw: number;
+}
+
 export interface SnapshotMeta {
   interval_ts: string;
   status: string;
@@ -33,6 +38,7 @@ export interface SnapshotMeta {
   wind_factor_by_region: Record<string, number>;
   solar_factor_by_region: Record<string, number>;
   outage_posting_ts: string | null;
+  outages_by_zone: Record<string, ZoneOutage> | null;
   error_message: string | null;
 }
 

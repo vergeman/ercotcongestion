@@ -24,6 +24,12 @@ class Contingency(BaseModel):
     stress: float
 
 
+class ZoneOutage(BaseModel):
+    """Per-load-zone outage MW from ERCOT outages_zonal."""
+    thermal_mw: float
+    irr_mw: float
+
+
 class SnapshotMeta(BaseModel):
     interval_ts: datetime
     status: str
@@ -42,6 +48,7 @@ class SnapshotMeta(BaseModel):
     wind_factor_by_region: dict[str, float] = Field(default_factory=dict)
     solar_factor_by_region: dict[str, float] = Field(default_factory=dict)
     outage_posting_ts: datetime | None = None
+    outages_by_zone: dict[str, ZoneOutage] | None = None
     error_message: str | None = None
 
 

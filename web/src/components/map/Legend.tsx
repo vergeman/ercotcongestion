@@ -18,6 +18,17 @@ export default function Legend({ viewMode }: Props) {
         <span className="label mono">{isFragility ? "100" : "$500+"}</span>
       </div>
 
+      <div className="legend__lines">
+        <div className="legend__line-row">
+          <span className="legend__swatch legend__swatch--binding" />
+          <span className="label">binding</span>
+        </div>
+        <div className="legend__line-row">
+          <span className="legend__swatch legend__swatch--contingency" />
+          <span className="label">N-1 top 5</span>
+        </div>
+      </div>
+
       <style>{`
         .legend {
           position: absolute;
@@ -47,6 +58,29 @@ export default function Legend({ viewMode }: Props) {
         .legend__labels {
           display: flex;
           justify-content: space-between;
+        }
+        .legend__lines {
+          margin-top: 8px;
+          padding-top: 6px;
+          border-top: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+        }
+        .legend__line-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .legend__swatch {
+          width: 18px;
+          height: 2px;
+          flex-shrink: 0;
+        }
+        .legend__swatch--binding { background: #ec4899; }
+        .legend__swatch--contingency {
+          background: repeating-linear-gradient(
+            to right, #cbd5e1 0, #cbd5e1 4px, transparent 4px, transparent 7px);
         }
       `}</style>
     </div>
