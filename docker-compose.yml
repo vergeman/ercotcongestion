@@ -70,7 +70,7 @@ services:
       - ./data:/data
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
   ercot-proxy:     # "deploys to cloudflare"
-    image: node:20-alpine
+    image: node:22-alpine
     container_name: ercot-proxy
     working_dir: /ercot_ingest/proxy
     volumes:
