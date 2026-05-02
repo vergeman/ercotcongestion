@@ -1,21 +1,37 @@
-import type { SnapshotMeta } from '../../api/types';
+import type { SnapshotMeta } from "../../api/types";
 
 interface Props {
   meta: SnapshotMeta | null;
 }
 
-function Stat({ label, value }: { label: string; value: string | number | null }) {
+function Stat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null;
+}) {
   return (
     <div className="stat">
       <span className="label">{label}</span>
-      <span className="stat__val mono">{value ?? '—'}</span>
+      <span className="stat__val mono">{value ?? "—"}</span>
     </div>
   );
 }
 
 function fmt(v: number | null, decimals = 1): string {
-  if (v == null) return '—';
-  return v.toLocaleString('en-US', { maximumFractionDigits: decimals });
+  if (v == null) return "—";
+  return v.toLocaleString("en-US", { maximumFractionDigits: decimals });
+}
+
+function fmtPostingAge(postingTs: string | null): string {
+  if (!postingTs) return "—";
+  const posted = new Date(postingTs);
+  const ageMs = Date.now() - posted.getTime();
+  const ageH = ageMs / 3_600_000;
+  if (ageH < 1) return `${Math.round(ageMs / 60_000)}m ago`;
+  if (ageH < 48) return `${ageH.toFixed(1)}h ago`;
+  return `${(ageH / 24).toFixed(1)}d ago`;
 }
 
 export default function StatsPanel({ meta }: Props) {
@@ -25,12 +41,47 @@ export default function StatsPanel({ meta }: Props) {
         <div className="panel-section__header label">System State</div>
         {meta ? (
           <>
-            <Stat label="Load" value={meta.total_load_mw != null ? `${fmt(meta.total_load_mw)} MW` : null} />
-            <Stat label="Gen" value={meta.total_gen_mw != null ? `${fmt(meta.total_gen_mw)} MW` : null} />
+            <Stat
+              label="Load"
+              value={
+                meta.total_load_mw != null
+                  ? `${fmt(meta.total_load_mw)} MW`
+                  : null
+              }
+            />
+            <Stat
+              label="Gen"
+              value={
+                meta.total_gen_mw != null
+                  ? `${fmt(meta.total_gen_mw)} MW`
+                  : null
+              }
+            />
             <Stat label="Binding Lines" value={meta.n_binding_lines} />
-            <Stat label="Obj Cost" value={meta.objective_cost != null ? `$${fmt(meta.objective_cost, 0)}` : null} />
-            <Stat label="Fragility Total" value={meta.fragility_total != null ? fmt(meta.fragility_total, 3) : null} />
-            <Stat label="Top-10 Share" value={meta.fragility_top10_share != null ? `${fmt(meta.fragility_top10_share * 100, 1)}%` : null} />
+            <Stat
+              label="Obj Cost"
+              value={
+                meta.objective_cost != null
+                  ? `$${fmt(meta.objective_cost, 0)}`
+                  : null
+              }
+            />
+            <Stat
+              label="Fragility Total"
+              value={
+                meta.fragility_total != null
+                  ? fmt(meta.fragility_total, 3)
+                  : null
+              }
+            />
+            <Stat
+              label="Top-10 Share"
+              value={
+                meta.fragility_top10_share != null
+                  ? `${fmt(meta.fragility_top10_share * 100, 1)}%`
+                  : null
+              }
+            />
           </>
         ) : (
           <div className="panel-empty label">no snapshot selected</div>
@@ -43,7 +94,9 @@ export default function StatsPanel({ meta }: Props) {
           <div className="lmp-range">
             <div className="lmp-item">
               <span className="label">min</span>
-              <span className="mono" style={{ color: '#3b82f6' }}>${fmt(meta.lmp_min)}</span>
+              <span className="mono" style={{ color: "#3b82f6" }}>
+                ${fmt(meta.lmp_min)}
+              </span>
             </div>
             <div className="lmp-item">
               <span className="label">avg</span>
@@ -51,7 +104,9 @@ export default function StatsPanel({ meta }: Props) {
             </div>
             <div className="lmp-item">
               <span className="label">max</span>
-              <span className="mono" style={{ color: '#ef4444' }}>${fmt(meta.lmp_max)}</span>
+              <span className="mono" style={{ color: "#ef4444" }}>
+                ${fmt(meta.lmp_max)}
+              </span>
             </div>
           </div>
         </div>
@@ -63,8 +118,13 @@ export default function StatsPanel({ meta }: Props) {
           <div className="list-items">
             {meta.binding_lines.slice(0, 5).map((bl) => (
               <div key={bl.line} className="list-item">
-                <span className="mono" style={{ fontSize: 11 }}>{bl.line}</span>
-                <span className="mono" style={{ color: '#f59e0b', fontSize: 11 }}>
+                <span className="mono" style={{ fontSize: 11 }}>
+                  {bl.line}
+                </span>
+                <span
+                  className="mono"
+                  style={{ color: "#f59e0b", fontSize: 11 }}
+                >
                   ${fmt(bl.shadow_price, 1)}
                 </span>
               </div>
@@ -75,12 +135,19 @@ export default function StatsPanel({ meta }: Props) {
 
       {meta && (meta.top_contingencies?.length ?? 0) > 0 && (
         <div className="panel-section">
-          <div className="panel-section__header label">Top N-1 Contingencies</div>
+          <div className="panel-section__header label">
+            Top N-1 Contingencies
+          </div>
           <div className="list-items">
             {meta.top_contingencies.slice(0, 5).map((c) => (
               <div key={c.line} className="list-item">
-                <span className="mono" style={{ fontSize: 11 }}>{c.line}</span>
-                <span className="mono" style={{ color: '#ef4444', fontSize: 11 }}>
+                <span className="mono" style={{ fontSize: 11 }}>
+                  {c.line}
+                </span>
+                <span
+                  className="mono"
+                  style={{ color: "#ef4444", fontSize: 11 }}
+                >
                   {fmt(c.stress, 2)}
                 </span>
               </div>
@@ -88,6 +155,57 @@ export default function StatsPanel({ meta }: Props) {
           </div>
         </div>
       )}
+
+      {meta &&
+        meta.outages_by_zone &&
+        (() => {
+          const zones = meta.outages_by_zone;
+          const totalThermal = Object.values(zones).reduce(
+            (s, z) => s + (z.thermal_mw ?? 0),
+            0
+          );
+          const totalIrr = Object.values(zones).reduce(
+            (s, z) => s + (z.irr_mw ?? 0),
+            0
+          );
+          return (
+            <div className="panel-section">
+              <div className="panel-section__header label">
+                Outages · {fmtPostingAge(meta.outage_posting_ts)}
+              </div>
+              <div className="outage-totals">
+                <div className="outage-tot">
+                  <span className="label">thermal</span>
+                  <span className="mono" style={{ color: "#f97316" }}>
+                    {fmt(totalThermal, 0)} MW
+                  </span>
+                </div>
+                <div className="outage-tot">
+                  <span className="label">irr</span>
+                  <span className="mono" style={{ color: "#38bdf8" }}>
+                    {fmt(totalIrr, 0)} MW
+                  </span>
+                </div>
+              </div>
+              <div className="outage-zones">
+                {Object.entries(zones).map(([zone, vals]) => (
+                  <div key={zone} className="outage-zone-row">
+                    <span className="label">{zone}</span>
+                    <span className="mono" style={{ fontSize: 11 }}>
+                      <span style={{ color: "#f97316" }}>
+                        {fmt(vals.thermal_mw, 0)}
+                      </span>
+                      <span style={{ color: "var(--text-muted)" }}> · </span>
+                      <span style={{ color: "#38bdf8" }}>
+                        {fmt(vals.irr_mw, 0)}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
       {meta && Object.keys(meta.dispatch_by_carrier).length > 0 && (
         <div className="panel-section">
@@ -102,7 +220,10 @@ export default function StatsPanel({ meta }: Props) {
                   <div
                     className="dispatch-bar"
                     style={{
-                      width: `${Math.min(100, (mw / (meta.total_gen_mw || 1)) * 100)}%`,
+                      width: `${Math.min(
+                        100,
+                        (mw / (meta.total_gen_mw || 1)) * 100
+                      )}%`,
                       background: carrierColor(carrier),
                     }}
                   />
@@ -188,6 +309,23 @@ export default function StatsPanel({ meta }: Props) {
           min-width: 56px;
           text-align: right;
         }
+        .outage-totals {
+          display: flex;
+          gap: 12px;
+          padding: 2px 0 6px;
+          border-bottom: 1px solid var(--border);
+          margin-bottom: 4px;
+        }
+        .outage-tot { display: flex; flex-direction: column; gap: 1px; }
+        .outage-tot .mono { font-size: 12px; }
+        .outage-zones { display: flex; flex-direction: column; gap: 1px; }
+        .outage-zone-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 2px 0;
+        }
+        .outage-zone-row .label { text-transform: capitalize; }
       `}</style>
     </div>
   );
@@ -195,17 +333,17 @@ export default function StatsPanel({ meta }: Props) {
 
 function carrierColor(carrier: string): string {
   const map: Record<string, string> = {
-    wind: '#38bdf8',
-    solar: '#fbbf24',
-    gas: '#f97316',
-    nuclear: '#a78bfa',
-    coal: '#78716c',
-    hydro: '#34d399',
-    oil: '#f43f5e',
+    wind: "#38bdf8",
+    solar: "#fbbf24",
+    gas: "#f97316",
+    nuclear: "#a78bfa",
+    coal: "#78716c",
+    hydro: "#34d399",
+    oil: "#f43f5e",
   };
   const key = carrier.toLowerCase();
   for (const [k, c] of Object.entries(map)) {
     if (key.includes(k)) return c;
   }
-  return '#8899aa';
+  return "#8899aa";
 }
