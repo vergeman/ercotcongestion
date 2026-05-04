@@ -82,61 +82,78 @@ export function normalizeLmp(value: number | null): number {
   }
 }
 
-// Per-snapshot adaptive LMP scaling.
-// Anchored at zero (cream) so blue/orange retain their absolute meaning
-// (negative = oversupply, positive = scarcity). The dynamic range stretches
-// to the snapshot's own extremes — quiet hours don't wash out, busy hours
-// don't saturate everything red.
-export interface LmpDomain {
-  min: number;
-  max: number;
-  // Span used below zero (always positive). 0 if no negative LMPs.
-  negSpan: number;
-  // Span used above zero (always positive). 0 if no positive LMPs.
-  posSpan: number;
+// Window-wide LMP scaling. Computed once when a playback window loads, then
+// reused for every frame. Stable across playback (a bus that's at the median
+// looks the same in every snapshot), and centered on the *median* rather than
+// zero — most TX LMPs cluster at the gas-marginal-cost floor (~$28.55), so the
+// median is the natural "neutral" point. Above-median = congestion premium
+// (orange), below-median = oversupply / curtailment (blue).
+//
+// Spread is measured in MAD (median absolute deviation), not std, because
+// LMP distributions are heavy-tailed (gas-marginal cluster + scarcity tail) —
+// MAD is robust to those tail outliers.
+export interface LmpStats {
+  median: number;
+  mad: number; // median absolute deviation, in $/MWh
+  min: number; // observed window min (for legend labels)
+  max: number; // observed window max (for legend labels)
+  n: number; // number of LMP samples used
 }
 
-export function computeLmpDomain(
-  buses: Array<{ lmp: number | null }>
-): LmpDomain {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const b of buses) {
-    if (b.lmp == null) continue;
-    if (b.lmp < min) min = b.lmp;
-    if (b.lmp > max) max = b.lmp;
+const MAD_SAT = 6; // saturate at ±6 MAD from median
+
+function median(sorted: number[]): number {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+// Compute median + MAD across an entire window of bus LMPs (every bus, every
+// snapshot). Pass a flat array of all observed LMP values.
+export function computeLmpStats(
+  values: Array<number | null | undefined>
+): LmpStats {
+  const xs: number[] = [];
+  for (const v of values) {
+    if (v == null || !isFinite(v)) continue;
+    xs.push(v);
   }
-  if (!isFinite(min) || !isFinite(max)) {
-    return { min: 0, max: 0, negSpan: 0, posSpan: 0 };
+  if (xs.length === 0) {
+    return { median: 0, mad: 1, min: 0, max: 0, n: 0 };
   }
+  const sorted = [...xs].sort((a, b) => a - b);
+  const med = median(sorted);
+  const absDev = xs.map((v) => Math.abs(v - med)).sort((a, b) => a - b);
+  let mad = median(absDev);
+  // Guard against degenerate window (all values equal → MAD=0).
+  // Fall back to a tiny epsilon so the color function returns 0.5 (cream)
+  // instead of dividing by zero.
+  if (mad <= 0) mad = 1e-6;
   return {
-    min,
-    max,
-    negSpan: min < 0 ? -min : 0,
-    posSpan: max > 0 ? max : 0,
+    median: med,
+    mad,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    n: xs.length,
   };
 }
 
-export function normalizeLmpAdaptive(
+// Map an LMP value to [0, 1] using window stats.
+//   value === median       → 0.5  (cream)
+//   value === median - 6*MAD → 0    (deepest blue)
+//   value === median + 6*MAD → 1    (deepest orange)
+export function normalizeLmpFromStats(
   value: number | null,
-  domain: LmpDomain
+  stats: LmpStats
 ): number {
   if (value == null) return 0.5;
-  if (value === 0) return 0.5;
-  if (value < 0) {
-    if (domain.negSpan === 0) return 0.5;
-    // -negSpan → 0 maps to 0 → 0.5
-    const t = 1 - Math.min(1, -value / domain.negSpan);
-    return 0.5 * t;
-  } else {
-    if (domain.posSpan === 0) return 0.5;
-    // 0 → posSpan maps to 0.5 → 1, log-compressed so a single outlier
-    // doesn't crush the rest of the distribution against cream.
-    const logMax = Math.log10(1 + domain.posSpan);
-    const logV = Math.log10(1 + Math.min(value, domain.posSpan));
-    return 0.5 + 0.5 * (logV / logMax);
-  }
+  const z = (value - stats.median) / stats.mad; // signed MAD-units
+  const t = 0.5 + z / (2 * MAD_SAT); // map ±MAD_SAT → ±0.5
+  return Math.max(0, Math.min(1, t));
 }
+
+export const LMP_MAD_SAT = MAD_SAT;
 
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
 export function lmpColor(norm: number): string {

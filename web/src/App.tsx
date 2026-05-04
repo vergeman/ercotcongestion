@@ -6,6 +6,7 @@ import {
   getCached,
   getAvailableTimestamps,
 } from "./api/prefetch";
+import { computeLmpStats, type LmpStats } from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
@@ -51,6 +52,9 @@ export default function App() {
     start: Date;
     end: Date;
   } | null>(null);
+  // Window-wide LMP stats (median + MAD). Computed once on window load and
+  // reused for every frame so coloring is stable across playback.
+  const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
 
   // Topology load
   useEffect(() => {
@@ -77,10 +81,17 @@ export default function App() {
     setLoading(true);
     setConnState("loading");
     try {
-      await prefetchWindow(start, end);
+      const data = await prefetchWindow(start, end);
       const ts = getAvailableTimestamps();
       setTimestamps(ts);
       if (ts.length > 0) {
+        // Build window-wide LMP stats from every (bus, snapshot) pair.
+        const allLmp: Array<number | null> = [];
+        for (const entry of data.entries) {
+          for (const b of entry.buses) allLmp.push(b.lmp);
+        }
+        setLmpStats(computeLmpStats(allLmp));
+
         setCurrentIndex(0); // start at begining on load
         setLastUpdated(new Date());
         setConnState("ok");
@@ -182,6 +193,7 @@ export default function App() {
             buses={buses}
             meta={meta}
             viewMode={viewMode}
+            lmpStats={lmpStats}
             onBusHover={handleBusHover}
             onLineHover={handleLineHover}
             onBusClick={handleBusClick}
@@ -198,7 +210,7 @@ export default function App() {
             pinnedLine={pinnedLine}
             onClose={handleClearPinned}
           />
-          <Legend viewMode={viewMode} buses={buses} />
+          <Legend viewMode={viewMode} buses={buses} lmpStats={lmpStats} />
         </div>
 
         {/* Right panel — tabbed: stats or validation */}

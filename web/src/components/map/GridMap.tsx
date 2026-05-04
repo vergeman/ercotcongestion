@@ -6,8 +6,8 @@ import {
   fragilityColor,
   lmpColor,
   normalizeFragility,
-  normalizeLmpAdaptive,
-  computeLmpDomain,
+  normalizeLmpFromStats,
+  type LmpStats,
 } from "../../lib/colors";
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
   buses: BusState[];
   meta: SnapshotMeta | null;
   viewMode: ViewMode;
+  lmpStats: LmpStats | null;
   onBusHover: (
     busId: string | null,
     props: Record<string, unknown> | null
@@ -35,6 +36,7 @@ export default function GridMap({
   buses,
   meta,
   viewMode,
+  lmpStats,
   onBusHover,
   onLineHover,
   onBusClick,
@@ -419,18 +421,20 @@ export default function GridMap({
     if (!map || !buses.length || !map.getSource("buses")) return;
 
     const normMap = normalizeFragility(buses);
-    const lmpDomain = computeLmpDomain(buses);
 
     for (const bus of buses) {
       let color: string;
       if (viewMode === "fragility") {
         color = fragilityColor(normMap.get(bus.bus_id) ?? 0);
+      } else if (lmpStats) {
+        color = lmpColor(normalizeLmpFromStats(bus.lmp, lmpStats));
       } else {
-        color = lmpColor(normalizeLmpAdaptive(bus.lmp, lmpDomain));
+        // Window stats not yet computed — neutral cream as a placeholder.
+        color = lmpColor(0.5);
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode]);
+  }, [buses, viewMode, lmpStats]);
 
   // Selected bus
   useEffect(() => {

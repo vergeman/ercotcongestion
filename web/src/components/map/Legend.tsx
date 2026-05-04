@@ -1,10 +1,16 @@
 import { useMemo } from "react";
 import type { BusState, ViewMode } from "../../api/types";
-import { FRAGILITY_ANCHORS, computeLmpDomain } from "../../lib/colors";
+import {
+  FRAGILITY_ANCHORS,
+  LMP_MAD_SAT,
+  type LmpStats,
+} from "../../lib/colors";
 
 interface Props {
   viewMode: ViewMode;
   buses: BusState[];
+  // Window-wide stats. Stable across playback.
+  lmpStats: LmpStats | null;
 }
 
 const HIST_BINS = 24;
@@ -41,26 +47,49 @@ function formatTick(v: number): string {
   return `10${expStr}`;
 }
 
-export default function Legend({ viewMode, buses }: Props) {
+export default function Legend({ viewMode, buses, lmpStats }: Props) {
   const isFragility = viewMode === "fragility";
 
-  // Histogram for LMP view — based on the current snapshot's actual distribution.
+  // LMP histogram for the *current snapshot* — gives the user a sense of
+  // where today's buses sit inside the window-wide distribution.
+  // The bin range is fixed to the window's color domain (±MAD_SAT around
+  // the median), so the histogram x-axis aligns 1:1 with the color bar below.
   const lmpHist = useMemo(() => {
-    if (isFragility || buses.length === 0) return null;
-    const domain = computeLmpDomain(buses);
-    const span = domain.max - domain.min;
+    if (isFragility || buses.length === 0 || !lmpStats) return null;
+    const lo = lmpStats.median - LMP_MAD_SAT * lmpStats.mad;
+    const hi = lmpStats.median + LMP_MAD_SAT * lmpStats.mad;
+    const span = hi - lo;
     if (span <= 0) return null;
     const counts = new Array(HIST_BINS).fill(0);
     for (const b of buses) {
       if (b.lmp == null) continue;
-      let idx = Math.floor(((b.lmp - domain.min) / span) * HIST_BINS);
+      let idx = Math.floor(((b.lmp - lo) / span) * HIST_BINS);
       if (idx >= HIST_BINS) idx = HIST_BINS - 1;
       if (idx < 0) idx = 0;
       counts[idx] += 1;
     }
     const peak = Math.max(...counts);
-    return { domain, counts, peak };
-  }, [buses, isFragility]);
+    return { counts, peak };
+  }, [buses, isFragility, lmpStats]);
+
+  // LMP tick marks: median (center) and ±MAD positions on the bar.
+  const lmpTicks = useMemo(() => {
+    if (isFragility || !lmpStats) return [];
+    // Position in [0, 1] across the bar:
+    //   median           → 0.5
+    //   median ± k*MAD   → 0.5 + k/(2*MAD_SAT)
+    return [
+      {
+        label: formatDollar(lmpStats.median - lmpStats.mad),
+        pct: 50 - (1 / (2 * LMP_MAD_SAT)) * 100,
+      },
+      { label: formatDollar(lmpStats.median), pct: 50 },
+      {
+        label: formatDollar(lmpStats.median + lmpStats.mad),
+        pct: 50 + (1 / (2 * LMP_MAD_SAT)) * 100,
+      },
+    ];
+  }, [isFragility, lmpStats]);
 
   // Tick positions on log-scaled fragility bar.
   const fragilityTicks = useMemo(() => {
@@ -79,7 +108,7 @@ export default function Legend({ viewMode, buses }: Props) {
         {isFragility ? "Fragility (log)" : "LMP ($/MWh)"}
       </div>
 
-      {/* Histogram for LMP — gives absolute context to the adaptive scale */}
+      {/* LMP: snapshot histogram against window-wide bin range */}
       {!isFragility && lmpHist && (
         <div className="legend__hist">
           {lmpHist.counts.map((c, i) => (
@@ -107,14 +136,28 @@ export default function Legend({ viewMode, buses }: Props) {
             </span>
           ))}
         </div>
+      ) : lmpStats ? (
+        <>
+          <div className="legend__ticks">
+            {lmpTicks.map((t, i) => (
+              <span
+                key={i}
+                className="label mono legend__tick"
+                style={{ left: `${t.pct}%` }}
+              >
+                {t.label}
+              </span>
+            ))}
+          </div>
+          <div className="legend__sub label">
+            window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
+            ±{LMP_MAD_SAT} MAD
+          </div>
+        </>
       ) : (
         <div className="legend__labels">
-          <span className="label mono">
-            {lmpHist ? formatDollar(lmpHist.domain.min) : "—"}
-          </span>
-          <span className="label mono">
-            {lmpHist ? formatDollar(lmpHist.domain.max) : "—"}
-          </span>
+          <span className="label mono">—</span>
+          <span className="label mono">—</span>
         </div>
       )}
 
@@ -187,6 +230,13 @@ export default function Legend({ viewMode, buses }: Props) {
           font-size: 9px;
           opacity: 0.7;
           white-space: nowrap;
+        }
+        .legend__sub {
+          margin-top: 2px;
+          width: ${BAR_W}px;
+          font-size: 9px;
+          opacity: 0.55;
+          line-height: 1.3;
         }
         .legend__lines {
           margin-top: 8px;
