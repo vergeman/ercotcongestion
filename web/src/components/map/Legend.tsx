@@ -1,22 +1,122 @@
-import type { ViewMode } from "../../api/types";
+import { useMemo } from "react";
+import type { BusState, ViewMode } from "../../api/types";
+import { FRAGILITY_ANCHORS, computeLmpDomain } from "../../lib/colors";
 
 interface Props {
   viewMode: ViewMode;
+  buses: BusState[];
 }
 
-export default function Legend({ viewMode }: Props) {
+const HIST_BINS = 24;
+const BAR_W = 130;
+
+function formatDollar(v: number): string {
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+}
+
+function formatTick(v: number): string {
+  // Compact log decade label: 1e-6 → "10⁻⁶", 100 → "100"
+  if (v === 0) return "0";
+  const exp = Math.round(Math.log10(v));
+  if (exp >= 0) return Math.pow(10, exp).toString();
+  const supers: Record<string, string> = {
+    "-": "⁻",
+    "0": "⁰",
+    "1": "¹",
+    "2": "²",
+    "3": "³",
+    "4": "⁴",
+    "5": "⁵",
+    "6": "⁶",
+    "7": "⁷",
+    "8": "⁸",
+    "9": "⁹",
+  };
+  const expStr = exp
+    .toString()
+    .split("")
+    .map((c) => supers[c] ?? c)
+    .join("");
+  return `10${expStr}`;
+}
+
+export default function Legend({ viewMode, buses }: Props) {
   const isFragility = viewMode === "fragility";
+
+  // Histogram for LMP view — based on the current snapshot's actual distribution.
+  const lmpHist = useMemo(() => {
+    if (isFragility || buses.length === 0) return null;
+    const domain = computeLmpDomain(buses);
+    const span = domain.max - domain.min;
+    if (span <= 0) return null;
+    const counts = new Array(HIST_BINS).fill(0);
+    for (const b of buses) {
+      if (b.lmp == null) continue;
+      let idx = Math.floor(((b.lmp - domain.min) / span) * HIST_BINS);
+      if (idx >= HIST_BINS) idx = HIST_BINS - 1;
+      if (idx < 0) idx = 0;
+      counts[idx] += 1;
+    }
+    const peak = Math.max(...counts);
+    return { domain, counts, peak };
+  }, [buses, isFragility]);
+
+  // Tick positions on log-scaled fragility bar.
+  const fragilityTicks = useMemo(() => {
+    const logFloor = Math.log10(FRAGILITY_ANCHORS.floor);
+    const logRed = Math.log10(FRAGILITY_ANCHORS.red);
+    const range = logRed - logFloor;
+    return FRAGILITY_ANCHORS.ticks.map((v) => ({
+      value: v,
+      pct: ((Math.log10(v) - logFloor) / range) * 100,
+    }));
+  }, []);
 
   return (
     <div className="legend">
       <div className="legend__title label">
-        {isFragility ? "Fragility" : "LMP ($/MWh)"}
+        {isFragility ? "Fragility (log)" : "LMP ($/MWh)"}
       </div>
+
+      {/* Histogram for LMP — gives absolute context to the adaptive scale */}
+      {!isFragility && lmpHist && (
+        <div className="legend__hist">
+          {lmpHist.counts.map((c, i) => (
+            <div
+              key={i}
+              className="legend__hist-bar"
+              style={{ height: `${(c / lmpHist.peak) * 100}%` }}
+            />
+          ))}
+        </div>
+      )}
+
       <div className="legend__bar" />
-      <div className="legend__labels">
-        <span className="label mono">{isFragility ? "0" : "-$50"}</span>
-        <span className="label mono">{isFragility ? "100" : "$500+"}</span>
-      </div>
+
+      {/* Tick marks below the bar */}
+      {isFragility ? (
+        <div className="legend__ticks">
+          {fragilityTicks.map((t) => (
+            <span
+              key={t.value}
+              className="label mono legend__tick"
+              style={{ left: `${t.pct}%` }}
+            >
+              {formatTick(t.value)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="legend__labels">
+          <span className="label mono">
+            {lmpHist ? formatDollar(lmpHist.domain.min) : "—"}
+          </span>
+          <span className="label mono">
+            {lmpHist ? formatDollar(lmpHist.domain.max) : "—"}
+          </span>
+        </div>
+      )}
 
       <div className="legend__lines">
         <div className="legend__line-row">
@@ -38,15 +138,30 @@ export default function Legend({ viewMode }: Props) {
           border: 1px solid var(--border);
           border-radius: 4px;
           padding: 8px 10px;
-          width: 130px;
+          width: ${BAR_W + 20}px;
           backdrop-filter: blur(4px);
         }
         .legend__title {
           margin-bottom: 5px;
           color: var(--text-secondary);
         }
+        .legend__hist {
+          height: 22px;
+          width: ${BAR_W}px;
+          display: flex;
+          align-items: flex-end;
+          gap: 1px;
+          margin-bottom: 2px;
+        }
+        .legend__hist-bar {
+          flex: 1;
+          background: var(--text-muted, #64748b);
+          opacity: 0.55;
+          min-height: 1px;
+        }
         .legend__bar {
           height: 8px;
+          width: ${BAR_W}px;
           border-radius: 4px;
           background: ${
             isFragility
@@ -58,6 +173,20 @@ export default function Legend({ viewMode }: Props) {
         .legend__labels {
           display: flex;
           justify-content: space-between;
+          width: ${BAR_W}px;
+        }
+        .legend__ticks {
+          position: relative;
+          width: ${BAR_W}px;
+          height: 12px;
+        }
+        .legend__tick {
+          position: absolute;
+          top: 0;
+          transform: translateX(-50%);
+          font-size: 9px;
+          opacity: 0.7;
+          white-space: nowrap;
         }
         .legend__lines {
           margin-top: 8px;

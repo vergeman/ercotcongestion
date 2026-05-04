@@ -198,7 +198,7 @@ export default function App() {
             pinnedLine={pinnedLine}
             onClose={handleClearPinned}
           />
-          <Legend viewMode={viewMode} />
+          <Legend viewMode={viewMode} buses={buses} />
         </div>
 
         {/* Right panel — tabbed: stats or validation */}

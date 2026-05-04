@@ -6,7 +6,8 @@ import {
   fragilityColor,
   lmpColor,
   normalizeFragility,
-  normalizeLmp,
+  normalizeLmpAdaptive,
+  computeLmpDomain,
 } from "../../lib/colors";
 
 interface Props {
@@ -418,19 +419,14 @@ export default function GridMap({
     if (!map || !buses.length || !map.getSource("buses")) return;
 
     const normMap = normalizeFragility(buses);
-
-    // Build LMP norm too
-    const lmpVals = buses.map((b) => b.lmp ?? 0);
-    const lmpMin = Math.min(...lmpVals);
-    const lmpMax = Math.max(...lmpVals);
-    const lmpRange = lmpMax - lmpMin || 1;
+    const lmpDomain = computeLmpDomain(buses);
 
     for (const bus of buses) {
       let color: string;
       if (viewMode === "fragility") {
         color = fragilityColor(normMap.get(bus.bus_id) ?? 0);
       } else {
-        color = lmpColor(normalizeLmp(bus.lmp));
+        color = lmpColor(normalizeLmpAdaptive(bus.lmp, lmpDomain));
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
