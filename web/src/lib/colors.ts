@@ -25,9 +25,11 @@ export const FRAGILITY_ANCHORS = {
   red: FRAGILITY_RED,
   gamma: FRAGILITY_GAMMA,
   red_core: FRAGILITY_RED_CORE,
-  // Tick marks for legend. Includes red anchor (5) and a tail value (50) so
-  // the user can see the tail compression visually.
-  ticks: [0.0, 0.5, 1, 5, 50],
+  // Tick marks for legend. Leftmost label is "0" (cosmetic — the underlying
+  // floor is 0.05, but 0 reads more naturally for the green end). Includes
+  // the red anchor (5) and a tail value (50) so the user can see the tail
+  // compression visually.
+  ticks: [0, 0.5, 1, 5, 50],
 };
 
 // Fragility: 0 → green, 0.5 → yellow, 1 → red
@@ -260,3 +262,133 @@ export function lmpColor(norm: number): string {
     return `rgb(${r},${g},${b})`;
   }
 }
+
+// =============================================================================
+// Rank-delta view ("Δ Rank")
+// =============================================================================
+//
+// For each snapshot, rank every bus by fragility (ascending) and by |basis|
+// (ascending), normalize to [0, 1], and compute the signed difference:
+//
+//   delta = pct_fragility − pct_|basis|
+//
+//   delta > 0  → fragility rank higher than basis rank (model OVER-estimates)
+//   delta < 0  → basis rank higher than fragility rank (model UNDER-estimates)
+//   delta ≈ 0  → model and market agree on this bus
+//
+// Buses missing either fragility or basis are excluded from ranking and
+// returned as null (rendered neutral on the map).
+//
+// Per-snapshot, not window-wide — we want "where in *this* picture do model
+// and market disagree most," not a stable cross-frame anchor.
+
+// Convert an array of values into per-element percentile rank in [0, 1].
+// Ties get the average rank. Nulls are preserved as null in the output.
+function percentileRank(values: Array<number | null>): Array<number | null> {
+  const n = values.length;
+  // Collect (originalIndex, value) for non-null entries.
+  const indexed: Array<{ i: number; v: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    if (v != null && isFinite(v)) indexed.push({ i, v });
+  }
+  if (indexed.length === 0) return values.map(() => null);
+  if (indexed.length === 1) {
+    const out: Array<number | null> = values.map(() => null);
+    out[indexed[0].i] = 0.5;
+    return out;
+  }
+
+  // Sort by value ascending.
+  indexed.sort((a, b) => a.v - b.v);
+
+  // Assign average rank for ties.
+  const ranks = new Array<number>(indexed.length);
+  let i = 0;
+  while (i < indexed.length) {
+    let j = i;
+    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j++;
+    const avgRank = (i + j) / 2; // 0-based, average of run
+    for (let k = i; k <= j; k++) ranks[k] = avgRank;
+    i = j + 1;
+  }
+
+  // Normalize ranks to [0, 1] and place back into original positions.
+  const out: Array<number | null> = values.map(() => null);
+  const denom = indexed.length - 1;
+  for (let k = 0; k < indexed.length; k++) {
+    out[indexed[k].i] = ranks[k] / denom;
+  }
+  return out;
+}
+
+// Compute per-bus rank-delta for a single snapshot. Returns a Map keyed by
+// bus_id; missing entries (excluded buses) map to null.
+export function computeRankDelta(
+  buses: Array<{
+    bus_id: string;
+    fragility: number | null;
+    basis: number | null;
+  }>
+): Map<string, number | null> {
+  const fragVals = buses.map((b) => b.fragility);
+  const absBasisVals = buses.map((b) =>
+    b.basis == null ? null : Math.abs(b.basis)
+  );
+
+  // Both must be present for a delta; otherwise null.
+  const validMask = buses.map((b) => b.fragility != null && b.basis != null);
+  const fragMasked: Array<number | null> = fragVals.map((v, i) =>
+    validMask[i] ? v : null
+  );
+  const basisMasked: Array<number | null> = absBasisVals.map((v, i) =>
+    validMask[i] ? v : null
+  );
+
+  const fragPct = percentileRank(fragMasked);
+  const basisPct = percentileRank(basisMasked);
+
+  const out = new Map<string, number | null>();
+  for (let i = 0; i < buses.length; i++) {
+    const f = fragPct[i];
+    const b = basisPct[i];
+    if (f == null || b == null) {
+      out.set(buses[i].bus_id, null);
+    } else {
+      out.set(buses[i].bus_id, f - b); // ∈ [-1, 1]
+    }
+  }
+  return out;
+}
+
+// Diverging color: purple (−1, model under) → cream (0) → teal (+1, model over).
+// Anchors picked from the design palette (c-purple #7F77DD, c-teal #1D9E75)
+// with a light cream center distinct from the LMP cream.
+const DELTA_NEUTRAL_COLOR = "#1a4731"; // null/missing — same as fragility null
+const DELTA_PURPLE = [127, 119, 221]; // −1
+const DELTA_CREAM = [232, 226, 215]; //  0
+const DELTA_TEAL = [29, 158, 117]; // +1
+
+// γ damping flattens the cream band so small disagreements stay neutral and
+// only meaningful rank gaps register as color.
+const DELTA_GAMMA = 1.6;
+
+// Map a rank delta in [−1, 1] to RGB.
+export function rankDeltaColor(delta: number | null): string {
+  if (delta == null) return DELTA_NEUTRAL_COLOR;
+  const sign = Math.sign(delta);
+  const mag = Math.min(1, Math.pow(Math.abs(delta), DELTA_GAMMA));
+  const target = sign < 0 ? DELTA_PURPLE : DELTA_TEAL;
+  const r = Math.round(DELTA_CREAM[0] + (target[0] - DELTA_CREAM[0]) * mag);
+  const g = Math.round(DELTA_CREAM[1] + (target[1] - DELTA_CREAM[1]) * mag);
+  const b = Math.round(DELTA_CREAM[2] + (target[2] - DELTA_CREAM[2]) * mag);
+  return `rgb(${r},${g},${b})`;
+}
+
+// Anchors exposed for the legend.
+export const DELTA_ANCHORS = {
+  purple: `rgb(${DELTA_PURPLE.join(",")})`,
+  cream: `rgb(${DELTA_CREAM.join(",")})`,
+  teal: `rgb(${DELTA_TEAL.join(",")})`,
+  gamma: DELTA_GAMMA,
+};

@@ -40,6 +40,12 @@ export default function Header({
           >
             LMP
           </button>
+          <button
+            className={viewMode === "delta_rank" ? "active" : ""}
+            onClick={() => onViewMode("delta_rank")}
+          >
+            Δ Rank
+          </button>
         </div>
       </div>
 

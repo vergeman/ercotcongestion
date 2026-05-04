@@ -7,6 +7,8 @@ import {
   lmpColor,
   normalizeFragility,
   normalizeLmpFromStats,
+  computeRankDelta,
+  rankDeltaColor,
   type LmpStats,
 } from "../../lib/colors";
 
@@ -420,17 +422,22 @@ export default function GridMap({
     const map = mapRef.current;
     if (!map || !buses.length || !map.getSource("buses")) return;
 
-    const normMap = normalizeFragility(buses);
+    const normMap = viewMode === "fragility" ? normalizeFragility(buses) : null;
+    const deltaMap = viewMode === "delta_rank" ? computeRankDelta(buses) : null;
 
     for (const bus of buses) {
       let color: string;
       if (viewMode === "fragility") {
-        color = fragilityColor(normMap.get(bus.bus_id) ?? 0);
-      } else if (lmpStats) {
-        color = lmpColor(normalizeLmpFromStats(bus.lmp, lmpStats));
+        color = fragilityColor(normMap!.get(bus.bus_id) ?? 0);
+      } else if (viewMode === "lmp") {
+        if (lmpStats) {
+          color = lmpColor(normalizeLmpFromStats(bus.lmp, lmpStats));
+        } else {
+          color = lmpColor(0.5);
+        }
       } else {
-        // Window stats not yet computed — neutral cream as a placeholder.
-        color = lmpColor(0.5);
+        // delta_rank
+        color = rankDeltaColor(deltaMap!.get(bus.bus_id) ?? null);
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
