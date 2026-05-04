@@ -5,6 +5,7 @@ import {
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
   normalizeLmpFromStats,
+  DELTA_ANCHORS,
   type LmpStats,
 } from "../../lib/colors";
 
@@ -32,13 +33,13 @@ function formatTick(v: number): string {
 
 export default function Legend({ viewMode, buses, lmpStats }: Props) {
   const isFragility = viewMode === "fragility";
+  const isLmp = viewMode === "lmp";
+  const isDelta = viewMode === "delta_rank";
 
   // LMP histogram for the *current snapshot*, binned in color-space so each
-  // bar aligns directly above the gradient color it falls in. P_low → leftmost
-  // bin, median → middle bin, P_high → rightmost bin. Out-of-range values
-  // pile up at the ends.
+  // bar aligns directly above the gradient color it falls in.
   const lmpHist = useMemo(() => {
-    if (isFragility || buses.length === 0 || !lmpStats) return null;
+    if (!isLmp || buses.length === 0 || !lmpStats) return null;
     const counts = new Array(HIST_BINS).fill(0);
     for (const b of buses) {
       if (b.lmp == null) continue;
@@ -50,21 +51,19 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
     }
     const peak = Math.max(...counts);
     return { counts, peak };
-  }, [buses, isFragility, lmpStats]);
+  }, [buses, isLmp, lmpStats]);
 
   // LMP tick marks: p_low (left), median (center), p_high (right).
   const lmpTicks = useMemo(() => {
-    if (isFragility || !lmpStats) return [];
+    if (!isLmp || !lmpStats) return [];
     return [
       { label: formatDollar(lmpStats.p_low), pct: 0 },
       { label: formatDollar(lmpStats.median), pct: 50 },
       { label: formatDollar(lmpStats.p_high), pct: 100 },
     ];
-  }, [isFragility, lmpStats]);
+  }, [isLmp, lmpStats]);
 
-  // Tick positions on the fragility bar. Same piecewise transform as
-  // normalizeFragility (γ-damped log interp inside [floor, red], rational
-  // tail above red) so the tick sits exactly under its color.
+  // Tick positions on the fragility bar.
   const fragilityTicks = useMemo(() => {
     const { floor, red, gamma, red_core, ticks } = FRAGILITY_ANCHORS;
     const logFloor = Math.log10(floor);
@@ -87,14 +86,25 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
     });
   }, []);
 
+  // Bar gradient depends on view mode.
+  const barGradient = isFragility
+    ? "linear-gradient(to right, #22c55e, #eab308, #ef4444)"
+    : isLmp
+    ? "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
+    : `linear-gradient(to right, ${DELTA_ANCHORS.purple}, ${DELTA_ANCHORS.cream}, ${DELTA_ANCHORS.teal})`;
+
+  const title = isFragility
+    ? "Fragility (log)"
+    : isLmp
+    ? "LMP ($/MWh)"
+    : "Δ Rank (fragility − |basis|)";
+
   return (
     <div className="legend">
-      <div className="legend__title label">
-        {isFragility ? "Fragility (log)" : "LMP ($/MWh)"}
-      </div>
+      <div className="legend__title label">{title}</div>
 
       {/* LMP: snapshot histogram against window-wide bin range */}
-      {!isFragility && lmpHist && (
+      {isLmp && lmpHist && (
         <div className="legend__hist">
           {lmpHist.counts.map((c, i) => (
             <div
@@ -106,10 +116,10 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
         </div>
       )}
 
-      <div className="legend__bar" />
+      <div className="legend__bar" style={{ background: barGradient }} />
 
       {/* Tick marks below the bar */}
-      {isFragility ? (
+      {isFragility && (
         <div className="legend__ticks">
           {fragilityTicks.map((t) => (
             <span
@@ -121,7 +131,9 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
             </span>
           ))}
         </div>
-      ) : lmpStats ? (
+      )}
+
+      {isLmp && lmpStats && (
         <>
           <div className="legend__ticks">
             {lmpTicks.map((t, i) => (
@@ -139,11 +151,23 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
             P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
           </div>
         </>
-      ) : (
+      )}
+
+      {isLmp && !lmpStats && (
         <div className="legend__labels">
           <span className="label mono">—</span>
           <span className="label mono">—</span>
         </div>
+      )}
+
+      {isDelta && (
+        <>
+          <div className="legend__labels">
+            <span className="label">model under</span>
+            <span className="label">over</span>
+          </div>
+          <div className="legend__sub label">per-snapshot rank</div>
+        </>
       )}
 
       <div className="legend__lines">
@@ -191,11 +215,6 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
           height: 8px;
           width: ${BAR_W}px;
           border-radius: 4px;
-          background: ${
-            isFragility
-              ? "linear-gradient(to right, #22c55e, #eab308, #ef4444)"
-              : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
-          };
           margin-bottom: 3px;
         }
         .legend__labels {
