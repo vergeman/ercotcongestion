@@ -24,29 +24,10 @@ function formatDollar(v: number): string {
 }
 
 function formatTick(v: number): string {
-  // Compact log decade label: 1e-6 → "10⁻⁶", 100 → "100"
   if (v === 0) return "0";
-  const exp = Math.round(Math.log10(v));
-  if (exp >= 0) return Math.pow(10, exp).toString();
-  const supers: Record<string, string> = {
-    "-": "⁻",
-    "0": "⁰",
-    "1": "¹",
-    "2": "²",
-    "3": "³",
-    "4": "⁴",
-    "5": "⁵",
-    "6": "⁶",
-    "7": "⁷",
-    "8": "⁸",
-    "9": "⁹",
-  };
-  const expStr = exp
-    .toString()
-    .split("")
-    .map((c) => supers[c] ?? c)
-    .join("");
-  return `10${expStr}`;
+  if (v >= 1) return v >= 10 ? v.toFixed(0) : v.toString();
+  // Sub-1 values: trim trailing zeros (0.05, 0.1, 0.5)
+  return v.toString();
 }
 
 export default function Legend({ viewMode, buses, lmpStats }: Props) {
@@ -81,15 +62,29 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
     ];
   }, [isFragility, lmpStats]);
 
-  // Tick positions on log-scaled fragility bar.
+  // Tick positions on the fragility bar. Same piecewise transform as
+  // normalizeFragility (γ-damped log interp inside [floor, red], rational
+  // tail above red) so the tick sits exactly under its color.
   const fragilityTicks = useMemo(() => {
-    const logFloor = Math.log10(FRAGILITY_ANCHORS.floor);
-    const logRed = Math.log10(FRAGILITY_ANCHORS.red);
+    const { floor, red, gamma, red_core, ticks } = FRAGILITY_ANCHORS;
+    const logFloor = Math.log10(floor);
+    const logRed = Math.log10(red);
     const range = logRed - logFloor;
-    return FRAGILITY_ANCHORS.ticks.map((v) => ({
-      value: v,
-      pct: ((Math.log10(v) - logFloor) / range) * 100,
-    }));
+    return ticks.map((v) => {
+      let pct: number;
+      if (v <= floor) {
+        pct = 0;
+      } else if (v <= red) {
+        const raw = (Math.log10(v) - logFloor) / range;
+        const damped = Math.pow(Math.max(0, raw), gamma);
+        pct = Math.min(red_core, red_core * damped) * 100;
+      } else {
+        const x = Math.log10(v) - logRed;
+        const tail = x / (1 + x);
+        pct = (red_core + (1 - red_core) * tail) * 100;
+      }
+      return { value: v, pct };
+    });
   }, []);
 
   return (

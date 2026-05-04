@@ -1,20 +1,33 @@
 // Fragility color scale
 
-// TODO: revisit calibration once we have a wider data sample. Current
-// thresholds are guesses from a slice of synthetic data — top observed value was
-// ~30, noise floor ~1e-10.
+// Approach: log scale with γ damping in the core range, plus a soft rational
+// tail above the red anchor so high-but-finite fragilities stay
+// distinguishable without crushing the rest of the scale.
+//
+// Calibration history:
+//   v1 (floor=1e-6, red=100, γ=1) — too sensitive at the low end, values
+//   ~1e-3 read yellow despite being negligible; values ≥1 all crushed to red.
+//   v2 (floor=0.05, red=10, γ=1.3, hard clamp) — fixed the low end, but
+//   everything ≥9 looked identical (no tail handling).
+//   v3 (floor=0.05, red=5, γ=1.3, soft log tail) — current. Below 0.05 = green.
+//   ~0.6 enters yellow. 5 hits the "critical" red anchor (RED_CORE=0.85).
+//   Values above 5 keep darkening via x/(1+x) decade tail, so 9 / 16 / 30 /
+//   100 are visibly distinct shades of red without crushing the 0.5–5 ramp.
 
-// Approach: log scale, fixed absolute anchors. Stable across timesteps
-// and queries — "red" means the same thing in March as it does in July.
-
-const FRAGILITY_FLOOR = 1e-6; // below this → green (noise / no signal)
-const FRAGILITY_RED = 100; // saturates at this value
+const FRAGILITY_FLOOR = 0.05; // below this → green (noise / no signal)
+const FRAGILITY_RED = 5; // "this bus is critical" anchor
+const FRAGILITY_GAMMA = 1.3; // damping in [floor, red]: >1 flattens low end
+const FRAGILITY_RED_CORE = 0.85; // RED_ANCHOR maps to this on the color bar,
+// reserving 0.15 of color space for the tail
 
 export const FRAGILITY_ANCHORS = {
   floor: FRAGILITY_FLOOR,
   red: FRAGILITY_RED,
-  // Decade tick marks for legend (log scale)
-  ticks: [1e-6, 1e-4, 1e-2, 1, 100],
+  gamma: FRAGILITY_GAMMA,
+  red_core: FRAGILITY_RED_CORE,
+  // Tick marks for legend. Includes red anchor (5) and a tail value (50) so
+  // the user can see the tail compression visually.
+  ticks: [0.0, 0.5, 1, 5, 50],
 };
 
 // Fragility: 0 → green, 0.5 → yellow, 1 → red
@@ -36,9 +49,10 @@ export function fragilityColor(norm: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-// Map raw fragility values → [0, 1] using a fixed log scale.
-// Values below FRAGILITY_FLOOR clamp to 0 (green).
-// Values above FRAGILITY_RED clamp to 1 (red).
+// Map raw fragility values → [0, 1].
+//   v ≤ FRAGILITY_FLOOR   → 0          (green)
+//   FLOOR < v ≤ RED       → γ-damped log interp into [0, RED_CORE]
+//   v > RED               → soft rational tail into [RED_CORE, 1]
 export function normalizeFragility(
   buses: Array<{ bus_id: string; fragility: number | null }>
 ): Map<string, number> {
@@ -51,9 +65,22 @@ export function normalizeFragility(
     const v = b.fragility ?? 0;
     if (v <= FRAGILITY_FLOOR) {
       map.set(b.bus_id, 0);
+      continue;
+    }
+    if (v <= FRAGILITY_RED) {
+      const raw = (Math.log10(v) - logFloor) / logRange;
+      const damped = Math.pow(Math.max(0, raw), FRAGILITY_GAMMA);
+      map.set(
+        b.bus_id,
+        Math.min(FRAGILITY_RED_CORE, FRAGILITY_RED_CORE * damped)
+      );
     } else {
-      const norm = (Math.log10(v) - logFloor) / logRange;
-      map.set(b.bus_id, Math.min(1, Math.max(0, norm)));
+      // Tail: x = decades above the red anchor.
+      // x/(1+x) is 0 at the anchor, 0.5 at one decade out, ~0.91 at ten — slow
+      // enough that 9 / 16 / 30 / 100 stay distinguishable.
+      const x = Math.log10(v) - logRed;
+      const tail = x / (1 + x);
+      map.set(b.bus_id, FRAGILITY_RED_CORE + (1 - FRAGILITY_RED_CORE) * tail);
     }
   }
   return map;
