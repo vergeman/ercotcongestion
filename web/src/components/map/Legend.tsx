@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import type { BusState, ViewMode } from "../../api/types";
 import {
   FRAGILITY_ANCHORS,
-  LMP_MAD_SAT,
+  LMP_PCT_LOW,
+  LMP_PCT_HIGH,
+  normalizeLmpFromStats,
   type LmpStats,
 } from "../../lib/colors";
 
@@ -50,20 +52,17 @@ function formatTick(v: number): string {
 export default function Legend({ viewMode, buses, lmpStats }: Props) {
   const isFragility = viewMode === "fragility";
 
-  // LMP histogram for the *current snapshot* — gives the user a sense of
-  // where today's buses sit inside the window-wide distribution.
-  // The bin range is fixed to the window's color domain (±MAD_SAT around
-  // the median), so the histogram x-axis aligns 1:1 with the color bar below.
+  // LMP histogram for the *current snapshot*, binned in color-space so each
+  // bar aligns directly above the gradient color it falls in. P_low → leftmost
+  // bin, median → middle bin, P_high → rightmost bin. Out-of-range values
+  // pile up at the ends.
   const lmpHist = useMemo(() => {
     if (isFragility || buses.length === 0 || !lmpStats) return null;
-    const lo = lmpStats.median - LMP_MAD_SAT * lmpStats.mad;
-    const hi = lmpStats.median + LMP_MAD_SAT * lmpStats.mad;
-    const span = hi - lo;
-    if (span <= 0) return null;
     const counts = new Array(HIST_BINS).fill(0);
     for (const b of buses) {
       if (b.lmp == null) continue;
-      let idx = Math.floor(((b.lmp - lo) / span) * HIST_BINS);
+      const norm = normalizeLmpFromStats(b.lmp, lmpStats); // 0..1
+      let idx = Math.floor(norm * HIST_BINS);
       if (idx >= HIST_BINS) idx = HIST_BINS - 1;
       if (idx < 0) idx = 0;
       counts[idx] += 1;
@@ -72,22 +71,13 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
     return { counts, peak };
   }, [buses, isFragility, lmpStats]);
 
-  // LMP tick marks: median (center) and ±MAD positions on the bar.
+  // LMP tick marks: p_low (left), median (center), p_high (right).
   const lmpTicks = useMemo(() => {
     if (isFragility || !lmpStats) return [];
-    // Position in [0, 1] across the bar:
-    //   median           → 0.5
-    //   median ± k*MAD   → 0.5 + k/(2*MAD_SAT)
     return [
-      {
-        label: formatDollar(lmpStats.median - lmpStats.mad),
-        pct: 50 - (1 / (2 * LMP_MAD_SAT)) * 100,
-      },
+      { label: formatDollar(lmpStats.p_low), pct: 0 },
       { label: formatDollar(lmpStats.median), pct: 50 },
-      {
-        label: formatDollar(lmpStats.median + lmpStats.mad),
-        pct: 50 + (1 / (2 * LMP_MAD_SAT)) * 100,
-      },
+      { label: formatDollar(lmpStats.p_high), pct: 100 },
     ];
   }, [isFragility, lmpStats]);
 
@@ -151,7 +141,7 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
           </div>
           <div className="legend__sub label">
             window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
-            ±{LMP_MAD_SAT} MAD
+            P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
           </div>
         </>
       ) : (
