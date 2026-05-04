@@ -10,6 +10,7 @@ import { computeLmpStats, type LmpStats } from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
+import type { SparkPoint } from "./components/playback/TimelineSparkline";
 import StatsPanel from "./components/panels/StatsPanel";
 import ValidationPanel from "./components/panels/ValidationPanel";
 import Legend from "./components/map/Legend";
@@ -55,6 +56,9 @@ export default function App() {
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
+  // Per-timestamp series for the timeline sparkline (fragility_total +
+  // n_binding_lines). Aligned 1:1 with `timestamps`.
+  const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
 
   // Topology load
   useEffect(() => {
@@ -91,6 +95,26 @@ export default function App() {
           for (const b of entry.buses) allLmp.push(b.lmp);
         }
         setLmpStats(computeLmpStats(allLmp));
+
+        // Build sparkline series — one point per timestamp, in the same order.
+        // We walk `ts` and pull from the cached entries via interval_ts to
+        // guarantee alignment with the slider index.
+        const byTs = new Map<string, SparkPoint>();
+        for (const entry of data.entries) {
+          byTs.set(new Date(entry.interval_ts).toISOString(), {
+            fragility_total: entry.meta.fragility_total,
+            n_binding_lines: entry.meta.n_binding_lines,
+          });
+        }
+        setSparkSeries(
+          ts.map(
+            (t) =>
+              byTs.get(t.toISOString()) ?? {
+                fragility_total: null,
+                n_binding_lines: null,
+              }
+          )
+        );
 
         setCurrentIndex(0); // start at begining on load
         setLastUpdated(new Date());
@@ -308,6 +332,7 @@ export default function App() {
             currentIndex={currentIndex}
             onIndexChange={setCurrentIndex}
             loading={loading}
+            sparkSeries={sparkSeries}
           />
         </div>
       </div>
