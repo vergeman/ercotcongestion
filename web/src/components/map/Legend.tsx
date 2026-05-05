@@ -179,6 +179,13 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
           <span className="legend__swatch legend__swatch--contingency" />
           <span className="label">N-1 top 5</span>
         </div>
+        <div className="legend__line-row">
+          <span className="legend__halo-pair">
+            <span className="legend__halo legend__halo--pos" />
+            <span className="legend__halo legend__halo--neg" />
+          </span>
+          <span className="label">PTDF ± (line hover)</span>
+        </div>
       </div>
 
       <style>{`
@@ -265,6 +272,24 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
           background: repeating-linear-gradient(
             to right, #cbd5e1 0, #cbd5e1 4px, transparent 4px, transparent 7px);
         }
+        .legend__halo-pair {
+          display: inline-flex;
+          gap: 2px;
+          width: 18px;
+          flex-shrink: 0;
+          align-items: center;
+          justify-content: center;
+        }
+        .legend__halo {
+          display: inline-block;
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          opacity: 0.7;
+          filter: blur(0.5px);
+        }
+        .legend__halo--pos { background: #22d3ee; }
+        .legend__halo--neg { background: #fb923c; }
       `}</style>
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BusState, SnapshotMeta, ViewMode } from "../../api/types";
+import { fetchPtdf } from "../../api/client";
 import {
   fragilityColor,
   lmpColor,
@@ -11,6 +12,56 @@ import {
   rankDeltaColor,
   type LmpStats,
 } from "../../lib/colors";
+
+// Track which bus IDs currently have a halo applied. Module-scoped so it
+// survives across the effect's lifetimes — the map instance is too.
+const activeHaloBusIds: Set<string> = new Set();
+
+// Apply halo opacities + sign to a list of buses with their PTDF values.
+// The strongest |PTDF| in the set scales to full opacity (~0.7); weaker
+// ones fade proportionally (sub-linear so mid-range responders stay visible).
+//
+// Sign drives color via the bus-halos layer: positive PTDF → cyan,
+// negative PTDF → magenta. Operationally:
+//   +PTDF: bus is "upstream" of the line. Reducing injection at this bus
+//          (curtail gen, charge a battery) relieves the line.
+//   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
+const HALO_PEAK_OPACITY = 0.7;
+
+function applyHalos(
+  map: maplibregl.Map,
+  buses: Array<{ bus_id: string; ptdf: number }>
+): void {
+  if (!map.getSource("buses")) return;
+  // Find peak |PTDF| for normalization.
+  let peak = 0;
+  for (const b of buses) {
+    const a = Math.abs(b.ptdf);
+    if (a > peak) peak = a;
+  }
+  if (peak <= 0) return;
+
+  for (const b of buses) {
+    const norm = Math.sqrt(Math.abs(b.ptdf) / peak); // sub-linear
+    const opacity = HALO_PEAK_OPACITY * Math.min(1, norm);
+    map.setFeatureState(
+      { source: "buses", id: b.bus_id },
+      { halo_opacity: opacity, halo_sign: b.ptdf >= 0 ? 1 : -1 }
+    );
+    activeHaloBusIds.add(b.bus_id);
+  }
+}
+
+function clearHalos(map: maplibregl.Map): void {
+  if (!map.getSource("buses")) return;
+  for (const id of activeHaloBusIds) {
+    map.setFeatureState(
+      { source: "buses", id },
+      { halo_opacity: 0, halo_sign: 0 }
+    );
+  }
+  activeHaloBusIds.clear();
+}
 
 interface Props {
   topology: unknown | null;
@@ -57,6 +108,11 @@ export default function GridMap({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Track tooltip overlay
   const tooltipRef = useRef<maplibregl.Popup | null>(null);
+  // PTDF halo state. We track the hovered line ID to avoid re-fetching on
+  // mousemove repeats. The set of buses currently haloed lives at module
+  // scope (see activeHaloBusIds above) so the helpers can clear surgically.
+  const haloLineRef = useRef<string | null>(null);
+  const haloDebounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     metaRef.current = meta;
@@ -210,6 +266,45 @@ export default function GridMap({
         });
       }
 
+      // PTDF halo layer — rendered behind the bus circles. Opacity is set
+      // via feature-state when a line is hovered, fading proportionally to
+      // |PTDF|. Color encodes sign: cyan for +PTDF (relieve via injection
+      // reduction), magenta for −PTDF (relieve via load reduction).
+      if (!map.getLayer("bus-halos")) {
+        map.addLayer({
+          id: "bus-halos",
+          type: "circle",
+          source: "buses",
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              6,
+              8,
+              10,
+              12,
+              16,
+            ],
+            "circle-color": [
+              "case",
+              ["==", ["feature-state", "halo_sign"], -1],
+              "#fb923c", // vibrant orange for -PTDF
+              "#22d3ee", // ice for +PTDF (default)
+            ],
+            "circle-opacity": [
+              "case",
+              ["!=", ["feature-state", "halo_opacity"], null],
+              ["feature-state", "halo_opacity"],
+              0,
+            ],
+            "circle-stroke-width": 0,
+            "circle-blur": 0.5,
+          },
+        });
+      }
+
       // Buses layer (circles, colored by fragility via feature-state)
       if (!map.getLayer("buses")) {
         map.addLayer({
@@ -316,6 +411,31 @@ export default function GridMap({
 
       onLineHover(lineId, props);
 
+      // PTDF halo: when the hovered line changes, debounce-fetch its column
+      // and apply opacity to the responding buses. Cached client-side, so
+      // re-hovering a line is instant.
+      if (haloLineRef.current !== lineId) {
+        if (haloDebounceRef.current !== null) {
+          window.clearTimeout(haloDebounceRef.current);
+        }
+        // Clear previous halos immediately so we don't show stale ones while
+        // the new fetch is in flight.
+        clearHalos(map);
+        haloLineRef.current = lineId;
+        haloDebounceRef.current = window.setTimeout(() => {
+          // Race guard — user may have moved off this line by now.
+          if (haloLineRef.current !== lineId) return;
+          fetchPtdf(lineId)
+            .then((resp) => {
+              if (haloLineRef.current !== lineId) return; // moved off
+              applyHalos(map, resp.buses);
+            })
+            .catch(() => {
+              // swallow — halos are non-critical, no UI for the error
+            });
+        }, 150);
+      }
+
       tooltipRef.current
         ?.setLngLat(e.lngLat)
         .setHTML(
@@ -329,6 +449,13 @@ export default function GridMap({
       map.getCanvas().style.cursor = "";
       onLineHover(null, null);
       tooltipRef.current?.remove();
+      // Clear halo state when leaving any line
+      if (haloDebounceRef.current !== null) {
+        window.clearTimeout(haloDebounceRef.current);
+        haloDebounceRef.current = null;
+      }
+      haloLineRef.current = null;
+      clearHalos(map);
     });
 
     // Click on a bus
