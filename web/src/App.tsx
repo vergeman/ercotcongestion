@@ -21,6 +21,7 @@ import ValidationPanel from "./components/panels/ValidationPanel";
 import Legend from "./components/map/Legend";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
+import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 
 type ConnectionState = "ok" | "error" | "loading";
 type PanelTab = "stats" | "validation";
@@ -67,6 +68,9 @@ export default function App() {
   // Per-timestamp series for the timeline sparkline (fragility_total +
   // n_binding_lines). Aligned 1:1 with `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
+  // Currently-selected curated event, if any. Cleared whenever the user
+  // loads a custom window via DateRangePicker.
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
   // Topology load
   useEffect(() => {
@@ -89,65 +93,99 @@ export default function App() {
     }
   }, [currentIndex, timestamps]);
 
-  const handleLoadWindow = useCallback(async (start: Date, end: Date) => {
-    setLoading(true);
-    setConnState("loading");
-    try {
-      const data = await prefetchWindow(start, end);
-      const ts = getAvailableTimestamps();
-      setTimestamps(ts);
-      if (ts.length > 0) {
-        // Build window-wide LMP stats from every (bus, snapshot) pair.
-        const allLmp: Array<number | null> = [];
-        for (const entry of data.entries) {
-          for (const b of entry.buses) allLmp.push(b.lmp);
-        }
-        setLmpStats(computeLmpStats(allLmp));
+  const handleLoadWindow = useCallback(
+    async (start: Date, end: Date, cursorTs?: Date) => {
+      setLoading(true);
+      setConnState("loading");
+      try {
+        const data = await prefetchWindow(start, end);
+        const ts = getAvailableTimestamps();
+        setTimestamps(ts);
+        if (ts.length > 0) {
+          // Build window-wide LMP stats from every (bus, snapshot) pair.
+          const allLmp: Array<number | null> = [];
+          for (const entry of data.entries) {
+            for (const b of entry.buses) allLmp.push(b.lmp);
+          }
+          setLmpStats(computeLmpStats(allLmp));
 
-        // Build per-bus fragility z-stats from the same data.
-        setZStats(computeBusZStats(data.entries.map((e) => e.buses)));
+          // Build per-bus fragility z-stats from the same data.
+          setZStats(computeBusZStats(data.entries.map((e) => e.buses)));
 
-        // Build sparkline series — one point per timestamp, in the same order.
-        // We walk `ts` and pull from the cached entries via interval_ts to
-        // guarantee alignment with the slider index.
-        const byTs = new Map<string, SparkPoint>();
-        for (const entry of data.entries) {
-          byTs.set(new Date(entry.interval_ts).toISOString(), {
-            fragility_total: entry.meta.fragility_total,
-            n_binding_lines: entry.meta.n_binding_lines,
-          });
-        }
-        setSparkSeries(
-          ts.map(
-            (t) =>
-              byTs.get(t.toISOString()) ?? {
-                fragility_total: null,
-                n_binding_lines: null,
+          // Build sparkline series — one point per timestamp, in the same order.
+          // We walk `ts` and pull from the cached entries via interval_ts to
+          // guarantee alignment with the slider index.
+          const byTs = new Map<string, SparkPoint>();
+          for (const entry of data.entries) {
+            byTs.set(new Date(entry.interval_ts).toISOString(), {
+              fragility_total: entry.meta.fragility_total,
+              n_binding_lines: entry.meta.n_binding_lines,
+            });
+          }
+          setSparkSeries(
+            ts.map(
+              (t) =>
+                byTs.get(t.toISOString()) ?? {
+                  fragility_total: null,
+                  n_binding_lines: null,
+                }
+            )
+          );
+
+          // If a cursor target was given (curated event), snap to the closest
+          // available frame. Otherwise start at the beginning.
+          if (cursorTs) {
+            const target = cursorTs.getTime();
+            let bestIdx = 0;
+            let bestDelta = Infinity;
+            for (let i = 0; i < ts.length; i++) {
+              const d = Math.abs(ts[i].getTime() - target);
+              if (d < bestDelta) {
+                bestDelta = d;
+                bestIdx = i;
               }
-          )
-        );
-
-        setCurrentIndex(0); // start at begining on load
-        setLastUpdated(new Date());
-        setConnState("ok");
-        setLoadedWindow({ start, end });
-      } else {
+            }
+            setCurrentIndex(bestIdx);
+          } else {
+            setCurrentIndex(0);
+          }
+          setLastUpdated(new Date());
+          setConnState("ok");
+          setLoadedWindow({ start, end });
+        } else {
+          setConnState("error");
+        }
+      } catch {
         setConnState("error");
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setConnState("error");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
-  // Auto-load most recent 6h after topology
-  useEffect(() => {
-    if (!topology) return;
-    const now = new Date();
-    const sixHAgo = new Date(now.getTime() - 6 * 3600 * 1000);
-    handleLoadWindow(sixHAgo, now);
-  }, [topology]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Handler for curated events: load window, snap cursor, optionally switch view.
+  const handleSelectEvent = useCallback(
+    (event: CuratedEvent) => {
+      setActiveEventId(event.id);
+      if (event.suggested_view) setViewMode(event.suggested_view);
+      handleLoadWindow(
+        new Date(event.window_start),
+        new Date(event.window_end),
+        new Date(event.cursor_ts)
+      );
+    },
+    [handleLoadWindow]
+  );
+
+  // Wrapper for the date picker — clears event selection on custom load.
+  const handleCustomLoadWindow = useCallback(
+    (start: Date, end: Date) => {
+      setActiveEventId(null);
+      handleLoadWindow(start, end);
+    },
+    [handleLoadWindow]
+  );
 
   const handleBusHover = useCallback(
     (busId: string | null, props: Record<string, unknown> | null) => {
@@ -341,7 +379,13 @@ export default function App() {
             borderRight: "1px solid var(--border)",
           }}
         >
-          <DateRangePicker onLoad={handleLoadWindow} loading={loading} />
+          <DateRangePicker
+            onLoad={handleCustomLoadWindow}
+            onSelectEvent={handleSelectEvent}
+            events={CURATED_EVENTS}
+            activeEventId={activeEventId}
+            loading={loading}
+          />
         </div>
         <div style={{ flex: 1 }}>
           <PlaybackScrubber
@@ -350,6 +394,9 @@ export default function App() {
             onIndexChange={setCurrentIndex}
             loading={loading}
             sparkSeries={sparkSeries}
+            eventLabel={
+              CURATED_EVENTS.find((e) => e.id === activeEventId)?.label ?? null
+            }
           />
         </div>
       </div>
