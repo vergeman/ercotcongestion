@@ -17,10 +17,15 @@ import {
 // survives across the effect's lifetimes — the map instance is too.
 const activeHaloBusIds: Set<string> = new Set();
 
-// Apply halo opacities to a list of buses with their PTDF values. The
-// strongest |PTDF| in the set scales to full opacity (~0.7); weaker ones
-// fade proportionally. Sub-linear (sqrt) scaling so mid-range buses stay
-// visible — pure linear hides everything that isn't the dominant responder.
+// Apply halo opacities + sign to a list of buses with their PTDF values.
+// The strongest |PTDF| in the set scales to full opacity (~0.7); weaker
+// ones fade proportionally (sub-linear so mid-range responders stay visible).
+//
+// Sign drives color via the bus-halos layer: positive PTDF → cyan,
+// negative PTDF → magenta. Operationally:
+//   +PTDF: bus is "upstream" of the line. Reducing injection at this bus
+//          (curtail gen, charge a battery) relieves the line.
+//   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
 const HALO_PEAK_OPACITY = 0.7;
 
 function applyHalos(
@@ -41,7 +46,7 @@ function applyHalos(
     const opacity = HALO_PEAK_OPACITY * Math.min(1, norm);
     map.setFeatureState(
       { source: "buses", id: b.bus_id },
-      { halo_opacity: opacity }
+      { halo_opacity: opacity, halo_sign: b.ptdf >= 0 ? 1 : -1 }
     );
     activeHaloBusIds.add(b.bus_id);
   }
@@ -50,7 +55,10 @@ function applyHalos(
 function clearHalos(map: maplibregl.Map): void {
   if (!map.getSource("buses")) return;
   for (const id of activeHaloBusIds) {
-    map.setFeatureState({ source: "buses", id }, { halo_opacity: 0 });
+    map.setFeatureState(
+      { source: "buses", id },
+      { halo_opacity: 0, halo_sign: 0 }
+    );
   }
   activeHaloBusIds.clear();
 }
@@ -260,7 +268,8 @@ export default function GridMap({
 
       // PTDF halo layer — rendered behind the bus circles. Opacity is set
       // via feature-state when a line is hovered, fading proportionally to
-      // |PTDF|. Larger radius than the bus so it shows as a ring around it.
+      // |PTDF|. Color encodes sign: cyan for +PTDF (relieve via injection
+      // reduction), magenta for −PTDF (relieve via load reduction).
       if (!map.getLayer("bus-halos")) {
         map.addLayer({
           id: "bus-halos",
@@ -278,7 +287,12 @@ export default function GridMap({
               12,
               16,
             ],
-            "circle-color": "#ffffff",
+            "circle-color": [
+              "case",
+              ["==", ["feature-state", "halo_sign"], -1],
+              "#fb923c", // vibrant orange for -PTDF
+              "#22d3ee", // ice for +PTDF (default)
+            ],
             "circle-opacity": [
               "case",
               ["!=", ["feature-state", "halo_opacity"], null],
