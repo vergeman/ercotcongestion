@@ -6,7 +6,9 @@ import {
   LMP_PCT_HIGH,
   normalizeLmpFromStats,
   DELTA_ANCHORS,
+  Z_ANCHORS,
   type LmpStats,
+  type BusZStats,
 } from "../../lib/colors";
 
 interface Props {
@@ -14,6 +16,7 @@ interface Props {
   buses: BusState[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
+  zStats: BusZStats | null;
 }
 
 const HIST_BINS = 24;
@@ -31,10 +34,11 @@ function formatTick(v: number): string {
   return v.toString();
 }
 
-export default function Legend({ viewMode, buses, lmpStats }: Props) {
+export default function Legend({ viewMode, buses, lmpStats, zStats }: Props) {
   const isFragility = viewMode === "fragility";
   const isLmp = viewMode === "lmp";
   const isDelta = viewMode === "delta_rank";
+  const isZ = viewMode === "fragility_z";
 
   // LMP histogram for the *current snapshot*, binned in color-space so each
   // bar aligns directly above the gradient color it falls in.
@@ -91,13 +95,17 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
     ? "linear-gradient(to right, #22c55e, #eab308, #ef4444)"
     : isLmp
     ? "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
-    : `linear-gradient(to right, ${DELTA_ANCHORS.purple}, ${DELTA_ANCHORS.cream}, ${DELTA_ANCHORS.teal})`;
+    : isDelta
+    ? `linear-gradient(to right, ${DELTA_ANCHORS.purple}, ${DELTA_ANCHORS.cream}, ${DELTA_ANCHORS.teal})`
+    : `linear-gradient(to right, ${Z_ANCHORS.gray}, ${Z_ANCHORS.red})`;
 
   const title = isFragility
     ? "Fragility (log)"
     : isLmp
     ? "LMP ($/MWh)"
-    : "Δ Rank (fragility − |basis|)";
+    : isDelta
+    ? "Δ Rank (fragility − |basis|)"
+    : "Fragility z-score";
 
   return (
     <div className="legend">
@@ -167,6 +175,18 @@ export default function Legend({ viewMode, buses, lmpStats }: Props) {
             <span className="label">over</span>
           </div>
           <div className="legend__sub label">per-snapshot rank</div>
+        </>
+      )}
+
+      {isZ && (
+        <>
+          <div className="legend__labels">
+            <span className="label mono">≤ typical</span>
+            <span className="label mono">+{Z_ANCHORS.saturate}σ</span>
+          </div>
+          <div className="legend__sub label">
+            {zStats ? `per-bus, n=${zStats.perBus.size} buses` : "—"}
+          </div>
         </>
       )}
 

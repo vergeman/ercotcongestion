@@ -46,6 +46,12 @@ export default function Header({
           >
             Δ Rank
           </button>
+          <button
+            className={viewMode === "fragility_z" ? "active" : ""}
+            onClick={() => onViewMode("fragility_z")}
+          >
+            Frag Z
+          </button>
         </div>
       </div>
 

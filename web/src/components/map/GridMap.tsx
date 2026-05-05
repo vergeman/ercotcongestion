@@ -10,7 +10,11 @@ import {
   normalizeLmpFromStats,
   computeRankDelta,
   rankDeltaColor,
+  fragilityZ,
+  fragilityZColor,
+  normalizeZ,
   type LmpStats,
+  type BusZStats,
 } from "../../lib/colors";
 
 // Track which bus IDs currently have a halo applied. Module-scoped so it
@@ -21,8 +25,8 @@ const activeHaloBusIds: Set<string> = new Set();
 // The strongest |PTDF| in the set scales to full opacity (~0.7); weaker
 // ones fade proportionally (sub-linear so mid-range responders stay visible).
 //
-// Sign drives color via the bus-halos layer: positive PTDF → cyan,
-// negative PTDF → magenta. Operationally:
+// Sign drives color via the bus-halos layer: positive PTDF → ice,
+// negative PTDF → vibrant orange. Operationally:
 //   +PTDF: bus is "upstream" of the line. Reducing injection at this bus
 //          (curtail gen, charge a battery) relieves the line.
 //   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
@@ -69,6 +73,7 @@ interface Props {
   meta: SnapshotMeta | null;
   viewMode: ViewMode;
   lmpStats: LmpStats | null;
+  zStats: BusZStats | null;
   onBusHover: (
     busId: string | null,
     props: Record<string, unknown> | null
@@ -90,6 +95,7 @@ export default function GridMap({
   meta,
   viewMode,
   lmpStats,
+  zStats,
   onBusHover,
   onLineHover,
   onBusClick,
@@ -562,13 +568,20 @@ export default function GridMap({
         } else {
           color = lmpColor(0.5);
         }
-      } else {
-        // delta_rank
+      } else if (viewMode === "delta_rank") {
         color = rankDeltaColor(deltaMap!.get(bus.bus_id) ?? null);
+      } else {
+        // fragility_z
+        if (zStats) {
+          const z = fragilityZ(bus.bus_id, bus.fragility, zStats);
+          color = fragilityZColor(normalizeZ(z));
+        } else {
+          color = fragilityZColor(0);
+        }
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats]);
+  }, [buses, viewMode, lmpStats, zStats]);
 
   // Selected bus
   useEffect(() => {

@@ -392,3 +392,109 @@ export const DELTA_ANCHORS = {
   teal: `rgb(${DELTA_TEAL.join(",")})`,
   gamma: DELTA_GAMMA,
 };
+
+// =============================================================================
+// Fragility z-score view
+// =============================================================================
+//
+// Asks "is this bus unusually fragile *relative to its own history* in the
+// loaded window?" rather than "is it absolutely high?" — useful for spotting
+// anomalies that the absolute fragility view would hide because the bus has
+// always been a low-fragility bus.
+//
+// Stats: per-bus mean + std across every snapshot in the loaded window.
+// Computed once on window load, reused for every frame (stable coloring).
+//
+// Color scale is one-sided: gray for z ≤ 0 (this bus is at-or-below its
+// typical) and red for z ≥ 3 (3+ std above typical = anomaly). Below-typical
+// buses are dim because "fragility went down" is rarely the question.
+
+export interface BusZStats {
+  // Per-bus mean and std of fragility across the loaded window.
+  // Buses with <3 observations or near-zero variance are excluded
+  // (their map entries are missing).
+  perBus: Map<string, { mean: number; std: number }>;
+  // Total bus-snapshots that contributed.
+  n: number;
+}
+
+const Z_MIN_OBS = 3;
+const Z_STD_FLOOR = 1e-6;
+const Z_SAT = 3; // saturate red at this many std above mean
+
+// Compute per-bus mean+std of fragility from a list of snapshots in the
+// loaded window. Each snapshot supplies an array of {bus_id, fragility}.
+export function computeBusZStats(
+  snapshots: Array<Array<{ bus_id: string; fragility: number | null }>>
+): BusZStats {
+  // Accumulate sums per bus.
+  const acc = new Map<string, { sum: number; sumSq: number; n: number }>();
+  let total = 0;
+
+  for (const buses of snapshots) {
+    for (const b of buses) {
+      const v = b.fragility;
+      if (v == null || !isFinite(v)) continue;
+      let entry = acc.get(b.bus_id);
+      if (!entry) {
+        entry = { sum: 0, sumSq: 0, n: 0 };
+        acc.set(b.bus_id, entry);
+      }
+      entry.sum += v;
+      entry.sumSq += v * v;
+      entry.n += 1;
+      total += 1;
+    }
+  }
+
+  const perBus = new Map<string, { mean: number; std: number }>();
+  for (const [busId, e] of acc) {
+    if (e.n < Z_MIN_OBS) continue;
+    const mean = e.sum / e.n;
+    const variance = Math.max(0, e.sumSq / e.n - mean * mean);
+    const std = Math.sqrt(variance);
+    if (std < Z_STD_FLOOR) continue; // bus is constant → z is undefined
+    perBus.set(busId, { mean, std });
+  }
+
+  return { perBus, n: total };
+}
+
+// Compute z for one bus at the current snapshot.
+export function fragilityZ(
+  busId: string,
+  fragility: number | null,
+  stats: BusZStats
+): number | null {
+  if (fragility == null) return null;
+  const s = stats.perBus.get(busId);
+  if (!s) return null;
+  return (fragility - s.mean) / s.std;
+}
+
+// Map z to [0, 1] for color lookup.
+//   z ≤ 0   → 0 (gray)
+//   z = Z_SAT → 1 (saturated red)
+//   z > Z_SAT → 1 (clamp)
+export function normalizeZ(z: number | null): number {
+  if (z == null || !isFinite(z) || z <= 0) return 0;
+  return Math.min(1, z / Z_SAT);
+}
+
+// One-sided: gray (#475569) → red (#ef4444). Linear interp in RGB.
+const Z_GRAY = [71, 85, 105];
+const Z_RED = [239, 68, 68];
+
+export function fragilityZColor(norm: number): string {
+  const t = Math.max(0, Math.min(1, norm));
+  const r = Math.round(Z_GRAY[0] + (Z_RED[0] - Z_GRAY[0]) * t);
+  const g = Math.round(Z_GRAY[1] + (Z_RED[1] - Z_GRAY[1]) * t);
+  const b = Math.round(Z_GRAY[2] + (Z_RED[2] - Z_GRAY[2]) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+export const Z_ANCHORS = {
+  gray: `rgb(${Z_GRAY.join(",")})`,
+  red: `rgb(${Z_RED.join(",")})`,
+  saturate: Z_SAT,
+};

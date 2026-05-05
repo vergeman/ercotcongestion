@@ -6,7 +6,12 @@ import {
   getCached,
   getAvailableTimestamps,
 } from "./api/prefetch";
-import { computeLmpStats, type LmpStats } from "./lib/colors";
+import {
+  computeLmpStats,
+  computeBusZStats,
+  type LmpStats,
+  type BusZStats,
+} from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
@@ -56,6 +61,9 @@ export default function App() {
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
+  // Per-bus fragility mean + std across the loaded window. Used by the
+  // "fragility z" view. Computed once on window load.
+  const [zStats, setZStats] = useState<BusZStats | null>(null);
   // Per-timestamp series for the timeline sparkline (fragility_total +
   // n_binding_lines). Aligned 1:1 with `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
@@ -95,6 +103,9 @@ export default function App() {
           for (const b of entry.buses) allLmp.push(b.lmp);
         }
         setLmpStats(computeLmpStats(allLmp));
+
+        // Build per-bus fragility z-stats from the same data.
+        setZStats(computeBusZStats(data.entries.map((e) => e.buses)));
 
         // Build sparkline series — one point per timestamp, in the same order.
         // We walk `ts` and pull from the cached entries via interval_ts to
@@ -218,6 +229,7 @@ export default function App() {
             meta={meta}
             viewMode={viewMode}
             lmpStats={lmpStats}
+            zStats={zStats}
             onBusHover={handleBusHover}
             onLineHover={handleLineHover}
             onBusClick={handleBusClick}
@@ -234,7 +246,12 @@ export default function App() {
             pinnedLine={pinnedLine}
             onClose={handleClearPinned}
           />
-          <Legend viewMode={viewMode} buses={buses} lmpStats={lmpStats} />
+          <Legend
+            viewMode={viewMode}
+            buses={buses}
+            lmpStats={lmpStats}
+            zStats={zStats}
+          />
         </div>
 
         {/* Right panel — tabbed: stats or validation */}

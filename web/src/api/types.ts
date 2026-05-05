@@ -61,7 +61,7 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
-export type ViewMode = "fragility" | "lmp" | "delta_rank";
+export type ViewMode = "fragility" | "lmp" | "delta_rank" | "fragility_z";
 
 export interface CorrelationResult {
   n: number;
