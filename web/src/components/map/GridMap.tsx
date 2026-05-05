@@ -120,6 +120,29 @@ export default function GridMap({
   const haloLineRef = useRef<string | null>(null);
   const haloDebounceRef = useRef<number | null>(null);
 
+  // Stash the latest callback props in a ref so the map setup effect can
+  // bind handlers once on mount and still call the latest version of each
+  // callback. Without this, the effect would either need to re-run (and
+  // re-create the map) every render, or it would silently call stale
+  // callbacks. ESLint's exhaustive-deps rule was previously warning about
+  // exactly this hazard.
+  const callbacksRef = useRef({
+    onBusHover,
+    onLineHover,
+    onBusClick,
+    onLineClick,
+    onMapClick,
+  });
+  useEffect(() => {
+    callbacksRef.current = {
+      onBusHover,
+      onLineHover,
+      onBusClick,
+      onLineClick,
+      onMapClick,
+    };
+  }, [onBusHover, onLineHover, onBusClick, onLineClick, onMapClick]);
+
   useEffect(() => {
     metaRef.current = meta;
   }, [meta]);
@@ -274,8 +297,7 @@ export default function GridMap({
 
       // PTDF halo layer — rendered behind the bus circles. Opacity is set
       // via feature-state when a line is hovered, fading proportionally to
-      // |PTDF|. Color encodes sign: cyan for +PTDF (relieve via injection
-      // reduction), magenta for −PTDF (relieve via load reduction).
+      // |PTDF|.
       if (!map.getLayer("bus-halos")) {
         map.addLayer({
           id: "bus-halos",
@@ -297,7 +319,7 @@ export default function GridMap({
               "case",
               ["==", ["feature-state", "halo_sign"], -1],
               "#fb923c", // vibrant orange for -PTDF
-              "#22d3ee", // ice for +PTDF (default)
+              "#22d3ee", // ice for +PTDF
             ],
             "circle-opacity": [
               "case",
@@ -360,7 +382,7 @@ export default function GridMap({
         map.getCanvas().style.cursor = "crosshair";
         const feat = e.features[0];
         const props = feat.properties as Record<string, unknown>;
-        onBusHover(props.bus_id as string, props);
+        callbacksRef.current.onBusHover(props.bus_id as string, props);
 
         tooltipRef.current
           ?.setLngLat(e.lngLat)
@@ -373,7 +395,7 @@ export default function GridMap({
 
       map.on("mouseleave", "buses", () => {
         map.getCanvas().style.cursor = "";
-        onBusHover(null, null);
+        callbacksRef.current.onBusHover(null, null);
         tooltipRef.current?.remove();
       });
     };
@@ -415,7 +437,7 @@ export default function GridMap({
         statusHtml = `<div class="tip-zone">normal</div>`;
       }
 
-      onLineHover(lineId, props);
+      callbacksRef.current.onLineHover(lineId, props);
 
       // PTDF halo: when the hovered line changes, debounce-fetch its column
       // and apply opacity to the responding buses. Cached client-side, so
@@ -453,7 +475,7 @@ export default function GridMap({
 
     map.on("mouseleave", "lines-hit", () => {
       map.getCanvas().style.cursor = "";
-      onLineHover(null, null);
+      callbacksRef.current.onLineHover(null, null);
       tooltipRef.current?.remove();
       // Clear halo state when leaving any line
       if (haloDebounceRef.current !== null) {
@@ -469,7 +491,7 @@ export default function GridMap({
       if (!e.features?.length) return;
       e.preventDefault?.();
       const props = e.features[0].properties as Record<string, unknown>;
-      onBusClick(props.bus_id as string, props);
+      callbacksRef.current.onBusClick(props.bus_id as string, props);
     });
 
     // Click on a line (use the invisible hit layer for fat clicks)
@@ -482,13 +504,13 @@ export default function GridMap({
       if (busesAtPoint.length > 0) return;
       e.preventDefault?.();
       const props = e.features[0].properties as Record<string, unknown>;
-      onLineClick(props.line_id as string, props);
+      callbacksRef.current.onLineClick(props.line_id as string, props);
     });
 
     // Click on empty map → clear pinned
     map.on("click", (e) => {
       if (e.defaultPrevented) return;
-      onMapClick();
+      callbacksRef.current.onMapClick();
     });
 
     if (map.isStyleLoaded()) {
@@ -496,7 +518,10 @@ export default function GridMap({
     } else {
       map.once("load", onLoad);
     }
-  }, [topology, onBusHover]);
+    // The map setup runs once on mount. Callbacks are accessed via
+    // callbacksRef so they don't need to be in the deps; topology is the
+    // only meaningful trigger for re-running this effect.
+  }, [topology]);
 
   // Update binding-line highlights when meta changes
   useEffect(() => {

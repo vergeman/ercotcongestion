@@ -1,7 +1,6 @@
 import type { StateRangeEntry, StateRangeResponse } from "./types";
 import { fetchStateRange } from "./client";
 
-const PREFETCH_HOURS = 6;
 const cache = new Map<string, StateRangeEntry>();
 
 function cacheKey(ts: Date): string {
