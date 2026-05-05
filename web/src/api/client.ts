@@ -2,6 +2,7 @@ import type {
   StateResponse,
   StateRangeResponse,
   ValidationResponse,
+  PtdfResponse,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -40,4 +41,29 @@ export async function fetchValidation(
   );
   if (!r.ok) throw new Error(`validation ${r.status}`);
   return r.json();
+}
+
+// Module-level cache. PTDF columns are topology-static, so once fetched
+// they're good for the session.
+const ptdfCache = new Map<string, PtdfResponse>();
+const ptdfInflight = new Map<string, Promise<PtdfResponse>>();
+
+export async function fetchPtdf(lineId: string): Promise<PtdfResponse> {
+  const cached = ptdfCache.get(lineId);
+  if (cached) return cached;
+  const inflight = ptdfInflight.get(lineId);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const r = await fetch(
+      `${BASE}/api/ptdf?line_id=${encodeURIComponent(lineId)}`
+    );
+    if (!r.ok) throw new Error(`ptdf ${r.status}`);
+    const data: PtdfResponse = await r.json();
+    ptdfCache.set(lineId, data);
+    ptdfInflight.delete(lineId);
+    return data;
+  })();
+  ptdfInflight.set(lineId, promise);
+  return promise;
 }

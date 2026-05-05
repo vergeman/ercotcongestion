@@ -1,5 +1,5 @@
-import type { StateRangeEntry, StateRangeResponse } from './types';
-import { fetchStateRange } from './client';
+import type { StateRangeEntry, StateRangeResponse } from "./types";
+import { fetchStateRange } from "./client";
 
 const PREFETCH_HOURS = 6;
 const cache = new Map<string, StateRangeEntry>();
@@ -16,13 +16,16 @@ export function getCached(ts: Date): StateRangeEntry | undefined {
   return cache.get(cacheKey(roundToInterval(ts)));
 }
 
-export async function prefetchWindow(start: Date, end: Date): Promise<StateRangeResponse> {
-    const data = await fetchStateRange(start, end);
-    for (const entry of data.entries) {
-        const ts = roundToInterval(new Date(entry.interval_ts));
-        cache.set(cacheKey(ts), entry);
-    }
-    return data;
+export async function prefetchWindow(
+  start: Date,
+  end: Date
+): Promise<StateRangeResponse> {
+  const data = await fetchStateRange(start, end);
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    cache.set(cacheKey(ts), entry);
+  }
+  return data;
 }
 
 export function getAvailableTimestamps(): Date[] {

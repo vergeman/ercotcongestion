@@ -103,3 +103,15 @@ export interface LineFeatureProperties {
   s_nom: number;
   length: number;
 }
+
+export interface PtdfBusEntry {
+  bus_id: string;
+  ptdf: number; // signed; sign tells you direction of response
+}
+
+export interface PtdfResponse {
+  line_id: string;
+  buses: PtdfBusEntry[];
+  n_total_buses: number;
+  n_returned: number;
+}
