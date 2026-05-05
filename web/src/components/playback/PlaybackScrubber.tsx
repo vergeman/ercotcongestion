@@ -8,6 +8,7 @@ interface Props {
   onIndexChange: (i: number | ((prev: number) => number)) => void;
   loading: boolean;
   sparkSeries: SparkPoint[];
+  eventLabel?: string | null;
 }
 
 export default function PlaybackScrubber({
@@ -16,6 +17,7 @@ export default function PlaybackScrubber({
   onIndexChange,
   loading,
   sparkSeries,
+  eventLabel,
 }: Props) {
   const [playing, setPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -92,6 +94,13 @@ export default function PlaybackScrubber({
           {current ? format(current, "MMM d, yyyy HH:mm") + " UTC" : "—"}
         </div>
 
+        {eventLabel && (
+          <div className="scrubber__event">
+            <span className="scrubber__event-sep">·</span>
+            <span className="scrubber__event-label">{eventLabel}</span>
+          </div>
+        )}
+
         {loading && (
           <div className="scrubber__loading">
             <span className="label">loading…</span>
@@ -148,6 +157,20 @@ export default function PlaybackScrubber({
           color: var(--accent);
           margin-left: 8px;
           letter-spacing: 0.04em;
+        }
+        .scrubber__event {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-family: 'Barlow Condensed', sans-serif;
+          font-weight: 500;
+          font-size: 12px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+        }
+        .scrubber__event-sep {
+          color: var(--text-muted);
         }
         .scrubber__loading {
           margin-left: auto;
