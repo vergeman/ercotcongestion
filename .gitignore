@@ -2,6 +2,7 @@ __pycache__/
 /data/processed/*.nc
 .wrangler
 .env
+.env.dev
 
 # Data
 data/raw/TIGER/*
