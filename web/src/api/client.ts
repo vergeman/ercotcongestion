@@ -6,15 +6,15 @@ import type {
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-
+console.log("META", import.meta);
 export async function fetchTopology(): Promise<unknown> {
-  const r = await fetch(`${BASE}/api/topology`);
+  const r = await fetch(`${BASE}/topology`);
   if (!r.ok) throw new Error(`topology ${r.status}`);
   return r.json();
 }
 
 export async function fetchState(ts: Date): Promise<StateResponse> {
-  const r = await fetch(`${BASE}/api/state?t=${ts.toISOString()}`);
+  const r = await fetch(`${BASE}/state?t=${ts.toISOString()}`);
   if (!r.ok) throw new Error(`state ${r.status}`);
   return r.json();
 }
@@ -24,7 +24,7 @@ export async function fetchStateRange(
   end: Date
 ): Promise<StateRangeResponse> {
   const r = await fetch(
-    `${BASE}/api/state_range?start=${start.toISOString()}&end=${end.toISOString()}`
+    `${BASE}/state_range?start=${start.toISOString()}&end=${end.toISOString()}`
   );
   if (!r.ok) throw new Error(`state_range ${r.status}`);
   return r.json();
@@ -36,7 +36,7 @@ export async function fetchValidation(
   congestedThreshold = 1
 ): Promise<ValidationResponse> {
   const r = await fetch(
-    `${BASE}/api/validation?start=${start.toISOString()}&end=${end.toISOString()}` +
+    `${BASE}/validation?start=${start.toISOString()}&end=${end.toISOString()}` +
       `&congested_threshold=${congestedThreshold}`
   );
   if (!r.ok) throw new Error(`validation ${r.status}`);
@@ -55,9 +55,7 @@ export async function fetchPtdf(lineId: string): Promise<PtdfResponse> {
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const r = await fetch(
-      `${BASE}/api/ptdf?line_id=${encodeURIComponent(lineId)}`
-    );
+    const r = await fetch(`${BASE}/ptdf?line_id=${encodeURIComponent(lineId)}`);
     if (!r.ok) throw new Error(`ptdf ${r.status}`);
     const data: PtdfResponse = await r.json();
     ptdfCache.set(lineId, data);
