@@ -33,7 +33,7 @@ services:
     command: python
   compute:
     build: ./compute
-    image: shifty
+    image: shifty-compute
     container_name: compute
     env_file:
       - .env
@@ -49,7 +49,10 @@ services:
       - ./data:/data
     command: python
   api:
-    image: shifty
+    build:
+      context: . # set root dir as build context
+      dockerfile: api/Dockerfile
+    image: shifty-api
     container_name: api
     env_file:
       - .env
@@ -102,7 +105,7 @@ services:
   # TODO: replace w/ cron
   updater:
       build: ./compute
-      image: shifty
+      image: shifty-compute
       container_name: updater
       env_file:
         - .env
