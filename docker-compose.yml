@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 10
   preprocess:
-    image: shifty
+    image: "${IMAGE_REPO:-$USER}/ercotstress/preprocess"
     env_file:
       - .env
     environment:
@@ -33,7 +33,7 @@ services:
     command: python
   compute:
     build: ./compute
-    image: shifty-compute
+    image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
     container_name: compute
     env_file:
       - .env
@@ -52,7 +52,7 @@ services:
     build:
       context: . # set root dir as build context
       dockerfile: api/Dockerfile
-    image: shifty-api
+    image: "${IMAGE_REPO:-$USER}/ercotstress/api"
     container_name: api
     env_file:
       - .env
@@ -87,7 +87,7 @@ services:
 
   web:
     build: ./web
-    image: shifty-web
+    image: "${IMAGE_REPO:-$USER}/ercotstress/web"
     container_name: web
     working_dir: /web
     depends_on:
@@ -105,7 +105,7 @@ services:
   # TODO: replace w/ cron
   updater:
       build: ./compute
-      image: shifty-compute
+      image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
       container_name: updater
       env_file:
         - .env
