@@ -1,7 +1,7 @@
 # Template for running write_snapshots.py on demand against an arbitrary window.
 #
 # Usage option 1 — edit and apply (good for one-off windows you'll keep around):
-#   1. Copy: cp 12-snapshot-job.yaml.template /tmp/snapshot-job.yaml
+#   1. Copy: snapshot-job.yaml.template /tmp/snapshot-job.yaml
 #   2. Replace <START>, <END>, <ECR_REPO>, <TAG>, and <SUFFIX> in /tmp/snapshot-job.yaml
 #      <SUFFIX> is anything that makes the job name unique, e.g. "20260506" or "test1".
 #   3. kubectl apply -f /tmp/snapshot-job.yaml
