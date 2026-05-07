@@ -1,7 +1,5 @@
-DROP TABLE IF EXISTS wind_hourly;
-DROP TABLE IF EXISTS solar_hourly;
-
 -- Wind: 5 regions (Panhandle, Coastal, South, West, North)
+-- NP4-732-CD: Wind Power Production - Hourly Averaged Actual + Forecasted
 CREATE TABLE IF NOT EXISTS wind_hourly_regional (
     delivery_date    date NOT NULL,
     hour_ending      smallint NOT NULL,
@@ -42,6 +40,7 @@ CREATE INDEX wind_hourly_regional_interval_ts_idx
   ON wind_hourly_regional (interval_ts DESC);
 
 -- Solar: 6 regions (CenterWest, NorthWest, FarWest, FarEast, SouthEast, CenterEast)
+-- NP4-737-CD: Solar Power Production - Hourly Averaged Actual + Forecasted
 CREATE TABLE IF NOT EXISTS solar_hourly_regional (
     delivery_date    date NOT NULL,
     hour_ending      smallint NOT NULL,
