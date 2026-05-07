@@ -40,6 +40,11 @@ kubectl create secret generic ercot-ingest-secrets \
         --from-literal=ERCOT_PASSWORD=$ERCOT_PASSWORD \
         --from-literal=ERCOT_SUBSCRIPTION_KEY=$ERCOT_SUBSCRIPTION_KEY
 
+# CERT ISUER
+kubectl create secret generic cloudflare-api-token-secrets \
+        -n ercotstress \
+        --from-literal=api-token=$CLOUDFLARE_CERT_API_TOKEN
+
 # API: configmap
 
 # WEB

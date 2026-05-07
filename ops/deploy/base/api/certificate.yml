@@ -7,8 +7,8 @@ spec:
   secretName: api-ercotstress-tls
   issuerRef:
     # Your existing cluster-wide issuer.
-    name: letsencrypt-cluster-issuer
-    kind: ClusterIssuer
+    name: letsencrypt-ercotstress
+    kind: Issuer
   commonName: api.ercotstress.com
   dnsNames:
     - api.ercotstress.com

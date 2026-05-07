@@ -1,9 +1,10 @@
 # K3s Deploy
 
-* Assumes existing infrastructure setup on hetzner
-* cert-manager with DNS-01 setup from 311crimemap project
+* Assumes existing infrastructure setup on Hetzner (terraform, see 311crimemap)
 
-* Rebuild images sans cache to force COPY:
+* cert-manager with DNS-01 setup from pre-existing 311crimemap project
+
+* NB: Rebuild images sans cache to force COPY:
   * e.g. `docker compose build --no-cache api`
   * `docker build -f api/Dockerfile -t {$IMAGE_REPO}/ercotstress/api:{$TAG} .`
 

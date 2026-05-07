@@ -1,0 +1,20 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-ercotstress
+  namespace: ercotstress
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@ercotstress.com
+    privateKeySecretRef:
+      name: letsencrypt-cluster-issuer-secret
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token-secrets
+              key: api-token
+        selector:
+          dnsNames:
+            - api.ercotstress.com
