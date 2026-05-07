@@ -13,6 +13,8 @@ run_job() {
   local manifest=$1
   local job_name=$2
 
+  echo "==> Ensure Dates Set in Job Manifests!"
+
   echo "==> Applying $manifest"
   envsubst < "jobs/$manifest" | kubectl apply -f -
 
