@@ -1,0 +1,20 @@
+tar --exclude='web/node_modules' \
+    --exclude='web/.vite' \
+    --exclude='web/package-lock.json' \
+    --exclude='ercot_ingest/proxy/.wrangler' \
+    --exclude='api/tests' \
+    --exclude='api/static' \
+    --exclude='*.geojson' \
+    --exclude='*.shp' \
+    --exclude='*.git' \
+    --exclude='api/.pytest_cache' \
+    --exclude='compute/.pytest_cache' \
+    --exclude='__pycache__' \
+    --exclude='*.pdf' \
+    --exclude='*.xlsx' \
+    --exclude='*.png' \
+    --exclude='*.svg' \
+    --exclude='data' \
+    --exclude='.env' \
+    --exclude='.env.dev' \
+    -zcvf ercotstress.tar.gz .
