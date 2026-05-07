@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 10
   preprocess:
-    image: "${IMAGE_REPO:-$USER}/ercotstress/preprocess"
+    image: "${IMAGE_REPO:-$USER}/ercotstress/api-compute"
     env_file:
       - .env.dev
     environment:
@@ -32,8 +32,7 @@ services:
     profiles: ["tools"]
     command: python
   compute:
-    build: ./compute
-    image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
+    image: "${IMAGE_REPO:-$USER}/ercotstress/api-compute"
     container_name: compute
     env_file:
       - .env.dev
@@ -51,8 +50,8 @@ services:
   api:
     build:
       context: . # set root dir as build context
-      dockerfile: api/Dockerfile
-    image: "${IMAGE_REPO:-$USER}/ercotstress/api"
+      dockerfile: Dockerfile
+    image: "${IMAGE_REPO:-$USER}/ercotstress/api-compute"
     container_name: api
     env_file:
       - .env.dev
@@ -104,8 +103,7 @@ services:
 
   # TODO: replace w/ cron
   updater:
-      build: ./compute
-      image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
+      image: "${IMAGE_REPO:-$USER}/ercotstress/api-compute"
       container_name: updater
       env_file:
         - .env.dev

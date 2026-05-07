@@ -36,6 +36,7 @@ kubectl create secret generic ercot-ingest-secrets \
         -n ercotstress \
         --from-literal=CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN \
         --from-literal=WRANGLER_PROXY_SECRET=$WRANGLER_PROXY_SECRET \
+        --from-literal=PROXY_BASE=$PROXY_BASE \
         --from-literal=ERCOT_USERNAME=$ERCOT_USERNAME \
         --from-literal=ERCOT_PASSWORD=$ERCOT_PASSWORD \
         --from-literal=ERCOT_SUBSCRIPTION_KEY=$ERCOT_SUBSCRIPTION_KEY

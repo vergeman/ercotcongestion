@@ -1,4 +1,5 @@
 # live_updater.py
+import argparse
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -30,12 +31,18 @@ def update_recent_window(client, conn, hours_back: int = 2):
             conn.rollback()
     log("cycle complete")
 
-def main():
-    # TODO: replace sleep with cron
+
+def run_once() -> None:
+    """Single cycle. Raises on connection failure so caller can fail fast."""
     client = ErcotClient()
+    with psycopg.connect(PG_DSN) as conn:
+        update_recent_window(client, conn)
 
+
+def run_forever() -> None:
+    """Loop forever, sleeping between cycles. Used by docker-compose."""
+    client = ErcotClient()
     print("Live updater started. Polling every 15 min.")
-
     while True:
         try:
             with psycopg.connect(PG_DSN) as conn:
@@ -43,6 +50,22 @@ def main():
         except Exception as e:
             print(f"Cycle failed: {e}")
         time.sleep(INTERVAL_SECONDS)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single update cycle and exit. Used by k8s CronJob.",
+    )
+    args = parser.parse_args()
+
+    if args.once:
+        run_once()
+    else:
+        run_forever()
+
 
 if __name__ == "__main__":
     main()
