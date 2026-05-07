@@ -3,7 +3,7 @@ services:
     image: timescale/timescaledb:latest-pg16
     container_name: db
     env_file:
-      - .env
+      - .env.dev
     environment:
       POSTGRES_DB: ercot
       POSTGRES_USER: ${PG_USER}
@@ -21,7 +21,7 @@ services:
   preprocess:
     image: "${IMAGE_REPO:-$USER}/ercotstress/preprocess"
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /preprocess:/opt
     volumes:
@@ -36,7 +36,7 @@ services:
     image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
     container_name: compute
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /api:/compute:/opt
     depends_on:
@@ -55,7 +55,7 @@ services:
     image: "${IMAGE_REPO:-$USER}/ercotstress/api"
     container_name: api
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /api:/compute:/opt
     working_dir: /api
@@ -108,7 +108,7 @@ services:
       image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
       container_name: updater
       env_file:
-        - .env
+        - .env.dev
       environment:
         PYTHONPATH: /api:/compute:/opt
       depends_on:

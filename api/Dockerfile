@@ -27,14 +27,17 @@ RUN pip install --no-cache-dir \
 #   /data/processed  baked-in CSVs and netCDF (Phase 1; later: PVC or S3 init)
 WORKDIR /api
 
-COPY shared/        /opt/shared/
-COPY api/           /api/
-COPY data/processed /data/processed/
+RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
+
+COPY --chown=shifty:shifty shared/        /opt/shared/
+COPY --chown=shifty:shifty api/           /api/
+COPY                       data/processed /data/processed/
+
+RUN mkdir -p /api/static && chown shifty:shifty /api/static
 
 ENV PYTHONPATH=/api:/opt \
     PYTHONUNBUFFERED=1
 
-RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
 USER shifty
 
 EXPOSE 8000
