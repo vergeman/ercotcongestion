@@ -1,0 +1,71 @@
+# Backfill snapshot_meta + bus_snapshots for 2025-01-01 → 2026-05-07.
+#
+# Usage:
+#   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
+#   envsubst < ops/deploy/jobs/backfill_snapshots_job.yml | kubectl apply -f -
+#
+#   kubectl -n ercotstress logs -f job/backfill-snapshots
+#
+# Run AFTER backfill-ingest completes. write_snapshots.py needs all four
+# ingest sources (ercot_zonal_lmp, shadow_prices, outages_zonal, load_by_zone)
+# for any hour it computes; missing ingest data → snapshot_meta row with
+# status != 'ok' and the row is logged but not blocking.
+#
+# UPSERT semantics: re-running a window overwrites prior rows. Safe to retry.
+#
+# Expected runtime: many hours. ~493 days × 24 hours per day × 5-30s per OPF
+# solve. Recommend running a 1-day test first to estimate full duration:
+#
+#   kubectl create job snapshot-test --from=job/backfill-snapshots --dry-run=client -o yaml \
+#     | sed 's/2025-01-01/2025-06-01/; s/2026-05-07/2026-06-01/' \
+#     | kubectl apply -f -
+#
+# Resources: PyPSA Network + HiGHS solver are memory-hungry. 4Gi limit
+# matches the snapshot_job template default. If OOMKilled, bump to 6Gi.
+#
+# After it finishes:
+#   kubectl -n ercotstress delete job backfill-snapshots
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backfill-snapshots
+  namespace: ercotstress
+  labels:
+    app: snapshot-writer
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 172800       # 48h hard cap
+  template:
+    metadata:
+      labels:
+        app: snapshot-writer
+        job: backfill-snapshots
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: writer
+          image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+          imagePullPolicy: Always
+          command:
+            - python
+            - /compute/write_snapshots.py
+            - --start
+            - "2025-01-01"
+            - --end
+            - "2026-05-07"
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: postgres-credentials
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "4Gi"
