@@ -35,10 +35,13 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-app.include_router(state.router,    prefix='/api', tags=['state'])
-app.include_router(topology.router,    prefix='/api', tags=['topology'])
-app.include_router(validation.router,    prefix='/api', tags=['validation'])
-app.include_router(ptdf.router,    prefix='/api', tags=['ptdf'])
+# Routers mounted at root. URLs:
+#   /topology  /state  /state_range  /validation  /ptdf
+app.include_router(state.router,      tags=['state'])
+app.include_router(topology.router,   tags=['topology'])
+app.include_router(validation.router, tags=['validation'])
+app.include_router(ptdf.router,       tags=['ptdf'])
+
 
 @app.get('/healthz', tags=['meta'])
 def healthz() -> dict[str, str]:

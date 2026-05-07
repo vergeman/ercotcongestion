@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: ercotstress
+data:
+  # Postgres connection
+  PG_HOST: "postgres"
+  PG_PORT: "5432"
+  PG_DATABASE: "ercot"
+
+  # CORS: comma-separated list, parsed by shared.settings.frontend_origins
+  FRONTEND_ORIGIN: "https://ercotstress.com,https://www.ercotstress.com"
+
+  # Data paths inside the image (baked at build time in api/Dockerfile)
+  DATA_DIR: "/data/raw"
+  PROCESSED_DIR: "/data/processed"
+  TOPOLOGY_CACHE: "/api/static/topology.json"
+
+  # API behavior
+  MAX_STATE_RANGE_HOURS: "336"   # 14 days
+  MIN_VALIDATION_HOUR: "24"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: ercotstress
+data:
+  POSTGRES_DB: "ercot"

@@ -1,0 +1,45 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api
+  namespace: ercotstress
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api.ercotstress.com`)
+      kind: Rule
+      services:
+        - name: api
+          port: 8000
+  tls:
+    secretName: api-ercotstress-tls
+---
+# HTTP -> HTTPS redirect.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  namespace: ercotstress
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-http-redirect
+  namespace: ercotstress
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`api.ercotstress.com`)
+      kind: Rule
+      middlewares:
+        - name: redirect-to-https
+      services:
+        # Required by IngressRoute schema even when middleware short-circuits.
+        - name: api
+          port: 8000

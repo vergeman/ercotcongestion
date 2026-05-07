@@ -3,7 +3,7 @@ services:
     image: timescale/timescaledb:latest-pg16
     container_name: db
     env_file:
-      - .env
+      - .env.dev
     environment:
       POSTGRES_DB: ercot
       POSTGRES_USER: ${PG_USER}
@@ -19,9 +19,9 @@ services:
       timeout: 5s
       retries: 10
   preprocess:
-    image: shifty
+    image: "${IMAGE_REPO:-$USER}/ercotstress/preprocess"
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /preprocess:/opt
     volumes:
@@ -33,10 +33,10 @@ services:
     command: python
   compute:
     build: ./compute
-    image: shifty
+    image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
     container_name: compute
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /api:/compute:/opt
     depends_on:
@@ -49,10 +49,13 @@ services:
       - ./data:/data
     command: python
   api:
-    image: shifty
+    build:
+      context: . # set root dir as build context
+      dockerfile: api/Dockerfile
+    image: "${IMAGE_REPO:-$USER}/ercotstress/api"
     container_name: api
     env_file:
-      - .env
+      - .env.dev
     environment:
       PYTHONPATH: /api:/compute:/opt
     working_dir: /api
@@ -84,7 +87,7 @@ services:
 
   web:
     build: ./web
-    image: shifty-web
+    image: "${IMAGE_REPO:-$USER}/ercotstress/web"
     container_name: web
     working_dir: /web
     depends_on:
@@ -102,10 +105,10 @@ services:
   # TODO: replace w/ cron
   updater:
       build: ./compute
-      image: shifty
+      image: "${IMAGE_REPO:-$USER}/ercotstress/compute"
       container_name: updater
       env_file:
-        - .env
+        - .env.dev
       environment:
         PYTHONPATH: /api:/compute:/opt
       depends_on:
