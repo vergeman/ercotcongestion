@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-ercotstress-tls
+  namespace: ercotstress
+spec:
+  secretName: api-ercotstress-tls
+  issuerRef:
+    # Your existing cluster-wide issuer.
+    name: letsencrypt-cluster-issuer
+    kind: ClusterIssuer
+  commonName: api.ercotstress.com
+  dnsNames:
+    - api.ercotstress.com
+  # Renewal kicks in 30d before expiry (cert-manager default).
