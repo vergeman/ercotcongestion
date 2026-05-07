@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ercot-ingest
+  namespace: ercotstress
+spec:
+  # Every 15 minutes, on the quarter-hour. Cron is in the cluster's local
+  # timezone (k3s default: UTC).
+  schedule: "*/15 * * * *"
+
+  # If a previous run is still going, skip this slot. Prevents pile-up if a
+  # cycle ever stalls.
+  concurrencyPolicy: Forbid
+
+  # Runs late if the cluster was offline; only catches up the most recent
+  # missed run, not all of them. 60s grace for a missed schedule.
+  startingDeadlineSeconds: 60
+
+  # Keep enough history to debug. Trim aggressively to avoid ETCD bloat.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+
+  jobTemplate:
+    spec:
+      # Don't retry within a single scheduled run — the next cron tick is the
+      # retry. Avoids hammering ERCOT during an outage.
+      backoffLimit: 0
+      # Hard timeout per run. ingest typically takes seconds; 10 min is generous.
+      activeDeadlineSeconds: 600
+
+      template:
+        metadata:
+          labels:
+            app: ercot-ingest
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: ingest
+              # Same consolidated image as api.
+              image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+              imagePullPolicy: Always
+              command:
+                - python
+                - /ercot_ingest/live_updater.py
+                - --once
+              envFrom:
+                - configMapRef:
+                    name: api-config
+                - secretRef:
+                    name: postgres-credentials
+                - secretRef:
+                    name: ercot-ingest-secrets
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
