@@ -26,3 +26,18 @@
 
 6. api deployment -> service -> certificate -> ingress:
   * `./deploy-api.sh`
+
+## Jobs
+
+* `ingest_cronjob.sh`: starts a 15-min `live-updater.py` loop
+  * check `ercot_ingest/proxy/worker.js`
+
+* `write_snapshots.sh`
+  * calls `snapshot_job.yml.template`: with params.
+
+
+## Reset DB To local
+
+* NB: this drops prod db and re-imports
+* `deploy/import_database.sh`: just run
+  * likely need to restart ap
