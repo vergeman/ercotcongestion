@@ -294,6 +294,8 @@ def main():
             counts['skipped'] += 1
             continue
 
+        log.info(f"compute_one() start: {ts}")
+
         status, result, op, n = compute_one(ts, adapter, mc)
 
         try:
