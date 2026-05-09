@@ -1,0 +1,61 @@
+# Backfill bus_snapshots.basis for 2025-01-01 → 2026-05-07.
+#
+# Usage:
+#   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
+#   envsubst < ops/deploy/jobs/backfill_basis_job.yml | kubectl apply -f -
+#
+#   kubectl -n ercotstress logs -f job/backfill-basis
+#
+# Run AFTER backfill-snapshots completes. This script does NOT re-run OPF —
+# it joins existing bus_snapshots rows against ercot_zonal_lmp via
+# bus_load_zones and updates basis = bus_lmp - zonal_lmp. Pure SQL UPDATE,
+# fast (script comment estimates ~2 minutes).
+#
+# Idempotent: re-running rewrites the same values.
+#
+# After it finishes:
+#   kubectl -n ercotstress delete job backfill-basis
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backfill-basis
+  namespace: ercotstress
+  labels:
+    app: basis-backfill
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 3600         # 1h hard cap; expected ~2 min
+  template:
+    metadata:
+      labels:
+        app: basis-backfill
+        job: backfill-basis
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: basis
+          image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+          imagePullPolicy: Always
+          command:
+            - python
+            - /compute/backill_basis.py
+            - --start
+            - "2025-01-01"
+            - --end
+            - "2026-05-07"
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: postgres-credentials
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

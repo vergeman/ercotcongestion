@@ -103,3 +103,4 @@ def fragility_plot(n, frag):
     ax.set_title('Fragility map (log scale)')
     plt.savefig('fragility_map.png', dpi=120)
     plt.show()
+    plt.close('all')
