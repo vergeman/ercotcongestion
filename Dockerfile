@@ -56,6 +56,7 @@ RUN mkdir -p /api/static && chown shifty:shifty /api/static
 #   /compute  → compute modules (snapshot, write_snapshots, ...)
 #   /opt      → shared package
 ENV PYTHONPATH=/api:/compute:/opt \
+    MALLOC_ARENA_MAX=2 \
     PYTHONUNBUFFERED=1
 
 USER shifty
