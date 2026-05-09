@@ -19,6 +19,8 @@ Usage:
 """
 from __future__ import annotations
 
+import gc
+import resource
 import argparse
 import json
 import logging
@@ -315,17 +317,37 @@ def main():
             log.error(f"DB write failure at {ts}: {e}")
             conn.rollback()
 
+
+        # Cleanup - there's a growing memory leak when running
+        # so just explicitly clear to prevent OOM
+        if n is not None:
+
+            # Clear fat linopy model
+            if hasattr(n, 'model'):
+                del n.model
+
+        del n, result, op
+
+        gc.collect()
+
+
         # Progress every 24 iterations (one ERCOT day)
         if i % 24 == 0 or i == n_total:
             elapsed = time.time() - t_start
             rate = i / elapsed
             eta = (n_total - i) / rate if rate > 0 else 0
+            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+
             log.info(
                 f"[{i}/{n_total}] {ts.isoformat()} {status:>12s}  "
                 f"ok={counts['ok']} infeas={counts['infeasible']} "
                 f"miss={counts['missing_data']} err={counts['other_error']}  "
-                f"rate={rate:.2f}/s  ETA={eta/60:.1f}min"
+                f"rate={rate:.2f}/s  ETA={eta/60:.1f}min  "
+                f"RSS={rss_mb:.0f} MB"
             )
+
+
+
 
     log.info(
         f"Done. {counts['ok']} ok, {counts['infeasible']} infeasible, "
