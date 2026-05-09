@@ -54,7 +54,7 @@ spec:
             - python
             - /compute/write_snapshots.py
             - --start
-            - "2025-05-04"
+            - "2025-05-17"
             - --end
             - "2025-08-01"
           envFrom:
@@ -65,7 +65,7 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: "5Gi"
+              memory: "2Gi"
             limits:
               cpu: "5"
-              memory: "9Gi"
+              memory: "4Gi"
