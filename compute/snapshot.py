@@ -16,7 +16,8 @@ from operating_data_adapter import OperatingDataAdapter
 
 logger = logging.getLogger(__name__)
 
-def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network = False) -> dict[str, any]:
+def compute_snapshot(n, operating_data, top_k_contingencies = 10,
+                     copy_network = False, enable_plots = False) -> dict[str, any]:
     """
     Compute a full grid snapshot: OPF + fragility + N-1 contingencies.
     Returns
@@ -66,7 +67,8 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10, copy_network =
 
     fragility = compute_fragility(net, ptdf, bus_names)
     fragility_diagnostics(fragility)
-    fragility_plot(n, fragility)
+    if enable_plots:
+      fragility_plot(n, fragility)
 
     #
     #  N-1 CONTINGENCY
