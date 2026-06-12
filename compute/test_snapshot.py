@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import psycopg
 import pypsa
- 
+
 from config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
@@ -74,6 +74,7 @@ def main():
         print(f"\nTop 5 binding lines:")
         print(result['shadow_prices'].head(5).round(2).to_string())
 
+    return result, op, n
 
 if __name__ == '__main__':
-    main()
+    result, op, n = main()

@@ -39,8 +39,8 @@ spec:
           containers:
             - name: ingest
               # Same consolidated image as api.
-              image: ${IMAGE_REPO}/ercotstress/api-compute:latest
-              imagePullPolicy: Always
+              image: ${IMAGE_REPO}/ercotstress/api-compute:v1.0
+              # imagePullPolicy: Always
               command:
                 - python
                 - /ercot_ingest/live_updater.py
