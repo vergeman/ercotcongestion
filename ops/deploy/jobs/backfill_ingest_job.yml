@@ -45,9 +45,9 @@ spec:
             - python
             - /ercot_ingest/backfill.py
             - --start
-            - "2025-01-01"
+            - "2026-05-18"
             - --end
-            - "2026-05-07"
+            - "2026-06-04"
             - --resume
           envFrom:
             - configMapRef:

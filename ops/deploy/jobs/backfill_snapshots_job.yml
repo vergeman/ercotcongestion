@@ -54,9 +54,9 @@ spec:
             - python
             - /compute/write_snapshots.py
             - --start
-            - "2025-05-17"
+            - "2026-05-19"
             - --end
-            - "2025-08-01"
+            - "2026-06-05"
           envFrom:
             - configMapRef:
                 name: api-config
@@ -67,5 +67,5 @@ spec:
               cpu: "500m"
               memory: "2Gi"
             limits:
-              cpu: "5"
+              cpu: "8"
               memory: "4Gi"

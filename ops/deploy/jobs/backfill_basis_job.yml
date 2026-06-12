@@ -44,9 +44,9 @@ spec:
             - python
             - /compute/backill_basis.py
             - --start
-            - "2025-01-01"
-            - --end
             - "2026-05-07"
+            - --end
+            - "2026-05-19"
           envFrom:
             - configMapRef:
                 name: api-config
