@@ -15,3 +15,4 @@ api/static/*
 *.pdf
 *.odt
 *.gz
+*.png
