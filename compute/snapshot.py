@@ -45,8 +45,29 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     #
     # Solve DC-OPF
     #
+    # Equivalent to the original
+    #   net.optimize(solver_name="highs", assign_all_duals=True)
+    # but expanded to the linopy primitive so each phase is independently
+    # timed and we control assign_all_duals (line mu_upper/mu_lower fuel the
+    # fragility / binding-line math; the default False drops them).
+    # `net.optimize.solve_model` already runs assign_solution + assign_duals
+    # + post_processing internally — calling it and then the explicit assigns
+    # would double the work.
     with timed("compute.optimize"):
-        status, condition = net.optimize(solver_name="highs", assign_all_duals=True)
+        #status, condition = net.optimize(solver_name="highs", assign_all_duals=True)
+        with timed("optimize.create_model"):
+            net.optimize.create_model()
+        with timed("optimize.model_solve"):
+            status, condition = net.model.solve(
+                solver_name="highs", io_api="direct"
+            )
+        if status == "ok":
+            with timed("optimize.assign_solution"):
+                net.optimize.assign_solution()
+            with timed("optimize.assign_duals"):
+                net.optimize.assign_duals(assign_all_duals=True)
+            with timed("optimize.post_processing"):
+                net.optimize.post_processing()
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
