@@ -1,10 +1,46 @@
 import pypsa
 import hashlib
 import numpy as np
+from scipy.sparse import csgraph
+from pypsa.networks import SubNetwork
 
 from _timing import timed
 
 _ptdf_lodf_cache  = {}
+
+
+def _determine_topology_for_ptdf(n):
+    """Inlined Network.determine_network_topology() minus find_cycles.
+
+    find_cycles builds sub.C (KVL cycle matrix) for AC powerflow KVL
+    enforcement. calculate_PTDF / calculate_BODF — the only consumers in
+    this pipeline — do not read it.
+    """
+    with timed("topology.adjacency"):
+        A = n.adjacency_matrix(
+            branch_components=n.passive_branch_components,
+            return_dataframe=False,
+        )
+    with timed("topology.connected_components"):
+        n_components, labels = csgraph.connected_components(A, directed=False)
+    with timed("topology.subnet_setup"):
+        for name in list(n.sub_networks.index):
+            obj = n.sub_networks.at[name, "obj"]
+            n.remove("SubNetwork", name)
+            del obj
+        for i in np.arange(n_components):
+            buses_i = (labels == i).nonzero()[0]
+            carrier = n.buses.carrier.iat[buses_i[0]]
+            n.add("SubNetwork", i, carrier=carrier)
+        n.sub_networks["obj"] = [
+            SubNetwork(n, name) for name in n.sub_networks.index
+        ]
+        n.buses.loc[:, "sub_network"] = labels.astype(str)
+        for c in n.iterate_components(n.passive_branch_components):
+            c.static["sub_network"] = c.static.bus0.map(n.buses["sub_network"])
+    with timed("topology.find_bus_controls"):
+        for sub in n.sub_networks.obj:
+            sub.find_bus_controls()
 
 def _topology_key(n: pypsa.Network) -> str:
     """Hash based on branch set + reactances. Invalidated when lines/tx change."""
@@ -26,7 +62,7 @@ def get_ptdf_lodf(n):
         return _ptdf_lodf_cache[k]
 
     with timed("ptdf.determine_topology"):
-        n.determine_network_topology()
+        _determine_topology_for_ptdf(n)
 
     # Texas2k is one connected interconnection; 1 sub_network
     sub = n.sub_networks.obj.iloc[0]
