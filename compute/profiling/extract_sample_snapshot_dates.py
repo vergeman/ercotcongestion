@@ -12,7 +12,7 @@ import psycopg
 from psycopg.rows import dict_row
 from config import PG_DSN
 
-OUTPUT_FILE = Path(__file__).parent / "reference_snapshots.json"
+OUTPUT_FILE = Path(__file__).parent / "reference_dates.json"
 
 QUERIES = {
     "summer_peak": """
