@@ -17,4 +17,5 @@ tar --exclude='web/node_modules' \
     --exclude='data' \
     --exclude='.env' \
     --exclude='.env.dev' \
+    --exclude='*.gz' \
     -zcvf ercotstress.tar.gz .

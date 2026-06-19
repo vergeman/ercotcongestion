@@ -10,3 +10,8 @@ data/raw/TIGER/*
 data/raw/ercot_load_zones/*
 !data/raw/ercot_load_zones/README.md
 api/static/*
+
+# books / docs
+*.pdf
+*.odt
+*.gz
