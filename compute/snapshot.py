@@ -43,7 +43,29 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     #
     # Solve DC-OPF
     #
-    status, condition = net.optimize(solver_name="highs", assign_all_duals=True)
+    # Equivalent to net.optimize(solver_name="highs", assign_all_duals=True)
+    # expanded to the linopy primitive to:
+    #   - pass io_api="direct" (skip the linopy temp-file path)
+    #   - keep assign_all_duals=True so line mu_upper/mu_lower are populated
+    #     for fragility / binding-line math
+    #   - replace post_processing() with just the marginal_price rescale
+    #     (the rest of post_processing computes loads_t.p, buses_t.p, and a
+    #     ~3000-bus pinv for buses_t.v_ang, none of which we read).
+    net.optimize.create_model()
+    status, condition = net.model.solve(
+        solver_name="highs", io_api="direct"
+    )
+    if status == "ok":
+        net.optimize.assign_solution()
+        net.optimize.assign_duals(assign_all_duals=True)
+        assert not net._multi_invest, (
+            "post_processing shortcut assumes single-period optimization"
+        )
+        sns = net.model.parameters.snapshots.to_index()
+        weightings = net.snapshot_weightings.objective.loc[sns]
+        net.buses_t.marginal_price.loc[sns] = (
+            net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
+        )
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
@@ -68,7 +90,7 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     fragility = compute_fragility(net, ptdf, bus_names)
     fragility_diagnostics(fragility)
     if enable_plots:
-      fragility_plot(n, fragility)
+        fragility_plot(n, fragility)
 
     #
     #  N-1 CONTINGENCY
