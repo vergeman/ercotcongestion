@@ -12,7 +12,6 @@ from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
 from config import NETWORK_NC
 from datetime import datetime
 from operating_data_adapter import OperatingDataAdapter
-from _timing import timed
 
 
 logger = logging.getLogger(__name__)
@@ -39,48 +38,34 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     # Note: deepcopy of solved PyPSA networks can fail. Default False for now.
     net = deepcopy(n) if copy_network else n
 
-    with timed("compute.apply_operating_conditions"):
-        apply_operating_conditions(n, **operating_data)
+    apply_operating_conditions(n, **operating_data)
 
     #
     # Solve DC-OPF
     #
-    # Equivalent to the original
-    #   net.optimize(solver_name="highs", assign_all_duals=True)
-    # but expanded to the linopy primitive so each phase is independently
-    # timed and we control assign_all_duals (line mu_upper/mu_lower fuel the
-    # fragility / binding-line math; the default False drops them).
-    # `net.optimize.solve_model` already runs assign_solution + assign_duals
-    # + post_processing internally — calling it and then the explicit assigns
-    # would double the work.
-    with timed("compute.optimize"):
-        #status, condition = net.optimize(solver_name="highs", assign_all_duals=True)
-        with timed("optimize.create_model"):
-            net.optimize.create_model()
-        with timed("optimize.model_solve"):
-            status, condition = net.model.solve(
-                solver_name="highs", io_api="direct"
-            )
-        if status == "ok":
-            with timed("optimize.assign_solution"):
-                net.optimize.assign_solution()
-            with timed("optimize.assign_duals"):
-                net.optimize.assign_duals(assign_all_duals=True)
-            with timed("optimize.post_processing"):
-                # Inlined replacement for net.optimize.post_processing(), which
-                # costs ~25 s — almost entirely in buses_t.v_ang
-                # (np.linalg.pinv on a ~3000-bus B matrix). We read only
-                # buses_t.marginal_price (snapshot.py output block,
-                # ptdf_lodf.print_network_diagnostic); loads_t.p, buses_t.p,
-                # and buses_t.v_ang are never consumed.
-                assert not net._multi_invest, (
-                    "post_processing shortcut assumes single-period optimization"
-                )
-                sns = net.model.parameters.snapshots.to_index()
-                weightings = net.snapshot_weightings.objective.loc[sns]
-                net.buses_t.marginal_price.loc[sns] = (
-                    net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
-                )
+    # Equivalent to net.optimize(solver_name="highs", assign_all_duals=True)
+    # expanded to the linopy primitive to:
+    #   - pass io_api="direct" (skip the linopy temp-file path)
+    #   - keep assign_all_duals=True so line mu_upper/mu_lower are populated
+    #     for fragility / binding-line math
+    #   - replace post_processing() with just the marginal_price rescale
+    #     (the rest of post_processing computes loads_t.p, buses_t.p, and a
+    #     ~3000-bus pinv for buses_t.v_ang, none of which we read).
+    net.optimize.create_model()
+    status, condition = net.model.solve(
+        solver_name="highs", io_api="direct"
+    )
+    if status == "ok":
+        net.optimize.assign_solution()
+        net.optimize.assign_duals(assign_all_duals=True)
+        assert not net._multi_invest, (
+            "post_processing shortcut assumes single-period optimization"
+        )
+        sns = net.model.parameters.snapshots.to_index()
+        weightings = net.snapshot_weightings.objective.loc[sns]
+        net.buses_t.marginal_price.loc[sns] = (
+            net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
+        )
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
@@ -90,25 +75,22 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
             'meta': {'solver_status': status},
         }
 
-    with timed("compute.print_diag"):
-        print_network_diagnostic(n)
+    print_network_diagnostic(n)
 
     #
     # Calculate PTDF on current topology
     # Given current dispatch, which buses are most exposed to binding constraints
 
-    with timed("compute.get_ptdf_lodf"):
-        ptdf, lodf_lines, bus_names = get_ptdf_lodf(net)
+    ptdf, lodf_lines, bus_names = get_ptdf_lodf(net)
 
     #
     # FRAGILITY
     #
 
-    with timed("compute.fragility"):
-        fragility = compute_fragility(net, ptdf, bus_names)
-        fragility_diagnostics(fragility)
-        if enable_plots:
-            fragility_plot(n, fragility)
+    fragility = compute_fragility(net, ptdf, bus_names)
+    fragility_diagnostics(fragility)
+    if enable_plots:
+        fragility_plot(n, fragility)
 
     #
     #  N-1 CONTINGENCY
@@ -116,9 +98,8 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     #  stress value: if Line X trips, stress is the sum of all the resulting
     #  fractional overloads across all lines after that N-1 contingency
 
-    with timed("compute.contingencies"):
-        contingencies = compute_contingencies(net, lodf_lines, top_k_contingencies) # line | stress
-        contingency_diagnostics(n, contingencies, lodf_lines)
+    contingencies = compute_contingencies(net, lodf_lines, top_k_contingencies) # line | stress
+    contingency_diagnostics(n, contingencies, lodf_lines)
 
 
     # OUTPUTS
@@ -140,40 +121,38 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     # Postgres.
 
 
-    with timed("compute.basis"):
-        bus_load_zone     = operating_data.get('bus_load_zone')
-        zonal_lmp_by_zone = operating_data.get('zonal_lmp_by_zone') or {}
-        basis = _compute_basis(lmps, bus_load_zone, zonal_lmp_by_zone)
+    bus_load_zone     = operating_data.get('bus_load_zone')
+    zonal_lmp_by_zone = operating_data.get('zonal_lmp_by_zone') or {}
+    basis = _compute_basis(lmps, bus_load_zone, zonal_lmp_by_zone)
 
-    with timed("compute.outputs"):
-        # Binding constraints
-        mu_up = net.lines_t.mu_upper.iloc[0].abs()
-        mu_lo = net.lines_t.mu_lower.iloc[0].abs()
-        shadow = (mu_up + mu_lo).reindex(net.lines.index).fillna(0)
-        binding_mask = shadow > 0.01
-        binding_lines = shadow[binding_mask].sort_values(ascending=False)
+    # Binding constraints
+    mu_up = net.lines_t.mu_upper.iloc[0].abs()
+    mu_lo = net.lines_t.mu_lower.iloc[0].abs()
+    shadow = (mu_up + mu_lo).reindex(net.lines.index).fillna(0)
+    binding_mask = shadow > 0.01
+    binding_lines = shadow[binding_mask].sort_values(ascending=False)
 
-        # Meta
-        total_load = net.loads['p_set'].sum()
-        total_gen = dispatch.sum()
-        meta = {
-            'solver_status': status,
-            'total_load_mw': float(total_load),
-            'total_gen_mw': float(total_gen),
-            'balance_mw': float(total_gen - total_load),
-            'objective_cost': float(net.objective) if hasattr(net, 'objective') else None,
-            'n_binding_lines': int(binding_mask.sum()),
-            'lmp_min': float(lmps.min()),
-            'lmp_mean': float(lmps.mean()),
-            'lmp_max': float(lmps.max()),
-            'fragility_total': float(fragility.sum()),
-            'fragility_top10_share': float(
-                fragility.nlargest(10).sum() / fragility.sum()
-                if fragility.sum() > 0 else 0.0
-            ),
-            'basis_n_resolved': int(basis.notna().sum()),
-            'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None
-        }
+    # Meta
+    total_load = net.loads['p_set'].sum()
+    total_gen = dispatch.sum()
+    meta = {
+        'solver_status': status,
+        'total_load_mw': float(total_load),
+        'total_gen_mw': float(total_gen),
+        'balance_mw': float(total_gen - total_load),
+        'objective_cost': float(net.objective) if hasattr(net, 'objective') else None,
+        'n_binding_lines': int(binding_mask.sum()),
+        'lmp_min': float(lmps.min()),
+        'lmp_mean': float(lmps.mean()),
+        'lmp_max': float(lmps.max()),
+        'fragility_total': float(fragility.sum()),
+        'fragility_top10_share': float(
+            fragility.nlargest(10).sum() / fragility.sum()
+            if fragility.sum() > 0 else 0.0
+        ),
+        'basis_n_resolved': int(basis.notna().sum()),
+        'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None
+    }
 
     return {
         'status': 'ok',
@@ -225,20 +204,16 @@ def run_snapshot_for_ts(
     """
 
     # Build operating data
-    with timed("run.adapter.build"):
-        op = adapter.build(ts)
+    op = adapter.build(ts)
 
-    with timed("run.load_network"):
-        n = pypsa.Network(network_path)
+    n = pypsa.Network(network_path)
 
-    with timed("run.assign_marginal_cost"):
-        n.generators['marginal_cost'] = (
-            n.generators.index.map(mc['marginal_cost']).fillna(0)
-        )
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
 
     # Run OPF
-    with timed("run.compute_snapshot"):
-        result = compute_snapshot(n, op)
+    result = compute_snapshot(n, op)
 
     return result, op, n
 

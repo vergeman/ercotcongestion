@@ -63,7 +63,6 @@ from constants import (
     IRR_CARRIERS, THERMAL_CARRIERS, DEFAULT_P_MAX_PU,
     PV_REGIONS, WIND_REGIONS, LOAD_ZONES
 )
-from _timing import timed
 
 
 # ============================================================================
@@ -155,29 +154,21 @@ class OperatingDataAdapter:
                                     available for ts.
             'meta'                : diagnostic dict
         """
-        with timed("adapter.build._query_load"):
-            load_row   = self._query_load(ts)
-        with timed("adapter.build._query_wind"):
-            wind_row   = self._query_wind(ts)
-        with timed("adapter.build._query_solar"):
-            solar_row  = self._query_solar(ts)
-        with timed("adapter.build._query_outages"):
-            outage_row = self._query_outages(ts, load_row)
-        with timed("adapter.build._query_zonal_lmp"):
-            zonal_lmp  = self._query_zonal_lmp(ts)
+        load_row   = self._query_load(ts)
+        wind_row   = self._query_wind(ts)
+        solar_row  = self._query_solar(ts)
+        outage_row = self._query_outages(ts, load_row)
+        zonal_lmp  = self._query_zonal_lmp(ts)
 
-        with timed("adapter.build._build_p_max_pu"):
-            p_max_pu = self._build_p_max_pu_per_gen(wind_row, solar_row)
+        p_max_pu = self._build_p_max_pu_per_gen(wind_row, solar_row)
 
-        with timed("adapter.build._derate"):
-            outage_derates = self._derate_by_load_zone_carrier(outage_row)
-            p_max_pu = self._apply_outages(p_max_pu, outage_derates)
+        outage_derates = self._derate_by_load_zone_carrier(outage_row)
+        p_max_pu = self._apply_outages(p_max_pu, outage_derates)
 
-            if len(self._static.non_ercot_gens) > 0:
-                p_max_pu.loc[self._static.non_ercot_gens] = 0.0
+        if len(self._static.non_ercot_gens) > 0:
+            p_max_pu.loc[self._static.non_ercot_gens] = 0.0
 
-        with timed("adapter.build._scale_loads"):
-            loads = self._scale_loads(load_row)
+        loads = self._scale_loads(load_row)
 
         return {
             'p_max_pu_per_gen': p_max_pu,

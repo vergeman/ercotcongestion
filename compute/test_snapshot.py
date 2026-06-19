@@ -10,7 +10,6 @@ Usage:
     docker compose run --rm compute python /compute/test_snapshot.py --ts 2026-04-22T18:00
 """
 import argparse
-import logging
 import os
 from datetime import datetime, timezone
 
@@ -24,20 +23,10 @@ from config import (
 )
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import run_snapshot_for_ts
-from _timing import timed
 
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(message)s',
-    )
-    for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
-                  'pypsa.optimization', 'pypsa.optimization.optimize',
-                  'pypsa.network.io'):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
-
     ap = argparse.ArgumentParser()
     ap.add_argument(
         '--ts',
@@ -49,24 +38,17 @@ def main():
     ts = datetime.fromisoformat(args.ts).replace(tzinfo=timezone.utc)
 
     # Reference data
-    with timed("setup.read_csv.marginal_costs"):
-        mc = pd.read_csv(MARGINAL_COSTS_CSV, index_col=0)
-    with timed("setup.read_csv.bus_weather_zones"):
-        bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
-    with timed("setup.read_csv.gen_enriched"):
-        gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
+    mc = pd.read_csv(MARGINAL_COSTS_CSV, index_col=0)
+    bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
+    gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
 
     # Adapter
-    with timed("setup.load_network_init"):
-        n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
-    with timed("setup.pg_connect"):
-        conn = psycopg.connect(PG_DSN)
+    n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
+    conn = psycopg.connect(PG_DSN)
 
-    with timed("setup.adapter_init"):
-        adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
 
-    with timed("run_snapshot_for_ts"):
-        result, op, n = run_snapshot_for_ts(ts, adapter, mc)
+    result, op, n = run_snapshot_for_ts(ts, adapter, mc)
 
     # Report
     print(f"\n{'=' * 60}")
