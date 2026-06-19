@@ -67,7 +67,20 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
             with timed("optimize.assign_duals"):
                 net.optimize.assign_duals(assign_all_duals=True)
             with timed("optimize.post_processing"):
-                net.optimize.post_processing()
+                # Inlined replacement for net.optimize.post_processing(), which
+                # costs ~25 s — almost entirely in buses_t.v_ang
+                # (np.linalg.pinv on a ~3000-bus B matrix). We read only
+                # buses_t.marginal_price (snapshot.py output block,
+                # ptdf_lodf.print_network_diagnostic); loads_t.p, buses_t.p,
+                # and buses_t.v_ang are never consumed.
+                assert not net._multi_invest, (
+                    "post_processing shortcut assumes single-period optimization"
+                )
+                sns = net.model.parameters.snapshots.to_index()
+                weightings = net.snapshot_weightings.objective.loc[sns]
+                net.buses_t.marginal_price.loc[sns] = (
+                    net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
+                )
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
