@@ -2,6 +2,8 @@ import pypsa
 import hashlib
 import numpy as np
 
+from _timing import timed
+
 _ptdf_lodf_cache  = {}
 
 def _topology_key(n: pypsa.Network) -> str:
@@ -23,12 +25,15 @@ def get_ptdf_lodf(n):
     if k in _ptdf_lodf_cache:
         return _ptdf_lodf_cache[k]
 
-    n.determine_network_topology()
+    with timed("ptdf.determine_topology"):
+        n.determine_network_topology()
 
     # Texas2k is one connected interconnection; 1 sub_network
     sub = n.sub_networks.obj.iloc[0]
-    sub.calculate_PTDF()
-    sub.calculate_BODF()
+    with timed("ptdf.calculate_PTDF"):
+        sub.calculate_PTDF()
+    with timed("ptdf.calculate_BODF"):
+        sub.calculate_BODF()
     ptdf = np.asarray(sub.PTDF)
     bodf = np.asarray(sub.BODF)
     n_lines = len(n.lines)
