@@ -57,6 +57,7 @@ from typing import Any
 
 import pandas as pd
 import psycopg
+import logging
 from psycopg.rows import dict_row
 
 from constants import (
@@ -68,6 +69,11 @@ from constants import (
 # ============================================================================
 # Adapter
 # ============================================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+)
+log = logging.getLogger('operating_data_adapter')
 
 @dataclass
 class _Static:
@@ -653,35 +659,62 @@ class OperatingDataAdapter:
 
 
     def _scale_loads(self, load_row: dict) -> pd.Series:
-        """Scale TAMU's static load distribution to match ERCOT's system total.
+        """Scale TAMU's static load distribution to match ERCOT's per-zone loads.
 
-        Uses ERCOT's reported system total ('total' column in load_by_zone) as the
-        target, and rescales TAMU's per-bus static loads uniformly. This preserves
-        TAMU's spatial distribution (which the network was tuned for) while
-        capturing ERCOT's hourly variation in total load.
+        For each ERCOT weather zone, compute a ZONE-specific scale factor:
 
-        Trade-off: loses zonal fidelity (a load increase in West Texas in real
-        life shows up everywhere proportionally rather than localized), but
-        avoids infeasibilities from network mismatch with ERCOT's distribution.
+            scale[zone] = ercot_zone_mw / tamu_zone_mw
 
-        Args: load_row
+        apply it to every load bus in that zone. This preserves TAMU's
+        within-zone spatial distribution (which the network was tuned for)
+        while making the between-zone load geography match ERCOT's hourly
+        reality.
 
-        Example: {'operating_day': datetime.date(2026, 3, 25), 'hour_ending':
-        18, 'coast': 16641.15, 'east': 2048.82, 'far_west': 8002.97, 'north':
-        2378.65, 'north_central': 18716.61, 'south_central': 11419.08,
-        'southern': 5427.2, 'west': 1839.0, 'total': 66473.48}
+        Fallback: if ANY zone is missing / null / zero in load_row (or
+        TAMU has no load in that zone), fall back to the global scale
+        factor (ercot_total / tamu_total) uniformly across all loads.
+        Partial fallback would corrupt the between-zone ratios.
 
-        ERCOT data total load / TAMU model load:
+        KEY: We're applying the scale factors to the loads at the bus level.
+        (NB: this is not the 4 zones comprising "bus_load_zone", which ERCOT
+        uses for nodal pricing zones; e.g. nodal hub pricing, CRR's, DA
+        settlements)
 
-        scale factor = 66473.48 / 85758.89 = .77512
+        Walkthrough Example: see /docs/scale_load_factor.md
 
-        Apply .775 factor to TAMU model to keep "shape" but scale to ERCOT
-        data.
+        Example load_row: {'operating_day': datetime.date(2026, 3, 25),
+        'hour_ending': 18, 'coast': 16641.15, 'east': 2048.82, 'far_west':
+        8002.97, 'north': 2378.65, 'north_central': 18716.61, 'south_central':
+        11419.08, 'southern': 5427.2, 'west': 1839.0, 'total': 66473.48}
 
         """
         ercot_total = load_row.get('total') or 0.0
         if ercot_total <= 0 or self._static.static_total <= 0:
             return pd.Series(0.0, index=self._static.static_loads.index)
 
-        scale_factor = ercot_total / self._static.static_total
-        return self._static.static_loads * scale_factor
+        global_scale = ercot_total / self._static.static_total
+
+        tamu_zone_totals = self._static.static_loads.groupby(
+            self._static.load_weather_zone
+        ).sum()
+
+        scale_by_zone: dict[str, float] = {}
+        use_global = False
+
+        for zone, tamu_zone_mw in tamu_zone_totals.items():
+            ercot_zone_mw = load_row.get(zone) or 0.0
+            if ercot_zone_mw <= 0 or tamu_zone_mw <= 0:
+                use_global = True
+                scale_by_zone[zone] = global_scale
+            else:
+                scale_by_zone[zone] = ercot_zone_mw / tamu_zone_mw
+
+        if use_global:
+            bad_zones = [z for z, mw in tamu_zone_totals.items()
+                         if (load_row.get(z) or 0) <= 0 or mw <= 0]
+            msg = f"Fallback to global scale factor — bad zones: {bad_zones}"
+            log.warning(msg)
+            scale_by_zone = {zone: global_scale for zone in scale_by_zone}
+
+        per_load_scale = self._static.load_weather_zone.map(scale_by_zone)
+        return self._static.static_loads * per_load_scale
