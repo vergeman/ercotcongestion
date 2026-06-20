@@ -197,6 +197,8 @@ def run_snapshot_for_ts(
     adapter: OperatingDataAdapter,
     mc: pd.DataFrame,
     network_path: str = NETWORK_NC,
+    *,
+    force_global_load_sf: bool = False,
 ) -> tuple[dict, dict, pypsa.Network]:
     """Build operating data, load network, run OPF for one timestamp.
 
@@ -204,7 +206,7 @@ def run_snapshot_for_ts(
     """
 
     # Build operating data
-    op = adapter.build(ts)
+    op = adapter.build(ts, force_global_load_sf=force_global_load_sf)
 
     n = pypsa.Network(network_path)
 
