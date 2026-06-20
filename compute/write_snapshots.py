@@ -75,7 +75,8 @@ UPSERT_META_SQL = """
         fragility_total, fragility_top10_share,
         binding_lines, top_contingencies, dispatch_by_carrier,
         wind_factor_by_region, solar_factor_by_region,
-        outage_posting_ts, outages_by_zone, error_message
+        outage_posting_ts, outages_by_zone, error_message,
+        load_scaling_mode
     )
     VALUES (
         %s, %s, now(),
@@ -84,7 +85,8 @@ UPSERT_META_SQL = """
         %s, %s,
         %s::jsonb, %s::jsonb, %s::jsonb,
         %s::jsonb, %s::jsonb,
-        %s, %s::jsonb, %s
+        %s, %s::jsonb, %s,
+        %s
     )
     ON CONFLICT (interval_ts) DO UPDATE SET
         status                 = EXCLUDED.status,
@@ -105,7 +107,8 @@ UPSERT_META_SQL = """
         solar_factor_by_region = EXCLUDED.solar_factor_by_region,
         outage_posting_ts      = EXCLUDED.outage_posting_ts,
         outages_by_zone        = EXCLUDED.outages_by_zone,
-        error_message          = EXCLUDED.error_message
+        error_message          = EXCLUDED.error_message,
+        load_scaling_mode      = EXCLUDED.load_scaling_mode
 """
 
 
@@ -173,6 +176,7 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         op_meta.get('outage_posting_ts'),
         json.dumps(op_meta.get('outages_by_zone')),
         None,  # error_message
+        op_meta.get('load_scaling_mode'),
     )
 
     with conn.cursor() as cur:
@@ -181,7 +185,13 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     conn.commit()
 
 
-def write_failure(conn, ts: datetime, status: str, error_message: str) -> None:
+def write_failure(
+    conn,
+    ts: datetime,
+    status: str,
+    error_message: str | None,
+    load_scaling_mode: str | None = None,
+) -> None:
     """Record a failed snapshot in snapshot_meta with status != 'ok'."""
     meta_row = (
         ts, status,
@@ -193,6 +203,7 @@ def write_failure(conn, ts: datetime, status: str, error_message: str) -> None:
         None,           # outage_posting_ts
         None,           # outages_by_zone
         error_message,
+        load_scaling_mode,
     )
     with conn.cursor() as cur:
         cur.execute(UPSERT_META_SQL, meta_row)
@@ -212,6 +223,10 @@ def compute_one(
 
     Returns (result['status'], result, op, n) on success.
     Returns ('<category>:<reason>', None, None, None) on failure.
+
+    If the first attempt is infeasible under zonal load scaling, retries
+    once with global load scaling. The retry's outcome (ok or still
+    infeasible) is what gets returned.
     """
 
     try:
@@ -222,6 +237,18 @@ def compute_one(
         return f'config_error:{e}', None, None, None
     except Exception as e:
         return f'opf_error:{type(e).__name__}:{e}', None, None, None
+
+    if result['status'] == 'infeasible':
+        msg = "possible zonal scale factor infeasible, \
+               retrying with global load scale factor"
+        log.warning(f"{ts}: {msg}")
+
+        try:
+            result, op, n = run_snapshot_for_ts(
+                ts, adapter, mc, force_global_load_sf=True
+            )
+        except Exception as e:
+            return f'opf_error:retry:{type(e).__name__}:{e}', None, None, None
 
     return result['status'], result, op, n
 
@@ -288,7 +315,8 @@ def main():
     n_total = len(timestamps)
     log.info(f"Processing {n_total} timestamps from {start} to {end}")
 
-    counts = {'ok': 0, 'infeasible': 0, 'missing_data': 0, 'other_error': 0, 'skipped': 0}
+    counts = {'ok': 0, 'infeasible': 0, 'missing_data': 0, 'other_error': 0,
+              'skipped': 0, 'global_fallback': 0}
     t_start = time.time()
 
     for i, ts in enumerate(timestamps, 1):
@@ -300,18 +328,25 @@ def main():
 
         status, result, op, n = compute_one(ts, adapter, mc)
 
+        load_scaling_mode = (op or {}).get('meta', {}).get('load_scaling_mode')
+        if load_scaling_mode == 'global_fallback':
+            counts['global_fallback'] += 1
+
         try:
             if status == 'ok':
                 write_snapshot(conn, ts, result, op, n)
                 counts['ok'] += 1
             elif status == 'infeasible':
-                write_failure(conn, ts, 'infeasible', None)
+                write_failure(conn, ts, 'infeasible', None,
+                              load_scaling_mode=load_scaling_mode)
                 counts['infeasible'] += 1
             elif status.startswith('missing_data'):
-                write_failure(conn, ts, 'missing_data', status)
+                write_failure(conn, ts, 'missing_data', status,
+                              load_scaling_mode=load_scaling_mode)
                 counts['missing_data'] += 1
             else:
-                write_failure(conn, ts, 'error', status)
+                write_failure(conn, ts, 'error', status,
+                              load_scaling_mode=load_scaling_mode)
                 counts['other_error'] += 1
         except Exception as e:
             log.error(f"DB write failure at {ts}: {e}")

@@ -140,7 +140,12 @@ class OperatingDataAdapter:
     # Public API
     # ------------------------------------------------------------------
 
-    def build(self, ts: datetime) -> dict[str, Any]:
+    def build(
+        self,
+        ts: datetime,
+        *,
+        force_global_load_sf: bool = False,
+    ) -> dict[str, Any]:
         """
         Build operating_data for a UTC timestamp.
 
@@ -174,7 +179,7 @@ class OperatingDataAdapter:
         if len(self._static.non_ercot_gens) > 0:
             p_max_pu.loc[self._static.non_ercot_gens] = 0.0
 
-        loads = self._scale_loads(load_row)
+        loads, load_scaling_mode = self._scale_loads(load_row, force_global_load_sf)
 
         return {
             'p_max_pu_per_gen': p_max_pu,
@@ -186,6 +191,7 @@ class OperatingDataAdapter:
             'meta': {
                 'ts': ts,
                 'load_total_mw': float(loads.sum()),
+                'load_scaling_mode': load_scaling_mode,
                 'wind_factor_by_region': self._wind_factors(wind_row),
                 'solar_factor_by_region': self._solar_factors(solar_row),
                 'outage_posting_ts': outage_row['posted_datetime'] if outage_row else None,
@@ -658,7 +664,11 @@ class OperatingDataAdapter:
         return p_max_pu
 
 
-    def _scale_loads(self, load_row: dict) -> pd.Series:
+    def _scale_loads(
+        self,
+        load_row: dict,
+        force_global_load_sf: bool = False,
+    ) -> tuple[pd.Series, str]:
         """Scale TAMU's static load distribution to match ERCOT's per-zone loads.
 
         For each ERCOT weather zone, compute a ZONE-specific scale factor:
@@ -675,6 +685,12 @@ class OperatingDataAdapter:
         factor (ercot_total / tamu_total) uniformly across all loads.
         Partial fallback would corrupt the between-zone ratios.
 
+        force_global_load_sf=True skips the per-zone path entirely and uses
+        the global scale factor. Used by the caller to retry an OPF that
+        was infeasible under zonal scaling.
+
+        Returns (loads, mode) where mode is 'zonal' or 'global_fallback'.
+
         KEY: We're applying the scale factors to the loads at the bus level.
         (NB: this is not the 4 zones comprising "bus_load_zone", which ERCOT
         uses for nodal pricing zones; e.g. nodal hub pricing, CRR's, DA
@@ -690,9 +706,14 @@ class OperatingDataAdapter:
         """
         ercot_total = load_row.get('total') or 0.0
         if ercot_total <= 0 or self._static.static_total <= 0:
-            return pd.Series(0.0, index=self._static.static_loads.index)
+            zeros = pd.Series(0.0, index=self._static.static_loads.index)
+            return zeros, 'global_fallback'
 
         global_scale = ercot_total / self._static.static_total
+
+        if force_global_load_sf:
+            log.warning("Forced global scale factor (caller-requested fallback)")
+            return self._static.static_loads * global_scale, 'global_fallback'
 
         tamu_zone_totals = self._static.static_loads.groupby(
             self._static.load_weather_zone
@@ -714,7 +735,7 @@ class OperatingDataAdapter:
                          if (load_row.get(z) or 0) <= 0 or mw <= 0]
             msg = f"Fallback to global scale factor — bad zones: {bad_zones}"
             log.warning(msg)
-            scale_by_zone = {zone: global_scale for zone in scale_by_zone}
+            return self._static.static_loads * global_scale, 'global_fallback'
 
         per_load_scale = self._static.load_weather_zone.map(scale_by_zone)
-        return self._static.static_loads * per_load_scale
+        return self._static.static_loads * per_load_scale, 'zonal'
