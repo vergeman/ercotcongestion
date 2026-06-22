@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Combined dep set (api + compute + ingest).
 RUN pip install --no-cache-dir \
+        requests \
         fastapi \
         uvicorn[standard] \
         pypsa \
