@@ -1,0 +1,25 @@
+                       ts         regime  shed_base  shed_bb  lmp_max_bb  contaminated_buses  flow_howard_solstice  flow_bighill_sandlake  flow_dinosaur_drillhole
+2025-07-30T21:00:00+00:00    summer_peak        259      244         NaN                   0                 166.0                   70.0                    179.0
+2025-08-25T21:00:00+00:00    summer_peak        371      331         NaN                   0                 177.0                   24.0                    137.0
+2025-08-19T19:00:00+00:00    summer_peak        876      826         NaN                   0                  34.0                    9.0                    105.0
+2025-07-24T21:00:00+00:00    summer_peak        161      149         NaN                   0                  83.0                   22.0                    130.0
+2025-07-29T20:00:00+00:00    summer_peak        164      146         NaN                   0                 223.0                   57.0                    184.0
+2026-04-03T13:00:00+00:00 high_wind_west         88       62         NaN                   0                  50.0                   98.0                    229.0
+2025-01-18T01:00:00+00:00 high_wind_west        349      327         NaN                   0                 214.0                  127.0                      1.0
+2025-03-14T12:00:00+00:00 high_wind_west        372      375         NaN                   0                 214.0                  123.0                     12.0
+2026-03-16T06:00:00+00:00 high_wind_west        419      448         NaN                   0                 214.0                  162.0                     11.0
+2026-03-21T06:00:00+00:00 high_wind_west        434      466         NaN                   0                 214.0                  159.0                     13.0
+2025-03-02T10:00:00+00:00  mild_shoulder        356      375         NaN                   0                 214.0                  146.0                      9.0
+2025-03-22T08:00:00+00:00  mild_shoulder        551      746         NaN                   0                 214.0                  202.0                      1.0
+2026-04-20T08:00:00+00:00  mild_shoulder        240      265         NaN                   0                 214.0                  114.0                     11.0
+2025-03-03T08:00:00+00:00  mild_shoulder        247      302         NaN                   0                 214.0                  146.0                     10.0
+2025-03-20T08:00:00+00:00  mild_shoulder        399      699         NaN                   0                 214.0                  202.0                      0.0
+2025-01-20T15:00:00+00:00    winter_peak        145      139         NaN                   0                 252.0                   43.0                    147.0
+2025-01-07T13:00:00+00:00    winter_peak        731      847         NaN                   0                 214.0                  191.0                     38.0
+2025-01-10T00:00:00+00:00    winter_peak        580      692         NaN                   0                 214.0                  135.0                     40.0
+2025-01-06T14:00:00+00:00    winter_peak        491      446         NaN                   0                 214.0                  109.0                     26.0
+2025-01-19T15:00:00+00:00    winter_peak        332      255         NaN                   0                 142.0                   74.0                     95.0
+
+shed: base 7,565 -> bb 8,140 MW (-575 relieved)
+hours fully served by backbone: 0/20
+hours with shed-cost-contaminated LMPs after backbone: 0/20

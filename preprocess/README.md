@@ -36,11 +36,16 @@
 
 * `Texas2k_series25_case1_summerpeak/`: model data
   * [Source: texas2k-series25](https://electricgrids.engr.tamu.edu/texas2k-series25/)
+    * Make sure the file is `Texas2k_series2025.zip` (5.7MB) updated for 2025,
+      not earlier `ACTIVSg2000.zip` (120MB - contains powerworld binary).
   * `Texas2k_series25_case1_summerpeak.m`: TAMU grid Matpower format
   * `Texas2k_series25_case1_summerpeak.AUX`: extract missing data (lat/lng) to add to network
     * Lat, Lng
     * Fuel Type
     * Unit Type
+  * `Expansion_Planning_Problem_Data/Candidates.csv`: used in
+    `/compute/experiments/zonal_load` for far west load feasibility experiments
+
 
 * `eia860/`: [EIA-860 Generator and Plant Info](https://www.eia.gov/electricity/data/eia860/)
   * https://www.eia.gov/electricity/data/eia860/xls/eia8602024.zip

@@ -18,6 +18,8 @@ DEFAULT_P_MAX_PU: dict[str, float] = {
     'other':   0.80,
 }
 
+SHED_COST = 5000   # ERCOT offer cap; (VOLL: Value of Lost Load)
+
 PV_REGIONS = ('centerwest', 'northwest', 'farwest', 'fareast', 'southeast', 'centereast')
 WIND_REGIONS = ('panhandle', 'coastal', 'south', 'west', 'north')
 LOAD_ZONES = ('houston', 'north', 'south', 'west')

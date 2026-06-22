@@ -10,6 +10,7 @@ from contingency import compute_contingencies, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
 
 from config import NETWORK_NC
+from constants import SHED_COST
 from datetime import datetime
 from operating_data_adapter import OperatingDataAdapter
 
@@ -17,7 +18,8 @@ from operating_data_adapter import OperatingDataAdapter
 logger = logging.getLogger(__name__)
 
 def compute_snapshot(n, operating_data, top_k_contingencies = 10,
-                     copy_network = False, enable_plots = False) -> dict[str, any]:
+                     copy_network = False, enable_plots = False,
+                     enable_load_shed = True, shed_cost = SHED_COST) -> dict[str, any]:
     """
     Compute a full grid snapshot: OPF + fragility + N-1 contingencies.
     Returns
@@ -39,6 +41,18 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     net = deepcopy(n) if copy_network else n
 
     apply_operating_conditions(n, **operating_data)
+
+    SHED_PREFIX = "shed_"
+    if enable_load_shed:
+        net.add(
+            "Generator",
+            [f"{SHED_PREFIX}{b}" for b in net.buses.index],
+            bus=net.buses.index.values,
+            carrier="load_shed",
+            marginal_cost=shed_cost,
+            p_nom=float(net.loads['p_set'].sum()),
+            p_nom_extendable=False,
+        )
 
     #
     # Solve DC-OPF
@@ -66,6 +80,13 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
         net.buses_t.marginal_price.loc[sns] = (
             net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
         )
+
+        shed_mw = pd.Series(0.0, index=net.buses.index)
+        if enable_load_shed:
+            gp = net.generators_t.p.iloc[0]
+            s = gp[gp.index.str.startswith(SHED_PREFIX)]
+            s.index = s.index.str.replace(SHED_PREFIX, "", regex=False)
+            shed_mw = s.reindex(net.buses.index).fillna(0.0)
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
@@ -105,8 +126,11 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
     # OUTPUTS
 
     # Market outputs
-    lmps = net.buses_t.marginal_price.iloc[0]
+    shed_buses = shed_mw.index[shed_mw > 1e-3]
+    lmps = net.buses_t.marginal_price.iloc[0].copy()
+    lmps.loc[shed_buses] = np.nan                      # scarcity price, not market
     dispatch = net.generators_t.p.iloc[0]
+    dispatch = dispatch[~dispatch.index.str.startswith(SHED_PREFIX)]
     flows = net.lines_t.p0.iloc[0]
 
     #
@@ -151,8 +175,14 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
             if fragility.sum() > 0 else 0.0
         ),
         'basis_n_resolved': int(basis.notna().sum()),
-        'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None
+        'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None,
+        'load_shed_total_mw': float(shed_mw.sum()),
+        'n_shed_buses': int((shed_mw > 1e-3).sum()),
     }
+    if bus_load_zone is not None:
+        meta['shed_by_zone'] = (
+            shed_mw[shed_mw > 1e-3].groupby(bus_load_zone).sum().to_dict()
+        )
 
     return {
         'status': 'ok',
@@ -164,6 +194,8 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
         'binding_lines': list(binding_lines.index),
         'shadow_prices': binding_lines,
         'top_contingencies': contingencies,
+        'shed_mw': shed_mw[shed_mw > 1e-3],   # bus -> unserved MW (nonzero only)
+        'shed_buses': list(shed_buses),
         'meta': meta,
     }
 
