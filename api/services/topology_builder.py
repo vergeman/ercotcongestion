@@ -18,8 +18,6 @@ We expose them in the GeoJSON as `weather_zone` and `load_zone` for the frontend
 Idempotent: regenerating from the same inputs produces an identical file.
 """
 from __future__ import annotations
-import sys, os
-sys.path.insert(0, '/api')
 
 import json
 import logging

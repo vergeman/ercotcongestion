@@ -8,11 +8,7 @@ so the payload stays tight (a few hundred buses at most for any real line).
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
-
-# /api is on sys.path via the topology_builder pattern; mirror it for compute.
-sys.path.insert(0, '/compute')
 
 import numpy as np
 
