@@ -9,7 +9,7 @@ NETWORK_NC                      = settings.network_nc
 BUS_WEATHER_LOAD_ZONES_CSV      = settings.bus_weather_load_zones_csv
 GENERATOR_MATCHES_ENRICHED_CSV  = settings.generator_matches_enriched_csv
 
-FRONTEND_ORIGINS                = settings.frontend_origins
+FRONTEND_ORIGIN                 = settings.frontend_origin
 TOPOLOGY_CACHE                  = settings.topology_cache
 
 MIN_VALIDATION_HOURS = 24       # warn below this

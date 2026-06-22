@@ -13,7 +13,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from config import FRONTEND_ORIGINS
+from config import FRONTEND_ORIGIN
 from db import lifespan
 import state, topology, validation, ptdf
 
@@ -29,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=FRONTEND_ORIGINS,
+    allow_origins=FRONTEND_ORIGIN,
     allow_credentials=False,
     allow_methods=['GET'],
     allow_headers=['*'],
