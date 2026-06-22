@@ -44,7 +44,7 @@ def main():
         help="Identifier for this experiment (e.g., 'baseline', 'derate_L3704')"
     )
     args = ap.parse_args()
-
+    RESULTS_FILE = BASE_DIR / f"reference_snapshots_{args.run_id}.json"
 
     # load dates
     with open(REF_FILE, 'r') as f:
@@ -53,18 +53,17 @@ def main():
     results = []
     for regime, timestamps in refs.items():
 
-        res = {
-          "regime": regime,
-          "run_id": args.run_id
-        }
-
         for _ts in timestamps:
             # _ts = "2026-03-25T22:00"  # NB: need data (stub for data)
             ts = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc)
             _, _, _, output_data = run(ts)
-            res.update(output_data)
 
-        results.append(res)
+            results.append({
+              "regime": regime,
+              "run_id": args.run_id,
+              "ts": _ts,
+              **output_data
+            })
 
     with open(RESULTS_FILE, 'w') as f:
         json.dump(results, f)
@@ -93,7 +92,14 @@ def run(ts):
     print(f"{'=' * 60}")
     print(f"Status: {result['status']}")
 
-    if result['status'] != 'ok':
+    if result['status'] == 'infeasible':
+        msg = "possible zonal scale factor infeasible, retrying with global load scale factor"
+        print(msg)
+
+        result, op, n = run_snapshot_for_ts(ts, adapter, mc, force_global_load_sf=True)
+
+
+    if result['status'] not in ['ok', 'infeasible']:
         return
 
     m = result['meta']
@@ -124,8 +130,11 @@ def run(ts):
       "fragility_total": m['fragility_total'],
       "fragility_top10_share": m['fragility_top10_share'],
       "top_10_fragile_buses": result['fragility'].nlargest(10).round(3).to_dict(),
-      "top_5_binding_lines": result['shadow_prices'].head(5).round(2).to_dict() if not result['shadow_prices'].empty else {}
-}
+      "top_5_binding_lines": result['shadow_prices'].head(5).round(2).to_dict() if not result['shadow_prices'].empty else {},
+      "load_scaling_mode": op['meta'].get('load_scaling_mode'),
+      "load_shed_total_mw": m.get('load_shed_total_mw')
+    }
+
     return result, op, n, output_data
 
 if __name__ == '__main__':
