@@ -1,6 +1,10 @@
 # ERCOT Zonal vs Global Load Scaling Example
 
-Walkthrough of what we're doing in `/compute/operating_data_adapter.py:_scale_loads*()`.
+** A more thorough discussion alongside several experiments are handled in
+`/compute/experiments/zonal_load` **.
+
+Walkthrough of what we're doing in
+`/compute/operating_data_adapter.py:_scale_loads*()`.
 
 Purpose of all this is to apply the scale factors to the loads at the bus level.
 
