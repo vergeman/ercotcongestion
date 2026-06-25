@@ -73,6 +73,66 @@ REVIEW_THRESHOLD = 70
 TOP_RN_TARGET = 200
 LMP_COL = "RTO/ISO LMP Node Designation"
 
+# Energy-source hints embedded in ERCOT unit/RN names. Token base (digits
+# stripped) → canonical source bucket. Used to reject cross-type fuzzy
+# matches (e.g. a solar RN landing on a gas plant).
+UNIT_SOURCE_TOKENS = {
+    "SOLAR": "solar", "SLR": "solar", "PV": "solar", "SUN": "solar",
+    "WIND": "wind",   "WND": "wind",  "TURB": "wind",
+    "BESS": "battery", "BATT": "battery", "BATTERY": "battery",
+    "ESR": "battery", "ESS": "battery", "STORAGE": "battery",
+    "CC": "gas", "CCU": "gas", "CT": "gas", "GT": "gas",
+    "NG": "gas", "GAS": "gas",
+    "COAL": "coal", "NUC": "nuclear", "NUCLEAR": "nuclear",
+    "HYDRO": "hydro", "GEO": "geothermal",
+}
+
+# EIA Energy Source 1 codes → canonical bucket. ST (steam turbine) is
+# intentionally omitted from both sides since the prime mover doesn't
+# uniquely identify fuel.
+EIA_ES_CODES = {
+    "SUN": "solar",
+    "WND": "wind",
+    "MWH": "battery",
+    "NG": "gas", "BFG": "gas", "OG": "gas", "PG": "gas", "LPG": "gas",
+    "BIT": "coal", "SUB": "coal", "LIG": "coal", "RC": "coal",
+    "NUC": "nuclear",
+    "WAT": "hydro",
+    "GEO": "geothermal",
+    "DFO": "oil", "JF": "oil", "KER": "oil", "RFO": "oil", "WO": "oil",
+}
+
+
+def infer_source(*names: str) -> str | None:
+    """Scan one or more name strings for an energy-source hint. Returns
+    canonical source if exactly one bucket is implicated, else None
+    (ambiguous/unknown — caller should not filter on source)."""
+    found: set[str] = set()
+    for n in names:
+        if not isinstance(n, str):
+            continue
+        for tok in re.split(r"[\s_]+", n.upper()):
+            base = re.sub(r"\d+$", "", tok)
+            src = UNIT_SOURCE_TOKENS.get(base)
+            if src:
+                found.add(src)
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def plant_source(tech: str, es: str) -> str | None:
+    """Resolve an EIA plant's energy source from Technology (natural-language
+    label) + Energy Source 1 code. Technology is checked first since it's
+    less ambiguous than fuel codes."""
+    s = (tech or "").upper()
+    if "SOLAR" in s or "PHOTOVOLTAIC" in s:           return "solar"
+    if "WIND" in s:                                   return "wind"
+    if "BATTERY" in s or "STORAGE" in s:              return "battery"
+    if "COMBINED CYCLE" in s or "GAS TURBINE" in s:   return "gas"
+    if "COAL" in s:                                   return "coal"
+    if "NUCLEAR" in s:                                return "nuclear"
+    if "HYDROELECTRIC" in s or "HYDRO" in s:          return "hydro"
+    return EIA_ES_CODES.get((es or "").strip().upper())
+
 
 def newest(dir_path: Path, glob: str) -> Path:
     files = sorted(dir_path.glob(glob))
@@ -145,12 +205,19 @@ def load_plants() -> pd.DataFrame:
         "Latitude": "first",
         "Longitude": "first",
         "Nameplate Capacity (MW)": "sum",
+        # First-value: a plant can house mixed fuel types; the first generator
+        # row gives a best-effort label. Cross-type plants will resolve to
+        # None when source filtering is applied.
+        "Technology": "first",
+        "Energy Source 1": "first",
     }
     if LMP_COL in df.columns:
         agg[LMP_COL] = lambda s: ";".join(sorted({x.strip() for x in s.dropna() if x.strip()}))
     plants = df.groupby("Plant Code", as_index=False).agg(agg)
     plants = plants.dropna(subset=["Latitude", "Longitude"])
     plants["plant_name_norm"] = plants["Plant Name"].map(normalize)
+    plants["source"] = [plant_source(t, e)
+                        for t, e in zip(plants["Technology"], plants["Energy Source 1"])]
     return plants.reset_index(drop=True)
 
 
@@ -190,6 +257,36 @@ def build_lmp_index(plants: pd.DataFrame) -> tuple[dict[str, int], list[str], li
     return exact, pool, pool_pos
 
 
+def _best_compatible(
+    queries: list[str],
+    pool: list[str],
+    pool_pos: list[int],
+    plants: pd.DataFrame,
+    sp_src: str | None,
+) -> tuple[int, int | None]:
+    """Return (best_score, best_plant_row_pos) over `queries` × `pool`,
+    accepting only hits whose plant source is compatible with sp_src.
+    Compatibility: either side may be None (unknown), otherwise must match."""
+    best_score, best_pos = 0, None
+    if not pool:
+        return best_score, best_pos
+    plant_src = plants["source"].tolist()
+    for q in queries:
+        # top-5 lets us skip the highest-scoring hit if it's incompatible.
+        hits = process.extract(
+            q, pool, scorer=fuzz.token_set_ratio,
+            score_cutoff=REVIEW_THRESHOLD, limit=5,
+        )
+        for _, score, idx in hits:
+            row_pos = pool_pos[idx]
+            ps = plant_src[row_pos]
+            if sp_src is None or ps is None or sp_src == ps:
+                if score > best_score:
+                    best_score, best_pos = score, row_pos
+                break  # higher-scoring incompatible hits are skipped via outer loop
+    return best_score, best_pos
+
+
 def match_one(
     sp: str,
     rn_unit_g: pd.Series,
@@ -199,6 +296,7 @@ def match_one(
     lmp_exact: dict[str, int],
     lmp_pool: list[str],
     lmp_pool_pos: list[int],
+    sp_src: str | None,
 ) -> dict:
     base = {
         "settlement_point": sp,
@@ -241,16 +339,11 @@ def match_one(
                                        for t in q.split())]
 
     # Pass 2: fuzzy match against LMP designation tokens (more reliable than
-    # plant names since both sides use ERCOT naming conventions).
-    best_score, best_pos = 0, None
-    if lmp_pool:
-        for q in queries:
-            hit = process.extractOne(
-                q, lmp_pool, scorer=fuzz.token_set_ratio, score_cutoff=REVIEW_THRESHOLD
-            )
-            if hit and hit[1] > best_score:
-                _, best_score, idx = hit
-                best_pos = lmp_pool_pos[idx]
+    # plant names since both sides use ERCOT naming conventions). Source
+    # compatibility filter prevents e.g. a solar RN landing on a gas plant.
+    best_score, best_pos = _best_compatible(
+        queries, lmp_pool, lmp_pool_pos, plants, sp_src,
+    )
 
     if best_pos is not None and best_score >= AUTO_THRESHOLD:
         p = plants.iloc[best_pos]
@@ -264,13 +357,10 @@ def match_one(
         }
 
     # Pass 3: fuzzy match against plant names
-    best_score_pn, best_pos_pn = 0, None
-    for q in queries:
-        hit = process.extractOne(
-            q, plant_names, scorer=fuzz.token_set_ratio, score_cutoff=REVIEW_THRESHOLD
-        )
-        if hit and hit[1] > best_score_pn:
-            _, best_score_pn, best_pos_pn = hit
+    plant_pos = list(range(len(plant_names)))
+    best_score_pn, best_pos_pn = _best_compatible(
+        queries, plant_names, plant_pos, plants, sp_src,
+    )
 
     if best_pos_pn is not None and best_score_pn >= AUTO_THRESHOLD:
         p = plants.iloc[best_pos_pn]
@@ -287,11 +377,13 @@ def match_one(
     if best_score_pn > best_score:
         best_score, best_pos = best_score_pn, best_pos_pn
 
-    # Pass 3: substring fallback
+    # Pass 4: substring fallback (source-compatible plants only)
     for q in queries:
         if len(q) < 4:
             continue
         mask = plants["plant_name_norm"].str.contains(q, regex=False, na=False)
+        if sp_src is not None:
+            mask &= plants["source"].isin([sp_src, None]) | plants["source"].isna()
         if mask.any():
             p = plants[mask].sort_values("Nameplate Capacity (MW)", ascending=False).iloc[0]
             return {
@@ -325,8 +417,12 @@ def match_settlement_points(sps, rn_unit, plants) -> pd.DataFrame:
         lambda s: sorted(set(s))
     )
     plant_names = plants["plant_name_norm"].tolist()
+
+    def sp_source(sp: str) -> str | None:
+        return infer_source(sp, *rn_unit_g.get(sp, []), *unit_names_g.get(sp, []))
+
     rows = [match_one(sp, rn_unit_g, unit_names_g, plant_names, plants,
-                     lmp_exact, lmp_pool, lmp_pool_pos)
+                     lmp_exact, lmp_pool, lmp_pool_pos, sp_source(sp))
             for sp in sps["settlement_point"]]
     return pd.DataFrame(rows)
 

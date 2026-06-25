@@ -53,6 +53,13 @@ Branch: feat/0006-ERCOT-geocode
   4. plant-name substring fallback
   * 70–84 → review queue (no coords emitted; bad matches with high partial
     overlap would otherwise pollute downstream joins).
+  * Energy-source compatibility filter on all fuzzy/substring passes:
+    infer a source (solar/wind/battery/gas/coal/...) from SP + unit-name
+    tokens (`SLR`, `WND`, `BESS`/`ESR`, `CC`/`CT`/`GT`/`NG`, …) and from
+    EIA `Technology` + `Energy Source 1`. Hits whose plant source
+    disagrees are rejected, falling through to the next-best candidate.
+    Either side `None` is treated as compatible so unknown-source SPs
+    still match.
 * Step 6 — Apply manual overrides from
   `data/raw/ercot_geocode/manual_overrides.csv` (git-tracked, same schema
   as the geocoded output). Reviewed entries land here; reruns refresh the
@@ -70,12 +77,13 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (439 rows; only LMP/fuzzy/substring/manual matches emit coords.)
+      (421 rows; only LMP/fuzzy/substring/manual matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 85.7%: 78 auto + 13 substring of 91 head rows; 0 unmatched
+      (Achieved 87.2%: 68 auto + 10 substring of 78 head rows; 0 unmatched
       in head. Tightened from an earlier 89.6% after removing ~110 false
-      positives traced to orphan-token over-matching.)
+      positives from orphan-token over-matching, then narrowed further by
+      the energy-source compatibility filter.)
 * [x] Run log records counts per match method and unmatched count.
