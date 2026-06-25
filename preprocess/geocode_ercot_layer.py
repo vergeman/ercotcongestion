@@ -205,61 +205,80 @@ GEN_TYPE_SOURCE = {
 }
 
 
-def load_dme_list() -> dict[str, dict]:
-    """Read ERCOT's Resource DME List. Returns {RESOURCE NAME (unit_code) →
-    {owner, dme, type}}. `RESOURCE NAME` matches `{substation}_{unit_name}`
-    from Resource_Node_to_Unit (same key shape as the stand-alone report).
-    Optional input — returns {} if absent."""
+def load_dme_list() -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    """Read ERCOT's Resource DME List. Returns:
+      - exact: {RESOURCE NAME (unit_code) → {owner, dme, type}}
+      - by_prefix: {substation_prefix → [info, ...]}, where prefix is the
+        token before the first underscore in RESOURCE NAME (substation code)
+
+    The by-prefix index is the fallback for PCCRN-style SPs (e.g. `QALSW_CC1`)
+    that are not in `Resource_Node_to_Unit`: the substation code is still
+    1:1 with a single corporate owner in the data, so prefix lookup is safe.
+    Optional input — returns ({}, {}) if absent.
+    """
     try:
         path = newest(ERCOT_GEOCODE_DIR, DME_LIST_GLOB)
     except FileNotFoundError:
-        return {}
+        return {}, {}
     print(f"[dme-list] {path.name}")
     df = pd.read_csv(path)
-    # ERCOT tags entities with " (RE)" / " (DME)" suffixes; strip them so the
-    # remaining string is just the corporate name.
     def strip_suffix(s: str) -> str:
         if not isinstance(s, str):
             return ""
         return re.sub(r"\s*\((RE|DME)\)\s*$", "", s.strip(), flags=re.IGNORECASE)
 
-    out: dict[str, dict] = {}
+    exact: dict[str, dict] = {}
+    by_prefix: dict[str, list[dict]] = {}
     for _, r in df.iterrows():
         key = str(r["RESOURCE NAME"]).strip()
-        out[key] = {
+        info = {
             "owner": strip_suffix(r.get("OWNER RE", "")),
             "dme":   strip_suffix(r.get("DME", "")),
             "type":  str(r.get("TYPE", "")).strip(),
         }
-    return out
+        exact[key] = info
+        prefix = key.split("_", 1)[0]
+        if prefix:
+            by_prefix.setdefault(prefix, []).append(info)
+    return exact, by_prefix
 
 
-def load_stand_alone() -> dict[str, dict]:
-    """Read ERCOT's stand-alone generation resources report. Returns
-    {unit_code → {description, type, source, capacity_mw}} where `unit_code`
-    matches `{UNIT_SUBSTATION}_{UNIT_NAME}` from Resource_Node_to_Unit.
-    Returns {} if the file is absent (optional input)."""
+def load_stand_alone() -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    """Read ERCOT's stand-alone generation resources report. Returns:
+      - exact: {Unit Code → info} where Unit Code matches
+        `{UNIT_SUBSTATION}_{UNIT_NAME}` from Resource_Node_to_Unit
+      - by_station: {Generator Station Code → [info, ...]}, the fallback
+        for PCCRN-style SPs that don't appear in Resource_Node_to_Unit
+        (e.g. `QALSW_CC1` → all units with station code `QALSW`)
+    Optional input — returns ({}, {}) if absent.
+    """
     try:
         path = newest(ERCOT_GEOCODE_DIR, STAND_ALONE_GLOB)
     except FileNotFoundError:
-        return {}
+        return {}, {}
     print(f"[stand-alone] {path.name}")
     df = pd.read_csv(path)
     df["Unit Code"] = df["Unit Code"].astype(str).str.strip()
+    df["Generator Station Code"] = df["Generator Station Code"]\
+        .astype(str).str.strip()
     df["Generator Station Description"] = df["Generator Station Description"]\
         .astype(str).str.strip()
     df["Nameplate Capacity (MW)"] = pd.to_numeric(
         df["Nameplate Capacity (MW)"], errors="coerce"
     )
-    out: dict[str, dict] = {}
+    exact: dict[str, dict] = {}
+    by_station: dict[str, list[dict]] = {}
     for _, r in df.iterrows():
-        out[r["Unit Code"]] = {
+        info = {
             "description": r["Generator Station Description"],
             "type": str(r.get("Generator Type", "")).strip(),
             "source": GEN_TYPE_SOURCE.get(str(r.get("Generator Type", "")).strip().upper()),
             "capacity_mw": float(r["Nameplate Capacity (MW)"] or 0),
         }
-    return out
+        exact[r["Unit Code"]] = info
+        if r["Generator Station Code"]:
+            by_station.setdefault(r["Generator Station Code"], []).append(info)
+    return exact, by_station
 
 
 def load_plants() -> pd.DataFrame:
@@ -531,19 +550,26 @@ def match_one(
 def sp_to_descriptions(
     sp: str,
     rn_unit: pd.DataFrame,
-    stand_alone: dict[str, dict],
+    stand_alone_exact: dict[str, dict],
+    stand_alone_by_station: dict[str, list[dict]],
 ) -> tuple[list[str], str | None]:
-    """For an SP, look up its (substation, unit_name) pairs in the stand-alone
-    resources report and return (unique station descriptions, source-from-type
-    if all units agree)."""
+    """Return (unique station descriptions, source-from-type if all agree)
+    for an SP. Primary join is `{substation}_{unit_name}` → unit code; the
+    fallback (for PCCRN-style SPs not in Resource_Node_to_Unit) uses the
+    SP's own prefix as a substation code — safe because the report's
+    Generator Station Code is 1:1 with its description."""
     rows = rn_unit[rn_unit["settlement_point"] == sp]
+    infos: list[dict] = []
+    for _, r in rows.iterrows():
+        info = stand_alone_exact.get(f"{r['substation']}_{r['unit_name']}")
+        if info:
+            infos.append(info)
+    if not infos:
+        prefix = sp.split("_", 1)[0]
+        infos = stand_alone_by_station.get(prefix, [])
     descs: list[str] = []
     sources: set[str] = set()
-    for _, r in rows.iterrows():
-        key = f"{r['substation']}_{r['unit_name']}"
-        info = stand_alone.get(key)
-        if not info:
-            continue
+    for info in infos:
         if info["description"] and info["description"] not in descs:
             descs.append(info["description"])
         if info["source"]:
@@ -561,19 +587,25 @@ DME_TYPE_SOURCE = {"STORAGE": "battery"}
 def sp_to_owners(
     sp: str,
     rn_unit: pd.DataFrame,
-    dme: dict[str, dict],
+    dme_exact: dict[str, dict],
+    dme_by_prefix: dict[str, list[dict]],
 ) -> tuple[list[str], str | None]:
-    """Return (unique owner/DME strings, source-from-type) for an SP, joined
-    via {substation}_{unit_name} → DME report. Owner and DME often differ —
-    we keep both as candidate strings."""
+    """Return (unique owner/DME strings, source-from-type) for an SP. Primary
+    join is `{substation}_{unit_name}` → RESOURCE NAME; the fallback uses the
+    SP's own prefix as substation code (covers PCCRN-style SPs missing from
+    Resource_Node_to_Unit)."""
     rows = rn_unit[rn_unit["settlement_point"] == sp]
+    infos: list[dict] = []
+    for _, r in rows.iterrows():
+        info = dme_exact.get(f"{r['substation']}_{r['unit_name']}")
+        if info:
+            infos.append(info)
+    if not infos:
+        prefix = sp.split("_", 1)[0]
+        infos = dme_by_prefix.get(prefix, [])
     owners: list[str] = []
     sources: set[str] = set()
-    for _, r in rows.iterrows():
-        key = f"{r['substation']}_{r['unit_name']}"
-        info = dme.get(key)
-        if not info:
-            continue
+    for info in infos:
         for fld in ("owner", "dme"):
             v = info[fld]
             if v and v not in owners:
@@ -585,7 +617,9 @@ def sp_to_owners(
     return owners, src
 
 
-def match_settlement_points(sps, rn_unit, plants, stand_alone, dme) -> pd.DataFrame:
+def match_settlement_points(sps, rn_unit, plants,
+                            stand_alone, stand_alone_by_station,
+                            dme, dme_by_prefix) -> pd.DataFrame:
     lmp_exact, lmp_pool, lmp_pool_pos = build_lmp_index(plants)
     rn_unit_g = rn_unit.groupby("settlement_point")["substation"].agg(
         lambda s: sorted(set(s))
@@ -596,8 +630,9 @@ def match_settlement_points(sps, rn_unit, plants, stand_alone, dme) -> pd.DataFr
     plant_names = plants["plant_name_norm"].tolist()
 
     def sp_meta(sp: str) -> tuple[list[str], list[str], str | None]:
-        descs, src_desc = sp_to_descriptions(sp, rn_unit, stand_alone)
-        owners, src_dme = sp_to_owners(sp, rn_unit, dme)
+        descs, src_desc = sp_to_descriptions(sp, rn_unit, stand_alone,
+                                              stand_alone_by_station)
+        owners, src_dme = sp_to_owners(sp, rn_unit, dme, dme_by_prefix)
         # Source precedence: stand-alone Generator Type → DME TYPE → token
         # inference. First two are explicit; the last is a heuristic guess.
         src = src_desc or src_dme or infer_source(
@@ -682,16 +717,18 @@ def main() -> int:
     ccp_names = load_ccp_names()
     rn_unit = load_rn_to_unit()
     plants = load_plants()
-    stand_alone = load_stand_alone()
-    dme = load_dme_list()
+    stand_alone, stand_alone_by_station = load_stand_alone()
+    dme, dme_by_prefix = load_dme_list()
     print(f"[input] priced SPs (non-HB/LZ/DC): {len(sps)}")
     print(f"[input] EIA-860 TX plants:         {len(plants)}")
-    print(f"[input] stand-alone unit codes:    {len(stand_alone)}")
-    print(f"[input] DME-list resource names:   {len(dme)}")
+    print(f"[input] stand-alone unit codes:    {len(stand_alone)}  (stations: {len(stand_alone_by_station)})")
+    print(f"[input] DME-list resource names:   {len(dme)}  (prefixes: {len(dme_by_prefix)})")
 
     sps["sp_type"] = sps["settlement_point"].map(lambda s: classify(s, ccp_names))
 
-    matched = match_settlement_points(sps, rn_unit, plants, stand_alone, dme)
+    matched = match_settlement_points(sps, rn_unit, plants,
+                                       stand_alone, stand_alone_by_station,
+                                       dme, dme_by_prefix)
     out = sps.merge(matched, on="settlement_point", how="left")
     out = apply_manual_overrides(out)
 

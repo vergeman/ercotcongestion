@@ -58,6 +58,13 @@ Branch: feat/0006-ERCOT-geocode
      Tight threshold because owner ≠ operator can easily conflate; the
      source filter further guards against e.g. a battery-storage owner
      resolving to a co-located wind farm.
+  * Substation-prefix fallback on passes 2–3: when an SP has no entries
+     in `Resource_Node_to_Unit` (common for PCCRN-style SPs like
+     `QALSW_CC1`), fall back to its first-underscore prefix and look it
+     up directly against the stand-alone report's `Generator Station
+     Code` and the DME report's `RESOURCE NAME` prefix. Safe because
+     both fields are 1:1 with a single station description / owner
+     within the data.
   4. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
      name + linked substation names + unit names)
   5. fuzzy ≥85 vs EIA Plant Name
@@ -90,16 +97,17 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (738 rows; only LMP/station-description/owner-name/fuzzy/substring/
+      (782 rows; only LMP/station-description/owner-name/fuzzy/substring/
       manual matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 97.0%: 194 auto + 6 substring of 200 head rows; 200/200
-      RNs with capacity, 0 unmatched in head. Earlier iterations: removed
-      ~110 false positives from orphan-token over-matching, narrowed by
-      energy-source compatibility filter, lifted by the station-
-      description bridge, strengthened by EIA-860 2025 early release
-      data, then lifted further by the owner/DME tight-match pass.)
+      (Achieved 98.5%: 197 auto + 3 substring of 200 head rows; 219 RNs
+      with mapped capacity, 0 unmatched in head. Earlier iterations:
+      removed ~110 false positives from orphan-token over-matching,
+      narrowed by energy-source compatibility filter, lifted by the
+      station-description bridge, strengthened by EIA-860 2025 early
+      release data, lifted further by the owner/DME tight-match pass,
+      then by the substation-prefix fallback for PCCRN-style SPs.)
 * [x] Run log records counts per match method and unmatched count.
