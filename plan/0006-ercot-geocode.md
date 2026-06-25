@@ -46,18 +46,31 @@ Branch: feat/0006-ERCOT-geocode
   SPs onto one plant.
 * Step 5 — Match each SP through six passes (first hit wins):
   1. exact lookup vs LMP designation (with `BAC_BAC_*` prefix-dedup retry)
-  2. fuzzy ≥85 vs EIA Plant Name using ERCOT's `Generator Station
-     Description` (Stand-Alone Generation Resources report). Bridge:
-     `{UNIT_SUBSTATION}_{UNIT_NAME}` → unit code → station description (a
-     real plant name) → match against EIA Plant Name. Highest-quality
-     pass since both sides are full names rather than cryptic codes.
-  3. fuzzy ≥92 (tight) vs EIA Plant Name using owner/DME corporate
-     entities from the ResDMEList report. Same `{substation}_{unit_name}`
-     bridge → `OWNER RE` / `DME` strings (stripped of `(RE)`/`(DME)` and
-     normalized through stop-tokens like `LLC`/`LP`/`INC`/`STORAGE`).
-     Tight threshold because owner ≠ operator can easily conflate; the
-     source filter further guards against e.g. a battery-storage owner
-     resolving to a co-located wind farm.
+  2. fuzzy ≥85 vs EIA Plant Name OR unique Utility Name using ERCOT's
+     `Generator Station Description` (Stand-Alone Generation Resources
+     report). Bridge: `{UNIT_SUBSTATION}_{UNIT_NAME}` → unit code →
+     station description (a real plant name) → match against EIA. The
+     utility-name pool is restricted to utilities owning exactly one
+     plant (≈84% of utilities) so multi-plant aggregators like NRG /
+     Calpine / Engie can't collapse unrelated SPs onto one arbitrary
+     plant. This is essential because the description often matches
+     `Utility Name` rather than `Plant Name` (e.g. `BVE_UNIT1` →
+     "Brazos Valley Energy" → Jack Fusco Energy Center).
+  * Ambiguity guard on every fuzzy pass: `token_set_ratio` rewards
+     subset matches, so a generic single-token query like `"CALPINE"`
+     scores 100 against every unique utility containing it
+     (Calpine-Hidalgo, Calpine-Magic Valley, …). When multiple distinct
+     compatible plants tie at the top score (±1), the query is skipped
+     rather than picking one arbitrarily — wrong coordinates 200+ miles
+     away are worse than no coordinates for downstream analysis.
+  3. fuzzy ≥92 (tight) vs EIA Plant Name OR unique Utility Name using
+     owner/DME corporate entities from the ResDMEList report. Same
+     `{substation}_{unit_name}` bridge → `OWNER RE` / `DME` strings
+     (stripped of `(RE)`/`(DME)` and normalized through stop-tokens like
+     `LLC`/`LP`/`INC`/`STORAGE`). Tight threshold because owner ≠
+     operator can easily conflate; the source filter further guards
+     against e.g. a battery-storage owner resolving to a co-located
+     wind farm.
   * Substation-prefix fallback on passes 2–3: when an SP has no entries
      in `Resource_Node_to_Unit` (common for PCCRN-style SPs like
      `QALSW_CC1`), fall back to its first-underscore prefix and look it
@@ -97,17 +110,20 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (782 rows; only LMP/station-description/owner-name/fuzzy/substring/
+      (784 rows; only LMP/station-description/owner-name/fuzzy/substring/
       manual matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 98.5%: 197 auto + 3 substring of 200 head rows; 219 RNs
+      (Achieved 96.5%: 193 auto + 7 substring of 200 head rows; 217 RNs
       with mapped capacity, 0 unmatched in head. Earlier iterations:
       removed ~110 false positives from orphan-token over-matching,
       narrowed by energy-source compatibility filter, lifted by the
       station-description bridge, strengthened by EIA-860 2025 early
       release data, lifted further by the owner/DME tight-match pass,
-      then by the substation-prefix fallback for PCCRN-style SPs.)
+      then by the substation-prefix fallback for PCCRN-style SPs, then
+      by adding Utility Name (unique-only) to the search pool, then
+      tightened back down by an ambiguity guard that rejects ties at
+      top score — trading ~50 matches for correctness.)
 * [x] Run log records counts per match method and unmatched count.

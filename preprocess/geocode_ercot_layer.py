@@ -293,6 +293,7 @@ def load_plants() -> pd.DataFrame:
     )
     agg = {
         "Plant Name": "first",
+        "Utility Name": "first",
         "Latitude": "first",
         "Longitude": "first",
         "Nameplate Capacity (MW)": "sum",
@@ -307,6 +308,7 @@ def load_plants() -> pd.DataFrame:
     plants = df.groupby("Plant Code", as_index=False).agg(agg)
     plants = plants.dropna(subset=["Latitude", "Longitude"])
     plants["plant_name_norm"] = plants["Plant Name"].map(normalize)
+    plants["utility_name_norm"] = plants["Utility Name"].map(normalize)
     plants["source"] = [plant_source(t, e)
                         for t, e in zip(plants["Technology"], plants["Energy Source 1"])]
     return plants.reset_index(drop=True)
@@ -348,6 +350,29 @@ def build_lmp_index(plants: pd.DataFrame) -> tuple[dict[str, int], list[str], li
     return exact, pool, pool_pos
 
 
+def build_name_pool(plants: pd.DataFrame) -> tuple[list[str], list[int], list[str], set[str]]:
+    """Build the combined search pool used by the fuzzy passes:
+      - pool / pool_pos: normalized names paralleled by plant row position
+      - kind: 'plant' or 'utility' for each pool entry
+      - unique_utils: normalized utility names owned by exactly one plant
+        (safe to accept as a match target — multi-plant utilities like
+        "NRG", "Calpine", "Engie" are excluded to avoid collapsing
+        unrelated SPs onto one arbitrary plant).
+    """
+    pool: list[str] = []
+    pool_pos: list[int] = []
+    kind: list[str] = []
+    for i, n in enumerate(plants["plant_name_norm"]):
+        if n:
+            pool.append(n); pool_pos.append(i); kind.append("plant")
+    util_counts = plants["utility_name_norm"].value_counts()
+    unique_utils = set(util_counts[util_counts == 1].index) - {""}
+    for i, u in enumerate(plants["utility_name_norm"]):
+        if u and u in unique_utils:
+            pool.append(u); pool_pos.append(i); kind.append("utility")
+    return pool, pool_pos, kind, unique_utils
+
+
 def _best_compatible(
     queries: list[str],
     pool: list[str],
@@ -357,24 +382,37 @@ def _best_compatible(
 ) -> tuple[int, int | None]:
     """Return (best_score, best_plant_row_pos) over `queries` × `pool`,
     accepting only hits whose plant source is compatible with sp_src.
-    Compatibility: either side may be None (unknown), otherwise must match."""
+    Compatibility: either side may be None (unknown), otherwise must match.
+
+    Ambiguity guard: token_set_ratio rewards subset matches, so a generic
+    single-token query like "CALPINE" scores 100 against every unique
+    utility containing CALPINE (Calpine-Hidalgo, Calpine-Magic Valley, ...).
+    If multiple distinct compatible plants tie at the top score (±1), the
+    query is treated as ambiguous and skipped rather than picking one
+    arbitrarily."""
     best_score, best_pos = 0, None
     if not pool:
         return best_score, best_pos
     plant_src = plants["source"].tolist()
     for q in queries:
-        # top-5 lets us skip the highest-scoring hit if it's incompatible.
         hits = process.extract(
             q, pool, scorer=fuzz.token_set_ratio,
-            score_cutoff=REVIEW_THRESHOLD, limit=5,
+            score_cutoff=REVIEW_THRESHOLD, limit=15,
         )
+        compat = []
         for _, score, idx in hits:
             row_pos = pool_pos[idx]
             ps = plant_src[row_pos]
             if sp_src is None or ps is None or sp_src == ps:
-                if score > best_score:
-                    best_score, best_pos = score, row_pos
-                break  # higher-scoring incompatible hits are skipped via outer loop
+                compat.append((score, row_pos))
+        if not compat:
+            continue
+        top = compat[0][0]
+        tied_plants = {row for s, row in compat if s >= top - 1}
+        if len(tied_plants) > 1:
+            continue
+        if top > best_score:
+            best_score, best_pos = top, compat[0][1]
     return best_score, best_pos
 
 
@@ -386,6 +424,8 @@ def match_one(
     rn_unit_g: pd.Series,
     unit_names_g: pd.Series,
     plant_names: list[str],
+    name_pool: list[str],
+    name_pool_pos: list[int],
     plants: pd.DataFrame,
     lmp_exact: dict[str, int],
     lmp_pool: list[str],
@@ -423,16 +463,17 @@ def match_one(
                 "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
             }
 
-    # Pass 2: fuzzy match against EIA Plant Name using the human-readable
-    # Generator Station Description from ERCOT's stand-alone resources
-    # report. This is the highest-quality bridge: both sides are full plant
-    # names rather than cryptic codes.
-    plant_pos = list(range(len(plant_names)))
+    # Pass 2: fuzzy match against EIA Plant Name (and unique Utility Name)
+    # using the human-readable Generator Station Description from ERCOT's
+    # stand-alone resources report. This is the highest-quality bridge:
+    # both sides are full plant/utility names rather than cryptic codes.
+    # The utility-name pool is restricted to utilities owning a single
+    # plant to avoid collapsing unrelated SPs onto a multi-plant utility.
     if descriptions:
         desc_queries = [normalize(d) for d in descriptions]
         desc_queries = [q for q in desc_queries if q]
         best_score_d, best_pos_d = _best_compatible(
-            desc_queries, plant_names, plant_pos, plants, sp_src,
+            desc_queries, name_pool, name_pool_pos, plants, sp_src,
         )
         if best_pos_d is not None and best_score_d >= AUTO_THRESHOLD:
             p = plants.iloc[best_pos_d]
@@ -447,14 +488,14 @@ def match_one(
 
     # Pass 3: owner/DME from the ResDMEList report. Tight threshold (92)
     # because operator and owner are easily conflated — we accept only when
-    # the corporate entity name resembles the EIA Plant Name closely after
-    # stripping LLC/LP/INC etc. via the stop-token list.
+    # the corporate entity name resembles the EIA Plant Name (or unique
+    # Utility Name) closely after stripping LLC/LP/INC etc. via stop-tokens.
     if owners:
         owner_queries = [normalize(o) for o in owners]
         owner_queries = [q for q in owner_queries if q and len(q) >= 4]
         if owner_queries:
             best_score_o, best_pos_o = _best_compatible(
-                owner_queries, plant_names, plant_pos, plants, sp_src,
+                owner_queries, name_pool, name_pool_pos, plants, sp_src,
             )
             if best_pos_o is not None and best_score_o >= OWNER_TIGHT_THRESHOLD:
                 p = plants.iloc[best_pos_o]
@@ -496,9 +537,10 @@ def match_one(
             "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
         }
 
-    # Pass 4: fuzzy match against plant names (cryptic SP codes vs EIA names)
+    # Pass 5: fuzzy match against plant/utility names (cryptic SP codes vs
+    # EIA names). Same combined pool as the description/owner passes.
     best_score_pn, best_pos_pn = _best_compatible(
-        queries, plant_names, plant_pos, plants, sp_src,
+        queries, name_pool, name_pool_pos, plants, sp_src,
     )
 
     if best_pos_pn is not None and best_score_pn >= AUTO_THRESHOLD:
@@ -621,6 +663,9 @@ def match_settlement_points(sps, rn_unit, plants,
                             stand_alone, stand_alone_by_station,
                             dme, dme_by_prefix) -> pd.DataFrame:
     lmp_exact, lmp_pool, lmp_pool_pos = build_lmp_index(plants)
+    name_pool, name_pool_pos, _kind, unique_utils = build_name_pool(plants)
+    print(f"[name-pool] plant entries: {len(plants)}, "
+          f"unique utilities admitted: {len(unique_utils)}")
     rn_unit_g = rn_unit.groupby("settlement_point")["substation"].agg(
         lambda s: sorted(set(s))
     )
@@ -643,7 +688,8 @@ def match_settlement_points(sps, rn_unit, plants,
     rows = []
     for sp in sps["settlement_point"]:
         descs, owners, src = sp_meta(sp)
-        rows.append(match_one(sp, rn_unit_g, unit_names_g, plant_names, plants,
+        rows.append(match_one(sp, rn_unit_g, unit_names_g, plant_names,
+                              name_pool, name_pool_pos, plants,
                               lmp_exact, lmp_pool, lmp_pool_pos, src,
                               descs, owners))
     return pd.DataFrame(rows)
