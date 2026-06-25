@@ -44,19 +44,24 @@ Branch: feat/0006-ERCOT-geocode
   or `"UNIT"` (from `UNIT_1`) score 100% via `token_set_ratio` against any
   LMP designation containing those tokens and collapse dozens of unrelated
   SPs onto one plant.
-* Step 5 — Match each SP through four passes (first hit wins):
+* Step 5 — Match each SP through five passes (first hit wins):
   1. exact lookup vs LMP designation (with `BAC_BAC_*` prefix-dedup retry)
-  2. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
-     name + linked substation names + unit names from
-     `Resource_Node_to_Unit`)
-  3. fuzzy ≥85 vs EIA Plant Name
-  4. plant-name substring fallback
+  2. fuzzy ≥85 vs EIA Plant Name using ERCOT's `Generator Station
+     Description` (Stand-Alone Generation Resources report). Bridge:
+     `{UNIT_SUBSTATION}_{UNIT_NAME}` → unit code → station description (a
+     real plant name) → match against EIA Plant Name. Highest-quality
+     pass since both sides are full names rather than cryptic codes.
+  3. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
+     name + linked substation names + unit names)
+  4. fuzzy ≥85 vs EIA Plant Name
+  5. plant-name substring fallback
   * 70–84 → review queue (no coords emitted; bad matches with high partial
     overlap would otherwise pollute downstream joins).
   * Energy-source compatibility filter on all fuzzy/substring passes:
-    infer a source (solar/wind/battery/gas/coal/...) from SP + unit-name
-    tokens (`SLR`, `WND`, `BESS`/`ESR`, `CC`/`CT`/`GT`/`NG`, …) and from
-    EIA `Technology` + `Energy Source 1`. Hits whose plant source
+    infer a source (solar/wind/battery/gas/coal/...) from the stand-alone
+    report's `Generator Type` when available, else from SP + unit-name
+    tokens (`SLR`, `WND`, `BESS`/`ESR`, `CC`/`CT`/`GT`/`NG`, …); compare
+    against EIA `Technology` + `Energy Source 1`. Hits whose plant source
     disagrees are rejected, falling through to the next-best candidate.
     Either side `None` is treated as compatible so unknown-source SPs
     still match.
@@ -77,13 +82,15 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (421 rows; only LMP/fuzzy/substring/manual matches emit coords.)
+      (604 rows; only LMP/station-description/fuzzy/substring/manual
+      matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 87.2%: 68 auto + 10 substring of 78 head rows; 0 unmatched
-      in head. Tightened from an earlier 89.6% after removing ~110 false
-      positives from orphan-token over-matching, then narrowed further by
-      the energy-source compatibility filter.)
+      (Achieved 93.3%: 126 auto + 9 substring of 135 head rows; 0
+      unmatched in head. Earlier iterations: removed ~110 false positives
+      from orphan-token over-matching, narrowed by energy-source
+      compatibility filter, lifted by the station-description bridge,
+      then strengthened by adding EIA-860 2025 early release data.)
 * [x] Run log records counts per match method and unmatched count.

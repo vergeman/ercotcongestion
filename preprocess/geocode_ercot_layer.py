@@ -43,6 +43,7 @@ MANUAL_OVERRIDES_CSV = Path(settings.ercot_geocode_manual_overrides_csv)
 CDR_GLOB = "cdr.*LMPSROSNODENP6788*.csv"
 CCP_GLOB = "CCP_Resource_Names_*.csv"
 RN_UNIT_GLOB = "Resource_Node_to_Unit_*.csv"
+STAND_ALONE_GLOB = "Stand-Alone-Generation-Resources*.csv"
 
 # Trailing tokens that mark unit/aggregation suffixes on ERCOT names; stripped
 # before fuzzy comparison against EIA plant names. Both `_UNIT1` and
@@ -190,6 +191,46 @@ def load_rn_to_unit() -> pd.DataFrame:
     })
 
 
+# Map ERCOT Generator Type (from the stand-alone resources report) onto the
+# canonical source bucket used by the matching filter.
+GEN_TYPE_SOURCE = {
+    "SOLAR": "solar",
+    "WIND": "wind",
+    "BATTERY": "battery", "ENERGY STORAGE": "battery",
+    "THERMAL": "gas",   # ERCOT thermal is overwhelmingly natural gas
+    "HYDRO": "hydro",
+    "NUCLEAR": "nuclear",
+}
+
+
+def load_stand_alone() -> dict[str, dict]:
+    """Read ERCOT's stand-alone generation resources report. Returns
+    {unit_code → {description, type, source, capacity_mw}} where `unit_code`
+    matches `{UNIT_SUBSTATION}_{UNIT_NAME}` from Resource_Node_to_Unit.
+    Returns {} if the file is absent (optional input)."""
+    try:
+        path = newest(ERCOT_GEOCODE_DIR, STAND_ALONE_GLOB)
+    except FileNotFoundError:
+        return {}
+    print(f"[stand-alone] {path.name}")
+    df = pd.read_csv(path)
+    df["Unit Code"] = df["Unit Code"].astype(str).str.strip()
+    df["Generator Station Description"] = df["Generator Station Description"]\
+        .astype(str).str.strip()
+    df["Nameplate Capacity (MW)"] = pd.to_numeric(
+        df["Nameplate Capacity (MW)"], errors="coerce"
+    )
+    out: dict[str, dict] = {}
+    for _, r in df.iterrows():
+        out[r["Unit Code"]] = {
+            "description": r["Generator Station Description"],
+            "type": str(r.get("Generator Type", "")).strip(),
+            "source": GEN_TYPE_SOURCE.get(str(r.get("Generator Type", "")).strip().upper()),
+            "capacity_mw": float(r["Nameplate Capacity (MW)"] or 0),
+        }
+    return out
+
+
 def load_plants() -> pd.DataFrame:
     """Aggregate master_eia860.csv (one row per generator) to plant level:
     lat/lon (first), summed nameplate capacity, and concatenated LMP node
@@ -297,6 +338,7 @@ def match_one(
     lmp_pool: list[str],
     lmp_pool_pos: list[int],
     sp_src: str | None,
+    descriptions: list[str],
 ) -> dict:
     base = {
         "settlement_point": sp,
@@ -327,6 +369,28 @@ def match_one(
                 "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
             }
 
+    # Pass 2: fuzzy match against EIA Plant Name using the human-readable
+    # Generator Station Description from ERCOT's stand-alone resources
+    # report. This is the highest-quality bridge: both sides are full plant
+    # names rather than cryptic codes.
+    plant_pos = list(range(len(plant_names)))
+    if descriptions:
+        desc_queries = [normalize(d) for d in descriptions]
+        desc_queries = [q for q in desc_queries if q]
+        best_score_d, best_pos_d = _best_compatible(
+            desc_queries, plant_names, plant_pos, plants, sp_src,
+        )
+        if best_pos_d is not None and best_score_d >= AUTO_THRESHOLD:
+            p = plants.iloc[best_pos_d]
+            return {
+                **base,
+                "lat": p["Latitude"], "lon": p["Longitude"],
+                "match_method": "station_description",
+                "match_confidence": round(best_score_d / 100.0, 3),
+                "matched_plant": p["Plant Name"],
+                "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
+            }
+
     cand_names = list(rn_unit_g.get(sp, []))
     cand_names.extend(unit_names_g.get(sp, []))
     cand_names.append(sp)
@@ -338,7 +402,7 @@ def match_one(
                if len(q) >= 4 and any(t.isalpha() and len(t) >= 3
                                        for t in q.split())]
 
-    # Pass 2: fuzzy match against LMP designation tokens (more reliable than
+    # Pass 3: fuzzy match against LMP designation tokens (more reliable than
     # plant names since both sides use ERCOT naming conventions). Source
     # compatibility filter prevents e.g. a solar RN landing on a gas plant.
     best_score, best_pos = _best_compatible(
@@ -356,8 +420,7 @@ def match_one(
             "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
         }
 
-    # Pass 3: fuzzy match against plant names
-    plant_pos = list(range(len(plant_names)))
+    # Pass 4: fuzzy match against plant names (cryptic SP codes vs EIA names)
     best_score_pn, best_pos_pn = _best_compatible(
         queries, plant_names, plant_pos, plants, sp_src,
     )
@@ -408,7 +471,31 @@ def match_one(
     return base
 
 
-def match_settlement_points(sps, rn_unit, plants) -> pd.DataFrame:
+def sp_to_descriptions(
+    sp: str,
+    rn_unit: pd.DataFrame,
+    stand_alone: dict[str, dict],
+) -> tuple[list[str], str | None]:
+    """For an SP, look up its (substation, unit_name) pairs in the stand-alone
+    resources report and return (unique station descriptions, source-from-type
+    if all units agree)."""
+    rows = rn_unit[rn_unit["settlement_point"] == sp]
+    descs: list[str] = []
+    sources: set[str] = set()
+    for _, r in rows.iterrows():
+        key = f"{r['substation']}_{r['unit_name']}"
+        info = stand_alone.get(key)
+        if not info:
+            continue
+        if info["description"] and info["description"] not in descs:
+            descs.append(info["description"])
+        if info["source"]:
+            sources.add(info["source"])
+    src = next(iter(sources)) if len(sources) == 1 else None
+    return descs, src
+
+
+def match_settlement_points(sps, rn_unit, plants, stand_alone) -> pd.DataFrame:
     lmp_exact, lmp_pool, lmp_pool_pos = build_lmp_index(plants)
     rn_unit_g = rn_unit.groupby("settlement_point")["substation"].agg(
         lambda s: sorted(set(s))
@@ -418,12 +505,20 @@ def match_settlement_points(sps, rn_unit, plants) -> pd.DataFrame:
     )
     plant_names = plants["plant_name_norm"].tolist()
 
-    def sp_source(sp: str) -> str | None:
-        return infer_source(sp, *rn_unit_g.get(sp, []), *unit_names_g.get(sp, []))
+    def sp_meta(sp: str) -> tuple[list[str], str | None]:
+        descs, src_type = sp_to_descriptions(sp, rn_unit, stand_alone)
+        # Prefer the stand-alone report's explicit Generator Type when present;
+        # otherwise fall back to token inference on names.
+        src = src_type or infer_source(
+            sp, *rn_unit_g.get(sp, []), *unit_names_g.get(sp, [])
+        )
+        return descs, src
 
-    rows = [match_one(sp, rn_unit_g, unit_names_g, plant_names, plants,
-                     lmp_exact, lmp_pool, lmp_pool_pos, sp_source(sp))
-            for sp in sps["settlement_point"]]
+    rows = []
+    for sp in sps["settlement_point"]:
+        descs, src = sp_meta(sp)
+        rows.append(match_one(sp, rn_unit_g, unit_names_g, plant_names, plants,
+                              lmp_exact, lmp_pool, lmp_pool_pos, src, descs))
     return pd.DataFrame(rows)
 
 
@@ -443,7 +538,8 @@ def run_log(matched: pd.DataFrame) -> None:
         .sort_values("matched_capacity_mw", ascending=False)
     top = ranked.head(TOP_RN_TARGET)
     auto = top["match_method"].isin(
-        ["manual", "lmp_node_designation", "fuzzy_lmp", "fuzzy_name"]
+        ["manual", "lmp_node_designation", "station_description",
+         "fuzzy_lmp", "fuzzy_name"]
     ).sum()
     sub  = (top["match_method"] == "substring").sum()
     rev  = (top["match_method"] == "review").sum()
@@ -494,12 +590,14 @@ def main() -> int:
     ccp_names = load_ccp_names()
     rn_unit = load_rn_to_unit()
     plants = load_plants()
+    stand_alone = load_stand_alone()
     print(f"[input] priced SPs (non-HB/LZ/DC): {len(sps)}")
     print(f"[input] EIA-860 TX plants:         {len(plants)}")
+    print(f"[input] stand-alone unit codes:    {len(stand_alone)}")
 
     sps["sp_type"] = sps["settlement_point"].map(lambda s: classify(s, ccp_names))
 
-    matched = match_settlement_points(sps, rn_unit, plants)
+    matched = match_settlement_points(sps, rn_unit, plants, stand_alone)
     out = sps.merge(matched, on="settlement_point", how="left")
     out = apply_manual_overrides(out)
 
