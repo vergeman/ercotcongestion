@@ -45,21 +45,27 @@ CCP_GLOB = "CCP_Resource_Names_*.csv"
 RN_UNIT_GLOB = "Resource_Node_to_Unit_*.csv"
 
 # Trailing tokens that mark unit/aggregation suffixes on ERCOT names; stripped
-# before fuzzy comparison against EIA plant names.
+# before fuzzy comparison against EIA plant names. Both `_UNIT1` and
+# `_UNIT_1` forms appear in the wild.
 STRIP_RE = re.compile(
     r"|".join([
-        r"_RN\d*$", r"_PUN\d*$", r"_UNIT\d+$", r"_U\d+$", r"_UN\d+$",
+        r"_RN\d*$", r"_PUN\d*$",
+        r"_UNIT_?\d+$", r"_U\d+$", r"_UN\d+$",
         r"_G\d+$", r"_GEN\d*$", r"_GT\d+$", r"_ST\d+$", r"_CT\d+$",
         r"_CC\d+$", r"_CCU$", r"_ESR\d*$", r"_BESS\d*$", r"_SLR\d*$",
         r"_WND\d*$", r"_WIND\d*$", r"_STG\d*$", r"_ALL$", r"_\d+$",
     ])
 )
 
-# Generic words that add noise to fuzzy comparison.
+# Generic words that add noise to fuzzy comparison. Single-token queries
+# composed entirely of these collapse to nothing and get filtered out by the
+# query guard, which prevents over-matching to LMP designations like
+# "CN BRKS UNIT" or "TREB SOLAR1".
 STOP_TOKENS = {
     "LLC", "LP", "INC", "CO", "COMPANY", "GENERATING", "GENERATION",
     "STATION", "PLANT", "POWER", "ENERGY", "FACILITY", "WIND", "SOLAR",
     "CENTER", "FARM", "PROJECT",
+    "UNIT", "GEN", "GENS", "BLOCK", "STG", "CCU", "ESR", "BESS",
 }
 
 AUTO_THRESHOLD = 85
@@ -226,8 +232,13 @@ def match_one(
     cand_names = list(rn_unit_g.get(sp, []))
     cand_names.extend(unit_names_g.get(sp, []))
     cand_names.append(sp)
+    # Reject queries that are too short or contain no meaningful (non-digit)
+    # token — e.g. "SOLAR1" → "1" after stop-token removal would otherwise
+    # score 100 against any plant whose normalized name contains "1".
     queries = sorted({normalize(c) for c in cand_names if c})
-    queries = [q for q in queries if q]
+    queries = [q for q in queries
+               if len(q) >= 4 and any(t.isalpha() and len(t) >= 3
+                                       for t in q.split())]
 
     # Pass 2: fuzzy match against LMP designation tokens (more reliable than
     # plant names since both sides use ERCOT naming conventions).

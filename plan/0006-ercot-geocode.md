@@ -37,8 +37,13 @@ Branch: feat/0006-ERCOT-geocode
 * Step 3 — Aggregate `master_eia860.csv` to plant level (sum nameplate
   capacity; concat LMP designations).
 * Step 4 — Normalize names on both sides (uppercase; strip unit suffixes
-  `_RN`, `_PUN\d*`, `_UNIT\d+`, `_G\d+`, `_CC\d+`, `_BESS\d*`, `_ESR\d*`,
-  `_ALL`, …; drop generic tokens like `WIND`/`SOLAR`/`STATION`).
+  `_RN`, `_PUN\d*`, `_UNIT_?\d+`, `_G\d+`, `_CC\d+`, `_BESS\d*`, `_ESR\d*`,
+  `_ALL`, …; drop generic tokens like `WIND`/`SOLAR`/`STATION`/`UNIT`/`GEN`).
+  Queries shorter than 4 chars or with no alpha token of length ≥3 are
+  rejected — without this guard, orphan tokens like `"1"` (from `SOLAR1`)
+  or `"UNIT"` (from `UNIT_1`) score 100% via `token_set_ratio` against any
+  LMP designation containing those tokens and collapse dozens of unrelated
+  SPs onto one plant.
 * Step 5 — Match each SP through four passes (first hit wins):
   1. exact lookup vs LMP designation (with `BAC_BAC_*` prefix-dedup retry)
   2. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
@@ -65,11 +70,12 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (547 rows; only LMP/fuzzy/substring matches emit coords.)
+      (439 rows; only LMP/fuzzy/substring/manual matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 89.6%: 112 auto + 13 substring of 125 head rows; 0
-      unmatched in head.)
+      (Achieved 85.7%: 78 auto + 13 substring of 91 head rows; 0 unmatched
+      in head. Tightened from an earlier 89.6% after removing ~110 false
+      positives traced to orphan-token over-matching.)
 * [x] Run log records counts per match method and unmatched count.
