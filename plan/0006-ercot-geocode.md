@@ -63,6 +63,12 @@ Branch: feat/0006-ERCOT-geocode
      compatible plants tie at the top score (±1), the query is skipped
      rather than picking one arbitrarily — wrong coordinates 200+ miles
      away are worse than no coordinates for downstream analysis.
+  * Capacity tiebreaker on the ambiguity guard: if the tied plants share
+     at least one `plant_name_norm` token (i.e. they're variants of the
+     same site like Buffalo Gap I/II/III), and the SP has an expected
+     Nameplate (summed from stand-alone Unit Codes), pick the plant
+     whose summed nameplate is closest. The token-overlap check is what
+     keeps Calpine-style cross-site ties from being silently picked.
   3. fuzzy ≥92 (tight) vs EIA Plant Name OR unique Utility Name using
      owner/DME corporate entities from the ResDMEList report. Same
      `{substation}_{unit_name}` bridge → `OWNER RE` / `DME` strings
@@ -109,14 +115,19 @@ Branch: feat/0006-ERCOT-geocode
 ## Acceptance
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
-      `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (784 rows; only LMP/station-description/owner-name/fuzzy/substring/
-      manual matches emit coords.)
+      `[settlement_point, sp_type, lat, lon, match_method, match_confidence,
+      matched_plant, matched_capacity_mw, station_description, owner_re,
+      expected_mw, capacity_ratio]`. (804 rows; only LMP/station-
+      description/owner-name/fuzzy/substring/manual matches emit coords.
+      Trailing context columns let a reviewer eyeball matches at a
+      glance: `capacity_ratio = expected_mw / matched_capacity_mw`
+      flags unit-of-plant (≪1, normal), whole-plant (~1), and
+      cross-plant or multi-phase aggregation (≫2 — worth review).)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 96.5%: 193 auto + 7 substring of 200 head rows; 217 RNs
+      (Achieved 98.0%: 196 auto + 4 substring of 200 head rows; 223 RNs
       with mapped capacity, 0 unmatched in head. Earlier iterations:
       removed ~110 false positives from orphan-token over-matching,
       narrowed by energy-source compatibility filter, lifted by the
@@ -124,6 +135,7 @@ Branch: feat/0006-ERCOT-geocode
       release data, lifted further by the owner/DME tight-match pass,
       then by the substation-prefix fallback for PCCRN-style SPs, then
       by adding Utility Name (unique-only) to the search pool, then
-      tightened back down by an ambiguity guard that rejects ties at
-      top score — trading ~50 matches for correctness.)
+      tightened by an ambiguity guard that rejects unrelated ties at
+      top score, and finally by a capacity-based tiebreaker that
+      resolves same-site variants like Buffalo Gap I/II/III.)
 * [x] Run log records counts per match method and unmatched count.

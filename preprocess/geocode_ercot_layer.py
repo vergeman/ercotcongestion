@@ -379,6 +379,7 @@ def _best_compatible(
     pool_pos: list[int],
     plants: pd.DataFrame,
     sp_src: str | None,
+    expected_mw: float = 0.0,
 ) -> tuple[int, int | None]:
     """Return (best_score, best_plant_row_pos) over `queries` × `pool`,
     accepting only hits whose plant source is compatible with sp_src.
@@ -387,13 +388,18 @@ def _best_compatible(
     Ambiguity guard: token_set_ratio rewards subset matches, so a generic
     single-token query like "CALPINE" scores 100 against every unique
     utility containing CALPINE (Calpine-Hidalgo, Calpine-Magic Valley, ...).
-    If multiple distinct compatible plants tie at the top score (±1), the
-    query is treated as ambiguous and skipped rather than picking one
-    arbitrarily."""
+    If multiple distinct compatible plants tie at the top score (±1) and
+    no expected_mw is given, the query is treated as ambiguous and skipped.
+    When expected_mw is provided (sum of Nameplate from the stand-alone
+    report), ties are broken by picking the plant whose summed nameplate
+    is closest — resolves cases like Buffalo Gap I/II/III where multiple
+    plants legitimately share the same name root."""
     best_score, best_pos = 0, None
     if not pool:
         return best_score, best_pos
     plant_src = plants["source"].tolist()
+    plant_cap = plants["Nameplate Capacity (MW)"].tolist()
+    plant_name_norm = plants["plant_name_norm"].tolist()
     for q in queries:
         hits = process.extract(
             q, pool, scorer=fuzz.token_set_ratio,
@@ -408,10 +414,24 @@ def _best_compatible(
         if not compat:
             continue
         top = compat[0][0]
-        tied_plants = {row for s, row in compat if s >= top - 1}
+        tied = [row for s, row in compat if s >= top - 1]
+        tied_plants = list(dict.fromkeys(tied))
         if len(tied_plants) > 1:
-            continue
-        if top > best_score:
+            # Capacity tiebreaker only applies to plants that look like
+            # variants of the same site (share at least one plant-name
+            # token, e.g. Buffalo Gap / Buffalo Gap 2 / Buffalo Gap 3).
+            # Unrelated plants whose utility names happen to share a
+            # generic token (Calpine Hidalgo vs Calpine Magic Valley)
+            # have no token overlap on plant_name_norm and stay rejected.
+            token_sets = [set(plant_name_norm[r].split()) for r in tied_plants]
+            shared = set.intersection(*token_sets) if token_sets else set()
+            if not shared or expected_mw <= 0:
+                continue
+            chosen = min(tied_plants,
+                         key=lambda r: abs((plant_cap[r] or 0) - expected_mw))
+            if top > best_score:
+                best_score, best_pos = top, chosen
+        elif top > best_score:
             best_score, best_pos = top, compat[0][1]
     return best_score, best_pos
 
@@ -433,6 +453,7 @@ def match_one(
     sp_src: str | None,
     descriptions: list[str],
     owners: list[str],
+    expected_mw: float,
 ) -> dict:
     base = {
         "settlement_point": sp,
@@ -442,6 +463,12 @@ def match_one(
         "match_confidence": 0.0,
         "matched_plant": None,
         "matched_capacity_mw": 0.0,
+        # Context echoed to the output for downstream debugging / manual
+        # review. The review queue surfaces these so a human can decide
+        # whether the candidate description/owner is the right plant.
+        "station_description": " | ".join(descriptions) if descriptions else "",
+        "owner_re": " | ".join(owners) if owners else "",
+        "expected_mw": expected_mw,
     }
 
     # Pass 1: direct LMP designation hit. Try the full SP, the SP with the
@@ -474,6 +501,7 @@ def match_one(
         desc_queries = [q for q in desc_queries if q]
         best_score_d, best_pos_d = _best_compatible(
             desc_queries, name_pool, name_pool_pos, plants, sp_src,
+            expected_mw=expected_mw,
         )
         if best_pos_d is not None and best_score_d >= AUTO_THRESHOLD:
             p = plants.iloc[best_pos_d]
@@ -496,6 +524,7 @@ def match_one(
         if owner_queries:
             best_score_o, best_pos_o = _best_compatible(
                 owner_queries, name_pool, name_pool_pos, plants, sp_src,
+                expected_mw=expected_mw,
             )
             if best_pos_o is not None and best_score_o >= OWNER_TIGHT_THRESHOLD:
                 p = plants.iloc[best_pos_o]
@@ -594,12 +623,11 @@ def sp_to_descriptions(
     rn_unit: pd.DataFrame,
     stand_alone_exact: dict[str, dict],
     stand_alone_by_station: dict[str, list[dict]],
-) -> tuple[list[str], str | None]:
-    """Return (unique station descriptions, source-from-type if all agree)
-    for an SP. Primary join is `{substation}_{unit_name}` → unit code; the
-    fallback (for PCCRN-style SPs not in Resource_Node_to_Unit) uses the
-    SP's own prefix as a substation code — safe because the report's
-    Generator Station Code is 1:1 with its description."""
+) -> tuple[list[str], str | None, float]:
+    """Return (unique station descriptions, source-from-type if all agree,
+    summed Nameplate MW) for an SP. The capacity is the sum of all
+    stand-alone units we resolve — used as a tiebreaker when fuzzy matching
+    finds multiple plants tied at the top score (e.g. Buffalo Gap I/II/III)."""
     rows = rn_unit[rn_unit["settlement_point"] == sp]
     infos: list[dict] = []
     for _, r in rows.iterrows():
@@ -611,13 +639,15 @@ def sp_to_descriptions(
         infos = stand_alone_by_station.get(prefix, [])
     descs: list[str] = []
     sources: set[str] = set()
+    cap = 0.0
     for info in infos:
         if info["description"] and info["description"] not in descs:
             descs.append(info["description"])
         if info["source"]:
             sources.add(info["source"])
+        cap += info.get("capacity_mw") or 0.0
     src = next(iter(sources)) if len(sources) == 1 else None
-    return descs, src
+    return descs, src, cap
 
 
 # DME TYPE → source bucket. "Generation" alone doesn't pin fuel; "Storage"
@@ -674,24 +704,24 @@ def match_settlement_points(sps, rn_unit, plants,
     )
     plant_names = plants["plant_name_norm"].tolist()
 
-    def sp_meta(sp: str) -> tuple[list[str], list[str], str | None]:
-        descs, src_desc = sp_to_descriptions(sp, rn_unit, stand_alone,
-                                              stand_alone_by_station)
+    def sp_meta(sp: str) -> tuple[list[str], list[str], str | None, float]:
+        descs, src_desc, cap = sp_to_descriptions(sp, rn_unit, stand_alone,
+                                                   stand_alone_by_station)
         owners, src_dme = sp_to_owners(sp, rn_unit, dme, dme_by_prefix)
         # Source precedence: stand-alone Generator Type → DME TYPE → token
         # inference. First two are explicit; the last is a heuristic guess.
         src = src_desc or src_dme or infer_source(
             sp, *rn_unit_g.get(sp, []), *unit_names_g.get(sp, [])
         )
-        return descs, owners, src
+        return descs, owners, src, cap
 
     rows = []
     for sp in sps["settlement_point"]:
-        descs, owners, src = sp_meta(sp)
+        descs, owners, src, cap = sp_meta(sp)
         rows.append(match_one(sp, rn_unit_g, unit_names_g, plant_names,
                               name_pool, name_pool_pos, plants,
                               lmp_exact, lmp_pool, lmp_pool_pos, src,
-                              descs, owners))
+                              descs, owners, cap))
     return pd.DataFrame(rows)
 
 
@@ -777,9 +807,24 @@ def main() -> int:
                                        dme, dme_by_prefix)
     out = sps.merge(matched, on="settlement_point", how="left")
     out = apply_manual_overrides(out)
+    # capacity_ratio = expected / matched. <1 means the SP is one unit of a
+    # larger plant; ~1 means the SP covers the whole plant; >1 hints at a
+    # cross-plant mismatch worth reviewing.
+    out["capacity_ratio"] = [
+        round(e / m, 3) if m and e else None
+        for e, m in zip(out["expected_mw"], out["matched_capacity_mw"])
+    ]
+    # EIA plant/utility names contain commas ("Western Trail Wind, LLC").
+    # Pandas quotes them per RFC 4180, but naive parsers (Excel default,
+    # bare split-on-comma) misalign columns. Strip commas from textual
+    # context fields so the output round-trips through any consumer.
+    for col in ("matched_plant", "station_description", "owner_re"):
+        out[col] = out[col].fillna("").astype(str).str.replace(",", "", regex=False)
 
     geocoded = out[out["lat"].notna()][
-        ["settlement_point", "sp_type", "lat", "lon", "match_method", "match_confidence"]
+        ["settlement_point", "sp_type", "lat", "lon", "match_method", "match_confidence",
+         "matched_plant", "matched_capacity_mw",
+         "station_description", "owner_re", "expected_mw", "capacity_ratio"]
     ]
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     geocoded.to_csv(OUT_CSV, index=False)
@@ -787,7 +832,8 @@ def main() -> int:
 
     rq = out[out["match_method"].isin(["review", "unmatched"])][
         ["settlement_point", "sp_type", "match_method", "match_confidence",
-         "matched_plant", "matched_capacity_mw"]
+         "matched_plant", "matched_capacity_mw",
+         "station_description", "owner_re", "expected_mw", "capacity_ratio"]
     ]
     REVIEW_QUEUE_CSV.parent.mkdir(parents=True, exist_ok=True)
     rq.to_csv(REVIEW_QUEUE_CSV, index=False)
