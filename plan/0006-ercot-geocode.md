@@ -44,27 +44,35 @@ Branch: feat/0006-ERCOT-geocode
   or `"UNIT"` (from `UNIT_1`) score 100% via `token_set_ratio` against any
   LMP designation containing those tokens and collapse dozens of unrelated
   SPs onto one plant.
-* Step 5 — Match each SP through five passes (first hit wins):
+* Step 5 — Match each SP through six passes (first hit wins):
   1. exact lookup vs LMP designation (with `BAC_BAC_*` prefix-dedup retry)
   2. fuzzy ≥85 vs EIA Plant Name using ERCOT's `Generator Station
      Description` (Stand-Alone Generation Resources report). Bridge:
      `{UNIT_SUBSTATION}_{UNIT_NAME}` → unit code → station description (a
      real plant name) → match against EIA Plant Name. Highest-quality
      pass since both sides are full names rather than cryptic codes.
-  3. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
+  3. fuzzy ≥92 (tight) vs EIA Plant Name using owner/DME corporate
+     entities from the ResDMEList report. Same `{substation}_{unit_name}`
+     bridge → `OWNER RE` / `DME` strings (stripped of `(RE)`/`(DME)` and
+     normalized through stop-tokens like `LLC`/`LP`/`INC`/`STORAGE`).
+     Tight threshold because owner ≠ operator can easily conflate; the
+     source filter further guards against e.g. a battery-storage owner
+     resolving to a co-located wind farm.
+  4. fuzzy `token_set_ratio` ≥85 vs LMP designation tokens (queries: SP
      name + linked substation names + unit names)
-  4. fuzzy ≥85 vs EIA Plant Name
-  5. plant-name substring fallback
+  5. fuzzy ≥85 vs EIA Plant Name
+  6. plant-name substring fallback
   * 70–84 → review queue (no coords emitted; bad matches with high partial
     overlap would otherwise pollute downstream joins).
   * Energy-source compatibility filter on all fuzzy/substring passes:
     infer a source (solar/wind/battery/gas/coal/...) from the stand-alone
-    report's `Generator Type` when available, else from SP + unit-name
-    tokens (`SLR`, `WND`, `BESS`/`ESR`, `CC`/`CT`/`GT`/`NG`, …); compare
-    against EIA `Technology` + `Energy Source 1`. Hits whose plant source
-    disagrees are rejected, falling through to the next-best candidate.
-    Either side `None` is treated as compatible so unknown-source SPs
-    still match.
+    report's `Generator Type` when available, else the DME report's
+    `TYPE=Storage` (battery), else from SP + unit-name tokens (`SLR`,
+    `WND`, `BESS`/`ESR`, `CC`/`CT`/`GT`/`NG`, …); compare against EIA
+    `Technology` + `Energy Source 1`. Hits whose plant source disagrees
+    are rejected, falling through to the next-best candidate. Either
+    side `None` is treated as compatible so unknown-source SPs still
+    match.
 * Step 6 — Apply manual overrides from
   `data/raw/ercot_geocode/manual_overrides.csv` (git-tracked, same schema
   as the geocoded output). Reviewed entries land here; reruns refresh the
@@ -82,15 +90,16 @@ Branch: feat/0006-ERCOT-geocode
 
 * [x] `data/processed/settlement_points_geocoded.csv` exists with columns
       `[settlement_point, sp_type, lat, lon, match_method, match_confidence]`.
-      (604 rows; only LMP/station-description/fuzzy/substring/manual
-      matches emit coords.)
+      (738 rows; only LMP/station-description/owner-name/fuzzy/substring/
+      manual matches emit coords.)
 * [x] `data/processed/hubs_lz_centroids.csv` exists covering all 8 ERCOT
       Load Zones (incl. NOIE) and 7 Hubs.
 * [x] ≥ 80% auto-match rate on top-200-by-capacity RNs; remainder
       substring-matched or in `data/raw/ercot_geocode/review_queue.csv`.
-      (Achieved 93.3%: 126 auto + 9 substring of 135 head rows; 0
-      unmatched in head. Earlier iterations: removed ~110 false positives
-      from orphan-token over-matching, narrowed by energy-source
-      compatibility filter, lifted by the station-description bridge,
-      then strengthened by adding EIA-860 2025 early release data.)
+      (Achieved 97.0%: 194 auto + 6 substring of 200 head rows; 200/200
+      RNs with capacity, 0 unmatched in head. Earlier iterations: removed
+      ~110 false positives from orphan-token over-matching, narrowed by
+      energy-source compatibility filter, lifted by the station-
+      description bridge, strengthened by EIA-860 2025 early release
+      data, then lifted further by the owner/DME tight-match pass.)
 * [x] Run log records counts per match method and unmatched count.

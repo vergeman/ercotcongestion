@@ -44,6 +44,7 @@ CDR_GLOB = "cdr.*LMPSROSNODENP6788*.csv"
 CCP_GLOB = "CCP_Resource_Names_*.csv"
 RN_UNIT_GLOB = "Resource_Node_to_Unit_*.csv"
 STAND_ALONE_GLOB = "Stand-Alone-Generation-Resources*.csv"
+DME_LIST_GLOB = "*ResDMEList*.csv"
 
 # Trailing tokens that mark unit/aggregation suffixes on ERCOT names; stripped
 # before fuzzy comparison against EIA plant names. Both `_UNIT1` and
@@ -63,10 +64,11 @@ STRIP_RE = re.compile(
 # query guard, which prevents over-matching to LMP designations like
 # "CN BRKS UNIT" or "TREB SOLAR1".
 STOP_TOKENS = {
-    "LLC", "LP", "INC", "CO", "COMPANY", "GENERATING", "GENERATION",
+    "LLC", "LP", "INC", "CO", "CORP", "COMPANY", "GENERATING", "GENERATION",
     "STATION", "PLANT", "POWER", "ENERGY", "FACILITY", "WIND", "SOLAR",
     "CENTER", "FARM", "PROJECT",
     "UNIT", "GEN", "GENS", "BLOCK", "STG", "CCU", "ESR", "BESS",
+    "BATTERY", "STORAGE",
 }
 
 AUTO_THRESHOLD = 85
@@ -203,6 +205,35 @@ GEN_TYPE_SOURCE = {
 }
 
 
+def load_dme_list() -> dict[str, dict]:
+    """Read ERCOT's Resource DME List. Returns {RESOURCE NAME (unit_code) →
+    {owner, dme, type}}. `RESOURCE NAME` matches `{substation}_{unit_name}`
+    from Resource_Node_to_Unit (same key shape as the stand-alone report).
+    Optional input — returns {} if absent."""
+    try:
+        path = newest(ERCOT_GEOCODE_DIR, DME_LIST_GLOB)
+    except FileNotFoundError:
+        return {}
+    print(f"[dme-list] {path.name}")
+    df = pd.read_csv(path)
+    # ERCOT tags entities with " (RE)" / " (DME)" suffixes; strip them so the
+    # remaining string is just the corporate name.
+    def strip_suffix(s: str) -> str:
+        if not isinstance(s, str):
+            return ""
+        return re.sub(r"\s*\((RE|DME)\)\s*$", "", s.strip(), flags=re.IGNORECASE)
+
+    out: dict[str, dict] = {}
+    for _, r in df.iterrows():
+        key = str(r["RESOURCE NAME"]).strip()
+        out[key] = {
+            "owner": strip_suffix(r.get("OWNER RE", "")),
+            "dme":   strip_suffix(r.get("DME", "")),
+            "type":  str(r.get("TYPE", "")).strip(),
+        }
+    return out
+
+
 def load_stand_alone() -> dict[str, dict]:
     """Read ERCOT's stand-alone generation resources report. Returns
     {unit_code → {description, type, source, capacity_mw}} where `unit_code`
@@ -328,6 +359,9 @@ def _best_compatible(
     return best_score, best_pos
 
 
+OWNER_TIGHT_THRESHOLD = 92
+
+
 def match_one(
     sp: str,
     rn_unit_g: pd.Series,
@@ -339,6 +373,7 @@ def match_one(
     lmp_pool_pos: list[int],
     sp_src: str | None,
     descriptions: list[str],
+    owners: list[str],
 ) -> dict:
     base = {
         "settlement_point": sp,
@@ -390,6 +425,28 @@ def match_one(
                 "matched_plant": p["Plant Name"],
                 "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
             }
+
+    # Pass 3: owner/DME from the ResDMEList report. Tight threshold (92)
+    # because operator and owner are easily conflated — we accept only when
+    # the corporate entity name resembles the EIA Plant Name closely after
+    # stripping LLC/LP/INC etc. via the stop-token list.
+    if owners:
+        owner_queries = [normalize(o) for o in owners]
+        owner_queries = [q for q in owner_queries if q and len(q) >= 4]
+        if owner_queries:
+            best_score_o, best_pos_o = _best_compatible(
+                owner_queries, plant_names, plant_pos, plants, sp_src,
+            )
+            if best_pos_o is not None and best_score_o >= OWNER_TIGHT_THRESHOLD:
+                p = plants.iloc[best_pos_o]
+                return {
+                    **base,
+                    "lat": p["Latitude"], "lon": p["Longitude"],
+                    "match_method": "owner_name",
+                    "match_confidence": round(best_score_o / 100.0, 3),
+                    "matched_plant": p["Plant Name"],
+                    "matched_capacity_mw": float(p["Nameplate Capacity (MW)"] or 0),
+                }
 
     cand_names = list(rn_unit_g.get(sp, []))
     cand_names.extend(unit_names_g.get(sp, []))
@@ -495,7 +552,40 @@ def sp_to_descriptions(
     return descs, src
 
 
-def match_settlement_points(sps, rn_unit, plants, stand_alone) -> pd.DataFrame:
+# DME TYPE → source bucket. "Generation" alone doesn't pin fuel; "Storage"
+# does. Used as a fallback source hint when stand-alone Generator Type and
+# token inference both come up empty.
+DME_TYPE_SOURCE = {"STORAGE": "battery"}
+
+
+def sp_to_owners(
+    sp: str,
+    rn_unit: pd.DataFrame,
+    dme: dict[str, dict],
+) -> tuple[list[str], str | None]:
+    """Return (unique owner/DME strings, source-from-type) for an SP, joined
+    via {substation}_{unit_name} → DME report. Owner and DME often differ —
+    we keep both as candidate strings."""
+    rows = rn_unit[rn_unit["settlement_point"] == sp]
+    owners: list[str] = []
+    sources: set[str] = set()
+    for _, r in rows.iterrows():
+        key = f"{r['substation']}_{r['unit_name']}"
+        info = dme.get(key)
+        if not info:
+            continue
+        for fld in ("owner", "dme"):
+            v = info[fld]
+            if v and v not in owners:
+                owners.append(v)
+        src = DME_TYPE_SOURCE.get(info["type"].upper())
+        if src:
+            sources.add(src)
+    src = next(iter(sources)) if len(sources) == 1 else None
+    return owners, src
+
+
+def match_settlement_points(sps, rn_unit, plants, stand_alone, dme) -> pd.DataFrame:
     lmp_exact, lmp_pool, lmp_pool_pos = build_lmp_index(plants)
     rn_unit_g = rn_unit.groupby("settlement_point")["substation"].agg(
         lambda s: sorted(set(s))
@@ -505,20 +595,22 @@ def match_settlement_points(sps, rn_unit, plants, stand_alone) -> pd.DataFrame:
     )
     plant_names = plants["plant_name_norm"].tolist()
 
-    def sp_meta(sp: str) -> tuple[list[str], str | None]:
-        descs, src_type = sp_to_descriptions(sp, rn_unit, stand_alone)
-        # Prefer the stand-alone report's explicit Generator Type when present;
-        # otherwise fall back to token inference on names.
-        src = src_type or infer_source(
+    def sp_meta(sp: str) -> tuple[list[str], list[str], str | None]:
+        descs, src_desc = sp_to_descriptions(sp, rn_unit, stand_alone)
+        owners, src_dme = sp_to_owners(sp, rn_unit, dme)
+        # Source precedence: stand-alone Generator Type → DME TYPE → token
+        # inference. First two are explicit; the last is a heuristic guess.
+        src = src_desc or src_dme or infer_source(
             sp, *rn_unit_g.get(sp, []), *unit_names_g.get(sp, [])
         )
-        return descs, src
+        return descs, owners, src
 
     rows = []
     for sp in sps["settlement_point"]:
-        descs, src = sp_meta(sp)
+        descs, owners, src = sp_meta(sp)
         rows.append(match_one(sp, rn_unit_g, unit_names_g, plant_names, plants,
-                              lmp_exact, lmp_pool, lmp_pool_pos, src, descs))
+                              lmp_exact, lmp_pool, lmp_pool_pos, src,
+                              descs, owners))
     return pd.DataFrame(rows)
 
 
@@ -539,7 +631,7 @@ def run_log(matched: pd.DataFrame) -> None:
     top = ranked.head(TOP_RN_TARGET)
     auto = top["match_method"].isin(
         ["manual", "lmp_node_designation", "station_description",
-         "fuzzy_lmp", "fuzzy_name"]
+         "owner_name", "fuzzy_lmp", "fuzzy_name"]
     ).sum()
     sub  = (top["match_method"] == "substring").sum()
     rev  = (top["match_method"] == "review").sum()
@@ -591,13 +683,15 @@ def main() -> int:
     rn_unit = load_rn_to_unit()
     plants = load_plants()
     stand_alone = load_stand_alone()
+    dme = load_dme_list()
     print(f"[input] priced SPs (non-HB/LZ/DC): {len(sps)}")
     print(f"[input] EIA-860 TX plants:         {len(plants)}")
     print(f"[input] stand-alone unit codes:    {len(stand_alone)}")
+    print(f"[input] DME-list resource names:   {len(dme)}")
 
     sps["sp_type"] = sps["settlement_point"].map(lambda s: classify(s, ccp_names))
 
-    matched = match_settlement_points(sps, rn_unit, plants, stand_alone)
+    matched = match_settlement_points(sps, rn_unit, plants, stand_alone, dme)
     out = sps.merge(matched, on="settlement_point", how="left")
     out = apply_manual_overrides(out)
 
