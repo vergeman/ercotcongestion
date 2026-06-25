@@ -26,7 +26,7 @@ from shared.settings import settings
 EIA860_BASE_PATH=settings.eia860_base_path
 MASTER_EIA860_CSV=settings.master_eia860_csv
 
-dirs = ["2024", "2023", "2022"]
+dirs = ["2025", "2024", "2023", "2022"]
 
 res = {}
 master_df = pd.DataFrame()
