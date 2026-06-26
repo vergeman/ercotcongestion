@@ -9,9 +9,6 @@ data/raw/TIGER/*
 !data/raw/TIGER/README.md
 data/raw/ercot_load_zones/*
 !data/raw/ercot_load_zones/README.md
-data/raw/ercot_geocode/*
-!data/raw/geocode/README.md
-!data/raw/geocode/manual_overrides.csv
 api/static/*
 
 # books / docs

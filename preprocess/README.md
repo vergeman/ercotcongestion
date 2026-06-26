@@ -69,13 +69,16 @@
   assignment from eia860 county level data)
   * [Download](https://www2.census.gov/geo/tiger/TIGER2024/COUNTY/tl_2024_us_county.zip)
 
-* `/ercot_geocode`:
-  * NP4-160-SG files:
+* `/ercot_geocode`: see `/data/raw/ercot_geocode/README.md` for details.
+  * NP6-788-CD: `cdr.*.LMPSROSNODENP6788_*.csv`
+  * NP4-160-SG:
     * `CCP_Resource_Names_06112026_122819.csv`
     * `Hub_Name_AND_DC_Ties_06112026_122819.csv`
     * `NOIE_Mapping_06112026_122819.csv`
     * `Resource_Node_to_Unit_06112026_122819.csv`
     * `Settlement_Points_06112026_122819.csv`
+  * NP3-988-ER: `124...ResDMEList_25062026.csv`
+  * Stand Alone Generation Resources
 
 ## Geo Lookups
 
