@@ -18,6 +18,34 @@
   * `docker compose exec db psql -U <user> -d <db> -c "DELETE FROM ingest_log WHERE endpoint = 'loads';"`
 
 
+## Backup Docker Volume (Local)
+
+```
+docker compose stop db
+
+docker run --rm \
+  -v ercotstress_pgdata:/src \
+  -v "$PWD":/backup \
+  alpine \
+  tar czf /backup/pgdata-$(date +%Y%m%d-%H%M).tar.gz -C /src .
+
+docker compose start db
+```
+
+## Restore Docker Volume (Local)
+
+```
+docker compose down             # stops db and removes container
+docker volume rm ercotstress_pgdata
+docker volume create ercotstress_pgdata
+docker run --rm \
+  -v ercotstress_pgdata:/dst \
+  -v "$PWD":/backup \
+  alpine \
+  tar xzf /backup/pgdata-YYYYMMDD-HHMM.tar.gz -C /dst
+docker compose up -d db
+```
+
 ## SQL Notes
 
 ### Data Types
