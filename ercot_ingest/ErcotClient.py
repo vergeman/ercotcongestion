@@ -17,7 +17,10 @@ from shared.settings import settings
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from loaders import load_shadow_prices, load_outages, print_top_shadow_prices, print_recent_outages
+from loaders import (load_shadow_prices, load_outages,
+                     load_dam_spp, load_dam_lambda, load_rt_lmp,
+                     load_sced_lambda, load_load_forecast,
+                     print_top_shadow_prices, print_recent_outages)
 
 load_dotenv()
 
@@ -260,9 +263,19 @@ def main():
     with psycopg.connect(PG_DSN) as conn:
         n_shadow = load_shadow_prices(conn, shadow)
         n_outages = load_outages(conn, outages)
+        n_dam_spp = load_dam_spp(conn, dam_spp)
+        n_dam_lambda = load_dam_lambda(conn, dam_lambda)
+        n_rt_lmp = load_rt_lmp(conn, rt_lmp)
+        n_sced_lambda = load_sced_lambda(conn, sced_lambda)
+        n_load_fcst = load_load_forecast(conn, load_fcst)
         conn.commit()
-        print(f"  shadow_prices: {n_shadow} inserted")
-        print(f"  outages_zonal: {n_outages} inserted")
+        print(f"  shadow_prices:       {n_shadow} inserted")
+        print(f"  outages_zonal:       {n_outages} inserted")
+        print(f"  ercot_dam_spp:       {n_dam_spp} inserted")
+        print(f"  dam_system_lambda:   {n_dam_lambda} inserted")
+        print(f"  ercot_rt_lmp:        {n_rt_lmp} inserted")
+        print(f"  sced_system_lambda:  {n_sced_lambda} inserted")
+        print(f"  load_forecast_zonal: {n_load_fcst} inserted")
 
         print("\n--- Verification queries ---")
         print_top_shadow_prices(conn, iso_from, iso_to)

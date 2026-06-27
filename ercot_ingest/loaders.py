@@ -398,6 +398,161 @@ def load_solar_hourly(conn, df: pd.DataFrame) -> int:
         return cur.rowcount
 
 
+def load_dam_spp(conn, df: pd.DataFrame) -> int:
+    """Load NP4-190-CD: DAM Settlement Point Prices. Hourly."""
+    if df.empty:
+        return 0
+
+    records = []
+    for _, r in df.iterrows():
+        op_day = pd.to_datetime(r["deliveryDate"]).date()
+        he_raw = r["hourEnding"]
+        hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
+        dst = bool(r.get("DSTFlag", False))
+        ts = _to_interval_ts(op_day, hour, 1, dst)
+
+        records.append((
+            ts, r["settlementPoint"], _f(r["settlementPointPrice"]), dst,
+        ))
+
+    sql = """
+        INSERT INTO ercot_dam_spp (
+            interval_ts, settlement_point, dam_spp, dst_flag
+        ) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (interval_ts, settlement_point, dst_flag) DO UPDATE SET
+            dam_spp = EXCLUDED.dam_spp
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_dam_lambda(conn, df: pd.DataFrame) -> int:
+    """Load NP4-523-CD: DAM System Lambda. Hourly, 24 rows/day."""
+    if df.empty:
+        return 0
+
+    records = []
+    for _, r in df.iterrows():
+        op_day = pd.to_datetime(r["deliveryDate"]).date()
+        he_raw = r["hourEnding"]
+        hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
+        dst = bool(r.get("DSTFlag", False))
+        ts = _to_interval_ts(op_day, hour, 1, dst)
+
+        records.append((ts, _f(r["systemLambda"]), dst))
+
+    sql = """
+        INSERT INTO dam_system_lambda (
+            interval_ts, system_lambda, dst_flag
+        ) VALUES (%s, %s, %s)
+        ON CONFLICT (interval_ts, dst_flag) DO UPDATE SET
+            system_lambda = EXCLUDED.system_lambda
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_rt_lmp(conn, df: pd.DataFrame) -> int:
+    """Load NP6-788-CD: RT LMPs at Settlement Points. ~5-min SCED grain."""
+    if df.empty:
+        return 0
+
+    # ERCOT response casing for the price field has historically varied.
+    lmp_col = "LMP" if "LMP" in df.columns else "lmp"
+
+    records = [
+        (
+            r["SCEDTimestamp"], bool(r.get("repeatedHourFlag", False)),
+            r["settlementPoint"], _f(r[lmp_col]),
+        )
+        for _, r in df.iterrows()
+    ]
+
+    sql = """
+        INSERT INTO ercot_rt_lmp (
+            sced_timestamp, repeated_hour_flag, settlement_point, lmp
+        ) VALUES (%s, %s, %s, %s)
+        ON CONFLICT (sced_timestamp, settlement_point, repeated_hour_flag) DO UPDATE SET
+            lmp = EXCLUDED.lmp
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_sced_lambda(conn, df: pd.DataFrame) -> int:
+    """Load NP6-322-CD: SCED System Lambda. ~5-min grain (~288 rows/day)."""
+    if df.empty:
+        return 0
+
+    records = [
+        (
+            r["SCEDTimestamp"], bool(r.get("repeatedHourFlag", False)),
+            _f(r["systemLambda"]),
+        )
+        for _, r in df.iterrows()
+    ]
+
+    sql = """
+        INSERT INTO sced_system_lambda (
+            sced_timestamp, repeated_hour_flag, system_lambda
+        ) VALUES (%s, %s, %s)
+        ON CONFLICT (sced_timestamp, repeated_hour_flag) DO UPDATE SET
+            system_lambda = EXCLUDED.system_lambda
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_load_forecast(conn, df: pd.DataFrame) -> int:
+    """Load NP3-561-CD: Seven-Day Load Forecast by Weather Zone.
+
+    Each publish (postedDatetime) is its own row per forecast hour.
+    """
+    if df.empty:
+        return 0
+
+    records = []
+    for _, r in df.iterrows():
+        op_day = pd.to_datetime(r["deliveryDate"]).date()
+        he_raw = r["hourEnding"]
+        hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
+        dst = bool(r.get("DSTFlag", False))
+        ts = _to_interval_ts(op_day, hour, 1, dst)
+
+        records.append((
+            pd.to_datetime(r["postedDatetime"]), ts, op_day, hour,
+            _f(r.get("coast")), _f(r.get("east")), _f(r.get("farWest")),
+            _f(r.get("north")), _f(r.get("northCentral")), _f(r.get("southCentral")),
+            _f(r.get("southern")), _f(r.get("west")), _f(r.get("systemTotal")),
+            dst,
+        ))
+
+    sql = """
+        INSERT INTO load_forecast_zonal (
+            posted_datetime, interval_ts, delivery_date, hour_ending,
+            coast, east, far_west, north, north_central, south_central,
+            southern, west, system_total, dst_flag
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (posted_datetime, interval_ts, dst_flag) DO UPDATE SET
+            coast         = EXCLUDED.coast,
+            east          = EXCLUDED.east,
+            far_west      = EXCLUDED.far_west,
+            north         = EXCLUDED.north,
+            north_central = EXCLUDED.north_central,
+            south_central = EXCLUDED.south_central,
+            southern      = EXCLUDED.southern,
+            west          = EXCLUDED.west,
+            system_total  = EXCLUDED.system_total
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
 def _to_interval_ts(operating_day, hour_ending: int, interval_id: int = 1, dst_flag: bool = False):
     """
     ERCOT publishes hour_ending in CT. Convert to UTC.
