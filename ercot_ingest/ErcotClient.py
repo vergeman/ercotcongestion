@@ -147,11 +147,15 @@ class ErcotClient:
 #
 
 def main():
+    from zoneinfo import ZoneInfo
+    ercot_tz = ZoneInfo("America/Chicago")
+
     end = datetime.now(timezone.utc) - timedelta(days=2)
     end = end.replace(hour=22, minute=0, second=0, microsecond=0)
     start = end - timedelta(hours=1)
-    iso_from = start.strftime("%Y-%m-%dT%H:%M:%S")
-    iso_to = end.strftime("%Y-%m-%dT%H:%M:%S")
+    # ERCOT's API interprets naive datetime filters as Central Time.
+    iso_from = start.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
+    iso_to = end.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
 
     date_from = start.strftime("%Y-%m-%d")
     date_to = end.strftime("%Y-%m-%d")
@@ -198,14 +202,13 @@ def main():
     print(f"  {len(outages)} rows")
 
     #
-    # DAM SPP (zonal hubs only)
+    # DAM SPP
     #
 
     print("\nFetching NP4-190-CD…")
     dam_spp = client.get(
         "/np4-190-cd/dam_stlmnt_pnt_prices",
         deliveryDateFrom=date_from, deliveryDateTo=date_to,
-        settlementPointType="HU",
     )
     print(f"  {len(dam_spp)} rows")
 
@@ -221,14 +224,13 @@ def main():
     print(f"  {len(dam_lambda)} rows")
 
     #
-    # RT LMP (zonal hubs only — full nodal set is ~288K rows/day)
+    # RT LMP
     #
 
     print("\nFetching NP6-788-CD…")
     rt_lmp = client.get(
         "/np6-788-cd/lmp_node_zone_hub",
         SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
-        settlementPointType="HU",
     )
     print(f"  {len(rt_lmp)} rows")
 

@@ -1,5 +1,5 @@
 """
-Backfill NP6-86-CD and NP3-233-CD over a date range.
+Backfill ERCOT public reports over a date range.
 
 Usage:
     docker compose run --rm compute
@@ -13,12 +13,20 @@ import argparse
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import psycopg
 
+# ERCOT's public API interprets naive timestamp filters in Central Time.
+# Sending UTC values causes the window to land ~5h in the future and return 0
+# rows — see live_updater going silent on shadow_prices since 2026-04-24.
+ERCOT_TZ = ZoneInfo("America/Chicago")
+
 from ErcotClient import ErcotClient, PG_DSN
 from loaders import (load_zonal_lmp, load_shadow_prices, load_outages,
-                     load_load_by_zone, load_wind_hourly, load_solar_hourly)
+                     load_load_by_zone, load_wind_hourly, load_solar_hourly,
+                     load_dam_spp, load_dam_lambda, load_rt_lmp,
+                     load_sced_lambda, load_load_forecast)
 
 
 ENDPOINTS = {
@@ -64,6 +72,41 @@ ENDPOINTS = {
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+    },
+    "dam_spp": {
+        "path": "/np4-190-cd/dam_stlmnt_pnt_prices",
+        "loader": load_dam_spp,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
+    },
+    "dam_lambda": {
+        "path": "/np4-523-cd/dam_system_lambda",
+        "loader": load_dam_lambda,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
+    },
+    "rt_lmp": {
+        "path": "/np6-788-cd/lmp_node_zone_hub",
+        "loader": load_rt_lmp,
+        "from_param": "SCEDTimestampFrom",
+        "to_param": "SCEDTimestampTo",
+        "param_format": "datetime",
+    },
+    "sced_lambda": {
+        "path": "/np6-322-cd/sced_system_lambda",
+        "loader": load_sced_lambda,
+        "from_param": "SCEDTimestampFrom",
+        "to_param": "SCEDTimestampTo",
+        "param_format": "datetime",
+    },
+    "load_forecast": {
+        "path": "/np3-561-cd/7d_load_fcast_by_wzn",
+        "loader": load_load_forecast,
+        "from_param": "postedDatetimeFrom",
+        "to_param": "postedDatetimeTo",
+        "param_format": "datetime",
     },
 }
 
@@ -111,13 +154,15 @@ def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
         return
 
     if cfg["param_format"] == "date":
+        # 'date' filters are inclusive on both ends and operate on whole days.
+        # ERCOT treats the date string as a CT day; pass through the user-supplied
+        # date label without TZ conversion so CLI intent matches.
         from_value = start.strftime("%Y-%m-%d")
-        # 'date' filters are typically inclusive on both ends and operate on whole days,
-        # so for a 1-day window, from == to (the same day).
         to_value = (end - timedelta(seconds=1)).strftime("%Y-%m-%d")
     else:
-        from_value = start.strftime("%Y-%m-%dT%H:%M:%S")
-        to_value = end.strftime("%Y-%m-%dT%H:%M:%S")
+        # ERCOT interprets naive datetime filters as CT.
+        from_value = start.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
+        to_value = end.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 
     df = client.get(cfg["path"], **{
         cfg["from_param"]: from_value,
@@ -138,7 +183,9 @@ def main():
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
-                        choices=["shadow", "outages", "loads", "wind", "solar", "zonal_lmp", "all"],
+                        choices=["shadow", "outages", "loads", "wind", "solar", "zonal_lmp",
+                                 "dam_spp", "dam_lambda", "rt_lmp", "sced_lambda",
+                                 "load_forecast", "all"],
                         default="all")
     parser.add_argument("--resume", action="store_true",
                         help="Skip windows already in ingest_log")
