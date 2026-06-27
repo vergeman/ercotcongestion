@@ -17,7 +17,10 @@ from shared.settings import settings
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from loaders import load_shadow_prices, load_outages, print_top_shadow_prices, print_recent_outages
+from loaders import (load_shadow_prices, load_outages,
+                     load_dam_spp, load_dam_lambda, load_rt_lmp,
+                     load_sced_lambda, load_load_forecast,
+                     print_top_shadow_prices, print_recent_outages)
 
 load_dotenv()
 
@@ -144,11 +147,15 @@ class ErcotClient:
 #
 
 def main():
+    from zoneinfo import ZoneInfo
+    ercot_tz = ZoneInfo("America/Chicago")
+
     end = datetime.now(timezone.utc) - timedelta(days=2)
     end = end.replace(hour=22, minute=0, second=0, microsecond=0)
     start = end - timedelta(hours=1)
-    iso_from = start.strftime("%Y-%m-%dT%H:%M:%S")
-    iso_to = end.strftime("%Y-%m-%dT%H:%M:%S")
+    # ERCOT's API interprets naive datetime filters as Central Time.
+    iso_from = start.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
+    iso_to = end.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
 
     date_from = start.strftime("%Y-%m-%d")
     date_to = end.strftime("%Y-%m-%d")
@@ -194,6 +201,61 @@ def main():
     )
     print(f"  {len(outages)} rows")
 
+    #
+    # DAM SPP
+    #
+
+    print("\nFetching NP4-190-CD…")
+    dam_spp = client.get(
+        "/np4-190-cd/dam_stlmnt_pnt_prices",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+    )
+    print(f"  {len(dam_spp)} rows")
+
+    #
+    # DAM System Lambda
+    #
+
+    print("\nFetching NP4-523-CD…")
+    dam_lambda = client.get(
+        "/np4-523-cd/dam_system_lambda",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+    )
+    print(f"  {len(dam_lambda)} rows")
+
+    #
+    # RT LMP
+    #
+
+    print("\nFetching NP6-788-CD…")
+    rt_lmp = client.get(
+        "/np6-788-cd/lmp_node_zone_hub",
+        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
+    )
+    print(f"  {len(rt_lmp)} rows")
+
+    #
+    # SCED System Lambda
+    #
+
+    print("\nFetching NP6-322-CD…")
+    sced_lambda = client.get(
+        "/np6-322-cd/sced_system_lambda",
+        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
+    )
+    print(f"  {len(sced_lambda)} rows")
+
+    #
+    # 7-Day Load Forecast by Weather Zone
+    #
+
+    print("\nFetching NP3-561-CD…")
+    load_fcst = client.get(
+        "/np3-561-cd/7d_load_fcast_by_wzn",
+        postedDatetimeFrom=iso_from, postedDatetimeTo=iso_to,
+    )
+    print(f"  {len(load_fcst)} rows")
+
 
     #
     # INSERT DB
@@ -203,9 +265,19 @@ def main():
     with psycopg.connect(PG_DSN) as conn:
         n_shadow = load_shadow_prices(conn, shadow)
         n_outages = load_outages(conn, outages)
+        n_dam_spp = load_dam_spp(conn, dam_spp)
+        n_dam_lambda = load_dam_lambda(conn, dam_lambda)
+        n_rt_lmp = load_rt_lmp(conn, rt_lmp)
+        n_sced_lambda = load_sced_lambda(conn, sced_lambda)
+        n_load_fcst = load_load_forecast(conn, load_fcst)
         conn.commit()
-        print(f"  shadow_prices: {n_shadow} inserted")
-        print(f"  outages_zonal: {n_outages} inserted")
+        print(f"  shadow_prices:       {n_shadow} inserted")
+        print(f"  outages_zonal:       {n_outages} inserted")
+        print(f"  ercot_dam_spp:       {n_dam_spp} inserted")
+        print(f"  dam_system_lambda:   {n_dam_lambda} inserted")
+        print(f"  ercot_rt_lmp:        {n_rt_lmp} inserted")
+        print(f"  sced_system_lambda:  {n_sced_lambda} inserted")
+        print(f"  load_forecast_zonal: {n_load_fcst} inserted")
 
         print("\n--- Verification queries ---")
         print_top_shadow_prices(conn, iso_from, iso_to)
