@@ -5,11 +5,35 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import logging
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
 
 log = logging.getLogger(__name__)
+
+# ERCOT publishes naive timestamp strings in Central Time. Postgres TIMESTAMPTZ
+# parses naive strings using the session TZ (UTC in our deployment), so raw
+# inserts mislabel CT as UTC — a 5h/6h shift. Localize before insert.
+ERCOT_TZ = ZoneInfo("America/Chicago")
+
+
+def _ercot_ts_to_utc(value, dst_flag: bool = False):
+    """Parse a naive ERCOT timestamp (string or pandas Timestamp) as Central
+    Time and return a tz-aware UTC datetime. Returns None for empty values.
+
+    dst_flag disambiguates the fall-back duplicate hour (True = second
+    occurrence, i.e. standard-time side).
+    """
+    if value is None or value == "":
+        return None
+    ts = pd.to_datetime(value)
+    if ts.tzinfo is not None:
+        return ts.to_pydatetime().astimezone(timezone.utc)
+    naive = ts.to_pydatetime()
+    aware = naive.replace(tzinfo=ERCOT_TZ, fold=1 if dst_flag else 0)
+    return aware.astimezone(timezone.utc)
 
 
 #
@@ -90,7 +114,8 @@ def load_shadow_prices(conn, df: pd.DataFrame) -> int:
 
     records = [
         (
-            r["SCEDTimestamp"], bool(r["repeatedHourFlag"]), int(r["constraintID"]),
+            _ercot_ts_to_utc(r["SCEDTimestamp"], bool(r["repeatedHourFlag"])),
+            bool(r["repeatedHourFlag"]), int(r["constraintID"]),
             r["constraintName"], r["contingencyName"],
             _f(r["shadowPrice"]), _f(r["maxShadowPrice"]),
             _f(r["limit"]), _f(r["value"]), _f(r["violatedMW"]),
@@ -122,7 +147,8 @@ def load_outages(conn, df: pd.DataFrame) -> int:
 
     records = [
         (
-            r["postedDatetime"], r["operatingDate"], int(r["hourEnding"]),
+            _ercot_ts_to_utc(r["postedDatetime"]),
+            r["operatingDate"], int(r["hourEnding"]),
             _f(r["totalResourceMWZoneSouth"]), _f(r["totalResourceMWZoneNorth"]),
             _f(r["totalResourceMWZoneWest"]), _f(r["totalResourceMWZoneHouston"]),
             _f(r["totalIRRMWZoneSouth"]), _f(r["totalIRRMWZoneNorth"]),
@@ -216,7 +242,7 @@ def load_wind_hourly(conn, df: pd.DataFrame) -> int:
         ts = _to_interval_ts(op_day, hour, 1, dst)
 
         records.append((
-            op_day, hour, pd.to_datetime(r["postedDatetime"]), dst, ts,
+            op_day, hour, _ercot_ts_to_utc(r["postedDatetime"], dst), dst, ts,
             # System-wide
             _f(r.get("genSystemWide")), _f(r.get("COPHSLSystemWide")),
             _f(r.get("STWPFSystemWide")), _f(r.get("WGRPPSystemWide")),
@@ -314,7 +340,7 @@ def load_solar_hourly(conn, df: pd.DataFrame) -> int:
         ts = _to_interval_ts(op_day, hour, 1, dst)
 
         records.append((
-            op_day, hour, pd.to_datetime(r["postedDatetime"]), dst, ts,
+            op_day, hour, _ercot_ts_to_utc(r["postedDatetime"], dst), dst, ts,
             # System-wide
             _f(r.get("genSystemWide")), _f(r.get("COPHSLSystemWide")),
             _f(r.get("STPPFSystemWide")), _f(r.get("PVGRPPSystemWide")),
@@ -462,13 +488,13 @@ def load_rt_lmp(conn, df: pd.DataFrame) -> int:
     # ERCOT response casing for the price field has historically varied.
     lmp_col = "LMP" if "LMP" in df.columns else "lmp"
 
-    records = [
-        (
-            r["SCEDTimestamp"], bool(r.get("repeatedHourFlag", False)),
+    records = []
+    for _, r in df.iterrows():
+        rhf = bool(r.get("repeatedHourFlag", False))
+        records.append((
+            _ercot_ts_to_utc(r["SCEDTimestamp"], rhf), rhf,
             r["settlementPoint"], _f(r[lmp_col]),
-        )
-        for _, r in df.iterrows()
-    ]
+        ))
 
     sql = """
         INSERT INTO ercot_rt_lmp (
@@ -487,13 +513,13 @@ def load_sced_lambda(conn, df: pd.DataFrame) -> int:
     if df.empty:
         return 0
 
-    records = [
-        (
-            r["SCEDTimestamp"], bool(r.get("repeatedHourFlag", False)),
+    records = []
+    for _, r in df.iterrows():
+        rhf = bool(r.get("repeatedHourFlag", False))
+        records.append((
+            _ercot_ts_to_utc(r["SCEDTimestamp"], rhf), rhf,
             _f(r["systemLambda"]),
-        )
-        for _, r in df.iterrows()
-    ]
+        ))
 
     sql = """
         INSERT INTO sced_system_lambda (
@@ -524,7 +550,7 @@ def load_load_forecast(conn, df: pd.DataFrame) -> int:
         ts = _to_interval_ts(op_day, hour, 1, dst)
 
         records.append((
-            pd.to_datetime(r["postedDatetime"]), ts, op_day, hour,
+            _ercot_ts_to_utc(r["postedDatetime"]), ts, op_day, hour,
             _f(r.get("coast")), _f(r.get("east")), _f(r.get("farWest")),
             _f(r.get("north")), _f(r.get("northCentral")), _f(r.get("southCentral")),
             _f(r.get("southern")), _f(r.get("west")), _f(r.get("systemTotal")),
@@ -558,15 +584,13 @@ def _to_interval_ts(operating_day, hour_ending: int, interval_id: int = 1, dst_f
     ERCOT publishes hour_ending in CT. Convert to UTC.
     interval_id is 1-4 for 15-min slices (load), or always 1 for hourly reports.
     """
-    from zoneinfo import ZoneInfo
-    ct = ZoneInfo("America/Chicago")
     # hour_ending=1 means the interval ending at 01:00 CT, i.e. 00:15-01:00 for 15-min
     # For hourly: the interval is the full hour ending at hour_ending CT
     minute = (interval_id - 1) * 15 if interval_id else 0
     naive = datetime(operating_day.year, operating_day.month, operating_day.day,
                      hour_ending - 1, minute)
     # dst_flag=True is the second occurrence (fall back)
-    aware = naive.replace(tzinfo=ct, fold=1 if dst_flag else 0)
+    aware = naive.replace(tzinfo=ERCOT_TZ, fold=1 if dst_flag else 0)
     return aware.astimezone(timezone.utc)
 
 

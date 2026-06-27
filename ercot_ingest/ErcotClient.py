@@ -17,7 +17,8 @@ from shared.settings import settings
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from loaders import (load_shadow_prices, load_outages,
+from loaders import (ERCOT_TZ,
+                     load_shadow_prices, load_outages,
                      load_dam_spp, load_dam_lambda, load_rt_lmp,
                      load_sced_lambda, load_load_forecast,
                      print_top_shadow_prices, print_recent_outages)
@@ -147,15 +148,12 @@ class ErcotClient:
 #
 
 def main():
-    from zoneinfo import ZoneInfo
-    ercot_tz = ZoneInfo("America/Chicago")
-
     end = datetime.now(timezone.utc) - timedelta(days=2)
     end = end.replace(hour=22, minute=0, second=0, microsecond=0)
     start = end - timedelta(hours=1)
     # ERCOT's API interprets naive datetime filters as Central Time.
-    iso_from = start.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
-    iso_to = end.astimezone(ercot_tz).strftime("%Y-%m-%dT%H:%M:%S")
+    iso_from = start.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
+    iso_to = end.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 
     date_from = start.strftime("%Y-%m-%d")
     date_to = end.strftime("%Y-%m-%d")

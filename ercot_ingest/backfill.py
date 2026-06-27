@@ -13,17 +13,15 @@ import argparse
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import psycopg
 
-# ERCOT's public API interprets naive timestamp filters in Central Time.
-# Sending UTC values causes the window to land ~5h in the future and return 0
-# rows — see live_updater going silent on shadow_prices since 2026-04-24.
-ERCOT_TZ = ZoneInfo("America/Chicago")
-
 from ErcotClient import ErcotClient, PG_DSN
-from loaders import (load_zonal_lmp, load_shadow_prices, load_outages,
+# ERCOT_TZ: ERCOT's public API interprets naive timestamp filters in Central
+# Time. Sending UTC made the live window land ~5h in the future and return 0
+# rows — see live_updater going silent on shadow_prices since 2026-04-24.
+from loaders import (ERCOT_TZ,
+                     load_zonal_lmp, load_shadow_prices, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
                      load_dam_spp, load_dam_lambda, load_rt_lmp,
                      load_sced_lambda, load_load_forecast)
