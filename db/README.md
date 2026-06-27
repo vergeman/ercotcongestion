@@ -3,6 +3,9 @@
 * Run Migration:
   * `docker compose exec -T db psql -U <user> -d <db> < db/migrations/<migration>.sql`
 
+* K3s migration:
+  * `kubectl exec -i -n ercotstress postgres-0 -- psql -U <username> -d <db> < db/migrations/<migration>.sql`
+
 ## Import ERCOT
 
 * Example single dataset:
