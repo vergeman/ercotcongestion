@@ -194,6 +194,63 @@ def main():
     )
     print(f"  {len(outages)} rows")
 
+    #
+    # DAM SPP (zonal hubs only)
+    #
+
+    print("\nFetching NP4-190-CD…")
+    dam_spp = client.get(
+        "/np4-190-cd/dam_stlmnt_pnt_prices",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+        settlementPointType="HU",
+    )
+    print(f"  {len(dam_spp)} rows")
+
+    #
+    # DAM System Lambda
+    #
+
+    print("\nFetching NP4-523-CD…")
+    dam_lambda = client.get(
+        "/np4-523-cd/dam_system_lambda",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+    )
+    print(f"  {len(dam_lambda)} rows")
+
+    #
+    # RT LMP (zonal hubs only — full nodal set is ~288K rows/day)
+    #
+
+    print("\nFetching NP6-788-CD…")
+    rt_lmp = client.get(
+        "/np6-788-cd/lmp_node_zone_hub",
+        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
+        settlementPointType="HU",
+    )
+    print(f"  {len(rt_lmp)} rows")
+
+    #
+    # SCED System Lambda
+    #
+
+    print("\nFetching NP6-322-CD…")
+    sced_lambda = client.get(
+        "/np6-322-cd/sced_system_lambda",
+        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
+    )
+    print(f"  {len(sced_lambda)} rows")
+
+    #
+    # 7-Day Load Forecast by Weather Zone
+    #
+
+    print("\nFetching NP3-561-CD…")
+    load_fcst = client.get(
+        "/np3-561-cd/7d_load_fcast_by_wzn",
+        postedDatetimeFrom=iso_from, postedDatetimeTo=iso_to,
+    )
+    print(f"  {len(load_fcst)} rows")
+
 
     #
     # INSERT DB
