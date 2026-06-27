@@ -1,0 +1,72 @@
+# Backfill the pricing/lambda datasets added in 0007.
+#
+# Covers: NP4-190-CD DAM SPP, NP4-523-CD DAM Lambda, NP6-788-CD RT LMP,
+#         NP6-322-CD SCED Lambda, NP3-561-CD 7-Day Load Forecast.
+#
+# Usage:
+#   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
+#   envsubst < ops/deploy/jobs/backfill_pricing_job.yml | kubectl apply -f -
+#
+#   kubectl -n ercotstress logs -f job/backfill-pricing
+#
+# Each endpoint is invoked separately so a failure in one (e.g. an ERCOT
+# outage on a single dataset) doesn't abort the others. --resume reads
+# ingest_log and skips (endpoint, day) pairs that already completed, so this
+# is safe to re-run after partial failures.
+#
+# Expected runtime: hours, dominated by rt_lmp (~288K rows/day across all
+# settlement points, paginated 1000/page at a 3s throttle). Bump
+# activeDeadlineSeconds if the window is wide.
+#
+# After it finishes:
+#   kubectl -n ercotstress delete job backfill-pricing
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backfill-pricing
+  namespace: ercotstress
+  labels:
+    app: ercot-ingest
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 86400          # 24h hard cap; bump if needed
+  template:
+    metadata:
+      labels:
+        app: ercot-ingest
+        job: backfill-pricing
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: backfill
+          image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+          imagePullPolicy: Always
+          command:
+            - bash
+            - -ec
+            - |
+              START=2025-01-01
+              END=2025-01-31
+              for ep in dam_spp dam_lambda sced_lambda load_forecast rt_lmp; do
+                echo "==> Backfilling $ep $START → $END"
+                python /ercot_ingest/backfill.py \
+                  --start "$START" --end "$END" --resume --endpoint "$ep"
+              done
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: postgres-credentials
+            - secretRef:
+                name: ercot-ingest-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
