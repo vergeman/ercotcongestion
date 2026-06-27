@@ -28,6 +28,22 @@
   * API: /np4-745-cd/spp_hrly_actual_fcast_geo
   * actual (gen_zone) + forecast if future
 
+* Frequency of update
+
+| product               | id         | frequency Update |
+|-----------------------|------------|------------------|
+| rt_lmp                | np6-788-cd | 5 min            |
+| dam_spp               | np4-190-cd | 1 day            |
+| dam_lambda            | np4-523-cd | 1 day            |
+| sced lambda           | np6-322-cd | 5 min            |
+| load_forecast         |            | hourly           |
+| wind/solar            |            | hourly           |
+| outage                |            | hourly           |
+| shadow                | np6-86-cd  | hourly           |
+| actual_load           |            | daily            |
+| spp zonal (lmp zonal) | np6-905-cd | 15 min           |
+
+
 * Daylight Saving Time
   * `dst_flag`: ERCOT publishes CST; publishes `dst_flag` True on "second"
     instance of time.
@@ -101,4 +117,3 @@
 }
 
 ```
-

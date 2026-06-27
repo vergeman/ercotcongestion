@@ -39,7 +39,7 @@ spec:
           containers:
             - name: ingest
               # Same consolidated image as api.
-              image: ${IMAGE_REPO}/ercotstress/api-compute:v1.0
+              image: ${IMAGE_REPO}/ercotstress/api-compute:v1.1
               # imagePullPolicy: Always
               command:
                 - python
