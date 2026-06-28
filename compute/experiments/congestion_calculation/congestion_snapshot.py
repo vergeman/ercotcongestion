@@ -39,8 +39,9 @@ from config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV,
 )
+from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
-from snapshot import run_snapshot_for_ts
+from snapshot import compute_snapshot_batch
 
 from congestion import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
@@ -82,8 +83,15 @@ def build_hub_lmps(
     return hub_lmps
 
 
-def build_load_per_bus(n: pypsa.Network) -> pd.Series:
-    return n.loads.groupby('bus')['p_set'].sum().reindex(n.buses.index).fillna(0.0)
+def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
+    """Per-bus load aggregated from the adapter-scaled time-varying loads
+    written into n.loads_t.p_set for this snapshot."""
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+    load_per_load = n.loads_t.p_set.loc[naive_ts]
+    return (
+        load_per_load.groupby(n.loads['bus']).sum()
+        .reindex(n.buses.index).fillna(0.0)
+    )
 
 
 def _stats(s: pd.Series) -> dict:
@@ -102,16 +110,16 @@ def _stats(s: pd.Series) -> dict:
     }
 
 
-def run_one(ts: datetime, adapter, mc, hub_centroids) -> dict:
+def run_one(ts: datetime, adapter, n, hub_centroids) -> dict:
     """Run OPF for one timestamp and produce a congestion record. Per-step
     failures are caught so a partial record is still returned."""
     try:
-        result, op, n = run_snapshot_for_ts(ts, adapter, mc)
+        op = adapter.build(ts)
+        result = compute_snapshot_batch(n, [ts], {ts: op})[ts]
         if result['status'] == 'infeasible':
             print("  infeasible — retrying with global load scale factor")
-            result, op, n = run_snapshot_for_ts(
-                ts, adapter, mc, force_global_load_sf=True
-            )
+            op = adapter.build(ts, force_global_load_sf=True)
+            result = compute_snapshot_batch(n, [ts], {ts: op})[ts]
     except Exception as e:
         traceback.print_exc()
         return {"status": "error", "error": f"opf: {e}"}
@@ -129,7 +137,7 @@ def run_one(ts: datetime, adapter, mc, hub_centroids) -> dict:
 
     loads = None
     try:
-        loads = build_load_per_bus(n)
+        loads = build_load_per_bus(n, ts)
     except Exception as e:
         print(f"  build_load_per_bus failed: {e}")
 
@@ -171,9 +179,15 @@ def main():
     mc = pd.read_csv(MARGINAL_COSTS_CSV, index_col=0)
     bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
-    n_init = pypsa.Network(NETWORK_NC)
+    n = pypsa.Network(NETWORK_NC)
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
     conn = psycopg.connect(PG_DSN)
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n)
+    apply_static_mutations(
+        n, line_derate=adapter.line_derate, tx_derate=adapter.tx_derate,
+    )
 
     results = []
     for regime, timestamps in refs.items():
@@ -181,7 +195,7 @@ def main():
             ts = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc)
             print(f"\n{'=' * 60}\n{regime} | {ts.isoformat()}\n{'=' * 60}")
             try:
-                record = run_one(ts, adapter, mc, hub_centroids)
+                record = run_one(ts, adapter, n, hub_centroids)
             except Exception as e:
                 traceback.print_exc()
                 record = {"status": "error", "error": str(e)}
