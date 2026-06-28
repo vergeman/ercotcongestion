@@ -2,169 +2,212 @@ import pypsa
 import pandas as pd
 import numpy as np
 import logging
-from copy import deepcopy
-from constants import DEFAULT_P_MAX_PU
-from operating_conditions import apply_operating_conditions
-from fragility import compute_fragility, fragility_diagnostics, fragility_plot
-from contingency import compute_contingencies, contingency_diagnostics
-from ptdf_lodf import get_ptdf_lodf, print_network_diagnostic
+import time
 
-from config import NETWORK_NC
+from fragility import compute_fragility_at, fragility_diagnostics
+from contingency import compute_contingencies_at, contingency_diagnostics
+from ptdf_lodf import get_ptdf_lodf
+from operating_conditions import stack_time_varying
+
 from constants import SHED_COST
 from datetime import datetime
-from operating_data_adapter import OperatingDataAdapter
 
 
 logger = logging.getLogger(__name__)
 
-def compute_snapshot(n, operating_data, top_k_contingencies = 10,
-                     copy_network = False, enable_plots = False,
-                     enable_load_shed = True, shed_cost = SHED_COST) -> dict[str, any]:
+SHED_PREFIX = "shed_"
+
+
+def compute_snapshot_batch(
+    n: pypsa.Network,
+    ts_list: list[datetime],
+    op_by_ts: dict[datetime, dict],
+    *,
+    top_k_contingencies: int = 10,
+    enable_load_shed: bool = True,
+    shed_cost: float = SHED_COST,
+    enable_diagnostics: bool = False,
+) -> dict[datetime, dict]:
+    """Build the PyPSA model once over ts_list, solve, then return one
+    result dict per ts with the same schema as the legacy per-ts entry.
+
+    Caller must call apply_static_mutations(n, ...) once per process
+    before the first batch — derate / outage / capacity-lock / reactance
+    patch are NOT idempotent and live above this function. Time-varying
+    inputs (loads, p_max_pu_per_gen) are stacked from each op_by_ts[ts].
+    Load-shed generators are sized to the chunk-wide maximum total load
+    so every snapshot in the chunk is feasible.
+
+    On infeasibility, returns {ts: {'status': 'infeasible', ...}} for every
+    ts; caller is expected to retry with smaller chunks or a global load
+    scale-factor fallback.
     """
-    Compute a full grid snapshot: OPF + fragility + N-1 contingencies.
-    Returns
-    -------
-    snapshot : dict with keys:
-        'status'           : 'ok' | 'infeasible'
-        'fragility'        : pd.Series (bus → fragility value)
-        'lmps'             : pd.Series (bus → $/MWh)
-        'basis'            : pd.Series (bus → bus_lmp - zonal_lmp) or NaN
-        'dispatch'         : pd.Series (generator → MW)
-        'flows'            : pd.Series (line → MW)
-        'binding_lines'    : list of line names with non-zero shadow price
-        'shadow_prices'    : pd.Series (line → $/MWh, non-zero only)
-        'top_contingencies': pd.DataFrame
-        'meta'             : dict with totals, cost, counts
-    """
+    if not ts_list:
+        return {}
 
-    # Note: deepcopy of solved PyPSA networks can fail. Default False for now.
-    net = deepcopy(n) if copy_network else n
+    # PyPSA's snapshot index must be tz-naive. Keep the caller's tz-aware ts
+    # as the dict key for results; use naive equivalents for the model.
+    naive_by_orig = {ts: pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+                     if pd.Timestamp(ts).tzinfo is not None
+                     else pd.Timestamp(ts)
+                     for ts in ts_list}
+    naive_list = [naive_by_orig[ts] for ts in ts_list]
+    op_by_naive = {naive_by_orig[ts]: op_by_ts[ts] for ts in ts_list}
 
-    apply_operating_conditions(n, **operating_data)
+    sns_index = pd.DatetimeIndex(naive_list)
+    n.set_snapshots(sns_index)
 
-    SHED_PREFIX = "shed_"
-    if enable_load_shed:
-        net.add(
-            "Generator",
-            [f"{SHED_PREFIX}{b}" for b in net.buses.index],
-            bus=net.buses.index.values,
-            carrier="load_shed",
-            marginal_cost=shed_cost,
-            p_nom=float(net.loads['p_set'].sum()),
-            p_nom_extendable=False,
-        )
+    stack_time_varying(n, naive_list, op_by_naive)
 
-    #
-    # Solve DC-OPF
-    #
-    # Equivalent to net.optimize(solver_name="highs", assign_all_duals=True)
-    # expanded to the linopy primitive to:
-    #   - pass io_api="direct" (skip the linopy temp-file path)
-    #   - keep assign_all_duals=True so line mu_upper/mu_lower are populated
-    #     for fragility / binding-line math
-    #   - replace post_processing() with just the marginal_price rescale
-    #     (the rest of post_processing computes loads_t.p, buses_t.p, and a
-    #     ~3000-bus pinv for buses_t.v_ang, none of which we read).
-    net.optimize.create_model()
-    status, condition = net.model.solve(
-        solver_name="highs", io_api="direct"
+    chunk_max_load = float(n.loads_t.p_set.sum(axis=1).max())
+    _ensure_load_shed_gens(n, enable_load_shed, chunk_max_load, shed_cost)
+
+    t0 = time.perf_counter()
+    n.optimize.create_model()
+    t_build = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    status, condition = n.model.solve(solver_name="highs", io_api="direct")
+    t_solve = time.perf_counter() - t0
+    logger.warning(
+        f"compute_snapshot_batch[{len(ts_list)} ts]: "
+        f"build={t_build:.1f}s solve={t_solve:.1f}s"
     )
-    if status == "ok":
-        net.optimize.assign_solution()
-        net.optimize.assign_duals(assign_all_duals=True)
-        assert not net._multi_invest, (
-            "post_processing shortcut assumes single-period optimization"
-        )
-        sns = net.model.parameters.snapshots.to_index()
-        weightings = net.snapshot_weightings.objective.loc[sns]
-        net.buses_t.marginal_price.loc[sns] = (
-            net.buses_t.marginal_price.loc[sns].divide(weightings, axis=0)
-        )
-
-        shed_mw = pd.Series(0.0, index=net.buses.index)
-        if enable_load_shed:
-            gp = net.generators_t.p.iloc[0]
-            s = gp[gp.index.str.startswith(SHED_PREFIX)]
-            s.index = s.index.str.replace(SHED_PREFIX, "", regex=False)
-            shed_mw = s.reindex(net.buses.index).fillna(0.0)
 
     if status != 'ok':
         logger.warning(f"OPF {status}: {condition}")
         return {
-            'status': 'infeasible',
-            'condition': condition,
-            'meta': {'solver_status': status},
+            ts: {
+                'status': 'infeasible',
+                'condition': condition,
+                'meta': {'solver_status': status},
+            }
+            for ts in ts_list
         }
 
-    print_network_diagnostic(n)
+    t0 = time.perf_counter()
+    n.optimize.assign_solution()
+    t_assign_sol = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    n.optimize.assign_duals(assign_all_duals=True)
+    t_assign_duals = time.perf_counter() - t0
+    logger.warning(
+        f"compute_snapshot_batch[{len(ts_list)} ts]: "
+        f"assign_solution={t_assign_sol:.1f}s assign_duals={t_assign_duals:.1f}s"
+    )
+    assert not n._multi_invest, (
+        "post_processing shortcut assumes single-period optimization"
+    )
+    w = n.snapshot_weightings.objective.loc[sns_index]
+    n.buses_t.marginal_price = n.buses_t.marginal_price.divide(w, axis=0)
 
-    #
-    # Calculate PTDF on current topology
-    # Given current dispatch, which buses are most exposed to binding constraints
+    ptdf, lodf_lines, bus_names = get_ptdf_lodf(n)
 
-    ptdf, lodf_lines, bus_names = get_ptdf_lodf(net)
-
-    #
-    # FRAGILITY
-    #
-
-    fragility = compute_fragility(net, ptdf, bus_names)
-    fragility_diagnostics(fragility)
-    if enable_plots:
-        fragility_plot(n, fragility)
-
-    #
-    #  N-1 CONTINGENCY
-    #
-    #  stress value: if Line X trips, stress is the sum of all the resulting
-    #  fractional overloads across all lines after that N-1 contingency
-
-    contingencies = compute_contingencies(net, lodf_lines, top_k_contingencies) # line | stress
-    contingency_diagnostics(n, contingencies, lodf_lines)
+    results = {}
+    for ts in ts_list:
+        naive_ts = naive_by_orig[ts]
+        results[ts] = _build_result_at(
+            n, naive_ts, op_by_ts[ts], ptdf, lodf_lines, bus_names,
+            top_k_contingencies, enable_load_shed, status,
+            enable_diagnostics,
+        )
+    return results
 
 
-    # OUTPUTS
+def _ensure_load_shed_gens(n, enabled: bool, p_nom: float, shed_cost: float) -> None:
+    """Add one load-shed generator per bus on first call; resize on subsequent."""
+    if not enabled:
+        return
 
-    # Market outputs
+    shed_names = pd.Index([f"{SHED_PREFIX}{b}" for b in n.buses.index])
+    existing = shed_names.intersection(n.generators.index)
+    if len(existing) == len(shed_names):
+        n.generators.loc[shed_names, 'p_nom'] = p_nom
+        n.generators.loc[shed_names, 'marginal_cost'] = shed_cost
+        return
+
+    if len(existing) > 0:
+        n.remove("Generator", existing.tolist())
+
+    n.add(
+        "Generator",
+        shed_names.tolist(),
+        bus=n.buses.index.values,
+        carrier="load_shed",
+        marginal_cost=shed_cost,
+        p_nom=p_nom,
+        p_nom_extendable=False,
+    )
+
+
+def _slice_or_none(df: pd.DataFrame, ts) -> pd.Series | None:
+    if df is None or df.empty:
+        return None
+    return df.loc[ts]
+
+
+def _build_result_at(
+    n, ts, op, ptdf, lodf_lines, bus_names,
+    top_k_contingencies, enable_load_shed, solver_status,
+    enable_diagnostics: bool,
+) -> dict:
+    line_mu_up = _slice_or_none(n.lines_t.mu_upper, ts)
+    line_mu_lo = _slice_or_none(n.lines_t.mu_lower, ts)
+    line_p0    = _slice_or_none(n.lines_t.p0, ts)
+    tx_mu_up   = _slice_or_none(n.transformers_t.mu_upper, ts)
+    tx_mu_lo   = _slice_or_none(n.transformers_t.mu_lower, ts)
+    tx_p0      = _slice_or_none(n.transformers_t.p0, ts)
+
+    fragility = compute_fragility_at(
+        n, line_mu_up, line_mu_lo, line_p0,
+        tx_mu_up, tx_mu_lo, tx_p0,
+        ptdf, bus_names,
+    )
+    if enable_diagnostics:
+        fragility_diagnostics(fragility)
+
+    contingencies = compute_contingencies_at(
+        n,
+        line_p0 if line_p0 is not None else pd.Series(0.0, index=n.lines.index),
+        lodf_lines, top_k_contingencies,
+    )
+    if enable_diagnostics:
+        contingency_diagnostics(
+            n, contingencies, lodf_lines,
+            line_p0 if line_p0 is not None else pd.Series(0.0, index=n.lines.index),
+        )
+
+    gp_ts = n.generators_t.p.loc[ts]
+    shed_mw = pd.Series(0.0, index=n.buses.index)
+    if enable_load_shed:
+        s = gp_ts[gp_ts.index.str.startswith(SHED_PREFIX)].copy()
+        s.index = s.index.str.replace(SHED_PREFIX, "", regex=False)
+        shed_mw = s.reindex(n.buses.index).fillna(0.0)
+
     shed_buses = shed_mw.index[shed_mw > 1e-3]
-    lmps = net.buses_t.marginal_price.iloc[0].copy()
-    lmps.loc[shed_buses] = np.nan                      # scarcity price, not market
-    dispatch = net.generators_t.p.iloc[0]
-    dispatch = dispatch[~dispatch.index.str.startswith(SHED_PREFIX)]
-    flows = net.lines_t.p0.iloc[0]
+    lmps = n.buses_t.marginal_price.loc[ts].copy()
+    lmps.loc[shed_buses] = np.nan
+    dispatch = gp_ts[~gp_ts.index.str.startswith(SHED_PREFIX)]
+    flows = line_p0 if line_p0 is not None else pd.Series(0.0, index=n.lines.index)
 
-    #
-    # BASIS
-    #
-    #   basis = bus_lmp (model)  -  ERCOT zonal_lmp (real, hourly mean)
-    #
-    # bus_load_zone and zonal_lmp_by_zone are supplied by the
-    # OperatingDataAdapter (adapter).
-    #
-    # Try to keep compute_snapshot DB-free: the ODA is component that talks to
-    # Postgres.
-
-
-    bus_load_zone     = operating_data.get('bus_load_zone')
-    zonal_lmp_by_zone = operating_data.get('zonal_lmp_by_zone') or {}
+    bus_load_zone     = op.get('bus_load_zone')
+    zonal_lmp_by_zone = op.get('zonal_lmp_by_zone') or {}
     basis = _compute_basis(lmps, bus_load_zone, zonal_lmp_by_zone)
 
-    # Binding constraints
-    mu_up = net.lines_t.mu_upper.iloc[0].abs()
-    mu_lo = net.lines_t.mu_lower.iloc[0].abs()
-    shadow = (mu_up + mu_lo).reindex(net.lines.index).fillna(0)
+    mu_up = line_mu_up.abs() if line_mu_up is not None else pd.Series(0.0, index=n.lines.index)
+    mu_lo = line_mu_lo.abs() if line_mu_lo is not None else pd.Series(0.0, index=n.lines.index)
+    shadow = (mu_up + mu_lo).reindex(n.lines.index).fillna(0)
     binding_mask = shadow > 0.01
     binding_lines = shadow[binding_mask].sort_values(ascending=False)
 
-    # Meta
-    total_load = net.loads['p_set'].sum()
-    total_gen = dispatch.sum()
+    total_load = float(n.loads_t.p_set.loc[ts].sum())
+    total_gen = float(dispatch.sum())
+    ts_objective = _per_snapshot_objective(n, ts)
     meta = {
-        'solver_status': status,
-        'total_load_mw': float(total_load),
-        'total_gen_mw': float(total_gen),
-        'balance_mw': float(total_gen - total_load),
-        'objective_cost': float(net.objective) if hasattr(net, 'objective') else None,
+        'solver_status': solver_status,
+        'total_load_mw': total_load,
+        'total_gen_mw': total_gen,
+        'balance_mw': total_gen - total_load,
+        'objective_cost': ts_objective,
         'n_binding_lines': int(binding_mask.sum()),
         'lmp_min': float(lmps.min()),
         'lmp_mean': float(lmps.mean()),
@@ -194,10 +237,20 @@ def compute_snapshot(n, operating_data, top_k_contingencies = 10,
         'binding_lines': list(binding_lines.index),
         'shadow_prices': binding_lines,
         'top_contingencies': contingencies,
-        'shed_mw': shed_mw[shed_mw > 1e-3],   # bus -> unserved MW (nonzero only)
+        'shed_mw': shed_mw[shed_mw > 1e-3],
         'shed_buses': list(shed_buses),
         'meta': meta,
     }
+
+
+def _per_snapshot_objective(n, ts) -> float | None:
+    """Per-snapshot cost: Σ (gen_p[ts, g] × marginal_cost[g]). The model's
+    objective is the chunk sum; we recompute the single-snapshot slice."""
+    gp = n.generators_t.p.loc[ts]
+    mc = n.generators['marginal_cost'].reindex(gp.index).fillna(0.0)
+    weighting = float(n.snapshot_weightings.objective.loc[ts])
+    return float((gp * mc).sum() * weighting)
+
 
 def _compute_basis(
     lmps: pd.Series,
@@ -210,77 +263,12 @@ def _compute_basis(
     zonal LMP at this timestamp. Caller writes NaN as NULL to the DB.
     """
     if bus_load_zone is None:
-        # No mapping supplied — return all-NaN series aligned to lmps.
         return pd.Series(np.nan, index=lmps.index, name='basis')
 
     zone_for_bus = bus_load_zone.reindex(lmps.index)
-
-    # Non-ERCOT buses: zonal LMP is undefined.
     zone_lmp_series = zone_for_bus.map(
         {z: v for z, v in zonal_lmp_by_zone.items() if v is not None}
     )
     basis = lmps - zone_lmp_series
     basis.name = 'basis'
     return basis
-
-
-def run_snapshot_for_ts(
-    ts: datetime,
-    adapter: OperatingDataAdapter,
-    mc: pd.DataFrame,
-    network_path: str = NETWORK_NC,
-    *,
-    force_global_load_sf: bool = False,
-) -> tuple[dict, dict, pypsa.Network]:
-    """Build operating data, load network, run OPF for one timestamp.
-
-    Returns (result, op, network). Raises on failure.
-    """
-
-    # Build operating data
-    op = adapter.build(ts, force_global_load_sf=force_global_load_sf)
-
-    n = pypsa.Network(network_path)
-
-    n.generators['marginal_cost'] = (
-        n.generators.index.map(mc['marginal_cost']).fillna(0)
-    )
-
-    # Run OPF
-    result = compute_snapshot(n, op)
-
-    return result, op, n
-
-
-
-if __name__ == '__main__':
-    """
-    Run compute_snapshot on the bare TAMU network with synthetic carrier-level
-    availability.
-
-    No ERCOT data, no timestamp, no DB required.
-
-    Useful for testing OPF / fragility / contingency math in isolation.
-
-    For the real pipeline, see test_snapshot.py and write_snapshots.py.
-    """
-    n = pypsa.Network("/data/processed/Texas2k_series25_case1_summerpeak.nc")
-
-    # Apply marginal costs
-    mc = pd.read_csv("/data/processed/marginal_costs.csv", index_col=0)
-    n.generators['marginal_cost'] = n.generators.index.map(mc['marginal_cost']).fillna(0)
-
-
-    operating_data = {
-        'p_max_pu_by_carrier': {
-            **DEFAULT_P_MAX_PU,
-            'wind': 0.20,      # ERCOT wind typically 15-30% at peak
-            'solar': 0.65,     # still producing but sun dropping
-        },
-        'loads': None,
-        'outages': None,
-        'line_derate': .9,
-        'tx_derate': 0.95
-    }
-
-    res = compute_snapshot(n, operating_data)

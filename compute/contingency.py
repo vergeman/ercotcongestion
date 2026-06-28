@@ -9,7 +9,15 @@ import numpy as np
 import pandas as pd
 
 
-def compute_contingencies(n, lodf_full, top_k, radial_threshold: float = 5.0) -> pd.DataFrame:
+def compute_contingencies_at(
+    n,
+    line_p0: pd.Series,
+    lodf_full,
+    top_k,
+    radial_threshold: float = 5.0,
+) -> pd.DataFrame:
+    """N-1 stress ranking at a single snapshot. line_p0 is a 1-D Series
+    (e.g. n.lines_t.p0.loc[ts])."""
 
     # We only simulate line outages, not transformer outages
     # (transformers are usually protected differently and we don't trip them for N-1)
@@ -17,7 +25,7 @@ def compute_contingencies(n, lodf_full, top_k, radial_threshold: float = 5.0) ->
     lodf_line_line = lodf_full[:n_lines_n, :n_lines_n]  # line outages affect lines only
 
     # Base flows on lines
-    flow_base = n.lines_t.p0.iloc[0].reindex(n.lines.index).fillna(0).values
+    flow_base = line_p0.reindex(n.lines.index).fillna(0).values
     s_nom = n.lines['s_nom'].values
 
     # Skip near-radial lines whose LODF columns blow up; they lack alternate
@@ -60,7 +68,7 @@ def _contingency_stress(outage_idx, lodf_line_line, flow_base, s_nom):
 
 
 
-def contingency_diagnostics(n, stress_df, lodf_full):
+def contingency_diagnostics(n, stress_df, lodf_full, line_p0: pd.Series):
     if stress_df.empty:
         print("No contingencies to evaluate.")
         return
@@ -70,7 +78,7 @@ def contingency_diagnostics(n, stress_df, lodf_full):
 
     n_lines = len(n.lines)
     lodf_line_line = lodf_full[:n_lines, :n_lines]
-    flow_base = n.lines_t.p0.iloc[0].reindex(n.lines.index).fillna(0).values
+    flow_base = line_p0.reindex(n.lines.index).fillna(0).values
     s_nom = n.lines['s_nom'].values
 
     # For the top contingency, show what overloads
