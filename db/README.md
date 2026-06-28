@@ -17,6 +17,40 @@
 * Remove ingest_log to re-query (bad data):
   * `docker compose exec db psql -U <user> -d <db> -c "DELETE FROM ingest_log WHERE endpoint = 'loads';"`
 
+## Scripts
+
+* `./export_prod_database.sh`: dump prod into local dev database. Stream COPY
+  takes a long time, but needed to accommodate timescale db quirks.
+* `./import_database.sh`: dump local into prod. Outdated, likely needs tables to
+  be updated.
+
+## Backup Docker Volume (Local)
+
+```
+docker compose stop db
+
+docker run --rm \
+  -v ercotstress_pgdata:/src \
+  -v "$PWD":/backup \
+  alpine \
+  tar czf /backup/pgdata-$(date +%Y%m%d-%H%M).tar.gz -C /src .
+
+docker compose start db
+```
+
+## Restore Docker Volume (Local)
+
+```
+docker compose down             # stops db and removes container
+docker volume rm ercotstress_pgdata
+docker volume create ercotstress_pgdata
+docker run --rm \
+  -v ercotstress_pgdata:/dst \
+  -v "$PWD":/backup \
+  alpine \
+  tar xzf /backup/pgdata-YYYYMMDD-HHMM.tar.gz -C /dst
+docker compose up -d db
+```
 
 ## SQL Notes
 
