@@ -9,11 +9,20 @@ from contingency import compute_contingencies_at, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf
 from operating_conditions import stack_time_varying
 
+from config import HIGHS_THREADS
 from constants import SHED_COST
 from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
+
+
+def _default_solver_options() -> dict:
+    """HiGHS options derived from HIGHS_THREADS. >1 enables PAMI."""
+    threads = max(1, int(HIGHS_THREADS))
+    if threads > 1:
+        return {'parallel': 'on', 'threads': threads}
+    return {}
 
 SHED_PREFIX = "shed_"
 
@@ -27,6 +36,7 @@ def compute_snapshot_batch(
     enable_load_shed: bool = True,
     shed_cost: float = SHED_COST,
     enable_diagnostics: bool = False,
+    solver_options: dict | None = None,
 ) -> dict[datetime, dict]:
     """Build the PyPSA model once over ts_list, solve, then return one
     result dict per ts with the same schema as the legacy per-ts entry.
@@ -66,9 +76,14 @@ def compute_snapshot_batch(
     n.optimize.create_model()
     t_build = time.perf_counter() - t0
     t0 = time.perf_counter()
-    status, condition = n.model.solve(solver_name="highs", io_api="direct")
+    solve_kwargs = {'solver_name': 'highs', 'io_api': 'direct'}
+    # Caller override beats settings default. linopy passes additional kwargs
+    # through to the underlying solver. For HiGHS, "solver" selects
+    # simplex|ipm|pdlp; "parallel"/"threads" enable PAMI.
+    solve_kwargs.update(solver_options or _default_solver_options())
+    status, condition = n.model.solve(**solve_kwargs)
     t_solve = time.perf_counter() - t0
-    logger.warning(
+    logger.info(
         f"compute_snapshot_batch[{len(ts_list)} ts]: "
         f"build={t_build:.1f}s solve={t_solve:.1f}s"
     )
@@ -84,16 +99,8 @@ def compute_snapshot_batch(
             for ts in ts_list
         }
 
-    t0 = time.perf_counter()
     n.optimize.assign_solution()
-    t_assign_sol = time.perf_counter() - t0
-    t0 = time.perf_counter()
     n.optimize.assign_duals(assign_all_duals=True)
-    t_assign_duals = time.perf_counter() - t0
-    logger.warning(
-        f"compute_snapshot_batch[{len(ts_list)} ts]: "
-        f"assign_solution={t_assign_sol:.1f}s assign_duals={t_assign_duals:.1f}s"
-    )
     assert not n._multi_invest, (
         "post_processing shortcut assumes single-period optimization"
     )

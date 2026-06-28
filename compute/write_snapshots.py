@@ -53,7 +53,7 @@ log = logging.getLogger('snapshot_writer')
 
 for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
               'pypsa.optimization', 'pypsa.optimization.optimize',
-              'pypsa.network.io', 'snapshot'):
+              'pypsa.network.io'):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
@@ -352,8 +352,10 @@ def main():
     ap.add_argument('--end',   required=True, help='UTC end (e.g. 2026-04-23)')
     ap.add_argument('--skip-existing', action='store_true',
                     help='Skip timestamps already present in snapshot_meta with status=ok')
-    ap.add_argument('--chunk-size', type=int, default=168,
-                    help='Snapshots per batched solve (default 168 = 1 week hourly)')
+    ap.add_argument('--chunk-size', type=int, default=6,
+                    help='Snapshots per batched solve. 6 hits the sweet spot '
+                         'for HiGHS PAMI on this LP; larger chunks blow up '
+                         'simplex pivots.')
     args = ap.parse_args()
 
     start = parse_ts(args.start)
