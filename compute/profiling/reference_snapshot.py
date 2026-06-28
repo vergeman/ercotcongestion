@@ -27,8 +27,9 @@ from config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
 )
+from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
-from snapshot import run_snapshot_for_ts
+from snapshot import compute_snapshot_batch
 
 BASE_DIR = Path(__file__).parent
 REF_FILE = BASE_DIR / "reference_dates.json"
@@ -78,13 +79,19 @@ def run(ts):
     bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
 
-    # Adapter
-    n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
+    # Network + adapter (fresh per ts so we exercise a clean topology each run)
+    n = pypsa.Network(NETWORK_NC)
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
     conn = psycopg.connect(PG_DSN)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n)
+    apply_static_mutations(
+        n, line_derate=adapter.line_derate, tx_derate=adapter.tx_derate,
+    )
 
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
-
-    result, op, n = run_snapshot_for_ts(ts, adapter, mc)
+    op = adapter.build(ts)
+    result = compute_snapshot_batch(n, [ts], {ts: op}, enable_diagnostics=True)[ts]
 
     # Report
     print(f"\n{'=' * 60}")
@@ -95,8 +102,10 @@ def run(ts):
     if result['status'] == 'infeasible':
         msg = "possible zonal scale factor infeasible, retrying with global load scale factor"
         print(msg)
-
-        result, op, n = run_snapshot_for_ts(ts, adapter, mc, force_global_load_sf=True)
+        op = adapter.build(ts, force_global_load_sf=True)
+        result = compute_snapshot_batch(
+            n, [ts], {ts: op}, enable_diagnostics=True,
+        )[ts]
 
 
     if result['status'] not in ['ok', 'infeasible']:

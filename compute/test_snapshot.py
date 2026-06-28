@@ -21,8 +21,9 @@ from config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV
 )
+from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
-from snapshot import run_snapshot_for_ts
+from snapshot import compute_snapshot_batch
 
 
 
@@ -42,13 +43,22 @@ def main():
     bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
 
-    # Adapter
-    n_init = pypsa.Network(NETWORK_NC) # network for static precomputation
+    # Network + adapter
+    n = pypsa.Network(NETWORK_NC)
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
     conn = psycopg.connect(PG_DSN)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n)
+    apply_static_mutations(
+        n, line_derate=adapter.line_derate, tx_derate=adapter.tx_derate,
+    )
 
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
-
-    result, op, n = run_snapshot_for_ts(ts, adapter, mc)
+    op = adapter.build(ts)
+    results = compute_snapshot_batch(
+        n, [ts], {ts: op}, enable_diagnostics=True,
+    )
+    result = results[ts]
 
     # Report
     print(f"\n{'=' * 60}")
@@ -77,4 +87,4 @@ def main():
     return result, op, n
 
 if __name__ == '__main__':
-    result, op, n = main()
+    main()

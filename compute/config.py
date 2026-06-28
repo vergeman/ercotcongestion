@@ -32,3 +32,5 @@ WEATHER_ZONES_SHP               = settings.weather_zones_shp
 TIGER_SHP                       = settings.tiger_shp
 ERCOT_REGIONS_XLSX              = settings.ercot_regions_xlsx
 EIA860_BASE_PATH                = settings.eia860_base_path
+
+HIGHS_THREADS                   = settings.highs_threads

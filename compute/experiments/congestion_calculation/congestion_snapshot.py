@@ -1,8 +1,13 @@
 """
 Phase 2 congestion snapshot.
 
+All reference timestamps are split into chunks of --chunk-size (default 6),
+each chunk batched through compute_snapshot_batch in one HiGHS call. Per-ts
+post-processing (hub LMPs, load-weighted ref, congestion) happens while
+that chunk's loads_t.p_set is still resident on the network.
+
 For each reference timestamp:
-  1. Run OPF via run_snapshot_for_ts (same path as profiling/reference_snapshot.py)
+  1. Pull OPF result from the batched solve
   2. Build inputs to compute_congestion from the model output:
        - hub_lmps: HB_BUSAVG, HB_HOUSTON, HB_NORTH, HB_SOUTH, HB_WEST →
          LMP at synthetic bus nearest each ERCOT hub centroid
@@ -39,8 +44,9 @@ from config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV,
 )
+from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
-from snapshot import run_snapshot_for_ts
+from snapshot import compute_snapshot_batch
 
 from congestion import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
@@ -82,8 +88,15 @@ def build_hub_lmps(
     return hub_lmps
 
 
-def build_load_per_bus(n: pypsa.Network) -> pd.Series:
-    return n.loads.groupby('bus')['p_set'].sum().reindex(n.buses.index).fillna(0.0)
+def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
+    """Per-bus load aggregated from the adapter-scaled time-varying loads
+    written into n.loads_t.p_set for this snapshot."""
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+    load_per_load = n.loads_t.p_set.loc[naive_ts]
+    return (
+        load_per_load.groupby(n.loads['bus']).sum()
+        .reindex(n.buses.index).fillna(0.0)
+    )
 
 
 def _stats(s: pd.Series) -> dict:
@@ -102,23 +115,9 @@ def _stats(s: pd.Series) -> dict:
     }
 
 
-def run_one(ts: datetime, adapter, mc, hub_centroids) -> dict:
-    """Run OPF for one timestamp and produce a congestion record. Per-step
+def post_process_one(result, op, n, hub_centroids, ts) -> dict:
+    """Convert a solved per-ts result into a congestion record. Per-step
     failures are caught so a partial record is still returned."""
-    try:
-        result, op, n = run_snapshot_for_ts(ts, adapter, mc)
-        if result['status'] == 'infeasible':
-            print("  infeasible — retrying with global load scale factor")
-            result, op, n = run_snapshot_for_ts(
-                ts, adapter, mc, force_global_load_sf=True
-            )
-    except Exception as e:
-        traceback.print_exc()
-        return {"status": "error", "error": f"opf: {e}"}
-
-    if result['status'] != 'ok':
-        return {"status": result['status'], "meta": result.get('meta', {})}
-
     lmps = result['lmps']
 
     hub_lmps: dict[str, float] = {}
@@ -129,7 +128,7 @@ def run_one(ts: datetime, adapter, mc, hub_centroids) -> dict:
 
     loads = None
     try:
-        loads = build_load_per_bus(n)
+        loads = build_load_per_bus(n, ts)
     except Exception as e:
         print(f"  build_load_per_bus failed: {e}")
 
@@ -159,6 +158,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run-id', default='baseline',
                     help="Identifier for this experiment (e.g., 'baseline').")
+    ap.add_argument('--chunk-size', type=int, default=6,
+                    help='Snapshots per batched solve (default 6).')
     args = ap.parse_args()
 
     results_file = BASE_DIR / f"congestion_results_{args.run_id}.json"
@@ -171,30 +172,107 @@ def main():
     mc = pd.read_csv(MARGINAL_COSTS_CSV, index_col=0)
     bus_weather_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     gen_enriched = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
-    n_init = pypsa.Network(NETWORK_NC)
+    n = pypsa.Network(NETWORK_NC)
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
     conn = psycopg.connect(PG_DSN)
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n)
+    apply_static_mutations(
+        n, line_derate=adapter.line_derate, tx_derate=adapter.tx_derate,
+    )
 
-    results = []
+    # Flatten into (regime, ts) in input order. Multiple regimes are allowed
+    # to share a ts; we solve unique ts once and emit one record per
+    # (regime, ts) pair.
+    flat: list[tuple[str, datetime, str]] = []
     for regime, timestamps in refs.items():
         for _ts in timestamps:
             ts = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc)
-            print(f"\n{'=' * 60}\n{regime} | {ts.isoformat()}\n{'=' * 60}")
+            flat.append((regime, ts, _ts))
+
+    unique_ts: list[datetime] = list(dict.fromkeys(ts for _, ts, _ in flat))
+
+    # Build adapter ops upfront so the chunk solves don't hold an adapter
+    # call in the hot loop. Failures are recorded per-ts.
+    op_by_ts: dict[datetime, dict] = {}
+    op_errors: dict[datetime, str] = {}
+    for ts in unique_ts:
+        try:
+            op_by_ts[ts] = adapter.build(ts)
+        except Exception as e:
+            traceback.print_exc()
+            op_errors[ts] = str(e)
+
+    record_by_ts: dict[datetime, dict] = {
+        ts: {"status": "error", "error": f"opf: {err}"}
+        for ts, err in op_errors.items()
+    }
+
+    solvable = [ts for ts in unique_ts if ts in op_by_ts]
+    for i in range(0, len(solvable), args.chunk_size):
+        chunk = solvable[i:i + args.chunk_size]
+        sub_op = {ts: op_by_ts[ts] for ts in chunk}
+        print(
+            f"\n{'=' * 60}\n"
+            f"chunk {i // args.chunk_size + 1}: "
+            f"{chunk[0].isoformat()} .. {chunk[-1].isoformat()} ({len(chunk)} ts)\n"
+            f"{'=' * 60}"
+        )
+        try:
+            results = compute_snapshot_batch(n, chunk, sub_op)
+        except Exception as e:
+            traceback.print_exc()
+            for ts in chunk:
+                record_by_ts[ts] = {"status": "error", "error": f"opf: {e}"}
+            continue
+
+        # Post-process ok results NOW, while n.loads_t.p_set still holds
+        # this chunk's loads. Retries below overwrite loads_t.
+        for ts in chunk:
+            r = results[ts]
+            if r['status'] == 'ok':
+                record_by_ts[ts] = post_process_one(
+                    r, op_by_ts[ts], n, hub_centroids, ts,
+                )
+            elif r['status'] != 'infeasible':
+                record_by_ts[ts] = {"status": r['status'], "meta": r.get('meta', {})}
+
+        # Per-ts retry for infeasible snapshots with global SF.
+        for ts in chunk:
+            if results[ts]['status'] != 'infeasible':
+                continue
+            print(f"  {ts.isoformat()}: infeasible — retrying with global SF")
             try:
-                record = run_one(ts, adapter, mc, hub_centroids)
+                op_retry = adapter.build(ts, force_global_load_sf=True)
+                retry = compute_snapshot_batch(n, [ts], {ts: op_retry})[ts]
             except Exception as e:
                 traceback.print_exc()
-                record = {"status": "error", "error": str(e)}
-            results.append({
-                "regime": regime,
-                "run_id": args.run_id,
-                "ts": _ts,
-                **record,
-            })
+                record_by_ts[ts] = {"status": "error", "error": f"opf retry: {e}"}
+                continue
+            if retry['status'] == 'ok':
+                record_by_ts[ts] = post_process_one(
+                    retry, op_retry, n, hub_centroids, ts,
+                )
+            else:
+                record_by_ts[ts] = {
+                    "status": retry['status'],
+                    "meta": retry.get('meta', {}),
+                }
+
+    records = []
+    for regime, ts, raw_ts in flat:
+        rec = record_by_ts.get(ts, {"status": "missing"})
+        records.append({
+            "regime": regime,
+            "run_id": args.run_id,
+            "ts": raw_ts,
+            **rec,
+        })
 
     with open(results_file, 'w') as f:
-        json.dump(results, f)
-    print(f"\nWrote {len(results)} records -> {results_file}")
+        json.dump(records, f)
+    print(f"\nWrote {len(records)} records -> {results_file}")
 
 
 if __name__ == '__main__':

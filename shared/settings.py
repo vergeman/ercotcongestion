@@ -19,6 +19,12 @@ class Settings:
     pg_user:     str = os.environ.get('PG_USER', 'postgres')
     pg_password: str = os.environ.get('PG_PASSWORD', 'abc123')
 
+    # ---- Solver -----------------------------------------------------------
+    # HiGHS thread count for batched OPF. >1 enables PAMI (parallel dual
+    # simplex). Default 8 is tuned for a dev box; raise on beefier prod
+    # machines via HIGHS_THREADS=<n>.
+    highs_threads: int = int(os.environ.get('HIGHS_THREADS', '8'))
+
     # ---- API --------------------------------------------------------------
     frontend_origin:       str  = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:5173')
     topology_cache:        str  = os.environ.get('TOPOLOGY_CACHE', '/data/processed/topology.json')

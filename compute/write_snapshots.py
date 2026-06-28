@@ -1,12 +1,15 @@
 """
-Snapshot writer: iterate hourly timestamps, run OPF for each, persist results.
+Snapshot writer: iterate hourly timestamps in weekly chunks, batched-solve OPF,
+persist per-snapshot results.
 
-Loops over a UTC timestamp range. For each hour:
-  1. Reload network from disk (avoids mutation accumulation across iterations)
-  2. Build operating data via the adapter
-  3. Apply to network and run compute_snapshot
-  4. Insert per-bus results into bus_snapshots
-  5. Insert per-snapshot meta into snapshot_meta
+Loops over a UTC timestamp range partitioned into chunks (default 168 = 1 week
+of hourly snapshots). For each chunk:
+  1. Build adapter operating data for every ts in the chunk
+  2. compute_snapshot_batch(n, ts_list, op_by_ts) builds the PyPSA model
+     once and solves all snapshots in a single HiGHS call
+  3. Persist per-ts results (bus_snapshots + snapshot_meta)
+  4. On chunk-level infeasibility: retry each ts individually with
+     force_global_load_sf=True
 
 Failures (infeasibility, missing data, etc.) are logged in snapshot_meta
 with status != 'ok' and don't block the loop.
@@ -24,7 +27,6 @@ import resource
 import argparse
 import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -34,8 +36,9 @@ import pypsa
 from config import (
     NETWORK_NC, MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV, PG_DSN,
 )
+from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
-from snapshot import run_snapshot_for_ts
+from snapshot import compute_snapshot_batch
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +53,7 @@ log = logging.getLogger('snapshot_writer')
 
 for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
               'pypsa.optimization', 'pypsa.optimization.optimize',
-              'pypsa.network.io', 'snapshot'):
+              'pypsa.network.io'):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
@@ -150,8 +153,11 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         {'line': str(idx), 'stress': float(row['stress'])}
         for idx, row in contingencies.head(10).iterrows()
     ]
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None) \
+        if pd.Timestamp(ts).tzinfo is not None else pd.Timestamp(ts)
+    gp_ts = network.generators_t.p.loc[naive_ts]
     dispatch_by_carrier = (
-        network.generators.assign(p=network.generators_t.p.iloc[0])
+        network.generators.assign(p=gp_ts)
         .groupby('carrier')['p'].sum().round(0).to_dict()
     )
     op_meta = op.get('meta', {})
@@ -211,46 +217,108 @@ def write_failure(
 
 
 # ---------------------------------------------------------------------------
-# Per-snapshot pipeline
+# Per-chunk pipeline
 # ---------------------------------------------------------------------------
 
-def compute_one(
-    ts: datetime,
+def _build_op_by_ts(
+    ts_list: list[datetime],
     adapter: OperatingDataAdapter,
-    mc: pd.DataFrame,
-) -> tuple[str, dict | None, dict | None, pypsa.Network | None]:
-    """Build operating_data, run OPF, return (status, result, op, network).
+    *,
+    force_global_load_sf: bool = False,
+) -> tuple[dict[datetime, dict], dict[datetime, str]]:
+    """Run adapter.build for each ts. Returns (op_by_ts, errors_by_ts)."""
+    op_by_ts: dict[datetime, dict] = {}
+    errors: dict[datetime, str] = {}
+    for ts in ts_list:
+        try:
+            op_by_ts[ts] = adapter.build(
+                ts, force_global_load_sf=force_global_load_sf
+            )
+        except LookupError as e:
+            errors[ts] = f'missing_data:{e}'
+        except FileNotFoundError as e:
+            errors[ts] = f'config_error:{e}'
+        except Exception as e:
+            errors[ts] = f'opf_error:{type(e).__name__}:{e}'
+    return op_by_ts, errors
 
-    Returns (result['status'], result, op, n) on success.
-    Returns ('<category>:<reason>', None, None, None) on failure.
 
-    If the first attempt is infeasible under zonal load scaling, retries
-    once with global load scaling. The retry's outcome (ok or still
-    infeasible) is what gets returned.
+def compute_chunk(
+    ts_list: list[datetime],
+    adapter: OperatingDataAdapter,
+    n: pypsa.Network,
+) -> dict[datetime, tuple[str, dict | None, dict | None]]:
+    """Solve a chunk via compute_snapshot_batch. Returns
+    {ts: (status, result, op)} for every ts in ts_list.
+
+    On chunk-level infeasibility, retries each ts individually with
+    force_global_load_sf=True (mirrors the legacy zonal→global retry).
     """
+    out: dict[datetime, tuple[str, dict | None, dict | None]] = {}
+
+    op_by_ts, errors = _build_op_by_ts(ts_list, adapter)
+    for ts, err in errors.items():
+        out[ts] = (err, None, None)
+
+    solvable = [ts for ts in ts_list if ts not in errors]
+    if not solvable:
+        return out
 
     try:
-        result, op, n = run_snapshot_for_ts(ts, adapter, mc)
-    except LookupError as e:
-        return f'missing_data:{e}', None, None, None
-    except FileNotFoundError as e:
-        return f'config_error:{e}', None, None, None
+        results = compute_snapshot_batch(n, solvable, op_by_ts)
     except Exception as e:
-        return f'opf_error:{type(e).__name__}:{e}', None, None, None
+        err = f'opf_error:{type(e).__name__}:{e}'
+        for ts in solvable:
+            out[ts] = (err, None, op_by_ts.get(ts))
+        return out
 
-    if result['status'] == 'infeasible':
-        msg = "possible zonal scale factor infeasible, \
-               retrying with global load scale factor"
-        log.warning(f"{ts}: {msg}")
-
-        try:
-            result, op, n = run_snapshot_for_ts(
-                ts, adapter, mc, force_global_load_sf=True
+    if all(r['status'] == 'infeasible' for r in results.values()):
+        log.warning(
+            f"chunk infeasible [{solvable[0]}..{solvable[-1]}], "
+            "retrying ts-by-ts with global load scale factor"
+        )
+        for ts in solvable:
+            retry_op, retry_err = _build_op_by_ts(
+                [ts], adapter, force_global_load_sf=True
             )
-        except Exception as e:
-            return f'opf_error:retry:{type(e).__name__}:{e}', None, None, None
+            if ts in retry_err:
+                out[ts] = (retry_err[ts], None, None)
+                continue
+            try:
+                retry_results = compute_snapshot_batch(n, [ts], retry_op)
+            except Exception as e:
+                out[ts] = (
+                    f'opf_error:retry:{type(e).__name__}:{e}',
+                    None, retry_op.get(ts),
+                )
+                continue
+            r = retry_results[ts]
+            out[ts] = (r['status'], r, retry_op[ts])
+        return out
 
-    return result['status'], result, op, n
+    for ts, r in results.items():
+        out[ts] = (r['status'], r, op_by_ts[ts])
+    return out
+
+
+def _clear_time_varying(n: pypsa.Network) -> None:
+    """Drop linopy model + per-snapshot DataFrames to keep RSS flat across chunks."""
+    if hasattr(n, 'model'):
+        try:
+            del n.model
+        except AttributeError:
+            pass
+    empty = pd.DataFrame()
+    for comp_t, fields in (
+        (n.loads_t, ['p_set', 'p']),
+        (n.generators_t, ['p_max_pu', 'p']),
+        (n.lines_t, ['p0', 'p1', 'mu_upper', 'mu_lower']),
+        (n.transformers_t, ['p0', 'p1', 'mu_upper', 'mu_lower']),
+        (n.buses_t, ['marginal_price', 'p']),
+    ):
+        for f in fields:
+            if hasattr(comp_t, f):
+                setattr(comp_t, f, empty.copy())
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +352,10 @@ def main():
     ap.add_argument('--end',   required=True, help='UTC end (e.g. 2026-04-23)')
     ap.add_argument('--skip-existing', action='store_true',
                     help='Skip timestamps already present in snapshot_meta with status=ok')
+    ap.add_argument('--chunk-size', type=int, default=6,
+                    help='Snapshots per batched solve. 6 hits the sweet spot '
+                         'for HiGHS PAMI on this LP; larger chunks blow up '
+                         'simplex pivots.')
     args = ap.parse_args()
 
     start = parse_ts(args.start)
@@ -298,10 +370,19 @@ def main():
     bus_weather_zones    = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
     gen_enriched         = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
 
-    # The adapter needs a network for static precomputation; load once for this purpose
-    log.info("Initializing adapter...")
-    n_init = pypsa.Network(NETWORK_NC)
-    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n_init)
+    # Single network instance for the lifetime of the process
+    log.info("Initializing network + adapter...")
+    n = pypsa.Network(NETWORK_NC)
+    n.generators['marginal_cost'] = (
+        n.generators.index.map(mc['marginal_cost']).fillna(0)
+    )
+    adapter = OperatingDataAdapter(conn, gen_enriched, bus_weather_zones, n)
+    apply_static_mutations(
+        n,
+        line_derate=adapter.line_derate,
+        tx_derate=adapter.tx_derate,
+        outages=None,
+    )
 
     # Optionally skip already-computed timestamps
     existing = set()
@@ -311,83 +392,75 @@ def main():
             existing = {row[0] for row in cur.fetchall()}
         log.info(f"Skip-existing: {len(existing)} timestamps already done")
 
-    timestamps = list(hourly_range(start, end))
+    timestamps = [t for t in hourly_range(start, end) if t not in existing]
     n_total = len(timestamps)
-    log.info(f"Processing {n_total} timestamps from {start} to {end}")
+    log.info(
+        f"Processing {n_total} timestamps from {start} to {end} "
+        f"in chunks of {args.chunk_size}"
+    )
 
     counts = {'ok': 0, 'infeasible': 0, 'missing_data': 0, 'other_error': 0,
-              'skipped': 0, 'global_fallback': 0}
+              'global_fallback': 0}
     t_start = time.time()
+    i = 0
 
-    for i, ts in enumerate(timestamps, 1):
-        if ts in existing:
-            counts['skipped'] += 1
+    for chunk_start in range(0, n_total, args.chunk_size):
+        chunk = timestamps[chunk_start:chunk_start + args.chunk_size]
+        if not chunk:
             continue
 
-        log.info(f"compute_one() start: {ts}")
+        log.info(
+            f"compute_chunk [{chunk[0].isoformat()} .. {chunk[-1].isoformat()}] "
+            f"({len(chunk)} ts)"
+        )
 
-        status, result, op, n = compute_one(ts, adapter, mc)
+        chunk_out = compute_chunk(chunk, adapter, n)
 
-        load_scaling_mode = (op or {}).get('meta', {}).get('load_scaling_mode')
-        if load_scaling_mode == 'global_fallback':
-            counts['global_fallback'] += 1
+        for ts in chunk:
+            status, result, op = chunk_out[ts]
+            i += 1
 
-        try:
-            if status == 'ok':
-                write_snapshot(conn, ts, result, op, n)
-                counts['ok'] += 1
-            elif status == 'infeasible':
-                write_failure(conn, ts, 'infeasible', None,
-                              load_scaling_mode=load_scaling_mode)
-                counts['infeasible'] += 1
-            elif status.startswith('missing_data'):
-                write_failure(conn, ts, 'missing_data', status,
-                              load_scaling_mode=load_scaling_mode)
-                counts['missing_data'] += 1
-            else:
-                write_failure(conn, ts, 'error', status,
-                              load_scaling_mode=load_scaling_mode)
-                counts['other_error'] += 1
-        except Exception as e:
-            log.error(f"DB write failure at {ts}: {e}")
-            conn.rollback()
+            load_scaling_mode = (op or {}).get('meta', {}).get('load_scaling_mode')
+            if load_scaling_mode == 'global_fallback':
+                counts['global_fallback'] += 1
 
+            try:
+                if status == 'ok':
+                    write_snapshot(conn, ts, result, op, n)
+                    counts['ok'] += 1
+                elif status == 'infeasible':
+                    write_failure(conn, ts, 'infeasible', None,
+                                  load_scaling_mode=load_scaling_mode)
+                    counts['infeasible'] += 1
+                elif status.startswith('missing_data'):
+                    write_failure(conn, ts, 'missing_data', status,
+                                  load_scaling_mode=load_scaling_mode)
+                    counts['missing_data'] += 1
+                else:
+                    write_failure(conn, ts, 'error', status,
+                                  load_scaling_mode=load_scaling_mode)
+                    counts['other_error'] += 1
+            except Exception as e:
+                log.error(f"DB write failure at {ts}: {e}")
+                conn.rollback()
 
-        # Cleanup - there's a growing memory leak when running
-        # so just explicitly clear to prevent OOM
-        if n is not None:
-
-            # Clear fat linopy model
-            if hasattr(n, 'model'):
-                del n.model
-
-        del n, result, op
-
+        _clear_time_varying(n)
         gc.collect()
 
-
-        # Progress every 24 iterations (one ERCOT day)
-        if i % 24 == 0 or i == n_total:
-            elapsed = time.time() - t_start
-            rate = i / elapsed
-            eta = (n_total - i) / rate if rate > 0 else 0
-            rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-
-            log.info(
-                f"[{i}/{n_total}] {ts.isoformat()} {status:>12s}  "
-                f"ok={counts['ok']} infeas={counts['infeasible']} "
-                f"miss={counts['missing_data']} err={counts['other_error']}  "
-                f"rate={rate:.2f}/s  ETA={eta/60:.1f}min  "
-                f"RSS={rss_mb:.0f} MB"
-            )
-
-
-
+        elapsed = time.time() - t_start
+        rate = i / elapsed if elapsed > 0 else 0
+        eta = (n_total - i) / rate if rate > 0 else 0
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        log.info(
+            f"[{i}/{n_total}] ok={counts['ok']} infeas={counts['infeasible']} "
+            f"miss={counts['missing_data']} err={counts['other_error']} "
+            f"global_sf={counts['global_fallback']}  "
+            f"rate={rate:.2f}/s ETA={eta/60:.1f}min RSS={rss_mb:.0f} MB"
+        )
 
     log.info(
         f"Done. {counts['ok']} ok, {counts['infeasible']} infeasible, "
-        f"{counts['missing_data']} missing, {counts['other_error']} errors, "
-        f"{counts['skipped']} skipped."
+        f"{counts['missing_data']} missing, {counts['other_error']} errors."
     )
 
 
