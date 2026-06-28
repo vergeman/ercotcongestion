@@ -17,6 +17,12 @@
 * Remove ingest_log to re-query (bad data):
   * `docker compose exec db psql -U <user> -d <db> -c "DELETE FROM ingest_log WHERE endpoint = 'loads';"`
 
+## Scripts
+
+* `./export_prod_database.sh`: dump prod into local dev database. Stream COPY
+  takes a long time, but needed to accommodate timescale db quirks.
+* `./import_database.sh`: dump local into prod. Outdated, likely needs tables to
+  be updated.
 
 ## Backup Docker Volume (Local)
 

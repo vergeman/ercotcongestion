@@ -19,6 +19,14 @@
 #   chunks on the destination as rows arrive. Cleaner than fighting pg_dump's
 #   hypertable handling, and bypasses the catalog-mismatch problem entirely.
 #
+# Why port-forward instead of `kubectl exec -i ... | ...`:
+#   Long-running `kubectl exec` sessions die on big tables — the websocket
+#   to the k3s API server gets reset (load-balancer idle timeout, etc.) and
+#   COPY aborts with "unexpected EOF in COPY data" after tens of millions of
+#   rows. `kubectl port-forward` is more tolerant of long streams because the
+#   libpq connection over the forwarded TCP socket has its own keepalives and
+#   isn't subject to the API server's exec-session limits.
+#
 # Env vars (defaults):
 #   PROD_NS           ercotstress
 #   PROD_USER         ercot
@@ -26,10 +34,21 @@
 #   LOCAL_DB          ercot
 #   LOCAL_CTR         db
 #   MIGRATIONS_DIR    db/migrations          (relative or absolute)
+#   LOCAL_PORT        5433                   (host port for kubectl port-forward)
+#   RESUME_FROM       <empty>                (table name; skip drop+migrate and
+#                                             start streaming at this table)
+#
+# Requirements:
+#   - docker (we run psql as a one-off container using the timescale image,
+#     so no host psql install is needed)
 #
 # Caveats:
-#   - WIPES local data. Make sure you don't have local work you care about.
+#   - WIPES local data, unless RESUME_FROM is set.
 #   - Run from the repo root so MIGRATIONS_DIR resolves.
+#
+# Examples:
+#   ./export_database.sh                          # full sync
+#   RESUME_FROM=bus_snapshots ./export_database.sh  # pick up after a failure
 
 set -euo pipefail
 
@@ -42,20 +61,28 @@ LOCAL_CTR="${LOCAL_CTR:-db}"
 LOCAL_DB="${LOCAL_DB:-ercot}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-db/migrations}"
 
+LOCAL_PORT="${LOCAL_PORT:-5433}"
+RESUME_FROM="${RESUME_FROM:-}"
+
 # Tables to copy. Order matters only if you have FK constraints between them
 # (you don't), but matching the order tables appear in migrations keeps things
 # tidy. If you add a table to migrations, add it here too.
 TABLES=(
-  bus_load_zones
+  shadow_prices
+  outages_zonal
   ingest_log
   load_by_zone
   wind_hourly_regional
   solar_hourly_regional
+  bus_snapshots
   snapshot_meta
   ercot_zonal_lmp
-  shadow_prices
-  outages_zonal
-  bus_snapshots
+  bus_load_zones
+  ercot_dam_spp
+  dam_system_lambda
+  ercot_rt_lmp
+  sced_system_lambda
+  load_forecast_zonal
 )
 
 # ---- preflight --------------------------------------------------------------
@@ -95,7 +122,43 @@ if [[ -z "$PROD_POD" ]]; then
 fi
 echo "    prod pod        : $PROD_POD"
 
+PSQL_IMAGE="${PSQL_IMAGE:-timescale/timescaledb:latest-pg16}"
+if ! docker image inspect "$PSQL_IMAGE" >/dev/null 2>&1; then
+  echo "ERROR: docker image '$PSQL_IMAGE' not found locally."
+  echo "       docker pull $PSQL_IMAGE"
+  exit 1
+fi
+
+PROD_PW="$(kubectl -n "$PROD_NS" exec "$PROD_POD" -- printenv POSTGRES_PASSWORD | tr -d '\r\n')"
+if [[ -z "$PROD_PW" ]]; then
+  echo "ERROR: could not read POSTGRES_PASSWORD from prod pod env."
+  exit 1
+fi
+
+# Run psql against the port-forwarded prod DB via a one-off docker container.
+# --network=host so we can reach the forward on localhost:$LOCAL_PORT (Linux).
+# -i so stdin works for the COPY pipe; no -t (we're not on a TTY).
+prod_psql() {
+  docker run --rm -i --network=host \
+    --entrypoint psql \
+    -e PGPASSWORD="$PROD_PW" \
+    "$PSQL_IMAGE" \
+    -h localhost -p "$LOCAL_PORT" \
+    -U "$PROD_USER" -d "$PROD_DB" \
+    -v ON_ERROR_STOP=1 "$@"
+}
+
+if [[ -n "$RESUME_FROM" ]]; then
+  # Validate the resume target is in TABLES, otherwise we'd skip everything.
+  if ! printf '%s\n' "${TABLES[@]}" | grep -qx "$RESUME_FROM"; then
+    echo "ERROR: RESUME_FROM='$RESUME_FROM' is not in the TABLES list."
+    exit 1
+  fi
+  echo "    resume mode     : starting at '$RESUME_FROM' (skipping drop + migrations)"
+fi
+
 # ---- 1. terminate connections + drop/recreate target DB --------------------
+if [[ -z "$RESUME_FROM" ]]; then
 echo "==> Terminating active connections and recreating local database"
 docker compose exec -T "$LOCAL_CTR" \
   psql -U "$LOCAL_USER" -d postgres -v ON_ERROR_STOP=1 <<SQL
@@ -117,24 +180,54 @@ for f in $(printf '%s\n' "${MIGRATION_FILES[@]}" | sort); do
   docker compose exec -T "$LOCAL_CTR" \
     psql -U "$LOCAL_USER" -d "$LOCAL_DB" -v ON_ERROR_STOP=1 -q < "$f"
 done
+fi  # end RESUME_FROM guard
 
-# ---- 3. stream each table from prod to local -------------------------------
+# ---- 3. start kubectl port-forward to prod postgres ------------------------
+echo "==> Starting kubectl port-forward to prod postgres (localhost:$LOCAL_PORT)"
+kubectl -n "$PROD_NS" port-forward "pod/$PROD_POD" "$LOCAL_PORT:5432" \
+  >/tmp/export_db_pf.log 2>&1 &
+PF_PID=$!
+# Tear it down on any exit (success, error, Ctrl-C).
+trap 'kill $PF_PID 2>/dev/null || true' EXIT INT TERM
+
+# Wait up to 30s for the forward to accept connections.
+for i in $(seq 1 30); do
+  if prod_psql -c 'SELECT 1' >/dev/null 2>&1; then
+    echo "    port-forward ready (pid=$PF_PID)"
+    break
+  fi
+  if [[ $i -eq 30 ]]; then
+    echo "ERROR: port-forward never became ready. See /tmp/export_db_pf.log"
+    exit 1
+  fi
+  sleep 1
+done
+
+# ---- 4. stream each table from prod (via port-forward) to local -----------
 echo "==> Streaming table data from prod to local"
+SKIP=0
+if [[ -n "$RESUME_FROM" ]]; then SKIP=1; fi
 for tbl in "${TABLES[@]}"; do
+  if [[ $SKIP -eq 1 ]]; then
+    if [[ "$tbl" == "$RESUME_FROM" ]]; then
+      SKIP=0
+    else
+      echo "    -- $tbl (skipped, already done)"
+      continue
+    fi
+  fi
   echo "    -> $tbl"
-  # Stream binary COPY through stdin/stdout. -i on kubectl exec keeps stdin
-  # attached on the prod (source) side; -T disables docker compose's TTY
-  # allocation on the local (sink) side. Errors on either side surface
-  # naturally because of `set -e` and the pipe.
-  kubectl -n "$PROD_NS" exec -i "$PROD_POD" -- \
-    psql -U "$PROD_USER" -d "$PROD_DB" -v ON_ERROR_STOP=1 -c \
-    "COPY (SELECT * FROM $tbl) TO STDOUT WITH (FORMAT BINARY)" \
+  # Source: prod_psql (docker one-off, --network=host) -> port-forward -> prod pod.
+  # Sink:   docker compose exec -> local postgres in the db container.
+  # libpq's TCP keepalive on the source side keeps long streams alive much
+  # better than `kubectl exec -i`'s websocket did.
+  prod_psql -c "COPY (SELECT * FROM $tbl) TO STDOUT WITH (FORMAT BINARY)" \
   | docker compose exec -T "$LOCAL_CTR" \
       psql -U "$LOCAL_USER" -d "$LOCAL_DB" -v ON_ERROR_STOP=1 -c \
       "COPY $tbl FROM STDIN WITH (FORMAT BINARY)"
 done
 
-# ---- 4. verify --------------------------------------------------------------
+# ---- 5. verify --------------------------------------------------------------
 echo
 echo "==> Verifying"
 docker compose exec -T "$LOCAL_CTR" \
@@ -162,16 +255,21 @@ ORDER BY t.relname;
 
 \echo
 \echo == Row counts ==
-SELECT 'ercot_zonal_lmp' AS tbl, count(*) FROM ercot_zonal_lmp
-UNION ALL SELECT 'load_by_zone',          count(*) FROM load_by_zone
-UNION ALL SELECT 'shadow_prices',         count(*) FROM shadow_prices
+SELECT 'shadow_prices'         AS tbl, count(*) FROM shadow_prices
 UNION ALL SELECT 'outages_zonal',         count(*) FROM outages_zonal
+UNION ALL SELECT 'ingest_log',            count(*) FROM ingest_log
+UNION ALL SELECT 'load_by_zone',          count(*) FROM load_by_zone
 UNION ALL SELECT 'wind_hourly_regional',  count(*) FROM wind_hourly_regional
 UNION ALL SELECT 'solar_hourly_regional', count(*) FROM solar_hourly_regional
 UNION ALL SELECT 'bus_snapshots',         count(*) FROM bus_snapshots
 UNION ALL SELECT 'snapshot_meta',         count(*) FROM snapshot_meta
-UNION ALL SELECT 'ingest_log',            count(*) FROM ingest_log
+UNION ALL SELECT 'ercot_zonal_lmp',       count(*) FROM ercot_zonal_lmp
 UNION ALL SELECT 'bus_load_zones',        count(*) FROM bus_load_zones
+UNION ALL SELECT 'ercot_dam_spp',         count(*) FROM ercot_dam_spp
+UNION ALL SELECT 'dam_system_lambda',     count(*) FROM dam_system_lambda
+UNION ALL SELECT 'ercot_rt_lmp',          count(*) FROM ercot_rt_lmp
+UNION ALL SELECT 'sced_system_lambda',    count(*) FROM sced_system_lambda
+UNION ALL SELECT 'load_forecast_zonal',   count(*) FROM load_forecast_zonal
 ORDER BY tbl;
 SQL
 
