@@ -12,17 +12,19 @@ For each reference timestamp:
        - hub_lmps: HB_BUSAVG, HB_HOUSTON, HB_NORTH, HB_SOUTH, HB_WEST →
          LMP at synthetic bus nearest each ERCOT hub centroid
          (hubs_lz_centroids.csv).
-       - loads:   per-bus load aggregated from n.loads (for load_weighted ref).
-       - system_lambda: median bus LMP, used as the model-side proxy for the
+       - loads:        per-bus load (for load_weighted ref).
+       - dispatch:     per-bus dispatched generation (for gen_weighted ref).
+       - system_lambda: median bus LMP — model-side proxy for the
          energy-component price (ERCOT publishes NP6-322-CD for the real side).
   3. Compute bus-level congestion under each reference method.
-  4. Persist results to JSON keyed by (regime, ts, method).
+  4. Persist per-record results to JSON keyed by (regime, ts).
 
 Usage:
     docker compose run --rm compute python \
         /compute/experiments/congestion_calculation/congestion_snapshot.py
     docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/congestion_snapshot.py --run-id baseline
+        /compute/experiments/congestion_calculation/congestion_snapshot.py \
+        --run-id baseline --dates-file /compute/profiling/reference_dates.json
 """
 import sys
 from pathlib import Path
@@ -53,7 +55,7 @@ from congestion import (
 )
 
 BASE_DIR = Path(__file__).parent
-REF_FILE = Path("/compute/profiling/reference_dates.json")
+DEFAULT_DATES_FILE = Path("/compute/profiling/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 
 
@@ -99,6 +101,15 @@ def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
     )
 
 
+def build_dispatch_per_bus(dispatch: pd.Series, n: pypsa.Network) -> pd.Series:
+    """Aggregate per-generator dispatch (from snapshot result, shed already
+    excluded) to per-bus totals."""
+    return (
+        dispatch.groupby(n.generators.loc[dispatch.index, 'bus']).sum()
+        .reindex(n.buses.index).fillna(0.0)
+    )
+
+
 def _stats(s: pd.Series) -> dict:
     s = s.dropna()
     if s.empty:
@@ -112,6 +123,28 @@ def _stats(s: pd.Series) -> dict:
         "p95": float(s.quantile(0.95)),
         "max": float(s.max()),
         "n": int(s.shape[0]),
+    }
+
+
+def _sanity(cong: pd.DataFrame, extreme_threshold: float = 2000.0) -> dict:
+    """Lightweight per-record signal: centering check + tail flags. Replaces
+    the per-record `stats` block, which carried no method-specific signal."""
+    if cong.empty:
+        return {
+            "simple_mean_centered": False,
+            "abs_max": 0.0,
+            "n_extreme": 0,
+        }
+    sm = cong.get("simple_mean")
+    centered = (
+        sm is not None
+        and not sm.dropna().empty
+        and abs(float(sm.mean())) < 1e-6
+    )
+    return {
+        "simple_mean_centered": bool(centered),
+        "abs_max": float(cong.abs().max().max()),
+        "n_extreme": int((cong.abs() > extreme_threshold).sum().sum()),
     }
 
 
@@ -132,26 +165,51 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
     except Exception as e:
         print(f"  build_load_per_bus failed: {e}")
 
+    dispatch_per_bus = None
+    try:
+        dispatch_per_bus = build_dispatch_per_bus(result['dispatch'], n)
+    except Exception as e:
+        print(f"  build_dispatch_per_bus failed: {e}")
+
     system_lambda = None
     try:
         system_lambda = float(lmps.dropna().median())
     except Exception as e:
-        print(f"  system_lambda proxy failed: {e}")
+        print(f"  system_lambda failed: {e}")
 
-    cong = compute_congestion(lmps, hub_lmps, loads=loads, system_lambda=system_lambda)
+    cong = compute_congestion(
+        lmps, hub_lmps,
+        loads=loads, dispatch=dispatch_per_bus, system_lambda=system_lambda,
+    )
     congestion_diagnostics(cong)
 
     return {
         "status": "ok",
         "hub_lmps": hub_lmps,
-        "system_lambda_proxy": system_lambda,
+        "system_lambda": system_lambda,
         "lmp_summary": _stats(lmps),
-        "stats": {m: _stats(cong[m]) for m in cong.columns},
+        "sanity": _sanity(cong),
         "congestion": {
             m: cong[m].dropna().round(3).to_dict() for m in cong.columns
         },
         "load_scaling_mode": op['meta'].get('load_scaling_mode'),
     }
+
+
+def _load_dates(dates_file: Path) -> dict[str, list[str]]:
+    """Read a dates file in either schema:
+      - dict[regime, list[iso_ts]]  (e.g. reference_dates.json)
+      - flat list[iso_ts]           (regime defaults to 'all')
+    """
+    with open(dates_file, 'r') as f:
+        raw = json.load(f)
+    if isinstance(raw, list):
+        return {"all": list(raw)}
+    if isinstance(raw, dict):
+        return {regime: list(ts_list) for regime, ts_list in raw.items()}
+    raise ValueError(
+        f"{dates_file}: expected list[str] or dict[str, list[str]], got {type(raw).__name__}"
+    )
 
 
 def main():
@@ -160,12 +218,14 @@ def main():
                     help="Identifier for this experiment (e.g., 'baseline').")
     ap.add_argument('--chunk-size', type=int, default=6,
                     help='Snapshots per batched solve (default 6).')
+    ap.add_argument('--dates-file', type=Path, default=DEFAULT_DATES_FILE,
+                    help='JSON file: flat list of ISO timestamps OR dict {regime: [iso]}. '
+                         f'Default: {DEFAULT_DATES_FILE}.')
     args = ap.parse_args()
 
     results_file = BASE_DIR / f"congestion_results_{args.run_id}.json"
 
-    with open(REF_FILE, 'r') as f:
-        refs = json.load(f)
+    refs = _load_dates(args.dates_file)
 
     hub_centroids = pd.read_csv(HUB_CENTROIDS_CSV).set_index('settlement_point')
 
@@ -273,6 +333,17 @@ def main():
     with open(results_file, 'w') as f:
         json.dump(records, f)
     print(f"\nWrote {len(records)} records -> {results_file}")
+
+    n_ok = sum(1 for r in records if r.get('status') == 'ok')
+    n_missing = len(records) - n_ok
+    n_extreme = sum(
+        (r.get('sanity') or {}).get('n_extreme', 0)
+        for r in records if r.get('status') == 'ok'
+    )
+    print(
+        f"\nSummary: n_records={len(records)} n_ok={n_ok} n_missing={n_missing} "
+        f"n_extreme_buses={n_extreme}"
+    )
 
 
 if __name__ == '__main__':
