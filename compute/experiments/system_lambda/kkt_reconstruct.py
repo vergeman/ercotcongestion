@@ -58,6 +58,21 @@ def _solve_vanilla(n: pypsa.Network) -> dict:
     gen_mu_up  = _slice(n.generators_t.mu_upper, ts, w)
     gen_mu_lo  = _slice(n.generators_t.mu_lower, ts, w)
 
+    # KVL duals — diagnostic. PyPSA solves DC OPF with flow+KVL, which puts
+    # dual mass in cycle constraints that PTDF cannot recover (PTDF.T is
+    # orthogonal to the cycle space).
+    kvl_duals = None
+    try:
+        kvl_arr = np.asarray(n.model.dual['Kirchhoff-Voltage-Law']).ravel()
+        kvl_duals = {
+            'n_cycles':     int(kvl_arr.size),
+            'n_nonzero':    int((np.abs(kvl_arr) > 1e-6).sum()),
+            'max_abs':      float(np.abs(kvl_arr).max()),
+            'p95_abs':      float(np.quantile(np.abs(kvl_arr), 0.95)),
+        }
+    except Exception:
+        pass
+
     ptdf, _lodf, bus_names = get_ptdf_lodf(n)
     return {
         'status':      'ok',
@@ -70,10 +85,12 @@ def _solve_vanilla(n: pypsa.Network) -> dict:
         'gen_mu_up':   gen_mu_up,
         'gen_mu_lo':   gen_mu_lo,
         'gen_bus':     n.generators['bus'],
+        'kvl_duals':   kvl_duals,
         'ptdf':        ptdf,
         'bus_names':   bus_names,
         'line_names':  list(n.lines.index),
         'tx_names':    list(n.transformers.index),
+        'n_links':     int(len(n.links)),
     }
 
 
@@ -236,10 +253,14 @@ def run_texas2k() -> dict:
         lw = float((lh * load_per_bus).sum() / load_total) if load_total > 0 else float('nan')
 
         rec.update({
-            # PRIMARY
+            # PRIMARY (robust estimator, not exact — see kvl_diagnostic)
             'lambda_hat_clean_median':     lambda_hat_clean_median,
             'clean_bus_distribution':      clean_dist,
             'clean_bus_residual_vs_median': clean_resid,
+            # DIAGNOSTIC: KVL duals explain the spread. PyPSA solves flow+KVL;
+            # cycle duals carry mass that PTDF.T projects away.
+            'kvl_diagnostic':              res.get('kvl_duals'),
+            'n_links':                     res.get('n_links'),
             # COMPARATORS (diagnostic only)
             'lambda_hat_load_weighted':    lw,
             'lambda_hat_filtered_median':  float(lh.median()),
