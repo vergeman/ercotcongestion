@@ -13,6 +13,8 @@ cluster stability) and reference-method selection when comparing model vs ERCOT.
 
 ## Added
 
+### Model-based Synthetic Network
+
 * `congestion.py`:
   * New method `gen_weighted = lmps − Σ(lmps × dispatch) / Σ(dispatch)`;
     `compute_congestion` gained a `dispatch` parameter.
@@ -32,14 +34,36 @@ cluster stability) and reference-method selection when comparing model vs ERCOT.
     dict-of-regimes schemas).
   * Final summary line: `n_records / n_ok / n_missing / n_extreme_buses`.
 
+### ERCOT Network Counterpart
+
+* `ercot_congestion_snapshot.py`, sibling to `congestion_snapshot.py`, reuses
+  `congestion.py::compute_congestion` unchanged.
+* Tracked SPs = union of `settlement_points_geocoded.csv` (nodal SPs +
+  `matched_capacity_mw`) + `hubs_lz_centroids.csv` (~1,107 SPs total; all
+  present in `ercot_dam_spp`).
+* Each SP assigned a weather zone via nearest-bus lookup against
+  `bus_ercot_weather_load_zones.csv`. `load_weighted` per-SP weight =
+  `zone_load / count(SPs in zone)`; `gen_weighted` per-SP weight =
+  `matched_capacity_mw` (0 for hubs, LZs, and unmapped nodals).
+* `system_lambda` is the real value from `dam_system_lambda` (not a proxy).
+* DST: `DISTINCT ON (...) ORDER BY dst_flag ASC` per (ts, sp), mirroring
+  `operating_data_adapter`.
+* DB queries are batched per `--chunk-size` (default 24): one round-trip
+  each for dam_spp / dam_system_lambda / load_by_zone per chunk — avoids
+  N+1.
+* Sanity block adds `n_sp_with_nameplate` so the size of the `gen_weighted`
+  scalar's contributing subset is visible per-record (missing nameplate affects
+  only `gen_weighted`; other 5 methods are untouched).
+* Output: `ercot_congestion_results_<run_id>.json`; per-record schema mirrors
+  0011 model side + `data_source: "dam"` and ERCOT sanity fields.
+* Verified end-to-end via `--run-id ercot-smoke`: 11/20 records ok, 9 missing
+  (un-backfilled 2025-summer + 2026 hours), 0 errors. Per ok hour: 6 methods ×
+  ~960 SPs, ~80% with nameplate, real ERCOT `system_lambda`, 5/5 hubs present.
+
 ## Deferred
 
 * PCA / pairwise-corr / cluster-stability — meaningful only model vs ERCOT.
 * Reference-method selection.
-* Persistence of matrices (parquet).
-* Idempotency / OPF-solve caching.
-* Energy-balance dual as system_lambda (open question; revisit if a
-  non-duplicate formulation is wanted).
 
 ## Verification
 
