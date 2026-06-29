@@ -320,6 +320,110 @@ def _load_dates(dates_file: Path) -> dict[str, list[str]]:
     )
 
 
+def compute_records(
+    timestamps_by_regime: dict[str, list[str]],
+    run_id: str = 'inproc',
+    chunk_size: int = 24,
+    conn=None,
+) -> dict:
+    """Build per-(regime, ts) ERCOT congestion records in-process.
+
+    Returns
+    -------
+    dict with keys:
+      - records: list[dict] one per (regime, ts) in input order
+      - sp_to_zone: pd.Series (SP → weather zone)
+      - sp_weights: pd.Series uniform 1.0 per SP — used as bus_weight in
+        congestion.aggregate_to_zones. Per-SP load weights from the snapshot
+        are zone_load/n_in_zone (constant within zone), so within-zone
+        weighted-mean reduces to a simple mean across SPs.
+      - tracked: pd.DataFrame indexed by SP (lat, lon, nameplate_mw)
+    """
+    tracked = load_tracked_sps()
+    sp_to_zone = assign_weather_zones(tracked)
+    sps_per_zone = sp_to_zone.value_counts().to_dict()
+    nameplate = tracked['nameplate_mw'].astype(float)
+
+    print(f"tracked SPs: {len(tracked)}; SPs/zone: {sps_per_zone}")
+    print(f"SPs with nameplate>0: {int((nameplate > 0).sum())}")
+
+    flat: list[tuple[str, datetime, str]] = []
+    for regime, ts_list in timestamps_by_regime.items():
+        for _ts in ts_list:
+            ts = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc)
+            flat.append((regime, ts, _ts))
+
+    unique_ts = list(dict.fromkeys(ts for _, ts, _ in flat))
+    sps = list(tracked.index)
+
+    owns_conn = conn is None
+    if owns_conn:
+        conn = psycopg.connect(PG_DSN)
+    record_by_ts: dict[datetime, dict] = {}
+    try:
+        for i in range(0, len(unique_ts), chunk_size):
+            chunk = unique_ts[i:i + chunk_size]
+            print(
+                f"\n{'=' * 60}\n"
+                f"chunk {i // chunk_size + 1}: "
+                f"{chunk[0].isoformat()} .. {chunk[-1].isoformat()} ({len(chunk)} ts)\n"
+                f"{'=' * 60}"
+            )
+            try:
+                spp_by_ts = fetch_dam_spp_batch(conn, chunk, sps)
+                lambda_by_ts = fetch_system_lambda_batch(conn, chunk)
+                loads_by_ts = fetch_zone_loads_batch(conn, chunk)
+            except Exception as e:
+                traceback.print_exc()
+                for ts in chunk:
+                    record_by_ts[ts] = {"status": "error", "error": f"batch fetch: {e}"}
+                continue
+
+            for ts in chunk:
+                lmps = spp_by_ts.get(ts)
+                if lmps is None or lmps.empty:
+                    record_by_ts[ts] = {
+                        "status": "missing",
+                        "reason": "no dam_spp rows for ts",
+                    }
+                    print(f"  {ts.isoformat()}: missing")
+                    continue
+                try:
+                    record_by_ts[ts] = post_process_one(
+                        lmps=lmps,
+                        system_lambda=lambda_by_ts.get(ts),
+                        zone_loads=loads_by_ts.get(ts, {}),
+                        sp_to_zone=sp_to_zone,
+                        sps_per_zone=sps_per_zone,
+                        nameplate=nameplate,
+                    )
+                    print(f"  {ts.isoformat()}: ok")
+                except Exception as e:
+                    traceback.print_exc()
+                    record_by_ts[ts] = {"status": "error", "error": str(e)}
+    finally:
+        if owns_conn:
+            conn.close()
+
+    records = []
+    for regime, ts, raw_ts in flat:
+        rec = record_by_ts.get(ts, {"status": "missing"})
+        records.append({
+            "regime": regime,
+            "run_id": run_id,
+            "ts": raw_ts,
+            **rec,
+        })
+
+    sp_weights = pd.Series(1.0, index=tracked.index)
+    return {
+        "records": records,
+        "sp_to_zone": sp_to_zone,
+        "sp_weights": sp_weights,
+        "tracked": tracked,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run-id', default='baseline',
@@ -334,75 +438,12 @@ def main():
     results_file = BASE_DIR / f"ercot_congestion_results_{args.run_id}.json"
     refs = _load_dates(args.dates_file)
 
-    tracked = load_tracked_sps()
-    sp_to_zone = assign_weather_zones(tracked)
-    sps_per_zone = sp_to_zone.value_counts().to_dict()
-    nameplate = tracked['nameplate_mw'].astype(float)
-
-    print(f"tracked SPs: {len(tracked)}; SPs/zone: {sps_per_zone}")
-    print(f"SPs with nameplate>0: {int((nameplate > 0).sum())}")
-
-    flat: list[tuple[str, datetime, str]] = []
-    for regime, ts_list in refs.items():
-        for _ts in ts_list:
-            ts = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc)
-            flat.append((regime, ts, _ts))
-
-    unique_ts = list(dict.fromkeys(ts for _, ts, _ in flat))
-    sps = list(tracked.index)
-
-    record_by_ts: dict[datetime, dict] = {}
-    conn = psycopg.connect(PG_DSN)
-    for i in range(0, len(unique_ts), args.chunk_size):
-        chunk = unique_ts[i:i + args.chunk_size]
-        print(
-            f"\n{'=' * 60}\n"
-            f"chunk {i // args.chunk_size + 1}: "
-            f"{chunk[0].isoformat()} .. {chunk[-1].isoformat()} ({len(chunk)} ts)\n"
-            f"{'=' * 60}"
-        )
-        try:
-            spp_by_ts = fetch_dam_spp_batch(conn, chunk, sps)
-            lambda_by_ts = fetch_system_lambda_batch(conn, chunk)
-            loads_by_ts = fetch_zone_loads_batch(conn, chunk)
-        except Exception as e:
-            traceback.print_exc()
-            for ts in chunk:
-                record_by_ts[ts] = {"status": "error", "error": f"batch fetch: {e}"}
-            continue
-
-        for ts in chunk:
-            lmps = spp_by_ts.get(ts)
-            if lmps is None or lmps.empty:
-                record_by_ts[ts] = {
-                    "status": "missing",
-                    "reason": "no dam_spp rows for ts",
-                }
-                print(f"  {ts.isoformat()}: missing")
-                continue
-            try:
-                record_by_ts[ts] = post_process_one(
-                    lmps=lmps,
-                    system_lambda=lambda_by_ts.get(ts),
-                    zone_loads=loads_by_ts.get(ts, {}),
-                    sp_to_zone=sp_to_zone,
-                    sps_per_zone=sps_per_zone,
-                    nameplate=nameplate,
-                )
-                print(f"  {ts.isoformat()}: ok")
-            except Exception as e:
-                traceback.print_exc()
-                record_by_ts[ts] = {"status": "error", "error": str(e)}
-
-    records = []
-    for regime, ts, raw_ts in flat:
-        rec = record_by_ts.get(ts, {"status": "missing"})
-        records.append({
-            "regime": regime,
-            "run_id": args.run_id,
-            "ts": raw_ts,
-            **rec,
-        })
+    out = compute_records(
+        timestamps_by_regime=refs,
+        run_id=args.run_id,
+        chunk_size=args.chunk_size,
+    )
+    records = out['records']
 
     with open(results_file, 'w') as f:
         json.dump(records, f)

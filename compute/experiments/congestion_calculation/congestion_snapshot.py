@@ -183,6 +183,13 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
     )
     congestion_diagnostics(cong)
 
+    bus_loads: dict[str, float] = {}
+    if loads is not None:
+        # Drop zero-load buses to keep JSON compact; consumers treat
+        # missing as 0.
+        nz = loads[loads != 0.0].round(3)
+        bus_loads = {str(b): float(v) for b, v in nz.items()}
+
     return {
         "status": "ok",
         "hub_lmps": hub_lmps,
@@ -192,6 +199,7 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
         "congestion": {
             m: cong[m].dropna().round(3).to_dict() for m in cong.columns
         },
+        "bus_loads": bus_loads,
         "load_scaling_mode": op['meta'].get('load_scaling_mode'),
     }
 
