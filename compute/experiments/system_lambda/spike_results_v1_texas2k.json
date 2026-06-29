@@ -1,0 +1,57 @@
+{
+  "mode": "texas2k",
+  "records": [
+    {
+      "snapshot_id": "texas2k_static",
+      "n_buses": 2751,
+      "n_generators": 1099,
+      "n_loads": 1165,
+      "total_load_mw": 85758.89,
+      "vanilla_status": "ok",
+      "vanilla_lmp_summary": {
+        "min": -802.7704775929823,
+        "p50": 15.385724342199612,
+        "mean": 14.517959072321899,
+        "max": 710.2930351527626
+      },
+      "median_lmp_path_a": 15.385724342199612,
+      "mode_native": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "error": "global_constraints_t has no mu"
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        }
+      },
+      "mode_eq": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "2025-01-01 00:00:00": 24.983100659065133
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 24.9831006620135,
+          "dispatch_max_abs_diff": 183.26920887709335,
+          "objective_abs_diff": 6.701156962662935e-07,
+          "primal_unchanged": false
+        }
+      },
+      "mode_ge": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "2025-01-01 00:00:00": 10.280917598755119
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 10.280917599323288,
+          "dispatch_max_abs_diff": 7.767140175474196e-08,
+          "objective_abs_diff": 2.019805833697319e-08,
+          "primal_unchanged": false
+        }
+      }
+    }
+  ],
+  "verdict": "red"
+}
