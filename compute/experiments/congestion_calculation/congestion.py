@@ -23,6 +23,7 @@ METHODS = (
     "hub_avg",
     "custom_hub_avg",
     "load_weighted",
+    "gen_weighted",
     "system_lambda",
     "simple_mean",
 )
@@ -32,6 +33,7 @@ def compute_congestion(
     lmps: pd.Series,
     hub_lmps: dict[str, float] | None = None,
     loads: pd.Series | None = None,
+    dispatch: pd.Series | None = None,
     system_lambda: float | None = None,
 ) -> pd.DataFrame:
     """
@@ -48,6 +50,9 @@ def compute_congestion(
           - HB_HOUSTON, HB_NORTH, HB_SOUTH, HB_WEST (for `custom_hub_avg`)
     loads : pd.Series, optional
         Per-bus load (MW), indexed by bus name. Required for `load_weighted`.
+    dispatch : pd.Series, optional
+        Per-bus dispatched generation (MW), indexed by bus name. Required for
+        `gen_weighted`.
     system_lambda : float, optional
         Energy-component reference price ($/MWh). Required for `system_lambda`.
 
@@ -57,6 +62,7 @@ def compute_congestion(
       - hub_avg        : lmps − hub_lmps[HB_BUSAVG]
       - custom_hub_avg : lmps − mean(four directional hub prices)
       - load_weighted  : lmps − Σ(lmps × loads) / Σ(loads)
+      - gen_weighted   : lmps − Σ(lmps × dispatch) / Σ(dispatch)
       - system_lambda  : lmps − system_lambda
       - simple_mean    : lmps − lmps.mean()
     """
@@ -95,6 +101,19 @@ def compute_congestion(
         logger.warning("load_weighted failed: %s", e)
 
     try:
+        if dispatch is None:
+            raise ValueError("dispatch is required for gen_weighted")
+        aligned = dispatch.reindex(lmps.index).fillna(0.0)
+        valid = lmps.notna()
+        total = float(aligned[valid].sum())
+        if total <= 0:
+            raise ValueError("total dispatch is zero or negative")
+        ref = float((lmps[valid] * aligned[valid]).sum() / total)
+        out["gen_weighted"] = lmps - ref
+    except Exception as e:
+        logger.warning("gen_weighted failed: %s", e)
+
+    try:
         if system_lambda is None:
             raise ValueError("system_lambda is required")
         out["system_lambda"] = lmps - float(system_lambda)
@@ -126,3 +145,63 @@ def congestion_diagnostics(cong: pd.DataFrame) -> None:
         print(s.nlargest(5).round(2).to_string())
         print(f"{method} — top 5 negative (import-constrained / expensive-side):")
         print(s.nsmallest(5).round(2).to_string())
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 matrix + structural diagnostics
+# ---------------------------------------------------------------------------
+
+def build_congestion_matrix(
+    records: list[dict],
+    ref_method: str,
+) -> pd.DataFrame:
+    """Stack per-snapshot congestion dicts into a wide bus×hour matrix.
+
+    Parameters
+    ----------
+    records
+        Output of `congestion_snapshot`. Only records with status=='ok' and
+        a populated congestion[ref_method] block are used; others are dropped.
+    ref_method
+        One of the entries in METHODS.
+
+    Returns
+    -------
+    DataFrame indexed by bus, columns sorted ts (pd.Timestamp).
+    """
+    cols: dict[pd.Timestamp, pd.Series] = {}
+    for r in records:
+        if r.get('status') != 'ok':
+            continue
+        cong = r.get('congestion') or {}
+        per_bus = cong.get(ref_method)
+        if not per_bus:
+            continue
+        ts = pd.Timestamp(r['ts'])
+        cols[ts] = pd.Series(per_bus, dtype=float)
+    if not cols:
+        return pd.DataFrame()
+    C = pd.DataFrame(cols).sort_index(axis=1)
+    return C
+
+
+def pca_variance_explained(C: pd.DataFrame, n_components: int = 10) -> dict:
+    """PCA on the congestion matrix. Deferred to Phase 4 — only meaningful
+    when comparing model-side vs ERCOT-side matrices side-by-side."""
+    raise NotImplementedError("deferred to Phase 4")
+
+
+def pairwise_corr_distribution(C: pd.DataFrame, n_bins: int = 20) -> dict:
+    """Off-diagonal bus×bus correlation summary. Deferred to Phase 4."""
+    raise NotImplementedError("deferred to Phase 4")
+
+
+def split_half_cluster_stability(
+    C: pd.DataFrame,
+    k: int = 10,
+    n_splits: int = 5,
+    seed: int = 0,
+) -> dict:
+    """Split-half cluster stability via Adjusted Rand Index. Deferred to
+    Phase 4."""
+    raise NotImplementedError("deferred to Phase 4")
