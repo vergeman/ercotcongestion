@@ -147,6 +147,29 @@ def _ingest_hint(missing: list[datetime]) -> str:
     )
 
 
+def _drop_per_record(run_dir: Path) -> None:
+    """Delete per-record congestion JSONs after matrix consumes them.
+
+    Used when --records-output=none. The matrix npz already carries the
+    denormalized form forward; the per-record JSONs were only the
+    audit-friendly intermediate.
+    """
+    cong_dir = run_dir / "congestion"
+    if not cong_dir.exists():
+        return
+    deleted: list[Path] = []
+    for stem in ("model_results", "ercot_results"):
+        for ext in (".json", ".json.gz"):
+            p = cong_dir / f"{stem}{ext}"
+            if p.exists():
+                p.unlink()
+                deleted.append(p)
+    if deleted:
+        print(f"records-output=none: deleted {len(deleted)} per-record file(s):")
+        for p in deleted:
+            print(f"  {p}")
+
+
 def _read_tail(path: Path, n_lines: int) -> str:
     try:
         with open(path, "r") as f:
@@ -372,6 +395,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not ok:
             return 4
+        if stage == "matrix" and args.records_output == "none":
+            _drop_per_record(run_dir)
 
     return 0
 
