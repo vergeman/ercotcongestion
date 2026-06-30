@@ -14,8 +14,10 @@ For each reference timestamp:
          (hubs_lz_centroids.csv).
        - loads:        per-bus load (for load_weighted ref).
        - dispatch:     per-bus dispatched generation (for gen_weighted ref).
-       - system_lambda: median bus LMP — model-side proxy for the
-         energy-component price (ERCOT publishes NP6-322-CD for the real side).
+       - system_lambda_kkt, system_lambda_merit_order: model-side λ
+         estimates (the published ERCOT NP4-523-CD λ has no model
+         counterpart). `lmp_median` is computed inside compute_congestion
+         from lmps directly — kept only as a comparison baseline.
   3. Compute bus-level congestion under each reference method.
   4. Persist per-record results to JSON keyed by (regime, ts).
 
@@ -52,6 +54,9 @@ from snapshot import compute_snapshot_batch
 
 from congestion import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
+)
+from system_lambda_estimators import (
+    lambda_kkt_clean_median, lambda_merit_order,
 )
 
 BASE_DIR = Path(__file__).parent
@@ -171,27 +176,63 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
     except Exception as e:
         print(f"  build_dispatch_per_bus failed: {e}")
 
-    system_lambda = None
+    # KKT and merit-order λ estimates require Pass-1 duals on n. Both read
+    # from n directly; compute_snapshot_batch has already populated mu's.
+    # `system_lambda` (the published ERCOT λ) has no model-side analogue, so
+    # we leave it as None — compute_congestion will emit an all-NaN column.
+    # `lmp_median` is computed inside compute_congestion from lmps directly.
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+    system_lambda_kkt = None
     try:
-        system_lambda = float(lmps.dropna().median())
+        system_lambda_kkt = lambda_kkt_clean_median(n, naive_ts)
     except Exception as e:
-        print(f"  system_lambda failed: {e}")
+        print(f"  system_lambda_kkt failed: {e}")
 
-    cong = compute_congestion(
+    # `system_lambda_merit_order` is filled by lambda_merit_order —
+    # mathematically equivalent to the LP-based `lambda_copper_plate` under
+    # copper-plate conditions, ~1000× faster (no LP solve). The LP version
+    # is kept in the estimator module for cross-validation but not called here.
+    system_lambda_mo = None
+    try:
+        system_lambda_mo = lambda_merit_order(n, naive_ts)
+    except Exception as e:
+        print(f"  system_lambda_merit_order failed: {e}")
+
+    cong, refs = compute_congestion(
         lmps, hub_lmps,
-        loads=loads, dispatch=dispatch_per_bus, system_lambda=system_lambda,
+        loads=loads, dispatch=dispatch_per_bus,
+        system_lambda_kkt=system_lambda_kkt,
+        system_lambda_merit_order=system_lambda_mo,
     )
     congestion_diagnostics(cong)
+
+    bus_loads: dict[str, float] = {}
+    if loads is not None:
+        # Drop zero-load buses to keep JSON compact; consumers treat
+        # missing as 0.
+        nz = loads[loads != 0.0].round(3)
+        bus_loads = {str(b): float(v) for b, v in nz.items()}
 
     return {
         "status": "ok",
         "hub_lmps": hub_lmps,
-        "system_lambda": system_lambda,
+        # Per-method scalar reference prices (the value subtracted from
+        # bus LMPs to get congestion under each method). Surfaced so
+        # downstream consumers can compare reference levels directly
+        # (e.g. lmp_median vs load_weighted vs system_lambda_kkt) without
+        # rederiving them. None for methods that didn't apply.
+        "reference_prices": refs,
+        # Pass-1 load shed total. When > 0 the snapshot was infeasible
+        # without shed; system_lambda_merit_order will be None at those
+        # snapshots (merit-order excludes shed, so no real-gen-only
+        # clearing price exists). Consumers: shed-taint = (load_shed_mw > 0).
+        "load_shed_mw": float(result['meta'].get('load_shed_total_mw', 0.0)),
         "lmp_summary": _stats(lmps),
         "sanity": _sanity(cong),
         "congestion": {
             m: cong[m].dropna().round(3).to_dict() for m in cong.columns
         },
+        "bus_loads": bus_loads,
         "load_scaling_mode": op['meta'].get('load_scaling_mode'),
     }
 

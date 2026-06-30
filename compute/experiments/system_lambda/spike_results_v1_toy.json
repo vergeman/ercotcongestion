@@ -1,0 +1,151 @@
+{
+  "mode": "toy",
+  "records": [
+    {
+      "snapshot_id": "uncongested",
+      "expected_lambda": 20.0,
+      "notes": "Only g_cheap dispatches; system marginal is its $20 MC.",
+      "vanilla_status": "ok",
+      "vanilla_lmps": {
+        "b1": 20.0,
+        "b2": 20.0,
+        "b3": 20.0
+      },
+      "vanilla_dispatch": {
+        "g_cheap": 50.0,
+        "g_mid": -0.0,
+        "g_peak": -0.0
+      },
+      "mode_native": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "error": "global_constraints_t has no mu"
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        }
+      },
+      "mode_eq": {
+        "with_balance_status": "warning",
+        "extracted_lambda": null,
+        "primal_diff": {
+          "error": "status: vanilla=ok with_balance=warning"
+        }
+      },
+      "mode_ge": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "2025-01-01 00:00:00": -0.0
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        },
+        "lambda_abs_diff": 20.0,
+        "lambda_matches": false
+      }
+    },
+    {
+      "snapshot_id": "congested",
+      "expected_lambda": null,
+      "notes": "Line b1-b3 binds at 100 MW (sending 180 MW b1->b3 splits 2/3 direct = 120 > cap). Solver dispatches some g_peak to relieve. Lambda lies in [$20, $60]; exact value depends on which bus the global-balance dual implicitly references.",
+      "vanilla_status": "ok",
+      "vanilla_lmps": {
+        "b1": 20.0,
+        "b2": 40.0,
+        "b3": 60.0
+      },
+      "vanilla_dispatch": {
+        "g_cheap": 150.0,
+        "g_mid": -0.0,
+        "g_peak": 30.0
+      },
+      "mode_native": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "error": "global_constraints_t has no mu"
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        }
+      },
+      "mode_eq": {
+        "with_balance_status": "warning",
+        "extracted_lambda": null,
+        "primal_diff": {
+          "error": "status: vanilla=ok with_balance=warning"
+        }
+      },
+      "mode_ge": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "2025-01-01 00:00:00": -0.0
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        }
+      }
+    },
+    {
+      "snapshot_id": "gen_pinned",
+      "expected_lambda": 60.0,
+      "notes": "g_cheap and g_mid pinned at p_max=200 each; g_peak takes remaining 50 MW at $60.",
+      "vanilla_status": "ok",
+      "vanilla_lmps": {
+        "b1": 60.0,
+        "b2": 60.0,
+        "b3": 60.0
+      },
+      "vanilla_dispatch": {
+        "g_cheap": 200.0,
+        "g_mid": 200.0,
+        "g_peak": 50.0
+      },
+      "mode_native": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "error": "global_constraints_t has no mu"
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        }
+      },
+      "mode_eq": {
+        "with_balance_status": "warning",
+        "extracted_lambda": null,
+        "primal_diff": {
+          "error": "status: vanilla=ok with_balance=warning"
+        }
+      },
+      "mode_ge": {
+        "with_balance_status": "ok",
+        "extracted_lambda": {
+          "2025-01-01 00:00:00": -0.0
+        },
+        "primal_diff": {
+          "lmp_max_abs_diff": 0.0,
+          "dispatch_max_abs_diff": 0.0,
+          "objective_abs_diff": 0.0,
+          "primal_unchanged": true
+        },
+        "lambda_abs_diff": 60.0,
+        "lambda_matches": false
+      }
+    }
+  ],
+  "verdict": "red"
+}
