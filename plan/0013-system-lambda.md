@@ -27,17 +27,30 @@ Branch: experiment/0013-system-lambda
 
 ## Result
 
-**Verdict: RED on both toy and Texas2k.** Commit to Path A.
+**Path B verdict: RED.** Added row is a linear combo of per-bus nodal balances → dual is a free LP variable that HiGHS resolves arbitrarily.
 
 * `native`: solves; PyPSA exposes no `mu` for this constraint type.
 * `eq`: infeasible on toy (degenerate w/ KVL); on Texas2k extracts $4.28 but primal shifts by same constant — gauge artifact.
-* `ge`: solves; dual = 0 on toy (slack from solver's view); on Texas2k extracts $27.10, again equals the LMP shift.
-* Root cause: added row is a linear combo of per-bus nodal balances, so its dual is a free variable HiGHS resolves arbitrarily. A clean λ requires dropping a nodal balance + adding a slack injection at a reference bus — structural reformulation, out of scope.
+* `ge`: solves; dual = 0 on toy; on Texas2k extracts $27.10, equals the LMP shift.
+
+## Follow-on: Option 4 (KKT/PTDF) — YELLOW
+
+`kkt_reconstruct.py`. Decomposes λ from LMPs + line/tx shadows + PTDF. GREEN on toy (residual_max ~5e-15); YELLOW on Texas2k (clean-bus median = $26.68, max residual = $128). Bus-angle independent re-solve (`bus_angle_solve.py`) confirms KVL duals are not the cause; best hypothesis is sparse-PTDF inversion precision at 2751×2751 scale. Useful as a robust estimator, not as an identity.
+
+## Follow-on: Option 5 (two-pass copper-plate) — GREEN
+
+`copper_plate_lambda.py`. Pass 1 = standard DC OPF; Pass 2 = fix at-bound gens at Pass 1 dispatch, lift line/tx capacities by 1e6, re-solve. Uniform LMPs on the copper-plate Pass 2 = system λ.
+
+* Toy: all three regimes match expected λ exactly; cross-bus spread = 0.
+* Texas2k: **λ = $10.45**, cross-bus spread = 2.6e-7 (machine epsilon), 88 marginal gens / 1011 at-bound.
+
+Interpretation: pure energy component of LMP, no congestion premium. Structurally lower than the KKT $26.68 because copper-plate removes congestion-driven dispersion across marginal gens.
+
+**Recommended for production swap at `congestion_snapshot.py:176`** (separate PR). Adds one ~3 s solve per snapshot.
 
 ## Acceptance
 
-* [x] `spike_results_v1_toy.json` written (3 snapshots × 3 modes).
-* [x] `spike_results_v1_texas2k.json` written (1 snapshot × 3 modes).
-* [x] `README.md` with verdict + hand-vs-extracted table.
-* [x] Re-runs are idempotent; no production code modified.
-* [x] Follow-on: keep median placeholder; lean on `load_weighted` / `gen_weighted` references in `compute_congestion` for Phase 4 robustness checks.
+* [x] `spike_results_v1_*.json` (Path B); `kkt_results_v3_*.json` (Option 4); `cp_results_v1_*.json` (Option 5).
+* [x] `README.md` with all four approaches, results, and recommendation.
+* [x] Re-runs idempotent; no production code modified in this spike.
+* [ ] Production swap of `congestion_snapshot.py:176` to two-pass λ — separate PR.
