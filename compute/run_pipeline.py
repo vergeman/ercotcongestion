@@ -32,6 +32,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg
+
+from config import PG_DSN
+
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
@@ -80,6 +84,62 @@ def _list_arg(s: str | None) -> list[str] | None:
     if s is None:
         return None
     return [tok.strip() for tok in s.split(",") if tok.strip()]
+
+
+def _load_dates(dates_file: Path) -> list[datetime]:
+    """Return a sorted, de-duplicated list of UTC timestamps from a dates file.
+
+    Accepts either a flat list of ISO strings or a {regime: [iso]} dict — the
+    same two shapes the stage runners accept.
+    """
+    with open(dates_file, "r") as f:
+        raw = json.load(f)
+    if isinstance(raw, list):
+        flat = list(raw)
+    elif isinstance(raw, dict):
+        flat = [ts for ts_list in raw.values() for ts in ts_list]
+    else:
+        raise ValueError(
+            f"{dates_file}: expected list[str] or dict[str, list[str]], "
+            f"got {type(raw).__name__}"
+        )
+    out: list[datetime] = []
+    seen: set[datetime] = set()
+    for s in flat:
+        ts = datetime.fromisoformat(s)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts in seen:
+            continue
+        seen.add(ts)
+        out.append(ts)
+    out.sort()
+    return out
+
+
+def _missing_snapshots(timestamps: list[datetime]) -> list[datetime]:
+    """Return timestamps that have no row in bus_snapshots."""
+    if not timestamps:
+        return []
+    with psycopg.connect(PG_DSN) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT interval_ts FROM bus_snapshots "
+                "WHERE interval_ts = ANY(%s)",
+                (timestamps,),
+            )
+            present = {row[0] for row in cur.fetchall()}
+    return [ts for ts in timestamps if ts not in present]
+
+
+def _ingest_hint(missing: list[datetime]) -> str:
+    """Suggested write_snapshots.py invocation covering [min, max] of missing ts."""
+    lo = min(missing).strftime("%Y-%m-%dT%H")
+    hi = max(missing).strftime("%Y-%m-%dT%H")
+    return (
+        "docker compose run --rm compute python /compute/write_snapshots.py "
+        f"--start {lo} --end {hi}"
+    )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -136,6 +196,25 @@ def main(argv: list[str] | None = None) -> int:
     print(f"run_dir={run_dir}")
     print(f"git_sha={meta['git_sha']}")
     print(f"dates_file_sha256={meta['dates_file_sha256']}")
+
+    # Pre-flight: every dates-file timestamp must have a bus_snapshots row.
+    timestamps = _load_dates(args.dates_file)
+    print(f"pre-flight: checking {len(timestamps)} timestamps against bus_snapshots")
+    missing = _missing_snapshots(timestamps)
+    if missing:
+        print(
+            f"\n{len(missing)} timestamp(s) absent from bus_snapshots:",
+            file=sys.stderr,
+        )
+        for ts in missing:
+            print(f"  {ts.isoformat()}", file=sys.stderr)
+        print(
+            "\nIngest first (covers [min, max] of the missing set):\n"
+            f"  {_ingest_hint(missing)}",
+            file=sys.stderr,
+        )
+        return 3
+    print("pre-flight: ok")
 
     return 0
 
