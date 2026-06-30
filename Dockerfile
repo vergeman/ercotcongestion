@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir \
         pandas \
         numpy \
         scipy \
+        scikit-learn \
         psycopg[binary,pool] \
         matpowercaseframes \
         openpyxl \
