@@ -1,6 +1,6 @@
 """Rank a clustering sweep summary by composite quality score.
 
-Reads `clustering_summary_<run_id>.json` produced by `run_clustering.py`,
+Reads `clustering_summary_<run_id>.json` produced by `compute.clustering.runner`,
 computes a composite score per row, and prints the ranked table. Does NOT
 auto-pick — the analyst makes the final call.
 

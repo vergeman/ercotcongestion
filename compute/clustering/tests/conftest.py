@@ -1,10 +1,4 @@
-"""Shared fixtures for zonal_clustering tests."""
-import sys
-from pathlib import Path
-
-sys.path.insert(0, "/compute")
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
+"""Shared fixtures for clustering tests."""
 import numpy as np
 import pandas as pd
 import pytest

@@ -2,19 +2,19 @@
 
 Run inside the compute container:
     docker compose run --rm compute python -m pytest \\
-        /compute/experiments/zonal_clustering/tests/test_clustering.py -v
+        /compute/clustering/tests/test_clustering.py -v
 """
 import numpy as np
 import pandas as pd
 
-from experiments.zonal_clustering.clustering import (
+from compute.clustering.algorithm import (
     hierarchical_corr,
     hybrid_geo,
     kmeans_vec,
     pca_kmeans,
     spectral_corr,
 )
-from experiments.congestion_calculation.congestion import _adjusted_rand_score
+from compute.congestion.compute import _adjusted_rand_score
 
 from .conftest import N_BUSES, N_CLUSTERS, SEED
 

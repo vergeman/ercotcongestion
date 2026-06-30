@@ -2,17 +2,17 @@
 
 Run inside the compute container:
     docker compose run --rm compute python -m pytest \
-        /compute/experiments/zonal_clustering/tests/test_diagnostics.py -v
+        /compute/clustering/tests/test_diagnostics.py -v
 """
 import numpy as np
 import pandas as pd
 
-from experiments.zonal_clustering.clustering import (
+from compute.clustering.algorithm import (
     hierarchical_corr,
     kmeans_vec,
     pca_kmeans,
 )
-from experiments.zonal_clustering.diagnostics import (
+from compute.clustering.diagnostics import (
     cluster_stability_ari,
     silhouette,
     spatial_coherence,

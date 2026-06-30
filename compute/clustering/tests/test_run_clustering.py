@@ -1,9 +1,9 @@
-"""Tests for `experiments.zonal_clustering.run_clustering` and `select_zones`.
+"""Tests for `compute.clustering.runner` and `select_zones`.
 
 Run inside the compute container::
 
     docker compose run --rm compute python -m pytest \
-        /compute/experiments/zonal_clustering/tests/test_run_clustering.py -v
+        /compute/clustering/tests/test_run_clustering.py -v
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from experiments.zonal_clustering import run_clustering, select_zones
+from compute.clustering import runner as run_clustering, select_zones
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
 def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
     import logging
 
-    with caplog.at_level(logging.INFO, logger="experiments.zonal_clustering.run_clustering"):
+    with caplog.at_level(logging.INFO, logger="compute.clustering.runner"):
         rc = run_clustering.main(
             _argv(sweep_inputs, algos="kmeans_vec", ks="3", refs="fake_b"),
         )
