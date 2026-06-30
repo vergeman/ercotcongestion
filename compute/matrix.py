@@ -13,6 +13,7 @@ Usage:
         --model-results /compute/congestion_results_matrix-smoke.json
 """
 import argparse
+import gzip
 import json
 import logging
 import math
@@ -37,6 +38,7 @@ from compute.congestion import ercot_runner as ercot_snap
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
+RUNS_ROOT = BASE_DIR / "runs"
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 BUS_WEATHER_LOAD_ZONES_CSV = Path("/data/processed/bus_ercot_weather_load_zones.csv")
 
@@ -52,7 +54,8 @@ HUB_KEYS = ("HB_BUSAVG", "HB_HOUSTON", "HB_NORTH", "HB_SOUTH", "HB_WEST")
 # ---------------------------------------------------------------------------
 
 def _load_model_records(path: Path) -> list[dict]:
-    with open(path) as f:
+    opener = gzip.open if path.suffix == '.gz' else open
+    with opener(path, 'rt') as f:
         records = json.load(f)
     if not isinstance(records, list):
         raise ValueError(f"{path}: expected list of records")
@@ -250,14 +253,32 @@ def _sanitize(obj):
     return obj
 
 
+def _resolve_model_path(run_id: str) -> Path:
+    """Locate the per-record model results under runs/<run_id>/congestion/.
+    Prefer .json.gz; fall back to .json."""
+    base = RUNS_ROOT / run_id / "congestion"
+    gz_path = base / "model_results.json.gz"
+    if gz_path.exists():
+        return gz_path
+    plain = base / "model_results.json"
+    if plain.exists():
+        return plain
+    raise SystemExit(
+        f"model results not found under {base} "
+        f"(tried model_results.json.gz, model_results.json)"
+    )
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--model-results', type=Path, required=True,
-                    help='Path to congestion_results_<run_id>.json from '
-                         'congestion_snapshot.py.')
     ap.add_argument('--run-id', default=None,
-                    help='Output suffix. Defaults to the model-results basename '
-                         '(stripping congestion_results_).')
+                    help='Run identifier. When set, --model-results is derived '
+                         'from compute/runs/<run_id>/congestion/ and outputs go '
+                         'to compute/runs/<run_id>/matrix/.')
+    ap.add_argument('--model-results', type=Path, default=None,
+                    help='Explicit path to model per-record JSON (.json or '
+                         '.json.gz). Required when --run-id is not set; wins '
+                         'over --run-id derivation when both given.')
     ap.add_argument('--ref-methods', nargs='+', default=list(METHODS),
                     choices=list(METHODS),
                     help='Subset of reference methods (default: all 6).')
@@ -269,12 +290,28 @@ def main():
                     help='PCA components to retain (default 10).')
     args = ap.parse_args()
 
-    model_path = args.model_results
-    if not model_path.exists():
-        raise SystemExit(f"model results not found: {model_path}")
+    if args.model_results is not None:
+        model_path = args.model_results
+        if not model_path.exists():
+            raise SystemExit(f"model results not found: {model_path}")
+        # path.stem drops only the last suffix (.gz -> .json), so handle .json.gz too.
+        stem = model_path.name.removesuffix('.json.gz').removesuffix('.json')
+        run_id = args.run_id or stem.removeprefix('congestion_results_')
+        out_dir = RUNS_ROOT / run_id / "matrix" if args.run_id else BASE_DIR
+    elif args.run_id is not None:
+        run_id = args.run_id
+        model_path = _resolve_model_path(run_id)
+        out_dir = RUNS_ROOT / run_id / "matrix"
+    else:
+        raise SystemExit("must pass --run-id or --model-results")
 
-    run_id = args.run_id or model_path.stem.removeprefix('congestion_results_')
-    out_path = BASE_DIR / f"congestion_matrix_{run_id}.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if args.run_id is not None:
+        out_path = out_dir / "matrix_summary.json"
+        npz_path = out_dir / "congestion_matrices.npz"
+    else:
+        out_path = out_dir / f"congestion_matrix_{run_id}.json"
+        npz_path = out_dir / f"congestion_matrices_{run_id}.npz"
 
     model_recs = _load_model_records(model_path)
     n_model_total = len(model_recs)
@@ -436,7 +473,6 @@ def main():
         json.dump(_sanitize(out), f)
     print(f"\nWrote {out_path}")
 
-    npz_path = out_path.with_name(f"congestion_matrices_{run_id}.npz")
     _write_matrices_npz(npz_path, matrices_by_ref, indices)
     print(
         f"wrote {npz_path} (n_refs={len(matrices_by_ref)}, "

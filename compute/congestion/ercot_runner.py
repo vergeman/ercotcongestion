@@ -28,6 +28,7 @@ Usage:
         --run-id ercot-baseline \
         --dates-file /compute/sample_specs/reference_dates.json
 """
+import gzip
 import json
 import argparse
 import traceback
@@ -46,6 +47,7 @@ from .compute import (
 )
 
 BASE_DIR = Path(__file__).parent
+RUNS_ROOT = BASE_DIR.parent / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 SP_GEOCODED_CSV = Path("/data/processed/settlement_points_geocoded.csv")
@@ -431,9 +433,19 @@ def main():
                          f'Default: {DEFAULT_DATES_FILE}.')
     ap.add_argument('--chunk-size', type=int, default=24,
                     help='Timestamps per batched DB round-trip (default 24).')
+    ap.add_argument('--output', type=Path, default=None,
+                    help='Explicit output path for per-record JSON. When unset, '
+                         'derives from --run-id and --records-output.')
+    ap.add_argument('--records-output', choices=('gz', 'json'), default='gz',
+                    help='Per-record output format when deriving default path '
+                         '(default: gz -> .json.gz).')
     args = ap.parse_args()
 
-    results_file = BASE_DIR / f"ercot_congestion_results_{args.run_id}.json"
+    if args.output is not None:
+        results_file = args.output
+    else:
+        ext = '.json.gz' if args.records_output == 'gz' else '.json'
+        results_file = RUNS_ROOT / args.run_id / "congestion" / f"ercot_results{ext}"
     refs = _load_dates(args.dates_file)
 
     out = compute_records(
@@ -443,7 +455,9 @@ def main():
     )
     records = out['records']
 
-    with open(results_file, 'w') as f:
+    results_file.parent.mkdir(parents=True, exist_ok=True)
+    opener = gzip.open if results_file.suffix == '.gz' else open
+    with opener(results_file, 'wt') as f:
         json.dump(records, f)
     print(f"\nWrote {len(records)} records -> {results_file}")
 

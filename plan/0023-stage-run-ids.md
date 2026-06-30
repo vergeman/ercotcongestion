@@ -44,9 +44,9 @@ Branch: feat/stage-run-ids
 
 ## Acceptance
 
-* [ ] Each stage CLI accepts `--run-id`; output paths derive correctly under `compute/runs/<run_id>/<stage>/`.
-* [ ] Default per-record outputs are `.json.gz`; `--records-output json` emits uncompressed `.json`.
-* [ ] `compute/matrix.py` transparently loads either `.json` or `.json.gz` (verify by feeding it each).
-* [ ] Explicit-path flags (`--output`, `--model-results`, `--matrices`, `--out-dir`) still work with no `--run-id` set.
-* [ ] Stage-by-stage chain on `--run-id repro-11` lands artifacts in `compute/runs/repro-11/{congestion,matrix,clustering}/` and reproduces the legacy npz from `compute/runs/legacy-test-persist/matrix/congestion_matrices.npz` (matrix shapes + per-ref non-null masks match).
-* [ ] `compute/clustering/runner.py` no longer creates an inner `runs/<name>/` directory.
+* [x] Each stage CLI accepts `--run-id`; output paths derive correctly under `compute/runs/<run_id>/<stage>/`.
+* [x] Default per-record outputs are `.json.gz`; `--records-output json` emits uncompressed `.json`.
+* [x] `compute/matrix.py` transparently loads either `.json` or `.json.gz` (verify by feeding it each).
+* [x] Explicit-path flags (`--output`, `--model-results`, `--matrices`, `--out-dir`) still work with no `--run-id` set.
+* [ ] Stage-by-stage chain on `--run-id repro-11` lands artifacts in `compute/runs/repro-11/{congestion,matrix,clustering}/` and reproduces the legacy npz from `compute/runs/legacy-test-persist/matrix/congestion_matrices.npz` (matrix shapes + per-ref non-null masks match). — pending Docker smoke
+* [x] `compute/clustering/runner.py` no longer creates an inner `runs/<name>/` directory.
