@@ -13,6 +13,7 @@ Usage:
         --model-results /compute/congestion_results_matrix-smoke.json
 """
 import argparse
+import gzip
 import json
 import logging
 import math
@@ -52,7 +53,8 @@ HUB_KEYS = ("HB_BUSAVG", "HB_HOUSTON", "HB_NORTH", "HB_SOUTH", "HB_WEST")
 # ---------------------------------------------------------------------------
 
 def _load_model_records(path: Path) -> list[dict]:
-    with open(path) as f:
+    opener = gzip.open if path.suffix == '.gz' else open
+    with opener(path, 'rt') as f:
         records = json.load(f)
     if not isinstance(records, list):
         raise ValueError(f"{path}: expected list of records")
@@ -273,7 +275,9 @@ def main():
     if not model_path.exists():
         raise SystemExit(f"model results not found: {model_path}")
 
-    run_id = args.run_id or model_path.stem.removeprefix('congestion_results_')
+    # path.stem drops only the last suffix (.gz -> .json), so handle .json.gz too.
+    stem = model_path.name.removesuffix('.json.gz').removesuffix('.json')
+    run_id = args.run_id or stem.removeprefix('congestion_results_')
     out_path = BASE_DIR / f"congestion_matrix_{run_id}.json"
 
     model_recs = _load_model_records(model_path)

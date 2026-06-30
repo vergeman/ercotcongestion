@@ -27,6 +27,7 @@ Usage:
         --run-id baseline \
         --dates-file /compute/sample_specs/reference_dates.json
 """
+import gzip
 import json
 import argparse
 import traceback
@@ -256,9 +257,19 @@ def main():
     ap.add_argument('--dates-file', type=Path, default=DEFAULT_DATES_FILE,
                     help='JSON file: flat list of ISO timestamps OR dict {regime: [iso]}. '
                          f'Default: {DEFAULT_DATES_FILE}.')
+    ap.add_argument('--output', type=Path, default=None,
+                    help='Explicit output path for per-record JSON. When unset, '
+                         'derives from --run-id and --records-output.')
+    ap.add_argument('--records-output', choices=('gz', 'json'), default='gz',
+                    help='Per-record output format when deriving default path '
+                         '(default: gz -> .json.gz).')
     args = ap.parse_args()
 
-    results_file = BASE_DIR / f"congestion_results_{args.run_id}.json"
+    if args.output is not None:
+        results_file = args.output
+    else:
+        ext = '.json.gz' if args.records_output == 'gz' else '.json'
+        results_file = BASE_DIR / f"congestion_results_{args.run_id}{ext}"
 
     refs = _load_dates(args.dates_file)
 
@@ -365,7 +376,9 @@ def main():
             **rec,
         })
 
-    with open(results_file, 'w') as f:
+    results_file.parent.mkdir(parents=True, exist_ok=True)
+    opener = gzip.open if results_file.suffix == '.gz' else open
+    with opener(results_file, 'wt') as f:
         json.dump(records, f)
     print(f"\nWrote {len(records)} records -> {results_file}")
 
