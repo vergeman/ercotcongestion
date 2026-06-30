@@ -10,6 +10,7 @@ data/raw/TIGER/*
 data/raw/ercot_load_zones/*
 !data/raw/ercot_load_zones/README.md
 api/static/*
+compute/experiments/zonal_clustering/runs/*
 
 # books / docs
 *.pdf
