@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir \
         requests \
         fastapi \
         uvicorn[standard] \
+        pytest \
         pypsa==1.2.2 \
         pandas \
         numpy \

@@ -1,5 +1,4 @@
-"""
-Phase 3 — clustering algorithms.
+"""Clustering algorithms.
 
 Five pure functions over a bus×hour congestion matrix `C` (rows = buses,
 columns = hours). Each returns a `pd.Series` indexed by `C.index` with
@@ -7,8 +6,9 @@ integer cluster labels; buses defensively dropped (any-NaN row, or missing
 coordinates for `hybrid_geo`) come back as `-1` so the downstream sweep
 can detect them.
 
-No I/O. The caller (0020 sweep) is responsible for loading the 0016 npz
-and selecting a (ref_method, source) matrix.
+No I/O. The caller is responsible for loading the npz and selecting a
+(ref_method, source) matrix.
+
 """
 from __future__ import annotations
 
