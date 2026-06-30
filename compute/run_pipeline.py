@@ -39,8 +39,13 @@ from config import PG_DSN
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
+DEFAULT_COORDS_MODEL = Path(
+    "/data/processed/Texas2k_series25_case1_summerpeak_bus_coords.csv"
+)
+DEFAULT_COORDS_ERCOT = Path("/data/processed/settlement_points_geocoded.csv")
 
 STAGES = ("congestion", "ercot", "matrix", "clustering")
+TAIL_LINES = 80
 
 
 def _git_sha() -> str | None:
@@ -142,6 +147,141 @@ def _ingest_hint(missing: list[datetime]) -> str:
     )
 
 
+def _read_tail(path: Path, n_lines: int) -> str:
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+    except OSError:
+        return ""
+    return "".join(lines[-n_lines:])
+
+
+def _records_ext(records_output: str) -> str:
+    """Per-record file extension actually written to disk.
+
+    'none' still writes gz under the hood; the orchestrator deletes them
+    after the matrix stage exits ok (see §4 of the sprint plan).
+    """
+    return ".json" if records_output == "json" else ".json.gz"
+
+
+def _stage_outputs(stage: str, run_dir: Path, records_ext: str) -> list[Path]:
+    if stage == "congestion":
+        return [run_dir / "congestion" / f"model_results{records_ext}"]
+    if stage == "ercot":
+        return [run_dir / "congestion" / f"ercot_results{records_ext}"]
+    if stage == "matrix":
+        return [run_dir / "matrix" / "congestion_matrices.npz"]
+    if stage == "clustering":
+        return [run_dir / "clustering" / "summary.json"]
+    raise ValueError(stage)
+
+
+def _stage_cmd(
+    stage: str,
+    args: argparse.Namespace,
+    records_subflag: str,
+) -> list[str]:
+    """Build the subprocess command for a stage.
+
+    `records_subflag` is 'gz' or 'json' (the orchestrator translates
+    'none' -> 'gz' before calling).
+    """
+    base = [sys.executable, "-m"]
+    if stage == "congestion":
+        return base + [
+            "compute.congestion.snapshot_runner",
+            "--run-id", args.run_id,
+            "--dates-file", str(args.dates_file),
+            "--records-output", records_subflag,
+        ]
+    if stage == "ercot":
+        return base + [
+            "compute.congestion.ercot_runner",
+            "--run-id", args.run_id,
+            "--dates-file", str(args.dates_file),
+            "--records-output", records_subflag,
+        ]
+    if stage == "matrix":
+        cmd = base + ["compute.matrix", "--run-id", args.run_id]
+        refs = _list_arg(args.ref_methods)
+        if refs:
+            cmd += ["--ref-methods", *refs]
+        return cmd
+    if stage == "clustering":
+        cmd = base + [
+            "compute.clustering.runner",
+            "--run-id", args.run_id,
+            "--coords-model", str(args.coords_model),
+            "--coords-ercot", str(args.coords_ercot),
+        ]
+        if args.ref_methods:
+            cmd += ["--ref-methods", args.ref_methods]
+        if args.algos:
+            cmd += ["--algos", args.algos]
+        if args.ks:
+            cmd += ["--ks", args.ks]
+        return cmd
+    raise ValueError(stage)
+
+
+def _run_stage(
+    stage: str,
+    cmd: list[str],
+    outputs: list[Path],
+    run_dir: Path,
+    meta: dict,
+    meta_path: Path,
+    skip_completed: bool,
+    force: bool,
+) -> bool:
+    """Execute one stage; return True on ok/skipped, False on failure."""
+    if not force and skip_completed and all(p.exists() for p in outputs):
+        meta["stages"][stage] = {"status": "skipped", "elapsed_s": 0.0}
+        _write_meta(meta_path, meta)
+        print(f"skip: {stage} already complete")
+        return True
+
+    log_path = run_dir / f"{stage}.log"
+    print(f"\n=== stage: {stage} ===")
+    print(f"  cmd: {' '.join(cmd)}")
+    print(f"  log: {log_path}")
+
+    started = time.monotonic()
+    with open(log_path, "w") as logf:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            logf.write(line)
+            logf.flush()
+        proc.wait()
+    elapsed = round(time.monotonic() - started, 2)
+
+    if proc.returncode != 0:
+        meta["stages"][stage] = {
+            "status": "failed",
+            "elapsed_s": elapsed,
+            "returncode": proc.returncode,
+            "traceback": _read_tail(log_path, TAIL_LINES),
+        }
+        _write_meta(meta_path, meta)
+        print(
+            f"\nFAILED: {stage} exited {proc.returncode} after {elapsed}s "
+            f"(see {log_path})",
+            file=sys.stderr,
+        )
+        return False
+
+    meta["stages"][stage] = {"status": "ok", "elapsed_s": elapsed}
+    _write_meta(meta_path, meta)
+    print(f"ok: {stage} ({elapsed}s)")
+    return True
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         prog="python -m compute.run_pipeline",
@@ -162,6 +302,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Per-record output format for congestion stages. "
                          "'none' keeps gz on disk but deletes them after matrix "
                          "exits ok (default: gz).")
+    ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
+                    help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
+    ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
+                    help=f"ERCOT settlement-point coords CSV. Default: {DEFAULT_COORDS_ERCOT}.")
     ap.add_argument("--skip-completed", dest="skip_completed",
                     action="store_true", default=True,
                     help="Skip stages whose primary output already exists (default: on).")
@@ -215,6 +359,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 3
     print("pre-flight: ok")
+
+    records_ext = _records_ext(args.records_output)
+    records_subflag = "json" if args.records_output == "json" else "gz"
+
+    for stage in STAGES:
+        cmd = _stage_cmd(stage, args, records_subflag)
+        outputs = _stage_outputs(stage, run_dir, records_ext)
+        ok = _run_stage(
+            stage, cmd, outputs, run_dir, meta, meta_path,
+            skip_completed=args.skip_completed, force=args.force,
+        )
+        if not ok:
+            return 4
 
     return 0
 
