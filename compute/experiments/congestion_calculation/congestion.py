@@ -28,6 +28,8 @@ METHODS = (
     "load_weighted",
     "gen_weighted",
     "system_lambda",
+    "system_lambda_kkt",
+    "system_lambda_copper_plate",
     "simple_mean",
 )
 
@@ -38,6 +40,8 @@ def compute_congestion(
     loads: pd.Series | None = None,
     dispatch: pd.Series | None = None,
     system_lambda: float | None = None,
+    system_lambda_kkt: float | None = None,
+    system_lambda_copper_plate: float | None = None,
 ) -> pd.DataFrame:
     """
     Compute bus-level congestion under five reference-price methods.
@@ -58,16 +62,25 @@ def compute_congestion(
         `gen_weighted`.
     system_lambda : float, optional
         Energy-component reference price ($/MWh). Required for `system_lambda`.
+        Model-side default = `lmps.median()`; ERCOT side = real DAM λ.
+    system_lambda_kkt : float, optional
+        KKT clean-bus median λ̂ (model-side only). Required for
+        `system_lambda_kkt`.
+    system_lambda_copper_plate : float, optional
+        Two-pass copper-plate λ (model-side only). Required for
+        `system_lambda_copper_plate`.
 
     Returns
     -------
     pd.DataFrame indexed by bus with columns:
-      - hub_avg        : lmps − hub_lmps[HB_BUSAVG]
-      - custom_hub_avg : lmps − mean(four directional hub prices)
-      - load_weighted  : lmps − Σ(lmps × loads) / Σ(loads)
-      - gen_weighted   : lmps − Σ(lmps × dispatch) / Σ(dispatch)
-      - system_lambda  : lmps − system_lambda
-      - simple_mean    : lmps − lmps.mean()
+      - hub_avg                    : lmps − hub_lmps[HB_BUSAVG]
+      - custom_hub_avg             : lmps − mean(four directional hub prices)
+      - load_weighted              : lmps − Σ(lmps × loads) / Σ(loads)
+      - gen_weighted               : lmps − Σ(lmps × dispatch) / Σ(dispatch)
+      - system_lambda              : lmps − system_lambda
+      - system_lambda_kkt          : lmps − system_lambda_kkt
+      - system_lambda_copper_plate : lmps − system_lambda_copper_plate
+      - simple_mean                : lmps − lmps.mean()
     """
     hub_lmps = hub_lmps or {}
     nan_col = pd.Series(np.nan, index=lmps.index)
@@ -122,6 +135,20 @@ def compute_congestion(
         out["system_lambda"] = lmps - float(system_lambda)
     except Exception as e:
         logger.warning("system_lambda failed: %s", e)
+
+    try:
+        if system_lambda_kkt is None:
+            raise ValueError("system_lambda_kkt is required")
+        out["system_lambda_kkt"] = lmps - float(system_lambda_kkt)
+    except Exception as e:
+        logger.warning("system_lambda_kkt failed: %s", e)
+
+    try:
+        if system_lambda_copper_plate is None:
+            raise ValueError("system_lambda_copper_plate is required")
+        out["system_lambda_copper_plate"] = lmps - float(system_lambda_copper_plate)
+    except Exception as e:
+        logger.warning("system_lambda_copper_plate failed: %s", e)
 
     try:
         ref = lmps.mean(skipna=True)

@@ -53,6 +53,9 @@ from snapshot import compute_snapshot_batch
 from congestion import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
 )
+from system_lambda_estimators import (
+    lambda_kkt_clean_median, lambda_merit_order,
+)
 
 BASE_DIR = Path(__file__).parent
 DEFAULT_DATES_FILE = Path("/compute/profiling/reference_dates.json")
@@ -177,9 +180,31 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
     except Exception as e:
         print(f"  system_lambda failed: {e}")
 
+    # KKT and copper-plate λ estimates require Pass-1 duals on n. Both read
+    # from n directly; compute_snapshot_batch has already populated mu's.
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+    system_lambda_kkt = None
+    try:
+        system_lambda_kkt = lambda_kkt_clean_median(n, naive_ts)
+    except Exception as e:
+        print(f"  system_lambda_kkt failed: {e}")
+
+    # `system_lambda_copper_plate` column is filled by lambda_merit_order —
+    # mathematically equivalent under copper-plate, ~1000× faster (no LP
+    # solve). lambda_copper_plate (LP) is kept in the estimator module for
+    # cross-validation but not called here.
+    system_lambda_cp = None
+    try:
+        system_lambda_cp = lambda_merit_order(n, naive_ts)
+    except Exception as e:
+        print(f"  system_lambda_copper_plate (merit-order) failed: {e}")
+
     cong = compute_congestion(
         lmps, hub_lmps,
-        loads=loads, dispatch=dispatch_per_bus, system_lambda=system_lambda,
+        loads=loads, dispatch=dispatch_per_bus,
+        system_lambda=system_lambda,
+        system_lambda_kkt=system_lambda_kkt,
+        system_lambda_copper_plate=system_lambda_cp,
     )
     congestion_diagnostics(cong)
 
@@ -194,6 +219,13 @@ def post_process_one(result, op, n, hub_centroids, ts) -> dict:
         "status": "ok",
         "hub_lmps": hub_lmps,
         "system_lambda": system_lambda,
+        "system_lambda_kkt": system_lambda_kkt,
+        "system_lambda_copper_plate": system_lambda_cp,
+        # Pass-1 load shed total. When > 0 the snapshot was infeasible
+        # without shed; system_lambda_copper_plate will be None at those
+        # snapshots (merit-order excludes shed, so no real-gen-only
+        # clearing price exists). Consumers: shed-taint = (load_shed_mw > 0).
+        "load_shed_mw": float(result['meta'].get('load_shed_total_mw', 0.0)),
         "lmp_summary": _stats(lmps),
         "sanity": _sanity(cong),
         "congestion": {

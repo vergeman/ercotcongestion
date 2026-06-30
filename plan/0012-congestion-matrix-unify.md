@@ -38,9 +38,28 @@ Branch: feat/0012-congestion-matrix-unify
 ## Acceptance
 
 * [ ] `python compute/experiments/congestion_calculation/congestion_matrix.py --model-results compute/experiments/congestion_calculation/congestion_results_matrix-smoke.json` writes `congestion_matrix_matrix-smoke.json`.
-* [ ] Output has per-ref-method blocks for all 6 methods, each with `model`, `ercot`, `cross_hubs`, `cross_zones`.
+* [ ] Output has per-ref-method blocks for all methods, each with `model`, `ercot`, `cross_hubs`, `cross_zones`.
 * [ ] `meta.n_common` ≤ min(`n_records_model`, `n_records_ercot`); cross-source stats restricted to that intersection.
 * [ ] `explained_variance_ratio` sums ≤ 1, monotone-decreasing; ARI ∈ [-1, 1]; ρ ∈ [-1, 1]; KS p ∈ [0, 1].
 * [ ] Re-run `ercot_congestion_snapshot.py` standalone with the same `--run-id` as 0011 → JSON value-equivalent to pre-refactor (no behavior change).
 * [ ] Each new OK record from `congestion_snapshot.py` contains a `bus_loads` dict; existing fields unchanged.
 * [ ] Spot-check each new `congestion.py` function on a fabricated 10-bus × 20-hour matrix in REPL before full run.
+
+## Follow-on: system-λ reference points (spike 0013 integration)
+
+Two new model-side λ estimators added as additional reference columns alongside the original `system_lambda` (which stays as `lmps.median()`):
+
+* `system_lambda_kkt` — KKT/PTDF clean-bus median (from `kkt_reconstruct`); shed gens excluded from the clean-bus set.
+* `system_lambda_copper_plate` — two-pass copper-plate solve (Pass 1 = chunk; Pass 2 = single-snapshot copy with at-bound gens fixed at Pass 1 dispatch, shed gens fixed at 0, line/tx capacities × 1e6); reads the uniform Pass 2 LMP.
+
+`METHODS` in `congestion.py` grows from 6 → 8 entries; `compute_congestion` gains two optional kwargs. ERCOT side is untouched — both new columns are NaN there, handled by the existing per-method try/except. Estimator module: `compute/experiments/congestion_calculation/system_lambda_estimators.py`.
+
+Smoke (one summer-peak snapshot, 2025-07-30 21:00 UTC):
+
+| Reference | λ |
+|---|---|
+| `system_lambda` (median) | $76.86 |
+| `system_lambda_kkt` | −$34.57 |
+| `system_lambda_copper_plate` | $28.55 |
+
+Copper-plate adds ~3 s of OPF solve per snapshot. KKT is near-free (PTDF cached). See `docs/congestion_stats.md` for interpretation guidance.
