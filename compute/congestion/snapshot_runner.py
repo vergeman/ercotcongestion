@@ -22,45 +22,39 @@ For each reference timestamp:
   4. Persist per-record results to JSON keyed by (regime, ts).
 
 Usage:
-    docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/congestion_snapshot.py
-    docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/congestion_snapshot.py \
-        --run-id baseline --dates-file /compute/profiling/reference_dates.json
+    docker compose run --rm compute python -m compute.congestion.snapshot_runner
+    docker compose run --rm compute python -m compute.congestion.snapshot_runner \
+        --run-id baseline \
+        --dates-file /compute/sample_specs/reference_dates.json
 """
-import sys
-from pathlib import Path
-
-sys.path.insert(0, '/compute')
-sys.path.insert(0, str(Path(__file__).parent))
-
 import json
 import argparse
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import psycopg
 import pypsa
 
-from config import (
+from compute.config import (
     PG_DSN, NETWORK_NC,
     MARGINAL_COSTS_CSV, BUS_WEATHER_LOAD_ZONES_CSV, GENERATOR_MATCHES_ENRICHED_CSV,
 )
-from operating_conditions import apply_static_mutations
-from operating_data_adapter import OperatingDataAdapter
-from snapshot import compute_snapshot_batch
+from compute.operating_conditions import apply_static_mutations
+from compute.operating_data_adapter import OperatingDataAdapter
+from compute.snapshot import compute_snapshot_batch
 
-from congestion import (
+from .compute import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
 )
-from system_lambda_estimators import (
+from .system_lambda_estimators import (
     lambda_kkt_clean_median, lambda_merit_order,
 )
 
 BASE_DIR = Path(__file__).parent
-DEFAULT_DATES_FILE = Path("/compute/profiling/reference_dates.json")
+DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 
 

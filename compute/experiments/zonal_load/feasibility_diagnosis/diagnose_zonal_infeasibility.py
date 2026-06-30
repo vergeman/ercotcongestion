@@ -48,7 +48,7 @@ from operating_conditions import apply_operating_conditions
 from operating_data_adapter import OperatingDataAdapter
 
 SHED_COST = 1e6  # $/MWh, far above any real marginal cost
-REF_DATES = Path('/compute/profiling/reference_dates.json')
+REF_DATES = Path('/compute/sample_specs/reference_dates.json')
 
 
 # ---------------------------------------------------------------------------

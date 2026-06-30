@@ -23,36 +23,30 @@ Output per-record schema mirrors 0011 where applicable; ERCOT-specific
 fields are documented inline. Phase 4 will design the joined view.
 
 Usage:
-    docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/ercot_congestion_snapshot.py
-    docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/ercot_congestion_snapshot.py \
-        --run-id ercot-baseline --dates-file /compute/profiling/reference_dates.json
+    docker compose run --rm compute python -m compute.congestion.ercot_runner
+    docker compose run --rm compute python -m compute.congestion.ercot_runner \
+        --run-id ercot-baseline \
+        --dates-file /compute/sample_specs/reference_dates.json
 """
-import sys
-from pathlib import Path
-
-sys.path.insert(0, '/compute')
-sys.path.insert(0, str(Path(__file__).parent))
-
 import json
 import argparse
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import psycopg
 
-from config import PG_DSN
+from compute.config import PG_DSN
 
-from congestion import (
+from .compute import (
     compute_congestion, congestion_diagnostics,
     CUSTOM_HUBS, HUB_BUSAVG,
 )
 
 BASE_DIR = Path(__file__).parent
-DEFAULT_DATES_FILE = Path("/compute/profiling/reference_dates.json")
+DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 SP_GEOCODED_CSV = Path("/data/processed/settlement_points_geocoded.csv")
 BUS_WEATHER_LOAD_ZONES_CSV = Path("/data/processed/bus_ercot_weather_load_zones.csv")

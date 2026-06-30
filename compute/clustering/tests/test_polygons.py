@@ -1,4 +1,4 @@
-"""Tests for `experiments.zonal_clustering.polygons`."""
+"""Tests for `compute.clustering.polygons`."""
 from __future__ import annotations
 
 import logging
@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from experiments.zonal_clustering.polygons import (
+from compute.clustering.polygons import (
     build_polygons,
     transfer_labels,
     write_zones_geojson,
@@ -81,7 +81,7 @@ def test_singleton_clusters_are_dropped(planted, synthetic_coords, caplog):
     forged = true_labels.copy()
     forged.iloc[[0, 1]] = 9
 
-    with caplog.at_level(logging.INFO, logger="experiments.zonal_clustering.polygons"):
+    with caplog.at_level(logging.INFO, logger="compute.clustering.polygons"):
         p = build_polygons(forged, synthetic_coords)
 
     assert 9 not in set(p["cluster_id"])

@@ -8,7 +8,7 @@ summary JSON plus per-cell GeoJSON and ERCOT label CSV.
 
 CLI::
 
-    python -m experiments.zonal_clustering.run_clustering \
+    python -m compute.clustering.runner \
         --matrices <npz> \
         --coords-model <bus_coords.csv> \
         --coords-ercot <settlement_points_geocoded.csv> \
@@ -32,26 +32,26 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from experiments.zonal_clustering.clustering import (
+from .algorithm import (
     hierarchical_corr,
     hybrid_geo,
     kmeans_vec,
     pca_kmeans,
     spectral_corr,
 )
-from experiments.zonal_clustering.diagnostics import (
+from .diagnostics import (
     cluster_stability_ari,
     silhouette,
     spatial_coherence,
     within_cluster_variance,
 )
-from experiments.zonal_clustering.polygons import (
+from .polygons import (
     build_polygons,
     transfer_labels,
     write_zones_geojson,
 )
 
-log = logging.getLogger("experiments.zonal_clustering.run_clustering")
+log = logging.getLogger("compute.clustering.runner")
 
 ALGOS: dict[str, Callable] = {
     "hierarchical_corr": hierarchical_corr,

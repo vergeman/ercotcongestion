@@ -17,7 +17,7 @@ from config import (PG_DSN, NETWORK_NC, MARGINAL_COSTS_CSV,
 from operating_conditions import apply_operating_conditions
 from operating_data_adapter import OperatingDataAdapter
 
-REF_DATES = Path('/compute/profiling/reference_dates.json')
+REF_DATES = Path('/compute/sample_specs/reference_dates.json')
 SHED_COST, SHED_PREFIX = 5000.0, "shed_"
 import os
 BACKBONE = os.environ.get("BACKBONE", "0") == "1"   # BACKBONE=1 to enable

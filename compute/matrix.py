@@ -1,35 +1,29 @@
 """
 0012 — congestion matrix joiner.
 
-Consumes a model-side JSON written by `congestion_snapshot.py`, runs
-`ercot_congestion_snapshot.compute_records` in-process for the matching
-(regime, ts) set, builds per-source bus×hour and zone×hour matrices for
-each reference method, computes structural diagnostics on each side, and
-cross-source agreement (Spearman + KS/Wasserstein) on the shared hubs and
-the 8 weather zones.
+Consumes a model-side JSON written by `compute.congestion.snapshot_runner`,
+runs `compute.congestion.ercot_runner.compute_records` in-process for the
+matching (regime, ts) set, builds per-source bus×hour and zone×hour
+matrices for each reference method, computes structural diagnostics on
+each side, and cross-source agreement (Spearman + KS/Wasserstein) on the
+shared hubs and the 8 weather zones.
 
 Usage:
-    docker compose run --rm compute python \
-        /compute/experiments/congestion_calculation/congestion_matrix.py \
-        --model-results /compute/experiments/congestion_calculation/congestion_results_matrix-smoke.json
+    docker compose run --rm compute python -m compute.matrix \
+        --model-results /compute/congestion_results_matrix-smoke.json
 """
-import sys
-from pathlib import Path
-
-sys.path.insert(0, '/compute')
-sys.path.insert(0, str(Path(__file__).parent))
-
 import argparse
 import json
 import logging
 import math
 from collections import OrderedDict
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from congestion import (
+from compute.congestion.compute import (
     METHODS,
     aggregate_to_zones,
     distributional_agreement,
@@ -38,7 +32,7 @@ from congestion import (
     spearman_rank_agreement,
     split_half_cluster_stability,
 )
-import ercot_congestion_snapshot as ercot_snap
+from compute.congestion import ercot_runner as ercot_snap
 
 logger = logging.getLogger(__name__)
 

@@ -3,14 +3,14 @@ Generate a fixed, reusable baseline of ~20 ERCOT snapshots spanning key regimes.
 Used for rapid profiling and regression testing of PyPSA network modifications.
 
 Usage:
-    docker compose run --rm compute python /compute/profiling/sample_snapshots.py
+    docker compose run --rm compute python -m compute.sample_specs.extract_dates
 """
 
 import json
 from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
-from config import PG_DSN
+from compute.config import PG_DSN
 
 OUTPUT_FILE = Path(__file__).parent / "reference_dates.json"
 

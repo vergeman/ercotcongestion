@@ -27,17 +27,13 @@ All functions are safe to call after `compute_snapshot_batch` has solved a
 chunk — the network still carries Pass 1 primals and duals at that point.
 Return None on extraction failure (caller treats as NaN downstream).
 """
-import sys
-
-sys.path.insert(0, '/compute/experiments/system_lambda')
-
 import pandas as pd
 import pypsa
 
-from ptdf_lodf import get_ptdf_lodf
-from operating_conditions import apply_static_mutations
-from snapshot import SHED_PREFIX
-from kkt import reconstruct_lambda
+from compute.ptdf_lodf import get_ptdf_lodf
+from compute.operating_conditions import apply_static_mutations
+from compute.snapshot import SHED_PREFIX
+from compute.experiments.system_lambda.kkt import reconstruct_lambda
 
 SOLVER = 'highs'
 COPPER_PLATE_FACTOR = 1e6   # multiplier on s_nom; effectively ∞ vs any flow

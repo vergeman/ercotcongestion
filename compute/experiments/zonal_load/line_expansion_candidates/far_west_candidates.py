@@ -38,7 +38,7 @@ from operating_conditions import apply_operating_conditions
 from operating_data_adapter import OperatingDataAdapter
 from ptdf_lodf import get_ptdf_lodf
 
-REF_DATES = Path('/compute/profiling/reference_dates.json')
+REF_DATES = Path('/compute/sample_specs/reference_dates.json')
 SHED_COST = 1e6
 N_BINDING = 50   # cap how many binding lines feed the PTDF score
 
