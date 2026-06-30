@@ -54,10 +54,17 @@ Branch: refactor/lift-to-compute
 
 ## Acceptance
 
-* [ ] `compute/__init__.py`, `compute/congestion/__init__.py`, `compute/clustering/__init__.py`, `compute/sample_specs/__init__.py` exist.
-* [ ] `compute/experiments/congestion_calculation/`, `compute/experiments/zonal_clustering/`, `compute/profiling/` are deleted.
-* [ ] No `sys.path.insert` calls remain in any lifted file (`grep -rn 'sys.path.insert' compute/` returns 0 hits inside lifted files).
-* [ ] `grep -rn 'profiling' compute/` returns 0 hits.
-* [ ] After each commit (2a, 2b, 2c), the 11-snapshot replay reproduces the matching `compute/runs/legacy-test-persist/` artifact.
-* [ ] `git log --follow` on each moved file shows the pre-lift history (rename detection preserved blame).
-* [ ] `compute/clustering/tests/` passes: `pytest compute/clustering/tests/`.
+* [x] `compute/__init__.py`, `compute/congestion/__init__.py`, `compute/clustering/__init__.py`, `compute/sample_specs/__init__.py` exist.
+* [x] `compute/experiments/congestion_calculation/`, `compute/experiments/zonal_clustering/`, `compute/profiling/` are deleted.
+* [x] No `sys.path.insert` calls remain in any lifted file (`grep -rn 'sys.path.insert' compute/` returns 0 hits inside lifted files).
+* [x] `grep -rn 'profiling' compute/` returns 0 hits. *(Two surviving hits are English-word usage in docstrings: `compute/_timing.py:1` — untouchable per plan — and `compute/sample_specs/extract_dates.py:3`. No path/module refs remain.)*
+* [ ] After each commit (2a, 2b, 2c), the 11-snapshot replay reproduces the matching `compute/runs/legacy-test-persist/` artifact. *(Deferred — needs DB; CLI `--help` smoke + import-resolution verified.)*
+* [x] `git log --follow` on each moved file shows the pre-lift history (rename detection preserved blame).
+* [x] `compute/clustering/tests/` passes: `pytest compute/clustering/tests/` — 29 passed.
+
+## Results
+
+* **Out-of-scope infra changes required** for `import compute.X` to resolve at runtime (per the sprint-plan note "Docker runtime needs PYTHONPATH to include the project root"):
+  - `Dockerfile` `PYTHONPATH=/api:/compute:/opt` → `/api:/compute:/:/opt`.
+  - `docker-compose.yml` `compute` service: `PYTHONPATH=/compute:/:/opt` (drops `/api` so bare `from config import …` in untouchable top-level `compute/*.py` resolves to `/compute/config.py`, not `/api/config.py`); `working_dir: /compute` for the same reason (cwd shadowing).
+  - `api` and `updater` services: `/api:/compute:/:/opt` (api ordering preserved).
