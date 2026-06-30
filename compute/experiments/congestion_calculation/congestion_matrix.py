@@ -9,8 +9,8 @@ cross-source agreement (Spearman + KS/Wasserstein) on the shared hubs and
 the 8 weather zones.
 
 Usage:
-    docker compose run --rm compute python \\
-        /compute/experiments/congestion_calculation/congestion_matrix.py \\
+    docker compose run --rm compute python \
+        /compute/experiments/congestion_calculation/congestion_matrix.py \
         --model-results /compute/experiments/congestion_calculation/congestion_results_matrix-smoke.json
 """
 import sys
@@ -117,6 +117,40 @@ def _build_matrix(records: list[dict], ref_method: str) -> pd.DataFrame:
     if not cols:
         return pd.DataFrame()
     return pd.DataFrame(cols).sort_index(axis=1)
+
+
+def _drop_nan_buses(C: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop any bus row with at least one NaN across hours.
+
+    Mirrors `pca_variance_explained`'s row-drop so the npz matrix matches
+    what diagnostics see.
+    """
+    if C.empty:
+        return C, 0
+    X = C.dropna(axis=0, how='any')
+    return X, int(C.shape[0] - X.shape[0])
+
+
+def _write_matrices_npz(
+    path: Path,
+    matrices_by_ref: dict[str, dict[str, np.ndarray]],
+    indices: dict[str, np.ndarray],
+) -> None:
+    """Persist per-(ref_method, source) bus×hour matrices alongside their
+    aligned bus/SP and hour index arrays via ``np.savez_compressed``.
+
+    ``matrices_by_ref[ref] = {"model_C": ndarray, "ercot_C": ndarray}``;
+    either side may be a zero-shape array for one-sided ref methods.
+    ``indices`` carries the aligned id/hour arrays keyed by
+    ``{ref}_model_bus_ids``, ``{ref}_ercot_sp_ids``,
+    ``{ref}_model_hours``, ``{ref}_ercot_hours``.
+    """
+    arrays: dict[str, np.ndarray] = {}
+    for ref, sides in matrices_by_ref.items():
+        arrays[f"{ref}_model_C"] = sides["model_C"]
+        arrays[f"{ref}_ercot_C"] = sides["ercot_C"]
+    arrays.update(indices)
+    np.savez_compressed(path, **arrays)
 
 
 def _build_bus_loads_mean(records: list[dict]) -> pd.Series:
@@ -308,10 +342,40 @@ def main():
         "by_ref_method": {},
     }
 
+    matrices_by_ref: dict[str, dict[str, np.ndarray]] = {}
+    indices: dict[str, np.ndarray] = {}
+
     for ref in args.ref_methods:
         print(f"\n--- {ref} ---")
-        C_m = _build_matrix(model_common, ref)
-        C_e = _build_matrix(ercot_common, ref)
+        C_m_raw = _build_matrix(model_common, ref)
+        C_e_raw = _build_matrix(ercot_common, ref)
+        C_m, n_dropped_m = _drop_nan_buses(C_m_raw)
+        C_e, n_dropped_e = _drop_nan_buses(C_e_raw)
+        if n_dropped_m:
+            print(f"  model: dropped {n_dropped_m}/{C_m_raw.shape[0]} buses with NaN")
+        if n_dropped_e:
+            print(f"  ercot: dropped {n_dropped_e}/{C_e_raw.shape[0]} SPs with NaN")
+
+        matrices_by_ref[ref] = {
+            "model_C": (
+                C_m.to_numpy(dtype=float) if not C_m.empty else np.empty((0, 0), dtype=float)
+            ),
+            "ercot_C": (
+                C_e.to_numpy(dtype=float) if not C_e.empty else np.empty((0, 0), dtype=float)
+            ),
+        }
+        indices[f"{ref}_model_bus_ids"] = (
+            C_m.index.to_numpy(dtype=str) if not C_m.empty else np.empty((0,), dtype=str)
+        )
+        indices[f"{ref}_ercot_sp_ids"] = (
+            C_e.index.to_numpy(dtype=str) if not C_e.empty else np.empty((0,), dtype=str)
+        )
+        indices[f"{ref}_model_hours"] = (
+            C_m.columns.to_numpy(dtype=str) if not C_m.empty else np.empty((0,), dtype=str)
+        )
+        indices[f"{ref}_ercot_hours"] = (
+            C_e.columns.to_numpy(dtype=str) if not C_e.empty else np.empty((0,), dtype=str)
+        )
 
         # Per-source structural diagnostics (run on raw bus matrices).
         model_block = _per_source_diagnostics(
@@ -377,6 +441,13 @@ def main():
     with open(out_path, 'w') as f:
         json.dump(_sanitize(out), f)
     print(f"\nWrote {out_path}")
+
+    npz_path = out_path.with_name(f"congestion_matrices_{run_id}.npz")
+    _write_matrices_npz(npz_path, matrices_by_ref, indices)
+    print(
+        f"wrote {npz_path} (n_refs={len(matrices_by_ref)}, "
+        f"total_bytes={npz_path.stat().st_size})"
+    )
 
 
 def _dates_summary(records: list[dict]) -> dict:
