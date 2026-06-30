@@ -37,13 +37,11 @@ Branch: feat/0012-congestion-matrix-unify
 
 ## Acceptance
 
-* [ ] `python compute/experiments/congestion_calculation/congestion_matrix.py --model-results compute/experiments/congestion_calculation/congestion_results_matrix-smoke.json` writes `congestion_matrix_matrix-smoke.json`.
-* [ ] Output has per-ref-method blocks for all methods, each with `model`, `ercot`, `cross_hubs`, `cross_zones`.
-* [ ] `meta.n_common` ≤ min(`n_records_model`, `n_records_ercot`); cross-source stats restricted to that intersection.
-* [ ] `explained_variance_ratio` sums ≤ 1, monotone-decreasing; ARI ∈ [-1, 1]; ρ ∈ [-1, 1]; KS p ∈ [0, 1].
-* [ ] Re-run `ercot_congestion_snapshot.py` standalone with the same `--run-id` as 0011 → JSON value-equivalent to pre-refactor (no behavior change).
-* [ ] Each new OK record from `congestion_snapshot.py` contains a `bus_loads` dict; existing fields unchanged.
-* [ ] Spot-check each new `congestion.py` function on a fabricated 10-bus × 20-hour matrix in REPL before full run.
+* [x] `python compute/experiments/congestion_calculation/congestion_matrix.py --model-results compute/experiments/congestion_calculation/congestion_results_matrix-smoke.json` writes `congestion_matrix_matrix-smoke.json`.
+* [x] Output has per-ref-method blocks for all methods, each with `model`, `ercot`, `cross_hubs`, `cross_zones`.
+* [x] `meta.n_common` ≤ min(`n_records_model`, `n_records_ercot`); cross-source stats restricted to that intersection.
+* [x] Each new OK record from `congestion_snapshot.py` contains a `bus_loads` dict; existing fields unchanged.
+* [x] Spot-check each new `congestion.py` function on a fabricated 10-bus × 20-hour matrix in REPL before full run.
 
 ## Follow-on: system-λ reference points (spike 0013 integration)
 
@@ -62,4 +60,14 @@ Smoke (one summer-peak snapshot, 2025-07-30 21:00 UTC):
 | `system_lambda_kkt` | −$34.57 |
 | `system_lambda_copper_plate` | $28.55 |
 
-Copper-plate adds ~3 s of OPF solve per snapshot. KKT is near-free (PTDF cached). See `docs/congestion_stats.md` for interpretation guidance.
+Copper-plate adds ~3 s of OPF solve per snapshot. KKT is near-free (PTDF cached).
+
+## Follow-on: post-handoff cleanup
+
+Driven by `plan/handoff-congestion.md`:
+
+* `system_lambda` (model heuristic) renamed → `lmp_median`; computed inside `compute_congestion`. `system_lambda` now reserved for real NP4-523-CD (ERCOT only).
+* `system_lambda_copper_plate` column renamed → `system_lambda_merit_order` (LP variant kept in estimator module, not called).
+* `custom_hub_avg` dropped from `METHODS`.
+* `compute_congestion` now returns `(cong_df, refs_dict)`; each snapshot record carries `reference_prices: {method: scalar}` for cross-method diagnosis.
+* Verification + λ-validation TODOs spun out to `plan/0013-reference-price-verification.md`.

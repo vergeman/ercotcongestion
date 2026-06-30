@@ -20,16 +20,22 @@ from scipy.special import comb
 logger = logging.getLogger(__name__)
 
 HUB_BUSAVG = "HB_BUSAVG"
+# Directional hubs kept so callers can still publish them in hub_lmps (used
+# by the cross-source hub comparison in congestion_matrix). They no longer
+# back a congestion method — `custom_hub_avg` was dropped because on the
+# ERCOT side HB_BUSAVG already *is* the directional-hub average, making the
+# two methods near-duplicates; on the model side HB_BUSAVG is a single
+# nearest-bus LMP and the two are simply unrelated.
 CUSTOM_HUBS = ("HB_HOUSTON", "HB_NORTH", "HB_SOUTH", "HB_WEST")
 
 METHODS = (
     "hub_avg",
-    "custom_hub_avg",
     "load_weighted",
     "gen_weighted",
+    "lmp_median",
     "system_lambda",
     "system_lambda_kkt",
-    "system_lambda_copper_plate",
+    "system_lambda_merit_order",
     "simple_mean",
 )
 
@@ -41,10 +47,15 @@ def compute_congestion(
     dispatch: pd.Series | None = None,
     system_lambda: float | None = None,
     system_lambda_kkt: float | None = None,
-    system_lambda_copper_plate: float | None = None,
-) -> pd.DataFrame:
+    system_lambda_merit_order: float | None = None,
+) -> tuple[pd.DataFrame, dict[str, float | None]]:
     """
-    Compute bus-level congestion under five reference-price methods.
+    Compute bus-level congestion under several reference-price methods.
+
+    `lmp_median` is computed internally from `lmps` (the median of non-NaN
+    LMPs). It is a heuristic, not λ under any standard definition — kept as
+    a comparison baseline. The real published λ (ERCOT NP4-523-CD) goes
+    through the separate `system_lambda` parameter (ERCOT side only).
 
     Parameters
     ----------
@@ -52,56 +63,44 @@ def compute_congestion(
         Bus LMPs (index = bus name, values = $/MWh). NaN entries are
         propagated to the output.
     hub_lmps : dict[str, float], optional
-        Reference hub prices. Looked-up keys:
-          - HB_BUSAVG (for `hub_avg`)
-          - HB_HOUSTON, HB_NORTH, HB_SOUTH, HB_WEST (for `custom_hub_avg`)
+        Reference hub prices. Looked-up key: HB_BUSAVG (for `hub_avg`).
+        Other hub keys may be carried for downstream consumers but are not
+        used by this function.
     loads : pd.Series, optional
         Per-bus load (MW), indexed by bus name. Required for `load_weighted`.
     dispatch : pd.Series, optional
         Per-bus dispatched generation (MW), indexed by bus name. Required for
         `gen_weighted`.
     system_lambda : float, optional
-        Energy-component reference price ($/MWh). Required for `system_lambda`.
-        Model-side default = `lmps.median()`; ERCOT side = real DAM λ.
+        Real published energy-component price ($/MWh, ERCOT NP4-523-CD).
+        ERCOT side only — model side has no published λ and passes None.
     system_lambda_kkt : float, optional
-        KKT clean-bus median λ̂ (model-side only). Required for
-        `system_lambda_kkt`.
-    system_lambda_copper_plate : float, optional
-        Two-pass copper-plate λ (model-side only). Required for
-        `system_lambda_copper_plate`.
+        KKT clean-bus median λ̂ (model-side only).
+    system_lambda_merit_order : float, optional
+        Copper-plate λ recovered via merit-order economic dispatch
+        (model-side only). Was `system_lambda_copper_plate`.
 
     Returns
     -------
-    pd.DataFrame indexed by bus with columns:
-      - hub_avg                    : lmps − hub_lmps[HB_BUSAVG]
-      - custom_hub_avg             : lmps − mean(four directional hub prices)
-      - load_weighted              : lmps − Σ(lmps × loads) / Σ(loads)
-      - gen_weighted               : lmps − Σ(lmps × dispatch) / Σ(dispatch)
-      - system_lambda              : lmps − system_lambda
-      - system_lambda_kkt          : lmps − system_lambda_kkt
-      - system_lambda_copper_plate : lmps − system_lambda_copper_plate
-      - simple_mean                : lmps − lmps.mean()
+    cong : pd.DataFrame
+        Indexed by bus, columns = METHODS. Methods whose inputs were not
+        provided (or whose computation failed) come back as all-NaN columns.
+    refs : dict[str, float | None]
+        Scalar reference price subtracted under each method. None when the
+        method was not computed. Surfaced so callers can compare reference
+        levels side-by-side (e.g. lmp_median vs load_weighted vs system_lambda).
     """
     hub_lmps = hub_lmps or {}
     nan_col = pd.Series(np.nan, index=lmps.index)
     out: dict[str, pd.Series] = {m: nan_col.copy() for m in METHODS}
+    refs: dict[str, float | None] = {m: None for m in METHODS}
 
     try:
-        ref = hub_lmps[HUB_BUSAVG]
-        out["hub_avg"] = lmps - float(ref)
+        ref = float(hub_lmps[HUB_BUSAVG])
+        out["hub_avg"] = lmps - ref
+        refs["hub_avg"] = ref
     except Exception as e:
         logger.warning("hub_avg failed: %s", e)
-
-    try:
-        prices = [hub_lmps[h] for h in CUSTOM_HUBS if h in hub_lmps]
-        if not prices:
-            raise KeyError(f"no directional hub prices in hub_lmps (need any of {CUSTOM_HUBS})")
-        if len(prices) < len(CUSTOM_HUBS):
-            missing = [h for h in CUSTOM_HUBS if h not in hub_lmps]
-            logger.warning("custom_hub_avg using partial set; missing %s", missing)
-        out["custom_hub_avg"] = lmps - (sum(prices) / len(prices))
-    except Exception as e:
-        logger.warning("custom_hub_avg failed: %s", e)
 
     try:
         if loads is None:
@@ -113,6 +112,7 @@ def compute_congestion(
             raise ValueError("total load is zero or negative")
         ref = float((lmps[valid] * aligned[valid]).sum() / total)
         out["load_weighted"] = lmps - ref
+        refs["load_weighted"] = ref
     except Exception as e:
         logger.warning("load_weighted failed: %s", e)
 
@@ -126,39 +126,55 @@ def compute_congestion(
             raise ValueError("total dispatch is zero or negative")
         ref = float((lmps[valid] * aligned[valid]).sum() / total)
         out["gen_weighted"] = lmps - ref
+        refs["gen_weighted"] = ref
     except Exception as e:
         logger.warning("gen_weighted failed: %s", e)
 
     try:
-        if system_lambda is None:
-            raise ValueError("system_lambda is required")
-        out["system_lambda"] = lmps - float(system_lambda)
-    except Exception as e:
-        logger.warning("system_lambda failed: %s", e)
-
-    try:
-        if system_lambda_kkt is None:
-            raise ValueError("system_lambda_kkt is required")
-        out["system_lambda_kkt"] = lmps - float(system_lambda_kkt)
-    except Exception as e:
-        logger.warning("system_lambda_kkt failed: %s", e)
-
-    try:
-        if system_lambda_copper_plate is None:
-            raise ValueError("system_lambda_copper_plate is required")
-        out["system_lambda_copper_plate"] = lmps - float(system_lambda_copper_plate)
-    except Exception as e:
-        logger.warning("system_lambda_copper_plate failed: %s", e)
-
-    try:
-        ref = lmps.mean(skipna=True)
-        if pd.isna(ref):
+        med = lmps.dropna().median()
+        if pd.isna(med):
             raise ValueError("all LMPs are NaN")
-        out["simple_mean"] = lmps - float(ref)
+        ref = float(med)
+        out["lmp_median"] = lmps - ref
+        refs["lmp_median"] = ref
+    except Exception as e:
+        logger.warning("lmp_median failed: %s", e)
+
+    if system_lambda is not None:
+        try:
+            ref = float(system_lambda)
+            out["system_lambda"] = lmps - ref
+            refs["system_lambda"] = ref
+        except Exception as e:
+            logger.warning("system_lambda failed: %s", e)
+
+    if system_lambda_kkt is not None:
+        try:
+            ref = float(system_lambda_kkt)
+            out["system_lambda_kkt"] = lmps - ref
+            refs["system_lambda_kkt"] = ref
+        except Exception as e:
+            logger.warning("system_lambda_kkt failed: %s", e)
+
+    if system_lambda_merit_order is not None:
+        try:
+            ref = float(system_lambda_merit_order)
+            out["system_lambda_merit_order"] = lmps - ref
+            refs["system_lambda_merit_order"] = ref
+        except Exception as e:
+            logger.warning("system_lambda_merit_order failed: %s", e)
+
+    try:
+        m = lmps.mean(skipna=True)
+        if pd.isna(m):
+            raise ValueError("all LMPs are NaN")
+        ref = float(m)
+        out["simple_mean"] = lmps - ref
+        refs["simple_mean"] = ref
     except Exception as e:
         logger.warning("simple_mean failed: %s", e)
 
-    return pd.DataFrame(out)
+    return pd.DataFrame(out), refs
 
 
 def congestion_diagnostics(cong: pd.DataFrame) -> None:

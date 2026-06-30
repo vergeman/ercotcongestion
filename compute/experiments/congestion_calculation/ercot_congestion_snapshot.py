@@ -276,7 +276,7 @@ def post_process_one(
     )
     nameplate_aligned = nameplate.reindex(lmps.index).fillna(0.0)
 
-    cong = compute_congestion(
+    cong, refs = compute_congestion(
         lmps, hub_lmps,
         loads=sp_load,
         dispatch=nameplate_aligned,
@@ -287,7 +287,11 @@ def post_process_one(
     return {
         "status": "ok",
         "hub_lmps": hub_lmps,
-        "system_lambda": system_lambda,
+        # Per-method scalar reference prices — see model-side notes.
+        # On the ERCOT side `system_lambda` carries the real NP4-523-CD
+        # value; `system_lambda_kkt` and `system_lambda_merit_order` are
+        # always None (model-only estimators).
+        "reference_prices": refs,
         "lmp_summary": _stats(lmps),
         "sanity": _sanity(
             cong,

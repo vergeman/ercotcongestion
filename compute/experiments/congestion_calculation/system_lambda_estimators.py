@@ -10,7 +10,7 @@ Three estimators are exposed; the active two are:
       dispatching unbound real generator, where λ̂_i = c_g exactly).
       Robust estimator, not an identity — see compute/experiments/system_lambda/README.md.
 
-  lambda_merit_order(n, ts)                      [ACTIVE — populates system_lambda_copper_plate]
+  lambda_merit_order(n, ts)                      [ACTIVE — populates system_lambda_merit_order]
       Copper-plate λ via merit-order economic dispatch. Mathematically
       equivalent to `lambda_copper_plate` (the Pass-2 LP collapses to
       economic dispatch once line capacities are infinite), but skips the
