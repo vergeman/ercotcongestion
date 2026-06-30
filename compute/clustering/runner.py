@@ -53,6 +53,9 @@ from .polygons import (
 
 log = logging.getLogger("compute.clustering.runner")
 
+BASE_DIR = Path(__file__).parent
+RUNS_ROOT = BASE_DIR.parent / "runs"
+
 ALGOS: dict[str, Callable] = {
     "hierarchical_corr": hierarchical_corr,
     "kmeans_vec": kmeans_vec,
@@ -277,10 +280,17 @@ def _run_cell(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--matrices", required=True, type=Path)
+    p.add_argument("--run-id", default=None,
+                   help="Run identifier. When set, --matrices and --out-dir "
+                        "are derived from compute/runs/<run_id>/{matrix,clustering}/.")
+    p.add_argument("--matrices", default=None, type=Path,
+                   help="Explicit path to congestion_matrices npz. Required when "
+                        "--run-id is not set; wins over --run-id derivation when both given.")
     p.add_argument("--coords-model", required=True, type=Path)
     p.add_argument("--coords-ercot", required=True, type=Path)
-    p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument("--out-dir", default=None, type=Path,
+                   help="Explicit output directory. Required when --run-id is not "
+                        "set; wins over --run-id derivation when both given.")
     p.add_argument("--ref-methods", default=None, help="comma list; default = all in npz")
     p.add_argument("--algos", default=None, help="comma list; default = all five")
     p.add_argument("--ks", default=None, help="comma list of ints; default = 4,6,8,10,12,16")
@@ -297,8 +307,20 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    run_id = args.matrices.stem.removeprefix("congestion_matrices_")
+    matrices_path = args.matrices
+    out_dir = args.out_dir
+    if args.run_id is not None:
+        if matrices_path is None:
+            matrices_path = RUNS_ROOT / args.run_id / "matrix" / "congestion_matrices.npz"
+        if out_dir is None:
+            out_dir = RUNS_ROOT / args.run_id / "clustering"
+        run_id = args.run_id
+    else:
+        if matrices_path is None or out_dir is None:
+            raise SystemExit("must pass --run-id, or both --matrices and --out-dir")
+        run_id = matrices_path.stem.removeprefix("congestion_matrices_")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     refs_arg = _list_arg(args.ref_methods)
     algos = _list_arg(args.algos) or list(ALGOS.keys())
@@ -307,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"unknown algos: {unknown}; known = {list(ALGOS)}")
     ks = _int_list_arg(args.ks) or DEFAULT_KS
 
-    matrices = _load_matrices(args.matrices, refs_arg)
+    matrices = _load_matrices(matrices_path, refs_arg)
     coords_model = _load_coords(args.coords_model, id_col="bus")
     coords_ercot = _load_coords(args.coords_ercot, id_col="settlement_point")
 
@@ -318,14 +340,14 @@ def main(argv: list[str] | None = None) -> int:
                 rows.append(_run_cell(
                     ref=ref, algo=algo, K=K, sides=sides,
                     coords_model=coords_model, coords_ercot=coords_ercot,
-                    out_dir=args.out_dir, seed=args.seed, alpha=args.alpha,
+                    out_dir=out_dir, seed=args.seed, alpha=args.alpha,
                 ))
 
     summary = {
         "run_id": run_id,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "params": {
-            "matrices": str(args.matrices),
+            "matrices": str(matrices_path),
             "coords_model": str(args.coords_model),
             "coords_ercot": str(args.coords_ercot),
             "ref_methods": list(matrices.keys()),
@@ -336,7 +358,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "rows": rows,
     }
-    summary_path = args.out_dir / f"clustering_summary_{run_id}.json"
+    summary_name = "summary.json" if args.run_id is not None else f"clustering_summary_{run_id}.json"
+    summary_path = out_dir / summary_name
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2, default=_json_default)
     log.info(
