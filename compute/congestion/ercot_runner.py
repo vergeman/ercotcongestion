@@ -47,6 +47,7 @@ from .compute import (
 )
 
 BASE_DIR = Path(__file__).parent
+RUNS_ROOT = BASE_DIR.parent / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 SP_GEOCODED_CSV = Path("/data/processed/settlement_points_geocoded.csv")
@@ -444,7 +445,7 @@ def main():
         results_file = args.output
     else:
         ext = '.json.gz' if args.records_output == 'gz' else '.json'
-        results_file = BASE_DIR / f"ercot_congestion_results_{args.run_id}{ext}"
+        results_file = RUNS_ROOT / args.run_id / "congestion" / f"ercot_results{ext}"
     refs = _load_dates(args.dates_file)
 
     out = compute_records(
