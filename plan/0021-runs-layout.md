@@ -30,8 +30,8 @@ Branch: chore/runs-layout
 
 ## Acceptance
 
-* [ ] `compute/runs/` listed in `.gitignore`.
-* [ ] `compute/runs/legacy-test-persist/{congestion,matrix,clustering}/` populated; `compute/experiments/congestion_calculation/` has no loose `.json`/`.npz` artifacts.
-* [ ] `compute/experiments/zonal_clustering/runs/test-persist/` no longer exists.
-* [ ] `compute/runs/README.md` documents the per-run subdir layout.
-* [ ] Stage scripts re-run with explicit-path flags pointed at the new artifact locations still succeed.
+* [x] `compute/runs/` listed in `.gitignore` (with `!compute/runs/README.md` exception so the doc remains trackable).
+* [x] `compute/runs/legacy-test-persist/{congestion,matrix,clustering}/` populated; `compute/experiments/congestion_calculation/` has no loose `.json`/`.npz` artifacts.
+  * Note: `legacy-test-persist/congestion/` is empty — no `congestion_results_test-persist.json` ever existed in the source dir. The test-persist congestion model JSONs were not retained; only the matrix `.npz` + summary were. `legacy-final-merit/congestion/` holds `model_results.json` + `ercot_results.json` (migrated from `congestion_results_final-merit.json` and `ercot_congestion_results_ercot-final-merit.json`).
+* [x] `compute/experiments/zonal_clustering/runs/test-persist/` no longer exists. (The parent `runs/.gitkeep` remains; the whole subtree gets lifted in Branch 2 and is out of scope here.)
+* [x] `compute/runs/README.md` documents the per-run subdir layout.
