@@ -4,17 +4,16 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { BusState, SnapshotMeta, ViewMode } from "../../api/types";
 import { fetchPtdf } from "../../api/client";
 import {
-  fragilityColor,
   lmpColor,
-  normalizeFragility,
   normalizeLmpFromStats,
-  computeRankDelta,
+  modeledCongestionColor,
+  normalizeModeledCongestion,
+  bindingProximityColor,
+  normalizeProximity,
+  computeCongestionVsBasisRank,
   rankDeltaColor,
-  fragilityZ,
-  fragilityZColor,
-  normalizeZ,
   type LmpStats,
-  type BusZStats,
+  type ModeledCongestionStats,
 } from "../../lib/colors";
 
 // Track which bus IDs currently have a halo applied. Module-scoped so it
@@ -26,7 +25,10 @@ const activeHaloBusIds: Set<string> = new Set();
 // ones fade proportionally (sub-linear so mid-range responders stay visible).
 //
 // Sign drives color via the bus-halos layer: positive PTDF → ice,
-// negative PTDF → vibrant orange. Operationally:
+// negative PTDF → vibrant orange. This aligns with the diverging
+// modeled_congestion palette (positive/import → warm; negative/export → cool),
+// so hover-a-line reads in the same visual language as the underlying map.
+// Operationally:
 //   +PTDF: bus is "upstream" of the line. Reducing injection at this bus
 //          (curtail gen, charge a battery) relieves the line.
 //   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
@@ -73,7 +75,7 @@ interface Props {
   meta: SnapshotMeta | null;
   viewMode: ViewMode;
   lmpStats: LmpStats | null;
-  zStats: BusZStats | null;
+  mcStats: ModeledCongestionStats | null;
   onBusHover: (
     busId: string | null,
     props: Record<string, unknown> | null
@@ -95,7 +97,7 @@ export default function GridMap({
   meta,
   viewMode,
   lmpStats,
-  zStats,
+  mcStats,
   onBusHover,
   onLineHover,
   onBusClick,
@@ -333,7 +335,7 @@ export default function GridMap({
         });
       }
 
-      // Buses layer (circles, colored by fragility via feature-state)
+      // Buses layer (circles, colored per viewMode via feature-state)
       if (!map.getLayer("buses")) {
         map.addLayer({
           id: "buses",
@@ -580,33 +582,36 @@ export default function GridMap({
     const map = mapRef.current;
     if (!map || !buses.length || !map.getSource("buses")) return;
 
-    const normMap = viewMode === "fragility" ? normalizeFragility(buses) : null;
-    const deltaMap = viewMode === "delta_rank" ? computeRankDelta(buses) : null;
+    const deltaMap =
+      viewMode === "congestion_vs_basis"
+        ? computeCongestionVsBasisRank(buses)
+        : null;
 
     for (const bus of buses) {
       let color: string;
-      if (viewMode === "fragility") {
-        color = fragilityColor(normMap!.get(bus.bus_id) ?? 0);
+      if (viewMode === "modeled_congestion") {
+        if (mcStats) {
+          color = modeledCongestionColor(
+            normalizeModeledCongestion(bus.modeled_congestion, mcStats)
+          );
+        } else {
+          color = modeledCongestionColor(0);
+        }
       } else if (viewMode === "lmp") {
         if (lmpStats) {
           color = lmpColor(normalizeLmpFromStats(bus.lmp, lmpStats));
         } else {
           color = lmpColor(0.5);
         }
-      } else if (viewMode === "delta_rank") {
+      } else if (viewMode === "congestion_vs_basis") {
         color = rankDeltaColor(deltaMap!.get(bus.bus_id) ?? null);
       } else {
-        // fragility_z
-        if (zStats) {
-          const z = fragilityZ(bus.bus_id, bus.fragility, zStats);
-          color = fragilityZColor(normalizeZ(z));
-        } else {
-          color = fragilityZColor(0);
-        }
+        // binding_proximity
+        color = bindingProximityColor(normalizeProximity(bus.binding_proximity));
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, zStats]);
+  }, [buses, viewMode, lmpStats, mcStats]);
 
   // Selected bus
   useEffect(() => {
