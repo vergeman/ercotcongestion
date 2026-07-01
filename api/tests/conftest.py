@@ -1,7 +1,8 @@
 """Test fixtures: fake DB pool that returns canned rows.
 
-Avoids requiring a live Postgres for unit tests. Integration tests against the
-real DB live elsewhere.
+Avoids requiring a live Postgres for unit tests. Integration tests marked with
+`@pytest.mark.integration` open a real pool via the `real_client` fixture and
+are skipped unless RUN_INTEGRATION=1.
 """
 from __future__ import annotations
 
@@ -18,6 +19,22 @@ from fastapi.testclient import TestClient
 
 import db as db_module
 from main import app
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        'markers',
+        'integration: hits a real Postgres via db.get_pool(); requires RUN_INTEGRATION=1',
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.environ.get('RUN_INTEGRATION') == '1':
+        return
+    skip = pytest.mark.skip(reason='integration test (set RUN_INTEGRATION=1 to run)')
+    for item in items:
+        if 'integration' in item.keywords:
+            item.add_marker(skip)
 
 
 class FakeCursor:
@@ -104,3 +121,13 @@ def client(fake_pool):
 @pytest.fixture
 def ts_utc():
     return datetime(2026, 3, 25, 22, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def real_client():
+    """TestClient bound to the app's real lifespan (opens a live pg pool).
+
+    Used only by integration tests. Skipped elsewhere by the marker gate.
+    """
+    with TestClient(app) as c:
+        yield c
