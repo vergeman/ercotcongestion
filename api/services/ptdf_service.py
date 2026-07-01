@@ -35,7 +35,7 @@ def _ensure_loaded() -> None:
     n = pypsa.Network(NETWORK_NC)
     ptdf, _lodf, bus_names = get_ptdf_lodf(n)
 
-    # PTDF rows are stacked [lines, transformers] (see compute/fragility.py).
+    # PTDF rows are stacked [lines, transformers] (see compute/congestion.py).
     # We only expose lines for hover; the API line_id space matches n.lines.
     line_ids = list(n.lines.index)
     line_index = {lid: i for i, lid in enumerate(line_ids)}
