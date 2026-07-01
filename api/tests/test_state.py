@@ -23,8 +23,11 @@ def _meta_row(ts: datetime, status: str = 'ok') -> dict:
         'lmp_min': -10.0,
         'lmp_mean': 25.0,
         'lmp_max': 80.0,
-        'fragility_total': 100.5,
-        'fragility_top10_share': 0.42,
+        'modeled_congestion_total': 100.5,
+        'modeled_congestion_abs_total': 150.5,
+        'modeled_congestion_top10_share': 0.42,
+        'binding_proximity_max': 0.95,
+        'binding_proximity_p95': 0.80,
         'binding_lines': [{'line': 'L1', 'shadow_price': 5.0}],
         'top_contingencies': [{'line': 'L2', 'stress': 0.7}],
         'dispatch_by_carrier': {'gas': 30000.0, 'wind': 10000.0},
@@ -38,8 +41,8 @@ def _meta_row(ts: datetime, status: str = 'ok') -> dict:
 def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
     fake_pool.cursor.queue([_meta_row(ts_utc)])
     fake_pool.cursor.queue([
-        {'bus_id': 'B1', 'fragility': 0.5, 'lmp': 25.0},
-        {'bus_id': 'B2', 'fragility': 0.2, 'lmp': 24.0},
+        {'bus_id': 'B1', 'modeled_congestion': 0.5, 'binding_proximity': 0.7, 'lmp': 25.0},
+        {'bus_id': 'B2', 'modeled_congestion': 0.2, 'binding_proximity': 0.3, 'lmp': 24.0},
     ])
 
     r = client.get(f'/api/state?t={quote(ts_utc.isoformat())}')
@@ -52,6 +55,12 @@ def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
     assert len(data['buses']) == 2
     assert data['buses'][0]['bus_id'] == 'B1'
 
+    # Schema regression guard: new metric fields present, old field absent.
+    for bus in data['buses']:
+        assert 'modeled_congestion' in bus
+        assert 'binding_proximity' in bus
+        assert 'fragility' not in bus
+
 
 def test_state_404_when_missing(client, fake_pool, ts_utc):
     fake_pool.cursor.queue([])  # no meta row
@@ -63,10 +72,10 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
     ts2 = ts_utc + timedelta(hours=1)
     fake_pool.cursor.queue([_meta_row(ts_utc), _meta_row(ts2)])
     fake_pool.cursor.queue([
-        {'interval_ts': ts_utc, 'bus_id': 'B1', 'fragility': 0.5, 'lmp': 25.0},
-        {'interval_ts': ts_utc, 'bus_id': 'B2', 'fragility': 0.2, 'lmp': 24.0},
-        {'interval_ts': ts2,    'bus_id': 'B1', 'fragility': 0.6, 'lmp': 26.0},
-        {'interval_ts': ts2,    'bus_id': 'B2', 'fragility': 0.3, 'lmp': 25.5},
+        {'interval_ts': ts_utc, 'bus_id': 'B1', 'modeled_congestion': 0.5, 'binding_proximity': 0.7, 'lmp': 25.0},
+        {'interval_ts': ts_utc, 'bus_id': 'B2', 'modeled_congestion': 0.2, 'binding_proximity': 0.3, 'lmp': 24.0},
+        {'interval_ts': ts2,    'bus_id': 'B1', 'modeled_congestion': 0.6, 'binding_proximity': 0.8, 'lmp': 26.0},
+        {'interval_ts': ts2,    'bus_id': 'B2', 'modeled_congestion': 0.3, 'binding_proximity': 0.4, 'lmp': 25.5},
     ])
 
     start = quote(ts_utc.isoformat())
@@ -79,6 +88,13 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
     assert len(data['entries']) == 2
     assert len(data['entries'][0]['buses']) == 2
     assert len(data['entries'][1]['buses']) == 2
+
+    # Schema regression guard: new metric fields present, old field absent.
+    for entry in data['entries']:
+        for bus in entry['buses']:
+            assert 'modeled_congestion' in bus
+            assert 'binding_proximity' in bus
+            assert 'fragility' not in bus
 
 
 def test_state_range_rejects_inverted_window(client, ts_utc):
