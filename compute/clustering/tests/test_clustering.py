@@ -12,7 +12,6 @@ from compute.clustering.algorithm import (
     hybrid_geo,
     kmeans_vec,
     pca_kmeans,
-    spectral_corr,
 )
 from sklearn.metrics import adjusted_rand_score
 
@@ -50,15 +49,6 @@ def test_pca_kmeans_recovers_planted(planted):
     C, truth = planted
     labels = pca_kmeans(C, K=N_CLUSTERS, n_components=5, seed=SEED)
     assert _ari(labels, truth) > 0.9
-
-
-def test_spectral_corr_smoke(planted):
-    C, _ = planted
-    labels = spectral_corr(C, K=N_CLUSTERS, affinity="abs_corr", seed=SEED)
-    assert isinstance(labels, pd.Series)
-    assert len(labels) == N_BUSES
-    valid = labels[labels >= 0]
-    assert valid.nunique() == N_CLUSTERS
 
 
 def test_hybrid_geo_smoke(planted, synthetic_coords):

@@ -338,7 +338,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--ref-methods", default=None,
                     help="Comma list passed to matrix --ref-methods. Default: all.")
     ap.add_argument("--algos", default=None,
-                    help="Comma list passed to clustering --algos. Default: all five.")
+                    help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
                     help="Comma list of ints passed to clustering --ks. Default: 4,6,8,10,12,16.")
     ap.add_argument("--records-output", choices=("gz", "json", "none"), default="gz",

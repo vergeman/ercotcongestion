@@ -1,6 +1,6 @@
 """Clustering algorithms.
 
-Five pure functions over a bus×hour congestion matrix `C` (rows = buses,
+Four pure functions over a bus×hour congestion matrix `C` (rows = buses,
 columns = hours). Each returns a `pd.Series` indexed by `C.index` with
 integer cluster labels; buses defensively dropped (any-NaN row, or missing
 coordinates for `hybrid_geo`) come back as `-1` so the downstream sweep
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import fcluster, linkage as scipy_linkage
 from scipy.spatial.distance import squareform
-from sklearn.cluster import KMeans, SpectralClustering
+from sklearn.cluster import KMeans
 
 
 def _clean(C: pd.DataFrame) -> tuple[pd.DataFrame, pd.Index]:
@@ -73,37 +73,6 @@ def kmeans_vec(
         )
     km = KMeans(n_clusters=K, n_init=n_init, random_state=seed)
     labels = km.fit_predict(X.to_numpy())
-    return _reindex_with_dropped(labels, X.index, C.index, dropped)
-
-
-def spectral_corr(
-    C: pd.DataFrame, K: int, affinity: str = "abs_corr", seed: int = 0
-) -> pd.Series:
-    """Spectral clustering on a correlation-derived affinity matrix.
-
-    `affinity='abs_corr'` uses `|corr(C.T)|`; `'clip_neg'` clips negatives
-    to 0. Diagonal is zeroed (SpectralClustering treats it as the affinity
-    matrix of a graph; self-loops are removed).
-    """
-    X, dropped = _clean(C)
-    if X.shape[0] < K:
-        return _reindex_with_dropped(
-            np.full(X.shape[0], -1), X.index, C.index, dropped
-        )
-    R = X.T.corr().to_numpy()
-    if affinity == "abs_corr":
-        A = np.abs(R)
-    elif affinity == "clip_neg":
-        A = np.clip(R, 0.0, 1.0)
-    else:
-        raise ValueError(f"unknown affinity: {affinity}")
-    np.fill_diagonal(A, 0.0)
-    A = 0.5 * (A + A.T)
-    sc = SpectralClustering(
-        n_clusters=K, affinity="precomputed", random_state=seed,
-        assign_labels="kmeans",
-    )
-    labels = sc.fit_predict(A)
     return _reindex_with_dropped(labels, X.index, C.index, dropped)
 
 

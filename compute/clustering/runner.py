@@ -37,7 +37,6 @@ from .algorithm import (
     hybrid_geo,
     kmeans_vec,
     pca_kmeans,
-    spectral_corr,
 )
 from .diagnostics import (
     cluster_stability_ari,
@@ -59,7 +58,6 @@ RUNS_ROOT = BASE_DIR.parent / "runs"
 ALGOS: dict[str, Callable] = {
     "hierarchical_corr": hierarchical_corr,
     "kmeans_vec": kmeans_vec,
-    "spectral_corr": spectral_corr,
     "pca_kmeans": pca_kmeans,
     "hybrid_geo": hybrid_geo,
 }
@@ -153,7 +151,7 @@ def _algo_kwargs(algo: str, coords_model: pd.DataFrame, seed: int, alpha: float 
         if alpha is not None:
             kwargs["alpha"] = alpha
         return kwargs
-    if algo in ("kmeans_vec", "spectral_corr", "pca_kmeans"):
+    if algo in ("kmeans_vec", "pca_kmeans"):
         return {"seed": seed}
     return {}
 
@@ -292,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="Explicit output directory. Required when --run-id is not "
                         "set; wins over --run-id derivation when both given.")
     p.add_argument("--ref-methods", default=None, help="comma list; default = all in npz")
-    p.add_argument("--algos", default=None, help="comma list; default = all five")
+    p.add_argument("--algos", default=None, help="comma list; default = all four")
     p.add_argument("--ks", default=None, help="comma list of ints; default = 4,6,8,10,12,16")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
