@@ -1,16 +1,19 @@
-"""GET /api/validation — regime-bucketed correlation: fragility vs |basis|.
+"""GET /api/validation — regime-bucketed correlation: modeled_congestion vs basis.
 
-Computes Pearson correlation between per-bus fragility and |basis| over a
-user-selected window. Splits snapshots into "congested" (n_binding_lines >=
-threshold) and "quiet" buckets so the user can see whether the model carries
-explanatory power specifically when the grid is stressed.
+Computes direction-preserving Pearson correlation between per-bus signed
+`modeled_congestion` and signed `basis` over a user-selected window. Splits
+snapshots into "congested" (n_binding_lines >= threshold) and "quiet" buckets
+so the user can see whether the model carries explanatory power specifically
+when the grid is stressed.
 
 The threshold is configurable via query param; default is 1 (any binding line
-counts as congested). Buses are filtered to those with both fragility and
-basis present.
+counts as congested). Buses are filtered to those with both modeled_congestion
+and basis present.
 
-Also returns a small sample of (fragility, |basis|) points for the scatter
-plot — capped to keep responses light.
+Also returns a small sample of (modeled_congestion, basis) points for the
+scatter plot — capped to keep responses light. Each point carries both signed
+`basis` and `abs_basis` so consumers can render either a direction-preserving
+or a magnitude-only view.
 """
 from __future__ import annotations
 
@@ -35,6 +38,26 @@ def _coerce_utc(ts: datetime) -> datetime:
     if ts.tzinfo is None:
         return ts.replace(tzinfo=timezone.utc)
     return ts.astimezone(timezone.utc)
+
+
+def _sign_agreement(pairs: Iterable[tuple[float, float]]) -> float | None:
+    """Fraction of pairs where sign(x) == sign(y), over rows with both non-zero.
+
+    Zeros are excluded from both the numerator and denominator: a bus with
+    modeled_congestion == 0 or basis == 0 carries no directional claim.
+    Returns None if no eligible rows survive the filter.
+    """
+    eligible = 0
+    agree = 0
+    for x, y in pairs:
+        if x == 0.0 or y == 0.0:
+            continue
+        eligible += 1
+        if (x > 0) == (y > 0):
+            agree += 1
+    if eligible == 0:
+        return None
+    return agree / eligible
 
 
 def _pearson(pairs: Iterable[tuple[float, float]]) -> CorrelationResult:
@@ -71,7 +94,7 @@ def _pearson(pairs: Iterable[tuple[float, float]]) -> CorrelationResult:
 @router.get(
     '/validation',
     response_model=ValidationResponse,
-    summary='Regime-bucketed correlation between fragility and |basis|',
+    summary='Regime-bucketed correlation between modeled congestion and basis',
 )
 def get_validation(
     start: datetime = Query(..., description='ISO-8601 UTC start (inclusive)'),
@@ -109,7 +132,7 @@ def get_validation(
             cur.execute(
                 """
                 SELECT
-                    bs.fragility,
+                    bs.modeled_congestion,
                     bs.basis,
                     (sm.n_binding_lines >= %s) AS is_congested,
                     blz.load_zone
@@ -118,7 +141,7 @@ def get_validation(
                 LEFT JOIN bus_load_zones blz ON blz.bus_id = bs.bus_id
                 WHERE bs.interval_ts >= %s AND bs.interval_ts < %s
                   AND sm.status = 'ok'
-                  AND bs.fragility IS NOT NULL
+                  AND bs.modeled_congestion IS NOT NULL
                   AND bs.basis IS NOT NULL
                 """,
                 (congested_threshold, s, e),
@@ -147,19 +170,29 @@ def get_validation(
             congested_threshold_n_binding=congested_threshold,
             scatter=[],
             by_zone={},
-            warnings=warnings + ['No (fragility, basis) observations in window.'],
+            warnings=warnings + ['No (modeled_congestion, basis) observations in window.'],
         )
 
     # Build pair generators per bucket. We make three passes over the result
-    # set; with O(100k) rows this is trivial. Using |basis| since basis sign
-    # is direction info we don't need for correlation magnitude.
-    overall_pairs = ((r[0], abs(r[1])) for r in rows)
-    congested_pairs = ((r[0], abs(r[1])) for r in rows if r[2])
-    quiet_pairs     = ((r[0], abs(r[1])) for r in rows if not r[2])
+    # set; with O(100k) rows this is trivial. Signed × signed so ρ is
+    # direction-preserving — positive when sign(modeled_congestion) tracks
+    # sign(basis), not just when their magnitudes co-move.
+    overall_pairs = ((r[0], r[1]) for r in rows)
+    congested_pairs = ((r[0], r[1]) for r in rows if r[2])
+    quiet_pairs     = ((r[0], r[1]) for r in rows if not r[2])
 
     overall   = _pearson(overall_pairs)
     congested = _pearson(congested_pairs)
     quiet     = _pearson(quiet_pairs)
+
+    # Sign-agreement rate (Framing C): fraction where direction of
+    # modeled_congestion matches direction of basis. Interview-facing companion
+    # to ρ — a scalar answer to "when the model says congestion, does basis
+    # agree on which side?" Congested-only echoes the ρ split.
+    sign_agreement_overall = _sign_agreement((r[0], r[1]) for r in rows)
+    sign_agreement_congested = _sign_agreement(
+        (r[0], r[1]) for r in rows if r[2]
+    )
 
     # Per-zone breakdown. Skip rows without a zone (NULL from the LEFT JOIN)
     # and drop the 'non_ercot' fallback bucket — neither tells us anything
@@ -170,7 +203,7 @@ def get_validation(
         zone = r[3]
         if zone is None or zone == 'non_ercot':
             continue
-        pairs_by_zone.setdefault(zone, []).append((r[0], abs(r[1])))
+        pairs_by_zone.setdefault(zone, []).append((r[0], r[1]))
     by_zone = {z: _pearson(p) for z, p in pairs_by_zone.items()}
 
     # Scatter sample. If we're under the cap take everything; otherwise stride
@@ -185,7 +218,8 @@ def get_validation(
 
     scatter = [
         ScatterPoint(
-            fragility=rows[i][0],
+            modeled_congestion=rows[i][0],
+            basis=rows[i][1],
             abs_basis=abs(rows[i][1]),
             congested=bool(rows[i][2]),
         )
@@ -202,5 +236,7 @@ def get_validation(
         congested_threshold_n_binding=congested_threshold,
         scatter=scatter,
         by_zone=by_zone,
+        sign_agreement_overall=sign_agreement_overall,
+        sign_agreement_congested=sign_agreement_congested,
         warnings=warnings,
     )
