@@ -1,6 +1,7 @@
 export interface BusState {
   bus_id: string;
-  fragility: number | null;
+  modeled_congestion: number | null;
+  binding_proximity: number | null;
   lmp: number | null;
   basis: number | null;
 }
@@ -30,8 +31,11 @@ export interface SnapshotMeta {
   lmp_min: number | null;
   lmp_mean: number | null;
   lmp_max: number | null;
-  fragility_total: number | null;
-  fragility_top10_share: number | null;
+  modeled_congestion_total: number | null;
+  modeled_congestion_abs_total: number | null;
+  modeled_congestion_top10_share: number | null;
+  binding_proximity_max: number | null;
+  binding_proximity_p95: number | null;
   binding_lines: BindingLine[];
   top_contingencies: Contingency[];
   dispatch_by_carrier: Record<string, number>;
@@ -61,7 +65,11 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
-export type ViewMode = "fragility" | "lmp" | "delta_rank" | "fragility_z";
+export type ViewMode =
+  | "modeled_congestion"
+  | "lmp"
+  | "congestion_vs_basis"
+  | "binding_proximity";
 
 export interface CorrelationResult {
   n: number;
@@ -69,7 +77,8 @@ export interface CorrelationResult {
 }
 
 export interface ScatterPoint {
-  fragility: number;
+  modeled_congestion: number;
+  basis: number;
   abs_basis: number;
   congested: boolean;
 }
@@ -83,6 +92,8 @@ export interface ValidationResponse {
   congested: CorrelationResult;
   quiet: CorrelationResult;
   congested_threshold_n_binding: number;
+  sign_agreement_overall: number | null;
+  sign_agreement_congested: number | null;
   scatter: ScatterPoint[];
   by_zone: Record<string, CorrelationResult>;
   warnings: string[];

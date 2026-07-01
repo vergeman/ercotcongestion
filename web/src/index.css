@@ -17,12 +17,20 @@
   --text-muted: #4a5568;
   --text-mono: 'Space Mono', monospace;
 
-  /* Fragility color scale (green → yellow → red) */
-  --frag-0: #1a4731;
-  --frag-low: #22c55e;
-  --frag-mid: #eab308;
-  --frag-high: #ef4444;
-  --frag-max: #991b1b;
+  /* Modeled congestion (diverging blue ↔ cream ↔ red).
+     Matches MC_BLUE / MC_CREAM / MC_RED in lib/colors.ts. */
+  --mc-neg: #3b82f6;
+  --mc-zero: #e8e2d7;
+  --mc-pos: #ef4444;
+  /* Accent hue used by ValidationPanel — separate name so the panel's
+     "critical" chart accent stays semantically distinct from the map's
+     positive-side hue even though the palette shares the crimson. */
+  --mc-accent: #ef4444;
+
+  /* Binding proximity (sequential slate → red). Matches PROX_LOW / PROX_HIGH
+     in lib/colors.ts. */
+  --prox-low: #1e293b;
+  --prox-high: #ef4444;
 
   /* Basis overlay */
   --basis-pos: #3b82f6;
