@@ -220,3 +220,43 @@ TODO:
 * The de-meaned version asks "does modeled congestion predict spatial
   mispricing within a zone at a moment in time" - which is the question
   modeled congestion is actually trying to answer.
+
+
+---
+
+What basis is in the DB today: it's from the model's own OPF solution — lmp[bus]
+− lmp[hub]. So modeled_congestion (PTDF · μ_signed) vs basis (LMP − hub LMP) is
+an internal consistency check on our OPF: does the sensitivity-based congestion
+component reconstruct the LMP spread? By LMP-decomposition theory it should
+match in sign and magnitude. That's the Pearson that's being computed.
+
+What the working outline actually wants (Phase 4, Tier 2): sign agreement,
+Spearman rank correlation, and pairwise zonal spreads between ERCOT SPP-derived
+basis and model-derived basis. That's the headline claim — model reproduces
+ERCOT's structural congestion pattern. It's a different comparison entirely.
+
+Why the magnitude gap concern is real but not fatal:
+
+  - Model OPF ≠ ERCOT OPF (different topology, dispatch, load allocation), so magnitudes won't line up.
+  - Reference-price choice (Phase 2 table) shifts magnitude by a constant across a snapshot.
+  - The outline is explicit: "we are not predicting $/MWh" — direction and rank are the deliverable.
+
+
+So what should basis's role be?
+
+1. Short term (this sprint's validation endpoint): basis is a same-OPF sanity
+   check that modeled_congestion sign is right. Pearson ρ ≈ 1 would be
+   reassuring; the sprint2b plan §5 framing A (signed vs signed) targets this.
+   Sign-agreement rate (framing C) is the more honest number given the outline's
+   stance.
+
+2. Medium term (what the outline actually promises): you need a second
+   basis_ercot column populated from real ERCOT SPPs, and the validation ρ
+   should be modeled_congestion vs basis_ercot — Spearman, not Pearson. That's
+   the "structural validation" claim.
+
+Recommendation: treat basis today as diagnostic scaffolding, not headline.
+Prioritize the ERCOT-actuals basis column (it's implied by Phase 2 but not in
+any sprint I've seen), and switch the validation panel's headline from Pearson
+to Spearman + sign-agreement. Otherwise you're claiming "structural validation"
+but reporting a metric that tests the wrong thing.
