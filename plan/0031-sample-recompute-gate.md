@@ -32,7 +32,7 @@ Branch: chore/sample-recompute-gate
 
 ## Acceptance
 
-* [ ] All sample snapshots have `status='ok'` after recompute; new columns populated on each.
-* [ ] `docs/sample-recompute-gate-results.md` exists with three snapshot verifications and an explicit "GO" or "NO-GO".
-* [ ] DFW `2025-08-19T19:00`: north_central buses show positive `modeled_congestion`; documented with SELECT output.
-* [ ] `binding_proximity` values for lines in `binding_lines` fall in [~0.98, ~1.02]; no non-binding line exceeds ~1.0.
+* [x] All sample snapshots have `status='ok'` after recompute; new columns populated on each.
+* [x] `docs/sample-recompute-gate-results.md` exists with three snapshot verifications and an explicit "GO" or "NO-GO".
+* [x] DFW `2025-08-19T19:00`: north_central buses show positive `modeled_congestion`; documented with SELECT output.
+* [x] `binding_proximity` values for lines in `binding_lines` fall in [~0.98, ~1.02]; no non-binding line exceeds ~1.0.
