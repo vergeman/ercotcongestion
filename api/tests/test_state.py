@@ -1,4 +1,4 @@
-"""Tests for /api/state and /api/state_range.
+"""Tests for /state and /state_range.
 
 Routes use psycopg's dict_row factory, so the fake cursor must yield dicts.
 
@@ -45,7 +45,7 @@ def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
         {'bus_id': 'B2', 'modeled_congestion': 0.2, 'binding_proximity': 0.3, 'lmp': 24.0},
     ])
 
-    r = client.get(f'/api/state?t={quote(ts_utc.isoformat())}')
+    r = client.get(f'/state?t={quote(ts_utc.isoformat())}')
     assert r.status_code == 200
     data = r.json()
 
@@ -64,7 +64,7 @@ def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
 
 def test_state_404_when_missing(client, fake_pool, ts_utc):
     fake_pool.cursor.queue([])  # no meta row
-    r = client.get(f'/api/state?t={quote(ts_utc.isoformat())}')
+    r = client.get(f'/state?t={quote(ts_utc.isoformat())}')
     assert r.status_code == 404
 
 
@@ -80,7 +80,7 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
 
     start = quote(ts_utc.isoformat())
     end = quote((ts_utc + timedelta(hours=2)).isoformat())
-    r = client.get(f'/api/state_range?start={start}&end={end}')
+    r = client.get(f'/state_range?start={start}&end={end}')
     assert r.status_code == 200
     data = r.json()
 
@@ -100,12 +100,12 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
 def test_state_range_rejects_inverted_window(client, ts_utc):
     s = quote(ts_utc.isoformat())
     e = quote((ts_utc - timedelta(hours=1)).isoformat())
-    r = client.get(f'/api/state_range?start={s}&end={e}')
+    r = client.get(f'/state_range?start={s}&end={e}')
     assert r.status_code == 400
 
 
 def test_state_range_rejects_oversize_window(client, ts_utc):
     s = quote(ts_utc.isoformat())
     e = quote((ts_utc + timedelta(days=30)).isoformat())
-    r = client.get(f'/api/state_range?start={s}&end={e}')
+    r = client.get(f'/state_range?start={s}&end={e}')
     assert r.status_code == 400

@@ -1,4 +1,4 @@
-"""Smoke test for /api/topology — patches the builder to avoid loading a real network."""
+"""Smoke test for /topology — patches the builder to avoid loading a real network."""
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -28,7 +28,7 @@ FAKE_TOPO = {
 
 def test_topology_returns_geojson(client):
     with patch('topology.get_or_build_topology', return_value=FAKE_TOPO):
-        r = client.get('/api/topology')
+        r = client.get('/topology')
     assert r.status_code == 200
     data = r.json()
     assert data['buses']['type'] == 'FeatureCollection'
@@ -41,6 +41,6 @@ def test_topology_returns_geojson(client):
 
 def test_topology_sets_cache_header(client):
     with patch('topology.get_or_build_topology', return_value=FAKE_TOPO):
-        r = client.get('/api/topology')
+        r = client.get('/topology')
     assert 'max-age' in r.headers.get('cache-control', '')
 
