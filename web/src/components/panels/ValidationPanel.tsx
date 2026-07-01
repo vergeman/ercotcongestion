@@ -481,12 +481,23 @@ function Interpretation({ data }: { data: ValidationResponse }) {
   const { overall, congested, quiet } = data;
   const lines: string[] = [];
 
+  lines.push(
+    "Modeled congestion is the OPF's own congestion component — the signed " +
+      "Σ PTDF·μ at each bus. When the model says a bus is on the import side " +
+      "of a binding constraint (positive), the market's basis at that bus " +
+      "should also be positive (LMP above the zone reference). ρ answers " +
+      "'does the model agree with the market, in sign and magnitude, when " +
+      "the grid is actually stressed?'"
+  );
+
   if (overall.rho != null) {
     lines.push(
       `Across ${fmtInt(
         overall.n
-      )} bus-snapshots, fragility correlates with |basis| at ` +
-        `ρ = ${overall.rho.toFixed(3)} (${rhoStrength(overall.rho)}).`
+      )} bus-snapshots, signed modeled congestion tracks signed basis at ` +
+        `ρ = ${overall.rho.toFixed(3)} (${rhoStrength(overall.rho)}). ` +
+        `Direction is the first-order read; magnitude is a screening signal, ` +
+        `not a P&L predictor.`
     );
   }
 
@@ -494,31 +505,25 @@ function Interpretation({ data }: { data: ValidationResponse }) {
     const lift = congested.rho - quiet.rho;
     if (lift > 0.05) {
       lines.push(
-        `The model performs notably better under congestion (ρ = ${congested.rho.toFixed(
-          3
-        )}) ` +
-          `than during quiet periods (ρ = ${quiet.rho.toFixed(
-            3
-          )}). The +${lift.toFixed(3)} lift ` +
-          `is the signal: fragility carries explanatory power exactly when grid stress is real.`
+        `The model sharpens under congestion (ρ = ${congested.rho.toFixed(3)}) ` +
+          `vs quiet periods (ρ = ${quiet.rho.toFixed(3)}). ` +
+          `The +${lift.toFixed(3)} lift is the signal: modeled congestion ` +
+          `agrees with the market exactly when the grid is actually stressed.`
       );
     } else if (lift < -0.05) {
       lines.push(
-        `Surprisingly, correlation is weaker under congestion (ρ = ${congested.rho.toFixed(
-          3
-        )}) ` +
-          `than during quiet periods (ρ = ${quiet.rho.toFixed(
-            3
-          )}). Either the synthetic topology ` +
-          `mismatches real binding constraints, or the congested sample is dominated by atypical events.`
+        `Surprisingly, correlation is weaker under congestion ` +
+          `(ρ = ${congested.rho.toFixed(3)}) than during quiet periods ` +
+          `(ρ = ${quiet.rho.toFixed(3)}). Either the synthetic topology ` +
+          `mismatches real binding constraints, or the congested sample is ` +
+          `dominated by atypical events.`
       );
     } else {
       lines.push(
-        `Congested and quiet regimes show similar correlation ` +
-          `(${congested.rho.toFixed(3)} vs ${quiet.rho.toFixed(
-            3
-          )}), suggesting fragility tracks ` +
-          `|basis| about equally well regardless of binding-constraint count.`
+        `Congested and quiet regimes agree about equally ` +
+          `(${congested.rho.toFixed(3)} vs ${quiet.rho.toFixed(3)}), ` +
+          `suggesting modeled congestion tracks basis independent of ` +
+          `binding-constraint count.`
       );
     }
   } else if (congested.rho != null) {
