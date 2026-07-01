@@ -4,7 +4,10 @@ import numpy as np
 import logging
 import time
 
-from fragility import compute_fragility_at, fragility_diagnostics
+from congestion import (
+    modeled_congestion_at, binding_proximity_at,
+    modeled_congestion_diagnostics, binding_proximity_diagnostics,
+)
 from contingency import compute_contingencies_at, contingency_diagnostics
 from ptdf_lodf import get_ptdf_lodf
 from operating_conditions import stack_time_varying
@@ -157,20 +160,26 @@ def _build_result_at(
     top_k_contingencies, enable_load_shed, solver_status,
     enable_diagnostics: bool,
 ) -> dict:
-    line_mu_up = _slice_or_none(n.lines_t.mu_upper, ts)
-    line_mu_lo = _slice_or_none(n.lines_t.mu_lower, ts)
-    line_p0    = _slice_or_none(n.lines_t.p0, ts)
-    tx_mu_up   = _slice_or_none(n.transformers_t.mu_upper, ts)
-    tx_mu_lo   = _slice_or_none(n.transformers_t.mu_lower, ts)
-    tx_p0      = _slice_or_none(n.transformers_t.p0, ts)
+    line_mu_up      = _slice_or_none(n.lines_t.mu_upper, ts)
+    line_mu_lo      = _slice_or_none(n.lines_t.mu_lower, ts)
+    line_p0         = _slice_or_none(n.lines_t.p0, ts)
+    line_s_max_pu   = _slice_or_none(n.lines_t.s_max_pu, ts)
+    tx_mu_up        = _slice_or_none(n.transformers_t.mu_upper, ts)
+    tx_mu_lo        = _slice_or_none(n.transformers_t.mu_lower, ts)
+    tx_p0           = _slice_or_none(n.transformers_t.p0, ts)
+    tx_s_max_pu     = _slice_or_none(n.transformers_t.s_max_pu, ts)
 
-    fragility = compute_fragility_at(
-        n, line_mu_up, line_mu_lo, line_p0,
-        tx_mu_up, tx_mu_lo, tx_p0,
+    mc = modeled_congestion_at(
+        n, line_mu_up, line_mu_lo, tx_mu_up, tx_mu_lo,
+        ptdf, bus_names,
+    )
+    bp = binding_proximity_at(
+        n, line_p0, tx_p0, line_s_max_pu, tx_s_max_pu,
         ptdf, bus_names,
     )
     if enable_diagnostics:
-        fragility_diagnostics(fragility)
+        modeled_congestion_diagnostics(mc)
+        binding_proximity_diagnostics(bp)
 
     contingencies = compute_contingencies_at(
         n,
@@ -219,10 +228,15 @@ def _build_result_at(
         'lmp_min': float(lmps.min()),
         'lmp_mean': float(lmps.mean()),
         'lmp_max': float(lmps.max()),
-        'fragility_total': float(fragility.sum()),
-        'fragility_top10_share': float(
-            fragility.nlargest(10).sum() / fragility.sum()
-            if fragility.sum() > 0 else 0.0
+        'modeled_congestion_total': float(mc.sum()),
+        'modeled_congestion_abs_total': float(mc.abs().sum()),
+        'modeled_congestion_top10_share': float(
+            mc.abs().nlargest(10).sum() / mc.abs().sum()
+            if mc.abs().sum() > 0 else 0.0
+        ),
+        'binding_proximity_max': float(bp.max()) if bp.notna().any() else None,
+        'binding_proximity_p95': (
+            float(bp.quantile(0.95)) if bp.notna().any() else None
         ),
         'basis_n_resolved': int(basis.notna().sum()),
         'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None,
@@ -236,7 +250,8 @@ def _build_result_at(
 
     return {
         'status': 'ok',
-        'fragility': fragility,
+        'modeled_congestion': mc,
+        'binding_proximity': bp,
         'lmps': lmps,
         'basis': basis,
         'dispatch': dispatch,
