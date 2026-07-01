@@ -62,12 +62,18 @@ for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
 # ---------------------------------------------------------------------------
 
 UPSERT_BUS_SNAPSHOT_SQL = """
-    INSERT INTO bus_snapshots (interval_ts, bus_id, fragility, lmp, basis)
-    VALUES (%s, %s, %s, %s, %s)
+    INSERT INTO bus_snapshots (
+        interval_ts, bus_id,
+        fragility, modeled_congestion, binding_proximity,
+        lmp, basis
+    )
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (interval_ts, bus_id) DO UPDATE SET
-        fragility = EXCLUDED.fragility,
-        lmp       = EXCLUDED.lmp,
-        basis     = EXCLUDED.basis
+        fragility          = EXCLUDED.fragility,
+        modeled_congestion = EXCLUDED.modeled_congestion,
+        binding_proximity  = EXCLUDED.binding_proximity,
+        lmp                = EXCLUDED.lmp,
+        basis              = EXCLUDED.basis
 """
 
 UPSERT_META_SQL = """
@@ -76,6 +82,9 @@ UPSERT_META_SQL = """
         objective_cost, total_load_mw, total_gen_mw, n_binding_lines,
         lmp_min, lmp_mean, lmp_max,
         fragility_total, fragility_top10_share,
+        modeled_congestion_total, modeled_congestion_abs_total,
+        modeled_congestion_top10_share,
+        binding_proximity_max, binding_proximity_p95,
         binding_lines, top_contingencies, dispatch_by_carrier,
         wind_factor_by_region, solar_factor_by_region,
         outage_posting_ts, outages_by_zone, error_message,
@@ -86,32 +95,40 @@ UPSERT_META_SQL = """
         %s, %s, %s, %s,
         %s, %s, %s,
         %s, %s,
+        %s, %s,
+        %s,
+        %s, %s,
         %s::jsonb, %s::jsonb, %s::jsonb,
         %s::jsonb, %s::jsonb,
         %s, %s::jsonb, %s,
         %s
     )
     ON CONFLICT (interval_ts) DO UPDATE SET
-        status                 = EXCLUDED.status,
-        computed_at            = EXCLUDED.computed_at,
-        objective_cost         = EXCLUDED.objective_cost,
-        total_load_mw          = EXCLUDED.total_load_mw,
-        total_gen_mw           = EXCLUDED.total_gen_mw,
-        n_binding_lines        = EXCLUDED.n_binding_lines,
-        lmp_min                = EXCLUDED.lmp_min,
-        lmp_mean               = EXCLUDED.lmp_mean,
-        lmp_max                = EXCLUDED.lmp_max,
-        fragility_total        = EXCLUDED.fragility_total,
-        fragility_top10_share  = EXCLUDED.fragility_top10_share,
-        binding_lines          = EXCLUDED.binding_lines,
-        top_contingencies      = EXCLUDED.top_contingencies,
-        dispatch_by_carrier    = EXCLUDED.dispatch_by_carrier,
-        wind_factor_by_region  = EXCLUDED.wind_factor_by_region,
-        solar_factor_by_region = EXCLUDED.solar_factor_by_region,
-        outage_posting_ts      = EXCLUDED.outage_posting_ts,
-        outages_by_zone        = EXCLUDED.outages_by_zone,
-        error_message          = EXCLUDED.error_message,
-        load_scaling_mode      = EXCLUDED.load_scaling_mode
+        status                          = EXCLUDED.status,
+        computed_at                     = EXCLUDED.computed_at,
+        objective_cost                  = EXCLUDED.objective_cost,
+        total_load_mw                   = EXCLUDED.total_load_mw,
+        total_gen_mw                    = EXCLUDED.total_gen_mw,
+        n_binding_lines                 = EXCLUDED.n_binding_lines,
+        lmp_min                         = EXCLUDED.lmp_min,
+        lmp_mean                        = EXCLUDED.lmp_mean,
+        lmp_max                         = EXCLUDED.lmp_max,
+        fragility_total                 = EXCLUDED.fragility_total,
+        fragility_top10_share           = EXCLUDED.fragility_top10_share,
+        modeled_congestion_total        = EXCLUDED.modeled_congestion_total,
+        modeled_congestion_abs_total    = EXCLUDED.modeled_congestion_abs_total,
+        modeled_congestion_top10_share  = EXCLUDED.modeled_congestion_top10_share,
+        binding_proximity_max           = EXCLUDED.binding_proximity_max,
+        binding_proximity_p95           = EXCLUDED.binding_proximity_p95,
+        binding_lines                   = EXCLUDED.binding_lines,
+        top_contingencies               = EXCLUDED.top_contingencies,
+        dispatch_by_carrier             = EXCLUDED.dispatch_by_carrier,
+        wind_factor_by_region           = EXCLUDED.wind_factor_by_region,
+        solar_factor_by_region          = EXCLUDED.solar_factor_by_region,
+        outage_posting_ts               = EXCLUDED.outage_posting_ts,
+        outages_by_zone                 = EXCLUDED.outages_by_zone,
+        error_message                   = EXCLUDED.error_message,
+        load_scaling_mode               = EXCLUDED.load_scaling_mode
 """
 
 
@@ -126,19 +143,23 @@ def _f(series, key):
 
 def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     """Persist a successful snapshot to Postgres."""
-    fragility = result['fragility']
+    mc        = result['modeled_congestion']
+    bp        = result['binding_proximity']
     lmps      = result['lmps']
     basis     = result.get('basis')
 
-    # bus_snapshots: one row per bus
+    # bus_snapshots: one row per bus. fragility column retained but written
+    # NULL during the 2A→2B/2C cutover; dropped in Migration B.
     bus_rows = []
     for bus_id in network.buses.index:
         bus_rows.append((
             ts,
             str(bus_id),
-            _f(fragility, bus_id),
+            None,                   # fragility (retired)
+            _f(mc, bus_id),
+            _f(bp, bus_id),
             _f(lmps, bus_id),
-            _f(basis, bus_id)
+            _f(basis, bus_id),
         ))
 
     # snapshot_meta: per-snapshot diagnostics
@@ -172,8 +193,13 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         meta.get('lmp_min'),
         meta.get('lmp_mean'),
         meta.get('lmp_max'),
-        meta.get('fragility_total'),
-        meta.get('fragility_top10_share'),
+        None,  # fragility_total (retired)
+        None,  # fragility_top10_share (retired)
+        meta.get('modeled_congestion_total'),
+        meta.get('modeled_congestion_abs_total'),
+        meta.get('modeled_congestion_top10_share'),
+        meta.get('binding_proximity_max'),
+        meta.get('binding_proximity_p95'),
         json.dumps(binding_lines_json),
         json.dumps(contingencies_json),
         json.dumps({k: float(v) for k, v in dispatch_by_carrier.items()}),
@@ -201,13 +227,15 @@ def write_failure(
     """Record a failed snapshot in snapshot_meta with status != 'ok'."""
     meta_row = (
         ts, status,
-        None, None, None, None,
-        None, None, None,
-        None, None,
-        None, None, None,
-        None, None,
-        None,           # outage_posting_ts
-        None,           # outages_by_zone
+        None, None, None, None,     # objective_cost, total_load, total_gen, n_binding
+        None, None, None,           # lmp_min/mean/max
+        None, None,                 # fragility_total, fragility_top10_share (retired)
+        None, None, None,           # modeled_congestion_total/abs_total/top10_share
+        None, None,                 # binding_proximity_max/p95
+        None, None, None,           # binding_lines, top_contingencies, dispatch_by_carrier
+        None, None,                 # wind_factor_by_region, solar_factor_by_region
+        None,                       # outage_posting_ts
+        None,                       # outages_by_zone
         error_message,
         load_scaling_mode,
     )
@@ -352,11 +380,17 @@ def main():
     ap.add_argument('--end',   required=True, help='UTC end (e.g. 2026-04-23)')
     ap.add_argument('--skip-existing', action='store_true',
                     help='Skip timestamps already present in snapshot_meta with status=ok')
+    ap.add_argument('--force-recompute', action='store_true',
+                    help='Overwrite existing status=ok rows via UPSERT; mutually '
+                         'exclusive with --skip-existing')
     ap.add_argument('--chunk-size', type=int, default=6,
                     help='Snapshots per batched solve. 6 hits the sweet spot '
                          'for HiGHS PAMI on this LP; larger chunks blow up '
                          'simplex pivots.')
     args = ap.parse_args()
+
+    if args.skip_existing and args.force_recompute:
+        ap.error('--skip-existing and --force-recompute are mutually exclusive')
 
     start = parse_ts(args.start)
     end   = parse_ts(args.end)
