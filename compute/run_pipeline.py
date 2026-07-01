@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,11 @@ TAIL_LINES = 80
 
 
 def _git_sha() -> str | None:
+    # Docker containers typically don't have git or the .git directory;
+    # let the caller pass through via env var (e.g. -e GIT_SHA=$(git rev-parse HEAD)).
+    env = os.environ.get("GIT_SHA")
+    if env:
+        return env.strip()
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -145,6 +151,20 @@ def _ingest_hint(missing: list[datetime]) -> str:
         "docker compose run --rm compute python /compute/write_snapshots.py "
         f"--start {lo} --end {hi}"
     )
+
+
+def _dir_size_human(path: Path) -> str:
+    """Wall-clock summary of a run's on-disk footprint. Falls back to raw bytes
+    if `du` is unavailable."""
+    try:
+        out = subprocess.run(
+            ["du", "-sh", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        return out.stdout.split(None, 1)[0]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        total = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+        return f"{total} B"
 
 
 def _drop_per_record(run_dir: Path) -> None:
@@ -398,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         if stage == "matrix" and args.records_output == "none":
             _drop_per_record(run_dir)
 
+    print(f"\nrun_dir: {run_dir}")
+    print(f"size:    {_dir_size_human(run_dir)}")
     return 0
 
 
