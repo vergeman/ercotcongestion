@@ -38,8 +38,10 @@ Branch: refactor/0037-types-and-scales
 
 ## Acceptance
 
-* [ ] `web/src/api/types.ts` — `BusState`, `SnapshotMeta`, `ViewMode`, `ScatterPoint` updated per §3.1; no `fragility` identifiers remain in the file.
-* [ ] `web/src/lib/colors.ts` — fragility + fragility-z symbols deleted; `modeledCongestionColor`, `bindingProximityColor`, `computeCongestionVsBasisRank` exported with anchor consts.
-* [ ] `web/src/index.css` — `--frag-0..--frag-max` removed; `--mc-*` and `--prox-*` present; `--mc-accent` present for ValidationPanel handoff.
-* [ ] `tsc --noEmit` inside `web/` errors only in files that import the deleted fragility symbols (expected until 0038-0041 land); no errors originate inside `types.ts` / `colors.ts`.
-* [ ] `grep -n "fragility\|FRAGILITY\|frag-" web/src/api/types.ts web/src/lib/colors.ts web/src/index.css` returns 0 hits.
+* [x] `web/src/api/types.ts` — BusState/SnapshotMeta/ViewMode/ScatterPoint updated; also added `sign_agreement_{overall,congested}` on `ValidationResponse` (2B B2 payload, needed by 0040).
+* [x] `web/src/lib/colors.ts` — fragility + fragility-z deleted; `computeModeledCongestionStats` / `normalizeModeledCongestion` / `modeledCongestionColor` (LmpStats-mirror architecture) + `normalizeProximity` / `bindingProximityColor` + `computeCongestionVsBasisRank` (signed both sides) exported.
+* [x] `web/src/index.css` — `--frag-*` removed; `--mc-{neg,zero,pos,accent}` + `--prox-{low,high}` added; hexes match JS palette.
+* [x] `tsc -p tsconfig.app.json --noEmit` — 0 errors inside types.ts / colors.ts; all errors are in 0038-0041 consumers as expected.
+* [x] `grep -n "fragility\|FRAGILITY\|frag-"` on the three files returns 0 hits.
+
+Notes: `--frag-high` still consumed by `ValidationPanel.tsx` lines 118/150/358 — migrates to `--mc-accent` in 0040.
