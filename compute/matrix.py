@@ -372,6 +372,106 @@ def _regime_split_apply(
     return out
 
 
+def _ts_of(col: str) -> str:
+    """Extract the ISO timestamp part from a `"<regime>|<ts>"` column key."""
+    return col.split('|', 1)[1] if '|' in col else col
+
+
+def _bucket_profile(
+    Z_m: pd.DataFrame,
+    Z_e: pd.DataFrame,
+    keys: list,
+    bucket_of: dict[str, int],
+    n_buckets: int,
+) -> dict:
+    """Per-zone bucket-mean profile (model & ERCOT) plus per-zone Pearson
+    correlation of the two profiles.
+
+    `bucket_of` maps column key → bucket index in [0, n_buckets).
+    """
+    common_keys = [k for k in keys if k in Z_m.index and k in Z_e.index]
+    common_hours = [h for h in Z_m.columns if h in Z_e.columns and h in bucket_of]
+    if not common_keys or not common_hours:
+        return {
+            "n_hours_total": 0, "n_per_bucket": {},
+            "per_key": {}, "overall_mean_corr": None,
+        }
+
+    buckets = np.array([bucket_of[h] for h in common_hours], dtype=int)
+    n_per_bucket = {str(b): int((buckets == b).sum()) for b in range(n_buckets)}
+
+    per_key: dict[str, dict] = {}
+    corrs: list[float] = []
+    for k in common_keys:
+        m_row = Z_m.loc[k, common_hours].to_numpy(dtype=float)
+        e_row = Z_e.loc[k, common_hours].to_numpy(dtype=float)
+        m_prof: dict[str, float | None] = {}
+        e_prof: dict[str, float | None] = {}
+        m_arr: list[float] = []
+        e_arr: list[float] = []
+        for b in range(n_buckets):
+            in_b = buckets == b
+            m_vals = m_row[in_b]
+            e_vals = e_row[in_b]
+            m_valid = m_vals[~np.isnan(m_vals)]
+            e_valid = e_vals[~np.isnan(e_vals)]
+            m_prof[str(b)] = float(m_valid.mean()) if m_valid.size else None
+            e_prof[str(b)] = float(e_valid.mean()) if e_valid.size else None
+            if m_valid.size and e_valid.size:
+                m_arr.append(float(m_valid.mean()))
+                e_arr.append(float(e_valid.mean()))
+        if len(m_arr) >= 2:
+            m_np = np.array(m_arr); e_np = np.array(e_arr)
+            m_std = m_np.std(); e_std = e_np.std()
+            if m_std > 0 and e_std > 0:
+                corr = float(np.corrcoef(m_np, e_np)[0, 1])
+            else:
+                corr = None
+        else:
+            corr = None
+        per_key[str(k)] = {
+            "model": m_prof,
+            "ercot": e_prof,
+            "corr": corr,
+            "n_buckets_used": len([v for v in m_prof.values() if v is not None]),
+        }
+        if corr is not None:
+            corrs.append(corr)
+
+    overall = float(np.mean(corrs)) if corrs else None
+    return {
+        "n_hours_total": len(common_hours),
+        "n_per_bucket": n_per_bucket,
+        "per_key": per_key,
+        "overall_mean_corr": overall,
+    }
+
+
+def _temporal(Z_m: pd.DataFrame, Z_e: pd.DataFrame, keys: list) -> dict:
+    """Diurnal (hour-of-day, UTC) and DOW (day-of-week, 0=Mon) profile match.
+
+    Per zone: model and ERCOT bucket-mean congestion, plus Pearson correlation
+    between the two profiles. Reports per-bucket sample count so consumers
+    can see coverage limits (the v1-120 sample was picked at each regime's
+    characteristic hours, so per-regime diurnal buckets are thin).
+    """
+    common_hours = [h for h in Z_m.columns if h in Z_e.columns]
+    hod_of: dict[str, int] = {}
+    dow_of: dict[str, int] = {}
+    for h in common_hours:
+        ts = _ts_of(h)
+        try:
+            t = pd.Timestamp(ts)
+            hod_of[h] = int(t.hour)
+            dow_of[h] = int(t.dayofweek)
+        except (ValueError, TypeError):
+            continue
+    return {
+        "diurnal": _bucket_profile(Z_m, Z_e, keys, hod_of, 24),
+        "dow": _bucket_profile(Z_m, Z_e, keys, dow_of, 7),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -624,12 +724,20 @@ def main():
                         ),
                     },
                 }
+                temporal = {
+                    "global": _temporal(Z_m, Z_e, shared_zones),
+                    "by_regime": _regime_split_apply(
+                        Z_m, Z_e,
+                        lambda m, e: _temporal(m, e, shared_zones),
+                    ),
+                }
                 cross_zones = {
                     "keys": shared_zones,
                     "spearman": sp,
                     "distributional": dist,
                     "sign_agreement": sign_agree,
                     "threshold_binding": thresh,
+                    "temporal": temporal,
                 }
             else:
                 cross_zones = {"keys": [], "spearman": None, "distributional": None,
