@@ -40,10 +40,10 @@ Branch: feat/0040-validation-panel
 
 ## Acceptance
 
-* [ ] `grep -n "fragility\|frag" web/src/components/panels/ValidationPanel.tsx` returns 0 hits.
-* [ ] Scatter renders signed modeled_congestion on x and signed basis on y using symlog; points appear in all four quadrants on a congested snapshot.
-* [ ] Reference lines drawn at x=0, y=0, y=x, y=-x.
-* [ ] Correlation header shows ρ on signed × signed alongside `sign_agreement_overall` / `sign_agreement_congested` values.
-* [ ] Line ~472 prose is the draft copy above (or reviewed edit thereof); adjacent lines are in the same voice.
-* [ ] Accent color driven by `--mc-accent`; no `--frag-*` var references remain in the file.
-* [ ] With the API pointed at a Sprint-0 sample DB, the 2025-08-19T19:00 window shows ρ ≈ 0.756 and sign-agreement ≈ 0.575 in the panel header.
+* [x] `grep -n "fragility\|frag" web/src/components/panels/ValidationPanel.tsx` returns 0 hits.
+* [x] Scatter renders signed modeled_congestion on x and signed basis on y using symlog (`sign(v) * log10(1 + |v|)` via a local `symlog` helper); filter drops only exact-zero points so all four quadrants are eligible.
+* [x] Reference lines drawn at x=0, y=0, y=x, y=-x (bright zero lines + dashed 45°/135° guides).
+* [x] Correlation header reads "modeled congestion vs basis (signed)" with a mono sign-agreement readout (`sign_agreement_overall` / `sign_agreement_congested`, null-guarded via `fmtSignAgreement`).
+* [x] Line ~472 prose replaced with the draft copy; adjacent Interpretation branches rewritten in the same voice (direction first, magnitude as screening).
+* [x] Accent driven by `--mc-accent` at all three sites (RhoTile, legend dot, congested scatter fill); no `--frag-*` var references remain in the file.
+* [ ] With the API pointed at a Sprint-0 sample DB, the 2025-08-19T19:00 window shows ρ ≈ 0.756 and sign-agreement ≈ 0.575 in the panel header. _(pending in-app verification)_
