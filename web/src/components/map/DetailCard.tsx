@@ -52,10 +52,21 @@ function BusBody({ bus }: { bus: HoveredBus }) {
       {bus.busState && (
         <>
           <Row
-            label="Fragility"
+            label="Modeled Congestion"
             value={
-              bus.busState.fragility != null
-                ? fmt(bus.busState.fragility, 4)
+              bus.busState.modeled_congestion != null
+                ? `${bus.busState.modeled_congestion >= 0 ? "+" : "−"}$${fmt(
+                    Math.abs(bus.busState.modeled_congestion),
+                    2
+                  )}/MWh`
+                : null
+            }
+          />
+          <Row
+            label="Binding Proximity"
+            value={
+              bus.busState.binding_proximity != null
+                ? `${fmt(bus.busState.binding_proximity * 100, 1)}%`
                 : null
             }
           />

@@ -67,18 +67,53 @@ export default function StatsPanel({ meta }: Props) {
               }
             />
             <Stat
-              label="Fragility Total"
+              label="‖Modeled Congestion‖"
               value={
-                meta.fragility_total != null
-                  ? fmt(meta.fragility_total, 3)
+                meta.modeled_congestion_abs_total != null
+                  ? `$${fmt(meta.modeled_congestion_abs_total, 0)}`
                   : null
               }
             />
+            <div className="stat stat--secondary">
+              <span className="label">signed total</span>
+              <span className="stat__val mono">
+                {meta.modeled_congestion_total != null
+                  ? `${meta.modeled_congestion_total >= 0 ? "+" : "−"}$${fmt(
+                      Math.abs(meta.modeled_congestion_total),
+                      0
+                    )}`
+                  : "—"}
+              </span>
+            </div>
             <Stat
               label="Top-10 Share"
               value={
-                meta.fragility_top10_share != null
-                  ? `${fmt(meta.fragility_top10_share * 100, 1)}%`
+                meta.modeled_congestion_top10_share != null
+                  ? `${fmt(meta.modeled_congestion_top10_share * 100, 1)}%`
+                  : null
+              }
+            />
+            <div className="stat">
+              <span className="label">Proximity Max</span>
+              <span
+                className="stat__val mono"
+                style={
+                  meta.binding_proximity_max != null &&
+                  meta.binding_proximity_max >= 0.95
+                    ? { color: "#ef4444", fontWeight: 600 }
+                    : undefined
+                }
+              >
+                {meta.binding_proximity_max != null
+                  ? `${fmt(meta.binding_proximity_max * 100, 1)}%`
+                  : "—"}
+              </span>
+            </div>
+            <Stat
+              label="Proximity P95"
+              value={
+                meta.binding_proximity_p95 != null
+                  ? `${fmt(meta.binding_proximity_p95 * 100, 1)}%`
                   : null
               }
             />
@@ -264,6 +299,12 @@ export default function StatsPanel({ meta }: Props) {
           padding: 2px 0;
         }
         .stat__val { font-size: 11px; color: var(--text-primary); }
+        .stat--secondary .label,
+        .stat--secondary .stat__val {
+          font-size: 10px;
+          color: var(--text-muted);
+        }
+        .stat--secondary { padding-top: 0; margin-top: -2px; }
 
         .lmp-range { display: flex; }
         .lmp-item {
