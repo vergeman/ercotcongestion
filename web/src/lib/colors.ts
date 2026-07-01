@@ -1,93 +1,3 @@
-// Fragility color scale
-
-// Approach: log scale with γ damping in the core range, plus a soft rational
-// tail above the red anchor so high-but-finite fragilities stay
-// distinguishable without crushing the rest of the scale.
-//
-// Calibration history:
-//   v1 (floor=1e-6, red=100, γ=1) — too sensitive at the low end, values
-//   ~1e-3 read yellow despite being negligible; values ≥1 all crushed to red.
-//   v2 (floor=0.05, red=10, γ=1.3, hard clamp) — fixed the low end, but
-//   everything ≥9 looked identical (no tail handling).
-//   v3 (floor=0.05, red=5, γ=1.3, soft log tail) — current. Below 0.05 = green.
-//   ~0.6 enters yellow. 5 hits the "critical" red anchor (RED_CORE=0.85).
-//   Values above 5 keep darkening via x/(1+x) decade tail, so 9 / 16 / 30 /
-//   100 are visibly distinct shades of red without crushing the 0.5–5 ramp.
-
-const FRAGILITY_FLOOR = 0.05; // below this → green (noise / no signal)
-const FRAGILITY_RED = 5; // "this bus is critical" anchor
-const FRAGILITY_GAMMA = 1.3; // damping in [floor, red]: >1 flattens low end
-const FRAGILITY_RED_CORE = 0.85; // RED_ANCHOR maps to this on the color bar,
-// reserving 0.15 of color space for the tail
-
-export const FRAGILITY_ANCHORS = {
-  floor: FRAGILITY_FLOOR,
-  red: FRAGILITY_RED,
-  gamma: FRAGILITY_GAMMA,
-  red_core: FRAGILITY_RED_CORE,
-  // Tick marks for legend. Leftmost label is "0" (cosmetic — the underlying
-  // floor is 0.05, but 0 reads more naturally for the green end). Includes
-  // the red anchor (5) and a tail value (50) so the user can see the tail
-  // compression visually.
-  ticks: [0, 0.5, 1, 5, 50],
-};
-
-// Fragility: 0 → green, 0.5 → yellow, 1 → red
-export function fragilityColor(norm: number): string {
-  const t = Math.max(0, Math.min(1, norm));
-
-  let r: number, g: number, b: number;
-  if (t < 0.5) {
-    const s = t * 2;
-    r = Math.round(34 + (234 - 34) * s);
-    g = Math.round(197 + (179 - 197) * s);
-    b = Math.round(94 + (8 - 94) * s);
-  } else {
-    const s = (t - 0.5) * 2;
-    r = Math.round(234 + (220 - 234) * s);
-    g = Math.round(179 + (38 - 179) * s);
-    b = Math.round(8 + (38 - 8) * s);
-  }
-  return `rgb(${r},${g},${b})`;
-}
-
-// Map raw fragility values → [0, 1].
-//   v ≤ FRAGILITY_FLOOR   → 0          (green)
-//   FLOOR < v ≤ RED       → γ-damped log interp into [0, RED_CORE]
-//   v > RED               → soft rational tail into [RED_CORE, 1]
-export function normalizeFragility(
-  buses: Array<{ bus_id: string; fragility: number | null }>
-): Map<string, number> {
-  const logFloor = Math.log10(FRAGILITY_FLOOR);
-  const logRed = Math.log10(FRAGILITY_RED);
-  const logRange = logRed - logFloor;
-
-  const map = new Map<string, number>();
-  for (const b of buses) {
-    const v = b.fragility ?? 0;
-    if (v <= FRAGILITY_FLOOR) {
-      map.set(b.bus_id, 0);
-      continue;
-    }
-    if (v <= FRAGILITY_RED) {
-      const raw = (Math.log10(v) - logFloor) / logRange;
-      const damped = Math.pow(Math.max(0, raw), FRAGILITY_GAMMA);
-      map.set(
-        b.bus_id,
-        Math.min(FRAGILITY_RED_CORE, FRAGILITY_RED_CORE * damped)
-      );
-    } else {
-      // Tail: x = decades above the red anchor.
-      // x/(1+x) is 0 at the anchor, 0.5 at one decade out, ~0.91 at ten — slow
-      // enough that 9 / 16 / 30 / 100 stay distinguishable.
-      const x = Math.log10(v) - logRed;
-      const tail = x / (1 + x);
-      map.set(b.bus_id, FRAGILITY_RED_CORE + (1 - FRAGILITY_RED_CORE) * tail);
-    }
-  }
-  return map;
-}
-
 // LMP color anchors ($/MWh) — fixed-scale fallback
 //   - negative: oversupply (rare but informative; renewables curtailment)
 //   - mid: nominal market clearing
@@ -264,20 +174,25 @@ export function lmpColor(norm: number): string {
 }
 
 // =============================================================================
-// Rank-delta view ("Δ Rank")
+// Congestion-vs-basis rank view ("Δ Rank")
 // =============================================================================
 //
-// For each snapshot, rank every bus by fragility (ascending) and by |basis|
-// (ascending), normalize to [0, 1], and compute the signed difference:
+// For each snapshot, rank every bus by signed modeled_congestion (ascending)
+// and by signed basis (ascending), normalize to [0, 1], and compute the
+// signed difference:
 //
-//   delta = pct_fragility − pct_|basis|
+//   delta = pct_modeled_congestion − pct_basis
 //
-//   delta > 0  → fragility rank higher than basis rank (model OVER-estimates)
-//   delta < 0  → basis rank higher than fragility rank (model UNDER-estimates)
-//   delta ≈ 0  → model and market agree on this bus
+//   delta > 0  → model ranks this bus MORE congested than the market does
+//   delta < 0  → market ranks this bus MORE congested than the model does
+//   delta ≈ 0  → model and market agree on this bus's rank
 //
-// Buses missing either fragility or basis are excluded from ranking and
-// returned as null (rendered neutral on the map).
+// Both inputs signed (no abs) — an "export-side" bus in the model should
+// pair with a negative basis in the market; ranking them signed preserves
+// that agreement in the low-percentile band as well as the high.
+//
+// Buses missing either input are excluded from ranking and returned as null
+// (rendered neutral on the map).
 //
 // Per-snapshot, not window-wide — we want "where in *this* picture do model
 // and market disagree most," not a stable cross-frame anchor.
@@ -322,40 +237,37 @@ function percentileRank(values: Array<number | null>): Array<number | null> {
   return out;
 }
 
-// Compute per-bus rank-delta for a single snapshot. Returns a Map keyed by
-// bus_id; missing entries (excluded buses) map to null.
-export function computeRankDelta(
+// Compute per-bus congestion-vs-basis rank delta for a single snapshot.
+// Returns a Map keyed by bus_id; missing entries (excluded buses) map to null.
+export function computeCongestionVsBasisRank(
   buses: Array<{
     bus_id: string;
-    fragility: number | null;
+    modeled_congestion: number | null;
     basis: number | null;
   }>
 ): Map<string, number | null> {
-  const fragVals = buses.map((b) => b.fragility);
-  const absBasisVals = buses.map((b) =>
-    b.basis == null ? null : Math.abs(b.basis)
+  // Both signed — no abs(). See section header for the rationale.
+  const validMask = buses.map(
+    (b) => b.modeled_congestion != null && b.basis != null
+  );
+  const mcMasked: Array<number | null> = buses.map((b, i) =>
+    validMask[i] ? b.modeled_congestion : null
+  );
+  const basisMasked: Array<number | null> = buses.map((b, i) =>
+    validMask[i] ? b.basis : null
   );
 
-  // Both must be present for a delta; otherwise null.
-  const validMask = buses.map((b) => b.fragility != null && b.basis != null);
-  const fragMasked: Array<number | null> = fragVals.map((v, i) =>
-    validMask[i] ? v : null
-  );
-  const basisMasked: Array<number | null> = absBasisVals.map((v, i) =>
-    validMask[i] ? v : null
-  );
-
-  const fragPct = percentileRank(fragMasked);
+  const mcPct = percentileRank(mcMasked);
   const basisPct = percentileRank(basisMasked);
 
   const out = new Map<string, number | null>();
   for (let i = 0; i < buses.length; i++) {
-    const f = fragPct[i];
+    const m = mcPct[i];
     const b = basisPct[i];
-    if (f == null || b == null) {
+    if (m == null || b == null) {
       out.set(buses[i].bus_id, null);
     } else {
-      out.set(buses[i].bus_id, f - b); // ∈ [-1, 1]
+      out.set(buses[i].bus_id, m - b); // ∈ [-1, 1]
     }
   }
   return out;
@@ -364,7 +276,7 @@ export function computeRankDelta(
 // Diverging color: purple (−1, model under) → cream (0) → teal (+1, model over).
 // Anchors picked from the design palette (c-purple #7F77DD, c-teal #1D9E75)
 // with a light cream center distinct from the LMP cream.
-const DELTA_NEUTRAL_COLOR = "#1a4731"; // null/missing — same as fragility null
+const DELTA_NEUTRAL_COLOR = "#1a4731"; // null/missing — dim green, no-signal read
 const DELTA_PURPLE = [127, 119, 221]; // −1
 const DELTA_CREAM = [232, 226, 215]; //  0
 const DELTA_TEAL = [29, 158, 117]; // +1
@@ -394,107 +306,153 @@ export const DELTA_ANCHORS = {
 };
 
 // =============================================================================
-// Fragility z-score view
+// Modeled congestion (diverging): signed Σ PTDF·μ per bus
 // =============================================================================
 //
-// Asks "is this bus unusually fragile *relative to its own history* in the
-// loaded window?" rather than "is it absolutely high?" — useful for spotting
-// anomalies that the absolute fragility view would hide because the bus has
-// always been a low-fragility bus.
+// Diverging blue↔cream↔red centered at 0.
+//   norm > 0  → import side, red
+//   norm < 0  → export side, blue
+//   norm ≈ 0  → cream (no signal)
 //
-// Stats: per-bus mean + std across every snapshot in the loaded window.
-// Computed once on window load, reused for every frame (stable coloring).
-//
-// Color scale is one-sided: gray for z ≤ 0 (this bus is at-or-below its
-// typical) and red for z ≥ 3 (3+ std above typical = anomaly). Below-typical
-// buses are dim because "fragility went down" is rarely the question.
+// Window-percentile anchors (mirrors LmpStats): p_high = percentile(|mc|, 0.99);
+// p_low = −p_high so the palette is symmetric around zero. γ damping flattens
+// the cream band so noise near zero stays neutral. Rational tail beyond p_high
+// keeps outlier snapshots darkening without crushing the mid range.
 
-export interface BusZStats {
-  // Per-bus mean and std of fragility across the loaded window.
-  // Buses with <3 observations or near-zero variance are excluded
-  // (their map entries are missing).
-  perBus: Map<string, { mean: number; std: number }>;
-  // Total bus-snapshots that contributed.
+const MC_PCT_HIGH = 0.99;
+// γ > 1 flattens near zero; matches LMP_GAMMA for consistent visual weight.
+const MC_GAMMA = 1.8;
+// |mc| = p_high maps to |norm| = MC_CORE_END; the remaining [MC_CORE_END, 1]
+// band is the log-compressed tail for outliers.
+const MC_CORE_END = 0.9;
+// Values with |mc| below this fraction of p_high read as cream (no signal).
+// Small floor — a diverging signal at 2% of the window's top percentile is
+// still meaningful; a heavier floor would wash out the map.
+const MC_FLOOR_FRAC = 0.02;
+
+export interface ModeledCongestionStats {
+  p_high: number; // percentile(|mc|, MC_PCT_HIGH); positive
+  p_low: number; // −p_high (symmetric)
+  max_abs: number; // observed window max |mc| — legend only
   n: number;
 }
 
-const Z_MIN_OBS = 3;
-const Z_STD_FLOOR = 1e-6;
-const Z_SAT = 3; // saturate red at this many std above mean
+export const MODELED_CONGESTION_ANCHORS = {
+  pct_high: MC_PCT_HIGH,
+  gamma: MC_GAMMA,
+  core_end: MC_CORE_END,
+  floor_frac: MC_FLOOR_FRAC,
+};
 
-// Compute per-bus mean+std of fragility from a list of snapshots in the
-// loaded window. Each snapshot supplies an array of {bus_id, fragility}.
-export function computeBusZStats(
-  snapshots: Array<Array<{ bus_id: string; fragility: number | null }>>
-): BusZStats {
-  // Accumulate sums per bus.
-  const acc = new Map<string, { sum: number; sumSq: number; n: number }>();
-  let total = 0;
-
-  for (const buses of snapshots) {
-    for (const b of buses) {
-      const v = b.fragility;
-      if (v == null || !isFinite(v)) continue;
-      let entry = acc.get(b.bus_id);
-      if (!entry) {
-        entry = { sum: 0, sumSq: 0, n: 0 };
-        acc.set(b.bus_id, entry);
-      }
-      entry.sum += v;
-      entry.sumSq += v * v;
-      entry.n += 1;
-      total += 1;
-    }
+// Compute window-wide modeled-congestion stats. Pass a flat array of all
+// observed modeled_congestion values across every (bus, snapshot) pair.
+export function computeModeledCongestionStats(
+  values: Array<number | null | undefined>
+): ModeledCongestionStats {
+  const abs_xs: number[] = [];
+  for (const v of values) {
+    if (v == null || !isFinite(v)) continue;
+    abs_xs.push(Math.abs(v));
   }
-
-  const perBus = new Map<string, { mean: number; std: number }>();
-  for (const [busId, e] of acc) {
-    if (e.n < Z_MIN_OBS) continue;
-    const mean = e.sum / e.n;
-    const variance = Math.max(0, e.sumSq / e.n - mean * mean);
-    const std = Math.sqrt(variance);
-    if (std < Z_STD_FLOOR) continue; // bus is constant → z is undefined
-    perBus.set(busId, { mean, std });
+  if (abs_xs.length === 0) {
+    return { p_high: 1, p_low: -1, max_abs: 0, n: 0 };
   }
-
-  return { perBus, n: total };
+  const sorted = [...abs_xs].sort((a, b) => a - b);
+  const p_high = Math.max(percentile(sorted, MC_PCT_HIGH), 1e-9);
+  return {
+    p_high,
+    p_low: -p_high,
+    max_abs: sorted[sorted.length - 1],
+    n: abs_xs.length,
+  };
 }
 
-// Compute z for one bus at the current snapshot.
-export function fragilityZ(
-  busId: string,
-  fragility: number | null,
-  stats: BusZStats
-): number | null {
-  if (fragility == null) return null;
-  const s = stats.perBus.get(busId);
-  if (!s) return null;
-  return (fragility - s.mean) / s.std;
+// Map a signed modeled_congestion value to [-1, 1] using window stats.
+//   |v| ≤ floor           → 0 (cream)
+//   floor < |v| ≤ p_high  → sign(v) · γ-damped(|v|) into [0, MC_CORE_END]
+//   |v| > p_high          → sign(v) · rational tail into [MC_CORE_END, 1]
+export function normalizeModeledCongestion(
+  value: number | null,
+  stats: ModeledCongestionStats
+): number {
+  if (value == null || !isFinite(value)) return 0;
+  const p = stats.p_high;
+  if (p <= 0) return 0;
+  const floor = p * MC_FLOOR_FRAC;
+  const abs = Math.abs(value);
+  if (abs <= floor) return 0;
+  const sign = Math.sign(value);
+  if (abs <= p) {
+    const d = (abs - floor) / (p - floor); // 0 at floor, 1 at anchor
+    const damped = Math.pow(d, MC_GAMMA);
+    return sign * MC_CORE_END * damped;
+  }
+  // Rational tail: 0 at anchor, 0.5 at 2× anchor, ~0.91 at 11× anchor.
+  const x = (abs - p) / p;
+  const tail = x / (1 + x);
+  return sign * (MC_CORE_END + (1 - MC_CORE_END) * tail);
 }
 
-// Map z to [0, 1] for color lookup.
-//   z ≤ 0   → 0 (gray)
-//   z = Z_SAT → 1 (saturated red)
-//   z > Z_SAT → 1 (clamp)
-export function normalizeZ(z: number | null): number {
-  if (z == null || !isFinite(z) || z <= 0) return 0;
-  return Math.min(1, z / Z_SAT);
-}
+// Diverging blue (−) → cream (0) → red (+). Endpoints match the LMP scale's
+// blue (#3b82f6) for palette consistency; red end is the shared "critical"
+// crimson (#ef4444) that also drives --mc-accent and --danger.
+const MC_BLUE = [59, 130, 246];
+const MC_CREAM = [232, 226, 215];
+const MC_RED = [239, 68, 68];
 
-// One-sided: gray (#475569) → red (#ef4444). Linear interp in RGB.
-const Z_GRAY = [71, 85, 105];
-const Z_RED = [239, 68, 68];
-
-export function fragilityZColor(norm: number): string {
-  const t = Math.max(0, Math.min(1, norm));
-  const r = Math.round(Z_GRAY[0] + (Z_RED[0] - Z_GRAY[0]) * t);
-  const g = Math.round(Z_GRAY[1] + (Z_RED[1] - Z_GRAY[1]) * t);
-  const b = Math.round(Z_GRAY[2] + (Z_RED[2] - Z_GRAY[2]) * t);
+export function modeledCongestionColor(norm: number): string {
+  const t = Math.max(-1, Math.min(1, norm));
+  if (t === 0) return `rgb(${MC_CREAM.join(",")})`;
+  const target = t > 0 ? MC_RED : MC_BLUE;
+  const mag = Math.abs(t);
+  const r = Math.round(MC_CREAM[0] + (target[0] - MC_CREAM[0]) * mag);
+  const g = Math.round(MC_CREAM[1] + (target[1] - MC_CREAM[1]) * mag);
+  const b = Math.round(MC_CREAM[2] + (target[2] - MC_CREAM[2]) * mag);
   return `rgb(${r},${g},${b})`;
 }
 
-export const Z_ANCHORS = {
-  gray: `rgb(${Z_GRAY.join(",")})`,
-  red: `rgb(${Z_RED.join(",")})`,
-  saturate: Z_SAT,
+// =============================================================================
+// Binding proximity (sequential): |flow| / (s_nom · s_max_pu) per bus
+// =============================================================================
+//
+// Sequential [0, 1] — 0 slack, 1 binding. Fixed anchors; no window stats
+// because proximity is already bounded and dimensionless. γ > 1 darkens the
+// mid range so only 0.9+ ("on the cusp") reads bright.
+
+const PROX_GAMMA = 1.5;
+
+export const BINDING_PROXIMITY_ANCHORS = {
+  low: 0,
+  high: 1.0,
+  ticks: [0, 0.5, 0.9, 1.0] as const,
+  gamma: PROX_GAMMA,
 };
+
+export function normalizeProximity(v: number | null): number {
+  if (v == null || !isFinite(v)) return 0;
+  const clamped = Math.max(0, Math.min(1, v));
+  return Math.pow(clamped, PROX_GAMMA);
+}
+
+// Sequential palette: dim slate → amber → red. Colorblind-safe (avoids the
+// pure green→red diverge; monotonic in luminance from dim to bright).
+const PROX_LOW = [30, 41, 59]; // slate — slack
+const PROX_MID = [234, 179, 8]; // amber — approaching
+const PROX_HIGH = [239, 68, 68]; // red — binding
+
+export function bindingProximityColor(norm: number): string {
+  const t = Math.max(0, Math.min(1, norm));
+  let r: number, g: number, b: number;
+  if (t < 0.5) {
+    const s = t * 2;
+    r = Math.round(PROX_LOW[0] + (PROX_MID[0] - PROX_LOW[0]) * s);
+    g = Math.round(PROX_LOW[1] + (PROX_MID[1] - PROX_LOW[1]) * s);
+    b = Math.round(PROX_LOW[2] + (PROX_MID[2] - PROX_LOW[2]) * s);
+  } else {
+    const s = (t - 0.5) * 2;
+    r = Math.round(PROX_MID[0] + (PROX_HIGH[0] - PROX_MID[0]) * s);
+    g = Math.round(PROX_MID[1] + (PROX_HIGH[1] - PROX_MID[1]) * s);
+    b = Math.round(PROX_MID[2] + (PROX_HIGH[2] - PROX_MID[2]) * s);
+  }
+  return `rgb(${r},${g},${b})`;
+}
