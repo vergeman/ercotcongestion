@@ -193,18 +193,26 @@ whole grid.
 
 ## OPF
 
-Validating TAMU fragility against ERCOT basis — the price differential
-between zonal and hub LMPs. Basis is purely an economic quantity, driven by
-binding transmission constraints and shadow prices.
+Validating TAMU `modeled_congestion` against ERCOT basis — the price
+differential between zonal and hub LMPs. Basis is purely an economic quantity,
+driven by binding transmission constraints and shadow prices.
 
-If fragility metric is purely structural it will have weak correlation with
-basis, because it doesn't know anything about prices.
+If the bus-level congestion metric were purely structural it would have weak
+correlation with basis because it wouldn't know anything about prices.
+`modeled_congestion = Σ_ℓ PTDF[ℓ, b] · μ_signed[ℓ]` is shadow-price-weighted
+by construction — the whole thesis: can TAMU's synthetic grid predict where
+real economic congestion shows up? The metric has to speak the same language
+as basis.
 
-The shadow-price-weighted version is the one that's important re: basis - the
-whole thesis: can TAMU's synthetic grid predict where real economic congestion
-shows up? The fragility metric has to speak the same language as basis.
+## Historical: fragility exploration (metric retired)
 
-## Top Fragility Exploration
+The exploration below was done against the retired `fragility = Σ (PTDF² · μ /
+headroom)` scalar (replaced by `modeled_congestion` and `binding_proximity` —
+see `plan/sprint2a-plan.md`). The structural observations (transformer-endpoint
+pairs share the metric, meshed networks distribute contribution off binding-line
+endpoints) still hold under the new signed-sum formulation. Retained for
+pedagogical value; do not re-run the code snippets against the current
+`compute/congestion` module.
 
 Top fragility buses: 5186, 13236, 13368, 5269, 13418, 5092, 5445, 6153, 7293, 13344
 

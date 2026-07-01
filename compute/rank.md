@@ -4,11 +4,12 @@
 West Texas, particularly in the Permian region.
 
 **What it means:**
-- Purple = `pct_fragility < pct_|basis|` (for that snapshot's ranking).
+- Purple = `pct_|modeled_congestion| < pct_|basis|` (for that snapshot's ranking).
 - The bus's `|basis|` is high — its LMP deviates significantly from the hub.
-- The bus's fragility is low — your model's topology + shadow prices don't
-  predict pressure here.*- Translation: **the market is pricing real congestion
-  at this bus, but the model doesn't see it.**
+- The bus's `|modeled_congestion|` is low — the model's topology + shadow
+  prices don't predict pressure here.
+- Translation: **the market is pricing real congestion at this bus, but the
+  model doesn't see it.**
 
 **Why this happens:** West Texas is the wind-and-Permian zone. Real ERCOT basis
 there is dominated by:
@@ -34,13 +35,13 @@ vague "the validation didn't work."
 
 **What you see:** in the Δ Rank view, Houston shows clusters of teal
 (green-cyan) buses, particularly around the binding lines we observed in the
-binding-constraints panel. The buses also have high fragility and non-trivial
-`|basis|` (around $8).
+binding-constraints panel. The buses also have high `|modeled_congestion|` and
+non-trivial `|basis|` (around $8).
 
 **What it means:**
-- Teal = `pct_fragility > pct_|basis|`.
-- Both rankings are non-trivial — model says fragile, market says basis exists.
-- But fragility is ranked *higher* in the snapshot than `|basis|` is.
+- Teal = `pct_|modeled_congestion| > pct_|basis|`.
+- Both rankings are non-trivial — model says congested, market says basis exists.
+- But `|modeled_congestion|` is ranked *higher* in the snapshot than `|basis|` is.
 - Translation: **the model and market both think there's stress here, but the
   model thinks it's a worse problem than the market is pricing.**
 
@@ -48,16 +49,16 @@ binding-constraints panel. The buses also have high fragility and non-trivial
 
 1. **Model overcalls magnitude, right location.** The synthetic constraints
    binding in Houston really do correspond to where ERCOT congestion happens —
-   but the model's PTDF² × shadow-price weighting amplifies the issue more than
+   but the model's `Σ PTDF · μ_signed` per bus amplifies the issue more than
    reality does. Calibration is hot.
 
 2. **Right region, wrong buses.** Synthetic topology binds at *some*
-   Houston-area lines and propagates fragility to specific buses; real ERCOT
-   binds at *different* nearby lines that propagate to different buses. They
-   cluster in the same metro but don't align bus-for-bus. So `|basis|` is
-   non-zero across the area (real congestion is real), and fragility is high
-   across the area (model congestion is real-ish), but they're not the *same*
-   high-magnitude buses.
+   Houston-area lines and propagates modeled congestion to specific buses;
+   real ERCOT binds at *different* nearby lines that propagate to different
+   buses. They cluster in the same metro but don't align bus-for-bus. So
+   `|basis|` is non-zero across the area (real congestion is real), and
+   `|modeled_congestion|` is high across the area (model congestion is
+   real-ish), but they're not the *same* high-magnitude buses.
 
 The Δ Rank view by itself can't distinguish these two interpretations. That's
 where **PTDF halos** come in — hover a Houston binding line, see which buses the

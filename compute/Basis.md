@@ -1,9 +1,9 @@
 # Basis
 
 The point of doing basis first was to get a wide enough sample to retune the
-fragility/LMP thresholds away from that 3-hour map slice.
+modeled-congestion/LMP thresholds away from that 3-hour map slice.
 
-* TODO: Fragility-vs-|basis| Spearman ρ; see whether current thresholds make the
+* TODO: |modeled_congestion|-vs-|basis| Spearman ρ; see whether current thresholds make the
   rank coloring stable across both regimes.
   * clearly-congested hours (high n_binding_lines in snapshot_meta) vs
   * clearly-quiet hours
@@ -78,11 +78,11 @@ Scatter Plot shift:
 
   * **De-mean basis per timestamp**: before display (subtract the cross-bus mean
     at each hour).
-    * This isolates the spatial basis signal from the systematic bias, which is
-      what fragility is supposed to predict anyway. Defensible and clean. <--
-      Preferred.
+    * This isolates the spatial basis signal from the systematic bias, which
+      is what modeled congestion is supposed to predict anyway. Defensible and
+      clean. <-- Preferred.
     * Show raw basis with disclosure: "model LMPs run ~$8 above zonal on
-      average; this is a calibration limit, not a fragility signal."
+      average; this is a calibration limit, not a modeled-congestion signal."
 
 
 If the +$8 is roughly uniform across all four zones, but if one zone is wildly
@@ -135,10 +135,10 @@ ercot-# ORDER BY blz.load_zone;
     * There's no comparable structural congestion pattern to mis-model, so the
       bias is small.
 
-1. The validation panel just got a structural narrative: Instead of "fragility
-   correlates with |basis| at ρ=X," you get:
-  * fragility-vs-basis correlation is strong in Houston/South where the
-    synthetic grid resembles ERCOT's congestion pattern
+1. The validation panel just got a structural narrative: instead of
+   "|modeled_congestion| correlates with |basis| at ρ=X," you get:
+  * modeled-congestion-vs-basis correlation is strong in Houston/South where
+    the synthetic grid resembles ERCOT's congestion pattern
   * weaker in West where the model under-resolves wind export bottlenecks.
   * tells viewers exactly where the model has predictive value and where it
     doesn't - the whole point of the panel.
@@ -202,8 +202,9 @@ NB: shape of wind factor:
   * Consistent with the synthetic network not capturing the real
     West-to-load-center transmission constraints that cause West nodes to
     collapse under wind output during ERCOT operations.
-  * The model's predictive value for fragility is therefore strongest in Houston
-    and South, weaker in North, and degraded in West during high-wind hours.
+  * The model's predictive value for modeled congestion is therefore
+    strongest in Houston and South, weaker in North, and degraded in West
+    during high-wind hours.
 
 * The "regime" axis isn't optional. It's the primary axis. You need at minimum:
   * Per-zone ρ (4 numbers)
@@ -216,6 +217,6 @@ TODO:
 * Compute ρ on de-meaned-per-(zone, hour) basis for the "raw" comparison,
   alongside the literal ρ on raw basis.
 
-* The de-meaned version asks "does fragility predict spatial mispricing within a
-  zone at a moment in time" - which is the question fragility is actually trying
-  to answer.
+* The de-meaned version asks "does modeled congestion predict spatial
+  mispricing within a zone at a moment in time" - which is the question
+  modeled congestion is actually trying to answer.
