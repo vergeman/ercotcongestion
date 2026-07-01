@@ -85,8 +85,13 @@ class CorrelationResult(BaseModel):
 
 
 class ScatterPoint(BaseModel):
-    """Single (modeled_congestion, |basis|) observation for the validation scatter plot."""
+    """Single (modeled_congestion, basis) observation for the validation scatter plot.
+
+    Carries both signed `basis` (for direction-preserving views) and `abs_basis`
+    (kept for the magnitude-only view / continuity with the old panel).
+    """
     modeled_congestion: float
+    basis: float
     abs_basis: float
     congested: bool
 
@@ -107,6 +112,15 @@ class ValidationResponse(BaseModel):
         default_factory=dict,
         description="Pearson ρ by ERCOT load zone (north, houston, south, west). "
                     "Buses without a zone mapping (e.g. non_ercot) are excluded.",
+    )
+    sign_agreement_overall: float | None = Field(
+        None,
+        description="Fraction of bus-snapshots where sign(modeled_congestion) == "
+                    "sign(basis), over rows with both non-zero. None if no eligible rows.",
+    )
+    sign_agreement_congested: float | None = Field(
+        None,
+        description="Same as sign_agreement_overall but restricted to congested snapshots.",
     )
     warnings: list[str] = Field(default_factory=list)
 
