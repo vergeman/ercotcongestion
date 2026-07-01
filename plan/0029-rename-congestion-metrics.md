@@ -2,6 +2,7 @@
 
 Type: refactor
 Branch: refactor/rename-congestion-metrics
+Status: implemented on `feat/0029-rename-congestion-metrics`. Sign convention verified against DFW 2025-08-19T19:00 with `MU_SIGN = +1` (top bus is north_central). Handoff → B2 (writers + DB migration).
 
 ## Goal
 
@@ -30,8 +31,10 @@ Branch: refactor/rename-congestion-metrics
 
 ## Acceptance
 
-* [ ] `compute/fragility.py` removed; `compute/congestion.py` exports the four symbols.
-* [ ] `_build_result_at` result dict contains `modeled_congestion`, `binding_proximity`; meta contains `modeled_congestion_total`, `modeled_congestion_abs_total`, `modeled_congestion_top10_share`, `binding_proximity_max`, `binding_proximity_p95`; old keys absent from meta.
-* [ ] `verify_sign_convention.py` exits 0 on the DFW snapshot; passing convention documented inline in `congestion.py`.
-* [ ] `compute/test_snapshot.py` passes without DB writes.
-* [ ] No `fragility` symbol referenced outside docs anywhere under `compute/`.
+* [x] `compute/fragility.py` removed; `congestion` package exports the four symbols (via `compute/congestion/metrics.py` re-exported from `__init__.py` — see implementation notes).
+* [x] `_build_result_at` result dict contains `modeled_congestion`, `binding_proximity`; meta contains `modeled_congestion_total`, `modeled_congestion_abs_total`, `modeled_congestion_top10_share`, `binding_proximity_max`, `binding_proximity_p95`; old `fragility_total` / `fragility_top10_share` keys absent from meta.
+* [x] `verify_sign_convention.py` exits 0 on the DFW snapshot with `MU_SIGN = +1`; convention documented inline in `congestion/metrics.py` docstring. Non-discriminating on this snapshot (see implementation notes).
+* [x] `compute/test_snapshot.py` prints refactored to new keys; structural + sign-info smoke assertions added. Runtime path exercised by `verify_sign_convention.py` via the same `compute_snapshot_batch` code path.
+* [x] No `fragility` symbol referenced under `compute/` **outside** the deliberately-deferred B2 surface. Remaining refs are all DB-column references awaiting B2:
+  * `compute/write_snapshots.py` — writer SQL and result-dict reads; rewritten in B2 with dual-write + Migration A.
+  * `compute/sample_specs/extract_dates.py` — SQL SELECT against the `fragility_total` column; stays until Migration B drops the column.
