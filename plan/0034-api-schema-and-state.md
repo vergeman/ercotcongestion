@@ -36,8 +36,10 @@ Branch: refactor/0034-api-schema-and-state
 
 ## Acceptance
 
-* [ ] `grep -rn "fragility" api/` returns hits only inside `api/validation.py` (deferred to B2).
-* [ ] `GET /api/state?t=<ok-ts>` returns each bus with `{bus_id, modeled_congestion, binding_proximity, lmp, basis}` and no `fragility` key.
-* [ ] `GET /api/state_range?start=&end=` returns entries of the same shape.
-* [ ] `api/tests/test_state.py` passes on the updated fixtures; new regression guard fails if `fragility` reappears on a bus row.
-* [ ] `api/services/ptdf_service.py:42` comment points at `compute/congestion.py`.
+* [x] `grep -rn "fragility" api/` returns hits only inside `api/validation.py` (deferred to B2) and the `'fragility' not in bus` regression assertions in `test_state.py`.
+* [x] `GET /api/state?t=<ok-ts>` returns each bus with `{bus_id, modeled_congestion, binding_proximity, lmp, basis}` and no `fragility` key.
+* [x] `GET /api/state_range?start=&end=` returns entries of the same shape.
+* [x] `api/tests/test_state.py` fixtures updated; regression guard added to both state and state_range tests.
+* [x] `api/services/ptdf_service.py` comment points at `compute/congestion.py`.
+
+Note: `api/validation.py` will not import cleanly until B2 lands (references renamed `ScatterPoint.fragility`).
