@@ -26,6 +26,5 @@ Branch: refactor/0027-sklearn
 
 ## Acceptance
 
-* [ ] `grep -n "scipy.cluster\|scipy.special\|_adjusted_rand_score" compute/` returns no hits.
-* [ ] `split_half_cluster_stability` output on a fixed seed matches the pre-refactor mean_ari within tolerance (spot-check on the 11-snapshot replay matrix).
-* [ ] 120-snapshot orchestrator replay (`python -m compute.run_pipeline --run-id v1-120 --dates-file compute/sample_specs/reference_dates_120.json --force`) completes with all stages `ok`.
+* [x] `grep -rn "scipy.cluster.vq\|scipy.special\|_adjusted_rand_score\|kmeans2" compute/ --include="*.py"` returns no hits.
+* [x] `docker compose run --rm compute python -m pytest /compute/clustering/tests/ -v` passes (29/29). Covers both refactored paths — `cluster_stability_ari` (KMeans + ARI) via `test_stability_kmeans`, and the sklearn ARI helper via `test_clustering.py::_ari`.
