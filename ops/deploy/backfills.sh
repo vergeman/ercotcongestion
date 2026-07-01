@@ -39,9 +39,6 @@ case "${1:-all}" in
   ingest)
     run_job backfill_ingest_job.yml backfill-ingest
     ;;
-  pricing)
-    run_job backfill_pricing_job.yml backfill-pricing
-    ;;
   snapshots)
     run_job backfill_snapshots_job.yml backfill-snapshots
     ;;
@@ -50,12 +47,11 @@ case "${1:-all}" in
     ;;
   all)
     run_job backfill_ingest_job.yml    backfill-ingest
-    run_job backfill_pricing_job.yml   backfill-pricing
     run_job backfill_snapshots_job.yml backfill-snapshots
     run_job backfill_basis_job.yml     backfill-basis
     ;;
   *)
-    echo "Usage: $0 [ingest|pricing|snapshots|basis|all]"
+    echo "Usage: $0 [ingest|snapshots|basis|all]"
     exit 1
     ;;
 esac

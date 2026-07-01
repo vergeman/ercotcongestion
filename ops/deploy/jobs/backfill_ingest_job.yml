@@ -10,9 +10,11 @@
 # (endpoint, day) pairs that already succeeded, so re-running fills only the
 # gaps. Adjust --start / --end below to bound a different window.
 #
-# Expected runtime: hours. ERCOT API is rate-limited; ~493 days × 6 endpoints
-# in the worst case, but resume mode means most calls will be skipped if your
-# DB already has data.
+# Expected runtime: hours. ERCOT API is rate-limited; ~493 days × 11 endpoints
+# in the worst case (zonal_lmp, shadow, outages, loads, wind, solar, dam_spp,
+# dam_lambda, rt_lmp, sced_lambda, load_forecast). Resume mode means most calls
+# will be skipped if your DB already has data. rt_lmp dominates (~288K rows/day
+# across all settlement points, paginated 1000/page at a 3s throttle).
 #
 # After it finishes:
 #   kubectl -n ercotstress delete job backfill-ingest
