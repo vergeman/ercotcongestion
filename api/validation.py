@@ -40,6 +40,26 @@ def _coerce_utc(ts: datetime) -> datetime:
     return ts.astimezone(timezone.utc)
 
 
+def _sign_agreement(pairs: Iterable[tuple[float, float]]) -> float | None:
+    """Fraction of pairs where sign(x) == sign(y), over rows with both non-zero.
+
+    Zeros are excluded from both the numerator and denominator: a bus with
+    modeled_congestion == 0 or basis == 0 carries no directional claim.
+    Returns None if no eligible rows survive the filter.
+    """
+    eligible = 0
+    agree = 0
+    for x, y in pairs:
+        if x == 0.0 or y == 0.0:
+            continue
+        eligible += 1
+        if (x > 0) == (y > 0):
+            agree += 1
+    if eligible == 0:
+        return None
+    return agree / eligible
+
+
 def _pearson(pairs: Iterable[tuple[float, float]]) -> CorrelationResult:
     """Single-pass Pearson correlation. Returns rho=None for degenerate data."""
     n = 0
@@ -165,6 +185,15 @@ def get_validation(
     congested = _pearson(congested_pairs)
     quiet     = _pearson(quiet_pairs)
 
+    # Sign-agreement rate (Framing C): fraction where direction of
+    # modeled_congestion matches direction of basis. Interview-facing companion
+    # to ρ — a scalar answer to "when the model says congestion, does basis
+    # agree on which side?" Congested-only echoes the ρ split.
+    sign_agreement_overall = _sign_agreement((r[0], r[1]) for r in rows)
+    sign_agreement_congested = _sign_agreement(
+        (r[0], r[1]) for r in rows if r[2]
+    )
+
     # Per-zone breakdown. Skip rows without a zone (NULL from the LEFT JOIN)
     # and drop the 'non_ercot' fallback bucket — neither tells us anything
     # about ERCOT model performance. Group with a dict-of-lists; with O(100k)
@@ -207,5 +236,7 @@ def get_validation(
         congested_threshold_n_binding=congested_threshold,
         scatter=scatter,
         by_zone=by_zone,
+        sign_agreement_overall=sign_agreement_overall,
+        sign_agreement_congested=sign_agreement_congested,
         warnings=warnings,
     )
