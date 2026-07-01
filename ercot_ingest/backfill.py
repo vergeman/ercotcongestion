@@ -195,6 +195,7 @@ def main():
         sys.exit("--start must be on or before --end")
 
     keys = list(ENDPOINTS.keys()) if args.endpoint == "all" else [args.endpoint]
+    keys.remove('rt_lmp')
 
     client = ErcotClient()
 
