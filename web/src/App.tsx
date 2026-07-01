@@ -8,9 +8,9 @@ import {
 } from "./api/prefetch";
 import {
   computeLmpStats,
-  computeBusZStats,
+  computeModeledCongestionStats,
   type LmpStats,
-  type BusZStats,
+  type ModeledCongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
@@ -38,7 +38,7 @@ interface HoveredLine {
 
 export default function App() {
   const [topology, setTopology] = useState<unknown | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("fragility");
+  const [viewMode, setViewMode] = useState<ViewMode>("modeled_congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [buses, setBuses] = useState<BusState[]>([]);
@@ -62,9 +62,9 @@ export default function App() {
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
-  // Per-bus fragility mean + std across the loaded window. Used by the
-  // "fragility z" view. Computed once on window load.
-  const [zStats, setZStats] = useState<BusZStats | null>(null);
+  // Window-wide modeled-congestion stats (|mc| P99 anchor, symmetric around 0).
+  // Same shape as lmpStats — stable palette across playback.
+  const [mcStats, setMcStats] = useState<ModeledCongestionStats | null>(null);
   // Per-timestamp series for the timeline sparkline (fragility_total +
   // n_binding_lines). Aligned 1:1 with `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
@@ -102,15 +102,18 @@ export default function App() {
         const ts = getAvailableTimestamps();
         setTimestamps(ts);
         if (ts.length > 0) {
-          // Build window-wide LMP stats from every (bus, snapshot) pair.
+          // Build window-wide LMP + modeled-congestion stats from every
+          // (bus, snapshot) pair in one pass.
           const allLmp: Array<number | null> = [];
+          const allMc: Array<number | null> = [];
           for (const entry of data.entries) {
-            for (const b of entry.buses) allLmp.push(b.lmp);
+            for (const b of entry.buses) {
+              allLmp.push(b.lmp);
+              allMc.push(b.modeled_congestion);
+            }
           }
           setLmpStats(computeLmpStats(allLmp));
-
-          // Build per-bus fragility z-stats from the same data.
-          setZStats(computeBusZStats(data.entries.map((e) => e.buses)));
+          setMcStats(computeModeledCongestionStats(allMc));
 
           // Build sparkline series — one point per timestamp, in the same order.
           // We walk `ts` and pull from the cached entries via interval_ts to
@@ -267,7 +270,7 @@ export default function App() {
             meta={meta}
             viewMode={viewMode}
             lmpStats={lmpStats}
-            zStats={zStats}
+            mcStats={mcStats}
             onBusHover={handleBusHover}
             onLineHover={handleLineHover}
             onBusClick={handleBusClick}
@@ -288,7 +291,7 @@ export default function App() {
             viewMode={viewMode}
             buses={buses}
             lmpStats={lmpStats}
-            zStats={zStats}
+            mcStats={mcStats}
           />
         </div>
 
