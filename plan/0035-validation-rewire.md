@@ -35,9 +35,11 @@ Branch: feat/0035-validation-rewire
 
 ## Acceptance
 
-* [ ] `grep -rn "fragility" api/` returns zero hits after this branch lands.
-* [ ] `GET /api/validation?start=&end=` returns ρ computed on signed `modeled_congestion` × signed `basis`; on a known-congested Sprint-0 window ρ visibly moves off the ~0.008 baseline (record the observed number in the PR; direction of movement is a finding, not a gate).
-* [ ] Response carries `sign_agreement_overall` and `sign_agreement_congested` as floats in [0, 1] (or null if no eligible rows).
-* [ ] `ScatterPoint` records include signed `modeled_congestion`, signed `basis`, and `abs_basis`.
-* [ ] Endpoint returns 200 against a DB with Migration A applied and at least one recomputed window; `IS NOT NULL` filter tolerates partial coverage.
-* [ ] Docstring + router summary + warning strings no longer mention `fragility`.
+* [x] `grep -rn "fragility" api/` — only two `not in` regression guards in `test_state.py`.
+* [x] `GET /validation` on 2025-08-19 (30 binding lines): ρ = 0.756 vs ~0.008 baseline.
+* [x] `sign_agreement_overall = 0.575`, `sign_agreement_congested = 0.575`.
+* [x] `ScatterPoint` carries `modeled_congestion`, `basis`, `abs_basis`.
+* [x] Endpoint 200; `IS NOT NULL` filter working.
+* [x] Docstring / router summary / warnings fragility-free; OpenAPI reflects renames.
+
+Findings: south zone ρ = -0.250 (others 0.77–1.00) — model disagrees with basis direction in south on this window. Pre-existing test 404s (routers mount at `/state`, tests hit `/api/state`) — 0036 scope.
