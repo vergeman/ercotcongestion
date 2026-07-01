@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 class BusState(BaseModel):
     bus_id: str
-    fragility: float | None
+    modeled_congestion: float | None
+    binding_proximity: float | None = None
     lmp: float | None
     basis: float | None = None
 
@@ -40,8 +41,11 @@ class SnapshotMeta(BaseModel):
     lmp_min: float | None = None
     lmp_mean: float | None = None
     lmp_max: float | None = None
-    fragility_total: float | None = None
-    fragility_top10_share: float | None = None
+    modeled_congestion_total: float | None = None
+    modeled_congestion_abs_total: float | None = None
+    modeled_congestion_top10_share: float | None = None
+    binding_proximity_max: float | None = None
+    binding_proximity_p95: float | None = None
     binding_lines: list[BindingLine] = Field(default_factory=list)
     top_contingencies: list[Contingency] = Field(default_factory=list)
     dispatch_by_carrier: dict[str, float] = Field(default_factory=dict)
@@ -81,8 +85,8 @@ class CorrelationResult(BaseModel):
 
 
 class ScatterPoint(BaseModel):
-    """Single (fragility, |basis|) observation for the validation scatter plot."""
-    fragility: float
+    """Single (modeled_congestion, |basis|) observation for the validation scatter plot."""
+    modeled_congestion: float
     abs_basis: float
     congested: bool
 
