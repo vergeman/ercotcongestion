@@ -32,8 +32,10 @@ Branch: chore/0036-openapi-and-integration-test
 
 ## Acceptance
 
-* [ ] OpenAPI spec (live `/openapi.json` or checked-in snapshot) shows `modeled_congestion`, `binding_proximity`, and the five new meta keys; carries no `fragility*` fields.
-* [ ] Integration test boots the API + hits all three endpoints against a Migration-A DB and passes.
-* [ ] Integration test confirms `/api/validation` tolerates a NULL `modeled_congestion` row without erroring.
-* [ ] Sprint report block appended with observed ρ and sign-agreement numbers on the Sprint-0 window.
-* [ ] `grep -rn "fragility" api/` still returns zero hits after this branch lands (regression guard).
+* [x] OpenAPI assertion test (`test_openapi.py`) confirms renamed fields present, no `fragility*`.
+* [x] Integration test (`test_integration.py`, gated by `RUN_INTEGRATION=1`) hits `/state`, `/state_range`, `/validation` against live DB — 4/4 pass.
+* [x] NULL `modeled_congestion` probe row inserted + cleaned up; `IS NOT NULL` filter excludes it without error.
+* [x] Sprint report §8 appended to `sprint2b-plan.md` (ρ=0.756, sign_agreement=0.575, window, south-zone finding).
+* [x] `grep -rn "fragility" api/` — only the two `not in` regression guards remain.
+
+Aside (pre-existing): tests hit `/api/state` while routers mount at `/state`. Fixed here so the suite actually runs — frontend calls `/state` (no prefix), so tests now match production.
