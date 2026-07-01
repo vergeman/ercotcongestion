@@ -109,9 +109,10 @@ Overloads: both can have overloads but from different causes:
 * BODF: lines can handle new (redistributed) flow after a line dies
 
 
-Leads us to our notion of fragility and contingency:
+Leads us to our notion of congestion metrics and contingency:
 
-* fragility = PTDF x shadow_price / headroom
+* modeled_congestion = Σ_ℓ PTDF[ℓ, b] · μ_signed[ℓ]
+* binding_proximity = bus-aggregated |flow| / thermal limit
 * N-1 contingency: BODF
 
 """

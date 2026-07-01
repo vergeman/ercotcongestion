@@ -265,11 +265,21 @@ Preserve TAMU's load shape while capturing ERCOT's temporal variation.
 
 ## Snapshot Tables
 
-* `bus_snapshot`: (`interval_ts`, `bus_id`), `fragility`, `lmp`
+* `bus_snapshots`: (`interval_ts`, `bus_id`), `modeled_congestion`,
+  `binding_proximity`, `lmp`, `basis`
   * collected in `write_snapshots.py` from `network.buses.index`
-  * fragility/LMP per bus per hour
+  * `modeled_congestion` (signed $/MWh, `Σ_ℓ PTDF[ℓ,b] · μ_signed[ℓ]`) and
+    `binding_proximity` (bus-aggregated loading fraction) per bus per hour
+  * `μ_signed = mu_lower − mu_upper` (empirically verified on the DFW
+    summer-peak reference case — see `docs/sample-recompute-gate-results.md`)
+  * A retired legacy column persists on `bus_snapshots` during the 2A→2B/2C
+    cutover; it is written NULL on new rows and will be dropped by Migration B.
 
 * `snapshot_meta`: per-snapshot OPF status, totals, JSONB diagnostics
+  * Congestion aggregates on `snapshot_meta`:
+    `modeled_congestion_total` (signed sum, may be negative),
+    `modeled_congestion_abs_total`, `modeled_congestion_top10_share`
+    (concentration on |mc|), `binding_proximity_max`, `binding_proximity_p95`
 
 
 ## Basis Calculation

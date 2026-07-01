@@ -97,7 +97,8 @@ well as explicit-path flags for one-off invocations.
 | **Shadow Price** $\mu_\ell$ | OPF duals (per-line thermal limit)    | Severity of current congestion on line $\ell$        |
 | **PTDF**                    | Topology                              | Sensitivity of line flows to bus injections (static) |
 | **LODF**                    | Topology                              | Redistribution of flow when a line trips (static)    |
-| **Fragility**               | PTDF + LODF + flows + contingency set | LMP dispersion caused by N-1                         |
+| **Modeled congestion**      | PTDF · signed shadow price            | Signed congestion contribution at each bus ($/MWh)   |
+| **Binding proximity**       | \|flow\| / thermal limit, PTDF-weighted | How close each bus's driven lines are to binding   |
 | **Basis**                   | Stored LMP − ERCOT zonal LMP          | Model error vs. reality                              |
 
 
@@ -121,48 +122,65 @@ well as explicit-path flags for one-off invocations.
   * Attribute LMP to PTDF, but they come from LP (linear program - the
     optimization problem solved by OPF) duals.
 
-* Fragility PTDF + LODF + N-1:
+* Structural inputs — PTDF + LODF:
   * PTDF: Power Transfer Distribution Factor: L X B (line by bus) matrix
     * inject 1 mW at bus b, what fraction flows through line l
     * pure topology; computed once per network
+    * PyPSA convention: `PTDF[ℓ, b] > 0` means "injection at b raises flow on ℓ
+      in ℓ's from→to direction"
   * LODF: Line Outage Distribution Factor: L x L matrix
     * LODF l,k: if line k trips,what fraction of k's flow ends up on line l
     * derived from PTDF + topology
     * also pure topology/structure
-  * Contingency Loop: For each line outage k, in top-K (fragility) use LODF and
-    compute new flows on every other line.
-    * avoid re-solving the OPF.
-  * Map to buses: If contingency k shows fragility; map back to buses by
-    aggregating all top K lines to bus to get single fragility number.
 
-* Model LMP vs Fragility
-  * both outputs of OPF, share root cause, transmission congestion
-  * LMP:
-    * in uncongested network, system cost goes up by marginal generator cost
-      (default max)
-    * on transmission bind, buses now served by more expensive local
-      generation - LMP rises
-    * importing side buses have surplus cheap generation; LMP falls zero even
-      negative.
-  * Fragility: how much do LMP's disperse if a line tripped
-    * ask OPF to solve each N-1, and see price variation at bus - fragile if bus
-      has substantial price variation.
-      * Fragility can be non-zero when LMPs are flat - network that is
-        precarious, close to congestion. Ideal scenario to monitor, as prices
-        could rise substantially and fan out.
+### Modeled congestion — signed per-bus congestion contribution
 
-* To Basis:
-  * measures how "wrong" the model is
-  * fragility: bus is structurally exposed to congestion-drive price variance
-  * basis: real-world price diverged from the zonal benchmark
-  * correlations - does fragility predict basis?
-    * do fragile buses also price differently (basis) from zonal hub?
-  * so now does basis capture spatial difference? A calibration or level error?
-    etc.
+`modeled_congestion[b] = Σ_ℓ PTDF[ℓ, b] · μ_signed[ℓ]` in $/MWh, where
+`μ_signed = mu_lower − mu_upper` (verified empirically on the DFW summer-peak
+snapshot `2025-08-19T19:00`; see `docs/sample-recompute-gate-results.md`).
 
-* From OPF:
-  * LMP: what are prices today
-  * Fragility: how do prices respond to stress
-  * Basis: how right/wrong is answer
+- Signed, not squared. Sum across lines, preserve sign.
+- Positive: bus is on the import (higher-price) side of the binding constraint.
+- Negative: bus is on the export (lower-price) side.
+- Uncongested → 0 on every bus (all `μ = 0`).
+- Islanded buses (absent from PTDF columns) carry NaN.
+
+### Binding proximity — bus-level distance to binding
+
+`binding_proximity[b] = max_ℓ |PTDF[ℓ, b]| · |flow_ℓ| / (s_nom_ℓ · s_max_pu_ℓ)`.
+
+- Bus-aggregated max over lines the bus drives.
+- Values in [0, ~1+]. May exceed 1 slightly on numerically-binding lines
+  (solver tolerance).
+- Reads "the worst line this bus can drive, weighted by how much it drives it".
+- Only radial buses (|PTDF|=1) can reach 1.0; meshed buses share flow across
+  multiple lines and typically peak in the 0.5–0.9 range even on
+  heavily-congested hours.
+
+### Modeled LMP vs modeled congestion
+
+Both are OPF outputs sharing the transmission-congestion root cause:
+- LMP: in an uncongested network, LMP ≈ marginal generator cost. On binding,
+  import-side buses take more expensive local generation → LMP rises; export
+  side has surplus cheap generation → LMP falls, can go negative.
+- Modeled congestion: signed decomposition of the congestion term of LMP
+  attributable to each binding line's dual. When LMPs are flat, mc ≈ 0.
+
+### To Basis
+
+- Basis measures how "wrong" the model is (stored LMP − ERCOT zonal LMP).
+- Modeled congestion: which buses the model thinks are on the expensive side
+  of a binding constraint.
+- Binding proximity: which buses are structurally close to driving a bind.
+- Correlations: do buses with high modeled congestion or high binding
+  proximity also carry systematic basis? Signals topology drift vs. calibration
+  drift.
+
+### From OPF
+
+- LMP: what are prices today
+- Modeled congestion: which line-shadow contributions drive each bus's LMP today
+- Binding proximity: which buses are structurally close to driving a bind
+- Basis: how right/wrong the answer is vs. ERCOT truth
 
 * Shadow Prices: Lines
