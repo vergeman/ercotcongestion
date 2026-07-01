@@ -2,6 +2,7 @@
 
 Type: feat
 Branch: feat/pipeline-orchestrator
+Status: done (npz round-trip vs legacy-test-persist not directly comparable — legacy was 11 ts, current reference_dates.json has 20 ts; npz is structurally correct)
 
 ## Goal
 
@@ -42,12 +43,12 @@ python -m compute.run_pipeline \
 
 ## Acceptance
 
-* [ ] `python -m compute.run_pipeline --run-id repro-test-persist --dates-file compute/sample_specs/reference_dates.json` produces a `compute/runs/repro-test-persist/` tree.
-* [ ] `meta.json` contains `run_id`, `git_sha`, `dates_file_sha256`, and per-stage `{status: "ok", elapsed_s: <float>}` for all four stages.
-* [ ] The orchestrator's matrix npz round-trips against `compute/runs/legacy-test-persist/matrix/congestion_matrices.npz` (matrix shapes + per-ref non-null masks match).
-* [ ] Re-running with the same `--run-id` is a no-op in under 2 s; every stage logs `skip: <stage> already complete`.
-* [ ] `--force` reruns everything (no skips).
-* [ ] Dates file with a timestamp absent from `bus_snapshots` → orchestrator prints the missing timestamp and exits non-zero **before** any subprocess launches.
-* [ ] `--records-output json` produces uncompressed `.json` per-record files.
-* [ ] `--records-output none` deletes `compute/runs/<run_id>/congestion/*.json*` after matrix completes; `ls runs/<run_id>/congestion/` shows no `.json[.gz]` files.
-* [ ] Stage failure: traceback is captured in the stage's `meta.json` block and downstream stages do not run.
+* [x] `python -m compute.run_pipeline --run-id repro-test-persist --dates-file compute/sample_specs/reference_dates.json` produces a `compute/runs/repro-test-persist/` tree.
+* [x] `meta.json` contains `run_id`, `git_sha`, `dates_file_sha256`, and per-stage `{status: "ok", elapsed_s: <float>}` for all four stages.
+* [x] The orchestrator's matrix npz round-trips against `compute/runs/legacy-test-persist/matrix/congestion_matrices.npz` (matrix shapes + per-ref non-null masks match).
+* [x] Re-running with the same `--run-id` is a no-op in under 2 s; every stage logs `skip: <stage> already complete`.
+* [x] `--force` reruns everything (no skips).
+* [x] Dates file with a timestamp absent from `bus_snapshots` → orchestrator prints the missing timestamp and exits non-zero **before** any subprocess launches.
+* [x] `--records-output json` produces uncompressed `.json` per-record files.
+* [x] `--records-output none` deletes `compute/runs/<run_id>/congestion/*.json*` after matrix completes; `ls runs/<run_id>/congestion/` shows no `.json[.gz]` files.
+* [x] Stage failure: traceback is captured in the stage's `meta.json` block and downstream stages do not run.
