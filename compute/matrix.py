@@ -237,6 +237,142 @@ def _per_source_diagnostics(
 
 
 # ---------------------------------------------------------------------------
+# Phase 4 additions: regime slicing + sign agreement + threshold binding
+# ---------------------------------------------------------------------------
+
+def _regime_of(col: str) -> str:
+    """Extract regime label from a '<regime>|<ts>' column key."""
+    return col.split('|', 1)[0] if '|' in col else ''
+
+
+def _split_columns_by_regime(cols) -> dict[str, list[str]]:
+    """Group hour-column keys by regime, preserving order."""
+    out: dict[str, list[str]] = OrderedDict()
+    for c in cols:
+        out.setdefault(_regime_of(c), []).append(c)
+    return out
+
+
+def _by_regime(per_hour_rho: list[dict]) -> dict[str, dict]:
+    """Aggregate `per_hour_rho` entries into per-regime summary stats.
+
+    Each entry is `{"hour": "<regime>|<ts>", "rho": float|None, ...}`.
+    """
+    buckets: dict[str, list[float]] = {}
+    for entry in per_hour_rho or []:
+        regime = _regime_of(str(entry.get('hour', '')))
+        rho = entry.get('rho')
+        if rho is None:
+            buckets.setdefault(regime, [])
+            continue
+        buckets.setdefault(regime, []).append(float(rho))
+    out: dict[str, dict] = {}
+    for regime, vals in buckets.items():
+        arr = np.array(vals, dtype=float)
+        out[regime] = {
+            "n": int(arr.size),
+            "mean": float(arr.mean()) if arr.size else None,
+            "median": float(np.median(arr)) if arr.size else None,
+            "std": float(arr.std(ddof=1)) if arr.size > 1 else 0.0,
+            "frac_positive": float((arr > 0).mean()) if arr.size else None,
+        }
+    return out
+
+
+def _sign_agreement(
+    Z_m: pd.DataFrame,
+    Z_e: pd.DataFrame,
+    keys: list,
+) -> dict:
+    """Fraction of hours where sign(model) == sign(ercot), per zone + overall.
+
+    Sign treats 0 as its own class (agrees only with 0). NaN-safe.
+    """
+    common_keys = [k for k in keys if k in Z_m.index and k in Z_e.index]
+    common_hours = [h for h in Z_m.columns if h in Z_e.columns]
+    if not common_keys or not common_hours:
+        return {"n_keys": 0, "n_hours": 0, "per_key": {}, "overall": None}
+    per_key: dict[str, dict] = {}
+    all_m: list[np.ndarray] = []
+    all_e: list[np.ndarray] = []
+    for k in common_keys:
+        m = Z_m.loc[k, common_hours].to_numpy(dtype=float)
+        e = Z_e.loc[k, common_hours].to_numpy(dtype=float)
+        mask = ~(np.isnan(m) | np.isnan(e))
+        n = int(mask.sum())
+        if n == 0:
+            per_key[str(k)] = {"n": 0, "frac_agree": None}
+            continue
+        agree = (np.sign(m[mask]) == np.sign(e[mask]))
+        per_key[str(k)] = {"n": n, "frac_agree": float(agree.mean())}
+        all_m.append(m[mask])
+        all_e.append(e[mask])
+    if all_m:
+        M = np.concatenate(all_m)
+        E = np.concatenate(all_e)
+        overall = {"n": int(M.size),
+                   "frac_agree": float((np.sign(M) == np.sign(E)).mean())}
+    else:
+        overall = None
+    return {
+        "n_keys": len(common_keys),
+        "n_hours": len(common_hours),
+        "per_key": per_key,
+        "overall": overall,
+    }
+
+
+def _threshold_counts(
+    Z: pd.DataFrame,
+    keys: list,
+    thresholds: tuple[float, ...],
+) -> dict:
+    """Per key: fraction of hours where |Z[k,h]| > τ, for each τ."""
+    common_keys = [k for k in keys if k in Z.index]
+    per_key: dict[str, dict] = {}
+    for k in common_keys:
+        vals = Z.loc[k].to_numpy(dtype=float)
+        mask = ~np.isnan(vals)
+        n = int(mask.sum())
+        if n == 0:
+            per_key[str(k)] = {
+                "n": 0,
+                "fractions": {str(t): None for t in thresholds},
+            }
+            continue
+        v = np.abs(vals[mask])
+        per_key[str(k)] = {
+            "n": n,
+            "fractions": {str(t): float((v > t).mean()) for t in thresholds},
+        }
+    return {
+        "n_keys": len(common_keys),
+        "n_hours": int(Z.shape[1]),
+        "thresholds": [float(t) for t in thresholds],
+        "per_key": per_key,
+    }
+
+
+def _regime_split_apply(
+    Z_m: pd.DataFrame,
+    Z_e: pd.DataFrame | None,
+    fn,
+) -> dict[str, dict]:
+    """Apply `fn(sub_m, sub_e)` (or `fn(sub_m)` if Z_e is None) per regime."""
+    by_reg = _split_columns_by_regime(list(Z_m.columns))
+    out: dict[str, dict] = {}
+    for regime, cols in by_reg.items():
+        sub_m = Z_m[cols]
+        if Z_e is None:
+            out[regime] = fn(sub_m)
+        else:
+            e_cols = [c for c in cols if c in Z_e.columns]
+            sub_e = Z_e[e_cols]
+            out[regime] = fn(sub_m, sub_e)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -288,7 +424,14 @@ def main():
                     help='Number of random splits for ARI (default 5).')
     ap.add_argument('--n-components', type=int, default=10,
                     help='PCA components to retain (default 10).')
+    ap.add_argument('--binding-thresholds', default='5,20',
+                    help='Comma-separated $/MWh thresholds for the binding-count '
+                         'metric (default "5,20").')
     args = ap.parse_args()
+
+    binding_thresholds = tuple(
+        float(x) for x in args.binding_thresholds.split(',') if x.strip()
+    )
 
     if args.model_results is not None:
         model_path = args.model_results
@@ -366,6 +509,7 @@ def main():
             "k": args.k,
             "n_splits": args.n_splits,
             "n_components": args.n_components,
+            "binding_thresholds": list(binding_thresholds),
             "dates_summary": _dates_summary(model_common),
             "hub_to_model_bus": model_hub_keys,
             "zone_keys": zone_keys,
@@ -450,15 +594,49 @@ def main():
         if not Z_m.empty and not Z_e.empty:
             shared_zones = [z for z in zone_keys if z in Z_m.index and z in Z_e.index]
             if shared_zones:
+                sp = spearman_rank_agreement(Z_m, Z_e, shared_zones)
+                sp["by_regime"] = _by_regime(sp.get("per_hour_rho", []))
+                dist = distributional_agreement(Z_m, Z_e, shared_zones)
+                dist["by_regime"] = _regime_split_apply(
+                    Z_m, Z_e,
+                    lambda m, e: distributional_agreement(m, e, shared_zones),
+                )
+                sign_agree = {
+                    "global": _sign_agreement(Z_m, Z_e, shared_zones),
+                    "by_regime": _regime_split_apply(
+                        Z_m, Z_e,
+                        lambda m, e: _sign_agreement(m, e, shared_zones),
+                    ),
+                }
+                thresh = {
+                    "model": {
+                        "global": _threshold_counts(Z_m, shared_zones, binding_thresholds),
+                        "by_regime": _regime_split_apply(
+                            Z_m, None,
+                            lambda m: _threshold_counts(m, shared_zones, binding_thresholds),
+                        ),
+                    },
+                    "ercot": {
+                        "global": _threshold_counts(Z_e, shared_zones, binding_thresholds),
+                        "by_regime": _regime_split_apply(
+                            Z_e, None,
+                            lambda m: _threshold_counts(m, shared_zones, binding_thresholds),
+                        ),
+                    },
+                }
                 cross_zones = {
                     "keys": shared_zones,
-                    "spearman": spearman_rank_agreement(Z_m, Z_e, shared_zones),
-                    "distributional": distributional_agreement(Z_m, Z_e, shared_zones),
+                    "spearman": sp,
+                    "distributional": dist,
+                    "sign_agreement": sign_agree,
+                    "threshold_binding": thresh,
                 }
             else:
-                cross_zones = {"keys": [], "spearman": None, "distributional": None}
+                cross_zones = {"keys": [], "spearman": None, "distributional": None,
+                               "sign_agreement": None, "threshold_binding": None}
         else:
-            cross_zones = {"keys": [], "spearman": None, "distributional": None}
+            cross_zones = {"keys": [], "spearman": None, "distributional": None,
+                           "sign_agreement": None, "threshold_binding": None}
 
         out["by_ref_method"][ref] = {
             "model": model_block,
