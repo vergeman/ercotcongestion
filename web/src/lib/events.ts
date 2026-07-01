@@ -34,7 +34,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2005-04-16T06:00:00Z",
     window_end: "2005-04-17T06:00:00Z",
     cursor_ts: "2005-04-16T20:00:00Z",
-    suggested_view: "fragility",
+    suggested_view: "modeled_congestion",
   },
   {
     id: "wind_oversupply_2005_jan05",
@@ -42,7 +42,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     description:
       "Jan 5, 2005 — overnight West Texas wind ramp pushing into negative LMPs.",
     what_it_tests:
-      "Negative-pricing spatial pattern. Where does the surplus get stuck, and does fragility light up the export-constrained corridors?",
+      "Negative-pricing spatial pattern. Where does the surplus get stuck, and does the modeled congestion light up the export-constrained corridors?",
     window_start: "2005-01-05T00:00:00Z",
     window_end: "2005-01-06T00:00:00Z",
     cursor_ts: "2005-01-05T08:00:00Z",
@@ -54,11 +54,11 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     description:
       "Jan 8, 2005 — cold morning peak. Hub prices spike, system-wide stress.",
     what_it_tests:
-      "Fragility-vs-hub-price coupling. Is the model's stress signal aligned with where the market is paying the most?",
+      "Modeled-congestion-vs-hub-price coupling. Is the model's stress signal aligned with where the market is paying the most?",
     window_start: "2005-01-08T00:00:00Z",
     window_end: "2005-01-09T00:00:00Z",
     cursor_ts: "2005-01-08T13:00:00Z",
-    suggested_view: "fragility",
+    suggested_view: "modeled_congestion",
   },
   {
     id: "rabbit_hill_2005_feb19",
@@ -70,7 +70,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2005-02-19T00:00:00Z",
     window_end: "2005-02-20T00:00:00Z",
     cursor_ts: "2005-02-19T15:00:00Z",
-    suggested_view: "delta_rank",
+    suggested_view: "congestion_vs_basis",
   },
   {
     id: "summer_stability_2005_may23",
@@ -82,7 +82,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2005-05-23T12:00:00Z",
     window_end: "2005-05-24T06:00:00Z",
     cursor_ts: "2005-05-23T21:00:00Z",
-    suggested_view: "delta_rank",
+    suggested_view: "congestion_vs_basis",
   },
 ];
 
