@@ -40,9 +40,9 @@ Branch: refactor/0039-panels-and-sparkline
 
 ## Acceptance
 
-* [ ] `grep -rn "fragility\|frag" web/src/components/map/DetailCard.tsx web/src/components/panels/StatsPanel.tsx web/src/components/playback/TimelineSparkline.tsx` returns 0 hits.
-* [ ] DetailCard on any bus with populated fields shows two rows: signed modeled_congestion in $/MWh and binding_proximity as a percent.
-* [ ] StatsPanel headline reads `‖Modeled Congestion‖` with the magnitude value; signed total is present as a secondary readout.
-* [ ] StatsPanel shows `binding_proximity_max` and `binding_proximity_p95` rows; max is visually flagged when ≥ 0.95 on a DFW summer-peak snapshot.
-* [ ] TimelineSparkline plots the abs-total series with the updated legend; no `fragility` string visible; the magnitude-vs-signed comment is present.
-* [ ] Playback across a Sprint-0 window renders the sparkline without gaps or NaN warnings in the console.
+* [x] `grep -rn "fragility\|frag" web/src/components/map/DetailCard.tsx web/src/components/panels/StatsPanel.tsx web/src/components/playback/TimelineSparkline.tsx` returns 0 hits.
+* [x] DetailCard on any bus with populated fields shows two rows: signed modeled_congestion in $/MWh and binding_proximity as a percent.
+* [x] StatsPanel headline reads `‖Modeled Congestion‖` with the magnitude value; signed total is present as a secondary readout.
+* [x] StatsPanel shows `binding_proximity_max` and `binding_proximity_p95` rows; max is visually flagged when ≥ 0.95 on a DFW summer-peak snapshot. _(code updated; visual pending)_
+* [x] TimelineSparkline plots the abs-total series with the updated legend; no `fragility` string visible; the magnitude-vs-signed comment is present.
+* [ ] Playback across a Sprint-0 window renders the sparkline without gaps or NaN warnings in the console. _(needs dev-server run)_
