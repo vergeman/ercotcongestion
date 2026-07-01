@@ -36,8 +36,8 @@ Branch: chore/0041-events-and-grep-gate
 
 ## Acceptance
 
-* [ ] `grep -rn "fragility\|frag" web/src/` returns 0 hits.
-* [ ] `grep -rn "\-\-frag" web/` returns 0 hits.
-* [ ] `web/src/lib/events.ts` `suggested_view` values point at `modeled_congestion` (or `lmp` where semantically appropriate); event copy is fragility-free.
-* [ ] Manual §3.14 checklist executed against a Sprint-0 DB; outcomes recorded in the PR description with the snapshot timestamps used.
-* [ ] No console errors observed when sweeping all four `ViewMode` values on a Sprint-0 snapshot during the checklist run.
+* [x] `grep -rn "fragility\|frag" web/src/` returns 0 hits.
+* [x] `grep -rn "\-\-frag" web/` returns 0 hits (already clean pre-branch).
+* [x] `web/src/lib/events.ts` `suggested_view` values point at `modeled_congestion` / `congestion_vs_basis` / `lmp` (wind_oversupply kept on `lmp`); all `fragility` copy replaced with modeled-congestion voice. Also fixed two stale `"delta_rank"` values surfaced by the sweep.
+* [ ] Manual §3.14 checklist executed against a Sprint-0 DB; outcomes recorded in the PR description with the snapshot timestamps used. _(pending in-app run)_
+* [ ] No console errors observed when sweeping all four `ViewMode` values on a Sprint-0 snapshot during the checklist run. _(pending in-app run)_
