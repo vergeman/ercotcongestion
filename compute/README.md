@@ -9,6 +9,86 @@
   `bus_snapshots` table.
 
 
+## Running the pipeline
+
+`compute/run_pipeline.py` is the canonical entry point. It chains the four
+stages — model congestion → ERCOT congestion → matrix build → zonal clustering
+sweep — under a single `--run-id`, writes provenance to
+`compute/runs/<run_id>/meta.json`, and copies the dates file it consumed into
+the run directory.
+
+```
+python -m compute.run_pipeline \
+    --run-id v1-120 \
+    --dates-file compute/sample_specs/reference_dates_120.json
+```
+
+Common flags:
+
+* `--ref-methods hub_avg,system_lambda_kkt,...` — subset of reference-price methods.
+* `--algos hierarchical_corr,kmeans_vec,pca_kmeans` — clustering algorithms.
+* `--ks 4,6,8,10,12,16` — cluster counts to sweep.
+* `--records-output {gz,json,none}` — per-record congestion JSON output
+  (default `gz`; `none` deletes the per-record files after the matrix stage
+  exits `ok`).
+* `--skip-completed` (default) / `--no-skip-completed` / `--force` — control
+  reuse of prior stage outputs under the same `--run-id`.
+
+Before launching congestion the orchestrator asserts every timestamp in the
+dates file has a corresponding `bus_snapshots` row in Postgres; on gaps it
+prints the missing timestamps and the suggested `write_snapshots.py --start
+--end` command and exits non-zero without running the pipeline.
+
+Artifacts land under `compute/runs/<run_id>/` with stage subdirs
+(`congestion/`, `matrix/`, `clustering/`). See
+[`compute/runs/README.md`](runs/README.md) for the per-run layout.
+
+
+## Debugging individual stages
+
+Each stage script is also runnable directly for ad-hoc use. All four accept
+`--run-id` (default paths resolve under `compute/runs/<run_id>/<stage>/`) as
+well as explicit-path flags for one-off invocations.
+
+* **Model congestion** —
+  ```
+  python -m compute.congestion.snapshot_runner \
+      --run-id debug-11 \
+      --dates-file compute/sample_specs/reference_dates.json
+  # or explicit output:
+  python -m compute.congestion.snapshot_runner \
+      --dates-file compute/sample_specs/reference_dates.json \
+      --output /tmp/model_results.json.gz
+  ```
+
+* **ERCOT congestion** —
+  ```
+  python -m compute.congestion.ercot_runner \
+      --run-id debug-11 \
+      --dates-file compute/sample_specs/reference_dates.json
+  ```
+
+* **Matrix build** —
+  ```
+  python -m compute.matrix --run-id debug-11
+  # or explicit input:
+  python -m compute.matrix --model-results compute/runs/debug-11/congestion/model_results.json.gz
+  ```
+
+* **Clustering sweep** —
+  ```
+  python -m compute.clustering.runner \
+      --run-id debug-11 \
+      --coords-model /data/coords/model_bus_coords.csv \
+      --coords-ercot /data/processed/settlement_points_geocoded.csv
+  # or explicit paths:
+  python -m compute.clustering.runner \
+      --matrices compute/runs/debug-11/matrix/congestion_matrices.npz \
+      --out-dir compute/runs/debug-11/clustering \
+      --coords-model ... --coords-ercot ...
+  ```
+
+
 ## Overview
 
 | Quantity                    | Source                                | Measures                                             |
