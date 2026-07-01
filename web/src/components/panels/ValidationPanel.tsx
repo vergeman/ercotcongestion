@@ -14,13 +14,13 @@ type FetchState =
   | { status: "ok"; data: ValidationResponse }
   | { status: "error"; message: string };
 
-/** Fixed log10 axis bounds — fragility and |basis| both span several orders
- *  of magnitude. These are wide enough to cover anything observed; outliers
- *  clip to the edge rather than skewing the layout. */
-const X_LOG_MIN = -4; // 1e-4
-const X_LOG_MAX = 2; // 1e2
-const Y_LOG_MIN = -2; // $0.01/MWh
-const Y_LOG_MAX = 3; // $1000/MWh
+/** Symlog on both axes: sign(v) * log10(1 + |v|). Zero lines + 45°/135°
+ *  perfect-agreement guides. Bounds cover the observed range on both sides;
+ *  outliers clip to the edge rather than skewing the layout. */
+const AXIS_MIN = -3; // symlog units (~ -$1000/MWh)
+const AXIS_MAX = 3;
+
+const SYMLOG_C = 1; // $/MWh — knee of the symlog transform
 
 const PLOT_W = 280;
 const PLOT_H = 220;
@@ -104,7 +104,7 @@ export default function ValidationPanel({ start, end }: Props) {
 
       <div className="panel-section">
         <div className="panel-section__header label">
-          Correlation: fragility vs |basis|
+          Correlation: modeled congestion vs basis (signed)
         </div>
         <div className="vp-rho-grid">
           <RhoTile
@@ -115,13 +115,17 @@ export default function ValidationPanel({ start, end }: Props) {
           <RhoTile
             label="Congested"
             result={data.congested}
-            accent="var(--frag-high)"
+            accent="var(--mc-accent)"
           />
           <RhoTile
             label="Quiet"
             result={data.quiet}
             accent="var(--text-secondary)"
           />
+        </div>
+        <div className="vp-sign-agreement mono">
+          sign-agreement: {fmtSignAgreement(data.sign_agreement_overall)} overall
+          · {fmtSignAgreement(data.sign_agreement_congested)} congested
         </div>
         <div className="vp-threshold label">
           congested ≡ n_binding ≥ {data.congested_threshold_n_binding}
@@ -147,7 +151,7 @@ export default function ValidationPanel({ start, end }: Props) {
           >
             <span
               className="vp-dot"
-              style={{ background: "var(--frag-high)" }}
+              style={{ background: "var(--mc-accent)" }}
             />
             congested
           </button>
@@ -271,19 +275,19 @@ function ScatterPlot({
   showCongested: boolean;
   showQuiet: boolean;
 }) {
-  // Project log-space coords to pixel-space. We clip rather than drop so
+  // Project symlog-space coords to pixel-space. We clip rather than drop so
   // outliers are still represented at the edge of the plot.
   const projected = useMemo(() => {
     const w = PLOT_W - PAD_L - PAD_R;
     const h = PLOT_H - PAD_T - PAD_B;
     return points
-      .filter((p) => p.fragility > 0 && p.abs_basis > 0)
+      .filter((p) => p.modeled_congestion !== 0 && p.basis !== 0)
       .filter((p) => (p.congested ? showCongested : showQuiet))
       .map((p) => {
-        const lx = clamp(Math.log10(p.fragility), X_LOG_MIN, X_LOG_MAX);
-        const ly = clamp(Math.log10(p.abs_basis), Y_LOG_MIN, Y_LOG_MAX);
-        const x = PAD_L + ((lx - X_LOG_MIN) / (X_LOG_MAX - X_LOG_MIN)) * w;
-        const y = PAD_T + h - ((ly - Y_LOG_MIN) / (Y_LOG_MAX - Y_LOG_MIN)) * h;
+        const sx = clamp(symlog(p.modeled_congestion), AXIS_MIN, AXIS_MAX);
+        const sy = clamp(symlog(p.basis), AXIS_MIN, AXIS_MAX);
+        const x = PAD_L + ((sx - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * w;
+        const y = PAD_T + h - ((sy - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * h;
         return { x, y, congested: p.congested };
       });
   }, [points, showCongested, showQuiet]);
@@ -292,8 +296,15 @@ function ScatterPlot({
     return <div className="panel-empty label">no observations</div>;
   }
 
-  const xTicks = tickSequence(X_LOG_MIN, X_LOG_MAX);
-  const yTicks = tickSequence(Y_LOG_MIN, Y_LOG_MAX);
+  const w = PLOT_W - PAD_L - PAD_R;
+  const h = PLOT_H - PAD_T - PAD_B;
+  const axisToX = (v: number) =>
+    PAD_L + ((v - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * w;
+  const axisToY = (v: number) =>
+    PAD_T + h - ((v - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * h;
+
+  const xTicks = tickSequence(AXIS_MIN, AXIS_MAX);
+  const yTicks = tickSequence(AXIS_MIN, AXIS_MAX);
 
   return (
     <svg
@@ -303,36 +314,64 @@ function ScatterPlot({
       className="vp-scatter"
     >
       {/* Grid */}
-      {xTicks.map((t) => {
-        const w = PLOT_W - PAD_L - PAD_R;
-        const x = PAD_L + ((t - X_LOG_MIN) / (X_LOG_MAX - X_LOG_MIN)) * w;
-        return (
-          <line
-            key={`xg${t}`}
-            x1={x}
-            x2={x}
-            y1={PAD_T}
-            y2={PLOT_H - PAD_B}
-            stroke="var(--border)"
-            strokeWidth={0.5}
-          />
-        );
-      })}
-      {yTicks.map((t) => {
-        const h = PLOT_H - PAD_T - PAD_B;
-        const y = PAD_T + h - ((t - Y_LOG_MIN) / (Y_LOG_MAX - Y_LOG_MIN)) * h;
-        return (
-          <line
-            key={`yg${t}`}
-            x1={PAD_L}
-            x2={PLOT_W - PAD_R}
-            y1={y}
-            y2={y}
-            stroke="var(--border)"
-            strokeWidth={0.5}
-          />
-        );
-      })}
+      {xTicks.map((t) => (
+        <line
+          key={`xg${t}`}
+          x1={axisToX(t)}
+          x2={axisToX(t)}
+          y1={PAD_T}
+          y2={PLOT_H - PAD_B}
+          stroke="var(--border)"
+          strokeWidth={0.5}
+        />
+      ))}
+      {yTicks.map((t) => (
+        <line
+          key={`yg${t}`}
+          x1={PAD_L}
+          x2={PLOT_W - PAD_R}
+          y1={axisToY(t)}
+          y2={axisToY(t)}
+          stroke="var(--border)"
+          strokeWidth={0.5}
+        />
+      ))}
+
+      {/* Reference lines: axis zeros + y=x (agreement) + y=-x (anti). */}
+      <line
+        x1={axisToX(0)}
+        x2={axisToX(0)}
+        y1={PAD_T}
+        y2={PLOT_H - PAD_B}
+        stroke="var(--border-bright)"
+        strokeWidth={0.75}
+      />
+      <line
+        x1={PAD_L}
+        x2={PLOT_W - PAD_R}
+        y1={axisToY(0)}
+        y2={axisToY(0)}
+        stroke="var(--border-bright)"
+        strokeWidth={0.75}
+      />
+      <line
+        x1={axisToX(AXIS_MIN)}
+        y1={axisToY(AXIS_MIN)}
+        x2={axisToX(AXIS_MAX)}
+        y2={axisToY(AXIS_MAX)}
+        stroke="var(--text-muted)"
+        strokeWidth={0.5}
+        strokeDasharray="2 2"
+      />
+      <line
+        x1={axisToX(AXIS_MIN)}
+        y1={axisToY(-AXIS_MIN)}
+        x2={axisToX(AXIS_MAX)}
+        y2={axisToY(-AXIS_MAX)}
+        stroke="var(--text-muted)"
+        strokeWidth={0.5}
+        strokeDasharray="2 2"
+      />
 
       {/* Points — quiet first so congested draws on top. */}
       {projected
@@ -355,7 +394,7 @@ function ScatterPlot({
             cx={p.x}
             cy={p.y}
             r={1.6}
-            fill="var(--frag-high)"
+            fill="var(--mc-accent)"
             fillOpacity={0.55}
           />
         ))}
@@ -379,40 +418,32 @@ function ScatterPlot({
       />
 
       {/* Tick labels */}
-      {xTicks.map((t) => {
-        const w = PLOT_W - PAD_L - PAD_R;
-        const x = PAD_L + ((t - X_LOG_MIN) / (X_LOG_MAX - X_LOG_MIN)) * w;
-        return (
-          <text
-            key={`xt${t}`}
-            x={x}
-            y={PLOT_H - PAD_B + 12}
-            fontSize={9}
-            fill="var(--text-muted)"
-            textAnchor="middle"
-            fontFamily="Space Mono"
-          >
-            1e{t}
-          </text>
-        );
-      })}
-      {yTicks.map((t) => {
-        const h = PLOT_H - PAD_T - PAD_B;
-        const y = PAD_T + h - ((t - Y_LOG_MIN) / (Y_LOG_MAX - Y_LOG_MIN)) * h;
-        return (
-          <text
-            key={`yt${t}`}
-            x={PAD_L - 4}
-            y={y + 3}
-            fontSize={9}
-            fill="var(--text-muted)"
-            textAnchor="end"
-            fontFamily="Space Mono"
-          >
-            1e{t}
-          </text>
-        );
-      })}
+      {xTicks.map((t) => (
+        <text
+          key={`xt${t}`}
+          x={axisToX(t)}
+          y={PLOT_H - PAD_B + 12}
+          fontSize={9}
+          fill="var(--text-muted)"
+          textAnchor="middle"
+          fontFamily="Space Mono"
+        >
+          {tickLabel(t)}
+        </text>
+      ))}
+      {yTicks.map((t) => (
+        <text
+          key={`yt${t}`}
+          x={PAD_L - 4}
+          y={axisToY(t) + 3}
+          fontSize={9}
+          fill="var(--text-muted)"
+          textAnchor="end"
+          fontFamily="Space Mono"
+        >
+          {tickLabel(t)}
+        </text>
+      ))}
 
       {/* Axis labels */}
       <text
@@ -423,7 +454,7 @@ function ScatterPlot({
         textAnchor="middle"
         style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}
       >
-        fragility
+        modeled congestion $/MWh (symlog)
       </text>
       <text
         x={-PLOT_H / 2}
@@ -434,7 +465,7 @@ function ScatterPlot({
         transform="rotate(-90)"
         style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}
       >
-        |basis| $/MWh
+        basis $/MWh (symlog)
       </text>
     </svg>
   );
@@ -521,6 +552,19 @@ function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
 }
 
+/** sign(v) * log10(1 + |v| / c). Preserves sign; compresses tails. */
+function symlog(v: number, c: number = SYMLOG_C): number {
+  return Math.sign(v) * Math.log10(1 + Math.abs(v) / c);
+}
+
+function tickLabel(t: number): string {
+  if (t === 0) return "0";
+  const mag = Math.pow(10, Math.abs(t)) - 1;
+  const sign = t < 0 ? "-" : "";
+  if (mag >= 1) return `${sign}${Math.round(mag)}`;
+  return `${sign}${mag.toFixed(1)}`;
+}
+
 function tickSequence(min: number, max: number): number[] {
   const ticks: number[] = [];
   for (let t = min; t <= max; t++) ticks.push(t);
@@ -535,6 +579,11 @@ function rhoStrength(rho: number | null): string {
   if (a < 0.5) return "moderate";
   if (a < 0.7) return "strong";
   return "very strong";
+}
+
+function fmtSignAgreement(x: number | null): string {
+  if (x == null) return "—";
+  return `${(x * 100).toFixed(1)}%`;
 }
 
 function fmtInt(n: number): string {
@@ -604,6 +653,12 @@ const styles = `
 .vp-tile-label { color: var(--text-secondary); margin-bottom: 3px; }
 .vp-tile-rho { font-size: 13px; font-weight: 700; line-height: 1.1; }
 .vp-tile-meta { color: var(--text-muted); margin-top: 3px; font-size: 9px; }
+.vp-sign-agreement {
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-align: center;
+    margin-top: 4px;
+}
 .vp-threshold {
     color: var(--text-muted);
     font-size: 9px;
