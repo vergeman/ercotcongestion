@@ -32,8 +32,8 @@ Branch: feat/db-congestion-columns
 
 ## Acceptance
 
-* [ ] Migration `18_congestion_metrics.sql` applies cleanly; new columns exist and default to NULL on existing rows.
-* [ ] A single-snapshot run of `write_snapshots.py` populates all new columns on the affected row and writes NULL for `fragility*`.
-* [ ] `write_failure()` writes a row with NULL new columns and does not error on the extended schema.
-* [ ] `--force-recompute` overwrites an existing `status='ok'` row (verify via updated `binding_proximity_max`).
-* [ ] No `fragility_total` / `fragility_top10_share` values written by new code (SELECT confirms NULL after new writes).
+* [x] Migration `18_congestion_metrics.sql` applies cleanly; new columns exist and default to NULL on existing rows.
+* [x] A single-snapshot run of `write_snapshots.py` populates all new columns on the affected row and writes NULL for `fragility*`.
+* [x] `write_failure()` writes a row with NULL new columns and does not error on the extended schema.
+* [x] `--force-recompute` overwrites an existing `status='ok'` row (verify via updated `binding_proximity_max`).
+* [x] No `fragility_total` / `fragility_top10_share` values written by new code (SELECT confirms NULL after new writes).
