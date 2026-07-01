@@ -29,7 +29,7 @@ Branch: docs/congestion-metrics
 
 ## Acceptance
 
-* [ ] `rg -l fragility compute/` returns no matches (docs or code).
-* [ ] `compute/README.md` documents both metrics with formula + sign convention + units.
-* [ ] `compute/snapshot.md` result-dict schema section lists the new result + meta keys and no old ones.
-* [ ] `preprocess/verify.py` stale comment removed.
+* [x] `rg -l fragility compute/` returns no matches (docs or code).
+* [x] `compute/README.md` documents both metrics with formula + sign convention + units.
+* [x] `compute/snapshot.md` result-dict schema section lists the new result + meta keys and no old ones.
+* [x] `preprocess/verify.py` stale comment removed.
