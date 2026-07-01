@@ -14,7 +14,7 @@ from compute.clustering.algorithm import (
     pca_kmeans,
     spectral_corr,
 )
-from compute.congestion.compute import _adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score
 
 from .conftest import N_BUSES, N_CLUSTERS, SEED
 
@@ -22,10 +22,10 @@ from .conftest import N_BUSES, N_CLUSTERS, SEED
 def _ari(labels: pd.Series, truth: pd.Series) -> float:
     common = labels.index.intersection(truth.index)
     mask = labels.loc[common] >= 0
-    return _adjusted_rand_score(
+    return float(adjusted_rand_score(
         labels.loc[common][mask].to_numpy(),
         truth.loc[common][mask].to_numpy(),
-    )
+    ))
 
 
 def test_hierarchical_ward_recovers_planted(planted):

@@ -15,9 +15,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform
-from sklearn.metrics import silhouette_score as _sk_silhouette
-
-from compute.congestion.compute import _adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score, silhouette_score as _sk_silhouette
 
 
 def _align_labels(C: pd.DataFrame, labels: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
@@ -81,10 +79,10 @@ def cluster_stability_ari(
         mask = (la.loc[common] >= 0) & (lb.loc[common] >= 0)
         if mask.sum() < 2:
             continue
-        ari = _adjusted_rand_score(
+        ari = float(adjusted_rand_score(
             la.loc[common][mask].to_numpy(),
             lb.loc[common][mask].to_numpy(),
-        )
+        ))
         if not np.isnan(ari):
             aris.append(ari)
 

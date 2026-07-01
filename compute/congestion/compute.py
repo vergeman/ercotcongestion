@@ -14,8 +14,8 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy import stats
-from scipy.cluster.vq import kmeans2
-from scipy.special import comb
+from sklearn.cluster import KMeans
+from sklearn.metrics import adjusted_rand_score
 
 logger = logging.getLogger(__name__)
 
@@ -336,31 +336,6 @@ def pairwise_corr_distribution(C: pd.DataFrame, n_bins: int = 20) -> dict:
     }
 
 
-def _adjusted_rand_score(labels_a, labels_b) -> float:
-    """Adjusted Rand Index. Manual implementation to avoid sklearn dep."""
-    a = np.asarray(labels_a)
-    b = np.asarray(labels_b)
-    if a.size != b.size or a.size < 2:
-        return float('nan')
-    ua, ai = np.unique(a, return_inverse=True)
-    ub, bi = np.unique(b, return_inverse=True)
-    cont = np.zeros((ua.size, ub.size), dtype=np.int64)
-    for x, y in zip(ai, bi):
-        cont[x, y] += 1
-    sum_comb_c = float(np.sum(comb(cont, 2, exact=False)))
-    sum_a = float(np.sum(comb(cont.sum(axis=1), 2, exact=False)))
-    sum_b = float(np.sum(comb(cont.sum(axis=0), 2, exact=False)))
-    n = a.size
-    total_pairs = comb(n, 2, exact=False)
-    if total_pairs == 0:
-        return float('nan')
-    expected = sum_a * sum_b / total_pairs
-    max_index = 0.5 * (sum_a + sum_b)
-    if max_index == expected:
-        return 1.0 if sum_comb_c == expected else 0.0
-    return float((sum_comb_c - expected) / (max_index - expected))
-
-
 def split_half_cluster_stability(
     C: pd.DataFrame,
     k: int = 10,
@@ -386,9 +361,9 @@ def split_half_cluster_stability(
         A = X.iloc[:, a_idx].to_numpy().astype(float)
         B = X.iloc[:, b_idx].to_numpy().astype(float)
         try:
-            _, la = kmeans2(A, k, minit='++', seed=seed + s, missing='warn')
-            _, lb = kmeans2(B, k, minit='++', seed=seed + s + 1000, missing='warn')
-            aris.append(_adjusted_rand_score(la, lb))
+            la = KMeans(n_clusters=k, n_init=1, random_state=seed + s).fit_predict(A)
+            lb = KMeans(n_clusters=k, n_init=1, random_state=seed + s + 1000).fit_predict(B)
+            aris.append(float(adjusted_rand_score(la, lb)))
         except Exception as e:
             logger.warning("split_half[%d] failed: %s", s, e)
 
