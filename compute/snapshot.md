@@ -147,11 +147,11 @@
          the OPF goes infeasible. Trade fidelity for feasibility - attempt to
          incorporate hourly load variation.
 
-       * NB: Fragility calculation: recognize its not capturing load
-         redistribution, but based on total load level (more load, more
-         binding), generator availability, and outages.
-         * TODO: decompose to zone level scale factor; ERCOT zone load / TAMU
-           zone total
+       * NB: congestion signal (modeled_congestion, binding_proximity)
+         is driven by total load level (more load, more binding), generator
+         availability, and outages — not by within-zone load redistribution
+         at the global-scale stage. Sprint 1 disaggregates to per-weather-zone
+         factors so ERCOT's between-zone geography drives which lines bind.
 
 ## Operating Conditions
 
@@ -177,7 +177,7 @@
   * `apply_operating_conditions()`
   * DC-OPF
   * PTDF-LODF
-  * Fragility
+  * Modeled congestion + binding proximity (compute/congestion)
   * N-1
   * Outputs:
     * lmp, dispatch, flows
