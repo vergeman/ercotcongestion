@@ -75,14 +75,39 @@ def main():
     print(f"Cost:  ${m['objective_cost']:>10,.0f}")
     print(f"LMPs:  ${m['lmp_min']:.2f} – ${m['lmp_max']:.2f}  (mean ${m['lmp_mean']:.2f})")
     print(f"Binding lines: {m['n_binding_lines']}")
-    print(f"Fragility total: {m['fragility_total']:.2f}")
-    print(f"Top 10 share:    {m['fragility_top10_share']:.1%}")
-    print(f"\nTop 10 fragile buses:")
-    print(result['fragility'].nlargest(10).round(3).to_string())
+    print(f"modeled_congestion: total={m['modeled_congestion_total']:+.2f}  "
+          f"|total|={m['modeled_congestion_abs_total']:.2f}  "
+          f"top10 |share|={m['modeled_congestion_top10_share']:.1%}")
+    bp_max = m['binding_proximity_max']
+    bp_p95 = m['binding_proximity_p95']
+    print(f"binding_proximity:  max={bp_max if bp_max is None else f'{bp_max:.3f}'}  "
+          f"p95={bp_p95 if bp_p95 is None else f'{bp_p95:.3f}'}")
+
+    mc = result['modeled_congestion']
+    bp = result['binding_proximity']
+    print(f"\nTop 10 buses by |modeled_congestion| (signed):")
+    print(mc.reindex(mc.abs().nlargest(10).index).round(3).to_string())
+    print(f"\nTop 10 buses by binding_proximity:")
+    print(bp.nlargest(10).round(3).to_string())
 
     if not result['shadow_prices'].empty:
         print(f"\nTop 5 binding lines:")
         print(result['shadow_prices'].head(5).round(2).to_string())
+
+    # Smoke assertions — structural checks, not a full sign-convention proof
+    # (that lives in verify_sign_convention.py).
+    assert 'modeled_congestion' in result and 'binding_proximity' in result
+    assert mc.dtype.kind == 'f'
+    assert (bp.dropna() >= 0).all()
+    # Sign check: when any lines bind, modeled_congestion must retain sign
+    # information — PTDF has both signs across the bus population, so
+    # Σ PTDF·μ_signed should not collapse to a single-signed vector. If this
+    # ever fires, someone has re-introduced .abs() or squared PTDF upstream.
+    if m['n_binding_lines'] > 0 and mc.abs().sum() > 0:
+        assert (mc > 0).any() and (mc < 0).any(), (
+            "modeled_congestion has only one sign despite binding lines — "
+            "check congestion.modeled_congestion_at for lost sign information"
+        )
 
     return result, op, n
 
