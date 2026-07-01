@@ -65,8 +65,9 @@ export default function App() {
   // Window-wide modeled-congestion stats (|mc| P99 anchor, symmetric around 0).
   // Same shape as lmpStats — stable palette across playback.
   const [mcStats, setMcStats] = useState<ModeledCongestionStats | null>(null);
-  // Per-timestamp series for the timeline sparkline (fragility_total +
-  // n_binding_lines). Aligned 1:1 with `timestamps`.
+  // Per-timestamp series for the timeline sparkline
+  // (modeled_congestion_abs_total + n_binding_lines). Aligned 1:1 with
+  // `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   // Currently-selected curated event, if any. Cleared whenever the user
   // loads a custom window via DateRangePicker.
@@ -121,7 +122,8 @@ export default function App() {
           const byTs = new Map<string, SparkPoint>();
           for (const entry of data.entries) {
             byTs.set(new Date(entry.interval_ts).toISOString(), {
-              fragility_total: entry.meta.fragility_total,
+              modeled_congestion_abs_total:
+                entry.meta.modeled_congestion_abs_total,
               n_binding_lines: entry.meta.n_binding_lines,
             });
           }
@@ -129,7 +131,7 @@ export default function App() {
             ts.map(
               (t) =>
                 byTs.get(t.toISOString()) ?? {
-                  fragility_total: null,
+                  modeled_congestion_abs_total: null,
                   n_binding_lines: null,
                 }
             )

@@ -1,7 +1,9 @@
 import { useMemo, useRef, useCallback } from "react";
 
 export interface SparkPoint {
-  fragility_total: number | null;
+  // magnitude, not signed — signed sums cancel visually across strong
+  // bidirectional snapshots.
+  modeled_congestion_abs_total: number | null;
   n_binding_lines: number | null;
 }
 
@@ -16,8 +18,8 @@ const VIEW_W = 1000; // viewBox width — gets stretched horizontally
 const PAD_TOP = 4; // px space at top of viewBox
 const PAD_BOTTOM = 4; // px space at bottom of viewBox
 
-// Colors — match the rest of the app (yellow=fragility, pink=binding).
-const FRAGILITY_COLOR = "#eab308";
+// Colors — match the rest of the app (yellow=‖modeled congestion‖, pink=binding).
+const MC_ABS_COLOR = "#eab308";
 const BINDING_COLOR = "#ec4899";
 const CURSOR_COLOR = "#38bdf8";
 const BASELINE_COLOR = "#252d3a";
@@ -31,28 +33,31 @@ export default function TimelineSparkline({
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Compute peaks and the SVG geometry once per series change. Both signals
-  // are normalized to their own peak — true dual-axis. fragility renders as
-  // a filled area; binding_lines renders as a step line on top.
+  // are normalized to their own peak — true dual-axis. ‖modeled congestion‖
+  // renders as a filled area; binding_lines renders as a step line on top.
   const geometry = useMemo(() => {
     if (series.length === 0) {
-      return { areaPath: "", stepPath: "", peakFrag: 0, peakBinding: 0 };
+      return { areaPath: "", stepPath: "", peakMc: 0, peakBinding: 0 };
     }
 
     const innerH = 100; // viewBox y range; CSS scales to actual px
     const usableH = innerH - PAD_TOP - PAD_BOTTOM;
 
-    let peakFrag = 0;
+    let peakMc = 0;
     let peakBinding = 0;
     for (const p of series) {
-      if (p.fragility_total != null && p.fragility_total > peakFrag) {
-        peakFrag = p.fragility_total;
+      if (
+        p.modeled_congestion_abs_total != null &&
+        p.modeled_congestion_abs_total > peakMc
+      ) {
+        peakMc = p.modeled_congestion_abs_total;
       }
       if (p.n_binding_lines != null && p.n_binding_lines > peakBinding) {
         peakBinding = p.n_binding_lines;
       }
     }
     // Avoid /0 when a window has no signal at all.
-    const fragNorm = peakFrag > 0 ? peakFrag : 1;
+    const mcNorm = peakMc > 0 ? peakMc : 1;
     const bindNorm = peakBinding > 0 ? peakBinding : 1;
 
     // x position for index i, centered in its slot.
@@ -63,11 +68,11 @@ export default function TimelineSparkline({
     const yFrom = (norm: number) =>
       innerH - PAD_BOTTOM - usableH * Math.max(0, Math.min(1, norm));
 
-    // Fragility area path
+    // ‖Modeled Congestion‖ area path
     let areaPath = `M 0 ${innerH - PAD_BOTTOM} `;
     series.forEach((p, i) => {
       const x = xAt(i);
-      const y = yFrom((p.fragility_total ?? 0) / fragNorm);
+      const y = yFrom((p.modeled_congestion_abs_total ?? 0) / mcNorm);
       areaPath += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
     });
     areaPath += `L ${VIEW_W} ${innerH - PAD_BOTTOM} Z`;
@@ -87,7 +92,7 @@ export default function TimelineSparkline({
       }
     });
 
-    return { areaPath, stepPath, peakFrag, peakBinding };
+    return { areaPath, stepPath, peakMc, peakBinding };
   }, [series]);
 
   // Click/drag to seek. We translate the click X to the nearest series index.
@@ -126,12 +131,12 @@ export default function TimelineSparkline({
           <span
             className="sparkline__sw"
             style={{
-              background: FRAGILITY_COLOR,
+              background: MC_ABS_COLOR,
               opacity: 0.6,
               height: 6,
             }}
           />
-          fragility
+          ‖modeled congestion‖
         </span>
         <span>
           <span
@@ -162,12 +167,12 @@ export default function TimelineSparkline({
           vectorEffect="non-scaling-stroke"
         />
 
-        {/* fragility area */}
+        {/* ‖modeled congestion‖ area */}
         <path
           d={geometry.areaPath}
-          fill={FRAGILITY_COLOR}
+          fill={MC_ABS_COLOR}
           fillOpacity={0.25}
-          stroke={FRAGILITY_COLOR}
+          stroke={MC_ABS_COLOR}
           strokeWidth={1}
           vectorEffect="non-scaling-stroke"
         />
