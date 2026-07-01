@@ -29,28 +29,28 @@ export default function Header({
             View
           </span>
           <button
-            className={viewMode === "fragility" ? "active" : ""}
-            onClick={() => onViewMode("fragility")}
-          >
-            Fragility
-          </button>
-          <button
             className={viewMode === "lmp" ? "active" : ""}
             onClick={() => onViewMode("lmp")}
           >
             LMP
           </button>
           <button
-            className={viewMode === "delta_rank" ? "active" : ""}
-            onClick={() => onViewMode("delta_rank")}
+            className={viewMode === "modeled_congestion" ? "active" : ""}
+            onClick={() => onViewMode("modeled_congestion")}
           >
-            Δ Rank
+            Modeled Congestion
           </button>
           <button
-            className={viewMode === "fragility_z" ? "active" : ""}
-            onClick={() => onViewMode("fragility_z")}
+            className={viewMode === "binding_proximity" ? "active" : ""}
+            onClick={() => onViewMode("binding_proximity")}
           >
-            Frag Z
+            Binding Proximity
+          </button>
+          <button
+            className={viewMode === "congestion_vs_basis" ? "active" : ""}
+            onClick={() => onViewMode("congestion_vs_basis")}
+          >
+            Congestion vs Basis
           </button>
         </div>
       </div>

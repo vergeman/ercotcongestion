@@ -1,14 +1,13 @@
 import { useMemo } from "react";
 import type { BusState, ViewMode } from "../../api/types";
 import {
-  FRAGILITY_ANCHORS,
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
   normalizeLmpFromStats,
   DELTA_ANCHORS,
-  Z_ANCHORS,
+  BINDING_PROXIMITY_ANCHORS,
   type LmpStats,
-  type BusZStats,
+  type ModeledCongestionStats,
 } from "../../lib/colors";
 
 interface Props {
@@ -16,7 +15,7 @@ interface Props {
   buses: BusState[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
-  zStats: BusZStats | null;
+  mcStats: ModeledCongestionStats | null;
 }
 
 const HIST_BINS = 24;
@@ -27,18 +26,11 @@ function formatDollar(v: number): string {
   return `$${v.toFixed(0)}`;
 }
 
-function formatTick(v: number): string {
-  if (v === 0) return "0";
-  if (v >= 1) return v >= 10 ? v.toFixed(0) : v.toString();
-  // Sub-1 values: trim trailing zeros (0.05, 0.1, 0.5)
-  return v.toString();
-}
-
-export default function Legend({ viewMode, buses, lmpStats, zStats }: Props) {
-  const isFragility = viewMode === "fragility";
+export default function Legend({ viewMode, buses, lmpStats, mcStats }: Props) {
+  const isModeledCongestion = viewMode === "modeled_congestion";
   const isLmp = viewMode === "lmp";
-  const isDelta = viewMode === "delta_rank";
-  const isZ = viewMode === "fragility_z";
+  const isDelta = viewMode === "congestion_vs_basis";
+  const isProximity = viewMode === "binding_proximity";
 
   // LMP histogram for the *current snapshot*, binned in color-space so each
   // bar aligns directly above the gradient color it falls in.
@@ -67,45 +59,22 @@ export default function Legend({ viewMode, buses, lmpStats, zStats }: Props) {
     ];
   }, [isLmp, lmpStats]);
 
-  // Tick positions on the fragility bar.
-  const fragilityTicks = useMemo(() => {
-    const { floor, red, gamma, red_core, ticks } = FRAGILITY_ANCHORS;
-    const logFloor = Math.log10(floor);
-    const logRed = Math.log10(red);
-    const range = logRed - logFloor;
-    return ticks.map((v) => {
-      let pct: number;
-      if (v <= floor) {
-        pct = 0;
-      } else if (v <= red) {
-        const raw = (Math.log10(v) - logFloor) / range;
-        const damped = Math.pow(Math.max(0, raw), gamma);
-        pct = Math.min(red_core, red_core * damped) * 100;
-      } else {
-        const x = Math.log10(v) - logRed;
-        const tail = x / (1 + x);
-        pct = (red_core + (1 - red_core) * tail) * 100;
-      }
-      return { value: v, pct };
-    });
-  }, []);
-
   // Bar gradient depends on view mode.
-  const barGradient = isFragility
-    ? "linear-gradient(to right, #22c55e, #eab308, #ef4444)"
+  const barGradient = isModeledCongestion
+    ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
     : isLmp
     ? "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
     : isDelta
     ? `linear-gradient(to right, ${DELTA_ANCHORS.purple}, ${DELTA_ANCHORS.cream}, ${DELTA_ANCHORS.teal})`
-    : `linear-gradient(to right, ${Z_ANCHORS.gray}, ${Z_ANCHORS.red})`;
+    : "linear-gradient(to right, rgb(30,41,59), rgb(234,179,8), rgb(239,68,68))";
 
-  const title = isFragility
-    ? "Fragility (log)"
+  const title = isModeledCongestion
+    ? "Modeled Congestion ($/MWh)"
     : isLmp
     ? "LMP ($/MWh)"
     : isDelta
-    ? "Δ Rank (fragility − |basis|)"
-    : "Fragility z-score";
+    ? "Δ Rank (modeled congestion − basis)"
+    : "Binding Proximity";
 
   return (
     <div className="legend">
@@ -126,18 +95,43 @@ export default function Legend({ viewMode, buses, lmpStats, zStats }: Props) {
 
       <div className="legend__bar" style={{ background: barGradient }} />
 
-      {/* Tick marks below the bar */}
-      {isFragility && (
-        <div className="legend__ticks">
-          {fragilityTicks.map((t) => (
+      {/* Modeled congestion: signed diverging; center = 0, edges = ±p_high */}
+      {isModeledCongestion && mcStats && (
+        <>
+          <div className="legend__ticks">
             <span
-              key={t.value}
               className="label mono legend__tick"
-              style={{ left: `${t.pct}%` }}
+              style={{ left: "0%" }}
             >
-              {formatTick(t.value)}
+              −{formatDollar(mcStats.p_high)}
             </span>
-          ))}
+            <span
+              className="label mono legend__tick"
+              style={{ left: "50%" }}
+            >
+              0
+            </span>
+            <span
+              className="label mono legend__tick"
+              style={{ left: "100%" }}
+            >
+              +{formatDollar(mcStats.p_high)}
+            </span>
+          </div>
+          <div className="legend__labels">
+            <span className="label">export (−)</span>
+            <span className="label">import (+)</span>
+          </div>
+          <div className="legend__sub label">
+            window |max| {formatDollar(mcStats.max_abs)} · anchor = |mc| P99
+          </div>
+        </>
+      )}
+
+      {isModeledCongestion && !mcStats && (
+        <div className="legend__labels">
+          <span className="label mono">—</span>
+          <span className="label mono">—</span>
         </div>
       )}
 
@@ -174,19 +168,24 @@ export default function Legend({ viewMode, buses, lmpStats, zStats }: Props) {
             <span className="label">model under</span>
             <span className="label">over</span>
           </div>
-          <div className="legend__sub label">per-snapshot rank</div>
+          <div className="legend__sub label">per-snapshot signed rank</div>
         </>
       )}
 
-      {isZ && (
+      {isProximity && (
         <>
-          <div className="legend__labels">
-            <span className="label mono">≤ typical</span>
-            <span className="label mono">+{Z_ANCHORS.saturate}σ</span>
+          <div className="legend__ticks">
+            {BINDING_PROXIMITY_ANCHORS.ticks.map((v) => (
+              <span
+                key={v}
+                className="label mono legend__tick"
+                style={{ left: `${v * 100}%` }}
+              >
+                {v.toFixed(v < 1 ? 1 : 0)}
+              </span>
+            ))}
           </div>
-          <div className="legend__sub label">
-            {zStats ? `per-bus, n=${zStats.perBus.size} buses` : "—"}
-          </div>
+          <div className="legend__sub label">0 slack, 1 binding</div>
         </>
       )}
 
