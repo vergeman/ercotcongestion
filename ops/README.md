@@ -29,6 +29,10 @@
 
 ## Jobs
 
+* Manifests reference `${IMAGE_TAG}`. Before applying a job manifest, export
+  the tag written by `./build.sh` at repo root:
+  * `export IMAGE_TAG=$(cat ../../.image-tag)`
+
 * `ingest_cronjob.sh`: starts a 15-min `live-updater.py` loop
   * check `ercot_ingest/proxy/worker.js`
 
