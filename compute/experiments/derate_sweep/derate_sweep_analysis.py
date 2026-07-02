@@ -17,8 +17,8 @@ Sprint 3 analysis: consume derate_sweep.py CSVs and answer the two questions.
 
 Usage::
 
-    docker compose run --rm compute python /compute/derate_sweep/derate_sweep_analysis.py \
-        [--in /compute/derate_sweep/results] \
+    docker compose run --rm compute python /compute/experiments/derate_sweep/derate_sweep_analysis.py \
+        [--in /compute/experiments/derate_sweep/results] \
         [--top-k 20] \
         [--baseline-line-derate 0.90]
 """
@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger('derate_sweep_analysis')
 
-DEFAULT_IN = Path('/compute/derate_sweep/results')
+DEFAULT_IN = Path('/compute/experiments/derate_sweep/results')
 BASELINE_LINE_DERATE = 0.90  # current production value; comparison anchor
 
 

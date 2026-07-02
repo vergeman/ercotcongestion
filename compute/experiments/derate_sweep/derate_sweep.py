@@ -12,9 +12,9 @@ Analysis (rank stability + basis calibration) lives in derate_sweep_analysis.py.
 
 Usage (docker compose)::
 
-    docker compose run --rm compute python /compute/derate_sweep/derate_sweep.py \
+    docker compose run --rm compute python /compute/experiments/derate_sweep/derate_sweep.py \
         [--sample /compute/sample_specs/reference_dates.json] \
-        [--out /compute/derate_sweep/results]
+        [--out /compute/experiments/derate_sweep/results]
 
 Design notes:
 - Zonal load scaling (Sprint 1) is preserved. Derate is applied on top of the
@@ -74,7 +74,7 @@ DERATE_AXIS: list[tuple[float, float]] = [
 ]
 
 DEFAULT_SAMPLE = Path('/compute/sample_specs/reference_dates.json')
-DEFAULT_OUT = Path('/compute/derate_sweep/results')
+DEFAULT_OUT = Path('/compute/experiments/derate_sweep/results')
 SHED_COST = 5000.0
 SHED_PREFIX = 'shed_'
 
