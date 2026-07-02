@@ -19,3 +19,4 @@ compute/runs/*
 *.odt
 *.gz
 *.png
+.image-tag
