@@ -44,6 +44,42 @@ Artifacts land under `compute/runs/<run_id>/` with stage subdirs
 [`compute/runs/README.md`](runs/README.md) for the per-run layout.
 
 
+## Browsing derived-zone GeoJSONs
+
+The clustering sweep emits one `zones_<ref>_<algo>_k<K>.geojson` per candidate
+partition — >100 files for a full sweep. Two utilities help pick one.
+
+`select_zones.py` prints a ranked table over the sweep summary; higher score =
+more stable across time folds, better separated in feature space, and
+geographically tighter. Does not auto-pick.
+
+```
+docker compose run --rm compute python -m compute.clustering.select_zones \
+    --summary /compute/runs/v1-120/clustering/clustering_summary_congestion_matrices.json
+```
+
+`browse_zones.py` renders every candidate GeoJSON as a toggleable Folium
+overlay in a single HTML file, colored by `cluster_id`. Pair with
+`select_zones.py` to eyeball the top-ranked options.
+
+```
+docker compose run --rm compute python -m compute.clustering.browse_zones \
+    --run-dir /compute/runs/v1-120 \
+    --output /compute/runs/v1-120/clustering/clusters.html
+```
+
+Common flags:
+
+* `--pattern "zones_*_hybrid_geo_k*.geojson"` — narrow the sweep (e.g. only
+  geo-biased variants, or only `--pattern "zones_*_k10.geojson"` for K=10 across
+  everything). Default: all `zones_*.geojson`.
+* `--output clusters.html` — HTML destination. Default: `clusters.html` in cwd
+  (write it under the run dir so it lands on the host bind mount).
+
+Layers start hidden — flip one on at a time via the layer-control panel on
+the right.
+
+
 ## Debugging individual stages
 
 Each stage script is also runnable directly for ad-hoc use. All four accept
