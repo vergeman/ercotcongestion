@@ -113,8 +113,8 @@ class OperatingDataAdapter:
         gen_enriched: pd.DataFrame,
         bus_weather_zones: pd.DataFrame,
         network,
-        line_derate=0.9,
-        tx_derate=0.95
+        line_derate=1.0,
+        tx_derate=1.0
     ):
         """
         Parameters
