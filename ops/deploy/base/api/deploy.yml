@@ -24,7 +24,7 @@ spec:
         - name: regcred
       containers:
         - name: api
-          image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+          image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
           imagePullPolicy: Always
           ports:
             - name: http

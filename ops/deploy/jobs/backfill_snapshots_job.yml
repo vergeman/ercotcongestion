@@ -48,7 +48,7 @@ spec:
         - name: regcred
       containers:
         - name: writer
-          image: ${IMAGE_REPO}/ercotstress/api-compute:latest
+          image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
           imagePullPolicy: Always
           command:
             - python
