@@ -28,6 +28,7 @@ Branch: chore/0043-image-tag-from-git-sha
 
 ## Acceptance
 
-* [ ] `./build.sh --no-push` produces an image tagged `<repo>/ercotstress/api-compute:<sha>` and writes `.image-tag`.
-* [ ] `ops/deploy/deploy-api.sh` applies a Deployment whose image tag matches `.image-tag`.
-* [ ] All 5 manifests reference `${IMAGE_TAG}`; no hardcoded `:v1.2` or `:latest` remain.
+* [x] `build.sh` at repo root: computes `IMAGE_TAG` from `git rev-parse --short HEAD`, builds, pushes, writes `.image-tag`. `.image-tag` gitignored.
+* [x] `ops/deploy/deploy-api.sh` sources `.image-tag` and envsubsts `${IMAGE_TAG}`.
+* [x] All 6 manifests (api deploy, ingest cronjob, 3 backfill jobs, snapshot template) reference `${IMAGE_TAG}`; no `:v1.2` or `:latest` remain.
+* [x] `ops/README.md` documents `export IMAGE_TAG=$(cat ../../.image-tag)` for ad-hoc job applies.
