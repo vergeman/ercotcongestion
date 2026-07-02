@@ -24,8 +24,8 @@ metadata:
 spec:
   backoffLimit: 0          # don't retry on failure; you'll rerun manually
   ttlSecondsAfterFinished: 86400   # auto-delete 24h after completion
-  # Long compute window? Bump activeDeadlineSeconds. Default below is 4 hours.
-  activeDeadlineSeconds: 14400
+  # Long compute window? Override via DEADLINE_SECONDS in write_snapshots.sh.
+  activeDeadlineSeconds: ${DEADLINE_SECONDS}
   template:
     metadata:
       labels:
@@ -45,6 +45,9 @@ spec:
             - "${START}"
             - --end
             - "${END}"
+          env:
+            - name: HIGHS_THREADS
+              value: "${HIGHS_THREADS}"
           envFrom:
             - configMapRef:
                 name: api-config
@@ -52,8 +55,8 @@ spec:
                 name: postgres-credentials
           resources:
             requests:
-              cpu: "500m"
-              memory: "1Gi"
+              cpu: "${CPU_REQUEST}"
+              memory: "${MEM_REQUEST}"
             limits:
-              cpu: "4"
-              memory: "4Gi"
+              cpu: "${CPU_LIMIT}"
+              memory: "${MEM_LIMIT}"
