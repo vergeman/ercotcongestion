@@ -27,7 +27,6 @@ COLUMNS = [
     "rank", "score", "ref", "algo", "K",
     "stab_model", "sil_model", "sc_model",
     "n_buses_model", "n_polygons",
-    "sil_ercot", "sc_ercot",
     "status",
 ]
 

@@ -6,6 +6,10 @@ Three pure-ish functions:
   per cluster from `(lat, lon)`.
 * `transfer_labels(polygons, target_coords)` — point-in-polygon assignment
   with nearest-centroid fallback for points outside all polygons.
+  DIAGNOSTIC-ONLY under the CM.1/CM.2 paradigm: the sweep no longer calls
+  this, and geographic containment is not the model→ERCOT translation
+  mechanism. Kept importable for one-shot geo-vs-behavioral disagreement
+  reports (see `compute.mapping.diagnostics`).
 * `write_zones_geojson(polygons, path)` — disk emission, the only function
   here that touches the filesystem.
 

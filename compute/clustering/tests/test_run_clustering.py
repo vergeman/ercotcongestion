@@ -114,7 +114,6 @@ def _argv(sweep_inputs: dict[str, Path], algos: str, ks: str, refs: str | None =
     argv = [
         "--matrices", str(sweep_inputs["npz"]),
         "--coords-model", str(sweep_inputs["coords_model"]),
-        "--coords-ercot", str(sweep_inputs["coords_ercot"]),
         "--out-dir", str(sweep_inputs["out_dir"]),
         "--algos", algos,
         "--ks", ks,
@@ -146,20 +145,19 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
     assert set(df["algo"]) == {"kmeans_vec", "hierarchical_corr"}
     assert (df["status"] == "ok").all()
 
-    # Every ok cell has a GeoJSON + label CSV.
+    # Every ok cell has a GeoJSON.
     for r in rows:
         gj = out_dir / f"zones_{r['ref']}_{r['algo']}_k{r['K']}.geojson"
         assert gj.exists(), f"missing {gj}"
 
-    # fake_a cells produced ERCOT-side artifacts; fake_b did not.
+    # ERCOT-side artifacts are no longer emitted (CM.4 retires geo transfer
+    # from the sweep path — behavioral mapping happens in compute/mapping).
     for r in rows:
         csv = out_dir / f"ercot_sp_labels_{r['ref']}_{r['algo']}_k{r['K']}.csv"
-        if r["ref"] == "fake_a":
-            assert csv.exists()
-            assert pd.notna(r["sil_ercot"])
-        else:
-            assert not csv.exists()
-            assert r["sil_ercot"] is None or pd.isna(r["sil_ercot"])
+        assert not csv.exists()
+        assert "sil_ercot" not in r
+        assert "sc_ercot" not in r
+        assert "n_sps_ercot" not in r
 
 
 def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
@@ -176,10 +174,9 @@ def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
     summary = json.loads(
         (sweep_inputs["out_dir"] / "clustering_summary_unit.json").read_text(),
     )
-    # 1 ref × 1 algo × 1 K. No row for the absent ercot side.
+    # 1 ref × 1 algo × 1 K. Sweep no longer touches the ERCOT side.
     assert len(summary["rows"]) == 1
     assert summary["rows"][0]["status"] == "ok"
-    assert summary["rows"][0]["n_sps_ercot"] is None
 
 
 def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):

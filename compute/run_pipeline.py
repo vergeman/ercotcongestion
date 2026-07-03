@@ -256,7 +256,6 @@ def _stage_cmd(
             "compute.clustering.runner",
             "--run-id", args.run_id,
             "--coords-model", str(args.coords_model),
-            "--coords-ercot", str(args.coords_ercot),
         ]
         if args.ref_methods:
             cmd += ["--ref-methods", args.ref_methods]

@@ -25,5 +25,4 @@ compute/runs/<run_id>/
   clustering/
     summary.json
     zones_<ref>_<algo>_k<K>.geojson
-    ercot_sp_labels_<ref>_<algo>_k<K>.csv
 ```

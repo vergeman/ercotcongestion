@@ -115,13 +115,12 @@ well as explicit-path flags for one-off invocations.
   ```
   python -m compute.clustering.runner \
       --run-id debug-11 \
-      --coords-model /data/coords/model_bus_coords.csv \
-      --coords-ercot /data/processed/settlement_points_geocoded.csv
+      --coords-model /data/coords/model_bus_coords.csv
   # or explicit paths:
   python -m compute.clustering.runner \
       --matrices compute/runs/debug-11/matrix/congestion_matrices.npz \
       --out-dir compute/runs/debug-11/clustering \
-      --coords-model ... --coords-ercot ...
+      --coords-model ...
   ```
 
 
