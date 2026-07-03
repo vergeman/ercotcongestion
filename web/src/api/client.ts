@@ -1,7 +1,7 @@
 import type {
   StateResponse,
   StateRangeResponse,
-  ValidationResponse,
+  ScorecardResponse,
   PtdfResponse,
 } from "./types";
 
@@ -30,14 +30,14 @@ export async function fetchStateRange(
   return r.json();
 }
 
-export async function fetchValidation(
-  start: Date,
-  end: Date,
-  congestedThreshold = 1
-): Promise<ValidationResponse> {
+export async function fetchScorecard(
+  runId: string,
+  algo = "hierarchical_on_beta",
+  k = 6
+): Promise<ScorecardResponse> {
   const r = await fetch(
-    `${BASE}/validation?start=${start.toISOString()}&end=${end.toISOString()}` +
-      `&congested_threshold=${congestedThreshold}`
+    `${BASE}/validation?run_id=${encodeURIComponent(runId)}` +
+      `&algo=${encodeURIComponent(algo)}&k=${k}`
   );
   if (!r.ok) throw new Error(`validation ${r.status}`);
   return r.json();

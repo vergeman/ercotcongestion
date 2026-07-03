@@ -71,31 +71,49 @@ export type ViewMode =
   | "congestion_vs_basis"
   | "binding_proximity";
 
-export interface CorrelationResult {
-  n: number;
-  rho: number | null;
+// 0047 — zone-aggregated scorecard. Mirrors api/models.py::ScorecardResponse.
+
+export interface ScorecardZone {
+  cluster_id: number;
+  n_buses: number;
+  n_sps: number;
+  corr: number | null;
+  sign_agreement: number | null;
+  model_side_std: number | null;
+  ercot_side_std: number | null;
+  outlier_buses: string[];
+  outlier_sps: string[];
 }
 
-export interface ScatterPoint {
-  modeled_congestion: number;
-  basis: number;
-  abs_basis: number;
-  congested: boolean;
+export interface ScorecardHeadline {
+  rank_spearman: number | null;
+  mean_corr: number | null;
+  mean_sign_agreement: number | null;
+  n_hours: number;
+  n_zones: number;
 }
 
-export interface ValidationResponse {
-  start: string;
-  end: string;
-  n_snapshots: number;
-  n_observations: number;
-  overall: CorrelationResult;
-  congested: CorrelationResult;
-  quiet: CorrelationResult;
-  congested_threshold_n_binding: number;
-  sign_agreement_overall: number | null;
-  sign_agreement_congested: number | null;
-  scatter: ScatterPoint[];
-  by_zone: Record<string, CorrelationResult>;
+export interface ScorecardSeries {
+  hours: string[];
+  cluster_ids: number[];
+  model_Z: number[][]; // (n_hours, n_zones)
+  ercot_Z: number[][]; // (n_hours, n_zones)
+}
+
+export interface ScorecardParams {
+  ref: string;
+  algo: string;
+  k: number;
+  deadband: number;
+  min_members: number;
+}
+
+export interface ScorecardResponse {
+  run_id: string;
+  params: ScorecardParams;
+  headline: ScorecardHeadline;
+  zones: ScorecardZone[];
+  series: ScorecardSeries;
   warnings: string[];
 }
 
