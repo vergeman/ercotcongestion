@@ -123,6 +123,7 @@ def test_end_to_end_sweep_then_render(planted, synthetic_coords, tmp_path):
         "--matrices", str(npz_path),
         "--coords-model", str(coords_path),
         "--out-dir", str(out_dir),
+        "--ref", "ref_a",
         "--algos", "kmeans_vec",
         "--ks", "3",
     ])

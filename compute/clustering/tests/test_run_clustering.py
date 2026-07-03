@@ -110,17 +110,15 @@ def sweep_inputs(tmp_path: Path) -> dict[str, Path]:
 # Tests
 # ---------------------------------------------------------------------------
 
-def _argv(sweep_inputs: dict[str, Path], algos: str, ks: str, refs: str | None = None) -> list[str]:
-    argv = [
+def _argv(sweep_inputs: dict[str, Path], algos: str, ks: str, ref: str = "fake_a") -> list[str]:
+    return [
         "--matrices", str(sweep_inputs["npz"]),
         "--coords-model", str(sweep_inputs["coords_model"]),
         "--out-dir", str(sweep_inputs["out_dir"]),
+        "--ref", ref,
         "--algos", algos,
         "--ks", ks,
     ]
-    if refs is not None:
-        argv += ["--ref-methods", refs]
-    return argv
 
 
 def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
@@ -139,9 +137,9 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
     rows = summary["rows"]
     df = pd.DataFrame(rows)
 
-    # 2 refs × 2 algos × 1 K = 4 rows.
-    assert len(df) == 4
-    assert set(df["ref"]) == {"fake_a", "fake_b"}
+    # 1 ref × 2 algos × 1 K = 2 rows (ref axis retired in CM.6).
+    assert len(df) == 2
+    assert set(df["ref"]) == {"fake_a"}
     assert set(df["algo"]) == {"kmeans_vec", "hierarchical_corr"}
     assert (df["status"] == "ok").all()
 
@@ -168,23 +166,31 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
         assert "n_polygons" not in r
 
 
-def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
-    import logging
-
-    with caplog.at_level(logging.INFO, logger="compute.clustering.runner"):
-        rc = run_clustering.main(
-            _argv(sweep_inputs, algos="kmeans_vec", ks="3", refs="fake_b"),
-        )
+def test_ercot_only_ref_still_runs_on_model_side(sweep_inputs):
+    """Sweep never touches the ERCOT side; a ref with an empty ercot matrix
+    (e.g. system_lambda_kkt on the model side) still produces model rows."""
+    rc = run_clustering.main(
+        _argv(sweep_inputs, algos="kmeans_vec", ks="3", ref="fake_b"),
+    )
     assert rc == 0
-    # The empty ercot side is logged as SKIP, not as a failed cell.
-    assert any("SKIP fake_b/ercot" in r.message for r in caplog.records)
-
     summary = json.loads(
         (sweep_inputs["out_dir"] / "clustering_summary_unit.json").read_text(),
     )
-    # 1 ref × 1 algo × 1 K. Sweep no longer touches the ERCOT side.
     assert len(summary["rows"]) == 1
     assert summary["rows"][0]["status"] == "ok"
+    assert summary["rows"][0]["ref"] == "fake_b"
+
+
+def test_deprecated_ref_methods_flag_logs_and_ignored(sweep_inputs, caplog):
+    import logging
+
+    argv = _argv(sweep_inputs, algos="kmeans_vec", ks="3") + [
+        "--ref-methods", "should_be_ignored",
+    ]
+    with caplog.at_level(logging.WARNING, logger="compute.clustering.runner"):
+        rc = run_clustering.main(argv)
+    assert rc == 0
+    assert any("--ref-methods is deprecated" in r.message for r in caplog.records)
 
 
 def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
@@ -195,7 +201,7 @@ def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
     monkeypatch.setitem(run_clustering.ALGOS, "kmeans_vec", boom)
 
     rc = run_clustering.main(
-        _argv(sweep_inputs, algos="kmeans_vec", ks="3", refs="fake_a"),
+        _argv(sweep_inputs, algos="kmeans_vec", ks="3", ref="fake_a"),
     )
     assert rc == 0
 
@@ -220,8 +226,7 @@ def test_select_zones_ranks_and_runs(sweep_inputs, capsys):
     rc = select_zones.main(["--summary", str(summary_path), "--top", "10"])
     assert rc == 0
     out = capsys.readouterr().out
-    # Header present, four rows printed.
+    # Header present, two rows printed (1 ref × 2 algos × 1 K).
     assert "rank" in out and "score" in out
-    # Ranks 1..4 should appear.
-    for k in range(1, 5):
+    for k in range(1, 3):
         assert f" {k} " in out or out.lstrip().startswith(f"{k} ")

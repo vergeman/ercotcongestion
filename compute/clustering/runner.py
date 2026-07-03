@@ -1,13 +1,19 @@
-"""(ref × algo × K) clustering sweep over a 0016 npz.
+"""(algo × K) clustering sweep over a 0016 npz.
 
-Composition layer over 0017 (algorithms) and 0018 (diagnostics). Reads
-the bus×hour matrices persisted by 0016 for each ref method, runs every
-requested (algo, K) on the model side, and emits a summary JSON plus per-cell
-`cluster_labels_<ref>_<algo>_k<K>.npz` (arrays `bus_id`, `cluster_id`).
+Composition layer over 0017 (algorithms) and 0018 (diagnostics). Reads the
+model-side bus×hour matrix persisted by 0016 for the fixed reference
+(`system_lambda_merit_order` — see CM.6), runs every requested (algo, K),
+and emits a summary JSON plus per-cell `cluster_labels_<ref>_<algo>_k<K>.npz`
+(arrays `bus_id`, `cluster_id`).
+
+The reference-price axis was retired in CM.6: model-side congestion is
+translation-invariant across the ref choice, so sweeping refs is redundant
+work. The `<ref>` slot in output filenames is kept for continuity with
+`render_partition` and downstream consumers.
 
 Polygons are a rendering choice, not a sweep artifact — the sweep hot path
 persists point-tags and defers polygon construction to
-`compute.clustering.render_partition` for a chosen `(ref, algo, K)`.
+`compute.clustering.render_partition` for a chosen `(algo, K)`.
 
 Geographic transfer of labels onto ERCOT settlement points is no longer
 performed here — under CM.1/CM.2 the model→ERCOT translation is
@@ -22,9 +28,8 @@ CLI::
         --coords-model <bus_coords.csv> \
         --out-dir <dir>
 
-Cells with empty matrices ((0, 0) shape — three one-sided ref/side combos
-in the current npz) are skipped at load time. Cells whose algo raises log
-a structured `FAIL` line and emit a `status="failed"` summary row.
+Cells whose algo raises log a structured `FAIL` line and emit a
+`status="failed"` summary row.
 """
 from __future__ import annotations
 
@@ -57,6 +62,8 @@ log = logging.getLogger("compute.clustering.runner")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
+
+DEFAULT_REF = "system_lambda_merit_order"
 
 ALGOS: dict[str, Callable] = {
     "hierarchical_corr": hierarchical_corr,
@@ -92,41 +99,26 @@ def _discover_refs(npz: np.lib.npyio.NpzFile) -> list[str]:
     return sorted(refs)
 
 
-def _load_matrices(
-    npz_path: Path,
-    ref_methods: list[str] | None,
-) -> dict[str, dict[str, pd.DataFrame]]:
-    """Rehydrate per-(ref, side) `pd.DataFrame`s from the 0016 npz.
+def _load_model_matrix(npz_path: Path, ref: str) -> pd.DataFrame:
+    """Rehydrate the model-side `pd.DataFrame` for `ref` from the 0016 npz.
 
-    Empty `(0, 0)` matrices are skipped-and-logged here so the sweep loop
-    only ever sees usable cells.
+    Ercot-side matrices are no longer consumed by the sweep (CM.4 retired
+    geo transfer; CM.6 fixes the ref axis on the model side).
     """
     npz = np.load(npz_path, allow_pickle=False)
     available = _discover_refs(npz)
-    refs = ref_methods or available
-    missing = [r for r in refs if r not in available]
-    if missing:
+    if ref not in available:
         raise SystemExit(
-            f"ref methods missing from {npz_path.name}: {missing}; "
-            f"available = {available}"
+            f"ref '{ref}' missing from {npz_path.name}; available = {available}"
         )
-
-    out: dict[str, dict[str, pd.DataFrame]] = {}
-    for ref in refs:
-        sides: dict[str, pd.DataFrame] = {}
-        for side, id_key in (("model", "bus_ids"), ("ercot", "sp_ids")):
-            C = npz[f"{ref}_{side}_C"]
-            ids = npz[f"{ref}_{side}_{id_key}"]
-            hours = npz[f"{ref}_{side}_hours"]
-            if C.size == 0:
-                log.info("SKIP %s/%s: empty matrix", ref, side)
-                continue
-            sides[side] = pd.DataFrame(
-                C, index=pd.Index(ids, name="id"), columns=hours,
-            )
-        if sides:
-            out[ref] = sides
-    return out
+    C = npz[f"{ref}_model_C"]
+    if C.size == 0:
+        raise SystemExit(
+            f"model matrix for ref '{ref}' is empty in {npz_path.name}"
+        )
+    ids = npz[f"{ref}_model_bus_ids"]
+    hours = npz[f"{ref}_model_hours"]
+    return pd.DataFrame(C, index=pd.Index(ids, name="id"), columns=hours)
 
 
 def _load_coords(path: Path, id_col: str) -> pd.DataFrame:
@@ -163,19 +155,19 @@ def _run_cell(
     ref: str,
     algo: str,
     K: int,
-    sides: dict[str, pd.DataFrame],
+    C_model: pd.DataFrame,
     coords_model: pd.DataFrame,
     out_dir: Path,
     seed: int,
     alpha: float | None,
 ) -> dict[str, Any]:
-    """Run one (ref, algo, K) cell. Returns a summary row."""
+    """Run one (algo, K) cell. Returns a summary row."""
     t0 = time.perf_counter()
     row: dict[str, Any] = {
         "ref": ref,
         "algo": algo,
         "K": K,
-        "n_buses_model": None,
+        "n_buses_model": int(C_model.shape[0]),
         "sil_model": None,
         "stab_model": None,
         "wcv_model": None,
@@ -184,15 +176,6 @@ def _run_cell(
         "status": "ok",
         "error": None,
     }
-
-    C_model = sides.get("model")
-    if C_model is None:
-        row["status"] = "skip"
-        row["error"] = "no model-side matrix"
-        log.info("SKIP %s/%s/K=%d: %s", ref, algo, K, row["error"])
-        return row
-
-    row["n_buses_model"] = int(C_model.shape[0])
     algo_fn = ALGOS[algo]
     a_kwargs = _algo_kwargs(algo, coords_model, seed, alpha)
 
@@ -240,7 +223,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out-dir", default=None, type=Path,
                    help="Explicit output directory. Required when --run-id is not "
                         "set; wins over --run-id derivation when both given.")
-    p.add_argument("--ref-methods", default=None, help="comma list; default = all in npz")
+    p.add_argument("--ref", default=DEFAULT_REF,
+                   help=f"Reference-price method to load from the matrix npz "
+                        f"(default {DEFAULT_REF}). Sweeping this axis was retired "
+                        f"in CM.6; override only for testing / diagnostics.")
+    p.add_argument("--ref-methods", default=None,
+                   help="Deprecated (CM.6). Value is ignored — sweep is fixed on --ref.")
     p.add_argument("--algos", default=None, help="comma list; default = all four")
     p.add_argument("--ks", default=None, help="comma list of ints; default = 4,6,8,10,12,16")
     p.add_argument("--seed", type=int, default=0)
@@ -271,25 +259,30 @@ def main(argv: list[str] | None = None) -> int:
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    refs_arg = _list_arg(args.ref_methods)
+    if args.ref_methods is not None:
+        log.warning(
+            "--ref-methods is deprecated (CM.6) and ignored; "
+            "sweep runs on --ref=%s only.", args.ref,
+        )
+    log.info("sweep ref = %s (fixed on model side)", args.ref)
+
     algos = _list_arg(args.algos) or list(ALGOS.keys())
     unknown = [a for a in algos if a not in ALGOS]
     if unknown:
         raise SystemExit(f"unknown algos: {unknown}; known = {list(ALGOS)}")
     ks = _int_list_arg(args.ks) or DEFAULT_KS
 
-    matrices = _load_matrices(matrices_path, refs_arg)
+    C_model = _load_model_matrix(matrices_path, args.ref)
     coords_model = _load_coords(args.coords_model, id_col="bus")
 
     rows: list[dict[str, Any]] = []
-    for ref, sides in matrices.items():
-        for algo in algos:
-            for K in ks:
-                rows.append(_run_cell(
-                    ref=ref, algo=algo, K=K, sides=sides,
-                    coords_model=coords_model,
-                    out_dir=out_dir, seed=args.seed, alpha=args.alpha,
-                ))
+    for algo in algos:
+        for K in ks:
+            rows.append(_run_cell(
+                ref=args.ref, algo=algo, K=K, C_model=C_model,
+                coords_model=coords_model,
+                out_dir=out_dir, seed=args.seed, alpha=args.alpha,
+            ))
 
     summary = {
         "run_id": run_id,
@@ -297,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         "params": {
             "matrices": str(matrices_path),
             "coords_model": str(args.coords_model),
-            "ref_methods": list(matrices.keys()),
+            "ref": args.ref,
             "algos": algos,
             "ks": ks,
             "seed": args.seed,

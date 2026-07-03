@@ -257,8 +257,8 @@ def _stage_cmd(
             "--run-id", args.run_id,
             "--coords-model", str(args.coords_model),
         ]
-        if args.ref_methods:
-            cmd += ["--ref-methods", args.ref_methods]
+        # --ref-methods is not forwarded — CM.6 fixed the clustering ref axis
+        # on the default (system_lambda_merit_order). Matrix still consumes it.
         if args.algos:
             cmd += ["--algos", args.algos]
         if args.ks:
