@@ -1,17 +1,21 @@
 """(ref × algo × K) clustering sweep over a 0016 npz.
 
 Composition layer over 0017 (algorithms), 0018 (diagnostics), and 0019
-(polygons + transfer). Reads the bus×hour matrices persisted by 0016 for
-each ref method, runs every requested (algo, K) on the model side, builds
-zone polygons, transfers labels to ERCOT settlement points, and emits a
-summary JSON plus per-cell GeoJSON and ERCOT label CSV.
+(polygons). Reads the bus×hour matrices persisted by 0016 for each ref
+method, runs every requested (algo, K) on the model side, builds zone
+polygons, and emits a summary JSON plus per-cell GeoJSON.
+
+Geographic transfer of labels onto ERCOT settlement points is no longer
+performed here — under CM.1/CM.2 the model→ERCOT translation is
+correlation/basis-based, not spatial. `transfer_labels` remains
+importable from `polygons` for one-shot diagnostics (see
+`compute.mapping.diagnostics`).
 
 CLI::
 
     python -m compute.clustering.runner \
         --matrices <npz> \
         --coords-model <bus_coords.csv> \
-        --coords-ercot <settlement_points_geocoded.csv> \
         --out-dir <dir>
 
 Cells with empty matrices ((0, 0) shape — three one-sided ref/side combos
@@ -46,7 +50,6 @@ from .diagnostics import (
 )
 from .polygons import (
     build_polygons,
-    transfer_labels,
     write_zones_geojson,
 )
 
@@ -162,7 +165,6 @@ def _run_cell(
     K: int,
     sides: dict[str, pd.DataFrame],
     coords_model: pd.DataFrame,
-    coords_ercot: pd.DataFrame,
     out_dir: Path,
     seed: int,
     alpha: float | None,
@@ -174,15 +176,11 @@ def _run_cell(
         "algo": algo,
         "K": K,
         "n_buses_model": None,
-        "n_sps_ercot": None,
         "n_polygons": None,
         "sil_model": None,
         "stab_model": None,
         "wcv_model": None,
         "sc_model": None,
-        "sil_ercot": None,
-        "wcv_ercot": None,
-        "sc_ercot": None,
         "elapsed_s": None,
         "status": "ok",
         "error": None,
@@ -244,34 +242,6 @@ def _run_cell(
     geojson_path = out_dir / f"zones_{ref}_{algo}_k{K}.geojson"
     write_zones_geojson(polygons, geojson_path)
 
-    C_ercot = sides.get("ercot")
-    if C_ercot is not None:
-        row["n_sps_ercot"] = int(C_ercot.shape[0])
-        labels_ercot = transfer_labels(polygons, coords_ercot)
-        # Persist all transferred labels, including SPs not in C_ercot.
-        label_csv = out_dir / f"ercot_sp_labels_{ref}_{algo}_k{K}.csv"
-        out_df = labels_ercot.rename("cluster_id").reset_index()
-        if out_df.columns[0] != "settlement_point":
-            out_df = out_df.rename(columns={out_df.columns[0]: "settlement_point"})
-        out_df.to_csv(label_csv, index=False)
-
-        # Cross-source diagnostics on the ERCOT matrix using transferred labels.
-        common = C_ercot.index.intersection(labels_ercot.index)
-        if len(common) > 0:
-            row["sil_ercot"] = _safe(
-                silhouette, C_ercot.loc[common], labels_ercot.loc[common],
-            )
-            row["wcv_ercot"] = _safe(
-                within_cluster_variance,
-                C_ercot.loc[common],
-                labels_ercot.loc[common],
-            )
-            row["sc_ercot"] = _safe(
-                spatial_coherence,
-                labels_ercot.loc[common],
-                coords_ercot,
-            )
-
     row["elapsed_s"] = round(time.perf_counter() - t0, 3)
     return row
 
@@ -285,7 +255,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="Explicit path to congestion_matrices npz. Required when "
                         "--run-id is not set; wins over --run-id derivation when both given.")
     p.add_argument("--coords-model", required=True, type=Path)
-    p.add_argument("--coords-ercot", required=True, type=Path)
     p.add_argument("--out-dir", default=None, type=Path,
                    help="Explicit output directory. Required when --run-id is not "
                         "set; wins over --run-id derivation when both given.")
@@ -329,7 +298,6 @@ def main(argv: list[str] | None = None) -> int:
 
     matrices = _load_matrices(matrices_path, refs_arg)
     coords_model = _load_coords(args.coords_model, id_col="bus")
-    coords_ercot = _load_coords(args.coords_ercot, id_col="settlement_point")
 
     rows: list[dict[str, Any]] = []
     for ref, sides in matrices.items():
@@ -337,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             for K in ks:
                 rows.append(_run_cell(
                     ref=ref, algo=algo, K=K, sides=sides,
-                    coords_model=coords_model, coords_ercot=coords_ercot,
+                    coords_model=coords_model,
                     out_dir=out_dir, seed=args.seed, alpha=args.alpha,
                 ))
 
@@ -347,7 +315,6 @@ def main(argv: list[str] | None = None) -> int:
         "params": {
             "matrices": str(matrices_path),
             "coords_model": str(args.coords_model),
-            "coords_ercot": str(args.coords_ercot),
             "ref_methods": list(matrices.keys()),
             "algos": algos,
             "ks": ks,
