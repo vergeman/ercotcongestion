@@ -78,6 +78,18 @@ export default function App() {
   // ViewMode palette pills.
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("split");
 
+  // Selecting a scorecard row: auto-enable the Zones layer (unless we're
+  // in Diff, which forces its own coloring). Without this the map stays
+  // congestion-colored and the selection reads as "everything dimmed" with
+  // no way to see which buses belong to the cluster.
+  const handleSelectCluster = useCallback(
+    (id: number | null) => {
+      setSelectedClusterId(id);
+      if (id != null && comparisonMode !== "diff") setShowZones(true);
+    },
+    [comparisonMode]
+  );
+
   // S3.4 — the right pane consumes a bus-shaped topology so it can share
   // GridMap wholesale. SP features get their `sp_id` promoted to `bus_id`
   // to satisfy the source's `promoteId: "bus_id"`, and lines collapse to
@@ -106,6 +118,9 @@ export default function App() {
       lines: { type: "FeatureCollection", features: [] },
     };
   }, [topology]);
+  const spTopologyEmpty =
+    !!topology &&
+    (spTopology?.buses.features.length ?? 0) === 0;
 
   // Camera sync between the two split panes. Refs collected via each
   // GridMap's `onMapReady`; `handleMainReady` and `handleRightReady` write
@@ -519,7 +534,11 @@ export default function App() {
                   onMapReady={handleRightReady}
                 />
                 <div className="pane-badge">
-                  ERCOT · {ercotBuses.length} SPs
+                  {spTopologyEmpty
+                    ? "ERCOT · no SPs (rebuild topology cache)"
+                    : `ERCOT · ${
+                        spTopology?.buses.features.length ?? 0
+                      } SPs · ${ercotBuses.length} lit`}
                 </div>
               </>
             }
@@ -565,7 +584,7 @@ export default function App() {
           meta={meta}
           scorecard={scorecard}
           selectedClusterId={selectedClusterId}
-          onSelectCluster={setSelectedClusterId}
+          onSelectCluster={handleSelectCluster}
         />
       </div>
 

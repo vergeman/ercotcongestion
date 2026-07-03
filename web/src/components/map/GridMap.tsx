@@ -366,17 +366,6 @@ export default function GridMap({
           type: "circle",
           source: "buses",
           paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              2,
-              8,
-              4,
-              12,
-              7,
-            ],
             "circle-color": [
               "case",
               ["!=", ["feature-state", "color"], null],
@@ -386,13 +375,41 @@ export default function GridMap({
             "circle-opacity": [
               "case",
               ["boolean", ["feature-state", "dim"], false],
-              0.2,
-              0.85,
+              0.1,
+              0.9,
+            ],
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                3.5,
+                2,
+              ],
+              8,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                6,
+                4,
+              ],
+              12,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                10,
+                7,
+              ],
             ],
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
               3,
+              ["boolean", ["feature-state", "cluster_member"], false],
+              2,
               ["boolean", ["feature-state", "hovered"], false],
               2,
               0,
@@ -401,6 +418,8 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "selected"], false],
               "#38bdf8",
+              ["boolean", ["feature-state", "cluster_member"], false],
+              "#ffffff",
               "#ffffff",
             ],
           },
@@ -708,15 +727,18 @@ export default function GridMap({
       for (const feat of topo.buses.features) {
         map.setFeatureState(
           { source: "buses", id: feat.properties.bus_id },
-          { dim: false }
+          { dim: false, cluster_member: false }
         );
       }
       return;
     }
     for (const feat of topo.buses.features) {
       const busId = feat.properties.bus_id;
-      const dim = feat.properties.cluster_id !== selectedClusterId;
-      map.setFeatureState({ source: "buses", id: busId }, { dim });
+      const isMember = feat.properties.cluster_id === selectedClusterId;
+      map.setFeatureState(
+        { source: "buses", id: busId },
+        { dim: !isMember, cluster_member: isMember }
+      );
     }
   }, [selectedClusterId, topology]);
 
