@@ -60,3 +60,10 @@ spec:
             limits:
               cpu: "${CPU_LIMIT}"
               memory: "${MEM_LIMIT}"
+          volumeMounts:
+            - name: runs
+              mountPath: /compute/runs
+      volumes:
+        - name: runs
+          persistentVolumeClaim:
+            claimName: compute-runs
