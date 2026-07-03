@@ -39,6 +39,9 @@ class Settings:
     active_run_id:         str  = os.environ.get('ACTIVE_RUN_ID', 'v1-120')
     active_cluster_algo:   str  = os.environ.get('ACTIVE_CLUSTER_ALGO', 'system_lambda_merit_order_hierarchical_on_beta')
     active_cluster_k:      int  = int(os.environ.get('ACTIVE_CLUSTER_K', '6'))
+    # ERCOT-side congestion matrix key prefix inside congestion_matrices.npz.
+    # Default matches compute.mapping.correlation_map.DEFAULT_ERCOT_REF.
+    active_ercot_ref:      str  = os.environ.get('ACTIVE_ERCOT_REF', 'system_lambda')
 
     # ---- Data Processed --------- -----------------------------------------
     network_nc                     = f'{processed_dir}/{case_stem}.nc'

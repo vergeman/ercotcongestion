@@ -82,8 +82,15 @@ def build_topology() -> dict[str, Any]:
         n, weather_lookup, load_lookup, bus_capacity, bus_cluster,
     )
     lines_fc = _lines_feature_collection(n)
+    sps_fc = _settlement_points_feature_collection()
+    zones_fc = _load_zone_polygons()
 
-    return {'buses': buses_fc, 'lines': lines_fc, 'zones': None}
+    return {
+        'buses': buses_fc,
+        'lines': lines_fc,
+        'settlement_points': sps_fc,
+        'zones': zones_fc,
+    }
 
 
 def _load_bus_cluster_labels() -> dict[str, int]:
@@ -103,6 +110,50 @@ def _load_bus_cluster_labels() -> dict[str, int]:
         return {}
     with np.load(labels_path, allow_pickle=False) as z:
         return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
+
+
+def _settlement_points_feature_collection() -> dict[str, Any]:
+    """Return SP points as GeoJSON. Rows missing lat/lon are dropped."""
+    try:
+        df = pd.read_csv(settings.settlement_points_geocoded_csv)
+    except FileNotFoundError:
+        log.warning("settlement_points geocoded csv missing; ERCOT pane will be empty")
+        return {'type': 'FeatureCollection', 'features': []}
+    df = df.dropna(subset=['lat', 'lon'])
+    features = []
+    for _, row in df.iterrows():
+        sp_id = str(row['settlement_point'])
+        features.append({
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [float(row['lon']), float(row['lat'])],
+            },
+            'properties': {
+                'sp_id': sp_id,
+                'sp_type': str(row.get('sp_type') or ''),
+            },
+        })
+    return {'type': 'FeatureCollection', 'features': features}
+
+
+def _load_zone_polygons() -> dict[str, Any] | None:
+    """Return cluster polygon FeatureCollection, or None if absent.
+
+    File convention mirrors the bus cluster labels naming: the polygons
+    live at ``zones_<active_cluster_algo>_k<k>.geojson`` inside the run's
+    clustering directory. A missing file yields ``None`` — the frontend
+    then keeps its polygon-free rendering path.
+    """
+    polygons_path = (
+        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
+        f"zones_{settings.active_cluster_algo}_k{settings.active_cluster_k}.geojson"
+    )
+    if not os.path.exists(polygons_path):
+        log.info("zone polygons not found at %s; topology zones = null", polygons_path)
+        return None
+    with open(polygons_path) as f:
+        return json.load(f)
 
 
 def get_or_build_topology(force: bool = False) -> dict[str, Any]:

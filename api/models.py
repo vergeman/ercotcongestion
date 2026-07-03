@@ -77,6 +77,29 @@ class StateRangeResponse(BaseModel):
     entries: list[StateRangeEntry]
 
 
+# ---- /api/ercot_state_range ---------------------------------------------
+#
+# Per-hour ERCOT settlement-point congestion, read from the active run's
+# congestion_matrices.npz. Mirrors StateRangeResponse in shape so the client
+# can align its prefetch pipeline.
+
+class ErcotSpState(BaseModel):
+    sp_id: str
+    congestion: float | None
+
+
+class ErcotStateRangeEntry(BaseModel):
+    interval_ts: datetime
+    sps: list[ErcotSpState]
+
+
+class ErcotStateRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    entries: list[ErcotStateRangeEntry]
+
+
 # ---- /api/validation (zone-aggregated scorecard) -------------------------
 
 class ScorecardZone(BaseModel):
