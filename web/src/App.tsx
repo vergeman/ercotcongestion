@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import type { BusState, SnapshotMeta, ViewMode } from "./api/types";
-import { fetchTopology } from "./api/client";
+import type {
+  BusState,
+  ScorecardResponse,
+  SnapshotMeta,
+  ViewMode,
+} from "./api/types";
+import { fetchScorecard, fetchTopology } from "./api/client";
 import {
   prefetchWindow,
   getCached,
@@ -17,14 +22,14 @@ import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import type { SparkPoint } from "./components/playback/TimelineSparkline";
 import StatsPanel from "./components/panels/StatsPanel";
-import ValidationPanel from "./components/panels/ValidationPanel";
 import Legend from "./components/map/Legend";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 
 type ConnectionState = "ok" | "error" | "loading";
-type PanelTab = "stats" | "validation";
+
+const RUN_ID = import.meta.env.VITE_RUN_ID ?? "v1-120";
 
 interface HoveredBus {
   busId: string;
@@ -52,13 +57,12 @@ export default function App() {
   const [pinnedBus, setPinnedBus] = useState<HoveredBus | null>(null);
   const [pinnedLine, setPinnedLine] = useState<HoveredLine | null>(null);
 
-  const [panelTab, setPanelTab] = useState<PanelTab>("stats");
-  // The validation panel needs the loaded window — keep it lifted in App
-  // so it persists across tab switches and updates with new range loads.
-  const [loadedWindow, setLoadedWindow] = useState<{
-    start: Date;
-    end: Date;
-  } | null>(null);
+  // Zone scorecard — loaded once per run. Selection is lifted here so S3.2
+  // can drive map highlighting from a StatsPanel row click.
+  const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState<number | null>(
+    null
+  );
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
@@ -81,6 +85,14 @@ export default function App() {
         setConnState("ok");
       })
       .catch(() => setConnState("error"));
+  }, []);
+
+  // Scorecard load — soft-fail. If the run doesn't have a scorecard yet the
+  // panel section just doesn't render; nothing else depends on it.
+  useEffect(() => {
+    fetchScorecard(RUN_ID)
+      .then(setScorecard)
+      .catch(() => setScorecard(null));
   }, []);
 
   // Snapshot data on scrub
@@ -156,7 +168,6 @@ export default function App() {
           }
           setLastUpdated(new Date());
           setConnState("ok");
-          setLoadedWindow({ start, end });
         } else {
           setConnState("error");
         }
@@ -297,74 +308,13 @@ export default function App() {
           />
         </div>
 
-        {/* Right panel — tabbed: stats or validation */}
-        <div className="right-panel-wrap">
-          <div className="panel-tabs">
-            <button
-              className={panelTab === "stats" ? "active" : ""}
-              onClick={() => setPanelTab("stats")}
-            >
-              Stats
-            </button>
-            <button
-              className={panelTab === "validation" ? "active" : ""}
-              onClick={() => setPanelTab("validation")}
-            >
-              Validation
-            </button>
-          </div>
-          {panelTab === "stats" ? (
-            <StatsPanel meta={meta} />
-          ) : (
-            <ValidationPanel
-              start={loadedWindow?.start ?? null}
-              end={loadedWindow?.end ?? null}
-            />
-          )}
-        </div>
+        <StatsPanel
+          meta={meta}
+          scorecard={scorecard}
+          selectedClusterId={selectedClusterId}
+          onSelectCluster={setSelectedClusterId}
+        />
       </div>
-
-      <style>{`
-                .right-panel-wrap {
-                    display: flex;
-                    flex-direction: column;
-                    width: var(--panel-w);
-                    border-left: 1px solid var(--border);
-                    background: var(--bg-panel);
-                }
-                .panel-tabs {
-                    display: flex;
-                    border-bottom: 1px solid var(--border);
-                    flex-shrink: 0;
-                }
-                .panel-tabs button {
-                    flex: 1;
-                    border: none;
-                    border-radius: 0;
-                    border-right: 1px solid var(--border);
-                    padding: 8px 0;
-                    background: var(--bg-panel);
-                    color: var(--text-secondary);
-                    font-family: 'Barlow Condensed', sans-serif;
-                    font-weight: 600;
-                    font-size: 11px;
-                    letter-spacing: 0.1em;
-                    text-transform: uppercase;
-                }
-                .panel-tabs button:last-child { border-right: none; }
-                .panel-tabs button.active {
-                    background: var(--bg-base);
-                    color: var(--accent);
-                    box-shadow: inset 0 -2px 0 var(--accent);
-                }
-                /* When wrapped, the inner panels shouldn't double the border. */
-                .right-panel-wrap .stats-panel,
-                .right-panel-wrap .validation-panel {
-                    border-left: none;
-                    width: 100%;
-                    flex: 1;
-                }
-            `}</style>
 
       {/* Bottom scrubber */}
       <div

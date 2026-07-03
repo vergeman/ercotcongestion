@@ -1,7 +1,10 @@
-import type { SnapshotMeta } from "../../api/types";
+import type { ScorecardResponse, SnapshotMeta } from "../../api/types";
 
 interface Props {
   meta: SnapshotMeta | null;
+  scorecard: ScorecardResponse | null;
+  selectedClusterId: number | null;
+  onSelectCluster: (id: number | null) => void;
 }
 
 function Stat({
@@ -34,9 +37,87 @@ function fmtPostingAge(postingTs: string | null): string {
   return `${(ageH / 24).toFixed(1)}d ago`;
 }
 
-export default function StatsPanel({ meta }: Props) {
+export default function StatsPanel({
+  meta,
+  scorecard,
+  selectedClusterId,
+  onSelectCluster,
+}: Props) {
   return (
     <div className="stats-panel">
+      {scorecard && (
+        <div className="panel-section">
+          <div className="panel-section__header label">
+            Cluster Scorecard · {scorecard.run_id}
+          </div>
+          <div className="scorecard-headline">
+            <div className="scorecard-headline__item">
+              <span className="label">rank ρ</span>
+              <span className="mono">
+                {fmt(scorecard.headline.rank_spearman, 2)}
+              </span>
+            </div>
+            <div className="scorecard-headline__item">
+              <span className="label">mean r</span>
+              <span className="mono">
+                {fmt(scorecard.headline.mean_corr, 2)}
+              </span>
+            </div>
+            <div className="scorecard-headline__item">
+              <span className="label">sign%</span>
+              <span className="mono">
+                {scorecard.headline.mean_sign_agreement != null
+                  ? `${fmt(
+                      scorecard.headline.mean_sign_agreement * 100,
+                      0
+                    )}%`
+                  : "—"}
+              </span>
+            </div>
+            <div className="scorecard-headline__item">
+              <span className="label">hours</span>
+              <span className="mono">{scorecard.headline.n_hours}</span>
+            </div>
+          </div>
+          <div className="scorecard-rows">
+            <div className="scorecard-row scorecard-row--head label">
+              <span>zone</span>
+              <span>buses</span>
+              <span>corr</span>
+              <span>sign%</span>
+              <span>disp</span>
+            </div>
+            {scorecard.zones.map((z) => {
+              const selected = z.cluster_id === selectedClusterId;
+              return (
+                <div
+                  key={z.cluster_id}
+                  className={
+                    "scorecard-row" +
+                    (selected ? " scorecard-row--selected" : "")
+                  }
+                  onClick={() =>
+                    onSelectCluster(selected ? null : z.cluster_id)
+                  }
+                >
+                  <span className="mono">Z{z.cluster_id}</span>
+                  <span className="mono">{z.n_buses}</span>
+                  <span className="mono">{fmt(z.corr, 2)}</span>
+                  <span className="mono">
+                    {z.sign_agreement != null
+                      ? `${fmt(z.sign_agreement * 100, 0)}%`
+                      : "—"}
+                  </span>
+                  <span className="mono">
+                    {fmt(z.model_side_std, 2)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="panel-section">
         <div className="panel-section__header label">System State</div>
         {meta ? (
@@ -367,6 +448,50 @@ export default function StatsPanel({ meta }: Props) {
           padding: 2px 0;
         }
         .outage-zone-row .label { text-transform: capitalize; }
+
+        .scorecard-headline {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 4px;
+          padding: 2px 0 6px;
+          border-bottom: 1px solid var(--border);
+          margin-bottom: 4px;
+        }
+        .scorecard-headline__item {
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+          align-items: center;
+        }
+        .scorecard-headline__item .mono { font-size: 11px; }
+
+        .scorecard-rows { display: flex; flex-direction: column; }
+        .scorecard-row {
+          display: grid;
+          grid-template-columns: 1.1fr 0.8fr 0.9fr 0.9fr 0.9fr;
+          gap: 4px;
+          padding: 3px 4px;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 11px;
+          color: var(--text-primary);
+        }
+        .scorecard-row .mono { font-size: 11px; text-align: right; }
+        .scorecard-row .mono:first-child { text-align: left; }
+        .scorecard-row:hover {
+          background: var(--bg-base);
+        }
+        .scorecard-row--selected {
+          background: var(--bg-base);
+          box-shadow: inset 2px 0 0 var(--accent);
+        }
+        .scorecard-row--head {
+          cursor: default;
+          color: var(--text-secondary);
+        }
+        .scorecard-row--head:hover { background: transparent; }
+        .scorecard-row--head span { text-align: right; }
+        .scorecard-row--head span:first-child { text-align: left; }
       `}</style>
     </div>
   );
