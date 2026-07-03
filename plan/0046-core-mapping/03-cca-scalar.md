@@ -42,7 +42,7 @@ Branch: feat/cm.3-cca-scalar
 
 ## Acceptance
 
-* [ ] `compute/mapping/cca.py` runs on `--run-id v1-120`.
-* [ ] Output JSON has `canonical_correlations` (length ≤ n_components) and `pc_cross_corr` matrix.
-* [ ] Handles rank-deficient inputs without crashing.
-* [ ] Headline top canonical correlation logged.
+* [x] `compute/mapping/cca.py` runs on `--run-id v1-120`.
+* [x] Output JSON has `canonical_correlations` (length ≤ n_components) and `pc_cross_corr` matrix.
+* [x] Handles rank-deficient inputs without crashing.
+* [x] Headline top canonical correlation logged.
