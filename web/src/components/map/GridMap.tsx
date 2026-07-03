@@ -12,6 +12,8 @@ import {
   normalizeProximity,
   computeCongestionVsBasisRank,
   rankDeltaColor,
+  clusterColor,
+  CLUSTER_GRAY,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -89,6 +91,12 @@ interface Props {
   onMapClick: () => void;
   selectedBusId: string | null;
   selectedLineId: string | null;
+  // S3.2 — Zones layer. When on, bus circle-color is the cluster tag
+  // (tight clusters get palette hues; anything else falls to gray). When a
+  // cluster is selected, non-members dim.
+  showZones: boolean;
+  tightClusterIds: Set<number>;
+  selectedClusterId: number | null;
 }
 
 export default function GridMap({
@@ -105,6 +113,9 @@ export default function GridMap({
   onMapClick,
   selectedBusId,
   selectedLineId,
+  showZones,
+  tightClusterIds,
+  selectedClusterId,
 }: Props) {
   const prevBindingRef = useRef<Set<string>>(new Set());
   const prevContingencyRef = useRef<Set<string>>(new Set());
@@ -359,7 +370,12 @@ export default function GridMap({
               ["feature-state", "color"],
               "#1a4731",
             ],
-            "circle-opacity": 0.85,
+            "circle-opacity": [
+              "case",
+              ["boolean", ["feature-state", "dim"], false],
+              0.2,
+              0.85,
+            ],
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
@@ -577,10 +593,13 @@ export default function GridMap({
     prevContingencyRef.current = nextCont;
   }, [meta]);
 
-  // Update bus colors when buses/viewMode changes
+  // Update bus colors when buses/viewMode changes.
+  // Skipped when the Zones layer is active — cluster coloring runs in its
+  // own effect so it doesn't need a `buses` snapshot to be loaded.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !buses.length || !map.getSource("buses")) return;
+    if (showZones) return;
 
     const deltaMap =
       viewMode === "congestion_vs_basis"
@@ -611,7 +630,135 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats]);
+  }, [buses, viewMode, lmpStats, mcStats, showZones]);
+
+  // Zones layer coloring — runs off `topology`, independent of the
+  // per-timestamp `buses` snapshot so the tags render before any window is
+  // loaded. Turning the layer off restores whatever the congestion effect
+  // last painted.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    if (!showZones) return;
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const clusterId = feat.properties.cluster_id ?? null;
+      const color = clusterColor(clusterId, tightClusterIds);
+      map.setFeatureState({ source: "buses", id: busId }, { color });
+    }
+  }, [topology, showZones, tightClusterIds]);
+
+  // Selection dim — non-members of the selected cluster fade to 0.2 while a
+  // selection is active. Cleared entirely when nothing is selected. Only
+  // meaningful with the Zones layer on, but harmless to run regardless.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    if (selectedClusterId == null) {
+      for (const feat of topo.buses.features) {
+        map.setFeatureState(
+          { source: "buses", id: feat.properties.bus_id },
+          { dim: false }
+        );
+      }
+      return;
+    }
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const dim = feat.properties.cluster_id !== selectedClusterId;
+      map.setFeatureState({ source: "buses", id: busId }, { dim });
+    }
+  }, [selectedClusterId, topology]);
+
+  // Cluster centroid labels — one point per tight cluster, centered on the
+  // mean of its bus coordinates. Toggled via the Zones layer.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+
+    const acc = new Map<number, { x: number; y: number; n: number }>();
+    for (const feat of topo.buses.features) {
+      const cid = feat.properties.cluster_id;
+      if (cid == null || !tightClusterIds.has(cid)) continue;
+      const [x, y] = feat.geometry.coordinates as [number, number];
+      const cur = acc.get(cid) ?? { x: 0, y: 0, n: 0 };
+      cur.x += x;
+      cur.y += y;
+      cur.n += 1;
+      acc.set(cid, cur);
+    }
+
+    const centroids: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: Array.from(acc.entries()).map(([cid, v]) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [v.x / v.n, v.y / v.n] },
+        properties: {
+          cluster_id: cid,
+          label: `Z${cid}`,
+          color: clusterColor(cid, tightClusterIds),
+        },
+      })),
+    };
+
+    const src = map.getSource("cluster-centroids") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (src) {
+      src.setData(centroids);
+    } else if (map.isStyleLoaded()) {
+      map.addSource("cluster-centroids", {
+        type: "geojson",
+        data: centroids,
+      });
+      map.addLayer({
+        id: "cluster-centroid-labels",
+        type: "symbol",
+        source: "cluster-centroids",
+        layout: {
+          "text-field": ["get", "label"],
+          "text-font": ["Open Sans Bold"],
+          "text-size": 14,
+          "text-allow-overlap": true,
+          visibility: "none",
+        },
+        paint: {
+          "text-color": ["get", "color"],
+          "text-halo-color": "#0f1217",
+          "text-halo-width": 1.5,
+        },
+      });
+    }
+  }, [topology, tightClusterIds]);
+
+  // Centroid layer visibility follows the Zones toggle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("cluster-centroid-labels")) return;
+    map.setLayoutProperty(
+      "cluster-centroid-labels",
+      "visibility",
+      showZones ? "visible" : "none"
+    );
+  }, [showZones]);
 
   // Selected bus
   useEffect(() => {

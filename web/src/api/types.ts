@@ -123,6 +123,7 @@ export interface BusFeatureProperties {
   load_zone: string;
   voltage: number;
   capacity_mw: number;
+  cluster_id?: number | null;
 }
 
 export interface LineFeatureProperties {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type {
   BusState,
   ScorecardResponse,
@@ -57,11 +57,18 @@ export default function App() {
   const [pinnedBus, setPinnedBus] = useState<HoveredBus | null>(null);
   const [pinnedLine, setPinnedLine] = useState<HoveredLine | null>(null);
 
-  // Zone scorecard — loaded once per run. Selection is lifted here so S3.2
-  // can drive map highlighting from a StatsPanel row click.
+  // Zone scorecard — loaded once per run. Selection is lifted here so the
+  // GridMap can highlight members and the StatsPanel row can show selected.
   const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
   const [selectedClusterId, setSelectedClusterId] = useState<number | null>(
     null
+  );
+  // Zones layer toggle (S3.2). When on, buses are colored by cluster tag
+  // instead of the congestion palette; selection dims non-members.
+  const [showZones, setShowZones] = useState(false);
+  const tightClusterIds = useMemo(
+    () => new Set((scorecard?.zones ?? []).map((z) => z.cluster_id)),
+    [scorecard]
   );
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
@@ -291,6 +298,9 @@ export default function App() {
             onMapClick={handleClearPinned}
             selectedBusId={pinnedBus?.busId ?? null}
             selectedLineId={pinnedLine?.lineId ?? null}
+            showZones={showZones}
+            tightClusterIds={tightClusterIds}
+            selectedClusterId={selectedClusterId}
           />
           <DetailCard
             meta={meta}
@@ -305,6 +315,9 @@ export default function App() {
             buses={buses}
             lmpStats={lmpStats}
             mcStats={mcStats}
+            showZones={showZones}
+            onToggleZones={() => setShowZones((s) => !s)}
+            tightClusterIds={tightClusterIds}
           />
         </div>
 

@@ -6,6 +6,7 @@ import {
   normalizeLmpFromStats,
   DELTA_ANCHORS,
   BINDING_PROXIMITY_ANCHORS,
+  clusterColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -16,6 +17,11 @@ interface Props {
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
   mcStats: ModeledCongestionStats | null;
+  // Zones layer state (S3.2). Toggle button lives in the legend so the
+  // palette panel and layer switch stay adjacent.
+  showZones: boolean;
+  onToggleZones: () => void;
+  tightClusterIds: Set<number>;
 }
 
 const HIST_BINS = 24;
@@ -26,7 +32,15 @@ function formatDollar(v: number): string {
   return `$${v.toFixed(0)}`;
 }
 
-export default function Legend({ viewMode, buses, lmpStats, mcStats }: Props) {
+export default function Legend({
+  viewMode,
+  buses,
+  lmpStats,
+  mcStats,
+  showZones,
+  onToggleZones,
+  tightClusterIds,
+}: Props) {
   const isModeledCongestion = viewMode === "modeled_congestion";
   const isLmp = viewMode === "lmp";
   const isDelta = viewMode === "congestion_vs_basis";
@@ -189,6 +203,33 @@ export default function Legend({ viewMode, buses, lmpStats, mcStats }: Props) {
         </>
       )}
 
+      <div className="legend__zones">
+        <button
+          type="button"
+          className={
+            "legend__zones-toggle label" + (showZones ? " active" : "")
+          }
+          onClick={onToggleZones}
+        >
+          {showZones ? "Zones ✓" : "Zones"}
+        </button>
+        {showZones && tightClusterIds.size > 0 && (
+          <div className="legend__zones-swatches">
+            {Array.from(tightClusterIds)
+              .sort((a, b) => a - b)
+              .map((cid) => (
+                <span key={cid} className="legend__zone-swatch">
+                  <span
+                    className="legend__zone-dot"
+                    style={{ background: clusterColor(cid, tightClusterIds) }}
+                  />
+                  <span className="label mono">Z{cid}</span>
+                </span>
+              ))}
+          </div>
+        )}
+      </div>
+
       <div className="legend__lines">
         <div className="legend__line-row">
           <span className="legend__swatch legend__swatch--binding" />
@@ -309,6 +350,50 @@ export default function Legend({ viewMode, buses, lmpStats, mcStats }: Props) {
         }
         .legend__halo--pos { background: #22d3ee; }
         .legend__halo--neg { background: #fb923c; }
+
+        .legend__zones {
+          margin-top: 8px;
+          padding-top: 6px;
+          border-top: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+        .legend__zones-toggle {
+          align-self: flex-start;
+          background: transparent;
+          color: var(--text-secondary);
+          border: 1px solid var(--border);
+          border-radius: 3px;
+          padding: 3px 8px;
+          font-family: 'Barlow Condensed', sans-serif;
+          font-weight: 600;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+        .legend__zones-toggle:hover { color: var(--accent); }
+        .legend__zones-toggle.active {
+          color: var(--accent);
+          border-color: var(--accent);
+        }
+        .legend__zones-swatches {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 3px 8px;
+        }
+        .legend__zone-swatch {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .legend__zone-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          display: inline-block;
+        }
       `}</style>
     </div>
   );

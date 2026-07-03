@@ -456,3 +456,36 @@ export function bindingProximityColor(norm: number): string {
   }
   return `rgb(${r},${g},${b})`;
 }
+
+// =============================================================================
+// Cluster tag palette
+// =============================================================================
+//
+// Distinct hues for the 5–7 "tight" anchor clusters surfaced by the scorecard.
+// The residual/background cluster (any id not in the tight set) collapses to
+// `CLUSTER_GRAY` so it visually recedes.
+
+export const CLUSTER_GRAY = "#3a4451";
+
+const CLUSTER_PALETTE = [
+  "#38bdf8", // sky
+  "#f97316", // orange
+  "#a78bfa", // violet
+  "#34d399", // emerald
+  "#f472b6", // pink
+  "#facc15", // yellow
+  "#22d3ee", // cyan
+];
+
+// Order tight ids ascending so cluster 1 always claims palette[0].
+export function clusterColor(
+  clusterId: number | null | undefined,
+  tightSet: Set<number>
+): string {
+  if (clusterId == null || !tightSet.has(clusterId)) return CLUSTER_GRAY;
+  const ordered = Array.from(tightSet).sort((a, b) => a - b);
+  const idx = ordered.indexOf(clusterId);
+  return CLUSTER_PALETTE[
+    (idx < 0 ? 0 : idx) % CLUSTER_PALETTE.length
+  ];
+}
