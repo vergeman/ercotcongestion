@@ -47,9 +47,9 @@ Branch: refactor/cm.6-ranking-demotion
 
 ## Acceptance
 
-* [ ] `select_zones.py` composite depends only on `sil_model` + `sc_model`.
-* [ ] Sweep runs against `system_lambda_merit_order` only; ref-price axis removed from config.
-* [ ] `hierarchical_on_beta` present and default; `kmeans_vec` and `pca_kmeans` removed.
-* [ ] Sweep consumes β-loadings from CM.2 output; clear error if missing.
-* [ ] `hybrid_geo` remains callable as fallback.
-* [ ] Existing tests updated; suite passes.
+* [x] `select_zones.py` composite depends only on `sil_model` + `sc_model`.
+* [x] Sweep runs against `system_lambda_merit_order` only; ref-price axis removed from config.
+* [x] `hierarchical_on_beta` present and default; `kmeans_vec` and `pca_kmeans` removed.
+* [x] Sweep consumes β-loadings from CM.2 output; clear error if missing.
+* [x] `hybrid_geo` remains callable as fallback.
+* [x] Existing tests updated; suite passes.
