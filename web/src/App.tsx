@@ -11,6 +11,7 @@ import { fetchScorecard, fetchTopology } from "./api/client";
 import {
   prefetchWindow,
   getCached,
+  getErcotCached,
   getAvailableTimestamps,
 } from "./api/prefetch";
 import {
@@ -76,6 +77,35 @@ export default function App() {
   // S3.3 — comparison mode. Default `split`. `single` restores the
   // ViewMode palette pills.
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("split");
+
+  // S3.4 — the right pane consumes a bus-shaped topology so it can share
+  // GridMap wholesale. SP features get their `sp_id` promoted to `bus_id`
+  // to satisfy the source's `promoteId: "bus_id"`, and lines collapse to
+  // empty since SPs have no wired network.
+  const spTopology = useMemo(() => {
+    if (!topology) return null;
+    const t = topology as {
+      settlement_points?: {
+        type: "FeatureCollection";
+        features: Array<{
+          type: "Feature";
+          geometry: unknown;
+          properties: { sp_id: string; [k: string]: unknown };
+        }>;
+      };
+    };
+    const sps = t.settlement_points?.features ?? [];
+    return {
+      buses: {
+        type: "FeatureCollection",
+        features: sps.map((f) => ({
+          ...f,
+          properties: { ...f.properties, bus_id: f.properties.sp_id },
+        })),
+      },
+      lines: { type: "FeatureCollection", features: [] },
+    };
+  }, [topology]);
 
   // Camera sync between the two split panes. Refs collected via each
   // GridMap's `onMapReady`; `handleMainReady` and `handleRightReady` write
@@ -151,6 +181,13 @@ export default function App() {
   // Window-wide modeled-congestion stats (|mc| P99 anchor, symmetric around 0).
   // Same shape as lmpStats — stable palette across playback.
   const [mcStats, setMcStats] = useState<ModeledCongestionStats | null>(null);
+  // S3.4 — same-shape stats for the ERCOT side, computed from the ERCOT
+  // congestion values in the loaded window. Separate anchor so the two
+  // panes' fills stay comparable in sign but not artificially matched in
+  // magnitude.
+  const [ercotMcStats, setErcotMcStats] =
+    useState<ModeledCongestionStats | null>(null);
+  const [ercotBuses, setErcotBuses] = useState<BusState[]>([]);
   // Per-timestamp series for the timeline sparkline
   // (modeled_congestion_abs_total + n_binding_lines). Aligned 1:1 with
   // `timestamps`.
@@ -186,6 +223,24 @@ export default function App() {
       setBuses(entry.buses);
       setMeta(entry.meta as SnapshotMeta);
     }
+    // ERCOT side (S3.4). Reshape SP congestion into BusState-shaped rows so
+    // the right pane can share the existing GridMap coloring path; the
+    // point source treats `bus_id` as a promoteId regardless of whether
+    // the id is a model bus or a settlement point.
+    const ercotEntry = getErcotCached(ts);
+    if (ercotEntry) {
+      setErcotBuses(
+        ercotEntry.sps.map((s) => ({
+          bus_id: s.sp_id,
+          modeled_congestion: s.congestion,
+          binding_proximity: null,
+          lmp: null,
+          basis: null,
+        }))
+      );
+    } else {
+      setErcotBuses([]);
+    }
   }, [currentIndex, timestamps]);
 
   const handleLoadWindow = useCallback(
@@ -209,6 +264,19 @@ export default function App() {
           }
           setLmpStats(computeLmpStats(allLmp));
           setMcStats(computeModeledCongestionStats(allMc));
+
+          // Same window pass for the ERCOT side (S3.4). Walk the cache
+          // rather than the response so we get the deduped, label-stripped
+          // entries `prefetchWindow` already stored.
+          const allErcot: Array<number | null> = [];
+          for (const t of ts) {
+            const e = getErcotCached(t);
+            if (!e) continue;
+            for (const sp of e.sps) allErcot.push(sp.congestion);
+          }
+          setErcotMcStats(
+            allErcot.length ? computeModeledCongestionStats(allErcot) : null
+          );
 
           // Build sparkline series — one point per timestamp, in the same order.
           // We walk `ts` and pull from the cached entries via interval_ts to
@@ -345,7 +413,12 @@ export default function App() {
     let bestIdx = -1;
     let bestDelta = Infinity;
     for (let i = 0; i < s.hours.length; i++) {
-      const d = Math.abs(new Date(s.hours[i]).getTime() - targetMs);
+      // Scorecard hours ship as ``<scenario_label>|<iso>``; drop the label
+      // before parsing.
+      const iso = s.hours[i].split("|", 2)[1] ?? s.hours[i];
+      const t = new Date(iso).getTime();
+      if (!isFinite(t)) continue;
+      const d = Math.abs(t - targetMs);
       if (d < bestDelta) {
         bestDelta = d;
         bestIdx = i;
@@ -426,12 +499,12 @@ export default function App() {
             right={
               <>
                 <GridMap
-                  topology={topology}
-                  buses={[]}
+                  topology={spTopology}
+                  buses={ercotBuses}
                   meta={null}
-                  viewMode={viewMode}
+                  viewMode="modeled_congestion"
                   lmpStats={null}
-                  mcStats={null}
+                  mcStats={ercotMcStats}
                   onBusHover={() => {}}
                   onLineHover={() => {}}
                   onBusClick={() => {}}
@@ -439,13 +512,15 @@ export default function App() {
                   onMapClick={() => {}}
                   selectedBusId={null}
                   selectedLineId={null}
-                  showZones={showZones}
+                  showZones={false}
                   tightClusterIds={tightClusterIds}
-                  selectedClusterId={selectedClusterId}
+                  selectedClusterId={null}
                   side="ercot"
                   onMapReady={handleRightReady}
                 />
-                <div className="pane-badge">ERCOT (S3.4 pending)</div>
+                <div className="pane-badge">
+                  ERCOT · {ercotBuses.length} SPs
+                </div>
               </>
             }
           />

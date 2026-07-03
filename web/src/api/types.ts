@@ -65,6 +65,26 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
+// S3.4 — ERCOT SP snapshot payload. `sp_id` is the ERCOT settlement point
+// identifier; `congestion` is the reference-adjusted congestion value from
+// the run's congestion matrix (nullable when non-finite).
+export interface ErcotSpState {
+  sp_id: string;
+  congestion: number | null;
+}
+
+export interface ErcotStateRangeEntry {
+  interval_ts: string;
+  sps: ErcotSpState[];
+}
+
+export interface ErcotStateRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: ErcotStateRangeEntry[];
+}
+
 export type ViewMode =
   | "modeled_congestion"
   | "lmp"
