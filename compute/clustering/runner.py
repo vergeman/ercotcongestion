@@ -1,9 +1,13 @@
 """(ref × algo × K) clustering sweep over a 0016 npz.
 
-Composition layer over 0017 (algorithms), 0018 (diagnostics), and 0019
-(polygons). Reads the bus×hour matrices persisted by 0016 for each ref
-method, runs every requested (algo, K) on the model side, builds zone
-polygons, and emits a summary JSON plus per-cell GeoJSON.
+Composition layer over 0017 (algorithms) and 0018 (diagnostics). Reads
+the bus×hour matrices persisted by 0016 for each ref method, runs every
+requested (algo, K) on the model side, and emits a summary JSON plus per-cell
+`cluster_labels_<ref>_<algo>_k<K>.npz` (arrays `bus_id`, `cluster_id`).
+
+Polygons are a rendering choice, not a sweep artifact — the sweep hot path
+persists point-tags and defers polygon construction to
+`compute.clustering.render_partition` for a chosen `(ref, algo, K)`.
 
 Geographic transfer of labels onto ERCOT settlement points is no longer
 performed here — under CM.1/CM.2 the model→ERCOT translation is
@@ -47,10 +51,6 @@ from .diagnostics import (
     silhouette,
     spatial_coherence,
     within_cluster_variance,
-)
-from .polygons import (
-    build_polygons,
-    write_zones_geojson,
 )
 
 log = logging.getLogger("compute.clustering.runner")
@@ -176,7 +176,6 @@ def _run_cell(
         "algo": algo,
         "K": K,
         "n_buses_model": None,
-        "n_polygons": None,
         "sil_model": None,
         "stab_model": None,
         "wcv_model": None,
@@ -218,29 +217,12 @@ def _run_cell(
     row["wcv_model"] = _safe(within_cluster_variance, C_model, labels_model)
     row["sc_model"] = _safe(spatial_coherence, labels_model, coords_model)
 
-    try:
-        polygons = build_polygons(labels_model, coords_model, alpha=alpha)
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "FAIL %s/%s/K=%d build_polygons: %s: %s",
-            ref, algo, K, type(exc).__name__, exc,
-        )
-        row["status"] = "failed"
-        row["error"] = f"build_polygons: {type(exc).__name__}: {exc}"
-        row["elapsed_s"] = round(time.perf_counter() - t0, 3)
-        return row
-
-    row["n_polygons"] = int(len(polygons))
-    if polygons.empty:
-        log.info(
-            "SKIP %s/%s/K=%d: build_polygons produced no polygons", ref, algo, K,
-        )
-        row["status"] = "no_polygons"
-        row["elapsed_s"] = round(time.perf_counter() - t0, 3)
-        return row
-
-    geojson_path = out_dir / f"zones_{ref}_{algo}_k{K}.geojson"
-    write_zones_geojson(polygons, geojson_path)
+    labels_path = out_dir / f"cluster_labels_{ref}_{algo}_k{K}.npz"
+    np.savez_compressed(
+        labels_path,
+        bus_id=np.asarray(labels_model.index, dtype=np.str_),
+        cluster_id=np.asarray(labels_model.to_numpy(), dtype=np.int64),
+    )
 
     row["elapsed_s"] = round(time.perf_counter() - t0, 3)
     return row
@@ -264,8 +246,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--alpha", type=float, default=None,
-        help="Concave-hull ratio passed to build_polygons and hybrid_geo; "
-             "omit for convex hull only.",
+        help="Feature-vs-coord mixing weight for hybrid_geo; ignored by "
+             "other algos. Polygons are not built here — see render_partition.",
     )
     args = p.parse_args(argv)
 
