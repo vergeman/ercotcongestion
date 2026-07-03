@@ -40,8 +40,8 @@ Branch: refactor/cm.5-polygons-display-only
 
 ## Acceptance
 
-* [ ] Sweep no longer writes GeoJSONs under `runs/<run_id>/clustering/` during `_run_cell`.
-* [ ] Each cell writes a `cluster_labels_<ref>_<algo>_k<K>.npz` (arrays `bus_id`, `cluster_id`).
-* [ ] `build_polygons` is a pure function; side effects only when caller requests output.
-* [ ] `render_partition` CLI produces a GeoJSON for a named partition.
-* [ ] `select_zones` ranking pipeline does not require polygon inputs.
+* [x] Sweep no longer writes GeoJSONs under `runs/<run_id>/clustering/` during `_run_cell`.
+* [x] Each cell writes a `cluster_labels_<ref>_<algo>_k<K>.npz` (arrays `bus_id`, `cluster_id`).
+* [x] `build_polygons` is a pure function; side effects only when caller requests output.
+* [x] `render_partition` CLI produces a GeoJSON for a named partition.
+* [x] `select_zones` ranking pipeline does not require polygon inputs.
