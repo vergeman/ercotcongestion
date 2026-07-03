@@ -20,3 +20,4 @@ compute/runs/*
 *.gz
 *.png
 .image-tag
+web/dist/
