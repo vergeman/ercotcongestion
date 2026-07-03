@@ -23,12 +23,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 
 import numpy as np
 
 from compute.mapping.correlation_map import (
     DEFAULT_ERCOT_REF,
     DEFAULT_MODEL_REF,
+    RUNS_ROOT,
     load_matrices,
 )
 
@@ -186,6 +189,72 @@ def _smoke_fit_components(seed: int = 0) -> None:
     assert cumvar[2] >= 0.99
 
 
+def _mapping_dir(run_id: str) -> Path:
+    return RUNS_ROOT / run_id / "mapping"
+
+
+def write_outputs(
+    run_id: str,
+    sp_ids: np.ndarray,
+    betas: np.ndarray,
+    r2: np.ndarray,
+    *,
+    k: int,
+    cumvar_at_k: float,
+    model_ref: str,
+    ercot_ref: str,
+    var_target: float,
+) -> tuple[Path, Path, dict]:
+    """Write mapping npz + summary JSON under runs/<run_id>/mapping/.
+
+    Returns (npz_path, summary_path, summary_dict).
+    """
+    out_dir = _mapping_dir(run_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = out_dir / f"mapping_basis_{run_id}.npz"
+    summary_path = out_dir / f"mapping_basis_summary_{run_id}.json"
+
+    np.savez_compressed(
+        npz_path,
+        sp_id=sp_ids.astype(str),
+        r2=r2.astype(float),
+        betas=betas.astype(float),
+    )
+
+    finite = r2[np.isfinite(r2)]
+    n_sp = int(sp_ids.shape[0])
+    n_zero_var = int((~np.isfinite(r2)).sum())
+    if finite.size:
+        r2_median = float(np.median(finite))
+        r2_p25 = float(np.percentile(finite, 25))
+        r2_p75 = float(np.percentile(finite, 75))
+        pct_r2_gt_0_5 = float((finite > 0.5).mean())
+        pct_r2_gt_0_7 = float((finite > 0.7).mean())
+    else:
+        r2_median = r2_p25 = r2_p75 = None
+        pct_r2_gt_0_5 = pct_r2_gt_0_7 = None
+
+    summary = {
+        "run_id": run_id,
+        "model_ref": model_ref,
+        "ercot_ref": ercot_ref,
+        "var_target": float(var_target),
+        "k": int(k),
+        "cumulative_var": float(cumvar_at_k),
+        "n_sp": n_sp,
+        "n_sp_zero_var": n_zero_var,
+        "r2_median": r2_median,
+        "r2_p25": r2_p25,
+        "r2_p75": r2_p75,
+        "pct_r2_gt_0_5": pct_r2_gt_0_5,
+        "pct_r2_gt_0_7": pct_r2_gt_0_7,
+    }
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    return npz_path, summary_path, summary
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Basis regression: PCA temporal components + per-SP OLS.",
@@ -238,18 +307,25 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     betas, r2 = regress_all_sps(F, ercot_C)
-    finite = r2[np.isfinite(r2)]
-    med = float(np.median(finite)) if finite.size else float("nan")
-    p25 = float(np.percentile(finite, 25)) if finite.size else float("nan")
-    p75 = float(np.percentile(finite, 75)) if finite.size else float("nan")
-    pct5 = float((finite > 0.5).mean()) if finite.size else float("nan")
-    pct7 = float((finite > 0.7).mean()) if finite.size else float("nan")
-    n_nan = int((~np.isfinite(r2)).sum())
-    print(
-        f"regress: n_sp={r2.shape[0]} (nan={n_nan}), "
-        f"R² median={med:.3f} p25={p25:.3f} p75={p75:.3f} "
-        f">0.5={pct5*100:.1f}% >0.7={pct7*100:.1f}%"
+
+    npz_path, summary_path, summary = write_outputs(
+        args.run_id, sp_ids, betas, r2,
+        k=k, cumvar_at_k=cumvar_at_k,
+        model_ref=args.model_ref, ercot_ref=args.ercot_ref,
+        var_target=args.var_target,
     )
+    print(f"wrote {npz_path} ({npz_path.stat().st_size:,} bytes)")
+    print(f"wrote {summary_path}")
+    med = summary["r2_median"]
+    pct5 = summary["pct_r2_gt_0_5"]
+    if med is None:
+        print("headline: no finite R²")
+    else:
+        print(
+            f"headline: k={summary['k']}, cumvar={summary['cumulative_var']:.3f}, "
+            f"median R²={med:.3f}, %R²>0.5={pct5*100:.1f}% "
+            f"(n_sp={summary['n_sp']}, zero_var={summary['n_sp_zero_var']})"
+        )
 
 
 if __name__ == "__main__":
