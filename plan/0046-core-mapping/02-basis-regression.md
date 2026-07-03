@@ -48,8 +48,14 @@ Branch: feat/cm.2-basis-regression
 
 ## Acceptance
 
-* [ ] `compute/mapping/basis_regression.py` runs on `--run-id v1-120`.
-* [ ] `runs/v1-120/mapping/mapping_basis_v1-120.npz` has `sp_id, r2, betas` arrays; betas has shape `(n_sp, k)`.
-* [ ] Summary JSON records `k`, `cumulative_var`, R² percentiles.
-* [ ] Zero-variance SPs surfaced (not crashed on).
-* [ ] `--var-target` and `--k` CLI overrides work.
+* [x] `compute/mapping/basis_regression.py` runs on `--run-id v1-120`.
+* [x] `runs/v1-120/mapping/mapping_basis_v1-120.npz` has `sp_id, r2, betas` arrays; betas has shape `(n_sp, k)`. Verified: `(940,)`, `(940,)`, `(940, 6)`.
+* [x] Summary JSON records `k`, `cumulative_var`, R² percentiles. On v1-120 default (`--var-target 0.90`): `k=6`, `cumulative_var=0.902`, `r2_median=0.301`, `r2_p25=0.213`, `r2_p75=0.372`, `pct_r2_gt_0_5=5.1%`, `pct_r2_gt_0_7=0.5%`.
+* [x] Zero-variance SPs surfaced (not crashed on): `r2 = NaN`, `betas = 0`, counted in `n_sp_zero_var` (0 in v1-120; mechanism covered by `_smoke_regress_all_sps`).
+* [x] `--var-target` and `--k` CLI overrides work: `--k 3` → k=3, cumvar 0.765, median R² 0.185; `--var-target 0.99` → k=19, cumvar 0.991, median R² 0.589.
+
+## Notes
+
+* Sensitivity: bumping `--var-target` from 0.90 (k=6) to 0.99 (k=19) lifts median R² from 0.301 to 0.589 and %R²>0.5 from 5% to 57%. Default 0.90 may be leaving explanatory power on the table — worth revisiting when downstream consumers exist.
+* OLS augments `F` with a ones column internally so R² is measured against the standard SS_tot = Σ(y − mean(y))². Only the k component betas are stored; the intercept is discarded (it's an artifact of centering).
+* Added `pyarrow` was NOT required — this branch uses npz per user direction; no new dependencies.
