@@ -47,9 +47,8 @@ import pandas as pd
 
 from .algorithm import (
     hierarchical_corr,
+    hierarchical_on_beta,
     hybrid_geo,
-    kmeans_vec,
-    pca_kmeans,
 )
 from .diagnostics import (
     cluster_stability_ari,
@@ -66,11 +65,16 @@ RUNS_ROOT = BASE_DIR.parent / "runs"
 DEFAULT_REF = "system_lambda_merit_order"
 
 ALGOS: dict[str, Callable] = {
-    "hierarchical_corr": hierarchical_corr,
-    "kmeans_vec": kmeans_vec,
-    "pca_kmeans": pca_kmeans,
+    # Primary — clusters on Stage-B β-loadings (CM.2). Requires the mapping
+    # basis npz; the sweep will fail-fast if it's missing.
+    "hierarchical_on_beta": hierarchical_on_beta,
+    # Optional fallback — feature+geo hybrid on the raw bus×hour matrix.
     "hybrid_geo": hybrid_geo,
+    # Legacy raw-vector hierarchical clustering (kept for diagnostics).
+    "hierarchical_corr": hierarchical_corr,
 }
+
+DEFAULT_ALGOS = ["hierarchical_on_beta"]
 
 DEFAULT_KS = [4, 6, 8, 10, 12, 16]
 
@@ -146,28 +150,61 @@ def _algo_kwargs(algo: str, coords_model: pd.DataFrame, seed: int, alpha: float 
         if alpha is not None:
             kwargs["alpha"] = alpha
         return kwargs
-    if algo in ("kmeans_vec", "pca_kmeans"):
-        return {"seed": seed}
     return {}
+
+
+def _load_beta_matrix(mapping_basis_path: Path | None) -> pd.DataFrame:
+    """Load per-bus β-loadings from a CM.2 mapping_basis npz.
+
+    Fails-fast (SystemExit) if the file is missing or lacks the per-bus
+    arrays — `hierarchical_on_beta` cannot proceed without them.
+    """
+    if mapping_basis_path is None or not mapping_basis_path.exists():
+        raise SystemExit(
+            "hierarchical_on_beta requires the CM.2 mapping basis npz "
+            f"(expected at {mapping_basis_path}). "
+            "Produce it with: python -m compute.mapping.basis_regression --run-id <run_id>"
+        )
+    with np.load(mapping_basis_path, allow_pickle=False) as z:
+        files = set(z.files)
+        if "bus_id" not in files or "betas_bus" not in files:
+            raise SystemExit(
+                f"{mapping_basis_path} lacks bus_id/betas_bus arrays; "
+                "regenerate with the CM.6 basis_regression (per-bus β-loadings)."
+            )
+        ids = z["bus_id"].astype(str)
+        betas = z["betas_bus"].astype(float)
+    if betas.ndim != 2 or betas.shape[0] != ids.shape[0]:
+        raise SystemExit(
+            f"{mapping_basis_path}: betas_bus shape {betas.shape} inconsistent "
+            f"with bus_id length {ids.shape[0]}"
+        )
+    return pd.DataFrame(betas, index=pd.Index(ids, name="id"))
 
 
 def _run_cell(
     ref: str,
     algo: str,
     K: int,
-    C_model: pd.DataFrame,
+    features: pd.DataFrame,
     coords_model: pd.DataFrame,
     out_dir: Path,
     seed: int,
     alpha: float | None,
 ) -> dict[str, Any]:
-    """Run one (algo, K) cell. Returns a summary row."""
+    """Run one (algo, K) cell. Returns a summary row.
+
+    `features` is the feature matrix consumed by both the algo and the
+    feature-space diagnostics (silhouette / stability / WCV). For
+    `hierarchical_on_beta` this is the β-loadings matrix; for the other
+    algos it's the raw bus×hour matrix. `sc_model` always uses coords.
+    """
     t0 = time.perf_counter()
     row: dict[str, Any] = {
         "ref": ref,
         "algo": algo,
         "K": K,
-        "n_buses_model": int(C_model.shape[0]),
+        "n_buses_model": int(features.shape[0]),
         "sil_model": None,
         "stab_model": None,
         "wcv_model": None,
@@ -180,7 +217,7 @@ def _run_cell(
     a_kwargs = _algo_kwargs(algo, coords_model, seed, alpha)
 
     try:
-        labels_model = algo_fn(C_model, K, **a_kwargs)
+        labels_model = algo_fn(features, K, **a_kwargs)
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "FAIL %s/%s/K=%d: %s: %s", ref, algo, K, type(exc).__name__, exc,
@@ -190,14 +227,14 @@ def _run_cell(
         row["elapsed_s"] = round(time.perf_counter() - t0, 3)
         return row
 
-    row["sil_model"] = _safe(silhouette, C_model, labels_model)
+    row["sil_model"] = _safe(silhouette, features, labels_model)
     # cluster_stability_ari injects `seed` itself when the algo accepts it,
     # so drop our copy to avoid a duplicate-keyword TypeError.
     stab_kwargs = {k: v for k, v in a_kwargs.items() if k != "seed"}
     row["stab_model"] = _safe(
-        cluster_stability_ari, C_model, algo_fn, K, seed=seed, **stab_kwargs,
+        cluster_stability_ari, features, algo_fn, K, seed=seed, **stab_kwargs,
     )
-    row["wcv_model"] = _safe(within_cluster_variance, C_model, labels_model)
+    row["wcv_model"] = _safe(within_cluster_variance, features, labels_model)
     row["sc_model"] = _safe(spatial_coherence, labels_model, coords_model)
 
     labels_path = out_dir / f"cluster_labels_{ref}_{algo}_k{K}.npz"
@@ -229,7 +266,13 @@ def main(argv: list[str] | None = None) -> int:
                         f"in CM.6; override only for testing / diagnostics.")
     p.add_argument("--ref-methods", default=None,
                    help="Deprecated (CM.6). Value is ignored — sweep is fixed on --ref.")
-    p.add_argument("--algos", default=None, help="comma list; default = all four")
+    p.add_argument("--mapping-basis", default=None, type=Path,
+                   help="Path to CM.2 mapping_basis npz (bus_id + betas_bus arrays) "
+                        "consumed by hierarchical_on_beta. When --run-id is set, "
+                        "defaults to runs/<run_id>/mapping/mapping_basis_<run_id>.npz.")
+    p.add_argument("--algos", default=None,
+                   help="comma list; default = ['hierarchical_on_beta']. "
+                        "Known: hierarchical_on_beta, hybrid_geo, hierarchical_corr.")
     p.add_argument("--ks", default=None, help="comma list of ints; default = 4,6,8,10,12,16")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -266,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     log.info("sweep ref = %s (fixed on model side)", args.ref)
 
-    algos = _list_arg(args.algos) or list(ALGOS.keys())
+    algos = _list_arg(args.algos) or list(DEFAULT_ALGOS)
     unknown = [a for a in algos if a not in ALGOS]
     if unknown:
         raise SystemExit(f"unknown algos: {unknown}; known = {list(ALGOS)}")
@@ -275,11 +318,28 @@ def main(argv: list[str] | None = None) -> int:
     C_model = _load_model_matrix(matrices_path, args.ref)
     coords_model = _load_coords(args.coords_model, id_col="bus")
 
+    beta_matrix: pd.DataFrame | None = None
+    if "hierarchical_on_beta" in algos:
+        mapping_basis_path = args.mapping_basis
+        if mapping_basis_path is None and args.run_id is not None:
+            mapping_basis_path = (
+                RUNS_ROOT / args.run_id / "mapping" / f"mapping_basis_{args.run_id}.npz"
+            )
+        beta_matrix = _load_beta_matrix(mapping_basis_path)
+        # Align β-loadings to the model matrix's bus order; buses missing
+        # from either side end up with NaN rows that the algo cleans away.
+        beta_matrix = beta_matrix.reindex(C_model.index)
+        log.info(
+            "loaded β-loadings for hierarchical_on_beta from %s (n_bus=%d, k=%d)",
+            mapping_basis_path, beta_matrix.shape[0], beta_matrix.shape[1],
+        )
+
     rows: list[dict[str, Any]] = []
     for algo in algos:
+        features = beta_matrix if algo == "hierarchical_on_beta" else C_model
         for K in ks:
             rows.append(_run_cell(
-                ref=args.ref, algo=algo, K=K, C_model=C_model,
+                ref=args.ref, algo=algo, K=K, features=features,
                 coords_model=coords_model,
                 out_dir=out_dir, seed=args.seed, alpha=args.alpha,
             ))

@@ -14,7 +14,7 @@ Usage::
         --run-id <name> \
         --dates-file compute/sample_specs/reference_dates.json \
         [--ref-methods hub_avg,system_lambda_kkt,...] \
-        [--algos hierarchical_corr,kmeans_vec,pca_kmeans] \
+        [--algos hierarchical_on_beta,hybrid_geo,hierarchical_corr] \
         [--ks 4,6,8,10,12,16] \
         [--records-output {gz,json,none}]  # default gz
         [--skip-completed]                 # default true

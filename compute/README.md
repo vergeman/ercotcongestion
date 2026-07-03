@@ -26,7 +26,7 @@ python -m compute.run_pipeline \
 Common flags:
 
 * `--ref-methods hub_avg,system_lambda_kkt,...` — subset of reference-price methods.
-* `--algos hierarchical_corr,kmeans_vec,pca_kmeans` — clustering algorithms.
+* `--algos hierarchical_on_beta,hybrid_geo,hierarchical_corr` — clustering algorithms.
 * `--ks 4,6,8,10,12,16` — cluster counts to sweep.
 * `--records-output {gz,json,none}` — per-record congestion JSON output
   (default `gz`; `none` deletes the per-record files after the matrix stage

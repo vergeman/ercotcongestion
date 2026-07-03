@@ -1,14 +1,24 @@
 """Clustering algorithms.
 
-Four pure functions over a bus×hour congestion matrix `C` (rows = buses,
-columns = hours). Each returns a `pd.Series` indexed by `C.index` with
-integer cluster labels; buses defensively dropped (any-NaN row, or missing
-coordinates for `hybrid_geo`) come back as `-1` so the downstream sweep
-can detect them.
+Three pure functions over a feature matrix `F` (rows = buses; columns =
+either hours for raw-vector algos, or β components for
+`hierarchical_on_beta`). Each returns a `pd.Series` indexed by `F.index`
+with integer cluster labels; buses defensively dropped (any-NaN row, or
+missing coordinates for `hybrid_geo`) come back as `-1` so the downstream
+sweep can detect them.
+
+Algorithm inventory (post-CM.6):
+
+* `hierarchical_on_beta` — primary. Ward-linked hierarchical clustering
+  on Stage-B β-loadings from `compute.mapping.basis_regression`. Aligns
+  clustering with the translation-invariant metric introduced in CM.2.
+* `hybrid_geo` — optional fallback. K-means on `[z(C) | α·z(coords)]`.
+* `hierarchical_corr` — legacy raw-vector hierarchical clustering.
+
+`kmeans_vec` and `pca_kmeans` were retired in CM.6.
 
 No I/O. The caller is responsible for loading the npz and selecting a
-(ref_method, source) matrix.
-
+feature matrix.
 """
 from __future__ import annotations
 
@@ -19,10 +29,10 @@ from scipy.spatial.distance import squareform
 from sklearn.cluster import KMeans
 
 
-def _clean(C: pd.DataFrame) -> tuple[pd.DataFrame, pd.Index]:
+def _clean(F: pd.DataFrame) -> tuple[pd.DataFrame, pd.Index]:
     """Drop rows with any NaN; return cleaned matrix and the dropped index."""
-    X = C.dropna(axis=0, how="any")
-    dropped = C.index.difference(X.index)
+    X = F.dropna(axis=0, how="any")
+    dropped = F.index.difference(X.index)
     return X, dropped
 
 
@@ -35,18 +45,14 @@ def _reindex_with_dropped(
     return out
 
 
-def hierarchical_corr(
-    C: pd.DataFrame, K: int, linkage: str = "ward"
+def _hierarchical(
+    F: pd.DataFrame, K: int, linkage: str = "ward"
 ) -> pd.Series:
-    """Hierarchical agglomerative clustering, cut to K clusters.
-
-    `linkage='ward'` clusters on the raw row vectors (Euclidean — Ward
-    requires it). Other linkages use correlation distance `1 - corr(C.T)`.
-    """
-    X, dropped = _clean(C)
+    """Shared Ward / correlation-distance hierarchical clustering."""
+    X, dropped = _clean(F)
     if X.shape[0] < K:
         return _reindex_with_dropped(
-            np.full(X.shape[0], -1), X.index, C.index, dropped
+            np.full(X.shape[0], -1), X.index, F.index, dropped
         )
 
     if linkage == "ward":
@@ -59,46 +65,32 @@ def hierarchical_corr(
         Z = scipy_linkage(squareform(D, checks=False), method=linkage)
 
     labels = fcluster(Z, t=K, criterion="maxclust")
-    return _reindex_with_dropped(labels, X.index, C.index, dropped)
+    return _reindex_with_dropped(labels, X.index, F.index, dropped)
 
 
-def kmeans_vec(
-    C: pd.DataFrame, K: int, n_init: int = 10, seed: int = 0
+def hierarchical_corr(
+    C: pd.DataFrame, K: int, linkage: str = "ward"
 ) -> pd.Series:
-    """K-means on raw bus row vectors."""
-    X, dropped = _clean(C)
-    if X.shape[0] < K:
-        return _reindex_with_dropped(
-            np.full(X.shape[0], -1), X.index, C.index, dropped
-        )
-    km = KMeans(n_clusters=K, n_init=n_init, random_state=seed)
-    labels = km.fit_predict(X.to_numpy())
-    return _reindex_with_dropped(labels, X.index, C.index, dropped)
+    """Hierarchical agglomerative clustering on the raw bus×hour matrix.
 
-
-def pca_kmeans(
-    C: pd.DataFrame, K: int, n_components: int = 5, seed: int = 0
-) -> pd.Series:
-    """PCA on the bus×hour matrix, then K-means on the top-K bus scores.
-
-    Mirrors the SVD pattern in `congestion.py::pca_variance_explained` but
-    flips orientation: there, hours are samples and buses are features
-    (for hour-component analysis). Here, buses are the samples we want to
-    score, so we center across buses (axis=0) and take `U * S` as PC scores.
+    `linkage='ward'` clusters on the raw row vectors (Euclidean — Ward
+    requires it). Other linkages use correlation distance `1 - corr(C.T)`.
     """
-    X, dropped = _clean(C)
-    if X.shape[0] < K:
-        return _reindex_with_dropped(
-            np.full(X.shape[0], -1), X.index, C.index, dropped
-        )
-    M = X.to_numpy(dtype=float)
-    centered = M - M.mean(axis=0, keepdims=True)
-    k = max(1, min(n_components, centered.shape[0], centered.shape[1]))
-    U, S, _ = np.linalg.svd(centered, full_matrices=False)
-    scores = U[:, :k] * S[:k]
-    km = KMeans(n_clusters=K, n_init=10, random_state=seed)
-    labels = km.fit_predict(scores)
-    return _reindex_with_dropped(labels, X.index, C.index, dropped)
+    return _hierarchical(C, K, linkage=linkage)
+
+
+def hierarchical_on_beta(
+    beta_matrix: pd.DataFrame, K: int, linkage: str = "ward"
+) -> pd.Series:
+    """Hierarchical agglomerative clustering on Stage-B β-loadings.
+
+    `beta_matrix` is a DataFrame of shape (n_bus, k) whose rows are the
+    per-bus β-coefficients from CM.2 basis regression (bus_id → β
+    vector). β-space is a lower-dimensional, denoised representation of
+    each bus's temporal behavior, so clustering here aligns with the
+    translation-invariant metric introduced in CM.2/CM.3.
+    """
+    return _hierarchical(beta_matrix, K, linkage=linkage)
 
 
 def hybrid_geo(
