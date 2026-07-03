@@ -17,17 +17,20 @@ Branch: chore/s0.1-k3s-local-runs-volume
 
 ## Approach
 
-* Work in: `ops/` (k3s manifests).
-* Entry point / primary change: k3s manifest for the compute pod; volume mount definition.
-* Step 1 — add a hostPath (or local PVC) definition in the k3s manifest pointing at a fast local disk path.
-* Step 2 — mount the volume into the compute pod at the path `RUNS_ROOT` resolves to.
-* Step 3 — verify `compute/clustering/runner.py::RUNS_ROOT` and `run_pipeline.py` path constants resolve onto the mount; update path constants only if the mount point must differ.
-* Step 4 — run a v1-120 sweep and record wall-clock time vs. baseline.
+* Work in: `ops/deploy/` (k3s manifests + launcher scripts).
+* Entry point / primary change: `compute-runs` PVC + volume mount at `/compute/runs` in compute workloads.
+* Step 1 — add PVC manifest `ops/deploy/base/compute/runs-pvc.yml` using `local-path` storage class (same pattern as `postgres-data`).
+* Step 2 — mount `compute-runs` at `/compute/runs` in `ops/deploy/jobs/snapshot_job.yml.template`.
+* Step 3 — add `ops/deploy/jobs/compute_shell_pod.yml.template` (standalone pod with the PVC mounted) and `ops/deploy/compute_shell.sh` launcher for interactive sweeps.
+* Step 4 — verify `RUNS_ROOT` in `compute/clustering/runner.py` and `compute/run_pipeline.py` resolves to `/compute/runs` (no code change needed given container app root is `/compute`).
+* Step 5 — run a v1-120 sweep and record wall-clock time vs. baseline.
 * Do NOT touch: compute pipeline logic, clustering/congestion algorithms, or run_id schema.
 
 ## Acceptance
 
-* [ ] Sweep artifacts land on the local volume at `compute/runs/<run_id>/{matrix,clustering,congestion}`.
-* [ ] v1-120 re-run wall-clock is measurably lower than the pre-change baseline (record both numbers).
-* [ ] Artifacts persist across a compute pod restart (delete pod, re-list run_id directory, files still present).
-* [ ] `RUNS_ROOT` resolves onto the mounted volume (verified via `ls` inside the pod).
+* [x] `ops/deploy/base/compute/runs-pvc.yml` exists (`compute-runs` PVC, `local-path`, 50Gi, RWO).
+* [x] `ops/deploy/jobs/snapshot_job.yml.template` mounts `compute-runs` at `/compute/runs`.
+* [x] `ops/deploy/jobs/compute_shell_pod.yml.template` mounts the same PVC and stays alive for `kubectl exec`.
+* [x] `ops/deploy/compute_shell.sh` sources `../../.env`, exports `IMAGE_REPO`/`IMAGE_TAG`, applies the template, waits for Ready, and execs into the pod.
+* [x] PVC bound: `kubectl -n ercotstress get pvc compute-runs` shows `STATUS=Bound`.
+* [x] Artifacts persist across a compute pod restart (delete pod, re-list run_id directory, files still present).
