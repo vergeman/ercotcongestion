@@ -9,8 +9,7 @@ import pandas as pd
 
 from compute.clustering.algorithm import (
     hierarchical_corr,
-    kmeans_vec,
-    pca_kmeans,
+    hierarchical_on_beta,
 )
 from compute.clustering.diagnostics import (
     cluster_stability_ari,
@@ -44,13 +43,7 @@ def test_silhouette_singleton_excluded(planted):
     assert not np.isnan(val) and val > 0.5
 
 
-def test_stability_kmeans(planted):
-    C, _ = planted
-    ari = cluster_stability_ari(C, kmeans_vec, K=N_CLUSTERS, n_splits=5, seed=SEED)
-    assert ari > 0.85
-
-
-def test_stability_hierarchical(planted):
+def test_stability_hierarchical_ward(planted):
     C, _ = planted
     ari = cluster_stability_ari(
         C, hierarchical_corr, K=N_CLUSTERS, n_splits=5, linkage="ward"
@@ -58,10 +51,10 @@ def test_stability_hierarchical(planted):
     assert ari > 0.85
 
 
-def test_stability_pca_kmeans(planted):
+def test_stability_hierarchical_average(planted):
     C, _ = planted
     ari = cluster_stability_ari(
-        C, pca_kmeans, K=N_CLUSTERS, n_splits=5, seed=SEED, n_components=5
+        C, hierarchical_corr, K=N_CLUSTERS, n_splits=5, linkage="average"
     )
     assert ari > 0.85
 
@@ -69,7 +62,7 @@ def test_stability_pca_kmeans(planted):
 def test_within_cluster_variance_elbow_at_true_k(planted):
     C, _ = planted
     wcv = {
-        k: within_cluster_variance(C, kmeans_vec(C, K=k, seed=SEED))
+        k: within_cluster_variance(C, hierarchical_corr(C, K=k, linkage="ward"))
         for k in (2, 3, 4, 5)
     }
     # Monotone non-increasing in K (more clusters → at least as tight).

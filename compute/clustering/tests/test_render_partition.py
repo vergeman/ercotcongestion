@@ -52,7 +52,7 @@ def test_render_from_run_id(planted, synthetic_coords, tmp_path, monkeypatch):
     clustering_dir = tmp_path / "runs" / run_id / "clustering"
     clustering_dir.mkdir(parents=True)
 
-    labels_path = clustering_dir / "cluster_labels_fake_ref_kmeans_vec_k3.npz"
+    labels_path = clustering_dir / "cluster_labels_fake_ref_hierarchical_corr_k3.npz"
     _write_labels_npz(labels_path, true_labels)
 
     coords_path = tmp_path / "bus_coords.csv"
@@ -64,7 +64,7 @@ def test_render_from_run_id(planted, synthetic_coords, tmp_path, monkeypatch):
     rc = render_partition.main([
         "--run-id", run_id,
         "--ref", "fake_ref",
-        "--algo", "kmeans_vec",
+        "--algo", "hierarchical_corr",
         "--k", "3",
         "--coords-model", str(coords_path),
         "--out", str(out_path),
@@ -123,11 +123,12 @@ def test_end_to_end_sweep_then_render(planted, synthetic_coords, tmp_path):
         "--matrices", str(npz_path),
         "--coords-model", str(coords_path),
         "--out-dir", str(out_dir),
-        "--algos", "kmeans_vec",
+        "--ref", "ref_a",
+        "--algos", "hierarchical_corr",
         "--ks", "3",
     ])
     assert rc == 0
-    labels_path = out_dir / "cluster_labels_ref_a_kmeans_vec_k3.npz"
+    labels_path = out_dir / "cluster_labels_ref_a_hierarchical_corr_k3.npz"
     assert labels_path.exists()
 
     geojson_path = tmp_path / "zones.geojson"

@@ -110,22 +110,20 @@ def sweep_inputs(tmp_path: Path) -> dict[str, Path]:
 # Tests
 # ---------------------------------------------------------------------------
 
-def _argv(sweep_inputs: dict[str, Path], algos: str, ks: str, refs: str | None = None) -> list[str]:
-    argv = [
+def _argv(sweep_inputs: dict[str, Path], algos: str, ks: str, ref: str = "fake_a") -> list[str]:
+    return [
         "--matrices", str(sweep_inputs["npz"]),
         "--coords-model", str(sweep_inputs["coords_model"]),
         "--out-dir", str(sweep_inputs["out_dir"]),
+        "--ref", ref,
         "--algos", algos,
         "--ks", ks,
     ]
-    if refs is not None:
-        argv += ["--ref-methods", refs]
-    return argv
 
 
 def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
     rc = run_clustering.main(
-        _argv(sweep_inputs, algos="kmeans_vec,hierarchical_corr", ks="3"),
+        _argv(sweep_inputs, algos="hierarchical_corr,hybrid_geo", ks="3"),
     )
     assert rc == 0
 
@@ -139,10 +137,10 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
     rows = summary["rows"]
     df = pd.DataFrame(rows)
 
-    # 2 refs × 2 algos × 1 K = 4 rows.
-    assert len(df) == 4
-    assert set(df["ref"]) == {"fake_a", "fake_b"}
-    assert set(df["algo"]) == {"kmeans_vec", "hierarchical_corr"}
+    # 1 ref × 2 algos × 1 K = 2 rows (ref axis retired in CM.6).
+    assert len(df) == 2
+    assert set(df["ref"]) == {"fake_a"}
+    assert set(df["algo"]) == {"hierarchical_corr", "hybrid_geo"}
     assert (df["status"] == "ok").all()
 
     # Every ok cell writes a labels npz; polygons are no longer emitted here.
@@ -168,23 +166,31 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
         assert "n_polygons" not in r
 
 
-def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
-    import logging
-
-    with caplog.at_level(logging.INFO, logger="compute.clustering.runner"):
-        rc = run_clustering.main(
-            _argv(sweep_inputs, algos="kmeans_vec", ks="3", refs="fake_b"),
-        )
+def test_ercot_only_ref_still_runs_on_model_side(sweep_inputs):
+    """Sweep never touches the ERCOT side; a ref with an empty ercot matrix
+    (e.g. system_lambda_kkt on the model side) still produces model rows."""
+    rc = run_clustering.main(
+        _argv(sweep_inputs, algos="hierarchical_corr", ks="3", ref="fake_b"),
+    )
     assert rc == 0
-    # The empty ercot side is logged as SKIP, not as a failed cell.
-    assert any("SKIP fake_b/ercot" in r.message for r in caplog.records)
-
     summary = json.loads(
         (sweep_inputs["out_dir"] / "clustering_summary_unit.json").read_text(),
     )
-    # 1 ref × 1 algo × 1 K. Sweep no longer touches the ERCOT side.
     assert len(summary["rows"]) == 1
     assert summary["rows"][0]["status"] == "ok"
+    assert summary["rows"][0]["ref"] == "fake_b"
+
+
+def test_deprecated_ref_methods_flag_logs_and_ignored(sweep_inputs, caplog):
+    import logging
+
+    argv = _argv(sweep_inputs, algos="hierarchical_corr", ks="3") + [
+        "--ref-methods", "should_be_ignored",
+    ]
+    with caplog.at_level(logging.WARNING, logger="compute.clustering.runner"):
+        rc = run_clustering.main(argv)
+    assert rc == 0
+    assert any("--ref-methods is deprecated" in r.message for r in caplog.records)
 
 
 def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
@@ -192,10 +198,10 @@ def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
     def boom(C, K, **kwargs):
         raise RuntimeError("intentional")
 
-    monkeypatch.setitem(run_clustering.ALGOS, "kmeans_vec", boom)
+    monkeypatch.setitem(run_clustering.ALGOS, "hierarchical_corr", boom)
 
     rc = run_clustering.main(
-        _argv(sweep_inputs, algos="kmeans_vec", ks="3", refs="fake_a"),
+        _argv(sweep_inputs, algos="hierarchical_corr", ks="3", ref="fake_a"),
     )
     assert rc == 0
 
@@ -207,21 +213,79 @@ def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
     row = summary["rows"][0]
     assert row["status"] == "failed"
     assert "RuntimeError" in row["error"]
-    assert not (out_dir / "zones_fake_a_kmeans_vec_k3.geojson").exists()
-    assert not (out_dir / "cluster_labels_fake_a_kmeans_vec_k3.npz").exists()
+    assert not (out_dir / "zones_fake_a_hierarchical_corr_k3.geojson").exists()
+    assert not (out_dir / "cluster_labels_fake_a_hierarchical_corr_k3.npz").exists()
+
+
+def _write_mapping_basis(path: Path, bus_ids: list[str], k: int, seed: int = 7) -> None:
+    """Emit a minimal CM.2 mapping_basis npz (bus_id + betas_bus)."""
+    rng = np.random.default_rng(seed)
+    n = len(bus_ids)
+    per = n // N_CLUSTERS
+    cluster = np.concatenate([np.full(per, c) for c in range(N_CLUSTERS)])
+    if cluster.size < n:
+        cluster = np.concatenate([cluster, np.full(n - cluster.size, N_CLUSTERS - 1)])
+    centers = rng.normal(0.0, 3.0, size=(N_CLUSTERS, k))
+    betas_bus = centers[cluster] + rng.normal(0.0, 0.05, size=(n, k))
+    np.savez_compressed(
+        path,
+        sp_id=np.array([], dtype="<U1"),
+        r2=np.array([], dtype=float),
+        betas=np.zeros((0, k), dtype=float),
+        bus_id=np.array(bus_ids, dtype=str),
+        r2_bus=np.full(n, 0.99, dtype=float),
+        betas_bus=betas_bus.astype(float),
+    )
+
+
+def test_hierarchical_on_beta_consumes_mapping_basis(sweep_inputs, tmp_path):
+    """The primary algo loads per-bus β-loadings from the mapping_basis npz."""
+    bus_ids = [f"{1000 + i}" for i in range(N_BUSES)]
+    mapping_path = tmp_path / "mapping_basis.npz"
+    _write_mapping_basis(mapping_path, bus_ids, k=4)
+
+    argv = _argv(sweep_inputs, algos="hierarchical_on_beta", ks="3") + [
+        "--mapping-basis", str(mapping_path),
+    ]
+    rc = run_clustering.main(argv)
+    assert rc == 0
+
+    summary = json.loads(
+        (sweep_inputs["out_dir"] / "clustering_summary_unit.json").read_text(),
+    )
+    assert len(summary["rows"]) == 1
+    row = summary["rows"][0]
+    assert row["status"] == "ok"
+    assert row["algo"] == "hierarchical_on_beta"
+    assert row["n_buses_model"] == N_BUSES
+
+
+def test_hierarchical_on_beta_fails_without_mapping_basis(sweep_inputs):
+    """Missing mapping_basis file → clear SystemExit pointing to CM.2."""
+    argv = _argv(sweep_inputs, algos="hierarchical_on_beta", ks="3")
+    with pytest.raises(SystemExit, match="mapping basis"):
+        run_clustering.main(argv)
+
+
+def test_retired_algos_rejected(sweep_inputs):
+    """kmeans_vec and pca_kmeans were removed in CM.6."""
+    for retired in ("kmeans_vec", "pca_kmeans"):
+        with pytest.raises(SystemExit, match=f"unknown algos.*{retired}"):
+            run_clustering.main(
+                _argv(sweep_inputs, algos=retired, ks="3"),
+            )
 
 
 def test_select_zones_ranks_and_runs(sweep_inputs, capsys):
     run_clustering.main(
-        _argv(sweep_inputs, algos="kmeans_vec,hierarchical_corr", ks="3"),
+        _argv(sweep_inputs, algos="hierarchical_corr,hybrid_geo", ks="3"),
     )
     summary_path = sweep_inputs["out_dir"] / "clustering_summary_unit.json"
 
     rc = select_zones.main(["--summary", str(summary_path), "--top", "10"])
     assert rc == 0
     out = capsys.readouterr().out
-    # Header present, four rows printed.
+    # Header present, two rows printed (1 ref × 2 algos × 1 K).
     assert "rank" in out and "score" in out
-    # Ranks 1..4 should appear.
-    for k in range(1, 5):
+    for k in range(1, 3):
         assert f" {k} " in out or out.lstrip().startswith(f"{k} ")

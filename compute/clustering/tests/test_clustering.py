@@ -9,9 +9,8 @@ import pandas as pd
 
 from compute.clustering.algorithm import (
     hierarchical_corr,
+    hierarchical_on_beta,
     hybrid_geo,
-    kmeans_vec,
-    pca_kmeans,
 )
 from sklearn.metrics import adjusted_rand_score
 
@@ -39,15 +38,18 @@ def test_hierarchical_average_recovers_planted(planted):
     assert _ari(labels, truth) > 0.9
 
 
-def test_kmeans_vec_recovers_planted(planted):
+def test_hierarchical_on_beta_recovers_planted(planted):
+    """β-loadings from PCA of the planted matrix should cluster the same
+    way as the raw vectors — same low-rank structure, lower dimension."""
     C, truth = planted
-    labels = kmeans_vec(C, K=N_CLUSTERS, seed=SEED)
-    assert _ari(labels, truth) > 0.9
-
-
-def test_pca_kmeans_recovers_planted(planted):
-    C, truth = planted
-    labels = pca_kmeans(C, K=N_CLUSTERS, n_components=5, seed=SEED)
+    # Derive per-bus β-loadings via SVD of the centered bus×hour matrix.
+    M = C.to_numpy(dtype=float)
+    M = M - M.mean(axis=1, keepdims=True)
+    U, S, _ = np.linalg.svd(M, full_matrices=False)
+    k = min(3, S.shape[0])
+    betas = U[:, :k] * S[:k]
+    beta_df = pd.DataFrame(betas, index=C.index)
+    labels = hierarchical_on_beta(beta_df, K=N_CLUSTERS, linkage="ward")
     assert _ari(labels, truth) > 0.9
 
 
@@ -60,12 +62,11 @@ def test_hybrid_geo_smoke(planted, synthetic_coords):
     assert valid.nunique() == N_CLUSTERS
 
 
-def test_returns_series_indexed_on_C(planted):
+def test_returns_series_indexed_on_input(planted):
     C, _ = planted
     for fn_call in [
         lambda: hierarchical_corr(C, K=N_CLUSTERS),
-        lambda: kmeans_vec(C, K=N_CLUSTERS),
-        lambda: pca_kmeans(C, K=N_CLUSTERS),
+        lambda: hierarchical_corr(C, K=N_CLUSTERS, linkage="average"),
     ]:
         labels = fn_call()
         assert list(labels.index) == list(C.index)
@@ -76,6 +77,6 @@ def test_nan_rows_get_minus_one(planted):
     C, _ = planted
     C = C.copy()
     C.iloc[0, 0] = np.nan
-    labels = kmeans_vec(C, K=N_CLUSTERS, seed=SEED)
+    labels = hierarchical_corr(C, K=N_CLUSTERS)
     assert labels.iloc[0] == -1
     assert (labels.iloc[1:] >= 0).all()

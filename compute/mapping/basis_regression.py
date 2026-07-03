@@ -13,7 +13,11 @@ Reads `runs/<run_id>/matrix/congestion_matrices.npz` (via
 `compute.mapping.correlation_map.load_matrices`) and writes:
 
   * `runs/<run_id>/mapping/mapping_basis_<run_id>.npz`
-    with arrays `sp_id, r2, betas` (betas shape `(n_sp, k)`).
+    with arrays
+      `sp_id, r2, betas`         (per-ERCOT-SP; betas shape `(n_sp, k)`)
+      `bus_id, r2_bus, betas_bus`  (per-model-bus; betas_bus shape `(n_bus, k)`)
+    Per-bus β-loadings are consumed by the CM.6 clustering runner
+    (`hierarchical_on_beta`) as the feature matrix.
   * `runs/<run_id>/mapping/mapping_basis_summary_<run_id>.json`
 
 Usage:
@@ -199,6 +203,9 @@ def write_outputs(
     betas: np.ndarray,
     r2: np.ndarray,
     *,
+    bus_ids: np.ndarray,
+    betas_bus: np.ndarray,
+    r2_bus: np.ndarray,
     k: int,
     cumvar_at_k: float,
     model_ref: str,
@@ -219,6 +226,9 @@ def write_outputs(
         sp_id=sp_ids.astype(str),
         r2=r2.astype(float),
         betas=betas.astype(float),
+        bus_id=bus_ids.astype(str),
+        r2_bus=r2_bus.astype(float),
+        betas_bus=betas_bus.astype(float),
     )
 
     finite = r2[np.isfinite(r2)]
@@ -234,6 +244,11 @@ def write_outputs(
         r2_median = r2_p25 = r2_p75 = None
         pct_r2_gt_0_5 = pct_r2_gt_0_7 = None
 
+    finite_bus = r2_bus[np.isfinite(r2_bus)]
+    n_bus = int(bus_ids.shape[0])
+    n_bus_zero_var = int((~np.isfinite(r2_bus)).sum())
+    r2_bus_median = float(np.median(finite_bus)) if finite_bus.size else None
+
     summary = {
         "run_id": run_id,
         "model_ref": model_ref,
@@ -248,6 +263,9 @@ def write_outputs(
         "r2_p75": r2_p75,
         "pct_r2_gt_0_5": pct_r2_gt_0_5,
         "pct_r2_gt_0_7": pct_r2_gt_0_7,
+        "n_bus": n_bus,
+        "n_bus_zero_var": n_bus_zero_var,
+        "r2_bus_median": r2_bus_median,
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
@@ -307,9 +325,14 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     betas, r2 = regress_all_sps(F, ercot_C)
+    # Regress model buses onto the same F so hierarchical_on_beta has
+    # per-bus features (CM.6). The signature/behavior is identical to
+    # regress_all_sps — targets shape is (n_bus, n_hours) here.
+    betas_bus, r2_bus = regress_all_sps(F, model_C)
 
     npz_path, summary_path, summary = write_outputs(
         args.run_id, sp_ids, betas, r2,
+        bus_ids=bus_ids, betas_bus=betas_bus, r2_bus=r2_bus,
         k=k, cumvar_at_k=cumvar_at_k,
         model_ref=args.model_ref, ercot_ref=args.ercot_ref,
         var_target=args.var_target,
