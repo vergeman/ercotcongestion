@@ -10,9 +10,11 @@ the same conceptual quantity (system marginal energy):
 Values are expected to track but not equal.
 
 Reads `runs/<run_id>/matrix/congestion_matrices.npz` (produced by
-`compute.matrix`) and — in later sections — writes:
+`compute.matrix`) and writes:
 
-  * `runs/<run_id>/mapping/mapping_correlation_<run_id>.parquet`
+  * `runs/<run_id>/mapping/mapping_correlation_<run_id>.npz`
+    with arrays `sp_id, best_bus, best_corr, topk_bus, topk_corr`
+    (topk_* are (n_sp, k) matrices, descending by correlation).
   * `runs/<run_id>/mapping/mapping_correlation_summary_<run_id>.json`
 
 Usage:
@@ -24,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -227,6 +230,72 @@ def _smoke_planted_signal(seed: int = 0) -> None:
     assert len(topk[0]) == 5
 
 
+def _mapping_dir(run_id: str) -> Path:
+    return RUNS_ROOT / run_id / "mapping"
+
+
+def write_outputs(
+    run_id: str,
+    sp_ids: np.ndarray,
+    best_bus: np.ndarray,
+    best_corr: np.ndarray,
+    topk: list[list[tuple[str, float]]],
+    *,
+    n_bus_kept: int,
+    n_bus_dropped: int,
+    n_sp_dropped: int,
+    var_threshold: float,
+    model_ref: str,
+    ercot_ref: str,
+) -> tuple[Path, Path, dict]:
+    """Write mapping npz + summary JSON under runs/<run_id>/mapping/.
+
+    Returns (npz_path, summary_path, summary_dict).
+    """
+    out_dir = _mapping_dir(run_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = out_dir / f"mapping_correlation_{run_id}.npz"
+    summary_path = out_dir / f"mapping_correlation_summary_{run_id}.json"
+
+    # topk is a ragged list-of-lists; pad shorter entries with '' / NaN so
+    # it can serialize as two (n_sp, k) matrices.
+    k = max((len(entry) for entry in topk), default=0)
+    topk_bus = np.full((sp_ids.shape[0], k), "", dtype=object)
+    topk_corr = np.full((sp_ids.shape[0], k), np.nan, dtype=float)
+    for j, entry in enumerate(topk):
+        for r, (bus, corr) in enumerate(entry):
+            topk_bus[j, r] = bus
+            topk_corr[j, r] = corr
+    np.savez_compressed(
+        npz_path,
+        sp_id=sp_ids.astype(str),
+        best_bus=best_bus.astype(str),
+        best_corr=best_corr.astype(float),
+        topk_bus=topk_bus.astype(str),
+        topk_corr=topk_corr,
+    )
+
+    finite = best_corr[np.isfinite(best_corr)]
+    n_sp = int(sp_ids.shape[0])
+    summary = {
+        "run_id": run_id,
+        "model_ref": model_ref,
+        "ercot_ref": ercot_ref,
+        "var_threshold": float(var_threshold),
+        "n_sp": n_sp,
+        "n_bus": int(n_bus_kept),
+        "n_sp_dropped": int(n_sp_dropped),
+        "n_bus_dropped": int(n_bus_dropped),
+        "pct_gt_0_7": float((finite > 0.7).mean()) if finite.size else None,
+        "pct_gt_0_5": float((finite > 0.5).mean()) if finite.size else None,
+        "median_corr": float(np.median(finite)) if finite.size else None,
+    }
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    return npz_path, summary_path, summary
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Correlate ERCOT SPs to model buses over shared hours.",
@@ -285,13 +354,26 @@ def main(argv: list[str] | None = None) -> None:
     R = correlate(model_C, ercot_C)  # ← bus × sp Pearson correlation matrix
     best_bus, best_corr, topk = select_best_and_topk(R, bus_ids, args.topk)
 
-    finite = best_corr[np.isfinite(best_corr)]
-    if finite.size:
-        print(f"best_corr: median={np.median(finite):.3f} "
-              f"pct>0.7={(finite > 0.7).mean() * 100:.1f}% "
-              f"pct>0.5={(finite > 0.5).mean() * 100:.1f}%")
-
-    raise SystemExit("C3 (parquet + summary persistence) not implemented yet")
+    npz_path, summary_path, summary = write_outputs(
+        args.run_id, sp_ids, best_bus, best_corr, topk,
+        n_bus_kept=int(bus_ids.shape[0]),
+        n_bus_dropped=int(dropped_bus.shape[0]),
+        n_sp_dropped=int(dropped_sp.shape[0]),
+        var_threshold=args.var_threshold,
+        model_ref=args.model_ref,
+        ercot_ref=args.ercot_ref,
+    )
+    print(f"wrote {npz_path} ({npz_path.stat().st_size:,} bytes)")
+    print(f"wrote {summary_path}")
+    med = summary["median_corr"]
+    p7 = summary["pct_gt_0_7"]
+    p5 = summary["pct_gt_0_5"]
+    print(
+        f"summary: median_corr={med:.3f} "
+        f"pct>0.7={p7 * 100:.1f}% pct>0.5={p5 * 100:.1f}% "
+        f"(n_sp={summary['n_sp']}, n_bus={summary['n_bus']})"
+        if med is not None else "summary: no finite correlations"
+    )
 
 
 if __name__ == "__main__":
