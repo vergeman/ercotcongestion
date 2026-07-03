@@ -46,8 +46,8 @@ Branch: refactor/cm.4-retire-geo-transfer
 
 ## Acceptance
 
-* [ ] Sweep produces no `ercot_sp_labels_*.csv` files under `runs/<run_id>/clustering/`.
-* [ ] `sil_ercot` and `sc_ercot` no longer present in per-cell result dicts.
-* [ ] `transfer_labels` still importable and callable from `compute/clustering/polygons.py`.
-* [ ] `compute/mapping/diagnostics.py` produces a disagreement JSON on v1-120.
-* [ ] Existing clustering tests updated; suite passes.
+* [x] Sweep produces no `ercot_sp_labels_*.csv` files under `runs/<run_id>/clustering/`.
+* [x] `sil_ercot` and `sc_ercot` no longer present in per-cell result dicts.
+* [x] `transfer_labels` still importable and callable from `compute/clustering/polygons.py`.
+* [x] `compute/mapping/diagnostics.py` produces a disagreement JSON on v1-120.
+* [x] Existing clustering tests updated; suite passes.
