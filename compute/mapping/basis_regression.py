@@ -12,8 +12,8 @@ primary "how well does the model translate to this SP" metric.
 Reads `runs/<run_id>/matrix/congestion_matrices.npz` (via
 `compute.mapping.correlation_map.load_matrices`) and writes:
 
-  * `runs/<run_id>/mapping/mapping_basis_<run_id>.parquet`
-    with columns `sp_id, r2, betas` (betas is a list column of length k).
+  * `runs/<run_id>/mapping/mapping_basis_<run_id>.npz`
+    with arrays `sp_id, r2, betas` (betas shape `(n_sp, k)`).
   * `runs/<run_id>/mapping/mapping_basis_summary_<run_id>.json`
 
 Usage:
@@ -85,6 +85,84 @@ def fit_components(
     return F, S, cumvar, k
 
 
+def regress_all_sps(
+    F: np.ndarray,
+    ercot_C: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-SP OLS onto temporal basis `F`; return (betas, r2).
+
+    Solves `y_j = α_j + F · β_j + ε` for each SP row `y_j = ercot_C[j, :]`.
+    An intercept column is augmented internally so R² is measured against
+    the standard SS_tot = Σ(y - mean(y))². The returned `betas` contain
+    only the k component coefficients (intercept dropped).
+
+    Shapes: F is (n_hours, k), ercot_C is (n_sp, n_hours).
+    Returns betas (n_sp, k) and r2 (n_sp,). Zero-variance SP rows get
+    r2 = NaN and zero betas.
+    """
+    n_sp = int(ercot_C.shape[0])
+    k = int(F.shape[1])
+    if n_sp == 0 or k == 0 or F.shape[0] == 0:
+        return (
+            np.zeros((n_sp, k), dtype=float),
+            np.full((n_sp,), np.nan, dtype=float),
+        )
+    if F.shape[0] != ercot_C.shape[1]:
+        raise ValueError(
+            f"hour axis mismatch: F has {F.shape[0]} rows, "
+            f"ercot_C has {ercot_C.shape[1]} cols"
+        )
+
+    Y = ercot_C.astype(float, copy=False)
+    F_aug = np.concatenate([F, np.ones((F.shape[0], 1), dtype=float)], axis=1)
+
+    # Solve all SPs at once: coeffs is (k+1, n_sp).
+    coeffs, *_ = np.linalg.lstsq(F_aug, Y.T, rcond=None)
+    betas = coeffs[:k, :].T  # (n_sp, k)
+
+    y_hat = (F_aug @ coeffs).T  # (n_sp, n_hours)
+    resid = Y - y_hat
+    ss_res = (resid ** 2).sum(axis=1)
+    y_centered = Y - Y.mean(axis=1, keepdims=True)
+    ss_tot = (y_centered ** 2).sum(axis=1)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r2 = np.where(ss_tot > 0, 1.0 - ss_res / ss_tot, np.nan)
+
+    # Zero-variance SPs: zero out betas so downstream consumers don't see
+    # arbitrary lstsq output for a degenerate row.
+    zero_var = ss_tot <= 0
+    if zero_var.any():
+        betas[zero_var] = 0.0
+
+    return betas, r2
+
+
+def _smoke_regress_all_sps(seed: int = 1) -> None:
+    """Perfectly-linear synthetic SP recovers R² ≈ 1; zero-variance → NaN."""
+    rng = np.random.default_rng(seed)
+    n_hours, k = 60, 4
+    F = rng.standard_normal((n_hours, k))
+    true_betas = rng.standard_normal((3, k))
+    intercepts = np.array([1.5, -2.0, 0.0])[:, None]
+    y_linear = intercepts + true_betas @ F.T  # (3, n_hours), exact fit
+    y_zero = np.full((1, n_hours), 7.0)  # zero variance
+    y_noisy = (true_betas[:1] @ F.T) + 0.5 * rng.standard_normal((1, n_hours))
+    ercot_C = np.vstack([y_linear, y_zero, y_noisy])
+
+    betas, r2 = regress_all_sps(F, ercot_C)
+    print(
+        f"smoke regress_all_sps: r2={np.round(r2, 4).tolist()}, "
+        f"betas.shape={betas.shape}"
+    )
+    assert np.all(r2[:3] > 0.999), f"linear rows should be R²≈1, got {r2[:3]}"
+    assert np.isnan(r2[3]), f"zero-variance row should be NaN, got {r2[3]}"
+    assert np.allclose(betas[3], 0.0)
+    assert 0.0 < r2[4] < 1.0, f"noisy row R² out of range: {r2[4]}"
+    # Recovered betas should be close to the planted ones for exact rows.
+    assert np.allclose(betas[:3], true_betas, atol=1e-8)
+
+
 def _smoke_fit_components(seed: int = 0) -> None:
     """Rank-3 synthetic matrix: `k` should converge to 3 at var_target=0.99.
 
@@ -135,6 +213,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.smoke:
         _smoke_fit_components()
+        _smoke_regress_all_sps()
         return
 
     if not args.run_id:
@@ -157,6 +236,20 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.dry_run:
         return
+
+    betas, r2 = regress_all_sps(F, ercot_C)
+    finite = r2[np.isfinite(r2)]
+    med = float(np.median(finite)) if finite.size else float("nan")
+    p25 = float(np.percentile(finite, 25)) if finite.size else float("nan")
+    p75 = float(np.percentile(finite, 75)) if finite.size else float("nan")
+    pct5 = float((finite > 0.5).mean()) if finite.size else float("nan")
+    pct7 = float((finite > 0.7).mean()) if finite.size else float("nan")
+    n_nan = int((~np.isfinite(r2)).sum())
+    print(
+        f"regress: n_sp={r2.shape[0]} (nan={n_nan}), "
+        f"R² median={med:.3f} p25={p25:.3f} p75={p75:.3f} "
+        f">0.5={pct5*100:.1f}% >0.7={pct7*100:.1f}%"
+    )
 
 
 if __name__ == "__main__":
