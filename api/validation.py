@@ -1,242 +1,101 @@
-"""GET /api/validation — regime-bucketed correlation: modeled_congestion vs basis.
+"""GET /api/validation — zone-aggregated scorecard.
 
-Computes direction-preserving Pearson correlation between per-bus signed
-`modeled_congestion` and signed `basis` over a user-selected window. Splits
-snapshots into "congested" (n_binding_lines >= threshold) and "quiet" buckets
-so the user can see whether the model carries explanatory power specifically
-when the grid is stressed.
+Serves the artifact produced by `compute.mapping.scorecard`:
 
-The threshold is configurable via query param; default is 1 (any binding line
-counts as congested). Buses are filtered to those with both modeled_congestion
-and basis present.
+  * `runs/<run_id>/mapping/scorecard_<run_id>.json`     — headline + per-zone rows
+  * `runs/<run_id>/mapping/scorecard_series_<run_id>.npz` — per-hour model_Z / ercot_Z
 
-Also returns a small sample of (modeled_congestion, basis) points for the
-scatter plot — capped to keep responses light. Each point carries both signed
-`basis` and `abs_basis` so consumers can render either a direction-preserving
-or a magnitude-only view.
+The endpoint reads these files off the shared runs volume (`/compute/runs`
+in-container by default; overridable via `COMPUTE_RUNS_DIR`). Compute is
+authoritative — scoring parameters (deadband, min_members, algo, k) are
+frozen at artifact write time. This handler just reads and serializes.
+
+If no artifact exists for the requested `(run_id, algo, k)`, returns 404
+with a message pointing to the CLI command that produces it.
 """
 from __future__ import annotations
 
-import math
-from datetime import datetime, timezone
-from typing import Iterable
+import json
+import os
+from pathlib import Path
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query
 
-from config import MAX_STATE_RANGE_HOURS, MIN_VALIDATION_HOURS
-from db import get_pool
-from models import CorrelationResult, ValidationResponse, ScatterPoint
+from models import (
+    ScorecardHeadline,
+    ScorecardParams,
+    ScorecardResponse,
+    ScorecardSeries,
+    ScorecardZone,
+)
 
 router = APIRouter()
 
-# Cap on scatter points returned. The browser renders these as SVG circles;
-# 5k is plenty to see structure without bogging down the DOM.
-SCATTER_CAP = 5000
+DEFAULT_ALGO = "hierarchical_on_beta"
+DEFAULT_K = 6
+COMPUTE_RUNS_DIR = Path(os.environ.get("COMPUTE_RUNS_DIR", "/compute/runs"))
 
 
-def _coerce_utc(ts: datetime) -> datetime:
-    if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc)
+def _mapping_dir(run_id: str) -> Path:
+    return COMPUTE_RUNS_DIR / run_id / "mapping"
 
 
-def _sign_agreement(pairs: Iterable[tuple[float, float]]) -> float | None:
-    """Fraction of pairs where sign(x) == sign(y), over rows with both non-zero.
+def _load_series(npz_path: Path) -> ScorecardSeries:
+    with np.load(npz_path) as z:
+        return ScorecardSeries(
+            hours=z["hours"].astype(str).tolist(),
+            cluster_ids=z["cluster_ids"].astype(int).tolist(),
+            model_Z=z["model_Z"].astype(float).tolist(),
+            ercot_Z=z["ercot_Z"].astype(float).tolist(),
+        )
 
-    Zeros are excluded from both the numerator and denominator: a bus with
-    modeled_congestion == 0 or basis == 0 carries no directional claim.
-    Returns None if no eligible rows survive the filter.
-    """
-    eligible = 0
-    agree = 0
-    for x, y in pairs:
-        if x == 0.0 or y == 0.0:
-            continue
-        eligible += 1
-        if (x > 0) == (y > 0):
-            agree += 1
-    if eligible == 0:
-        return None
-    return agree / eligible
-
-
-def _pearson(pairs: Iterable[tuple[float, float]]) -> CorrelationResult:
-    """Single-pass Pearson correlation. Returns rho=None for degenerate data."""
-    n = 0
-    sx = sy = sxx = syy = sxy = 0.0
-    for x, y in pairs:
-        n += 1
-        sx += x
-        sy += y
-        sxx += x * x
-        syy += y * y
-        sxy += x * y
-
-    if n < 2:
-        return CorrelationResult(n=n, rho=None)
-
-    # Variance check — if either is zero, correlation is undefined.
-    var_x = sxx - sx * sx / n
-    var_y = syy - sy * sy / n
-    if var_x <= 0 or var_y <= 0:
-        return CorrelationResult(n=n, rho=None)
-
-    cov = sxy - sx * sy / n
-    rho = cov / math.sqrt(var_x * var_y)
-    # Guard against tiny float overshoot.
-    rho = max(-1.0, min(1.0, rho))
-    return CorrelationResult(n=n, rho=rho)
-
-#
-# ROUTER
-#
 
 @router.get(
-    '/validation',
-    response_model=ValidationResponse,
-    summary='Regime-bucketed correlation between modeled congestion and basis',
+    "/validation",
+    response_model=ScorecardResponse,
+    summary="Per-zone scorecard for a run (model vs ERCOT congestion by derived zone)",
 )
 def get_validation(
-    start: datetime = Query(..., description='ISO-8601 UTC start (inclusive)'),
-    end:   datetime = Query(..., description='ISO-8601 UTC end (exclusive)'),
-    congested_threshold: int = Query(
-        1, ge=1,
-        description='Snapshots with n_binding_lines >= this are "congested"',
-    ),
-) -> ValidationResponse:
-    s = _coerce_utc(start)
-    e = _coerce_utc(end)
-    if e <= s:
-        raise HTTPException(status_code=400, detail='end must be after start')
+    run_id: str = Query(..., description="Run identifier under compute/runs/."),
+    algo: str = Query(DEFAULT_ALGO, description="Clustering algorithm used for the partition."),
+    k: int = Query(DEFAULT_K, ge=2, description="K in the partition selection."),
+) -> ScorecardResponse:
+    mdir = _mapping_dir(run_id)
+    json_path = mdir / f"scorecard_{run_id}.json"
+    npz_path = mdir / f"scorecard_series_{run_id}.npz"
 
-    span_hours = (e - s).total_seconds() / 3600
-    if span_hours > MAX_STATE_RANGE_HOURS:
+    if not json_path.exists() or not npz_path.exists():
         raise HTTPException(
-            status_code=400,
-            detail=f'Range exceeds {MAX_STATE_RANGE_HOURS}h cap; got {span_hours:.0f}h',
+            status_code=404,
+            detail=(
+                f"scorecard artifact missing for run_id={run_id}. "
+                f"Run: python -m compute.mapping.scorecard --run-id {run_id} "
+                f"--algo {algo} --k {k}"
+            ),
         )
 
-    warnings: list[str] = []
-    if span_hours < MIN_VALIDATION_HOURS:
-        warnings.append(
-            f'Window is {span_hours:.1f}h; recommended minimum is '
-            f'{MIN_VALIDATION_HOURS}h for stable correlation estimates.'
+    with open(json_path) as f:
+        payload = json.load(f)
+
+    # Reject stale artifacts from a different (algo, k). The frontend can
+    # then either re-request the correct params or trigger a re-run.
+    params = payload.get("params", {})
+    if params.get("algo") != algo or int(params.get("k", -1)) != k:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"scorecard exists but was generated with algo={params.get('algo')} "
+                f"k={params.get('k')}; requested algo={algo} k={k}. "
+                f"Re-run compute.mapping.scorecard with the desired params."
+            ),
         )
 
-    # Single query: join bus_snapshots to snapshot_meta for the regime tag,
-    # plus a LEFT JOIN to bus_load_zones so each row also carries its zone
-    # Filter at the SQL layer keeps Python-side bookkeeping minimal.
-    pool = get_pool()
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                    bs.modeled_congestion,
-                    bs.basis,
-                    (sm.n_binding_lines >= %s) AS is_congested,
-                    blz.load_zone
-                FROM bus_snapshots bs
-                JOIN snapshot_meta sm ON sm.interval_ts = bs.interval_ts
-                LEFT JOIN bus_load_zones blz ON blz.bus_id = bs.bus_id
-                WHERE bs.interval_ts >= %s AND bs.interval_ts < %s
-                  AND sm.status = 'ok'
-                  AND bs.modeled_congestion IS NOT NULL
-                  AND bs.basis IS NOT NULL
-                """,
-                (congested_threshold, s, e),
-            )
-            rows = cur.fetchall()
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM snapshot_meta
-                WHERE interval_ts >= %s AND interval_ts < %s
-                  AND status = 'ok'
-                """,
-                (s, e),
-            )
-            n_snapshots = cur.fetchone()[0]
-
-    if not rows:
-        return ValidationResponse(
-            start=s, end=e,
-            n_snapshots=n_snapshots,
-            n_observations=0,
-            overall=CorrelationResult(n=0, rho=None),
-            congested=CorrelationResult(n=0, rho=None),
-            quiet=CorrelationResult(n=0, rho=None),
-            congested_threshold_n_binding=congested_threshold,
-            scatter=[],
-            by_zone={},
-            warnings=warnings + ['No (modeled_congestion, basis) observations in window.'],
-        )
-
-    # Build pair generators per bucket. We make three passes over the result
-    # set; with O(100k) rows this is trivial. Signed × signed so ρ is
-    # direction-preserving — positive when sign(modeled_congestion) tracks
-    # sign(basis), not just when their magnitudes co-move.
-    overall_pairs = ((r[0], r[1]) for r in rows)
-    congested_pairs = ((r[0], r[1]) for r in rows if r[2])
-    quiet_pairs     = ((r[0], r[1]) for r in rows if not r[2])
-
-    overall   = _pearson(overall_pairs)
-    congested = _pearson(congested_pairs)
-    quiet     = _pearson(quiet_pairs)
-
-    # Sign-agreement rate (Framing C): fraction where direction of
-    # modeled_congestion matches direction of basis. Interview-facing companion
-    # to ρ — a scalar answer to "when the model says congestion, does basis
-    # agree on which side?" Congested-only echoes the ρ split.
-    sign_agreement_overall = _sign_agreement((r[0], r[1]) for r in rows)
-    sign_agreement_congested = _sign_agreement(
-        (r[0], r[1]) for r in rows if r[2]
-    )
-
-    # Per-zone breakdown. Skip rows without a zone (NULL from the LEFT JOIN)
-    # and drop the 'non_ercot' fallback bucket — neither tells us anything
-    # about ERCOT model performance. Group with a dict-of-lists; with O(100k)
-    # rows and ~4 zones this is negligible memory.
-    pairs_by_zone: dict[str, list[tuple[float, float]]] = {}
-    for r in rows:
-        zone = r[3]
-        if zone is None or zone == 'non_ercot':
-            continue
-        pairs_by_zone.setdefault(zone, []).append((r[0], r[1]))
-    by_zone = {z: _pearson(p) for z, p in pairs_by_zone.items()}
-
-    # Scatter sample. If we're under the cap take everything; otherwise stride
-    # so we get a uniform sample across the window rather than a head-of-list
-    # bias. Stride sampling keeps it deterministic and avoids importing random.
-    n_total = len(rows)
-    if n_total <= SCATTER_CAP:
-        sample_idx = range(n_total)
-    else:
-        stride = n_total / SCATTER_CAP
-        sample_idx = (int(i * stride) for i in range(SCATTER_CAP))
-
-    scatter = [
-        ScatterPoint(
-            modeled_congestion=rows[i][0],
-            basis=rows[i][1],
-            abs_basis=abs(rows[i][1]),
-            congested=bool(rows[i][2]),
-        )
-        for i in sample_idx
-    ]
-
-    return ValidationResponse(
-        start=s, end=e,
-        n_snapshots=n_snapshots,
-        n_observations=n_total,
-        overall=overall,
-        congested=congested,
-        quiet=quiet,
-        congested_threshold_n_binding=congested_threshold,
-        scatter=scatter,
-        by_zone=by_zone,
-        sign_agreement_overall=sign_agreement_overall,
-        sign_agreement_congested=sign_agreement_congested,
-        warnings=warnings,
+    return ScorecardResponse(
+        run_id=payload["run_id"],
+        params=ScorecardParams(**payload["params"]),
+        headline=ScorecardHeadline(**payload["headline"]),
+        zones=[ScorecardZone(**z) for z in payload["zones"]],
+        series=_load_series(npz_path),
+        warnings=payload.get("warnings", []),
     )

@@ -1,7 +1,10 @@
-"""Schema regression guard: OpenAPI spec reflects the post-fragility renames.
+"""Schema regression guard.
 
-Fails loudly if `BusState`, `SnapshotMeta`, `ScatterPoint`, or `ValidationResponse`
-regain a `fragility*` field or lose one of the new metric fields.
+Locks in:
+  * Post-fragility renames on `BusState` and `SnapshotMeta`.
+  * Zone-aggregated `ScorecardResponse` shape (0047) — replaces the
+    legacy bus-level `ValidationResponse` / `CorrelationResult` /
+    `ScatterPoint` types.
 """
 from __future__ import annotations
 
@@ -29,14 +32,26 @@ def test_openapi_carries_renamed_fields_and_no_fragility(client):
     ):
         assert f in meta, f
 
-    scatter = _props(spec, 'ScatterPoint')
-    for f in ('modeled_congestion', 'basis', 'abs_basis'):
-        assert f in scatter, f
+    schemas = spec['components']['schemas']
+    for legacy in ('CorrelationResult', 'ScatterPoint', 'ValidationResponse'):
+        assert legacy not in schemas, f'{legacy} should have been removed'
 
-    validation = _props(spec, 'ValidationResponse')
-    for f in ('sign_agreement_overall', 'sign_agreement_congested'):
-        assert f in validation, f
+    scorecard = _props(spec, 'ScorecardResponse')
+    for f in ('run_id', 'params', 'headline', 'zones', 'series', 'warnings'):
+        assert f in scorecard, f
 
-    # No lingering fragility fields anywhere in the schema tree.
-    flat = str(spec['components']['schemas'])
+    zone = _props(spec, 'ScorecardZone')
+    for f in ('cluster_id', 'n_buses', 'n_sps', 'corr', 'sign_agreement',
+              'model_side_std', 'ercot_side_std', 'outlier_buses', 'outlier_sps'):
+        assert f in zone, f
+
+    headline = _props(spec, 'ScorecardHeadline')
+    for f in ('rank_spearman', 'mean_corr', 'mean_sign_agreement', 'n_hours', 'n_zones'):
+        assert f in headline, f
+
+    series = _props(spec, 'ScorecardSeries')
+    for f in ('hours', 'cluster_ids', 'model_Z', 'ercot_Z'):
+        assert f in series, f
+
+    flat = str(schemas)
     assert 'fragility' not in flat

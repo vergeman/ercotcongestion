@@ -77,51 +77,62 @@ class StateRangeResponse(BaseModel):
     entries: list[StateRangeEntry]
 
 
-# ---- /api/validation -----------------------------------------------------
+# ---- /api/validation (zone-aggregated scorecard) -------------------------
 
-class CorrelationResult(BaseModel):
-    n: int
-    rho: float | None  # None if degenerate (e.g. zero variance, n<2)
-
-
-class ScatterPoint(BaseModel):
-    """Single (modeled_congestion, basis) observation for the validation scatter plot.
-
-    Carries both signed `basis` (for direction-preserving views) and `abs_basis`
-    (kept for the magnitude-only view / continuity with the old panel).
-    """
-    modeled_congestion: float
-    basis: float
-    abs_basis: float
-    congested: bool
-
-
-class ValidationResponse(BaseModel):
-    start: datetime
-    end: datetime
-    n_snapshots: int
-    n_observations: int
-    overall: CorrelationResult
-    congested: CorrelationResult
-    quiet: CorrelationResult
-    congested_threshold_n_binding: int = Field(
-        ..., description="Snapshots with n_binding_lines >= this count classified as congested",
-    )
-    scatter: list[ScatterPoint] = Field(default_factory=list)
-    by_zone: dict[str, CorrelationResult] = Field(
-        default_factory=dict,
-        description="Pearson ρ by ERCOT load zone (north, houston, south, west). "
-                    "Buses without a zone mapping (e.g. non_ercot) are excluded.",
-    )
-    sign_agreement_overall: float | None = Field(
+class ScorecardZone(BaseModel):
+    cluster_id: int
+    n_buses: int
+    n_sps: int
+    corr: float | None = Field(
         None,
-        description="Fraction of bus-snapshots where sign(modeled_congestion) == "
-                    "sign(basis), over rows with both non-zero. None if no eligible rows.",
+        description="Pearson ρ between model_Z(t) and ercot_Z(t) over the window.",
     )
-    sign_agreement_congested: float | None = Field(
+    sign_agreement: float | None = Field(
         None,
-        description="Same as sign_agreement_overall but restricted to congested snapshots.",
+        description="Fraction of hours where sign(model_Z)==sign(ercot_Z), "
+                    "excluding hours where either side falls within ±deadband $/MWh.",
     )
+    model_side_std: float | None = Field(
+        None,
+        description="Std of per-bus corr(bus, ercot_Z) inside the zone.",
+    )
+    ercot_side_std: float | None = Field(
+        None,
+        description="Std of per-SP corr(sp, ercot_Z) inside the zone.",
+    )
+    outlier_buses: list[str] = Field(default_factory=list)
+    outlier_sps: list[str] = Field(default_factory=list)
+
+
+class ScorecardHeadline(BaseModel):
+    rank_spearman: float | None
+    mean_corr: float | None
+    mean_sign_agreement: float | None
+    n_hours: int
+    n_zones: int
+
+
+class ScorecardSeries(BaseModel):
+    hours: list[str]
+    cluster_ids: list[int]
+    model_Z: list[list[float]] = Field(..., description="(n_hours, n_zones) model-side mean congestion.")
+    ercot_Z: list[list[float]] = Field(..., description="(n_hours, n_zones) ERCOT-side mean congestion.")
+
+
+class ScorecardParams(BaseModel):
+    ref: str
+    algo: str
+    k: int
+    deadband: float
+    min_members: int
+
+
+class ScorecardResponse(BaseModel):
+    run_id: str
+    params: ScorecardParams
+    headline: ScorecardHeadline
+    zones: list[ScorecardZone]
+    series: ScorecardSeries
     warnings: list[str] = Field(default_factory=list)
 
 
