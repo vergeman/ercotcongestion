@@ -489,3 +489,27 @@ export function clusterColor(
     (idx < 0 ? 0 : idx) % CLUSTER_PALETTE.length
   ];
 }
+
+// =============================================================================
+// Zone diff (S3.3, Diff mode)
+// =============================================================================
+//
+// Diverging palette on Δ = model_Z(t) − ercot_Z(t) per cluster. Anchor at
+// ±1.0 (Z-scores) — beyond that saturates. Center = green (agreement).
+
+export const ZONE_DIFF_ANCHOR = 1.0;
+const ZDIFF_CENTER = [110, 195, 130]; // green — agreement
+const ZDIFF_UNDER = [59, 130, 246]; // blue — model < ercot (under-predict)
+const ZDIFF_OVER = [239, 68, 68]; // red — model > ercot (over-predict)
+
+export function zoneDiffColor(delta: number | null | undefined): string {
+  if (delta == null || !isFinite(delta)) return CLUSTER_GRAY;
+  const t = Math.max(-1, Math.min(1, delta / ZONE_DIFF_ANCHOR));
+  if (t === 0) return `rgb(${ZDIFF_CENTER.join(",")})`;
+  const target = t > 0 ? ZDIFF_OVER : ZDIFF_UNDER;
+  const mag = Math.abs(t);
+  const r = Math.round(ZDIFF_CENTER[0] + (target[0] - ZDIFF_CENTER[0]) * mag);
+  const g = Math.round(ZDIFF_CENTER[1] + (target[1] - ZDIFF_CENTER[1]) * mag);
+  const b = Math.round(ZDIFF_CENTER[2] + (target[2] - ZDIFF_CENTER[2]) * mag);
+  return `rgb(${r},${g},${b})`;
+}

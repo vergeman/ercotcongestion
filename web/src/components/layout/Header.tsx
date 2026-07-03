@@ -1,15 +1,25 @@
-import type { ViewMode } from "../../api/types";
+import type { ComparisonMode, ViewMode } from "../../api/types";
 
 interface Props {
   viewMode: ViewMode;
   onViewMode: (v: ViewMode) => void;
+  comparisonMode: ComparisonMode;
+  onComparisonMode: (m: ComparisonMode) => void;
   lastUpdated: Date | null;
   connectionState: "ok" | "error" | "loading";
 }
 
+const COMPARISON_MODES: { id: ComparisonMode; label: string }[] = [
+  { id: "split", label: "Split" },
+  { id: "single", label: "Single" },
+  { id: "diff", label: "Diff" },
+];
+
 export default function Header({
   viewMode,
   onViewMode,
+  comparisonMode,
+  onComparisonMode,
   lastUpdated,
   connectionState,
 }: Props) {
@@ -26,33 +36,49 @@ export default function Header({
       <div className="header__controls">
         <div className="view-toggle">
           <span className="label" style={{ marginRight: 6 }}>
-            View
+            Mode
           </span>
-          <button
-            className={viewMode === "lmp" ? "active" : ""}
-            onClick={() => onViewMode("lmp")}
-          >
-            LMP
-          </button>
-          <button
-            className={viewMode === "modeled_congestion" ? "active" : ""}
-            onClick={() => onViewMode("modeled_congestion")}
-          >
-            Modeled Congestion
-          </button>
-          <button
-            className={viewMode === "binding_proximity" ? "active" : ""}
-            onClick={() => onViewMode("binding_proximity")}
-          >
-            Binding Proximity
-          </button>
-          <button
-            className={viewMode === "congestion_vs_basis" ? "active" : ""}
-            onClick={() => onViewMode("congestion_vs_basis")}
-          >
-            Congestion vs Basis
-          </button>
+          {COMPARISON_MODES.map((m) => (
+            <button
+              key={m.id}
+              className={comparisonMode === m.id ? "active" : ""}
+              onClick={() => onComparisonMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
+        {comparisonMode === "single" && (
+          <div className="view-toggle" style={{ marginLeft: 12 }}>
+            <span className="label" style={{ marginRight: 6 }}>
+              Palette
+            </span>
+            <button
+              className={viewMode === "lmp" ? "active" : ""}
+              onClick={() => onViewMode("lmp")}
+            >
+              LMP
+            </button>
+            <button
+              className={viewMode === "modeled_congestion" ? "active" : ""}
+              onClick={() => onViewMode("modeled_congestion")}
+            >
+              Modeled Congestion
+            </button>
+            <button
+              className={viewMode === "binding_proximity" ? "active" : ""}
+              onClick={() => onViewMode("binding_proximity")}
+            >
+              Binding Proximity
+            </button>
+            <button
+              className={viewMode === "congestion_vs_basis" ? "active" : ""}
+              onClick={() => onViewMode("congestion_vs_basis")}
+            >
+              Congestion vs Basis
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="header__status">

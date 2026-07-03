@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type maplibregl from "maplibre-gl";
 import type {
   BusState,
+  ComparisonMode,
   ScorecardResponse,
   SnapshotMeta,
   ViewMode,
@@ -23,6 +25,7 @@ import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import type { SparkPoint } from "./components/playback/TimelineSparkline";
 import StatsPanel from "./components/panels/StatsPanel";
 import Legend from "./components/map/Legend";
+import CompareMap from "./components/map/CompareMap";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
@@ -70,6 +73,78 @@ export default function App() {
     () => new Set((scorecard?.zones ?? []).map((z) => z.cluster_id)),
     [scorecard]
   );
+  // S3.3 — comparison mode. Default `split`. `single` restores the
+  // ViewMode palette pills.
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("split");
+
+  // Camera sync between the two split panes. Refs collected via each
+  // GridMap's `onMapReady`; `handleMainReady` and `handleRightReady` write
+  // in and re-arm the mirror when both are present.
+  const mainMapRef = useRef<maplibregl.Map | null>(null);
+  const rightMapRef = useRef<maplibregl.Map | null>(null);
+  const syncingSide = useRef<"main" | "right" | null>(null);
+  const wireSync = useCallback(() => {
+    const a = mainMapRef.current;
+    const b = rightMapRef.current;
+    if (!a || !b) return () => {};
+    const drive = (from: maplibregl.Map, to: maplibregl.Map, tag: "main" | "right") => () => {
+      // Ignore the echo that fires while we're programmatically driving the
+      // other side.
+      if (syncingSide.current && syncingSide.current !== tag) return;
+      syncingSide.current = tag;
+      to.jumpTo({
+        center: from.getCenter(),
+        zoom: from.getZoom(),
+        bearing: from.getBearing(),
+        pitch: from.getPitch(),
+      });
+      syncingSide.current = null;
+    };
+    const aToB = drive(a, b, "main");
+    const bToA = drive(b, a, "right");
+    a.on("move", aToB);
+    b.on("move", bToA);
+    aToB();
+    return () => {
+      a.off("move", aToB);
+      b.off("move", bToA);
+    };
+  }, []);
+  const teardownSyncRef = useRef<(() => void) | null>(null);
+  const rearmSync = useCallback(() => {
+    teardownSyncRef.current?.();
+    teardownSyncRef.current = wireSync();
+  }, [wireSync]);
+  const handleMainReady = useCallback(
+    (m: maplibregl.Map) => {
+      mainMapRef.current = m;
+      rearmSync();
+    },
+    [rearmSync]
+  );
+  const handleRightReady = useCallback(
+    (m: maplibregl.Map) => {
+      rightMapRef.current = m;
+      rearmSync();
+    },
+    [rearmSync]
+  );
+  useEffect(() => {
+    // When the right pane unmounts (mode leaves split), drop its ref so a
+    // fresh mount reattaches cleanly.
+    if (comparisonMode !== "split") {
+      teardownSyncRef.current?.();
+      teardownSyncRef.current = null;
+      rightMapRef.current = null;
+    }
+    // The main pane's flex-basis changes on split ↔ single/diff. Kick
+    // MapLibre so it re-reads container dims.
+    const r = requestAnimationFrame(() => {
+      mainMapRef.current?.resize();
+      rightMapRef.current?.resize();
+    });
+    return () => cancelAnimationFrame(r);
+  }, [comparisonMode]);
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
@@ -257,6 +332,38 @@ export default function App() {
     setPinnedLine(null);
   }, []);
 
+  // Diff-mode per-cluster delta at the current scrubber hour.
+  // Snaps the timestamp to the closest hour in `scorecard.series.hours`
+  // (within a 90-minute tolerance); returns null when the scorecard is
+  // absent, empty, or the cursor lands outside the covered window.
+  const busClusterDelta = useMemo(() => {
+    if (comparisonMode !== "diff") return null;
+    if (!scorecard || !timestamps.length) return null;
+    const s = scorecard.series;
+    if (!s.hours.length || !s.cluster_ids.length) return null;
+    const targetMs = timestamps[currentIndex].getTime();
+    let bestIdx = -1;
+    let bestDelta = Infinity;
+    for (let i = 0; i < s.hours.length; i++) {
+      const d = Math.abs(new Date(s.hours[i]).getTime() - targetMs);
+      if (d < bestDelta) {
+        bestDelta = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0 || bestDelta > 90 * 60 * 1000) return null;
+    const modelRow = s.model_Z[bestIdx] ?? [];
+    const ercotRow = s.ercot_Z[bestIdx] ?? [];
+    const out = new Map<number, number>();
+    for (let j = 0; j < s.cluster_ids.length; j++) {
+      const m = modelRow[j];
+      const e = ercotRow[j];
+      if (m == null || e == null || !isFinite(m) || !isFinite(e)) continue;
+      out.set(s.cluster_ids[j], m - e);
+    }
+    return out;
+  }, [comparisonMode, scorecard, timestamps, currentIndex]);
+
   useEffect(() => {
     if (!pinnedBus) return;
     const fresh = buses.find((b) => b.bus_id === pinnedBus.busId) ?? null;
@@ -270,6 +377,8 @@ export default function App() {
       <Header
         viewMode={viewMode}
         onViewMode={setViewMode}
+        comparisonMode={comparisonMode}
+        onComparisonMode={setComparisonMode}
         lastUpdated={lastUpdated}
         connectionState={connState}
       />
@@ -282,25 +391,63 @@ export default function App() {
           position: "relative",
         }}
       >
-        {/* Map */}
+        {/* Map — layout branches on comparisonMode. Main GridMap stays
+            mounted across all modes so camera + pinned state survive
+            mode switches. Diff mode swaps coloring via `busClusterDelta`;
+            split adds a synced ERCOT pane on the right. */}
         <div style={{ flex: 1, position: "relative" }}>
-          <GridMap
-            topology={topology}
-            buses={buses}
-            meta={meta}
-            viewMode={viewMode}
-            lmpStats={lmpStats}
-            mcStats={mcStats}
-            onBusHover={handleBusHover}
-            onLineHover={handleLineHover}
-            onBusClick={handleBusClick}
-            onLineClick={handleLineClick}
-            onMapClick={handleClearPinned}
-            selectedBusId={pinnedBus?.busId ?? null}
-            selectedLineId={pinnedLine?.lineId ?? null}
-            showZones={showZones}
-            tightClusterIds={tightClusterIds}
-            selectedClusterId={selectedClusterId}
+          <CompareMap
+            mode={comparisonMode}
+            main={
+              <GridMap
+                topology={topology}
+                buses={buses}
+                meta={meta}
+                viewMode={viewMode}
+                lmpStats={lmpStats}
+                mcStats={mcStats}
+                onBusHover={handleBusHover}
+                onLineHover={handleLineHover}
+                onBusClick={handleBusClick}
+                onLineClick={handleLineClick}
+                onMapClick={handleClearPinned}
+                selectedBusId={pinnedBus?.busId ?? null}
+                selectedLineId={pinnedLine?.lineId ?? null}
+                showZones={comparisonMode === "diff" ? false : showZones}
+                tightClusterIds={tightClusterIds}
+                selectedClusterId={selectedClusterId}
+                side="model"
+                onMapReady={handleMainReady}
+                busClusterDelta={
+                  comparisonMode === "diff" ? busClusterDelta : null
+                }
+              />
+            }
+            right={
+              <>
+                <GridMap
+                  topology={topology}
+                  buses={[]}
+                  meta={null}
+                  viewMode={viewMode}
+                  lmpStats={null}
+                  mcStats={null}
+                  onBusHover={() => {}}
+                  onLineHover={() => {}}
+                  onBusClick={() => {}}
+                  onLineClick={() => {}}
+                  onMapClick={() => {}}
+                  selectedBusId={null}
+                  selectedLineId={null}
+                  showZones={showZones}
+                  tightClusterIds={tightClusterIds}
+                  selectedClusterId={selectedClusterId}
+                  side="ercot"
+                  onMapReady={handleRightReady}
+                />
+                <div className="pane-badge">ERCOT (S3.4 pending)</div>
+              </>
+            }
           />
           <DetailCard
             meta={meta}
@@ -318,7 +465,25 @@ export default function App() {
             showZones={showZones}
             onToggleZones={() => setShowZones((s) => !s)}
             tightClusterIds={tightClusterIds}
+            comparisonMode={comparisonMode}
           />
+          <style>{`
+            .pane-badge {
+              position: absolute;
+              top: 10px;
+              left: 10px;
+              padding: 3px 8px;
+              background: rgba(15, 18, 23, 0.85);
+              border: 1px solid var(--border);
+              border-radius: 3px;
+              color: var(--text-secondary);
+              font-family: 'Barlow Condensed', sans-serif;
+              font-size: 10px;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              pointer-events: none;
+            }
+          `}</style>
         </div>
 
         <StatsPanel

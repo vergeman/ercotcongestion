@@ -14,6 +14,7 @@ import {
   rankDeltaColor,
   clusterColor,
   CLUSTER_GRAY,
+  zoneDiffColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -97,6 +98,15 @@ interface Props {
   showZones: boolean;
   tightClusterIds: Set<number>;
   selectedClusterId: number | null;
+  // S3.3 — comparison plumbing.
+  // `side` names the pane so App/CompareMap can namespace per-side state
+  // once ERCOT data lands. `onMapReady` exposes the maplibre instance so
+  // CompareMap can wire camera mirroring. `busClusterDelta`, when set,
+  // switches this pane into Diff coloring: each bus takes its cluster's
+  // (model_Z − ercot_Z) via `zoneDiffColor`.
+  side?: "model" | "ercot";
+  onMapReady?: (map: maplibregl.Map) => void;
+  busClusterDelta?: Map<number, number> | null;
 }
 
 export default function GridMap({
@@ -116,6 +126,8 @@ export default function GridMap({
   showZones,
   tightClusterIds,
   selectedClusterId,
+  onMapReady,
+  busClusterDelta,
 }: Props) {
   const prevBindingRef = useRef<Set<string>>(new Set());
   const prevContingencyRef = useRef<Set<string>>(new Set());
@@ -185,6 +197,7 @@ export default function GridMap({
     );
 
     mapRef.current = map;
+    onMapReady?.(map);
     tooltipRef.current = new maplibregl.Popup({
       closeButton: false,
       closeOnClick: false,
@@ -594,12 +607,12 @@ export default function GridMap({
   }, [meta]);
 
   // Update bus colors when buses/viewMode changes.
-  // Skipped when the Zones layer is active — cluster coloring runs in its
-  // own effect so it doesn't need a `buses` snapshot to be loaded.
+  // Skipped when Zones or Diff is active — those override coloring in their
+  // own effects.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !buses.length || !map.getSource("buses")) return;
-    if (showZones) return;
+    if (showZones || busClusterDelta) return;
 
     const deltaMap =
       viewMode === "congestion_vs_basis"
@@ -630,7 +643,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats, showZones]);
+  }, [buses, viewMode, lmpStats, mcStats, showZones, busClusterDelta]);
 
   // Zones layer coloring — runs off `topology`, independent of the
   // per-timestamp `buses` snapshot so the tags render before any window is
@@ -645,14 +658,39 @@ export default function GridMap({
         { bus_id: string; cluster_id?: number | null }
       >;
     };
-    if (!showZones) return;
+    if (!showZones || busClusterDelta) return;
     for (const feat of topo.buses.features) {
       const busId = feat.properties.bus_id;
       const clusterId = feat.properties.cluster_id ?? null;
       const color = clusterColor(clusterId, tightClusterIds);
       map.setFeatureState({ source: "buses", id: busId }, { color });
     }
-  }, [topology, showZones, tightClusterIds]);
+  }, [topology, showZones, tightClusterIds, busClusterDelta]);
+
+  // Diff coloring — each bus takes its cluster's (model_Z − ercot_Z) via
+  // `zoneDiffColor`. Fed from scorecard.series at the current scrubber hour
+  // upstream. Buses whose cluster isn't in the delta map fall to the neutral
+  // gray (via `zoneDiffColor(null)`).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    if (!busClusterDelta) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const cid = feat.properties.cluster_id ?? null;
+      const delta = cid != null ? busClusterDelta.get(cid) ?? null : null;
+      map.setFeatureState(
+        { source: "buses", id: busId },
+        { color: zoneDiffColor(delta) }
+      );
+    }
+  }, [topology, busClusterDelta]);
 
   // Selection dim — non-members of the selected cluster fade to 0.2 while a
   // selection is active. Cleared entirely when nothing is selected. Only

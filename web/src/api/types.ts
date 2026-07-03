@@ -71,6 +71,12 @@ export type ViewMode =
   | "congestion_vs_basis"
   | "binding_proximity";
 
+// S3.3 — top-level comparison mode. `single` renders the historical single
+// pane (colored by ViewMode); `split` renders model | ERCOT synced side by
+// side; `diff` renders a single pane colored by per-cluster
+// (model_Z − ercot_Z) at the current scrubber hour.
+export type ComparisonMode = "split" | "single" | "diff";
+
 // 0047 — zone-aggregated scorecard. Mirrors api/models.py::ScorecardResponse.
 
 export interface ScorecardZone {
