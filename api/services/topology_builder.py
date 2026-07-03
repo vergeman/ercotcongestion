@@ -156,12 +156,30 @@ def _load_zone_polygons() -> dict[str, Any] | None:
         return json.load(f)
 
 
+def _cache_is_current(topo: dict[str, Any]) -> bool:
+    """Detect stale caches from older schema revisions.
+
+    A cache without `settlement_points` at top level, or bus features without
+    `cluster_id`, was written before 0048's S3.2/S3.4 schema. Rebuild instead
+    of silently serving a payload the frontend can't use.
+    """
+    if 'settlement_points' not in topo:
+        return False
+    features = topo.get('buses', {}).get('features', [])
+    if features and 'cluster_id' not in features[0].get('properties', {}):
+        return False
+    return True
+
+
 def get_or_build_topology(force: bool = False) -> dict[str, Any]:
     """Return cached topology dict, building and writing the cache if missing."""
     if not force and os.path.exists(TOPOLOGY_CACHE):
-        log.info("Topology cache hit: %s", TOPOLOGY_CACHE)
         with open(TOPOLOGY_CACHE) as f:
-            return json.load(f)
+            topo = json.load(f)
+        if _cache_is_current(topo):
+            log.info("Topology cache hit: %s", TOPOLOGY_CACHE)
+            return topo
+        log.info("Topology cache stale; rebuilding: %s", TOPOLOGY_CACHE)
 
     topo = build_topology()
     os.makedirs(os.path.dirname(TOPOLOGY_CACHE), exist_ok=True)
