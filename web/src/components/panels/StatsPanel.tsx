@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import type { ScorecardResponse, SnapshotMeta } from "../../api/types";
+import { clusterColor } from "../../lib/colors";
 
 interface Props {
   meta: SnapshotMeta | null;
@@ -43,6 +45,23 @@ export default function StatsPanel({
   selectedClusterId,
   onSelectCluster,
 }: Props) {
+  // Sort by corr desc, nulls last — this is the primary quality axis on the
+  // scorecard, so a stable top-down ordering matches how a reader scans.
+  const sortedZones = useMemo(() => {
+    if (!scorecard) return [];
+    return [...scorecard.zones].sort((a, b) => {
+      const av = a.corr;
+      const bv = b.corr;
+      if (av == null && bv == null) return a.cluster_id - b.cluster_id;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv - av;
+    });
+  }, [scorecard]);
+  const tightSet = useMemo(
+    () => new Set(sortedZones.map((z) => z.cluster_id)),
+    [sortedZones]
+  );
   return (
     <div className="stats-panel">
       {scorecard && (
@@ -87,7 +106,7 @@ export default function StatsPanel({
               <span>sign%</span>
               <span>disp</span>
             </div>
-            {scorecard.zones.map((z) => {
+            {sortedZones.map((z) => {
               const selected = z.cluster_id === selectedClusterId;
               return (
                 <div
@@ -100,7 +119,16 @@ export default function StatsPanel({
                     onSelectCluster(selected ? null : z.cluster_id)
                   }
                 >
-                  <span className="mono">Z{z.cluster_id}</span>
+                  <span
+                    className="scorecard-row__zone mono"
+                    style={{ ["--zone-color" as string]: clusterColor(
+                      z.cluster_id,
+                      tightSet
+                    ) }}
+                  >
+                    <span className="scorecard-row__swatch" />
+                    Z{z.cluster_id}
+                  </span>
                   <span className="mono">{z.n_buses}</span>
                   <span className="mono">{fmt(z.corr, 2)}</span>
                   <span className="mono">
@@ -492,6 +520,19 @@ export default function StatsPanel({
         .scorecard-row--head:hover { background: transparent; }
         .scorecard-row--head span { text-align: right; }
         .scorecard-row--head span:first-child { text-align: left; }
+        .scorecard-row__zone {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          text-align: left !important;
+        }
+        .scorecard-row__swatch {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--zone-color, #64748b);
+          box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+        }
       `}</style>
     </div>
   );
