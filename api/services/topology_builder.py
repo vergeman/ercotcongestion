@@ -32,6 +32,7 @@ from config import (
     NETWORK_NC,
     TOPOLOGY_CACHE
 )
+from shared.settings import settings
 
 log = logging.getLogger(__name__)
 
@@ -75,10 +76,33 @@ def build_topology() -> dict[str, Any]:
         log.warning("gen_enriched not found; bus capacity_mw will be 0")
         bus_capacity = {}
 
-    buses_fc = _buses_feature_collection(n, weather_lookup, load_lookup, bus_capacity)
+    bus_cluster = _load_bus_cluster_labels()
+
+    buses_fc = _buses_feature_collection(
+        n, weather_lookup, load_lookup, bus_capacity, bus_cluster,
+    )
     lines_fc = _lines_feature_collection(n)
 
     return {'buses': buses_fc, 'lines': lines_fc, 'zones': None}
+
+
+def _load_bus_cluster_labels() -> dict[str, int]:
+    """Return {bus_id: cluster_id} for the active run's clustering artifact.
+
+    Soft-fails to {} when the run/algo/k combination has no labels file —
+    the frontend then treats every bus as unclustered.
+    """
+    import numpy as np
+
+    labels_path = (
+        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
+        f"cluster_labels_{settings.active_cluster_algo}_k{settings.active_cluster_k}.npz"
+    )
+    if not os.path.exists(labels_path):
+        log.warning("bus cluster labels not found at %s; cluster_id will be null", labels_path)
+        return {}
+    with np.load(labels_path, allow_pickle=False) as z:
+        return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
 
 
 def get_or_build_topology(force: bool = False) -> dict[str, Any]:
@@ -108,6 +132,7 @@ def _buses_feature_collection(
     weather_lookup: dict[str, str],
     load_lookup: dict[str, str],
     bus_capacity: dict[str, float],
+    bus_cluster: dict[str, int],
 ) -> dict[str, Any]:
     features = []
     for bus_id, row in n.buses.iterrows():
@@ -124,6 +149,7 @@ def _buses_feature_collection(
                 'load_zone':    load_lookup.get(bus_id_str),
                 'voltage': float(row['v_nom']) if 'v_nom' in row and pd.notna(row['v_nom']) else None,
                 'capacity_mw': float(bus_capacity.get(bus_id_str, 0.0)),
+                'cluster_id':  bus_cluster.get(bus_id_str),
             },
         })
     return {'type': 'FeatureCollection', 'features': features}

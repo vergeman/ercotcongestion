@@ -31,6 +31,15 @@ class Settings:
     min_validation_hour:   int  = int(os.environ.get('MIN_VALIDATION_HOUR', 24))
     max_state_range_hours: int  = int(os.environ.get('MAX_STATE_RANGE_HOURS', 24 * 14))
 
+    # ---- Runs -------------------------------------------------------------
+    # The "active" run whose artifacts (cluster labels, scorecard) are surfaced
+    # to the frontend. The scorecard endpoint takes run_id/algo/k as query
+    # params, but topology bakes the bus↔cluster join into the cached GeoJSON.
+    compute_runs_dir:      str  = os.environ.get('COMPUTE_RUNS_DIR', '/compute/runs')
+    active_run_id:         str  = os.environ.get('ACTIVE_RUN_ID', 'v1-120')
+    active_cluster_algo:   str  = os.environ.get('ACTIVE_CLUSTER_ALGO', 'system_lambda_merit_order_hierarchical_on_beta')
+    active_cluster_k:      int  = int(os.environ.get('ACTIVE_CLUSTER_K', '6'))
+
     # ---- Data Processed --------- -----------------------------------------
     network_nc                     = f'{processed_dir}/{case_stem}.nc'
     bus_weather_load_zones_csv     = f'{processed_dir}/bus_ercot_weather_load_zones.csv'
