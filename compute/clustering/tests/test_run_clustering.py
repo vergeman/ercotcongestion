@@ -145,10 +145,17 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
     assert set(df["algo"]) == {"kmeans_vec", "hierarchical_corr"}
     assert (df["status"] == "ok").all()
 
-    # Every ok cell has a GeoJSON.
+    # Every ok cell writes a labels npz; polygons are no longer emitted here.
     for r in rows:
+        labels_path = out_dir / f"cluster_labels_{r['ref']}_{r['algo']}_k{r['K']}.npz"
+        assert labels_path.exists(), f"missing {labels_path}"
+        with np.load(labels_path, allow_pickle=False) as z:
+            assert set(z.files) == {"bus_id", "cluster_id"}
+            assert z["bus_id"].shape == z["cluster_id"].shape
+            assert z["bus_id"].shape[0] == r["n_buses_model"]
+
         gj = out_dir / f"zones_{r['ref']}_{r['algo']}_k{r['K']}.geojson"
-        assert gj.exists(), f"missing {gj}"
+        assert not gj.exists(), f"unexpected geojson: {gj}"
 
     # ERCOT-side artifacts are no longer emitted (CM.4 retires geo transfer
     # from the sweep path — behavioral mapping happens in compute/mapping).
@@ -158,6 +165,7 @@ def test_sweep_emits_summary_and_per_cell_artifacts(sweep_inputs):
         assert "sil_ercot" not in r
         assert "sc_ercot" not in r
         assert "n_sps_ercot" not in r
+        assert "n_polygons" not in r
 
 
 def test_sweep_skips_empty_ercot_silently(sweep_inputs, caplog):
@@ -200,6 +208,7 @@ def test_failed_algo_records_failed_status(sweep_inputs, monkeypatch):
     assert row["status"] == "failed"
     assert "RuntimeError" in row["error"]
     assert not (out_dir / "zones_fake_a_kmeans_vec_k3.geojson").exists()
+    assert not (out_dir / "cluster_labels_fake_a_kmeans_vec_k3.npz").exists()
 
 
 def test_select_zones_ranks_and_runs(sweep_inputs, capsys):
