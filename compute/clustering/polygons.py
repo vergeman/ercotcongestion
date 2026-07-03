@@ -1,17 +1,19 @@
 """Polygon construction and label transfer for derived zonal clusters.
 
-Three pure-ish functions:
+Under CM.5 polygons are a rendering choice, not a sweep artifact —
+`build_polygons` is a pure function called on demand by
+`compute.clustering.render_partition` for a chosen `(ref, algo, K)`.
 
-* `build_polygons(labels, coords, alpha)` — convex (or concave-hull) polygons
-  per cluster from `(lat, lon)`.
+* `build_polygons(labels, coords, alpha, out_path=None)` — convex (or
+  concave-hull) polygons per cluster from `(lat, lon)`. Pure unless
+  `out_path` is given, in which case a GeoJSON is also written.
 * `transfer_labels(polygons, target_coords)` — point-in-polygon assignment
   with nearest-centroid fallback for points outside all polygons.
   DIAGNOSTIC-ONLY under the CM.1/CM.2 paradigm: the sweep no longer calls
   this, and geographic containment is not the model→ERCOT translation
   mechanism. Kept importable for one-shot geo-vs-behavioral disagreement
   reports (see `compute.mapping.diagnostics`).
-* `write_zones_geojson(polygons, path)` — disk emission, the only function
-  here that touches the filesystem.
+* `write_zones_geojson(polygons, path)` — disk emission helper.
 
 CRS convention: input lat/lon are EPSG:4326. Nearest-fallback distance is
 computed in EPSG:3083 (Texas Albers) so the metric is meters.
@@ -46,6 +48,7 @@ def build_polygons(
     labels: pd.Series,
     coords: pd.DataFrame,
     alpha: float | None = None,
+    out_path: str | Path | None = None,
 ) -> gpd.GeoDataFrame:
     """One polygon per cluster from member `(lat, lon)` points.
 
@@ -56,7 +59,7 @@ def build_polygons(
 
     Returns a GeoDataFrame with columns
     `[cluster_id, n_buses, centroid_lat, centroid_lon, geometry]` in
-    `EPSG:4326`.
+    `EPSG:4326`. Pure by default — pass `out_path` to also write GeoJSON.
     """
     aligned = coords.reindex(labels.index)
     valid_mask = (labels != -1) & aligned[["lat", "lon"]].notna().all(axis=1)
@@ -95,12 +98,15 @@ def build_polygons(
             "geometry": geom,
         })
 
-    return gpd.GeoDataFrame(
+    polygons = gpd.GeoDataFrame(
         rows,
         columns=["cluster_id", "n_buses", "centroid_lat", "centroid_lon", "geometry"],
         geometry="geometry",
         crs=CRS_LATLON,
     )
+    if out_path is not None and not polygons.empty:
+        write_zones_geojson(polygons, out_path)
+    return polygons
 
 
 def transfer_labels(
