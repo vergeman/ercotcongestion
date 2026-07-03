@@ -1,0 +1,65 @@
+# Standalone api-compute pod with the compute-runs PVC mounted at /compute/runs.
+# Use for interactive runs of run_pipeline.py / clustering sweeps that need to
+# read or write compute/runs/<run_id>/{matrix,clustering,congestion}.
+#
+# Prereq: compute-runs PVC exists (ops/deploy/base/compute/runs-pvc.yml).
+# Note: compute-runs is ReadWriteOnce. Only one pod can mount it at a time —
+# if a snapshot-writer Job is running, this pod will stay Pending until it
+# finishes.
+#
+# Usage:
+#   cd ops/deploy
+#   source ../../.env
+#   export IMAGE_TAG="$(cat ../../.image-tag)"
+#   envsubst < jobs/compute_shell_pod.yml.template | kubectl apply -f -
+#
+#   kubectl -n ercotstress exec -it compute-shell -- bash
+#   # inside the pod:
+#   python /compute/run_pipeline.py --run-id v1-120 ...
+#
+#   kubectl -n ercotstress delete pod compute-shell   # when done
+#
+# The pod runs `sleep infinity` so it stays alive for exec. It has no
+# restartPolicy=Always, so if you kill the process inside, the pod ends.
+#
+# Tunables (override via env before envsubst):
+#   CPU_REQUEST   Default "2"
+#   CPU_LIMIT     Default "2"
+#   MEM_REQUEST   Default "2Gi"
+#   MEM_LIMIT     Default "8Gi"
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: compute-shell
+  namespace: ercotstress
+  labels:
+    app: compute-shell
+spec:
+  restartPolicy: Never
+  imagePullSecrets:
+    - name: regcred
+  containers:
+    - name: compute
+      image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+      imagePullPolicy: Always
+      command: ["sleep", "infinity"]
+      envFrom:
+        - configMapRef:
+            name: api-config
+        - secretRef:
+            name: postgres-credentials
+      volumeMounts:
+        - name: runs
+          mountPath: /compute/runs
+      resources:
+        requests:
+          cpu: "${CPU_REQUEST}"
+          memory: "${MEM_REQUEST}"
+        limits:
+          cpu: "${CPU_LIMIT}"
+          memory: "${MEM_LIMIT}"
+  volumes:
+    - name: runs
+      persistentVolumeClaim:
+        claimName: compute-runs
