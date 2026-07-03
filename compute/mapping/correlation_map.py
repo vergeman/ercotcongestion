@@ -116,12 +116,124 @@ def load_matrices(
     return model_aligned, ercot_aligned, bus_ids, sp_ids, hours
 
 
+def prefilter_low_variance(
+    C: np.ndarray,
+    ids: np.ndarray,
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Drop rows whose across-hour std < ``threshold``.
+
+    Returns (C_kept, ids_kept, ids_dropped). Empty input passes through.
+    """
+    if C.size == 0 or C.shape[1] == 0:
+        return C, ids, np.empty((0,), dtype=ids.dtype)
+    stds = C.std(axis=1, ddof=0)
+    keep = stds >= threshold
+    return C[keep], ids[keep], ids[~keep]
+
+
+def correlate(model_C: np.ndarray, ercot_C: np.ndarray) -> np.ndarray:
+    """Pearson correlation matrix R[i, j] = corr(model_i, ercot_j).
+
+    Implemented as a z-scored dot product: R = (A_z @ B_z.T) / n where
+    both sides are row-wise mean-centered and unit-variance. Zero-std
+    rows (should be filtered upstream) get NaN rows/columns.
+    Shape: (n_bus, n_sp).
+    """
+    if model_C.size == 0 or ercot_C.size == 0:
+        return np.empty((model_C.shape[0], ercot_C.shape[0]), dtype=float)
+    if model_C.shape[1] != ercot_C.shape[1]:
+        raise ValueError(
+            f"hour axis mismatch: model_C has {model_C.shape[1]} cols, "
+            f"ercot_C has {ercot_C.shape[1]}"
+        )
+    n = model_C.shape[1]
+    a = model_C - model_C.mean(axis=1, keepdims=True)
+    b = ercot_C - ercot_C.mean(axis=1, keepdims=True)
+    a_std = a.std(axis=1, ddof=0, keepdims=True)
+    b_std = b.std(axis=1, ddof=0, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        a_z = np.where(a_std > 0, a / a_std, np.nan)
+        b_z = np.where(b_std > 0, b / b_std, np.nan)
+    return (a_z @ b_z.T) / n
+
+
+def select_best_and_topk(
+    R: np.ndarray,
+    bus_ids: np.ndarray,
+    k: int,
+) -> tuple[np.ndarray, np.ndarray, list[list[tuple[str, float]]]]:
+    """For each SP column, pick the argmax bus and the top-k buses.
+
+    Returns (best_bus, best_corr, topk) where:
+      * best_bus[j]  = bus id with max R[:, j]
+      * best_corr[j] = that maximum
+      * topk[j]      = list of (bus_id, corr) length min(k, n_bus), desc
+    NaNs in R are treated as -inf for ranking.
+    """
+    n_bus, n_sp = R.shape
+    k = max(1, min(int(k), n_bus))
+    R_ranked = np.where(np.isnan(R), -np.inf, R)
+
+    best_idx = np.argmax(R_ranked, axis=0)
+    best_bus = bus_ids[best_idx]
+    best_corr = R[best_idx, np.arange(n_sp)]
+
+    # argpartition finds top-k unsorted; then sort within those k for desc order.
+    if k < n_bus:
+        part = np.argpartition(-R_ranked, kth=k - 1, axis=0)[:k]
+    else:
+        part = np.tile(np.arange(n_bus)[:, None], (1, n_sp))
+    topk: list[list[tuple[str, float]]] = []
+    for j in range(n_sp):
+        idxs = part[:, j]
+        vals = R[idxs, j]
+        order = np.argsort(-np.where(np.isnan(vals), -np.inf, vals))
+        topk.append([
+            (str(bus_ids[idxs[o]]), float(vals[o])) for o in order
+        ])
+    return best_bus, best_corr, topk
+
+
+def _smoke_planted_signal(seed: int = 0) -> None:
+    """Sanity check that `correlate` + `select_best_and_topk` actually work.
+
+    We fabricate a model matrix of random noise, then build each ERCOT
+    SP as `model[i*] + small noise` for a randomly chosen bus i*. If the
+    correlation core is correct, argmax_i R[i, j] should return that
+    planted i* for every SP j (top-k[0] == planted bus, high corr).
+
+    Fails loudly (assert) if recovery drops below n_sp - 1, catching
+    regressions like an axis swap, wrong normalization, or a broken
+    top-k sort. Runs offline — no run data required.
+    """
+    rng = np.random.default_rng(seed)
+    n_bus, n_sp, n_hours = 40, 15, 60
+    model = rng.standard_normal((n_bus, n_hours))
+    planted = rng.integers(0, n_bus, size=n_sp)
+    noise = 0.2 * rng.standard_normal((n_sp, n_hours))
+    ercot = model[planted] + noise
+    R = correlate(model, ercot)
+    bus_ids = np.array([f"B{i}" for i in range(n_bus)])
+    best_bus, best_corr, topk = select_best_and_topk(R, bus_ids, k=5)
+    recovered = sum(
+        1 for j in range(n_sp) if best_bus[j] == f"B{planted[j]}"
+    )
+    print(f"smoke: recovered {recovered}/{n_sp} planted SPs; "
+          f"median best_corr={np.median(best_corr):.3f}")
+    assert recovered >= n_sp - 1, (
+        f"planted-signal recovery failed: {recovered}/{n_sp}"
+    )
+    assert len(topk[0]) == 5
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Correlate ERCOT SPs to model buses over shared hours.",
     )
-    ap.add_argument("--run-id", required=True,
-                    help="Run identifier under compute/runs/.")
+    ap.add_argument("--run-id", default=None,
+                    help="Run identifier under compute/runs/ "
+                         "(required unless --smoke).")
     ap.add_argument("--model-ref", default=DEFAULT_MODEL_REF,
                     help=f"Model-side reference method (default {DEFAULT_MODEL_REF}).")
     ap.add_argument("--ercot-ref", default=DEFAULT_ERCOT_REF,
@@ -132,11 +244,20 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="Top-k buses to record per SP (default 5).")
     ap.add_argument("--dry-run", action="store_true",
                     help="Load matrices and print shapes, then exit.")
+    ap.add_argument("--smoke", action="store_true",
+                    help="Run planted-signal smoke check and exit.")
     return ap
 
 
 def main(argv: list[str] | None = None) -> None:
     args = _build_argparser().parse_args(argv)
+
+    if args.smoke:
+        _smoke_planted_signal()
+        return
+
+    if not args.run_id:
+        raise SystemExit("--run-id is required (unless --smoke)")
 
     model_C, ercot_C, bus_ids, sp_ids, hours = load_matrices(
         args.run_id, model_ref=args.model_ref, ercot_ref=args.ercot_ref,
@@ -150,14 +271,27 @@ def main(argv: list[str] | None = None) -> None:
     if args.dry_run:
         return
 
-    # ------------------------------------------------------------------
-    # CORRELATION CORE — bus↔SP Pearson matrix over shared hours goes here.
-    # Pipeline: load_matrices → prefilter_low_variance
-    #        → correlate(model_C, ercot_C)  ← R[bus, sp] built here (C2)
-    #        → select_best_and_topk         ← argmax per SP + top-k (C2)
-    #        → write parquet + summary JSON (C3)
-    # ------------------------------------------------------------------
-    raise SystemExit("correlation core not implemented yet (C2/C3 pending)")
+    # Pipeline: prefilter → correlate → select_best_and_topk → persist (C3).
+    model_C, bus_ids, dropped_bus = prefilter_low_variance(
+        model_C, bus_ids, args.var_threshold,
+    )
+    ercot_C, sp_ids, dropped_sp = prefilter_low_variance(
+        ercot_C, sp_ids, args.var_threshold,
+    )
+    print(f"prefilter var>{args.var_threshold}: kept {bus_ids.shape[0]} bus / "
+          f"{sp_ids.shape[0]} sp; dropped {dropped_bus.shape[0]} bus / "
+          f"{dropped_sp.shape[0]} sp")
+
+    R = correlate(model_C, ercot_C)  # ← bus × sp Pearson correlation matrix
+    best_bus, best_corr, topk = select_best_and_topk(R, bus_ids, args.topk)
+
+    finite = best_corr[np.isfinite(best_corr)]
+    if finite.size:
+        print(f"best_corr: median={np.median(finite):.3f} "
+              f"pct>0.7={(finite > 0.7).mean() * 100:.1f}% "
+              f"pct>0.5={(finite > 0.5).mean() * 100:.1f}%")
+
+    raise SystemExit("C3 (parquet + summary persistence) not implemented yet")
 
 
 if __name__ == "__main__":
