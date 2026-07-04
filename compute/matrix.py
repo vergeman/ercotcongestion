@@ -30,7 +30,7 @@ from compute.ercot.transforms import (
     fetch_zone_loads_batch,
     load_tracked_sps,
 )
-from compute.run_pipeline import _ingest_hint, _load_dates
+from compute.run_pipeline import _load_dates
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,16 @@ def _preflight_ercot(conn, timestamps: list[datetime]) -> list[datetime]:
         )
         present = {row[0] for row in cur.fetchall()}
     return [ts for ts in timestamps if ts not in present]
+
+
+def _model_ingest_hint(missing: list[datetime]) -> str:
+    """Suggested write_snapshots.py invocation covering [min, max] of missing ts."""
+    lo = min(missing).strftime("%Y-%m-%dT%H")
+    hi = max(missing).strftime("%Y-%m-%dT%H")
+    return (
+        "docker compose run --rm compute python /compute/write_snapshots.py "
+        f"--start {lo} --end {hi}"
+    )
 
 
 def _ercot_ingest_hint(missing: list[datetime]) -> str:
@@ -310,7 +320,7 @@ def main():
             _emit_preflight_error(
                 missing_model,
                 "missing or not status='ok' in snapshot_meta",
-                _ingest_hint(missing_model),
+                _model_ingest_hint(missing_model),
             )
             sys.exit(1)
 
