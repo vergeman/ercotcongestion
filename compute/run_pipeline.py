@@ -1,15 +1,16 @@
-"""End-to-end pipeline orchestrator.
+"""End-to-end analytical pipeline orchestrator.
 
 Single composition layer over the `--run-id`-aware stage CLIs, in order:
 
-    congestion -> ercot -> matrix
+    matrix
         -> correlation_map -> basis_regression -> cca   (CM.1–CM.3 mapping)
         -> clustering                                    (β-loading sweep)
         -> scorecard                                     (per-zone headline)
 
-Each stage is invoked as a subprocess (cheaper than refactoring stage scripts
-into importable libraries this sprint). Stages are skipped when their primary
-output already exists, unless `--force` is set.
+OPF is a prerequisite, not a stage: run `write_snapshots.py` first to populate
+`bus_snapshots` and `snapshot_meta`. Each stage here is invoked as a
+subprocess. Stages are skipped when their primary output already exists,
+unless `--force` is set.
 
 Ordering constraints:
   * `clustering` (default algo `hierarchical_on_beta`) reads the β-loading npz
@@ -27,7 +28,6 @@ Usage::
         [--ks 4,6,8,10,12,16] \
         [--scorecard-algo hierarchical_on_beta] \
         [--scorecard-k 6] \
-        [--records-output {gz,json,none}]  # default gz
         [--skip-completed]                 # default true
         [--force]                          # rerun everything
 """
@@ -46,7 +46,7 @@ from pathlib import Path
 
 import psycopg
 
-from config import PG_DSN
+from compute.config import PG_DSN
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
@@ -146,23 +146,23 @@ def _load_dates(dates_file: Path) -> list[datetime]:
     return out
 
 
-def _missing_snapshots(timestamps: list[datetime]) -> list[datetime]:
-    """Return timestamps that have no row in bus_snapshots."""
+def _bad_snapshots(timestamps: list[datetime]) -> list[datetime]:
+    """Return timestamps missing from snapshot_meta or with status != 'ok'."""
     if not timestamps:
         return []
     with psycopg.connect(PG_DSN) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT DISTINCT interval_ts FROM bus_snapshots "
+                "SELECT interval_ts, status FROM snapshot_meta "
                 "WHERE interval_ts = ANY(%s)",
                 (timestamps,),
             )
-            present = {row[0] for row in cur.fetchall()}
-    return [ts for ts in timestamps if ts not in present]
+            status_by_ts = {ts: status for ts, status in cur.fetchall()}
+    return [ts for ts in timestamps if status_by_ts.get(ts) != "ok"]
 
 
 def _ingest_hint(missing: list[datetime]) -> str:
-    """Suggested write_snapshots.py invocation covering [min, max] of missing ts."""
+    """Suggested write_snapshots.py invocation covering [min, max] of bad ts."""
     lo = min(missing).strftime("%Y-%m-%dT%H")
     hi = max(missing).strftime("%Y-%m-%dT%H")
     return (
@@ -185,29 +185,6 @@ def _dir_size_human(path: Path) -> str:
         return f"{total} B"
 
 
-def _drop_per_record(run_dir: Path) -> None:
-    """Delete per-record congestion JSONs after matrix consumes them.
-
-    Used when --records-output=none. The matrix npz already carries the
-    denormalized form forward; the per-record JSONs were only the
-    audit-friendly intermediate.
-    """
-    cong_dir = run_dir / "congestion"
-    if not cong_dir.exists():
-        return
-    deleted: list[Path] = []
-    for stem in ("model_results", "ercot_results"):
-        for ext in (".json", ".json.gz"):
-            p = cong_dir / f"{stem}{ext}"
-            if p.exists():
-                p.unlink()
-                deleted.append(p)
-    if deleted:
-        print(f"records-output=none: deleted {len(deleted)} per-record file(s):")
-        for p in deleted:
-            print(f"  {p}")
-
-
 def _read_tail(path: Path, n_lines: int) -> str:
     try:
         with open(path, "r") as f:
@@ -217,18 +194,7 @@ def _read_tail(path: Path, n_lines: int) -> str:
     return "".join(lines[-n_lines:])
 
 
-def _records_ext(records_output: str) -> str:
-    """Per-record file extension actually written to disk.
-
-    'none' still writes gz under the hood; the orchestrator deletes them
-    after the matrix stage exits ok (see §4 of the sprint plan).
-    """
-    return ".json" if records_output == "json" else ".json.gz"
-
-
-def _stage_outputs(
-    stage: str, run_dir: Path, records_ext: str, run_id: str,
-) -> list[Path]:
+def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
     if stage == "correlation_map":
@@ -244,16 +210,8 @@ def _stage_outputs(
     raise ValueError(stage)
 
 
-def _stage_cmd(
-    stage: str,
-    args: argparse.Namespace,
-    records_subflag: str,
-) -> list[str]:
-    """Build the subprocess command for a stage.
-
-    `records_subflag` is 'gz' or 'json' (the orchestrator translates
-    'none' -> 'gz' before calling).
-    """
+def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
+    """Build the subprocess command for a stage."""
     base = [sys.executable, "-m"]
     if stage == "matrix":
         cmd = base + [
@@ -382,10 +340,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--scorecard-k", type=int, default=6,
                     help="Cluster count the scorecard aggregates over "
                          "(must be in --ks; default 6).")
-    ap.add_argument("--records-output", choices=("gz", "json", "none"), default="gz",
-                    help="Per-record output format for congestion stages. "
-                         "'none' keeps gz on disk but deletes them after matrix "
-                         "exits ok (default: gz).")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
@@ -425,39 +379,36 @@ def main(argv: list[str] | None = None) -> int:
     print(f"git_sha={meta['git_sha']}")
     print(f"dates_file_sha256={meta['dates_file_sha256']}")
 
-    # Pre-flight: every dates-file timestamp must have a bus_snapshots row.
+    # Pre-flight: every dates-file timestamp must have snapshot_meta.status='ok'.
+    # Matrix will re-check, but failing fast at the orchestrator boundary avoids
+    # spawning stage subprocesses only to have the first one exit.
     timestamps = _load_dates(args.dates_file)
-    print(f"pre-flight: checking {len(timestamps)} timestamps against bus_snapshots")
-    missing = _missing_snapshots(timestamps)
-    if missing:
+    print(f"pre-flight: checking {len(timestamps)} timestamps against snapshot_meta")
+    bad = _bad_snapshots(timestamps)
+    if bad:
         print(
-            f"\n{len(missing)} timestamp(s) absent from bus_snapshots:",
+            f"\n{len(bad)} timestamp(s) missing or not status='ok' in snapshot_meta:",
             file=sys.stderr,
         )
-        for ts in missing:
+        for ts in bad:
             print(f"  {ts.isoformat()}", file=sys.stderr)
         print(
-            "\nIngest first (covers [min, max] of the missing set):\n"
-            f"  {_ingest_hint(missing)}",
+            "\nIngest first (covers [min, max] of the bad set):\n"
+            f"  {_ingest_hint(bad)}",
             file=sys.stderr,
         )
         return 3
     print("pre-flight: ok")
 
-    records_ext = _records_ext(args.records_output)
-    records_subflag = "json" if args.records_output == "json" else "gz"
-
     for stage in STAGES:
-        cmd = _stage_cmd(stage, args, records_subflag)
-        outputs = _stage_outputs(stage, run_dir, records_ext, args.run_id)
+        cmd = _stage_cmd(stage, args)
+        outputs = _stage_outputs(stage, run_dir, args.run_id)
         ok = _run_stage(
             stage, cmd, outputs, run_dir, meta, meta_path,
             skip_completed=args.skip_completed, force=args.force,
         )
         if not ok:
             return 4
-        if stage == "matrix" and args.records_output == "none":
-            _drop_per_record(run_dir)
 
     print(f"\nrun_dir: {run_dir}")
     print(f"size:    {_dir_size_human(run_dir)}")
