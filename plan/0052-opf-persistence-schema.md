@@ -42,8 +42,8 @@ Branch: feat/0052-opf-persistence-schema
 
 ## Acceptance
 
-* [ ] `19_opf_persistence.sql` exists and applies cleanly to a fresh DB.
-* [ ] `19_opf_persistence.sql` applies idempotently to an already-migrated DB (re-running is a no-op).
-* [ ] `\d snapshot_meta` shows the four new columns with correct types.
-* [ ] `\d bus_snapshots` shows the `dispatch` column.
-* [ ] No writer code has been changed on this branch — the columns exist and are NULL on all existing rows.
+* [x] `19_opf_persistence.sql` exists and applies cleanly to a fresh DB.
+* [x] `19_opf_persistence.sql` applies idempotently to an already-migrated DB (re-running is a no-op).
+* [x] `\d snapshot_meta` shows the four new columns with correct types.
+* [x] `\d bus_snapshots` shows the `dispatch` column.
+* [x] No writer code has been changed on this branch — the columns exist and are NULL on all existing rows.
