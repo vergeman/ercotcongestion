@@ -10,8 +10,8 @@ For each reference timestamp:
   1. Pull OPF result from the batched solve
   2. Build inputs to compute_congestion from the model output:
        - hub_lmps: HB_BUSAVG, HB_HOUSTON, HB_NORTH, HB_SOUTH, HB_WEST →
-         LMP at synthetic bus nearest each ERCOT hub centroid
-         (hubs_lz_centroids.csv).
+         mean LMP over the k synthetic buses nearest each ERCOT hub
+         centroid (hubs_lz_centroids.csv); k = HUB_K_NEAREST.
        - loads:        per-bus load (for load_weighted ref).
        - dispatch:     per-bus dispatched generation (for gen_weighted ref).
        - system_lambda_kkt, system_lambda_merit_order: model-side λ
@@ -59,15 +59,30 @@ RUNS_ROOT = BASE_DIR.parent / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
 
+# Number of nearest buses averaged into each hub LMP. ERCOT's HB_BUSAVG SPP
+# is the mean over all buses tagged to a hub — a single-nearest lookup (k=1)
+# is one arbitrary sample from that group. The 0049 S4.2 sweep
+# (docs/hub_k_sweep.md) walked k ∈ {1, 5, 25, 100, 200, 300, 500, 1000, 2000}
+# against the ERCOT DAM SPP over the v1-120-postfix window and found a
+# U-shape: k=1 and k=200 tie on median-ratio drift (0.23 averaged across
+# hubs) and HB_WEST negative incidence (48/93), but k=200 additionally
+# improves correlations at every hub and drops HB_NORTH's max spike 39%
+# ($412 → $252). Above k=300 the hubs collapse into a system-wide mean and
+# HB_WEST swings positive. Kept as a parameter so the sweep can rerun
+# cheaply after the full-year re-backfill.
+HUB_K_NEAREST = 200
+
 
 def build_hub_lmps(
     lmps: pd.Series,
     n: pypsa.Network,
     hub_centroids: pd.DataFrame,
+    k: int = HUB_K_NEAREST,
 ) -> dict[str, float]:
-    """Map each ERCOT hub centroid to its nearest synthetic bus and read off
-    that bus's LMP. Centroid-anchored (not averaged) so HB_BUSAVG stays
-    distinct from load_weighted and simple_mean."""
+    """Map each ERCOT hub centroid to the mean LMP of its k nearest synthetic
+    buses. k=1 is the original single-nearest behaviour and reproduces
+    unmodified pre-0049 outputs. Larger k damps single-bus outliers (see
+    module-level `HUB_K_NEAREST`)."""
     valid = lmps.dropna()
 
     bus_xy = n.buses.loc[valid.index, ['y', 'x']].rename(
@@ -75,6 +90,7 @@ def build_hub_lmps(
     ).dropna()
     bus_coords = bus_xy[['lat', 'lon']].to_numpy()
     bus_ids = bus_xy.index.to_numpy()
+    k_eff = max(1, min(int(k), bus_ids.shape[0]))
 
     hub_lmps: dict[str, float] = {}
     for hub in (HUB_BUSAVG, *CUSTOM_HUBS):
@@ -84,8 +100,9 @@ def build_hub_lmps(
             hlat = float(hub_centroids.at[hub, 'lat'])
             hlon = float(hub_centroids.at[hub, 'lon'])
             d2 = (bus_coords[:, 0] - hlat) ** 2 + (bus_coords[:, 1] - hlon) ** 2
-            nearest = bus_ids[int(np.argmin(d2))]
-            hub_lmps[hub] = float(valid[nearest])
+            nearest_idx = np.argpartition(d2, k_eff - 1)[:k_eff]
+            nearest_ids = bus_ids[nearest_idx]
+            hub_lmps[hub] = float(valid.loc[nearest_ids].mean())
         except Exception as e:
             print(f"  build_hub_lmps[{hub}] failed: {e}")
     return hub_lmps
