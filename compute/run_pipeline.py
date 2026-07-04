@@ -57,7 +57,6 @@ DEFAULT_COORDS_MODEL = Path(
 DEFAULT_COORDS_ERCOT = Path("/data/processed/settlement_points_geocoded.csv")
 
 STAGES = (
-    "ercot",
     "matrix",
     "correlation_map",
     "basis_regression",
@@ -230,8 +229,6 @@ def _records_ext(records_output: str) -> str:
 def _stage_outputs(
     stage: str, run_dir: Path, records_ext: str, run_id: str,
 ) -> list[Path]:
-    if stage == "ercot":
-        return [run_dir / "congestion" / f"ercot_results{records_ext}"]
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
     if stage == "correlation_map":
@@ -258,13 +255,6 @@ def _stage_cmd(
     'none' -> 'gz' before calling).
     """
     base = [sys.executable, "-m"]
-    if stage == "ercot":
-        return base + [
-            "compute.congestion.ercot_runner",
-            "--run-id", args.run_id,
-            "--dates-file", str(args.dates_file),
-            "--records-output", records_subflag,
-        ]
     if stage == "matrix":
         cmd = base + [
             "compute.matrix",
