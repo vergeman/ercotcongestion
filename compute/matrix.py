@@ -215,7 +215,7 @@ def build_ercot_matrices(
                 lmps.index, sp_to_zone, loads_by_ts.get(ts, {}), sps_per_zone,
             )
             nameplate_aligned = nameplate.reindex(lmps.index).fillna(0.0)
-            cong, _refs = compute_congestion(
+            cong, _ = compute_congestion(
                 lmps, hub_lmps,
                 loads=sp_load,
                 dispatch=nameplate_aligned,

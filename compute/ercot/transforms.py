@@ -1,5 +1,5 @@
 """
-ERCOT-side transforms shared by matrix builders and the (legacy) ercot_runner.
+ERCOT-side transforms used by ``compute.matrix``.
 
 Pure DB-read + transform layer over the persisted ERCOT ingest tables
 (``ercot_dam_spp``, ``dam_system_lambda``, ``load_by_zone``) plus the geocoded
