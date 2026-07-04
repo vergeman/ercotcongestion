@@ -29,8 +29,8 @@ Type: fix
 
 ## Acceptance
 
-* [ ] One-snapshot run of `compute/write_snapshots.py` produces zero `escaped adapter coverage` warnings when only `shed_*` gens are missing.
-* [ ] A synthetic test where a non-shed gen is deliberately removed from adapter coverage still emits the warning (regression guard on the real diagnostic).
-* [ ] Post-fix `n.generators_t.p_max_pu` shows `1.0` for every `shed_*` column across the chunk.
-* [ ] B4 full-year recompute log size drops to the pre-shed pattern (spot check: <1 MB per 100 snapshots vs. the prior ~50 MB).
-* [ ] No change to `bus_snapshots` / `snapshot_meta` schema; no writer changes required.
+* [x] One-snapshot run of `compute/write_snapshots.py` produces zero `escaped adapter coverage` warnings when only `shed_*` gens are missing.
+* [x] A synthetic test where a non-shed gen is deliberately removed from adapter coverage still emits the warning (regression guard on the real diagnostic).
+* [x] Post-fix `n.generators_t.p_max_pu` shows `1.0` for every `shed_*` column across the chunk.
+* [x] B4 full-year recompute log size drops to the pre-shed pattern (spot check: <1 MB per 100 snapshots vs. the prior ~50 MB).
+* [x] No change to `bus_snapshots` / `snapshot_meta` schema; no writer changes required.
