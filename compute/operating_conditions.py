@@ -1,5 +1,5 @@
 import pandas as pd
-from constants import DEFAULT_P_MAX_PU
+from constants import DEFAULT_P_MAX_PU, SHED_PREFIX
 import logging
 logger = logging.getLogger(__name__)
 
@@ -65,12 +65,17 @@ def stack_time_varying(
                 "supply per-generator availability"
             )
         missing = n.generators.index.difference(per_gen.index)
-        if len(missing) > 0:
+        shed_missing = missing[missing.str.startswith(SHED_PREFIX)]
+        unexpected_missing = missing.difference(shed_missing)
+        if len(unexpected_missing) > 0:
             logger.warning(
-                f"{len(missing)} generators escaped adapter coverage at {ts}, "
-                f"using p_max_pu={other_default} fallback: {list(missing)[:5]}..."
+                f"{len(unexpected_missing)} generators escaped adapter coverage at {ts}, "
+                f"using p_max_pu={other_default} fallback: {list(unexpected_missing)[:5]}..."
             )
-        pmax_rows[ts] = per_gen.reindex(n.generators.index).fillna(other_default)
+        row = per_gen.reindex(n.generators.index)
+        if len(shed_missing) > 0:
+            row.loc[shed_missing] = 1.0
+        pmax_rows[ts] = row.fillna(other_default)
 
     n.loads_t.p_set = pd.DataFrame(load_rows).T.reindex(columns=n.loads.index)
     n.loads_t.p_set.index.name = 'snapshot'
@@ -112,10 +117,15 @@ def apply_operating_conditions(
     if p_max_pu_per_gen is not None:
         other_default = DEFAULT_P_MAX_PU['other']
         missing = n.generators.index.difference(p_max_pu_per_gen.index)
-        if len(missing) > 0:
+        shed_missing = missing[missing.str.startswith(SHED_PREFIX)]
+        unexpected_missing = missing.difference(shed_missing)
+        if len(unexpected_missing) > 0:
             logger.warning(
-                f"{len(missing)} generators escaped adapter coverage, "
-                f"using p_max_pu={other_default} fallback: {list(missing)[:5]}..."
+                f"{len(unexpected_missing)} generators escaped adapter coverage, "
+                f"using p_max_pu={other_default} fallback: {list(unexpected_missing)[:5]}..."
             )
-        full = p_max_pu_per_gen.reindex(n.generators.index).fillna(other_default)
+        full = p_max_pu_per_gen.reindex(n.generators.index)
+        if len(shed_missing) > 0:
+            full.loc[shed_missing] = 1.0
+        full = full.fillna(other_default)
         n.generators['p_max_pu'] = full.values
