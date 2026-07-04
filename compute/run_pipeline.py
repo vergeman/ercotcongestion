@@ -44,6 +44,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg
+
+from compute.config import PG_DSN
+
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
 DEFAULT_DATES_FILE = Path("/compute/sample_specs/reference_dates.json")
@@ -140,6 +144,31 @@ def _load_dates(dates_file: Path) -> list[datetime]:
         out.append(ts)
     out.sort()
     return out
+
+
+def _bad_snapshots(timestamps: list[datetime]) -> list[datetime]:
+    """Return timestamps missing from snapshot_meta or with status != 'ok'."""
+    if not timestamps:
+        return []
+    with psycopg.connect(PG_DSN) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT interval_ts, status FROM snapshot_meta "
+                "WHERE interval_ts = ANY(%s)",
+                (timestamps,),
+            )
+            status_by_ts = {ts: status for ts, status in cur.fetchall()}
+    return [ts for ts in timestamps if status_by_ts.get(ts) != "ok"]
+
+
+def _ingest_hint(missing: list[datetime]) -> str:
+    """Suggested write_snapshots.py invocation covering [min, max] of bad ts."""
+    lo = min(missing).strftime("%Y-%m-%dT%H")
+    hi = max(missing).strftime("%Y-%m-%dT%H")
+    return (
+        "docker compose run --rm compute python /compute/write_snapshots.py "
+        f"--start {lo} --end {hi}"
+    )
 
 
 def _dir_size_human(path: Path) -> str:
@@ -349,6 +378,27 @@ def main(argv: list[str] | None = None) -> int:
     print(f"run_dir={run_dir}")
     print(f"git_sha={meta['git_sha']}")
     print(f"dates_file_sha256={meta['dates_file_sha256']}")
+
+    # Pre-flight: every dates-file timestamp must have snapshot_meta.status='ok'.
+    # Matrix will re-check, but failing fast at the orchestrator boundary avoids
+    # spawning stage subprocesses only to have the first one exit.
+    timestamps = _load_dates(args.dates_file)
+    print(f"pre-flight: checking {len(timestamps)} timestamps against snapshot_meta")
+    bad = _bad_snapshots(timestamps)
+    if bad:
+        print(
+            f"\n{len(bad)} timestamp(s) missing or not status='ok' in snapshot_meta:",
+            file=sys.stderr,
+        )
+        for ts in bad:
+            print(f"  {ts.isoformat()}", file=sys.stderr)
+        print(
+            "\nIngest first (covers [min, max] of the bad set):\n"
+            f"  {_ingest_hint(bad)}",
+            file=sys.stderr,
+        )
+        return 3
+    print("pre-flight: ok")
 
     for stage in STAGES:
         cmd = _stage_cmd(stage, args)
