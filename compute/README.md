@@ -20,13 +20,15 @@ database, fresh checkout), running the full flow means:
    estimates, load shed, hub LMPs, reference prices, dispatch-by-carrier,
    binding lines, top contingencies). Everything the analytical pipeline
    needs is written at solve time — no second file-based congestion path.
+   OPF is a prerequisite of `run_pipeline.py`, not a stage inside it, and
+   can be parallelized across containers independently.
 2. **Reference-price sanity checks** — re-confirm `hub k=200` and the
    `merit_order` λ choice on the larger sample.
 3. **Dates file** — the list of timestamps the analytical pipeline will
    process.
-4. **`run_pipeline.py`** — one command chains ERCOT → matrix → mapping
-   (CM.1–CM.3) → clustering → scorecard end-to-end, reading its
-   analytical inputs directly from `bus_snapshots` / `snapshot_meta`.
+4. **`run_pipeline.py`** — one command chains matrix → mapping (CM.1–CM.3)
+   → clustering → scorecard end-to-end, reading its analytical inputs
+   directly from `bus_snapshots` / `snapshot_meta`.
 
 All commands assume `docker compose` from the repo root. Adjust
 `--start` / `--end` and the run-id to your window.
@@ -142,19 +144,20 @@ run, either bump `--per-regime` or generate a flat all-hours file from
 
 `compute/run_pipeline.py` chains the post-OPF stages under one `--run-id`:
 
-    ERCOT → matrix
+    matrix
         → correlation_map → basis_regression → cca   (CM.1–CM.3 mapping)
         → clustering                                  (β-loading sweep)
         → scorecard                                   (per-zone headline)
 
-Model-side congestion / hub LMPs / reference prices / dispatch are already
-persisted by `write_snapshots.py` above; the pipeline reads them straight
-from `bus_snapshots` / `snapshot_meta` rather than from a per-record JSON.
+OPF is a prerequisite, not a stage: `write_snapshots.py` must have already
+populated `bus_snapshots` / `snapshot_meta` for every timestamp in the
+dates file. The pipeline reads those tables directly — there is no
+per-record JSON path anymore, and no `--records-output` flag.
 
 It writes provenance to `compute/runs/<run_id>/meta.json`, copies the dates
-file into the run dir, and pre-flights that every timestamp has a
-`bus_snapshots` row (exits non-zero with a suggested `write_snapshots.py`
-command on gaps).
+file into the run dir, and pre-flights that every timestamp has
+`snapshot_meta.status='ok'` (exits non-zero with a suggested
+`write_snapshots.py` command on gaps or failed solves).
 
 Full-year invocation:
 
@@ -180,7 +183,7 @@ Common flags:
   reuse of prior stage outputs under the same `--run-id`.
 
 Artifacts land under `compute/runs/<run_id>/` with stage subdirs
-(`congestion/`, `matrix/`, `mapping/`, `clustering/`). See
+(`matrix/`, `mapping/`, `clustering/`). See
 [`compute/runs/README.md`](runs/README.md) for the per-run layout.
 
 The mapping and scorecard outputs — `mapping_correlation_<run_id>.npz`,
