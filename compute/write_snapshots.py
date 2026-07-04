@@ -41,9 +41,8 @@ from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import compute_snapshot_batch
 from congestion.compute import compute_congestion
-from congestion.snapshot_runner import (
-    build_hub_lmps, build_load_per_bus, build_dispatch_per_bus,
-)
+from congestion.metrics import build_dispatch_per_bus
+from congestion.snapshot_runner import build_hub_lmps, build_load_per_bus
 from congestion.system_lambda_estimators import (
     lambda_kkt_clean_median, lambda_merit_order,
 )
@@ -78,15 +77,16 @@ UPSERT_BUS_SNAPSHOT_SQL = """
     INSERT INTO bus_snapshots (
         interval_ts, bus_id,
         fragility, modeled_congestion, binding_proximity,
-        lmp, basis
+        lmp, basis, dispatch
     )
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (interval_ts, bus_id) DO UPDATE SET
         fragility          = EXCLUDED.fragility,
         modeled_congestion = EXCLUDED.modeled_congestion,
         binding_proximity  = EXCLUDED.binding_proximity,
         lmp                = EXCLUDED.lmp,
-        basis              = EXCLUDED.basis
+        basis              = EXCLUDED.basis,
+        dispatch           = EXCLUDED.dispatch
 """
 
 UPSERT_META_SQL = """
@@ -170,6 +170,15 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     lmps      = result['lmps']
     basis     = result.get('basis')
 
+    # Per-bus dispatch: aggregate generator dispatch to bus totals. NaN
+    # (→ NULL) at buses with no generators; _f handles that conversion. Also
+    # feeds reference_prices below.
+    dispatch_per_bus = None
+    try:
+        dispatch_per_bus = build_dispatch_per_bus(result['dispatch'], network)
+    except Exception as e:
+        log.warning(f"build_dispatch_per_bus failed at {ts}: {e}")
+
     # bus_snapshots: one row per bus. fragility column retained but written
     # NULL during the 2A→2B/2C cutover; dropped in Migration B.
     bus_rows = []
@@ -182,6 +191,7 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
             _f(bp, bus_id),
             _f(lmps, bus_id),
             _f(basis, bus_id),
+            _f(dispatch_per_bus, bus_id),
         ))
 
     # snapshot_meta: per-snapshot diagnostics
@@ -232,12 +242,6 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         loads_per_bus = build_load_per_bus(network, ts)
     except Exception as e:
         log.warning(f"build_load_per_bus failed at {ts}: {e}")
-
-    dispatch_per_bus = None
-    try:
-        dispatch_per_bus = build_dispatch_per_bus(result['dispatch'], network)
-    except Exception as e:
-        log.warning(f"build_dispatch_per_bus failed at {ts}: {e}")
 
     reference_prices: dict = {}
     try:

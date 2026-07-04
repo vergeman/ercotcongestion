@@ -118,6 +118,21 @@ def _prox_branch(
     return flow / limit
 
 
+def build_dispatch_per_bus(dispatch: pd.Series, n: pypsa.Network) -> pd.Series:
+    """Aggregate per-generator dispatch (from snapshot result, shed already
+    excluded) to per-bus totals.
+
+    Buses with no generators remain NaN — callers persisting to Postgres
+    treat NaN as NULL so a bus without any generator carries NULL dispatch,
+    not a fabricated 0. compute_congestion's gen_weighted path also handles
+    NaN correctly (it fillna(0.0) internally when normalizing weights).
+    """
+    return (
+        dispatch.groupby(n.generators.loc[dispatch.index, 'bus']).sum()
+        .reindex(n.buses.index)
+    )
+
+
 def modeled_congestion_diagnostics(mc: pd.Series) -> None:
     print(f"\nmodeled_congestion stats (signed, $/MWh):")
     print(mc.describe())

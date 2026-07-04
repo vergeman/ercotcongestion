@@ -50,6 +50,7 @@ from compute.snapshot import compute_snapshot_batch
 from .compute import (
     compute_congestion, congestion_diagnostics, CUSTOM_HUBS, HUB_BUSAVG,
 )
+from .metrics import build_dispatch_per_bus
 from .system_lambda_estimators import (
     lambda_kkt_clean_median, lambda_merit_order,
 )
@@ -115,15 +116,6 @@ def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
     load_per_load = n.loads_t.p_set.loc[naive_ts]
     return (
         load_per_load.groupby(n.loads['bus']).sum()
-        .reindex(n.buses.index).fillna(0.0)
-    )
-
-
-def build_dispatch_per_bus(dispatch: pd.Series, n: pypsa.Network) -> pd.Series:
-    """Aggregate per-generator dispatch (from snapshot result, shed already
-    excluded) to per-bus totals."""
-    return (
-        dispatch.groupby(n.generators.loc[dispatch.index, 'bus']).sum()
         .reindex(n.buses.index).fillna(0.0)
     )
 
