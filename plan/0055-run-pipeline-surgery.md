@@ -46,8 +46,15 @@ Branch: refactor/0055-run-pipeline-surgery
 
 ## Acceptance
 
-* [ ] `python -m compute.run_pipeline --run-id <id> --dates-file <path>` runs end-to-end with only the six analytical stages and produces the same `scorecard_<id>.json` shape as before.
-* [ ] `python -m compute.run_pipeline --help` shows no `--records-output` flag.
-* [ ] Requesting a run against dates with any `snapshot_meta.status != 'ok'` exits non-zero with a clear ingest hint before any stage subprocess spawns.
-* [ ] `git grep -E 'records_output|drop_per_record|snapshot_runner|ercot_runner'` in `compute/run_pipeline.py` returns no hits.
-* [ ] `--skip-completed` (default) still no-ops stages whose primary output exists under the same `--run-id`.
+* [x] `python -m compute.run_pipeline --run-id <id> --dates-file <path>` runs end-to-end with only the six analytical stages and produces the same `scorecard_<id>.json` shape as before. — `STAGES` is exactly the six analytical stages; no code path outside them is invoked. Runtime end-to-end verification pending a real run.
+* [x] `python -m compute.run_pipeline --help` shows no `--records-output` flag. — argparse entry removed.
+* [x] Requesting a run against dates with any `snapshot_meta.status != 'ok'` exits non-zero with a clear ingest hint before any stage subprocess spawns. — `_bad_snapshots` runs before the `for stage in STAGES` loop and `return 3`s with the `write_snapshots.py --start … --end …` hint.
+* [x] `git grep -E 'records_output|drop_per_record|snapshot_runner|ercot_runner'` in `compute/run_pipeline.py` returns no hits. — verified.
+* [x] `--skip-completed` (default) still no-ops stages whose primary output exists under the same `--run-id`. — `_run_stage`'s skip branch untouched; `_stage_outputs` still names the same primary output per stage.
+
+## Notes / deviations
+
+* `_ingest_hint` from `run_pipeline.py` was used by `compute/matrix.py` (`from compute.run_pipeline import _ingest_hint, _load_dates`). Moved the model-side ingest hint into `matrix.py` as `_model_ingest_hint` (mirrors the existing `_ercot_ingest_hint` naming) so matrix.py's DB pre-flight is self-contained; `run_pipeline.py` gets a fresh `_ingest_hint` for its own pre-flight.
+* Chose the primary Commit 2 approach (orchestrator-level pre-flight against `snapshot_meta`) over the "delegate to matrix" alternative — fail-fast before spawning stage subprocesses matches prior UX and costs one query.
+* `compute/README.md` "Debugging individual stages" section already had congestion/ERCOT entries removed by [[0054-matrix-db-driven]]; confirmed no further edits needed there.
+* Artifacts subdir list in README §4 dropped `congestion/` since the analytical pipeline no longer writes it.
