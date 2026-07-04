@@ -25,6 +25,6 @@ Branch: fix/0050-hub-lmp-k-nearest-mean
 
 ## Acceptance
 
-* [ ] `build_hub_lmps` averages k-nearest buses; chosen k in a code constant and noted in `docs/congestion_stats.md`.
-* [ ] k-sweep comparison table (mean, p5/p50/p95, corr vs HB_BUSAVG, spike counts) committed under `docs/`.
-* [ ] HB_NORTH / HB_WEST outlier counts drop materially vs the pre-fix baseline; drop quantified in the sweep doc.
+* [x] `build_hub_lmps` averages k-nearest buses; chosen k in a code constant and noted in `docs/congestion_stats.md`.
+* [x] k-sweep comparison table (mean, p5/p50/p95, corr vs HB_BUSAVG, spike counts) committed under `docs/`.
+* [x] HB_NORTH / HB_WEST outlier counts drop materially vs the pre-fix baseline; drop quantified in the sweep doc.
