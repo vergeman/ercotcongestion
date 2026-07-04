@@ -13,7 +13,7 @@ from ptdf_lodf import get_ptdf_lodf
 from operating_conditions import stack_time_varying
 
 from config import HIGHS_THREADS
-from constants import SHED_COST
+from constants import SHED_COST, SHED_PREFIX
 from datetime import datetime
 
 
@@ -26,8 +26,6 @@ def _default_solver_options() -> dict:
     if threads > 1:
         return {'parallel': 'on', 'threads': threads}
     return {}
-
-SHED_PREFIX = "shed_"
 
 
 def compute_snapshot_batch(

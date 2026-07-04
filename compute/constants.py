@@ -19,6 +19,7 @@ DEFAULT_P_MAX_PU: dict[str, float] = {
 }
 
 SHED_COST = 5000   # ERCOT offer cap; (VOLL: Value of Lost Load)
+SHED_PREFIX = "shed_"   # prefix for load-shed pseudo-generators in n.generators.index
 
 PV_REGIONS = ('centerwest', 'northwest', 'farwest', 'fareast', 'southeast', 'centereast')
 WIND_REGIONS = ('panhandle', 'coastal', 'south', 'west', 'north')
