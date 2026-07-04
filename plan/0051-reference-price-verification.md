@@ -26,7 +26,7 @@ Branch: experiment/0051-reference-price-verification
 
 ## Acceptance
 
-* [ ] Range/distribution check on NP4-523-CD written up (table + flagged outliers).
-* [ ] Decision recorded for hub_avg: keep nearest-bus or switch to k-nearest mean, with the comparison numbers.
-* [ ] Cross-method reference-price comparison table across the analysis window (mean, p5/p50/p95, pairwise corr).
-* [ ] `docs/congestion_stats.md` methods section updated with path-appropriate framing.
+* [x] Range/distribution check on NP4-523-CD written up (table + flagged outliers).
+* [x] Decision recorded for hub_avg: keep nearest-bus or switch to k-nearest mean, with the comparison numbers.
+* [x] Cross-method reference-price comparison table across the analysis window (mean, p5/p50/p95, pairwise corr).
+* [x] `README.md` methods section updated with path-appropriate framing.
