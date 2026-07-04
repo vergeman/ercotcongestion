@@ -456,3 +456,60 @@ export function bindingProximityColor(norm: number): string {
   }
   return `rgb(${r},${g},${b})`;
 }
+
+// =============================================================================
+// Cluster tag palette
+// =============================================================================
+//
+// Distinct hues for the 5–7 "tight" anchor clusters surfaced by the scorecard.
+// The residual/background cluster (any id not in the tight set) collapses to
+// `CLUSTER_GRAY` so it visually recedes.
+
+export const CLUSTER_GRAY = "#3a4451";
+
+const CLUSTER_PALETTE = [
+  "#38bdf8", // sky
+  "#f97316", // orange
+  "#a78bfa", // violet
+  "#34d399", // emerald
+  "#f472b6", // pink
+  "#facc15", // yellow
+  "#22d3ee", // cyan
+];
+
+// Order tight ids ascending so cluster 1 always claims palette[0].
+export function clusterColor(
+  clusterId: number | null | undefined,
+  tightSet: Set<number>
+): string {
+  if (clusterId == null || !tightSet.has(clusterId)) return CLUSTER_GRAY;
+  const ordered = Array.from(tightSet).sort((a, b) => a - b);
+  const idx = ordered.indexOf(clusterId);
+  return CLUSTER_PALETTE[
+    (idx < 0 ? 0 : idx) % CLUSTER_PALETTE.length
+  ];
+}
+
+// =============================================================================
+// Zone diff (S3.3, Diff mode)
+// =============================================================================
+//
+// Diverging palette on Δ = model_Z(t) − ercot_Z(t) per cluster. Anchor at
+// ±1.0 (Z-scores) — beyond that saturates. Center = green (agreement).
+
+export const ZONE_DIFF_ANCHOR = 1.0;
+const ZDIFF_CENTER = [110, 195, 130]; // green — agreement
+const ZDIFF_UNDER = [59, 130, 246]; // blue — model < ercot (under-predict)
+const ZDIFF_OVER = [239, 68, 68]; // red — model > ercot (over-predict)
+
+export function zoneDiffColor(delta: number | null | undefined): string {
+  if (delta == null || !isFinite(delta)) return CLUSTER_GRAY;
+  const t = Math.max(-1, Math.min(1, delta / ZONE_DIFF_ANCHOR));
+  if (t === 0) return `rgb(${ZDIFF_CENTER.join(",")})`;
+  const target = t > 0 ? ZDIFF_OVER : ZDIFF_UNDER;
+  const mag = Math.abs(t);
+  const r = Math.round(ZDIFF_CENTER[0] + (target[0] - ZDIFF_CENTER[0]) * mag);
+  const g = Math.round(ZDIFF_CENTER[1] + (target[1] - ZDIFF_CENTER[1]) * mag);
+  const b = Math.round(ZDIFF_CENTER[2] + (target[2] - ZDIFF_CENTER[2]) * mag);
+  return `rgb(${r},${g},${b})`;
+}

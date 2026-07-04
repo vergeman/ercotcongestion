@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BusState, SnapshotMeta, ViewMode } from "../../api/types";
@@ -12,6 +12,9 @@ import {
   normalizeProximity,
   computeCongestionVsBasisRank,
   rankDeltaColor,
+  clusterColor,
+  CLUSTER_GRAY,
+  zoneDiffColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -89,6 +92,21 @@ interface Props {
   onMapClick: () => void;
   selectedBusId: string | null;
   selectedLineId: string | null;
+  // S3.2 — Zones layer. When on, bus circle-color is the cluster tag
+  // (tight clusters get palette hues; anything else falls to gray). When a
+  // cluster is selected, non-members dim.
+  showZones: boolean;
+  tightClusterIds: Set<number>;
+  selectedClusterId: number | null;
+  // S3.3 — comparison plumbing.
+  // `side` names the pane so App/CompareMap can namespace per-side state
+  // once ERCOT data lands. `onMapReady` exposes the maplibre instance so
+  // CompareMap can wire camera mirroring. `busClusterDelta`, when set,
+  // switches this pane into Diff coloring: each bus takes its cluster's
+  // (model_Z − ercot_Z) via `zoneDiffColor`.
+  side?: "model" | "ercot";
+  onMapReady?: (map: maplibregl.Map) => void;
+  busClusterDelta?: Map<number, number> | null;
 }
 
 export default function GridMap({
@@ -105,6 +123,11 @@ export default function GridMap({
   onMapClick,
   selectedBusId,
   selectedLineId,
+  showZones,
+  tightClusterIds,
+  selectedClusterId,
+  onMapReady,
+  busClusterDelta,
 }: Props) {
   const prevBindingRef = useRef<Set<string>>(new Set());
   const prevContingencyRef = useRef<Set<string>>(new Set());
@@ -112,6 +135,12 @@ export default function GridMap({
   const prevSelectedLineRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const metaRef = useRef<SnapshotMeta | null>(null);
+  // Flipped inside the topology effect's onLoad handler after the `buses`
+  // and `lines` sources are added. Coloring / feature-state effects gate on
+  // this so a remount (e.g. split→single→split) doesn't paint into a map
+  // whose sources aren't ready yet — and, more importantly, re-fires the
+  // paint the moment the sources land.
+  const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Track tooltip overlay
@@ -174,6 +203,7 @@ export default function GridMap({
     );
 
     mapRef.current = map;
+    onMapReady?.(map);
     tooltipRef.current = new maplibregl.Popup({
       closeButton: false,
       closeOnClick: false,
@@ -184,6 +214,7 @@ export default function GridMap({
     return () => {
       map.remove();
       mapRef.current = null;
+      setSourcesReady(false);
     };
   }, []);
 
@@ -342,28 +373,50 @@ export default function GridMap({
           type: "circle",
           source: "buses",
           paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              2,
-              8,
-              4,
-              12,
-              7,
-            ],
             "circle-color": [
               "case",
               ["!=", ["feature-state", "color"], null],
               ["feature-state", "color"],
               "#1a4731",
             ],
-            "circle-opacity": 0.85,
+            "circle-opacity": [
+              "case",
+              ["boolean", ["feature-state", "dim"], false],
+              0.1,
+              0.9,
+            ],
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                3.5,
+                2,
+              ],
+              8,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                6,
+                4,
+              ],
+              12,
+              [
+                "case",
+                ["boolean", ["feature-state", "cluster_member"], false],
+                10,
+                7,
+              ],
+            ],
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
               3,
+              ["boolean", ["feature-state", "cluster_member"], false],
+              2,
               ["boolean", ["feature-state", "hovered"], false],
               2,
               0,
@@ -372,6 +425,8 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "selected"], false],
               "#38bdf8",
+              ["boolean", ["feature-state", "cluster_member"], false],
+              "#ffffff",
               "#ffffff",
             ],
           },
@@ -400,6 +455,9 @@ export default function GridMap({
         callbacksRef.current.onBusHover(null, null);
         tooltipRef.current?.remove();
       });
+
+      // Sources are live — coloring/dim/halo effects can now paint.
+      setSourcesReady(true);
     };
 
     // Line hover
@@ -548,7 +606,7 @@ export default function GridMap({
       map.setFeatureState({ source: "lines", id: lineId }, { binding: true });
     }
     prevBindingRef.current = nextBinding;
-  }, [meta]);
+  }, [meta, sourcesReady]);
 
   // Outage
   // Update contingency-line highlights (top 5) when meta changes
@@ -575,12 +633,15 @@ export default function GridMap({
       );
     }
     prevContingencyRef.current = nextCont;
-  }, [meta]);
+  }, [meta, sourcesReady]);
 
-  // Update bus colors when buses/viewMode changes
+  // Update bus colors when buses/viewMode changes.
+  // Skipped when Zones or Diff is active — those override coloring in their
+  // own effects.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !buses.length || !map.getSource("buses")) return;
+    if (showZones || busClusterDelta) return;
 
     const deltaMap =
       viewMode === "congestion_vs_basis"
@@ -611,7 +672,163 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats]);
+  }, [buses, viewMode, lmpStats, mcStats, showZones, busClusterDelta, sourcesReady]);
+
+  // Zones layer coloring — runs off `topology`, independent of the
+  // per-timestamp `buses` snapshot so the tags render before any window is
+  // loaded. Turning the layer off restores whatever the congestion effect
+  // last painted.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    if (!showZones || busClusterDelta) return;
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const clusterId = feat.properties.cluster_id ?? null;
+      const color = clusterColor(clusterId, tightClusterIds);
+      map.setFeatureState({ source: "buses", id: busId }, { color });
+    }
+  }, [topology, showZones, tightClusterIds, busClusterDelta, sourcesReady]);
+
+  // Diff coloring — each bus takes its cluster's (model_Z − ercot_Z) via
+  // `zoneDiffColor`. Fed from scorecard.series at the current scrubber hour
+  // upstream. Buses whose cluster isn't in the delta map fall to the neutral
+  // gray (via `zoneDiffColor(null)`).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    if (!busClusterDelta) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const cid = feat.properties.cluster_id ?? null;
+      const delta = cid != null ? busClusterDelta.get(cid) ?? null : null;
+      map.setFeatureState(
+        { source: "buses", id: busId },
+        { color: zoneDiffColor(delta) }
+      );
+    }
+  }, [topology, busClusterDelta, sourcesReady]);
+
+  // Selection dim — non-members of the selected cluster fade to 0.2 while a
+  // selection is active. Cleared entirely when nothing is selected. Only
+  // meaningful with the Zones layer on, but harmless to run regardless.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology || !map.getSource("buses")) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+    if (selectedClusterId == null) {
+      for (const feat of topo.buses.features) {
+        map.setFeatureState(
+          { source: "buses", id: feat.properties.bus_id },
+          { dim: false, cluster_member: false }
+        );
+      }
+      return;
+    }
+    for (const feat of topo.buses.features) {
+      const busId = feat.properties.bus_id;
+      const isMember = feat.properties.cluster_id === selectedClusterId;
+      map.setFeatureState(
+        { source: "buses", id: busId },
+        { dim: !isMember, cluster_member: isMember }
+      );
+    }
+  }, [selectedClusterId, topology, sourcesReady]);
+
+  // Cluster centroid labels — one point per tight cluster, centered on the
+  // mean of its bus coordinates. Toggled via the Zones layer.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !topology) return;
+    const topo = topology as {
+      buses: GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { bus_id: string; cluster_id?: number | null }
+      >;
+    };
+
+    const acc = new Map<number, { x: number; y: number; n: number }>();
+    for (const feat of topo.buses.features) {
+      const cid = feat.properties.cluster_id;
+      if (cid == null || !tightClusterIds.has(cid)) continue;
+      const [x, y] = feat.geometry.coordinates as [number, number];
+      const cur = acc.get(cid) ?? { x: 0, y: 0, n: 0 };
+      cur.x += x;
+      cur.y += y;
+      cur.n += 1;
+      acc.set(cid, cur);
+    }
+
+    const centroids: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: Array.from(acc.entries()).map(([cid, v]) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [v.x / v.n, v.y / v.n] },
+        properties: {
+          cluster_id: cid,
+          label: `Z${cid}`,
+          color: clusterColor(cid, tightClusterIds),
+        },
+      })),
+    };
+
+    const src = map.getSource("cluster-centroids") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (src) {
+      src.setData(centroids);
+    } else if (map.isStyleLoaded()) {
+      map.addSource("cluster-centroids", {
+        type: "geojson",
+        data: centroids,
+      });
+      map.addLayer({
+        id: "cluster-centroid-labels",
+        type: "symbol",
+        source: "cluster-centroids",
+        layout: {
+          "text-field": ["get", "label"],
+          "text-font": ["Open Sans Bold"],
+          "text-size": 14,
+          "text-allow-overlap": true,
+          visibility: "none",
+        },
+        paint: {
+          "text-color": ["get", "color"],
+          "text-halo-color": "#0f1217",
+          "text-halo-width": 1.5,
+        },
+      });
+    }
+  }, [topology, tightClusterIds, sourcesReady]);
+
+  // Centroid layer visibility follows the Zones toggle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("cluster-centroid-labels")) return;
+    map.setLayoutProperty(
+      "cluster-centroid-labels",
+      "visibility",
+      showZones ? "visible" : "none"
+    );
+  }, [showZones, sourcesReady]);
 
   // Selected bus
   useEffect(() => {
@@ -633,7 +850,7 @@ export default function GridMap({
       );
     }
     prevSelectedBusRef.current = selectedBusId;
-  }, [selectedBusId]);
+  }, [selectedBusId, sourcesReady]);
 
   // Selected line
   useEffect(() => {
@@ -655,7 +872,7 @@ export default function GridMap({
       );
     }
     prevSelectedLineRef.current = selectedLineId;
-  }, [selectedLineId]);
+  }, [selectedLineId, sourcesReady]);
 
   return (
     <>

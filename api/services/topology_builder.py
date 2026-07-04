@@ -32,6 +32,7 @@ from config import (
     NETWORK_NC,
     TOPOLOGY_CACHE
 )
+from shared.settings import settings
 
 log = logging.getLogger(__name__)
 
@@ -75,18 +76,110 @@ def build_topology() -> dict[str, Any]:
         log.warning("gen_enriched not found; bus capacity_mw will be 0")
         bus_capacity = {}
 
-    buses_fc = _buses_feature_collection(n, weather_lookup, load_lookup, bus_capacity)
-    lines_fc = _lines_feature_collection(n)
+    bus_cluster = _load_bus_cluster_labels()
 
-    return {'buses': buses_fc, 'lines': lines_fc, 'zones': None}
+    buses_fc = _buses_feature_collection(
+        n, weather_lookup, load_lookup, bus_capacity, bus_cluster,
+    )
+    lines_fc = _lines_feature_collection(n)
+    sps_fc = _settlement_points_feature_collection()
+    zones_fc = _load_zone_polygons()
+
+    return {
+        'buses': buses_fc,
+        'lines': lines_fc,
+        'settlement_points': sps_fc,
+        'zones': zones_fc,
+    }
+
+
+def _load_bus_cluster_labels() -> dict[str, int]:
+    """Return {bus_id: cluster_id} for the active run's clustering artifact.
+
+    Soft-fails to {} when the run/algo/k combination has no labels file —
+    the frontend then treats every bus as unclustered.
+    """
+    import numpy as np
+
+    labels_path = (
+        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
+        f"cluster_labels_{settings.active_cluster_algo}_k{settings.active_cluster_k}.npz"
+    )
+    if not os.path.exists(labels_path):
+        log.warning("bus cluster labels not found at %s; cluster_id will be null", labels_path)
+        return {}
+    with np.load(labels_path, allow_pickle=False) as z:
+        return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
+
+
+def _settlement_points_feature_collection() -> dict[str, Any]:
+    """Return SP points as GeoJSON. Rows missing lat/lon are dropped."""
+    try:
+        df = pd.read_csv(settings.settlement_points_geocoded_csv)
+    except FileNotFoundError:
+        log.warning("settlement_points geocoded csv missing; ERCOT pane will be empty")
+        return {'type': 'FeatureCollection', 'features': []}
+    df = df.dropna(subset=['lat', 'lon'])
+    features = []
+    for _, row in df.iterrows():
+        sp_id = str(row['settlement_point'])
+        features.append({
+            'type': 'Feature',
+            'geometry': {
+                'type': 'Point',
+                'coordinates': [float(row['lon']), float(row['lat'])],
+            },
+            'properties': {
+                'sp_id': sp_id,
+                'sp_type': str(row.get('sp_type') or ''),
+            },
+        })
+    return {'type': 'FeatureCollection', 'features': features}
+
+
+def _load_zone_polygons() -> dict[str, Any] | None:
+    """Return cluster polygon FeatureCollection, or None if absent.
+
+    File convention mirrors the bus cluster labels naming: the polygons
+    live at ``zones_<active_cluster_algo>_k<k>.geojson`` inside the run's
+    clustering directory. A missing file yields ``None`` — the frontend
+    then keeps its polygon-free rendering path.
+    """
+    polygons_path = (
+        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
+        f"zones_{settings.active_cluster_algo}_k{settings.active_cluster_k}.geojson"
+    )
+    if not os.path.exists(polygons_path):
+        log.info("zone polygons not found at %s; topology zones = null", polygons_path)
+        return None
+    with open(polygons_path) as f:
+        return json.load(f)
+
+
+def _cache_is_current(topo: dict[str, Any]) -> bool:
+    """Detect stale caches from older schema revisions.
+
+    A cache without `settlement_points` at top level, or bus features without
+    `cluster_id`, was written before 0048's S3.2/S3.4 schema. Rebuild instead
+    of silently serving a payload the frontend can't use.
+    """
+    if 'settlement_points' not in topo:
+        return False
+    features = topo.get('buses', {}).get('features', [])
+    if features and 'cluster_id' not in features[0].get('properties', {}):
+        return False
+    return True
 
 
 def get_or_build_topology(force: bool = False) -> dict[str, Any]:
     """Return cached topology dict, building and writing the cache if missing."""
     if not force and os.path.exists(TOPOLOGY_CACHE):
-        log.info("Topology cache hit: %s", TOPOLOGY_CACHE)
         with open(TOPOLOGY_CACHE) as f:
-            return json.load(f)
+            topo = json.load(f)
+        if _cache_is_current(topo):
+            log.info("Topology cache hit: %s", TOPOLOGY_CACHE)
+            return topo
+        log.info("Topology cache stale; rebuilding: %s", TOPOLOGY_CACHE)
 
     topo = build_topology()
     os.makedirs(os.path.dirname(TOPOLOGY_CACHE), exist_ok=True)
@@ -108,6 +201,7 @@ def _buses_feature_collection(
     weather_lookup: dict[str, str],
     load_lookup: dict[str, str],
     bus_capacity: dict[str, float],
+    bus_cluster: dict[str, int],
 ) -> dict[str, Any]:
     features = []
     for bus_id, row in n.buses.iterrows():
@@ -124,6 +218,7 @@ def _buses_feature_collection(
                 'load_zone':    load_lookup.get(bus_id_str),
                 'voltage': float(row['v_nom']) if 'v_nom' in row and pd.notna(row['v_nom']) else None,
                 'capacity_mw': float(bus_capacity.get(bus_id_str, 0.0)),
+                'cluster_id':  bus_cluster.get(bus_id_str),
             },
         })
     return {'type': 'FeatureCollection', 'features': features}

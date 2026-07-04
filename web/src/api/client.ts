@@ -3,6 +3,7 @@ import type {
   StateRangeResponse,
   ScorecardResponse,
   PtdfResponse,
+  ErcotStateRangeResponse,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -27,6 +28,21 @@ export async function fetchStateRange(
     `${BASE}/state_range?start=${start.toISOString()}&end=${end.toISOString()}`
   );
   if (!r.ok) throw new Error(`state_range ${r.status}`);
+  return r.json();
+}
+
+// ERCOT SP snapshots for the same window (S3.4). Returns `null` — not
+// throws — when the backend reports the ERCOT artifact isn't built (503),
+// so the caller can render the model side unaffected.
+export async function fetchErcotStateRange(
+  start: Date,
+  end: Date
+): Promise<ErcotStateRangeResponse | null> {
+  const r = await fetch(
+    `${BASE}/ercot_state_range?start=${start.toISOString()}&end=${end.toISOString()}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`ercot_state_range ${r.status}`);
   return r.json();
 }
 

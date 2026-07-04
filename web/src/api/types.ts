@@ -65,11 +65,37 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
+// S3.4 — ERCOT SP snapshot payload. `sp_id` is the ERCOT settlement point
+// identifier; `congestion` is the reference-adjusted congestion value from
+// the run's congestion matrix (nullable when non-finite).
+export interface ErcotSpState {
+  sp_id: string;
+  congestion: number | null;
+}
+
+export interface ErcotStateRangeEntry {
+  interval_ts: string;
+  sps: ErcotSpState[];
+}
+
+export interface ErcotStateRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: ErcotStateRangeEntry[];
+}
+
 export type ViewMode =
   | "modeled_congestion"
   | "lmp"
   | "congestion_vs_basis"
   | "binding_proximity";
+
+// S3.3 — top-level comparison mode. `single` renders the historical single
+// pane (colored by ViewMode); `split` renders model | ERCOT synced side by
+// side; `diff` renders a single pane colored by per-cluster
+// (model_Z − ercot_Z) at the current scrubber hour.
+export type ComparisonMode = "split" | "single" | "diff";
 
 // 0047 — zone-aggregated scorecard. Mirrors api/models.py::ScorecardResponse.
 
@@ -123,6 +149,7 @@ export interface BusFeatureProperties {
   load_zone: string;
   voltage: number;
   capacity_mw: number;
+  cluster_id?: number | null;
 }
 
 export interface LineFeatureProperties {

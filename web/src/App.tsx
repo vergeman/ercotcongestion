@@ -1,9 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
-import type { BusState, SnapshotMeta, ViewMode } from "./api/types";
-import { fetchTopology } from "./api/client";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type maplibregl from "maplibre-gl";
+import type {
+  BusState,
+  ComparisonMode,
+  ScorecardResponse,
+  SnapshotMeta,
+  ViewMode,
+} from "./api/types";
+import { fetchScorecard, fetchTopology } from "./api/client";
 import {
   prefetchWindow,
   getCached,
+  getErcotCached,
   getAvailableTimestamps,
 } from "./api/prefetch";
 import {
@@ -17,14 +25,15 @@ import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import type { SparkPoint } from "./components/playback/TimelineSparkline";
 import StatsPanel from "./components/panels/StatsPanel";
-import ValidationPanel from "./components/panels/ValidationPanel";
 import Legend from "./components/map/Legend";
+import CompareMap from "./components/map/CompareMap";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 
 type ConnectionState = "ok" | "error" | "loading";
-type PanelTab = "stats" | "validation";
+
+const RUN_ID = import.meta.env.VITE_RUN_ID ?? "v1-120";
 
 interface HoveredBus {
   busId: string;
@@ -52,19 +61,148 @@ export default function App() {
   const [pinnedBus, setPinnedBus] = useState<HoveredBus | null>(null);
   const [pinnedLine, setPinnedLine] = useState<HoveredLine | null>(null);
 
-  const [panelTab, setPanelTab] = useState<PanelTab>("stats");
-  // The validation panel needs the loaded window — keep it lifted in App
-  // so it persists across tab switches and updates with new range loads.
-  const [loadedWindow, setLoadedWindow] = useState<{
-    start: Date;
-    end: Date;
-  } | null>(null);
+  // Zone scorecard — loaded once per run. Selection is lifted here so the
+  // GridMap can highlight members and the StatsPanel row can show selected.
+  const [scorecard, setScorecard] = useState<ScorecardResponse | null>(null);
+  const [selectedClusterId, setSelectedClusterId] = useState<number | null>(
+    null
+  );
+  // Zones layer toggle (S3.2). When on, buses are colored by cluster tag
+  // instead of the congestion palette; selection dims non-members.
+  const [showZones, setShowZones] = useState(false);
+  const tightClusterIds = useMemo(
+    () => new Set((scorecard?.zones ?? []).map((z) => z.cluster_id)),
+    [scorecard]
+  );
+  // S3.3 — comparison mode. Default `split`. `single` restores the
+  // ViewMode palette pills.
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("split");
+
+  // Selecting a scorecard row: auto-enable the Zones layer (unless we're
+  // in Diff, which forces its own coloring). Without this the map stays
+  // congestion-colored and the selection reads as "everything dimmed" with
+  // no way to see which buses belong to the cluster.
+  const handleSelectCluster = useCallback(
+    (id: number | null) => {
+      setSelectedClusterId(id);
+      if (id != null && comparisonMode !== "diff") setShowZones(true);
+    },
+    [comparisonMode]
+  );
+
+  // S3.4 — the right pane consumes a bus-shaped topology so it can share
+  // GridMap wholesale. SP features get their `sp_id` promoted to `bus_id`
+  // to satisfy the source's `promoteId: "bus_id"`, and lines collapse to
+  // empty since SPs have no wired network.
+  const spTopology = useMemo(() => {
+    if (!topology) return null;
+    const t = topology as {
+      settlement_points?: {
+        type: "FeatureCollection";
+        features: Array<{
+          type: "Feature";
+          geometry: unknown;
+          properties: { sp_id: string; [k: string]: unknown };
+        }>;
+      };
+    };
+    const sps = t.settlement_points?.features ?? [];
+    return {
+      buses: {
+        type: "FeatureCollection",
+        features: sps.map((f) => ({
+          ...f,
+          properties: { ...f.properties, bus_id: f.properties.sp_id },
+        })),
+      },
+      lines: { type: "FeatureCollection", features: [] },
+    };
+  }, [topology]);
+  const spTopologyEmpty =
+    !!topology &&
+    (spTopology?.buses.features.length ?? 0) === 0;
+
+  // Camera sync between the two split panes. Refs collected via each
+  // GridMap's `onMapReady`; `handleMainReady` and `handleRightReady` write
+  // in and re-arm the mirror when both are present.
+  const mainMapRef = useRef<maplibregl.Map | null>(null);
+  const rightMapRef = useRef<maplibregl.Map | null>(null);
+  const syncingSide = useRef<"main" | "right" | null>(null);
+  const wireSync = useCallback(() => {
+    const a = mainMapRef.current;
+    const b = rightMapRef.current;
+    if (!a || !b) return () => {};
+    const drive = (from: maplibregl.Map, to: maplibregl.Map, tag: "main" | "right") => () => {
+      // Ignore the echo that fires while we're programmatically driving the
+      // other side.
+      if (syncingSide.current && syncingSide.current !== tag) return;
+      syncingSide.current = tag;
+      to.jumpTo({
+        center: from.getCenter(),
+        zoom: from.getZoom(),
+        bearing: from.getBearing(),
+        pitch: from.getPitch(),
+      });
+      syncingSide.current = null;
+    };
+    const aToB = drive(a, b, "main");
+    const bToA = drive(b, a, "right");
+    a.on("move", aToB);
+    b.on("move", bToA);
+    aToB();
+    return () => {
+      a.off("move", aToB);
+      b.off("move", bToA);
+    };
+  }, []);
+  const teardownSyncRef = useRef<(() => void) | null>(null);
+  const rearmSync = useCallback(() => {
+    teardownSyncRef.current?.();
+    teardownSyncRef.current = wireSync();
+  }, [wireSync]);
+  const handleMainReady = useCallback(
+    (m: maplibregl.Map) => {
+      mainMapRef.current = m;
+      rearmSync();
+    },
+    [rearmSync]
+  );
+  const handleRightReady = useCallback(
+    (m: maplibregl.Map) => {
+      rightMapRef.current = m;
+      rearmSync();
+    },
+    [rearmSync]
+  );
+  useEffect(() => {
+    // When the right pane unmounts (mode leaves split), drop its ref so a
+    // fresh mount reattaches cleanly.
+    if (comparisonMode !== "split") {
+      teardownSyncRef.current?.();
+      teardownSyncRef.current = null;
+      rightMapRef.current = null;
+    }
+    // The main pane's flex-basis changes on split ↔ single/diff. Kick
+    // MapLibre so it re-reads container dims.
+    const r = requestAnimationFrame(() => {
+      mainMapRef.current?.resize();
+      rightMapRef.current?.resize();
+    });
+    return () => cancelAnimationFrame(r);
+  }, [comparisonMode]);
   // Window-wide LMP stats (median + MAD). Computed once on window load and
   // reused for every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
   // Window-wide modeled-congestion stats (|mc| P99 anchor, symmetric around 0).
   // Same shape as lmpStats — stable palette across playback.
   const [mcStats, setMcStats] = useState<ModeledCongestionStats | null>(null);
+  // S3.4 — same-shape stats for the ERCOT side, computed from the ERCOT
+  // congestion values in the loaded window. Separate anchor so the two
+  // panes' fills stay comparable in sign but not artificially matched in
+  // magnitude.
+  const [ercotMcStats, setErcotMcStats] =
+    useState<ModeledCongestionStats | null>(null);
+  const [ercotBuses, setErcotBuses] = useState<BusState[]>([]);
   // Per-timestamp series for the timeline sparkline
   // (modeled_congestion_abs_total + n_binding_lines). Aligned 1:1 with
   // `timestamps`.
@@ -83,6 +221,14 @@ export default function App() {
       .catch(() => setConnState("error"));
   }, []);
 
+  // Scorecard load — soft-fail. If the run doesn't have a scorecard yet the
+  // panel section just doesn't render; nothing else depends on it.
+  useEffect(() => {
+    fetchScorecard(RUN_ID)
+      .then(setScorecard)
+      .catch(() => setScorecard(null));
+  }, []);
+
   // Snapshot data on scrub
   useEffect(() => {
     if (!timestamps.length) return;
@@ -91,6 +237,24 @@ export default function App() {
     if (entry) {
       setBuses(entry.buses);
       setMeta(entry.meta as SnapshotMeta);
+    }
+    // ERCOT side (S3.4). Reshape SP congestion into BusState-shaped rows so
+    // the right pane can share the existing GridMap coloring path; the
+    // point source treats `bus_id` as a promoteId regardless of whether
+    // the id is a model bus or a settlement point.
+    const ercotEntry = getErcotCached(ts);
+    if (ercotEntry) {
+      setErcotBuses(
+        ercotEntry.sps.map((s) => ({
+          bus_id: s.sp_id,
+          modeled_congestion: s.congestion,
+          binding_proximity: null,
+          lmp: null,
+          basis: null,
+        }))
+      );
+    } else {
+      setErcotBuses([]);
     }
   }, [currentIndex, timestamps]);
 
@@ -115,6 +279,19 @@ export default function App() {
           }
           setLmpStats(computeLmpStats(allLmp));
           setMcStats(computeModeledCongestionStats(allMc));
+
+          // Same window pass for the ERCOT side (S3.4). Walk the cache
+          // rather than the response so we get the deduped, label-stripped
+          // entries `prefetchWindow` already stored.
+          const allErcot: Array<number | null> = [];
+          for (const t of ts) {
+            const e = getErcotCached(t);
+            if (!e) continue;
+            for (const sp of e.sps) allErcot.push(sp.congestion);
+          }
+          setErcotMcStats(
+            allErcot.length ? computeModeledCongestionStats(allErcot) : null
+          );
 
           // Build sparkline series — one point per timestamp, in the same order.
           // We walk `ts` and pull from the cached entries via interval_ts to
@@ -156,7 +333,6 @@ export default function App() {
           }
           setLastUpdated(new Date());
           setConnState("ok");
-          setLoadedWindow({ start, end });
         } else {
           setConnState("error");
         }
@@ -239,6 +415,43 @@ export default function App() {
     setPinnedLine(null);
   }, []);
 
+  // Diff-mode per-cluster delta at the current scrubber hour.
+  // Snaps the timestamp to the closest hour in `scorecard.series.hours`
+  // (within a 90-minute tolerance); returns null when the scorecard is
+  // absent, empty, or the cursor lands outside the covered window.
+  const busClusterDelta = useMemo(() => {
+    if (comparisonMode !== "diff") return null;
+    if (!scorecard || !timestamps.length) return null;
+    const s = scorecard.series;
+    if (!s.hours.length || !s.cluster_ids.length) return null;
+    const targetMs = timestamps[currentIndex].getTime();
+    let bestIdx = -1;
+    let bestDelta = Infinity;
+    for (let i = 0; i < s.hours.length; i++) {
+      // Scorecard hours ship as ``<scenario_label>|<iso>``; drop the label
+      // before parsing.
+      const iso = s.hours[i].split("|", 2)[1] ?? s.hours[i];
+      const t = new Date(iso).getTime();
+      if (!isFinite(t)) continue;
+      const d = Math.abs(t - targetMs);
+      if (d < bestDelta) {
+        bestDelta = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0 || bestDelta > 90 * 60 * 1000) return null;
+    const modelRow = s.model_Z[bestIdx] ?? [];
+    const ercotRow = s.ercot_Z[bestIdx] ?? [];
+    const out = new Map<number, number>();
+    for (let j = 0; j < s.cluster_ids.length; j++) {
+      const m = modelRow[j];
+      const e = ercotRow[j];
+      if (m == null || e == null || !isFinite(m) || !isFinite(e)) continue;
+      out.set(s.cluster_ids[j], m - e);
+    }
+    return out;
+  }, [comparisonMode, scorecard, timestamps, currentIndex]);
+
   useEffect(() => {
     if (!pinnedBus) return;
     const fresh = buses.find((b) => b.bus_id === pinnedBus.busId) ?? null;
@@ -252,6 +465,8 @@ export default function App() {
       <Header
         viewMode={viewMode}
         onViewMode={setViewMode}
+        comparisonMode={comparisonMode}
+        onComparisonMode={setComparisonMode}
         lastUpdated={lastUpdated}
         connectionState={connState}
       />
@@ -264,22 +479,69 @@ export default function App() {
           position: "relative",
         }}
       >
-        {/* Map */}
+        {/* Map — layout branches on comparisonMode. Main GridMap stays
+            mounted across all modes so camera + pinned state survive
+            mode switches. Diff mode swaps coloring via `busClusterDelta`;
+            split adds a synced ERCOT pane on the right. */}
         <div style={{ flex: 1, position: "relative" }}>
-          <GridMap
-            topology={topology}
-            buses={buses}
-            meta={meta}
-            viewMode={viewMode}
-            lmpStats={lmpStats}
-            mcStats={mcStats}
-            onBusHover={handleBusHover}
-            onLineHover={handleLineHover}
-            onBusClick={handleBusClick}
-            onLineClick={handleLineClick}
-            onMapClick={handleClearPinned}
-            selectedBusId={pinnedBus?.busId ?? null}
-            selectedLineId={pinnedLine?.lineId ?? null}
+          <CompareMap
+            mode={comparisonMode}
+            main={
+              <GridMap
+                topology={topology}
+                buses={buses}
+                meta={meta}
+                viewMode={viewMode}
+                lmpStats={lmpStats}
+                mcStats={mcStats}
+                onBusHover={handleBusHover}
+                onLineHover={handleLineHover}
+                onBusClick={handleBusClick}
+                onLineClick={handleLineClick}
+                onMapClick={handleClearPinned}
+                selectedBusId={pinnedBus?.busId ?? null}
+                selectedLineId={pinnedLine?.lineId ?? null}
+                showZones={comparisonMode === "diff" ? false : showZones}
+                tightClusterIds={tightClusterIds}
+                selectedClusterId={selectedClusterId}
+                side="model"
+                onMapReady={handleMainReady}
+                busClusterDelta={
+                  comparisonMode === "diff" ? busClusterDelta : null
+                }
+              />
+            }
+            right={
+              <>
+                <GridMap
+                  topology={spTopology}
+                  buses={ercotBuses}
+                  meta={null}
+                  viewMode="modeled_congestion"
+                  lmpStats={null}
+                  mcStats={ercotMcStats}
+                  onBusHover={() => {}}
+                  onLineHover={() => {}}
+                  onBusClick={() => {}}
+                  onLineClick={() => {}}
+                  onMapClick={() => {}}
+                  selectedBusId={null}
+                  selectedLineId={null}
+                  showZones={false}
+                  tightClusterIds={tightClusterIds}
+                  selectedClusterId={null}
+                  side="ercot"
+                  onMapReady={handleRightReady}
+                />
+                <div className="pane-badge">
+                  {spTopologyEmpty
+                    ? "ERCOT · no SPs (rebuild topology cache)"
+                    : `ERCOT · ${
+                        spTopology?.buses.features.length ?? 0
+                      } SPs · ${ercotBuses.length} lit`}
+                </div>
+              </>
+            }
           />
           <DetailCard
             meta={meta}
@@ -294,77 +556,37 @@ export default function App() {
             buses={buses}
             lmpStats={lmpStats}
             mcStats={mcStats}
+            showZones={showZones}
+            onToggleZones={() => setShowZones((s) => !s)}
+            tightClusterIds={tightClusterIds}
+            comparisonMode={comparisonMode}
           />
+          <style>{`
+            .pane-badge {
+              position: absolute;
+              top: 10px;
+              left: 10px;
+              padding: 3px 8px;
+              background: rgba(15, 18, 23, 0.85);
+              border: 1px solid var(--border);
+              border-radius: 3px;
+              color: var(--text-secondary);
+              font-family: 'Barlow Condensed', sans-serif;
+              font-size: 10px;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              pointer-events: none;
+            }
+          `}</style>
         </div>
 
-        {/* Right panel — tabbed: stats or validation */}
-        <div className="right-panel-wrap">
-          <div className="panel-tabs">
-            <button
-              className={panelTab === "stats" ? "active" : ""}
-              onClick={() => setPanelTab("stats")}
-            >
-              Stats
-            </button>
-            <button
-              className={panelTab === "validation" ? "active" : ""}
-              onClick={() => setPanelTab("validation")}
-            >
-              Validation
-            </button>
-          </div>
-          {panelTab === "stats" ? (
-            <StatsPanel meta={meta} />
-          ) : (
-            <ValidationPanel
-              start={loadedWindow?.start ?? null}
-              end={loadedWindow?.end ?? null}
-            />
-          )}
-        </div>
+        <StatsPanel
+          meta={meta}
+          scorecard={scorecard}
+          selectedClusterId={selectedClusterId}
+          onSelectCluster={handleSelectCluster}
+        />
       </div>
-
-      <style>{`
-                .right-panel-wrap {
-                    display: flex;
-                    flex-direction: column;
-                    width: var(--panel-w);
-                    border-left: 1px solid var(--border);
-                    background: var(--bg-panel);
-                }
-                .panel-tabs {
-                    display: flex;
-                    border-bottom: 1px solid var(--border);
-                    flex-shrink: 0;
-                }
-                .panel-tabs button {
-                    flex: 1;
-                    border: none;
-                    border-radius: 0;
-                    border-right: 1px solid var(--border);
-                    padding: 8px 0;
-                    background: var(--bg-panel);
-                    color: var(--text-secondary);
-                    font-family: 'Barlow Condensed', sans-serif;
-                    font-weight: 600;
-                    font-size: 11px;
-                    letter-spacing: 0.1em;
-                    text-transform: uppercase;
-                }
-                .panel-tabs button:last-child { border-right: none; }
-                .panel-tabs button.active {
-                    background: var(--bg-base);
-                    color: var(--accent);
-                    box-shadow: inset 0 -2px 0 var(--accent);
-                }
-                /* When wrapped, the inner panels shouldn't double the border. */
-                .right-panel-wrap .stats-panel,
-                .right-panel-wrap .validation-panel {
-                    border-left: none;
-                    width: 100%;
-                    flex: 1;
-                }
-            `}</style>
 
       {/* Bottom scrubber */}
       <div

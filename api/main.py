@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
-import state, topology, validation, ptdf
+import state, topology, validation, ptdf, ercot_state
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -37,10 +37,11 @@ app.add_middleware(
 
 # Routers mounted at root. URLs:
 #   /topology  /state  /state_range  /validation  /ptdf
-app.include_router(state.router,      tags=['state'])
-app.include_router(topology.router,   tags=['topology'])
-app.include_router(validation.router, tags=['validation'])
-app.include_router(ptdf.router,       tags=['ptdf'])
+app.include_router(state.router,       tags=['state'])
+app.include_router(topology.router,    tags=['topology'])
+app.include_router(validation.router,  tags=['validation'])
+app.include_router(ptdf.router,        tags=['ptdf'])
+app.include_router(ercot_state.router, tags=['ercot_state'])
 
 
 @app.get('/healthz', tags=['meta'])
