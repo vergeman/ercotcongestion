@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BusState, SnapshotMeta, ViewMode } from "../../api/types";
@@ -135,6 +135,12 @@ export default function GridMap({
   const prevSelectedLineRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const metaRef = useRef<SnapshotMeta | null>(null);
+  // Flipped inside the topology effect's onLoad handler after the `buses`
+  // and `lines` sources are added. Coloring / feature-state effects gate on
+  // this so a remount (e.g. split→single→split) doesn't paint into a map
+  // whose sources aren't ready yet — and, more importantly, re-fires the
+  // paint the moment the sources land.
+  const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Track tooltip overlay
@@ -208,6 +214,7 @@ export default function GridMap({
     return () => {
       map.remove();
       mapRef.current = null;
+      setSourcesReady(false);
     };
   }, []);
 
@@ -448,6 +455,9 @@ export default function GridMap({
         callbacksRef.current.onBusHover(null, null);
         tooltipRef.current?.remove();
       });
+
+      // Sources are live — coloring/dim/halo effects can now paint.
+      setSourcesReady(true);
     };
 
     // Line hover
@@ -596,7 +606,7 @@ export default function GridMap({
       map.setFeatureState({ source: "lines", id: lineId }, { binding: true });
     }
     prevBindingRef.current = nextBinding;
-  }, [meta]);
+  }, [meta, sourcesReady]);
 
   // Outage
   // Update contingency-line highlights (top 5) when meta changes
@@ -623,7 +633,7 @@ export default function GridMap({
       );
     }
     prevContingencyRef.current = nextCont;
-  }, [meta]);
+  }, [meta, sourcesReady]);
 
   // Update bus colors when buses/viewMode changes.
   // Skipped when Zones or Diff is active — those override coloring in their
@@ -662,7 +672,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats, showZones, busClusterDelta]);
+  }, [buses, viewMode, lmpStats, mcStats, showZones, busClusterDelta, sourcesReady]);
 
   // Zones layer coloring — runs off `topology`, independent of the
   // per-timestamp `buses` snapshot so the tags render before any window is
@@ -684,7 +694,7 @@ export default function GridMap({
       const color = clusterColor(clusterId, tightClusterIds);
       map.setFeatureState({ source: "buses", id: busId }, { color });
     }
-  }, [topology, showZones, tightClusterIds, busClusterDelta]);
+  }, [topology, showZones, tightClusterIds, busClusterDelta, sourcesReady]);
 
   // Diff coloring — each bus takes its cluster's (model_Z − ercot_Z) via
   // `zoneDiffColor`. Fed from scorecard.series at the current scrubber hour
@@ -709,7 +719,7 @@ export default function GridMap({
         { color: zoneDiffColor(delta) }
       );
     }
-  }, [topology, busClusterDelta]);
+  }, [topology, busClusterDelta, sourcesReady]);
 
   // Selection dim — non-members of the selected cluster fade to 0.2 while a
   // selection is active. Cleared entirely when nothing is selected. Only
@@ -740,7 +750,7 @@ export default function GridMap({
         { dim: !isMember, cluster_member: isMember }
       );
     }
-  }, [selectedClusterId, topology]);
+  }, [selectedClusterId, topology, sourcesReady]);
 
   // Cluster centroid labels — one point per tight cluster, centered on the
   // mean of its bus coordinates. Toggled via the Zones layer.
@@ -807,7 +817,7 @@ export default function GridMap({
         },
       });
     }
-  }, [topology, tightClusterIds]);
+  }, [topology, tightClusterIds, sourcesReady]);
 
   // Centroid layer visibility follows the Zones toggle.
   useEffect(() => {
@@ -818,7 +828,7 @@ export default function GridMap({
       "visibility",
       showZones ? "visible" : "none"
     );
-  }, [showZones]);
+  }, [showZones, sourcesReady]);
 
   // Selected bus
   useEffect(() => {
@@ -840,7 +850,7 @@ export default function GridMap({
       );
     }
     prevSelectedBusRef.current = selectedBusId;
-  }, [selectedBusId]);
+  }, [selectedBusId, sourcesReady]);
 
   // Selected line
   useEffect(() => {
@@ -862,7 +872,7 @@ export default function GridMap({
       );
     }
     prevSelectedLineRef.current = selectedLineId;
-  }, [selectedLineId]);
+  }, [selectedLineId, sourcesReady]);
 
   return (
     <>
