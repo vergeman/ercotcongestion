@@ -265,18 +265,14 @@ Each stage script is also runnable directly for ad-hoc use. All accept
       --start 2025-08-19T19 --end 2025-08-19T19 --force-recompute
   ```
 
-* **ERCOT congestion** —
+* **Matrix build** — reads model side directly from `bus_snapshots` +
+  `snapshot_meta` and the ERCOT side directly from `ercot_dam_spp` +
+  `dam_system_lambda` + `load_by_zone`, then writes
+  `runs/<run_id>/matrix/congestion_matrices.npz`:
   ```
-  python -m compute.congestion.ercot_runner \
+  python -m compute.matrix \
       --run-id debug-11 \
       --dates-file compute/sample_specs/reference_dates.json
-  ```
-
-* **Matrix build** —
-  ```
-  python -m compute.matrix --run-id debug-11
-  # or explicit input:
-  python -m compute.matrix --model-results compute/runs/debug-11/congestion/model_results.json.gz
   ```
 
 * **Correlation map (CM.1)** —
