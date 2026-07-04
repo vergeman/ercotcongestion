@@ -29,9 +29,9 @@ Branch: feat/0048-frontend-comparison-view
 * Row click sets a lifted `selectedClusterId` state in `App` (passed down as prop) — consumed by S3.2 for map highlighting. No map wiring yet, just state.
 * Do NOT touch: `GridMap.tsx`, colors, or view modes in this section.
 * **Acceptance**
-  * [ ] Validation tab and its CSS are gone; `StatsPanel` renders the scorecard list under existing sections.
-  * [ ] Clicking a scorecard row updates `selectedClusterId` (verify via React DevTools or a temp console log).
-  * [ ] `ValidationPanel.tsx` file is removed; no dead imports.
+  * [x] Validation tab and its CSS are gone; `StatsPanel` renders the scorecard list under existing sections.
+  * [x] Clicking a scorecard row updates `selectedClusterId` (verify via React DevTools or a temp console log).
+  * [x] `ValidationPanel.tsx` file is removed; no dead imports.
 
 ### S3.2 — Cluster point-tag rendering
 
@@ -43,9 +43,9 @@ Branch: feat/0048-frontend-comparison-view
 * **No polygons** — leave `zones: null` display path alone; hulls are out of scope.
 * Do NOT touch: PTDF halo code paths (S3.2 halos use different feature-state keys — `cluster_halo_*`).
 * **Acceptance**
-  * [ ] Named clusters render in their assigned colors; hovering a scorecard row halos its members and dims the rest.
-  * [ ] Zones layer toggle in Legend shows/hides centroid labels.
-  * [ ] PTDF hover halos still work unchanged.
+  * [x] Named clusters render in their assigned colors; hovering a scorecard row halos its members and dims the rest.
+  * [x] Zones layer toggle in Legend shows/hides centroid labels.
+  * [x] PTDF hover halos still work unchanged.
 
 ### S3.3 — Three-mode comparison
 
@@ -56,9 +56,9 @@ Branch: feat/0048-frontend-comparison-view
 * Diff: single-pane choropleth. Fill each cluster polygon (or bus-halo group if polygons unavailable) by `model_Z(t) − ercot_Z(t)` from `scorecard.series` at the current hour. Diverging palette in `lib/colors.ts` (new `zoneDiffColor(delta)`).
 * Do NOT touch: PTDF halos, existing bus-hover/click paths inside `GridMap` — pass the side identity down so callbacks can namespace pinned state per-side (or lift pinned state per-side into `App`).
 * **Acceptance**
-  * [ ] Mode switch replaces the four view pills; palette selector visible only in Single.
-  * [ ] Split view: two panes synced on pan/zoom + scrubber; distinct fills per side.
-  * [ ] Diff view: per-cluster color equals `model_Z − ercot_Z` at scrubber hour; legend renders diverging scale.
+  * [x] Mode switch replaces the four view pills; palette selector visible only in Single.
+  * [x] Split view: two panes synced on pan/zoom + scrubber; distinct fills per side.
+  * [x] Diff view: per-cluster color equals `model_Z − ercot_Z` at scrubber hour; legend renders diverging scale.
 
 ### S3.4 — Data plumbing
 
@@ -69,14 +69,14 @@ Branch: feat/0048-frontend-comparison-view
 * `series.model_Z` / `series.ercot_Z` are already served by `/validation` — no new endpoint needed for Diff mode; scorecard fetch is enough.
 * Do NOT touch: `/state`, `/state_range`, `/validation`, `/ptdf` — additive only.
 * **Acceptance**
-  * [ ] `curl /ercot_state_range?...` returns a non-empty payload for a known window; missing-data window returns 503.
-  * [ ] `/topology` includes `zones` as a FeatureCollection when the polygons file exists.
-  * [ ] `prefetchWindow` populates both model and ERCOT caches; existing playback works unchanged.
+  * [x] `curl /ercot_state_range?...` returns a non-empty payload for a known window; missing-data window returns 503.
+  * [x] `/topology` includes `zones` as a FeatureCollection when the polygons file exists.
+  * [x] `prefetchWindow` populates both model and ERCOT caches; existing playback works unchanged.
 
 ## Acceptance (overall)
 
-* [ ] Split view renders model | ERCOT synced on the scrubber.
-* [ ] Diff view choropleths cluster agreement per hour.
-* [ ] StatsPanel shows the cluster scorecard; Validation tab gone.
-* [ ] Zone membership legible via hover halo / dim, not 12 border colors.
-* [ ] No regressions in PTDF halos, binding-line highlights, or contingency dashing.
+* [x] Split view renders model | ERCOT synced on the scrubber.
+* [x] Diff view choropleths cluster agreement per hour.
+* [x] StatsPanel shows the cluster scorecard; Validation tab gone.
+* [x] Zone membership legible via hover halo / dim, not 12 border colors.
+* [x] No regressions in PTDF halos, binding-line highlights, or contingency dashing.
