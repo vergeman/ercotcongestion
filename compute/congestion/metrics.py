@@ -1,9 +1,26 @@
 import logging
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import pypsa
 
+from .compute import CUSTOM_HUBS, HUB_BUSAVG
+
 logger = logging.getLogger(__name__)
+
+# Number of nearest buses averaged into each hub LMP. ERCOT's HB_BUSAVG SPP
+# is the mean over all buses tagged to a hub — a single-nearest lookup (k=1)
+# is one arbitrary sample from that group. The 0049 S4.2 sweep
+# (docs/hub_k_sweep.md) walked k ∈ {1, 5, 25, 100, 200, 300, 500, 1000, 2000}
+# against the ERCOT DAM SPP over the v1-120-postfix window and found a
+# U-shape: k=1 and k=200 tie on median-ratio drift (0.23 averaged across
+# hubs) and HB_WEST negative incidence (48/93), but k=200 additionally
+# improves correlations at every hub and drops HB_NORTH's max spike 39%
+# ($412 → $252). Above k=300 the hubs collapse into a system-wide mean and
+# HB_WEST swings positive. Kept as a parameter so the sweep can rerun
+# cheaply after the full-year re-backfill.
+HUB_K_NEAREST = 200
 
 # Sign convention for μ_signed = mu_lower − mu_upper.
 # Verified against DFW 2025-08-19T19:00 by compute/verify_sign_convention.py:
@@ -116,6 +133,67 @@ def _prox_branch(
 
     limit = np.maximum(s_nom * s_max_pu, 1.0)  # 1 MW floor to avoid /0
     return flow / limit
+
+
+def build_hub_lmps(
+    lmps: pd.Series,
+    n: pypsa.Network,
+    hub_centroids: pd.DataFrame,
+    k: int = HUB_K_NEAREST,
+) -> dict[str, float]:
+    """Map each ERCOT hub centroid to the mean LMP of its k nearest synthetic
+    buses. k=1 is the original single-nearest behaviour and reproduces
+    unmodified pre-0049 outputs. Larger k damps single-bus outliers (see
+    module-level `HUB_K_NEAREST`)."""
+    valid = lmps.dropna()
+
+    bus_xy = n.buses.loc[valid.index, ['y', 'x']].rename(
+        columns={'y': 'lat', 'x': 'lon'}
+    ).dropna()
+    bus_coords = bus_xy[['lat', 'lon']].to_numpy()
+    bus_ids = bus_xy.index.to_numpy()
+    k_eff = max(1, min(int(k), bus_ids.shape[0]))
+
+    hub_lmps: dict[str, float] = {}
+    for hub in (HUB_BUSAVG, *CUSTOM_HUBS):
+        try:
+            if hub not in hub_centroids.index:
+                continue
+            hlat = float(hub_centroids.at[hub, 'lat'])
+            hlon = float(hub_centroids.at[hub, 'lon'])
+            d2 = (bus_coords[:, 0] - hlat) ** 2 + (bus_coords[:, 1] - hlon) ** 2
+            nearest_idx = np.argpartition(d2, k_eff - 1)[:k_eff]
+            nearest_ids = bus_ids[nearest_idx]
+            hub_lmps[hub] = float(valid.loc[nearest_ids].mean())
+        except Exception as e:
+            logger.warning("build_hub_lmps[%s] failed: %s", hub, e)
+    return hub_lmps
+
+
+def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
+    """Per-bus load aggregated from the adapter-scaled time-varying loads
+    written into n.loads_t.p_set for this snapshot."""
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None)
+    load_per_load = n.loads_t.p_set.loc[naive_ts]
+    return (
+        load_per_load.groupby(n.loads['bus']).sum()
+        .reindex(n.buses.index).fillna(0.0)
+    )
+
+
+def build_dispatch_per_bus(dispatch: pd.Series, n: pypsa.Network) -> pd.Series:
+    """Aggregate per-generator dispatch (from snapshot result, shed already
+    excluded) to per-bus totals.
+
+    Buses with no generators remain NaN — callers persisting to Postgres
+    treat NaN as NULL so a bus without any generator carries NULL dispatch,
+    not a fabricated 0. compute_congestion's gen_weighted path also handles
+    NaN correctly (it fillna(0.0) internally when normalizing weights).
+    """
+    return (
+        dispatch.groupby(n.generators.loc[dispatch.index, 'bus']).sum()
+        .reindex(n.buses.index)
+    )
 
 
 def modeled_congestion_diagnostics(mc: pd.Series) -> None:

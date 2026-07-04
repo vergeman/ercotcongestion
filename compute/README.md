@@ -14,14 +14,19 @@
 The compute stack has four sequential layers. From a cold start (empty
 database, fresh checkout), running the full flow means:
 
-1. **OPF backfill** (`write_snapshots.py`) — populates `bus_snapshots` /
-   `snapshot_meta` hour-by-hour.
+1. **OPF backfill** (`write_snapshots.py`) — the single OPF entry point.
+   Per snapshot it persists `bus_snapshots` (per-bus LMP, modeled congestion,
+   binding proximity, basis, dispatch) and `snapshot_meta` (system-λ
+   estimates, load shed, hub LMPs, reference prices, dispatch-by-carrier,
+   binding lines, top contingencies). Everything the analytical pipeline
+   needs is written at solve time — no second file-based congestion path.
 2. **Reference-price sanity checks** — re-confirm `hub k=200` and the
    `merit_order` λ choice on the larger sample.
 3. **Dates file** — the list of timestamps the analytical pipeline will
    process.
-4. **`run_pipeline.py`** — one command chains congestion → ERCOT →
-   matrix → mapping (CM.1–CM.3) → clustering → scorecard end-to-end.
+4. **`run_pipeline.py`** — one command chains ERCOT → matrix → mapping
+   (CM.1–CM.3) → clustering → scorecard end-to-end, reading its
+   analytical inputs directly from `bus_snapshots` / `snapshot_meta`.
 
 All commands assume `docker compose` from the repo root. Adjust
 `--start` / `--end` and the run-id to your window.
@@ -29,7 +34,9 @@ All commands assume `docker compose` from the repo root. Adjust
 ### 1. Backfill OPF snapshots
 
 `compute/write_snapshots.py` loops UTC hours in weekly chunks, solves the
-DC-OPF batched through HiGHS, and upserts `bus_snapshots` + `snapshot_meta`.
+DC-OPF batched through HiGHS, and upserts `bus_snapshots` + `snapshot_meta`
+transactionally. It is the only place OPF is solved; every column downstream
+consumers depend on lands here.
 
 Full year (2025-01-01 → 2026-07-01, ~13,000 hours):
 
@@ -41,6 +48,8 @@ docker compose run --rm compute python /compute/write_snapshots.py \
 
 * `--skip-existing` — leaves already-`ok` rows alone; safe to resume after a
   crash. Mutually exclusive with `--force-recompute`.
+* `--force-recompute` — overwrites existing rows via UPSERT, refilling new
+  columns without a schema-version gate.
 * `--chunk-size 6` (default) — hours per HiGHS PAMI batch. Do not increase
   without profiling; larger chunks blow up simplex pivots.
 * Failures (infeasibility, missing weather/outage data) are recorded in
@@ -48,6 +57,24 @@ docker compose run --rm compute python /compute/write_snapshots.py \
 
 Progress lines report `rate=X/s ETA=Y min RSS=Z MB`. Expect ~1–2 hours of
 walltime per compute-container per week of snapshots on stock hardware.
+
+#### Parallelize across containers
+
+Each solve is idempotent under `(interval_ts)`, so a full-year backfill fans
+out across N containers by handing each a disjoint `--start`/`--end` slice.
+`--skip-existing` covers any boundary overlap (two workers claiming the same
+hour just no-op the second one). Suggested worker count: 4–6 per compute box
+— each PyPSA solver + adapter holds ~1–2 GB resident.
+
+```
+# worker 1
+docker compose run --rm compute python /compute/write_snapshots.py \
+    --start 2025-01-01 --end 2025-04-01 --skip-existing
+# worker 2
+docker compose run --rm compute python /compute/write_snapshots.py \
+    --start 2025-04-01 --end 2025-07-01 --skip-existing
+# ...
+```
 
 ### 2. Reference-price sanity checks
 
@@ -81,9 +108,9 @@ docker compose run --rm compute python \
 
 If either sweep flags a shift (HB_NORTH max spiking, HB_WEST going majority-
 negative, or `merit_order`/`system_lambda` correlation collapsing), update
-`HUB_K_NEAREST` in `compute.congestion.snapshot_runner` and rerun the pipeline
-before serving. On the current codebase (`k=200`, `merit_order` fixed), the
-expected outcome is: no change.
+`HUB_K_NEAREST` in `compute.congestion.metrics` and rerun the backfill before
+serving. On the current codebase (`k=200`, `merit_order` fixed), the expected
+outcome is: no change.
 
 **Cross-method λ comparison** — side-by-side of all methods vs. NP4-523-CD
 on the model window. Useful for a full-year confirmation that `merit_order`
@@ -113,12 +140,16 @@ run, either bump `--per-regime` or generate a flat all-hours file from
 
 ### 4. Run the analytical pipeline
 
-`compute/run_pipeline.py` chains eight stages under one `--run-id`:
+`compute/run_pipeline.py` chains the post-OPF stages under one `--run-id`:
 
-    congestion → ERCOT → matrix
+    ERCOT → matrix
         → correlation_map → basis_regression → cca   (CM.1–CM.3 mapping)
         → clustering                                  (β-loading sweep)
         → scorecard                                   (per-zone headline)
+
+Model-side congestion / hub LMPs / reference prices / dispatch are already
+persisted by `write_snapshots.py` above; the pipeline reads them straight
+from `bus_snapshots` / `snapshot_meta` rather than from a per-record JSON.
 
 It writes provenance to `compute/runs/<run_id>/meta.json`, copies the dates
 file into the run dir, and pre-flights that every timestamp has a
@@ -130,8 +161,7 @@ Full-year invocation:
 ```
 docker compose run --rm compute python -m compute.run_pipeline \
     --run-id v1-fy26 \
-    --dates-file /compute/sample_specs/reference_dates_full_year.json \
-    --records-output none
+    --dates-file /compute/sample_specs/reference_dates_full_year.json
 ```
 
 Common flags:
@@ -146,9 +176,6 @@ Common flags:
 * `--scorecard-algo hierarchical_on_beta` / `--scorecard-k 6` — which
   `(algo, K)` cell the scorecard aggregates over. Must be present in the
   sweep grid (`--algos` × `--ks`). Defaults are the CM.6 primary.
-* `--records-output {gz,json,none}` — per-record congestion JSON output
-  (default `gz`; `none` deletes the per-record files after the matrix stage
-  exits `ok`, saving several GB on a full-year run).
 * `--skip-completed` (default) / `--no-skip-completed` / `--force` — control
   reuse of prior stage outputs under the same `--run-id`.
 
@@ -230,15 +257,12 @@ the right.
 Each stage script is also runnable directly for ad-hoc use. All accept
 `--run-id` (default paths resolve under `compute/runs/<run_id>/<stage>/`).
 
-* **Model congestion** —
+* **Model congestion / hub LMPs / reference prices / dispatch** — persisted
+  by `write_snapshots.py`; there is no separate model-side congestion runner.
+  To recompute a single hour, run:
   ```
-  python -m compute.congestion.snapshot_runner \
-      --run-id debug-11 \
-      --dates-file compute/sample_specs/reference_dates.json
-  # or explicit output:
-  python -m compute.congestion.snapshot_runner \
-      --dates-file compute/sample_specs/reference_dates.json \
-      --output /tmp/model_results.json.gz
+  python /compute/write_snapshots.py \
+      --start 2025-08-19T19 --end 2025-08-19T19 --force-recompute
   ```
 
 * **ERCOT congestion** —

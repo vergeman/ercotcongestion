@@ -29,6 +29,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import psycopg
@@ -39,6 +40,18 @@ from config import (
 from operating_conditions import apply_static_mutations
 from operating_data_adapter import OperatingDataAdapter
 from snapshot import compute_snapshot_batch
+from congestion.compute import compute_congestion
+from congestion.metrics import (
+    build_dispatch_per_bus, build_hub_lmps, build_load_per_bus,
+)
+from congestion.system_lambda_estimators import (
+    lambda_kkt_clean_median, lambda_merit_order,
+)
+
+# Hub centroid table drives build_hub_lmps. Load once at module init so every
+# snapshot reuses the same DataFrame (per plan 0053).
+HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
+_HUB_CENTROIDS = pd.read_csv(HUB_CENTROIDS_CSV).set_index('settlement_point')
 
 
 # ---------------------------------------------------------------------------
@@ -65,15 +78,16 @@ UPSERT_BUS_SNAPSHOT_SQL = """
     INSERT INTO bus_snapshots (
         interval_ts, bus_id,
         fragility, modeled_congestion, binding_proximity,
-        lmp, basis
+        lmp, basis, dispatch
     )
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (interval_ts, bus_id) DO UPDATE SET
         fragility          = EXCLUDED.fragility,
         modeled_congestion = EXCLUDED.modeled_congestion,
         binding_proximity  = EXCLUDED.binding_proximity,
         lmp                = EXCLUDED.lmp,
-        basis              = EXCLUDED.basis
+        basis              = EXCLUDED.basis,
+        dispatch           = EXCLUDED.dispatch
 """
 
 UPSERT_META_SQL = """
@@ -88,7 +102,9 @@ UPSERT_META_SQL = """
         binding_lines, top_contingencies, dispatch_by_carrier,
         wind_factor_by_region, solar_factor_by_region,
         outage_posting_ts, outages_by_zone, error_message,
-        load_scaling_mode
+        load_scaling_mode,
+        system_lambda_kkt, system_lambda_merit_order, load_shed_mw,
+        hub_lmps, reference_prices
     )
     VALUES (
         %s, %s, now(),
@@ -101,7 +117,9 @@ UPSERT_META_SQL = """
         %s::jsonb, %s::jsonb, %s::jsonb,
         %s::jsonb, %s::jsonb,
         %s, %s::jsonb, %s,
-        %s
+        %s,
+        %s, %s, %s,
+        %s::jsonb, %s::jsonb
     )
     ON CONFLICT (interval_ts) DO UPDATE SET
         status                          = EXCLUDED.status,
@@ -128,7 +146,12 @@ UPSERT_META_SQL = """
         outage_posting_ts               = EXCLUDED.outage_posting_ts,
         outages_by_zone                 = EXCLUDED.outages_by_zone,
         error_message                   = EXCLUDED.error_message,
-        load_scaling_mode               = EXCLUDED.load_scaling_mode
+        load_scaling_mode               = EXCLUDED.load_scaling_mode,
+        system_lambda_kkt               = EXCLUDED.system_lambda_kkt,
+        system_lambda_merit_order       = EXCLUDED.system_lambda_merit_order,
+        load_shed_mw                    = EXCLUDED.load_shed_mw,
+        hub_lmps                        = EXCLUDED.hub_lmps,
+        reference_prices                = EXCLUDED.reference_prices
 """
 
 
@@ -148,6 +171,15 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     lmps      = result['lmps']
     basis     = result.get('basis')
 
+    # Per-bus dispatch: aggregate generator dispatch to bus totals. NaN
+    # (→ NULL) at buses with no generators; _f handles that conversion. Also
+    # feeds reference_prices below.
+    dispatch_per_bus = None
+    try:
+        dispatch_per_bus = build_dispatch_per_bus(result['dispatch'], network)
+    except Exception as e:
+        log.warning(f"build_dispatch_per_bus failed at {ts}: {e}")
+
     # bus_snapshots: one row per bus. fragility column retained but written
     # NULL during the 2A→2B/2C cutover; dropped in Migration B.
     bus_rows = []
@@ -160,6 +192,7 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
             _f(bp, bus_id),
             _f(lmps, bus_id),
             _f(basis, bus_id),
+            _f(dispatch_per_bus, bus_id),
         ))
 
     # snapshot_meta: per-snapshot diagnostics
@@ -182,6 +215,45 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         .groupby('carrier')['p'].sum().round(0).to_dict()
     )
     op_meta = op.get('meta', {})
+
+    # KKT/merit-order λ estimates. Each in its own try/except so a failure in
+    # one leaves the column NULL rather than aborting the write.
+    system_lambda_kkt = None
+    try:
+        system_lambda_kkt = lambda_kkt_clean_median(network, naive_ts)
+    except Exception as e:
+        log.warning(f"system_lambda_kkt failed at {ts}: {e}")
+
+    system_lambda_mo = None
+    try:
+        system_lambda_mo = lambda_merit_order(network, naive_ts)
+    except Exception as e:
+        log.warning(f"system_lambda_merit_order failed at {ts}: {e}")
+
+    load_shed_mw = float(result['meta'].get('load_shed_total_mw', 0.0))
+
+    hub_lmps: dict = {}
+    try:
+        hub_lmps = build_hub_lmps(lmps, network, _HUB_CENTROIDS)
+    except Exception as e:
+        log.warning(f"build_hub_lmps failed at {ts}: {e}")
+
+    loads_per_bus = None
+    try:
+        loads_per_bus = build_load_per_bus(network, ts)
+    except Exception as e:
+        log.warning(f"build_load_per_bus failed at {ts}: {e}")
+
+    reference_prices: dict = {}
+    try:
+        _cong, reference_prices = compute_congestion(
+            lmps, hub_lmps,
+            loads=loads_per_bus, dispatch=dispatch_per_bus,
+            system_lambda_kkt=system_lambda_kkt,
+            system_lambda_merit_order=system_lambda_mo,
+        )
+    except Exception as e:
+        log.warning(f"reference_prices failed at {ts}: {e}")
 
     meta_row = (
         ts,
@@ -209,6 +281,11 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         json.dumps(op_meta.get('outages_by_zone')),
         None,  # error_message
         op_meta.get('load_scaling_mode'),
+        system_lambda_kkt,
+        system_lambda_mo,
+        load_shed_mw,
+        json.dumps(hub_lmps),
+        json.dumps(reference_prices),
     )
 
     with conn.cursor() as cur:
@@ -238,6 +315,8 @@ def write_failure(
         None,                       # outages_by_zone
         error_message,
         load_scaling_mode,
+        None, None, None,           # system_lambda_kkt, system_lambda_merit_order, load_shed_mw
+        None, None,                 # hub_lmps, reference_prices
     )
     with conn.cursor() as cur:
         cur.execute(UPSERT_META_SQL, meta_row)
