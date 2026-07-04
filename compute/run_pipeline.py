@@ -1,12 +1,21 @@
 """End-to-end pipeline orchestrator.
 
-Single composition layer over the four `--run-id`-aware stage CLIs:
+Single composition layer over the `--run-id`-aware stage CLIs, in order:
 
-    congestion -> ercot -> matrix -> clustering
+    congestion -> ercot -> matrix
+        -> correlation_map -> basis_regression -> cca   (CM.1–CM.3 mapping)
+        -> clustering                                    (β-loading sweep)
+        -> scorecard                                     (per-zone headline)
 
 Each stage is invoked as a subprocess (cheaper than refactoring stage scripts
 into importable libraries this sprint). Stages are skipped when their primary
 output already exists, unless `--force` is set.
+
+Ordering constraints:
+  * `clustering` (default algo `hierarchical_on_beta`) reads the β-loading npz
+    written by `basis_regression`, so mapping must precede clustering.
+  * `scorecard` reads both the CM.1 correlation npz and the clustering
+    labels npz for the chosen `(algo, K)`.
 
 Usage::
 
@@ -16,6 +25,8 @@ Usage::
         [--ref-methods hub_avg,system_lambda_kkt,...] \
         [--algos hierarchical_on_beta,hybrid_geo,hierarchical_corr] \
         [--ks 4,6,8,10,12,16] \
+        [--scorecard-algo hierarchical_on_beta] \
+        [--scorecard-k 6] \
         [--records-output {gz,json,none}]  # default gz
         [--skip-completed]                 # default true
         [--force]                          # rerun everything
@@ -45,7 +56,16 @@ DEFAULT_COORDS_MODEL = Path(
 )
 DEFAULT_COORDS_ERCOT = Path("/data/processed/settlement_points_geocoded.csv")
 
-STAGES = ("congestion", "ercot", "matrix", "clustering")
+STAGES = (
+    "congestion",
+    "ercot",
+    "matrix",
+    "correlation_map",
+    "basis_regression",
+    "cca",
+    "clustering",
+    "scorecard",
+)
 TAIL_LINES = 80
 
 
@@ -208,15 +228,25 @@ def _records_ext(records_output: str) -> str:
     return ".json" if records_output == "json" else ".json.gz"
 
 
-def _stage_outputs(stage: str, run_dir: Path, records_ext: str) -> list[Path]:
+def _stage_outputs(
+    stage: str, run_dir: Path, records_ext: str, run_id: str,
+) -> list[Path]:
     if stage == "congestion":
         return [run_dir / "congestion" / f"model_results{records_ext}"]
     if stage == "ercot":
         return [run_dir / "congestion" / f"ercot_results{records_ext}"]
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
+    if stage == "correlation_map":
+        return [run_dir / "mapping" / f"mapping_correlation_{run_id}.npz"]
+    if stage == "basis_regression":
+        return [run_dir / "mapping" / f"mapping_basis_{run_id}.npz"]
+    if stage == "cca":
+        return [run_dir / "mapping" / f"mapping_cca_{run_id}.json"]
     if stage == "clustering":
         return [run_dir / "clustering" / "summary.json"]
+    if stage == "scorecard":
+        return [run_dir / "mapping" / f"scorecard_{run_id}.json"]
     raise ValueError(stage)
 
 
@@ -251,6 +281,21 @@ def _stage_cmd(
         if refs:
             cmd += ["--ref-methods", *refs]
         return cmd
+    if stage == "correlation_map":
+        return base + [
+            "compute.mapping.correlation_map",
+            "--run-id", args.run_id,
+        ]
+    if stage == "basis_regression":
+        return base + [
+            "compute.mapping.basis_regression",
+            "--run-id", args.run_id,
+        ]
+    if stage == "cca":
+        return base + [
+            "compute.mapping.cca",
+            "--run-id", args.run_id,
+        ]
     if stage == "clustering":
         cmd = base + [
             "compute.clustering.runner",
@@ -264,6 +309,13 @@ def _stage_cmd(
         if args.ks:
             cmd += ["--ks", args.ks]
         return cmd
+    if stage == "scorecard":
+        return base + [
+            "compute.mapping.scorecard",
+            "--run-id", args.run_id,
+            "--algo", args.scorecard_algo,
+            "--k", str(args.scorecard_k),
+        ]
     raise ValueError(stage)
 
 
@@ -340,6 +392,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
                     help="Comma list of ints passed to clustering --ks. Default: 4,6,8,10,12,16.")
+    ap.add_argument("--scorecard-algo", default="hierarchical_on_beta",
+                    help="Clustering algo the scorecard aggregates over "
+                         "(must be in --algos; default hierarchical_on_beta).")
+    ap.add_argument("--scorecard-k", type=int, default=6,
+                    help="Cluster count the scorecard aggregates over "
+                         "(must be in --ks; default 6).")
     ap.add_argument("--records-output", choices=("gz", "json", "none"), default="gz",
                     help="Per-record output format for congestion stages. "
                          "'none' keeps gz on disk but deletes them after matrix "
@@ -407,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for stage in STAGES:
         cmd = _stage_cmd(stage, args, records_subflag)
-        outputs = _stage_outputs(stage, run_dir, records_ext)
+        outputs = _stage_outputs(stage, run_dir, records_ext, args.run_id)
         ok = _run_stage(
             stage, cmd, outputs, run_dir, meta, meta_path,
             skip_completed=args.skip_completed, force=args.force,

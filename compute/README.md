@@ -9,39 +9,184 @@
   `bus_snapshots` table.
 
 
-## Running the pipeline
+## End-to-end run (full year)
 
-`compute/run_pipeline.py` is the canonical entry point. It chains the four
-stages — model congestion → ERCOT congestion → matrix build → zonal clustering
-sweep — under a single `--run-id`, writes provenance to
-`compute/runs/<run_id>/meta.json`, and copies the dates file it consumed into
-the run directory.
+The compute stack has four sequential layers. From a cold start (empty
+database, fresh checkout), running the full flow means:
+
+1. **OPF backfill** (`write_snapshots.py`) — populates `bus_snapshots` /
+   `snapshot_meta` hour-by-hour.
+2. **Reference-price sanity checks** — re-confirm `hub k=200` and the
+   `merit_order` λ choice on the larger sample.
+3. **Dates file** — the list of timestamps the analytical pipeline will
+   process.
+4. **`run_pipeline.py`** — one command chains congestion → ERCOT →
+   matrix → mapping (CM.1–CM.3) → clustering → scorecard end-to-end.
+
+All commands assume `docker compose` from the repo root. Adjust
+`--start` / `--end` and the run-id to your window.
+
+### 1. Backfill OPF snapshots
+
+`compute/write_snapshots.py` loops UTC hours in weekly chunks, solves the
+DC-OPF batched through HiGHS, and upserts `bus_snapshots` + `snapshot_meta`.
+
+Full year (2025-01-01 → 2026-07-01, ~13,000 hours):
 
 ```
-python -m compute.run_pipeline \
-    --run-id v1-120 \
-    --dates-file compute/sample_specs/reference_dates_120.json
+docker compose run --rm compute python /compute/write_snapshots.py \
+    --start 2025-01-01 --end 2026-07-01 \
+    --skip-existing
+```
+
+* `--skip-existing` — leaves already-`ok` rows alone; safe to resume after a
+  crash. Mutually exclusive with `--force-recompute`.
+* `--chunk-size 6` (default) — hours per HiGHS PAMI batch. Do not increase
+  without profiling; larger chunks blow up simplex pivots.
+* Failures (infeasibility, missing weather/outage data) are recorded in
+  `snapshot_meta` with `status != 'ok'` and the loop keeps going.
+
+Progress lines report `rate=X/s ETA=Y min RSS=Z MB`. Expect ~1–2 hours of
+walltime per compute-container per week of snapshots on stock hardware.
+
+### 2. Reference-price sanity checks
+
+Two decisions bake into every downstream artifact: the k for the hub
+k-nearest average, and the model-side λ method. Both were tuned on the
+120-snapshot exploratory sample; re-run them against the full-year backfill
+to confirm the choices still hold.
+
+**External-λ range check** — verifies that the published ERCOT `dam_system_lambda`
+distribution matches the plan hypothesis (60%+ hours in the $20–60 baseline,
+scarcity-priced tails, occasional negatives). Doesn't touch model output:
+
+```
+docker compose run --rm compute python \
+    -m compute.experiments.lambda_validation.dam_lambda_range
+```
+
+**Hub k-nearest sweep** — recomputes `hub_avg` for k ∈ {1,5,25,100,200,300,
+500,1000,2000} from the persisted congestion column and reports
+per-hub correlation / median-ratio / negative-count vs. ERCOT DAM SPP.
+Requires an existing model run (`--model-results` and `--ercot-results`;
+defaults point at v1-120-postfix):
+
+```
+docker compose run --rm compute python \
+    -m compute.experiments.hub_k_sweep.sweep \
+    --model-results /compute/runs/<run_id>/congestion/model_results.json.gz \
+    --ercot-results /compute/runs/<run_id>/congestion/ercot_results.json.gz \
+    --out /compute/experiments/hub_k_sweep/hub_k_sweep.md
+```
+
+If either sweep flags a shift (HB_NORTH max spiking, HB_WEST going majority-
+negative, or `merit_order`/`system_lambda` correlation collapsing), update
+`HUB_K_NEAREST` in `compute.congestion.snapshot_runner` and rerun the pipeline
+before serving. On the current codebase (`k=200`, `merit_order` fixed), the
+expected outcome is: no change.
+
+**Cross-method λ comparison** — side-by-side of all methods vs. NP4-523-CD
+on the model window. Useful for a full-year confirmation that `merit_order`
+still tracks published λ:
+
+```
+docker compose run --rm compute python \
+    -m compute.experiments.lambda_validation.cross_method_compare \
+    --model-results /compute/runs/<run_id>/congestion/model_results.json.gz \
+    --ercot-results /compute/runs/<run_id>/congestion/ercot_results.json.gz
+```
+
+### 3. Build a dates file
+
+`run_pipeline.py` consumes a JSON list (or `{regime: [iso]}` dict) of UTC
+timestamps. For a regime-balanced sample:
+
+```
+docker compose run --rm compute python \
+    -m compute.sample_specs.extract_dates --per-regime 30
+```
+
+That produces `reference_dates_120.json` (4 regimes × 30). For a full-year
+run, either bump `--per-regime` or generate a flat all-hours file from
+`snapshot_meta` (SELECT interval_ts WHERE status='ok'), and point
+`--dates-file` at it in the next step.
+
+### 4. Run the analytical pipeline
+
+`compute/run_pipeline.py` chains eight stages under one `--run-id`:
+
+    congestion → ERCOT → matrix
+        → correlation_map → basis_regression → cca   (CM.1–CM.3 mapping)
+        → clustering                                  (β-loading sweep)
+        → scorecard                                   (per-zone headline)
+
+It writes provenance to `compute/runs/<run_id>/meta.json`, copies the dates
+file into the run dir, and pre-flights that every timestamp has a
+`bus_snapshots` row (exits non-zero with a suggested `write_snapshots.py`
+command on gaps).
+
+Full-year invocation:
+
+```
+docker compose run --rm compute python -m compute.run_pipeline \
+    --run-id v1-fy26 \
+    --dates-file /compute/sample_specs/reference_dates_full_year.json \
+    --records-output none
 ```
 
 Common flags:
 
-* `--ref-methods hub_avg,system_lambda_kkt,...` — subset of reference-price methods.
-* `--algos hierarchical_on_beta,hybrid_geo,hierarchical_corr` — clustering algorithms.
+* `--ref-methods hub_avg,system_lambda_merit_order,...` — subset of
+  reference-price methods forwarded to the matrix stage. Clustering itself
+  no longer sweeps refs (CM.6 froze it on `system_lambda_merit_order`).
+* `--algos hierarchical_on_beta,hybrid_geo` — clustering algorithms.
+  Default is `hierarchical_on_beta` (β-loadings from CM.2). `hybrid_geo`
+  is the geographic/behavioral fallback.
 * `--ks 4,6,8,10,12,16` — cluster counts to sweep.
+* `--scorecard-algo hierarchical_on_beta` / `--scorecard-k 6` — which
+  `(algo, K)` cell the scorecard aggregates over. Must be present in the
+  sweep grid (`--algos` × `--ks`). Defaults are the CM.6 primary.
 * `--records-output {gz,json,none}` — per-record congestion JSON output
   (default `gz`; `none` deletes the per-record files after the matrix stage
-  exits `ok`).
+  exits `ok`, saving several GB on a full-year run).
 * `--skip-completed` (default) / `--no-skip-completed` / `--force` — control
   reuse of prior stage outputs under the same `--run-id`.
 
-Before launching congestion the orchestrator asserts every timestamp in the
-dates file has a corresponding `bus_snapshots` row in Postgres; on gaps it
-prints the missing timestamps and the suggested `write_snapshots.py --start
---end` command and exits non-zero without running the pipeline.
-
 Artifacts land under `compute/runs/<run_id>/` with stage subdirs
-(`congestion/`, `matrix/`, `clustering/`). See
+(`congestion/`, `matrix/`, `mapping/`, `clustering/`). See
 [`compute/runs/README.md`](runs/README.md) for the per-run layout.
+
+The mapping and scorecard outputs — `mapping_correlation_<run_id>.npz`,
+`mapping_basis_<run_id>.npz`, `mapping_cca_<run_id>.json`,
+`scorecard_<run_id>.json`, `scorecard_series_<run_id>.npz` — are the Sprint
+5 acceptance artifacts (correlation map, per-SP basis R², CCA scalar,
+per-zone scorecard, per-hour `model_Z`/`ercot_Z`).
+
+### 5. Pick the presentation partition (optional)
+
+The clustering step sweeps `(algo, K)`; the scorecard runs against one
+default cell (`hierarchical_on_beta`, K=6) so the pipeline can complete
+autonomously. To eyeball the ranked alternatives and pick a different cell
+for the frontend to display, use `select_zones.py` after the pipeline
+finishes:
+
+```
+docker compose run --rm compute python \
+    -m compute.clustering.select_zones \
+    --summary /compute/runs/v1-fy26/clustering/clustering_summary_congestion_matrices.json
+```
+
+Then rerun the scorecard alone for the chosen cell:
+
+```
+docker compose run --rm compute python \
+    -m compute.mapping.scorecard --run-id v1-fy26 \
+    --algo <chosen_algo> --k <chosen_k>
+```
+
+Or re-invoke `run_pipeline.py` with `--scorecard-algo` / `--scorecard-k`
+set to the chosen cell and `--skip-completed` (default) — every prior stage
+is a no-op and only the scorecard reruns.
 
 
 ## Browsing derived-zone GeoJSONs
@@ -82,9 +227,8 @@ the right.
 
 ## Debugging individual stages
 
-Each stage script is also runnable directly for ad-hoc use. All four accept
-`--run-id` (default paths resolve under `compute/runs/<run_id>/<stage>/`) as
-well as explicit-path flags for one-off invocations.
+Each stage script is also runnable directly for ad-hoc use. All accept
+`--run-id` (default paths resolve under `compute/runs/<run_id>/<stage>/`).
 
 * **Model congestion** —
   ```
@@ -111,6 +255,21 @@ well as explicit-path flags for one-off invocations.
   python -m compute.matrix --model-results compute/runs/debug-11/congestion/model_results.json.gz
   ```
 
+* **Correlation map (CM.1)** —
+  ```
+  python -m compute.mapping.correlation_map --run-id debug-11
+  ```
+
+* **Basis regression (CM.2)** —
+  ```
+  python -m compute.mapping.basis_regression --run-id debug-11
+  ```
+
+* **CCA scalar (CM.3)** —
+  ```
+  python -m compute.mapping.cca --run-id debug-11
+  ```
+
 * **Clustering sweep** —
   ```
   python -m compute.clustering.runner \
@@ -121,6 +280,12 @@ well as explicit-path flags for one-off invocations.
       --matrices compute/runs/debug-11/matrix/congestion_matrices.npz \
       --out-dir compute/runs/debug-11/clustering \
       --coords-model ...
+  ```
+
+* **Scorecard** —
+  ```
+  python -m compute.mapping.scorecard --run-id debug-11 \
+      --algo hierarchical_on_beta --k 6
   ```
 
 
