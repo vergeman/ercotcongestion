@@ -55,8 +55,8 @@ Branch: refactor/0054-matrix-db-driven
 
 ## Acceptance
 
-* [ ] `python -m compute.matrix --run-id <id> --dates-file <path>` produces `congestion_matrices.npz` with the same array names/shapes as the pre-refactor output on the same dates.
+* [x] `python -m compute.matrix --run-id <id> --dates-file <path>` produces `congestion_matrices.npz` with the same array names/shapes as the pre-refactor output on the same dates.
 * [ ] Peak resident memory for a 13k-hour run stays under 4 GB (measured via `/usr/bin/time -v`).
-* [ ] Missing `snapshot_meta.status='ok'` on any requested ts → non-zero exit with the ingest hint printed to stderr, no partial `.npz` written.
-* [ ] `git grep -E 'model_results\.json|ercot_results\.json'` returns no hits in `compute/` outside of docs describing historical behavior.
-* [ ] `compute/mapping/correlation_map.py --run-id <id>` runs unchanged against the new npz.
+* [x] Missing `snapshot_meta.status='ok'` on any requested ts → non-zero exit with the ingest hint printed to stderr, no partial `.npz` written.
+* [x] `git grep -E 'model_results\.json|ercot_results\.json'` returns no hits in `compute/` outside of docs describing historical behavior.
+* [x] `compute/mapping/correlation_map.py --run-id <id>` runs unchanged against the new npz.
