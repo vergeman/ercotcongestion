@@ -266,7 +266,11 @@ def _stage_cmd(
             "--records-output", records_subflag,
         ]
     if stage == "matrix":
-        cmd = base + ["compute.matrix", "--run-id", args.run_id]
+        cmd = base + [
+            "compute.matrix",
+            "--run-id", args.run_id,
+            "--dates-file", str(args.dates_file),
+        ]
         refs = _list_arg(args.ref_methods)
         if refs:
             cmd += ["--ref-methods", *refs]
