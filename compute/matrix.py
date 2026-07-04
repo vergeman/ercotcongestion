@@ -2,9 +2,9 @@
 ERCOT tables.
 
 Streams per-(method, bus, hour) model congestion from ``bus_snapshots.lmp``
-and ``snapshot_meta.reference_prices``; the ERCOT side is still built via
-``ercot_runner.compute_records`` for now (Commit 3 replaces it with direct
-DB streaming through ``compute.ercot.transforms``).
+and ``snapshot_meta.reference_prices``; the ERCOT side streams
+``ercot_dam_spp`` + ``dam_system_lambda`` + ``load_by_zone`` through the
+per-timestamp transforms in ``compute.ercot.transforms``.
 
 Usage:
     docker compose run --rm compute python -m compute.matrix \\
@@ -20,8 +20,16 @@ import numpy as np
 import psycopg
 
 from compute.config import PG_DSN
-from compute.congestion.compute import METHODS
-from compute.congestion import ercot_runner as ercot_snap
+from compute.congestion.compute import METHODS, compute_congestion
+from compute.ercot.transforms import (
+    assign_weather_zones,
+    build_hub_lmps,
+    build_sp_load_weights,
+    fetch_dam_spp_batch,
+    fetch_system_lambda_batch,
+    fetch_zone_loads_batch,
+    load_tracked_sps,
+)
 from compute.run_pipeline import _ingest_hint, _load_dates
 
 logger = logging.getLogger(__name__)
@@ -29,12 +37,14 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
 
+ERCOT_CHUNK_SIZE = 168  # 1 week of hourly ts per DB round-trip
+
 
 # ---------------------------------------------------------------------------
 # Model side: stream from bus_snapshots + snapshot_meta
 # ---------------------------------------------------------------------------
 
-def _preflight(conn, timestamps: list[datetime]) -> list[datetime]:
+def _preflight_model(conn, timestamps: list[datetime]) -> list[datetime]:
     """Return timestamps missing or with status != 'ok' in snapshot_meta."""
     with conn.cursor() as cur:
         cur.execute(
@@ -139,50 +149,93 @@ def build_model_matrices(
 
 
 # ---------------------------------------------------------------------------
-# ERCOT side (still record-based; Commit 3 replaces with DB streaming)
+# ERCOT side: stream from ercot_dam_spp + dam_system_lambda + load_by_zone
 # ---------------------------------------------------------------------------
 
+def _preflight_ercot(conn, timestamps: list[datetime]) -> list[datetime]:
+    """Return timestamps with no rows in ercot_dam_spp."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT interval_ts FROM ercot_dam_spp "
+            "WHERE interval_ts = ANY(%s)",
+            (timestamps,),
+        )
+        present = {row[0] for row in cur.fetchall()}
+    return [ts for ts in timestamps if ts not in present]
+
+
+def _ercot_ingest_hint(missing: list[datetime]) -> str:
+    lo = min(missing).strftime("%Y-%m-%d")
+    hi = max(missing).strftime("%Y-%m-%d")
+    return (
+        "docker compose run --rm app python /data/ercot/backfill.py "
+        f"--start {lo} --end {hi} --endpoint dam_spp"
+    )
+
+
 def build_ercot_matrices(
-    ercot_recs: list[dict],
+    conn,
     timestamps: list[datetime],
     ref_methods: list[str],
+    chunk_size: int = ERCOT_CHUNK_SIZE,
 ) -> tuple[dict[str, np.ndarray], list[str]]:
-    """Convert ercot_runner records into per-method ercot_C matrices aligned
-    to ``timestamps``."""
-    ts_key = {ts.isoformat(): j for j, ts in enumerate(timestamps)}
-    sp_set: set[str] = set()
-    for r in ercot_recs:
-        if r.get('status') != 'ok':
-            continue
-        for method_dict in (r.get('congestion') or {}).values():
-            sp_set.update(method_dict.keys())
-    sp_ids = sorted(sp_set)
-    sp_idx = {s: i for i, s in enumerate(sp_ids)}
+    """Stream ERCOT DAM SPP / λ / zone-loads and fill per-method ercot_C.
 
+    Per-ts flow mirrors ``ercot.transforms.post_process_one`` but writes
+    directly into pre-allocated ``(n_sp, n_hours)`` matrices instead of
+    building record dicts.
+    """
+    tracked = load_tracked_sps()
+    sp_to_zone = assign_weather_zones(tracked)
+    sps_per_zone = sp_to_zone.value_counts().to_dict()
+    nameplate = tracked['nameplate_mw'].astype(float)
+
+    sp_ids = list(tracked.index)
+    sp_idx = {s: i for i, s in enumerate(sp_ids)}
+    ts_idx = {t: j for j, t in enumerate(timestamps)}
     n_sp = len(sp_ids)
     n_hours = len(timestamps)
+
     ercot_C: dict[str, np.ndarray] = {
         m: np.full((n_sp, n_hours), np.nan, dtype=float) for m in ref_methods
     }
-    for r in ercot_recs:
-        if r.get('status') != 'ok':
-            continue
-        ts_str = r.get('ts')
-        if ts_str is None:
-            continue
-        j = ts_key.get(ts_str)
-        if j is None:
-            continue
-        cong = r.get('congestion') or {}
-        for m in ref_methods:
-            per_sp = cong.get(m)
-            if not per_sp:
+
+    for start in range(0, n_hours, chunk_size):
+        chunk = timestamps[start:start + chunk_size]
+        spp_by_ts = fetch_dam_spp_batch(conn, chunk, sp_ids)
+        lambda_by_ts = fetch_system_lambda_batch(conn, chunk)
+        loads_by_ts = fetch_zone_loads_batch(conn, chunk)
+
+        for ts in chunk:
+            lmps = spp_by_ts.get(ts)
+            if lmps is None or lmps.empty:
                 continue
-            for sp, v in per_sp.items():
-                i = sp_idx.get(sp)
-                if i is None or v is None:
+            hub_lmps = build_hub_lmps(lmps)
+            sp_load = build_sp_load_weights(
+                lmps.index, sp_to_zone, loads_by_ts.get(ts, {}), sps_per_zone,
+            )
+            nameplate_aligned = nameplate.reindex(lmps.index).fillna(0.0)
+            cong, _refs = compute_congestion(
+                lmps, hub_lmps,
+                loads=sp_load,
+                dispatch=nameplate_aligned,
+                system_lambda=lambda_by_ts.get(ts),
+            )
+
+            j = ts_idx[ts]
+            for m in ref_methods:
+                if m not in cong.columns:
                     continue
-                ercot_C[m][i, j] = float(v)
+                col = cong[m]
+                sp_positions = np.array(
+                    [sp_idx.get(sp, -1) for sp in col.index], dtype=int,
+                )
+                keep = sp_positions >= 0
+                if not keep.any():
+                    continue
+                vals = col.to_numpy(dtype=float)
+                ercot_C[m][sp_positions[keep], j] = vals[keep]
+
     return ercot_C, sp_ids
 
 
@@ -217,6 +270,20 @@ def write_matrices_npz(
 # CLI
 # ---------------------------------------------------------------------------
 
+def _emit_preflight_error(
+    missing: list[datetime], label: str, hint: str,
+) -> None:
+    print(
+        f"\n{len(missing)} timestamp(s) {label}:",
+        file=sys.stderr,
+    )
+    for ts in missing[:10]:
+        print(f"  {ts.isoformat()}", file=sys.stderr)
+    if len(missing) > 10:
+        print(f"  ... and {len(missing) - 10} more", file=sys.stderr)
+    print(f"\n  {hint}", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run-id', required=True,
@@ -238,20 +305,26 @@ def main():
     npz_path = out_dir / "congestion_matrices.npz"
 
     with psycopg.connect(PG_DSN) as conn:
-        missing = _preflight(conn, timestamps)
-        if missing:
-            print(
-                f"\n{len(missing)} timestamp(s) missing or not status='ok' "
-                f"in snapshot_meta:",
-                file=sys.stderr,
+        missing_model = _preflight_model(conn, timestamps)
+        if missing_model:
+            _emit_preflight_error(
+                missing_model,
+                "missing or not status='ok' in snapshot_meta",
+                _ingest_hint(missing_model),
             )
-            for ts in missing[:10]:
-                print(f"  {ts.isoformat()}", file=sys.stderr)
-            if len(missing) > 10:
-                print(f"  ... and {len(missing) - 10} more", file=sys.stderr)
-            print(f"\n  {_ingest_hint(missing)}", file=sys.stderr)
             sys.exit(1)
-        print(f"pre-flight: {len(timestamps)} ts all status='ok'")
+
+        missing_ercot = _preflight_ercot(conn, timestamps)
+        if missing_ercot:
+            _emit_preflight_error(
+                missing_ercot,
+                "absent from ercot_dam_spp",
+                _ercot_ingest_hint(missing_ercot),
+            )
+            sys.exit(1)
+
+        print(f"pre-flight: {len(timestamps)} ts ok in snapshot_meta and "
+              f"ercot_dam_spp")
 
         print(f"streaming bus_snapshots for {len(timestamps)} ts × "
               f"{len(args.ref_methods)} methods...")
@@ -260,16 +333,12 @@ def main():
         )
         print(f"  model: {len(bus_ids)} buses × {len(timestamps)} hours")
 
-    # ERCOT side: still via ercot_runner records (Commit 3 replaces this).
-    print("computing ERCOT side via ercot_runner.compute_records...")
-    ercot_out = ercot_snap.compute_records(
-        timestamps_by_regime={'all': [ts.isoformat() for ts in timestamps]},
-        run_id=args.run_id,
-    )
-    ercot_C, sp_ids = build_ercot_matrices(
-        ercot_out['records'], timestamps, args.ref_methods,
-    )
-    print(f"  ercot: {len(sp_ids)} SPs × {len(timestamps)} hours")
+        print(f"streaming ERCOT DAM SPP / λ / zone-loads for "
+              f"{len(timestamps)} ts...")
+        ercot_C, sp_ids = build_ercot_matrices(
+            conn, timestamps, args.ref_methods,
+        )
+        print(f"  ercot: {len(sp_ids)} SPs × {len(timestamps)} hours")
 
     write_matrices_npz(
         npz_path, model_C, ercot_C, bus_ids, sp_ids, timestamps, args.ref_methods,
