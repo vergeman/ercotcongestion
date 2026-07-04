@@ -55,8 +55,23 @@ Branch: refactor/0053-unified-opf-write-path
 
 ## Acceptance
 
+Implementation:
+
+* [x] `write_snapshot()` computes and persists `system_lambda_kkt`, `system_lambda_merit_order`, `load_shed_mw`, `hub_lmps`, `reference_prices` — each in its own try/except so a per-scalar failure leaves the column NULL rather than aborting the write.
+* [x] `write_snapshot()` computes `dispatch_per_bus` via `build_dispatch_per_bus` and writes it into `bus_snapshots.dispatch`; the helper no longer `fillna(0.0)`, so buses with no generators land as NULL.
+* [x] `UPSERT_META_SQL` / `UPSERT_BUS_SNAPSHOT_SQL` extended with the new columns + matching `ON CONFLICT … DO UPDATE`; `write_failure` tuple padded to match arity.
+* [x] `_HUB_CENTROIDS` loaded once at module init in `write_snapshots.py`.
+* [x] `compute/congestion/snapshot_runner.py` deleted; `build_hub_lmps`, `build_load_per_bus`, `build_dispatch_per_bus`, and `HUB_K_NEAREST` moved to `compute/congestion/metrics.py` as the single source of truth.
+* [x] `compute.run_pipeline.STAGES` no longer contains `"congestion"`; matching branches removed from `_stage_outputs` / `_stage_cmd`. Downstream file-based consumption (`matrix.py`) intentionally left untouched — resolved in [[0054-matrix-db-driven]].
+* [x] `compute/README.md` §1 restated as single OPF path + new "Parallelize across containers" subsection; §4 stage flow updated to `ERCOT → matrix → …`; `--records-output` removed from the flags list.
+
+Runtime verification (still to run against a live DB):
+
 * [ ] `write_snapshots.py --start T --end T+1h` produces a row in `snapshot_meta` where `system_lambda_kkt`, `system_lambda_merit_order`, `load_shed_mw`, `hub_lmps`, `reference_prices` are all non-NULL for a normal (`status='ok'`) snapshot.
 * [ ] `bus_snapshots.dispatch` is non-NULL for buses with generators, NULL for buses without.
 * [ ] `--force-recompute` over an existing hour populates the new columns without changing `lmp` / `modeled_congestion` / `binding_proximity` beyond floating-point noise.
-* [ ] `git grep snapshot_runner` returns no hits.
 * [ ] Two `write_snapshots.py` containers running on disjoint date ranges complete without deadlock or duplicate-key errors.
+
+Static grep:
+
+* [x] `git grep snapshot_runner` returns no hits in `compute/write_snapshots.py`, `compute/run_pipeline.py`, or under `compute/congestion/`. Residual matches remain in `compute/matrix.py`'s docstring, README §2 experiment invocations, and `compute/experiments/{shed_canary,hub_k_sweep}/*` — all on the plan's explicit "do NOT touch" list and cleared in [[0054-matrix-db-driven]] / [[0055-run-pipeline-surgery]].
