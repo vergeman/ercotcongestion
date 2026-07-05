@@ -1,5 +1,35 @@
 # binding_proximity: slack-bus artifact and the case for distributed slack
 
+## Background: what "slack" is and why it matters here
+
+DC power flow conserves power: every injected MW has to be withdrawn
+somewhere. PTDF answers *"if 1 MW is injected at bus b, how much shows up
+on line ℓ?"* — but that question is ill-posed until you also say where
+the balancing MW leaves. The bus (or set of buses) that absorbs that
+balance is the **slack**.
+
+* **Single-slack PTDF** (PyPSA's default): pick one bus, put all
+  balancing there. Mathematically clean, but the physical scenario —
+  "everything rebalances at one bus" — is not how a real grid behaves.
+* **Distributed-slack PTDF**: spread the balancing across many buses in
+  proportion to a weight vector `w` (`Σ w_k = 1`). The linear correction
+  is one matmul:
+  ```
+  PTDF_dist[ℓ, b] = PTDF_single[ℓ, b] - (PTDF_single · w)[ℓ]
+  ```
+  Load-weighted `w` (`w_b ∝ load_b`) is the industry-standard operational
+  choice and what the pipeline now uses inside `binding_proximity_at`.
+
+Why this specifically matters for `binding_proximity`: the metric takes a
+**max over branches**, so it is sensitive to any single PTDF row
+blowing up. Texas2k's slack (WADSWORTH, bus 7098) is a topological leaf
+attached only through transformer T688, so single-slack PTDF gives every
+non-slack bus `|PTDF[T688, ·]| ≈ 1`, and the `max` collapses the whole
+network to `loading[T688]`. Distributing the slack across load cancels
+that projection out. `modeled_congestion` is unaffected because it takes
+a **μ-weighted sum**: T688 never binds in base case, its μ is ~0, and the
+artifact does not propagate — so that path stays single-slack.
+
 ## The observed problem
 
 On the map, `binding_proximity` looks nearly constant across every bus per
