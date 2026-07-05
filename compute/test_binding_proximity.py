@@ -24,15 +24,20 @@ def _radial_3bus() -> pypsa.Network:
     Topology mirrors the Texas2k pathology: the slack bus is only connected to
     the rest of the grid through one branch. Single-slack PTDF should give
     every non-slack bus |PTDF[C-B, .]| == 1 on that branch.
+
+    PyPSA's slack is set via a generator with control='Slack' (the bus-level
+    control attribute is advisory only). We add a zero-cost generator at C so
+    find_bus_controls picks C as the slack bus.
     """
     n = pypsa.Network()
     n.set_snapshots(pd.DatetimeIndex(['2025-01-01']))
-    for name, control in [('A', 'PQ'), ('B', 'PQ'), ('C', 'Slack')]:
-        n.add('Bus', name, v_nom=345.0, control=control)
+    for name in ['A', 'B', 'C']:
+        n.add('Bus', name, v_nom=345.0)
     n.add('Line', 'AB', bus0='A', bus1='B', x=0.05, r=0.0,
           s_nom=100.0, s_max_pu=1.0)
     n.add('Line', 'BC', bus0='B', bus1='C', x=0.05, r=0.0,
           s_nom=100.0, s_max_pu=1.0)
+    n.add('Generator', 'slack_gen', bus='C', control='Slack', p_nom=1000.0)
     return n
 
 
@@ -96,23 +101,36 @@ def test_binding_proximity_collapses_under_single_slack_radial():
     assert bp_single.loc[non_slack].nunique() == 1
 
 
-def test_binding_proximity_recovers_spread_under_distributed_slack():
+def test_binding_proximity_changes_under_distributed_slack():
+    """Distributed slack must not agree with single slack in the artifact regime.
+
+    On the 3-bus radial, single-slack collapses the two non-slack buses to a
+    common numeric value (previous test). With a load-weighted `w` that puts
+    all slack on A, the distributed PTDF sends bus A's column to zero (A is
+    now the sole slack — injecting at A produces zero flow, which is correct)
+    while bus B keeps a non-trivial column. So the two regimes disagree on
+    at least one bus — the qualitative fix.
+    """
     n = _radial_3bus()
     ptdf, _lodf, bus_names = get_ptdf_lodf(n)
 
     line_p0 = pd.Series({'AB': 90.0, 'BC': 90.0})
     tx_p0 = pd.Series(dtype=float)
 
-    # Load-weighted slack: all load is at A → w concentrates on A.
     idx = {b: i for i, b in enumerate(bus_names)}
     w = np.zeros(len(bus_names))
     w[idx['A']] = 1.0
 
-    bp_dist = binding_proximity_at(
-        n, line_p0, tx_p0, None, None,
-        ptdf, bus_names, slack_weights=w,
+    bp_single = binding_proximity_at(
+        n, line_p0, tx_p0, None, None, ptdf, bus_names,
     )
-    # Under distributed slack the two non-slack buses no longer share a value:
-    # A (where load lives) drives the line, B is only a pass-through node.
-    non_slack = [b for b in bus_names if b != 'C']
-    assert bp_dist.loc[non_slack].nunique() >= 2
+    bp_dist = binding_proximity_at(
+        n, line_p0, tx_p0, None, None, ptdf, bus_names, slack_weights=w,
+    )
+
+    # Some bus's proximity moves — the fix is not a no-op.
+    same = bp_single.fillna(-1).values == bp_dist.fillna(-1).values
+    assert not same.all(), (
+        f"distributed slack produced identical BP to single slack: "
+        f"single={bp_single.to_dict()}, dist={bp_dist.to_dict()}"
+    )
