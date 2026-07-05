@@ -45,6 +45,7 @@ spec:
             - "${START}"
             - --end
             - "${END}"
+            - --force-recompute
           env:
             - name: HIGHS_THREADS
               value: "${HIGHS_THREADS}"
