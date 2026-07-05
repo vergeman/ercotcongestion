@@ -172,13 +172,20 @@ def lambda_merit_order(n: pypsa.Network, ts) -> float | None:
     pmax = (p_nom * pmax_pu).clip(lower=0.0)
     mc   = n.generators['marginal_cost'].reindex(free_gens).astype(float)
 
-    if pmax.sum() < residual - 1e-3:
-        # Free gens can't cover residual load — LP would have needed shed.
-        return None
-
     # Each free gen starts at p_min; merit-order distributes the rest by
     # ramping cheapest gens up to p_max in order.
     df = pd.DataFrame({'mc': mc, 'pmin': pmin, 'pmax': pmax}).sort_values('mc')
+
+    if pmax.sum() < residual - 1e-3:
+        # Free gens can't cover residual — LP resolved this by shedding. Rather
+        # than return None (which propagates NaN into every bus's congestion for
+        # this hour and nukes downstream variance-based filters), return the mc
+        # of the most-expensive free gen: the marginal cost of the last MW of
+        # real generation before shed takes over. This matches neighboring
+        # hours where the same gen straddled (e.g. 2025-01-03 20:00 & 22:00
+        # returned 28.55 while 21:00 was ~22 MW short and would've returned
+        # None). Correct pre-shed λ under a copper-plate relaxation.
+        return float(df['mc'].max())
     remaining = residual - float(df['pmin'].sum())
     if remaining < -1e-3:
         # Free gens' minima already exceed residual load.
