@@ -69,16 +69,31 @@ def _fetch_reference_prices(
         return {ts: (refs or {}) for ts, refs in cur.fetchall()}
 
 
-def _fetch_bus_ids(conn, timestamps: list[datetime]) -> list[str]:
-    """Discover all distinct bus_ids present in bus_snapshots for the ts list."""
+def _fetch_bus_ids(
+    conn, timestamps: list[datetime],
+) -> tuple[list[str], list[str]]:
+    """Return (kept, dropped) bus_ids for the ts window.
+
+    A bus is *kept* only if it has a non-NULL LMP at every ts. Isolated /
+    orphan buses (typically a few dozen in this network) don't get a
+    marginal price from the OPF and would inject NaN rows into model_C;
+    downstream SVD / correlation math can't handle those, so we filter
+    at the matrix boundary rather than special-case NaN everywhere.
+    """
+    n_ts = len(timestamps)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT bus_id FROM bus_snapshots "
+            "SELECT bus_id, COUNT(lmp) AS n_lmp "
+            "FROM bus_snapshots "
             "WHERE interval_ts = ANY(%s) "
+            "GROUP BY bus_id "
             "ORDER BY bus_id",
             (timestamps,),
         )
-        return [row[0] for row in cur.fetchall()]
+        rows = cur.fetchall()
+    kept = [bus for bus, n_lmp in rows if n_lmp == n_ts]
+    dropped = [bus for bus, n_lmp in rows if n_lmp != n_ts]
+    return kept, dropped
 
 
 def _build_ref_vec(
@@ -109,11 +124,19 @@ def build_model_matrices(
     """Stream bus_snapshots + snapshot_meta and fill per-method model_C.
 
     Congestion for each method is ``lmp[bus, ts] - reference_prices[method][ts]``.
-    Any (bus, ts) whose lmp is NULL, or whose method reference is NULL, stays
-    NaN in the output.
+    Any (bus, ts) whose method reference is NULL stays NaN. Buses whose LMP
+    is NULL at any ts are excluded up front by ``_fetch_bus_ids`` to keep
+    model_C free of LMP-driven NaN rows.
     """
     refs_by_ts = _fetch_reference_prices(conn, timestamps)
-    bus_ids = _fetch_bus_ids(conn, timestamps)
+    bus_ids, dropped_bus_ids = _fetch_bus_ids(conn, timestamps)
+    if dropped_bus_ids:
+        preview = ", ".join(dropped_bus_ids[:10])
+        more = "" if len(dropped_bus_ids) <= 10 else f" ... (+{len(dropped_bus_ids) - 10} more)"
+        print(
+            f"  dropped {len(dropped_bus_ids)} bus(es) with NULL lmp at 1+ ts: "
+            f"{preview}{more}"
+        )
     n_bus = len(bus_ids)
     n_hours = len(timestamps)
 
@@ -246,7 +269,81 @@ def build_ercot_matrices(
                 vals = col.to_numpy(dtype=float)
                 ercot_C[m][sp_positions[keep], j] = vals[keep]
 
+    # Drop SPs that NEVER appeared in DAM SPP over the entire window —
+    # chronically missing points that would just create all-NaN rows.
+    # Partial-coverage SPs (data on most hours, missing a few) are kept;
+    # their missing hours are pruned globally by _prune_structural_hours
+    # so we don't blacklist a settlement point over one bad day.
+    if ref_methods:
+        any_finite = np.zeros(n_sp, dtype=bool)
+        for m in ref_methods:
+            any_finite |= np.isfinite(ercot_C[m]).any(axis=1)
+        if not any_finite.all():
+            dropped_sp_ids = [sp_ids[i] for i in range(n_sp) if not any_finite[i]]
+            for m in ref_methods:
+                ercot_C[m] = ercot_C[m][any_finite]
+            sp_ids = [sp for sp, k in zip(sp_ids, any_finite) if k]
+            preview = ", ".join(dropped_sp_ids[:10])
+            more = "" if len(dropped_sp_ids) <= 10 else f" ... (+{len(dropped_sp_ids) - 10} more)"
+            print(
+                f"  dropped {len(dropped_sp_ids)} SP(s) with no DAM SPP "
+                f"coverage anywhere in window: {preview}{more}"
+            )
+
     return ercot_C, sp_ids
+
+
+def _prune_structural_hours(
+    timestamps: list[datetime],
+    model_C: dict[str, np.ndarray],
+    ercot_C: dict[str, np.ndarray],
+    ref_methods: list[str],
+) -> tuple[list[datetime], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Drop hour columns where any surviving bus/SP is structurally missing.
+
+    'Structural' = NaN in EVERY method for the same (row, hour), i.e. the
+    underlying LMP/SPP is absent rather than one method's reference being
+    None. Method-specific NaN (reference-price gap for a single method) is
+    left in place — downstream tools already prefilter for that.
+
+    Rationale: at year scale, an SP with occasional publication gaps (a few
+    days out of 365) is much more valuable to keep than to blacklist. Trade
+    a few hour columns to preserve the row axis. On dense-coverage runs
+    (like the current 3-day test) this drops nothing.
+    """
+    if not ref_methods:
+        return timestamps, model_C, ercot_C
+
+    def _structural(mats: dict[str, np.ndarray]) -> np.ndarray:
+        # Missing in every method → structural (LMP/SPP absent).
+        first = ref_methods[0]
+        missing = np.isnan(mats[first])
+        for m in ref_methods[1:]:
+            missing &= np.isnan(mats[m])
+        return missing
+
+    bus_missing = _structural(model_C)   # (n_bus, n_hours)
+    sp_missing  = _structural(ercot_C)   # (n_sp, n_hours)
+
+    bad_hour = bus_missing.any(axis=0) | sp_missing.any(axis=0)
+    if not bad_hour.any():
+        return timestamps, model_C, ercot_C
+
+    keep = ~bad_hour
+    dropped_ts = [ts for ts, b in zip(timestamps, bad_hour) if b]
+    new_timestamps = [ts for ts, k in zip(timestamps, keep) if k]
+    for m in ref_methods:
+        model_C[m] = model_C[m][:, keep]
+        ercot_C[m] = ercot_C[m][:, keep]
+
+    preview = ", ".join(ts.isoformat() for ts in dropped_ts[:5])
+    more = "" if len(dropped_ts) <= 5 else f" ... (+{len(dropped_ts) - 5} more)"
+    pct = 100.0 * len(dropped_ts) / len(timestamps)
+    print(
+        f"  dropped {len(dropped_ts)} hour(s) ({pct:.1f}% of window) with "
+        f"structural bus/SP gaps: {preview}{more}"
+    )
+    return new_timestamps, model_C, ercot_C
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +446,10 @@ def main():
             conn, timestamps, args.ref_methods,
         )
         print(f"  ercot: {len(sp_ids)} SPs × {len(timestamps)} hours")
+
+        timestamps, model_C, ercot_C = _prune_structural_hours(
+            timestamps, model_C, ercot_C, args.ref_methods,
+        )
 
     write_matrices_npz(
         npz_path, model_C, ercot_C, bus_ids, sp_ids, timestamps, args.ref_methods,
