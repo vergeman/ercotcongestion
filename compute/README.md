@@ -254,6 +254,59 @@ Common flags:
 Layers start hidden — flip one on at a time via the layer-control panel on
 the right.
 
+---
+
+## How run outputs reach the API
+
+`compute.run_pipeline` writes artifacts under `compute/runs/<run_id>/`. The API
+reads those files directly — there is no ingestion step.
+
+### Volume mount
+
+`docker-compose.yml` mounts `./compute:/compute` on the `api` service, so
+`compute/runs/<run_id>/` on the host appears at `/compute/runs/<run_id>/`
+inside the container.
+
+### Which run the API surfaces
+
+Four env vars in `shared/settings.py` decide what the frontend sees:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `ACTIVE_RUN_ID` | `v1-120` | Run whose artifacts feed topology + ERCOT state |
+| `ACTIVE_CLUSTER_ALGO` | `system_lambda_merit_order_hierarchical_on_beta` | Which clustering the topology bakes in |
+| `ACTIVE_CLUSTER_K` | `6` | Cluster count for that algo |
+| `ACTIVE_ERCOT_REF` | `system_lambda` | ERCOT-side reference method to read from the matrix |
+| `COMPUTE_RUNS_DIR` | `/compute/runs` | Root of the runs tree inside the container |
+
+### Consumers
+
+| Endpoint / module | Reads | Uses `ACTIVE_RUN_ID`? |
+|---|---|---|
+| `api/services/topology_builder.py` | `runs/<active>/clustering/cluster_labels_<algo>_k<k>.npz` | yes — baked into `topology.json` cache |
+| `api/ercot_state.py` | `runs/<active>/matrix/congestion_matrices.npz` | yes |
+| `api/validation.py` | `runs/<run_id>/mapping/scorecard_<run_id>.json` + `scorecard_series_<run_id>.npz` | **no** — `run_id` is a query param |
+| `api/state.py` | `snapshot_meta` + `bus_snapshots` in Postgres | N/A (DB, not files) |
+
+Other run artifacts (`mapping_correlation_*.npz`, `mapping_basis_*.npz`) are
+intermediate — consumed by later compute stages, not served by the API.
+
+### Switching the active run
+
+```bash
+# in .env or a docker-compose override
+ACTIVE_RUN_ID=<run-id>
+
+docker compose restart api
+
+# ACTIVE_RUN_ID is baked into topology.json — bust the cache
+rm data/processed/topology.json
+```
+
+`GET /api/validation?run_id=<run-id>&algo=<algo>&k=<k>` takes `run_id`
+directly and does not require a restart.
+
+---
 
 ## Debugging individual stages
 
