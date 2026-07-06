@@ -20,6 +20,13 @@ interface Props {
   // Zones is on; the toggle control lives in the StatsPanel sidebar.
   showZones: boolean;
   tightClusterIds: Set<number>;
+  // "full" (default): palette + histogram + zones swatches + line-status
+  // key. "palette-only": palette + ticks/labels/sub only — used on the
+  // ERCOT pane in split mode where the model-only keys don't apply.
+  variant?: "full" | "palette-only";
+  // Optional caption under the palette; used to distinguish MODEL vs ERCOT
+  // legends when both are on screen.
+  paneLabel?: string;
 }
 
 const HIST_BINS = 24;
@@ -37,10 +44,13 @@ export default function Legend({
   mcStats,
   showZones,
   tightClusterIds,
+  variant = "full",
+  paneLabel,
 }: Props) {
   const isModeledCongestion = viewMode === "modeled_congestion";
   const isLmp = viewMode === "lmp";
   const isProximity = viewMode === "binding_proximity";
+  const isPaletteOnly = variant === "palette-only";
 
   // LMP histogram for the *current snapshot*, binned in color-space so each
   // bar aligns directly above the gradient color it falls in.
@@ -88,7 +98,7 @@ export default function Legend({
       <div className="legend__title label">{title}</div>
 
       {/* LMP: snapshot histogram against window-wide bin range */}
-      {isLmp && lmpHist && (
+      {isLmp && lmpHist && !isPaletteOnly && (
         <div className="legend__hist">
           {lmpHist.counts.map((c, i) => (
             <div
@@ -188,7 +198,7 @@ export default function Legend({
         </>
       )}
 
-      {showZones && tightClusterIds.size > 0 && (
+      {showZones && tightClusterIds.size > 0 && !isPaletteOnly && (
         <div className="legend__zones-swatches">
           {Array.from(tightClusterIds)
             .sort((a, b) => a - b)
@@ -204,23 +214,29 @@ export default function Legend({
         </div>
       )}
 
-      <div className="legend__lines">
-        <div className="legend__line-row">
-          <span className="legend__swatch legend__swatch--binding" />
-          <span className="label">binding</span>
+      {!isPaletteOnly && (
+        <div className="legend__lines">
+          <div className="legend__line-row">
+            <span className="legend__swatch legend__swatch--binding" />
+            <span className="label">binding</span>
+          </div>
+          <div className="legend__line-row">
+            <span className="legend__swatch legend__swatch--contingency" />
+            <span className="label">N-1 top 5</span>
+          </div>
+          <div className="legend__line-row">
+            <span className="legend__halo-pair">
+              <span className="legend__halo legend__halo--pos" />
+              <span className="legend__halo legend__halo--neg" />
+            </span>
+            <span className="label">PTDF ± (line hover)</span>
+          </div>
         </div>
-        <div className="legend__line-row">
-          <span className="legend__swatch legend__swatch--contingency" />
-          <span className="label">N-1 top 5</span>
-        </div>
-        <div className="legend__line-row">
-          <span className="legend__halo-pair">
-            <span className="legend__halo legend__halo--pos" />
-            <span className="legend__halo legend__halo--neg" />
-          </span>
-          <span className="label">PTDF ± (line hover)</span>
-        </div>
-      </div>
+      )}
+
+      {paneLabel && (
+        <div className="legend__pane-label label">{paneLabel}</div>
+      )}
 
       <style>{`
         .legend {
@@ -343,6 +359,14 @@ export default function Legend({
           height: 8px;
           border-radius: 50%;
           display: inline-block;
+        }
+        .legend__pane-label {
+          margin-top: 6px;
+          font-size: 9px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+          opacity: 0.75;
         }
       `}</style>
     </div>
