@@ -4,6 +4,7 @@ import type {
   ScorecardResponse,
   PtdfResponse,
   ErcotStateRangeResponse,
+  ErcotSppRangeResponse,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -43,6 +44,21 @@ export async function fetchErcotStateRange(
   );
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`ercot_state_range ${r.status}`);
+  return r.json();
+}
+
+// Raw DAM SPP per settlement point over the window. Same soft-fail
+// contract as ercot_state_range: 503 returns null so the model side
+// still renders.
+export async function fetchErcotSppRange(
+  start: Date,
+  end: Date
+): Promise<ErcotSppRangeResponse | null> {
+  const r = await fetch(
+    `${BASE}/ercot_spp_range?start=${start.toISOString()}&end=${end.toISOString()}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`ercot_spp_range ${r.status}`);
   return r.json();
 }
 
