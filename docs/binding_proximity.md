@@ -227,3 +227,62 @@ same OPF solution that feeds `binding_proximity`.
 Distributed slack (metric A fix) and the N-1 metric (metric B addition) are
 independent changes. See `plan/0057-binding-proximity-fix.md` for scope
 splits and the recommended phased rollout.
+
+## FAQ
+
+### Why don't the endpoints of a binding line always show elevated `binding_proximity`?
+
+Because `binding_proximity` and "binding lines" measure different things.
+A bus lights up when it *most strongly drives* whichever loaded branch has
+the highest `|PTDF| × loading` — which need not be the binding line, and
+that line's endpoints need not be the buses that drive it hardest.
+
+Four concrete reasons the two views can diverge:
+
+1. **BP is a max, and the maximizing line often isn't the binding one.**
+   Per-bus,
+   ```
+   binding_proximity[b] = max_ℓ  |PTDF_dist[ℓ, b]| · |flow_ℓ| / limit_ℓ
+   ```
+   (see `compute/congestion/metrics.py`). A binding line `ℓ*` contributes
+   `|PTDF_dist[ℓ*, b]| × 1.0`. If some other line `ℓ'` has
+   `|PTDF_dist[ℓ', b]| = 0.5` and loading 0.9, that product is 0.45 — and
+   any bus where the binding line's PTDF drops below 0.45 gets its BP set
+   by `ℓ'`, not by `ℓ*`. Different lines "win" for different buses. A
+   binding line's endpoints only dominate BP if they *also* carry a high
+   PTDF on that specific branch, which is not automatic.
+
+2. **Endpoint ≠ high PTDF.** A line's PTDF magnitude at its own endpoint
+   is an electrical quantity — the shift factor of that node under the
+   chosen slack — not a topological label. For a line sitting mid-corridor
+   with power flowing through it from multiple upstream injections,
+   endpoint buses can have moderate PTDFs (~0.2–0.4) because the flow is
+   already "made" by injections farther out. The buses that maximally
+   drive `ℓ*` are wherever the PTDF row peaks — often a cluster of
+   upstream neighbors, not the two nodes named in the line's `bus0`/`bus1`
+   fields.
+
+3. **Distributed slack redistributes the endpoint values.** Under
+   single-slack, one endpoint of a line typically had `|PTDF| ≈ 1`. Under
+   load-weighted distributed slack,
+   `PTDF_dist[ℓ, b] = PTDF_single[ℓ, b] − Σ_k w_k · PTDF_single[ℓ, k]`.
+   If the binding line sits in a load-dense area, its whole PTDF row gets
+   shifted downward on those nearby (heavily-weighted) buses — the
+   correction cancels out precisely the buses that *look* like they should
+   be endpoints. This is the intended price of fixing the T688 collapse:
+   BP now measures marginal *influence* rather than raw radial
+   connectivity.
+
+4. **`PTDF_INFLUENCE_EPS = 1e-4` filter.** Any line whose distributed-slack
+   PTDF at bus `b` falls below 1e-4 is dropped from the `max` for that
+   bus. That's primarily a numerical-noise gate, but it also means
+   far-field buses whose only apparent "connection" to a binding line was
+   the single-slack radial artifact now have that connection correctly
+   zeroed out — the wanted behavior post-fix.
+
+**Debugging a specific case.** If a binding line looks orphaned on the map,
+pull `PTDF_dist[ℓ*, :]`, sort it by `|·|`, and look at where the top-10
+buses land geographically. Typically you'll find them clustered *near* the
+binding line rather than on its literal endpoints — that cluster is what
+BP is highlighting, and it is the physically-correct answer to *"which
+buses drive this branch?"*
