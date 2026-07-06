@@ -1,36 +1,21 @@
-import type { ComparisonMode } from "../../api/types";
-
 interface Props {
-  mode: ComparisonMode;
-  // The primary GridMap. Mounted for every mode so its camera state (and
-  // any pinned selection) survives mode switches. Colored per-mode by the
-  // props the caller hands to the underlying GridMap.
+  // Left pane — model side, colored per the active palette.
   main: React.ReactNode;
-  // Second GridMap, mounted only in `split`. Owns the ERCOT-side render.
+  // Right pane — ERCOT counterpart. Content varies by palette (SP-level
+  // ERCOT congestion for MC, SP-level SPP for LMP, empty for binding
+  // proximity since ERCOT has no comparable published quantity).
   right: React.ReactNode;
 }
 
 // Layout-only wrapper for the model / ERCOT panes. Camera sync between
 // the two maps lives in App so it can hook `onMapReady` callbacks without
 // prop-drilling refs through this component.
-export default function CompareMap({ mode, main, right }: Props) {
-  const isSplit = mode === "split";
+export default function CompareMap({ main, right }: Props) {
   return (
     <div className="compare-container">
-      <div
-        className={
-          "compare-pane compare-pane--main" +
-          (isSplit ? " compare-pane--half" : "")
-        }
-      >
-        {main}
-      </div>
-      {isSplit && (
-        <>
-          <div className="compare-divider" />
-          <div className="compare-pane compare-pane--half">{right}</div>
-        </>
-      )}
+      <div className="compare-pane compare-pane--half">{main}</div>
+      <div className="compare-divider" />
+      <div className="compare-pane compare-pane--half">{right}</div>
       <style>{`
         .compare-container {
           width: 100%;
@@ -38,7 +23,6 @@ export default function CompareMap({ mode, main, right }: Props) {
           display: flex;
         }
         .compare-pane {
-          flex: 1;
           position: relative;
           min-width: 0;
         }
