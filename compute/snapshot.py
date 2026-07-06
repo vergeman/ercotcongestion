@@ -5,7 +5,7 @@ import logging
 import time
 
 from congestion import (
-    modeled_congestion_at, binding_proximity_at,
+    modeled_congestion_at, binding_proximity_at, load_weighted_slack,
     modeled_congestion_diagnostics, binding_proximity_diagnostics,
 )
 from contingency import compute_contingencies_at, contingency_diagnostics
@@ -171,9 +171,10 @@ def _build_result_at(
         n, line_mu_up, line_mu_lo, tx_mu_up, tx_mu_lo,
         ptdf, bus_names,
     )
+    slack_weights = load_weighted_slack(n, ts, bus_names)
     bp = binding_proximity_at(
         n, line_p0, tx_p0, line_s_max_pu, tx_s_max_pu,
-        ptdf, bus_names,
+        ptdf, bus_names, slack_weights=slack_weights,
     )
     if enable_diagnostics:
         modeled_congestion_diagnostics(mc)

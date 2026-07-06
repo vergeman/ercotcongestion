@@ -71,6 +71,30 @@ def get_ptdf_lodf(n):
     return result
 
 
+def distribute_slack(ptdf_single: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Convert a single-slack PTDF to a distributed-slack PTDF.
+
+    H_dist[l, b] = H[l, b] - Σ_k H[l, k] * w[k]
+
+    `w` must sum to 1 and align to `ptdf_single`'s bus columns. The row shift
+    leaves flow sensitivities to a balanced (Σ Δinjection = 0) perturbation
+    unchanged and eliminates the artifact where every column collapses to
+    ~PTDF[l, slack_line] when the slack bus is topologically radial.
+    """
+    if w.shape[0] != ptdf_single.shape[1]:
+        raise ValueError(
+            f"slack weights length {w.shape[0]} does not match "
+            f"PTDF bus count {ptdf_single.shape[1]}"
+        )
+    if not np.isfinite(w).all():
+        raise ValueError("slack weights contain non-finite values")
+    total = float(w.sum())
+    if abs(total - 1.0) > 1e-9:
+        raise ValueError(f"slack weights sum {total} != 1.0")
+    shift = np.asarray(ptdf_single @ w).reshape(-1, 1)
+    return np.subtract(ptdf_single, shift)
+
+
 def print_network_diagnostic(n):
     if n.generators_t.p.empty:
         print("Network not solved. Run n.optimize() first.")

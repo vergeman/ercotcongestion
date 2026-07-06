@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import pypsa
 
+from ptdf_lodf import distribute_slack
+
 from .compute import CUSTOM_HUBS, HUB_BUSAVG
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,14 @@ MU_SIGN = +1.0  # μ_signed = MU_SIGN * (mu_lower - mu_upper)
 # Threshold below which a bus is considered not to influence a branch. Used to
 # gate the max aggregation in binding_proximity_at so trivially-small PTDF
 # entries don't drag a bus's proximity toward a saturated line it barely drives.
+#
+# binding_proximity_at uses a load-weighted DISTRIBUTED-slack PTDF (see
+# _load_weighted_slack and ptdf_lodf.distribute_slack). modeled_congestion_at
+# stays on the single-slack PTDF: its μ-weighted sum is a linear combination
+# of PTDF rows whose μ is ~0 on the radial slack-side transformer, so the
+# Texas2k slack artifact does not propagate into Σ PTDF · μ. Changing that
+# path would perturb the sign-convention verification (verify_sign_convention.py)
+# validated at DFW 2025-08-19T19:00 for zero benefit.
 PTDF_INFLUENCE_EPS = 1e-4
 
 
@@ -70,6 +80,7 @@ def binding_proximity_at(
     tx_s_max_pu: pd.Series | None,
     ptdf_full: np.ndarray,
     sub_buses: list,
+    slack_weights: np.ndarray | None = None,
 ) -> pd.Series:
     """Loading-based binding proximity per bus at a single snapshot.
 
@@ -79,12 +90,23 @@ def binding_proximity_at(
     NaN for buses that do not meaningfully influence any branch. Uses
     s_nom_opt with s_nom fallback; s_max_pu takes the time-varying slice
     when provided, else the static column, else 1.0.
+
+    When `slack_weights` is provided (length must equal `ptdf_full.shape[1]`
+    and sum to 1), PTDF is first converted to a distributed-slack PTDF via
+    `distribute_slack`. Without weights, uses `ptdf_full` unchanged — the
+    single-slack behavior — for backward compatibility with callers that
+    have not yet been updated.
     """
+    if slack_weights is not None:
+        ptdf_used = distribute_slack(ptdf_full, slack_weights)
+    else:
+        ptdf_used = ptdf_full
+
     prox_line = _prox_branch(n.lines,        line_p0, line_s_max_pu)
     prox_tx   = _prox_branch(n.transformers, tx_p0,   tx_s_max_pu)
     prox_full = np.concatenate([prox_line, prox_tx])  # (n_branches,)
 
-    ptdf_abs = np.abs(ptdf_full)                       # (n_branches, n_bus)
+    ptdf_abs = np.abs(ptdf_used)                       # (n_branches, n_bus)
     weighted = ptdf_abs * prox_full[:, np.newaxis]     # (n_branches, n_bus)
     influence = ptdf_abs > PTDF_INFLUENCE_EPS          # (n_branches, n_bus)
 
@@ -170,6 +192,29 @@ def build_hub_lmps(
     return hub_lmps
 
 
+def load_weighted_slack(
+    n: pypsa.Network,
+    ts: datetime,
+    bus_index: list,
+) -> np.ndarray:
+    """Normalized load-based slack weights aligned to `bus_index` (PTDF column
+    order). Negative loads clipped to zero before normalizing. Zero total load
+    falls back to uniform 1/n so the distributed-slack shift is still well-defined.
+    """
+    naive_ts = pd.Timestamp(ts).tz_convert('UTC').tz_localize(None) \
+        if pd.Timestamp(ts).tzinfo is not None else pd.Timestamp(ts)
+    load_per_load = n.loads_t.p_set.loc[naive_ts]
+    load_per_bus = (
+        load_per_load.groupby(n.loads['bus']).sum()
+        .reindex(bus_index).fillna(0.0)
+    )
+    w = load_per_bus.clip(lower=0.0).to_numpy(dtype=float)
+    total = float(w.sum())
+    if total <= 0.0:
+        return np.full(len(bus_index), 1.0 / len(bus_index))
+    return w / total
+
+
 def build_load_per_bus(n: pypsa.Network, ts: datetime) -> pd.Series:
     """Per-bus load aggregated from the adapter-scaled time-varying loads
     written into n.loads_t.p_set for this snapshot."""
@@ -221,5 +266,11 @@ def binding_proximity_diagnostics(bp: pd.Series) -> None:
     print(f"Buses > 0.9: {int((bp > 0.9).sum())}")
     print(f"Buses > 1.0 (should be ~0, solver tolerance): "
           f"{int((bp > 1.0).sum())}")
+    # Slack-artifact regression signal: if the distributed-slack conversion
+    # is undone, the population collapses to ~1 value @4dp with a giant mode.
+    rounded = bp.dropna().round(4)
+    if not rounded.empty:
+        counts = rounded.value_counts()
+        print(f"distinct @4dp: {counts.size}  mode-count: {int(counts.iloc[0])}")
     print(f"Top 10 buses by proximity:")
     print(bp.nlargest(10).round(3).to_string())
