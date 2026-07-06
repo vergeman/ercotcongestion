@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { format, subDays, subHours } from "date-fns";
+import { subDays, subHours } from "date-fns";
 import type { CuratedEvent } from "../../lib/events";
+import { ctInputToUtc, utcToCTInputString } from "../../lib/time";
 
 interface Props {
   onLoad: (start: Date, end: Date) => void;
@@ -42,23 +43,21 @@ export default function DateRangePicker({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [startStr, setStartStr] = useState(() =>
-    format(subDays(new Date(), 1), "yyyy-MM-dd'T'HH:mm")
+    utcToCTInputString(subDays(new Date(), 1))
   );
-  const [endStr, setEndStr] = useState(() =>
-    format(new Date(), "yyyy-MM-dd'T'HH:mm")
-  );
+  const [endStr, setEndStr] = useState(() => utcToCTInputString(new Date()));
 
   const handlePreset = (start: () => Date, end: () => Date) => {
     const s = start();
     const e = end();
-    setStartStr(format(s, "yyyy-MM-dd'T'HH:mm"));
-    setEndStr(format(e, "yyyy-MM-dd'T'HH:mm"));
+    setStartStr(utcToCTInputString(s));
+    setEndStr(utcToCTInputString(e));
     onLoad(s, e);
     setOpen(false);
   };
 
   const handleCustomLoad = () => {
-    onLoad(new Date(startStr), new Date(endStr));
+    onLoad(ctInputToUtc(startStr), ctInputToUtc(endStr));
     setOpen(false);
   };
 
@@ -113,10 +112,10 @@ export default function DateRangePicker({
             ))}
           </div>
 
-          <div className="label drp__section-label">Custom range</div>
+          <div className="label drp__section-label">Custom range (CT)</div>
           <div className="drp__custom">
             <div className="drp__row">
-              <span className="label">Start</span>
+              <span className="label">Start (CT)</span>
               <input
                 type="datetime-local"
                 value={startStr}
@@ -124,7 +123,7 @@ export default function DateRangePicker({
               />
             </div>
             <div className="drp__row">
-              <span className="label">End</span>
+              <span className="label">End (CT)</span>
               <input
                 type="datetime-local"
                 value={endStr}

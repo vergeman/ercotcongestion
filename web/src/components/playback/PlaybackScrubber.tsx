@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { format } from "date-fns";
 import TimelineSparkline, { type SparkPoint } from "./TimelineSparkline";
+import { formatCT } from "../../lib/time";
 
 interface Props {
   timestamps: Date[];
@@ -91,7 +91,7 @@ export default function PlaybackScrubber({
         </button>
 
         <div className="scrubber__ts mono">
-          {current ? format(current, "MMM d, yyyy HH:mm") + " UTC" : "—"}
+          {current ? formatCT(current, "MMM d, yyyy HH:mm") + " CT" : "—"}
         </div>
 
         {eventLabel && (
@@ -123,11 +123,12 @@ export default function PlaybackScrubber({
         />
         <div className="scrubber__range-labels">
           <span className="label">
-            {timestamps[0] ? format(timestamps[0], "MMM d HH:mm") : ""}
+            {timestamps[0] ? formatCT(timestamps[0], "MMM d HH:mm") : ""}
           </span>
           <span className="label">
             {timestamps[timestamps.length - 1]
-              ? format(timestamps[timestamps.length - 1], "MMM d HH:mm")
+              ? formatCT(timestamps[timestamps.length - 1], "MMM d HH:mm") +
+                " CT"
               : ""}
           </span>
         </div>
