@@ -45,6 +45,11 @@ interface HoveredLine {
   lineId: string;
   props: Record<string, unknown>;
 }
+interface HoveredSp {
+  spId: string;
+  props: Record<string, unknown>;
+  spState: { congestion: number | null; spp: number | null } | null;
+}
 
 // The right pane's ERCOT counterpart depends on the active palette.
 // Kept as a helper so the render tree below stays declarative.
@@ -70,6 +75,8 @@ export default function App() {
   const [hoveredLine, setHoveredLine] = useState<HoveredLine | null>(null);
   const [pinnedBus, setPinnedBus] = useState<HoveredBus | null>(null);
   const [pinnedLine, setPinnedLine] = useState<HoveredLine | null>(null);
+  const [hoveredSp, setHoveredSp] = useState<HoveredSp | null>(null);
+  const [pinnedSp, setPinnedSp] = useState<HoveredSp | null>(null);
 
   // Zone scorecard — loaded once per run. Selection is lifted here so the
   // GridMap can highlight members and the StatsPanel row can show selected.
@@ -450,6 +457,49 @@ export default function App() {
     }
   }, [buses]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ERCOT pane SP interactions. GridMap fires `onBusHover(sp_id, props)` on
+  // the right pane because SP features are aliased with `bus_id = sp_id`.
+  const spStateFor = useCallback(
+    (spId: string): { congestion: number | null; spp: number | null } | null => {
+      const row = ercotBuses.find((b) => b.bus_id === spId);
+      return row ? { congestion: row.modeled_congestion, spp: row.lmp } : null;
+    },
+    [ercotBuses]
+  );
+
+  const handleSpHover = useCallback(
+    (spId: string | null, props: Record<string, unknown> | null) => {
+      if (!spId || !props) {
+        setHoveredSp(null);
+        return;
+      }
+      setHoveredSp({ spId, props, spState: spStateFor(spId) });
+    },
+    [spStateFor]
+  );
+
+  const handleSpClick = useCallback(
+    (spId: string, props: Record<string, unknown>) => {
+      setPinnedSp({ spId, props, spState: spStateFor(spId) });
+    },
+    [spStateFor]
+  );
+
+  const handleClearPinnedSp = useCallback(() => {
+    setPinnedSp(null);
+  }, []);
+
+  useEffect(() => {
+    if (!pinnedSp) return;
+    const fresh = spStateFor(pinnedSp.spId);
+    if (
+      fresh?.congestion !== pinnedSp.spState?.congestion ||
+      fresh?.spp !== pinnedSp.spState?.spp
+    ) {
+      setPinnedSp({ ...pinnedSp, spState: fresh });
+    }
+  }, [ercotBuses]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Right pane content per active palette:
   //   MC   → SP topology colored by SPP − system_λ
   //   LMP  → SP topology colored by raw SPP
@@ -476,12 +526,12 @@ export default function App() {
           viewMode={rightKind === "ercot_spp" ? "lmp" : "modeled_congestion"}
           lmpStats={rightKind === "ercot_spp" ? ercotSppStats : null}
           mcStats={rightKind === "ercot_congestion" ? ercotMcStats : null}
-          onBusHover={() => {}}
+          onBusHover={handleSpHover}
           onLineHover={() => {}}
-          onBusClick={() => {}}
+          onBusClick={handleSpClick}
           onLineClick={() => {}}
-          onMapClick={() => {}}
-          selectedBusId={null}
+          onMapClick={handleClearPinnedSp}
+          selectedBusId={pinnedSp?.spId ?? null}
           selectedLineId={null}
           showZones={showZones}
           tightClusterIds={tightClusterIds}
@@ -490,6 +540,14 @@ export default function App() {
           onMapReady={handleRightReady}
         />
         <div className="pane-badge">{badge}</div>
+        <DetailCard
+          meta={null}
+          hoveredBus={null}
+          hoveredLine={null}
+          hoveredSp={hoveredSp}
+          pinnedSp={pinnedSp}
+          onClose={handleClearPinnedSp}
+        />
       </>
     );
   })();

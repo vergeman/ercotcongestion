@@ -11,12 +11,20 @@ interface HoveredLine {
   props: Record<string, unknown>;
 }
 
+interface HoveredSp {
+  spId: string;
+  props: Record<string, unknown>;
+  spState: { congestion: number | null; spp: number | null } | null;
+}
+
 interface Props {
   meta: SnapshotMeta | null;
   hoveredBus: HoveredBus | null;
   hoveredLine: HoveredLine | null;
   pinnedBus?: HoveredBus | null;
   pinnedLine?: HoveredLine | null;
+  hoveredSp?: HoveredSp | null;
+  pinnedSp?: HoveredSp | null;
   onClose?: () => void;
 }
 
@@ -90,6 +98,38 @@ function BusBody({ bus }: { bus: HoveredBus }) {
   );
 }
 
+function SpBody({ sp }: { sp: HoveredSp }) {
+  const clusterId = sp.props.cluster_id;
+  return (
+    <>
+      <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
+      <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
+      {clusterId != null && (
+        <Row label="Cluster" value={String(clusterId)} />
+      )}
+      <Row
+        label="Congestion"
+        value={
+          sp.spState && sp.spState.congestion != null
+            ? `${sp.spState.congestion >= 0 ? "+" : "−"}$${fmt(
+                Math.abs(sp.spState.congestion),
+                2
+              )}/MWh`
+            : null
+        }
+      />
+      <Row
+        label="DAM SPP"
+        value={
+          sp.spState && sp.spState.spp != null
+            ? `$${fmt(sp.spState.spp, 2)}/MWh`
+            : null
+        }
+      />
+    </>
+  );
+}
+
 function LineBody({
   line,
   meta,
@@ -145,17 +185,21 @@ export default function DetailCard({
   hoveredLine,
   pinnedBus,
   pinnedLine,
+  hoveredSp,
+  pinnedSp,
   onClose,
 }: Props) {
   // Pinned wins over hover. Bus wins over line if both present.
-  const isPinned = !!(pinnedBus || pinnedLine);
-  const bus = pinnedBus ?? hoveredBus;
-  const line = !bus ? pinnedLine ?? hoveredLine : null;
+  // SP is its own selection stack (ERCOT pane) — independent of bus/line.
+  const sp = pinnedSp ?? hoveredSp;
+  const isPinned = !!(pinnedBus || pinnedLine || pinnedSp);
+  const bus = !sp ? pinnedBus ?? hoveredBus : null;
+  const line = !sp && !bus ? pinnedLine ?? hoveredLine : null;
 
-  if (!bus && !line) return null;
+  if (!sp && !bus && !line) return null;
 
-  const id = bus ? bus.busId : line!.lineId;
-  const kind = bus ? "BUS" : "LINE";
+  const id = sp ? sp.spId : bus ? bus.busId : line!.lineId;
+  const kind = sp ? "SP" : bus ? "BUS" : "LINE";
 
   return (
     <div className={`detail-card ${isPinned ? "detail-card--pinned" : ""}`}>
@@ -179,7 +223,9 @@ export default function DetailCard({
       </div>
 
       <div className="detail-card__body">
-        {bus ? (
+        {sp ? (
+          <SpBody sp={sp} />
+        ) : bus ? (
           <BusBody bus={bus} />
         ) : line ? (
           <LineBody line={line} meta={meta} />
