@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
-import state, topology, validation, ptdf, ercot_state
+import state, topology, validation, ptdf, ercot_state, ercot_spp
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -42,6 +42,7 @@ app.include_router(topology.router,    tags=['topology'])
 app.include_router(validation.router,  tags=['validation'])
 app.include_router(ptdf.router,        tags=['ptdf'])
 app.include_router(ercot_state.router, tags=['ercot_state'])
+app.include_router(ercot_spp.router,   tags=['ercot_spp'])
 
 
 @app.get('/healthz', tags=['meta'])
