@@ -540,6 +540,16 @@ export default function App() {
           onMapReady={handleRightReady}
         />
         <div className="pane-badge">{badge}</div>
+        <Legend
+          viewMode={rightKind === "ercot_spp" ? "lmp" : "modeled_congestion"}
+          buses={ercotBuses}
+          lmpStats={rightKind === "ercot_spp" ? ercotSppStats : null}
+          mcStats={rightKind === "ercot_congestion" ? ercotMcStats : null}
+          showZones={false}
+          tightClusterIds={tightClusterIds}
+          variant="palette-only"
+          paneLabel="ERCOT · SP anchor"
+        />
         <DetailCard
           meta={null}
           hoveredBus={null}
@@ -612,6 +622,10 @@ export default function App() {
             mcStats={mcStats}
             showZones={showZones}
             tightClusterIds={tightClusterIds}
+            variant="full"
+            paneLabel={
+              rightKind === "empty" ? undefined : "MODEL · bus anchor"
+            }
           />
           <style>{`
             .pane-badge {
