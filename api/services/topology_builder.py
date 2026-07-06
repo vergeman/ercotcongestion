@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 import pandas as pd
@@ -234,8 +235,9 @@ def get_or_build_topology(force: bool = False) -> dict[str, Any]:
 
     topo = build_topology()
     os.makedirs(os.path.dirname(TOPOLOGY_CACHE), exist_ok=True)
-    tmp = TOPOLOGY_CACHE + '.tmp'
-    print(tmp)
+    # Unique tmp per rebuild so concurrent requests don't clobber each other's
+    # tmp file — the final os.replace still atomically publishes.
+    tmp = f"{TOPOLOGY_CACHE}.{os.getpid()}.{time.monotonic_ns()}.tmp"
     with open(tmp, 'w') as f:
         json.dump(topo, f)
     os.replace(tmp, TOPOLOGY_CACHE)
