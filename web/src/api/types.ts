@@ -164,6 +164,18 @@ export interface BusFeatureProperties {
   cluster_id?: number | null;
 }
 
+// ERCOT settlement point features in /api/topology.settlement_points.
+// `cluster_id` is derived from the CM.1 correlation mapping: the cluster of
+// the model bus with the highest correlation to this SP. Null when the SP
+// has no mapping row or its best-match bus is unclustered. `best_corr` is
+// that Pearson correlation (0..1), useful for opacity/size cues.
+export interface SPFeatureProperties {
+  sp_id: string;
+  sp_type: string;
+  cluster_id?: number | null;
+  best_corr?: number | null;
+}
+
 export interface LineFeatureProperties {
   line_id: string;
   bus0: string;

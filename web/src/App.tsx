@@ -4,6 +4,7 @@ import type {
   BusState,
   ScorecardResponse,
   SnapshotMeta,
+  SPFeatureProperties,
   ViewMode,
 } from "./api/types";
 import { fetchScorecard, fetchTopology } from "./api/client";
@@ -103,7 +104,7 @@ export default function App() {
         features: Array<{
           type: "Feature";
           geometry: unknown;
-          properties: { sp_id: string; [k: string]: unknown };
+          properties: SPFeatureProperties;
         }>;
       };
     };
@@ -482,9 +483,9 @@ export default function App() {
           onMapClick={() => {}}
           selectedBusId={null}
           selectedLineId={null}
-          showZones={false}
+          showZones={showZones}
           tightClusterIds={tightClusterIds}
-          selectedClusterId={null}
+          selectedClusterId={selectedClusterId}
           side="ercot"
           onMapReady={handleRightReady}
         />
