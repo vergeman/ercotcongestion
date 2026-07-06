@@ -65,9 +65,9 @@ export interface StateRangeResponse {
   entries: StateRangeEntry[];
 }
 
-// S3.4 — ERCOT SP snapshot payload. `sp_id` is the ERCOT settlement point
-// identifier; `congestion` is the reference-adjusted congestion value from
-// the run's congestion matrix (nullable when non-finite).
+// ERCOT SP snapshot payload. `sp_id` is the ERCOT settlement point
+// identifier; `congestion` is the reference-adjusted congestion value
+// (SPP − system_λ) from the run's congestion matrix.
 export interface ErcotSpState {
   sp_id: string;
   congestion: number | null;
@@ -85,17 +85,29 @@ export interface ErcotStateRangeResponse {
   entries: ErcotStateRangeEntry[];
 }
 
-export type ViewMode =
-  | "modeled_congestion"
-  | "lmp"
-  | "congestion_vs_basis"
-  | "binding_proximity";
+// Raw DAM SPP per settlement point, per hour. Feeds the LMP palette's
+// right pane so LMP-vs-LMP renders directly from ERCOT's published prices.
+export interface ErcotSpSpp {
+  sp_id: string;
+  spp: number | null;
+}
 
-// S3.3 — top-level comparison mode. `single` renders the historical single
-// pane (colored by ViewMode); `split` renders model | ERCOT synced side by
-// side; `diff` renders a single pane colored by per-cluster
-// (model_Z − ercot_Z) at the current scrubber hour.
-export type ComparisonMode = "split" | "single" | "diff";
+export interface ErcotSppRangeEntry {
+  interval_ts: string;
+  sps: ErcotSpSpp[];
+}
+
+export interface ErcotSppRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: ErcotSppRangeEntry[];
+}
+
+// Every ViewMode drives a paired split view: model side on the left,
+// ERCOT counterpart on the right (empty for binding proximity — ERCOT
+// doesn't publish a comparable signal).
+export type ViewMode = "modeled_congestion" | "lmp" | "binding_proximity";
 
 // 0047 — zone-aggregated scorecard. Mirrors api/models.py::ScorecardResponse.
 

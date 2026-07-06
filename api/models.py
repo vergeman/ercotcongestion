@@ -100,6 +100,31 @@ class ErcotStateRangeResponse(BaseModel):
     entries: list[ErcotStateRangeEntry]
 
 
+# ---- /api/ercot_spp_range -----------------------------------------------
+#
+# Raw DAM SPP (NP4-190-CD) per settlement point, per hour. Feeds the LMP
+# palette's right pane so LMP-vs-LMP comparison uses ERCOT's own published
+# prices, not a derived (SPP − system_λ) quantity. Read directly from the
+# ``ercot_dam_spp`` table rather than the run's congestion matrix — the
+# matrix stores only the shifted congestion component, not the raw price.
+
+class ErcotSpSpp(BaseModel):
+    sp_id: str
+    spp: float | None
+
+
+class ErcotSppRangeEntry(BaseModel):
+    interval_ts: datetime
+    sps: list[ErcotSpSpp]
+
+
+class ErcotSppRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    entries: list[ErcotSppRangeEntry]
+
+
 # ---- /api/validation (zone-aggregated scorecard) -------------------------
 
 class ScorecardZone(BaseModel):

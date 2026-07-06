@@ -1,13 +1,11 @@
 import { useMemo } from "react";
-import type { BusState, ComparisonMode, ViewMode } from "../../api/types";
+import type { BusState, ViewMode } from "../../api/types";
 import {
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
   normalizeLmpFromStats,
-  DELTA_ANCHORS,
   BINDING_PROXIMITY_ANCHORS,
   clusterColor,
-  ZONE_DIFF_ANCHOR,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -23,9 +21,6 @@ interface Props {
   showZones: boolean;
   onToggleZones: () => void;
   tightClusterIds: Set<number>;
-  // S3.3 — comparison mode gates which palette is shown at the top of
-  // the legend. In `diff` we swap to the diverging zone-diff scale.
-  comparisonMode: ComparisonMode;
 }
 
 const HIST_BINS = 24;
@@ -44,13 +39,10 @@ export default function Legend({
   showZones,
   onToggleZones,
   tightClusterIds,
-  comparisonMode,
 }: Props) {
-  const isDiff = comparisonMode === "diff";
-  const isModeledCongestion = !isDiff && viewMode === "modeled_congestion";
-  const isLmp = !isDiff && viewMode === "lmp";
-  const isDelta = !isDiff && viewMode === "congestion_vs_basis";
-  const isProximity = !isDiff && viewMode === "binding_proximity";
+  const isModeledCongestion = viewMode === "modeled_congestion";
+  const isLmp = viewMode === "lmp";
+  const isProximity = viewMode === "binding_proximity";
 
   // LMP histogram for the *current snapshot*, binned in color-space so each
   // bar aligns directly above the gradient color it falls in.
@@ -80,24 +72,17 @@ export default function Legend({
   }, [isLmp, lmpStats]);
 
   // Bar gradient depends on view mode.
-  const barGradient = isDiff
-    ? "linear-gradient(to right, rgb(59,130,246), rgb(110,195,130), rgb(239,68,68))"
-    : isModeledCongestion
+  const barGradient = isModeledCongestion
     ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
     : isLmp
     ? "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
-    : isDelta
-    ? `linear-gradient(to right, ${DELTA_ANCHORS.purple}, ${DELTA_ANCHORS.cream}, ${DELTA_ANCHORS.teal})`
     : "linear-gradient(to right, rgb(30,41,59), rgb(234,179,8), rgb(239,68,68))";
 
-  const title = isDiff
-    ? "Δ Zone (model − ERCOT, Z-score)"
-    : isModeledCongestion
-    ? "Modeled Congestion ($/MWh)"
+  // Title shows the pair, since the palette drives both panes.
+  const title = isModeledCongestion
+    ? "Modeled Congestion vs ERCOT ($/MWh)"
     : isLmp
-    ? "LMP ($/MWh)"
-    : isDelta
-    ? "Δ Rank (modeled congestion − basis)"
+    ? "LMP vs ERCOT SPP ($/MWh)"
     : "Binding Proximity";
 
   return (
@@ -119,7 +104,9 @@ export default function Legend({
 
       <div className="legend__bar" style={{ background: barGradient }} />
 
-      {/* Modeled congestion: signed diverging; center = 0, edges = ±p_high */}
+      {/* Diverging MC family: signed, center = 0, edges = ±p_high. Shared
+          between modeled congestion (Σ PTDF·μ) and ERCOT congestion
+          (SPP − system_λ) so the two view modes render identically. */}
       {isModeledCongestion && mcStats && (
         <>
           <div className="legend__ticks">
@@ -147,7 +134,7 @@ export default function Legend({
             <span className="label">import (+)</span>
           </div>
           <div className="legend__sub label">
-            window |max| {formatDollar(mcStats.max_abs)} · anchor = |mc| P99
+            window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
           </div>
         </>
       )}
@@ -186,16 +173,6 @@ export default function Legend({
         </div>
       )}
 
-      {isDelta && (
-        <>
-          <div className="legend__labels">
-            <span className="label">model under</span>
-            <span className="label">over</span>
-          </div>
-          <div className="legend__sub label">per-snapshot signed rank</div>
-        </>
-      )}
-
       {isProximity && (
         <>
           <div className="legend__ticks">
@@ -210,29 +187,6 @@ export default function Legend({
             ))}
           </div>
           <div className="legend__sub label">0 slack, 1 binding</div>
-        </>
-      )}
-
-      {isDiff && (
-        <>
-          <div className="legend__ticks">
-            <span className="label mono legend__tick" style={{ left: "0%" }}>
-              −{ZONE_DIFF_ANCHOR.toFixed(1)}
-            </span>
-            <span className="label mono legend__tick" style={{ left: "50%" }}>
-              0
-            </span>
-            <span className="label mono legend__tick" style={{ left: "100%" }}>
-              +{ZONE_DIFF_ANCHOR.toFixed(1)}
-            </span>
-          </div>
-          <div className="legend__labels">
-            <span className="label">model under</span>
-            <span className="label">over</span>
-          </div>
-          <div className="legend__sub label">
-            per-cluster Δ at scrubber hour
-          </div>
         </>
       )}
 

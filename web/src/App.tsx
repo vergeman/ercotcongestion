@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type maplibregl from "maplibre-gl";
 import type {
   BusState,
-  ComparisonMode,
   ScorecardResponse,
   SnapshotMeta,
   ViewMode,
@@ -12,6 +11,7 @@ import {
   prefetchWindow,
   getCached,
   getErcotCached,
+  getErcotSppCached,
   getAvailableTimestamps,
 } from "./api/prefetch";
 import {
@@ -45,6 +45,15 @@ interface HoveredLine {
   props: Record<string, unknown>;
 }
 
+// The right pane's ERCOT counterpart depends on the active palette.
+// Kept as a helper so the render tree below stays declarative.
+type RightPaneKind = "ercot_congestion" | "ercot_spp" | "empty";
+function rightPaneFor(vm: ViewMode): RightPaneKind {
+  if (vm === "modeled_congestion") return "ercot_congestion";
+  if (vm === "lmp") return "ercot_spp";
+  return "empty";
+}
+
 export default function App() {
   const [topology, setTopology] = useState<unknown | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("modeled_congestion");
@@ -74,25 +83,17 @@ export default function App() {
     () => new Set((scorecard?.zones ?? []).map((z) => z.cluster_id)),
     [scorecard]
   );
-  // S3.3 — comparison mode. Default `split`. `single` restores the
-  // ViewMode palette pills.
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("split");
 
-  // Selecting a scorecard row: auto-enable the Zones layer (unless we're
-  // in Diff, which forces its own coloring). Without this the map stays
-  // congestion-colored and the selection reads as "everything dimmed" with
-  // no way to see which buses belong to the cluster.
-  const handleSelectCluster = useCallback(
-    (id: number | null) => {
-      setSelectedClusterId(id);
-      if (id != null && comparisonMode !== "diff") setShowZones(true);
-    },
-    [comparisonMode]
-  );
+  // Selecting a scorecard row auto-enables the Zones layer so the highlight
+  // is visible against the palette-colored buses.
+  const handleSelectCluster = useCallback((id: number | null) => {
+    setSelectedClusterId(id);
+    if (id != null) setShowZones(true);
+  }, []);
 
-  // S3.4 — the right pane consumes a bus-shaped topology so it can share
-  // GridMap wholesale. SP features get their `sp_id` promoted to `bus_id`
-  // to satisfy the source's `promoteId: "bus_id"`, and lines collapse to
+  // Right pane consumes a bus-shaped topology so it can share GridMap
+  // wholesale. SP features get their `sp_id` promoted to `bus_id` to
+  // satisfy the source's `promoteId: "bus_id"`, and lines collapse to
   // empty since SPs have no wired network.
   const spTopology = useMemo(() => {
     if (!topology) return null;
@@ -122,9 +123,9 @@ export default function App() {
     !!topology &&
     (spTopology?.buses.features.length ?? 0) === 0;
 
-  // Camera sync between the two split panes. Refs collected via each
-  // GridMap's `onMapReady`; `handleMainReady` and `handleRightReady` write
-  // in and re-arm the mirror when both are present.
+  // Camera sync between the two panes. Refs collected via each GridMap's
+  // `onMapReady`; `handleMainReady` and `handleRightReady` write in and
+  // re-arm the mirror when both are present.
   const mainMapRef = useRef<maplibregl.Map | null>(null);
   const rightMapRef = useRef<maplibregl.Map | null>(null);
   const syncingSide = useRef<"main" | "right" | null>(null);
@@ -174,34 +175,38 @@ export default function App() {
     },
     [rearmSync]
   );
+  // Right pane can unmount (binding_proximity has no counterpart). Drop the
+  // stale ref so a later remount rewires the sync from scratch. Also kicks
+  // MapLibre to resize since the container might have changed dimensions.
+  const rightKind = rightPaneFor(viewMode);
   useEffect(() => {
-    // When the right pane unmounts (mode leaves split), drop its ref so a
-    // fresh mount reattaches cleanly.
-    if (comparisonMode !== "split") {
+    if (rightKind === "empty") {
       teardownSyncRef.current?.();
       teardownSyncRef.current = null;
       rightMapRef.current = null;
     }
-    // The main pane's flex-basis changes on split ↔ single/diff. Kick
-    // MapLibre so it re-reads container dims.
     const r = requestAnimationFrame(() => {
       mainMapRef.current?.resize();
       rightMapRef.current?.resize();
     });
     return () => cancelAnimationFrame(r);
-  }, [comparisonMode]);
-  // Window-wide LMP stats (median + MAD). Computed once on window load and
-  // reused for every frame so coloring is stable across playback.
+  }, [rightKind]);
+
+  // Window-wide LMP stats. Computed once on window load and reused for
+  // every frame so coloring is stable across playback.
   const [lmpStats, setLmpStats] = useState<LmpStats | null>(null);
-  // Window-wide modeled-congestion stats (|mc| P99 anchor, symmetric around 0).
-  // Same shape as lmpStats — stable palette across playback.
+  // Window-wide modeled-congestion stats (|mc| P90 anchor, symmetric around 0).
   const [mcStats, setMcStats] = useState<ModeledCongestionStats | null>(null);
-  // S3.4 — same-shape stats for the ERCOT side, computed from the ERCOT
-  // congestion values in the loaded window. Separate anchor so the two
-  // panes' fills stay comparable in sign but not artificially matched in
-  // magnitude.
+  // Same-shape stats for the ERCOT congestion side (SPP − system_λ per SP).
+  // Separate anchor so the two panes' fills stay comparable in sign but
+  // not artificially matched in magnitude.
   const [ercotMcStats, setErcotMcStats] =
     useState<ModeledCongestionStats | null>(null);
+  // Window-wide stats for the raw ERCOT SPP side (LMP palette family).
+  const [ercotSppStats, setErcotSppStats] = useState<LmpStats | null>(null);
+  // Per-current-snapshot ERCOT rows in BusState shape (bus_id = sp_id).
+  // MC branch reads `modeled_congestion`; LMP branch reads `lmp`. Both are
+  // populated when the corresponding cache has data for the current hour.
   const [ercotBuses, setErcotBuses] = useState<BusState[]>([]);
   // Per-timestamp series for the timeline sparkline
   // (modeled_congestion_abs_total + n_binding_lines). Aligned 1:1 with
@@ -229,7 +234,10 @@ export default function App() {
       .catch(() => setScorecard(null));
   }, []);
 
-  // Snapshot data on scrub
+  // Snapshot data on scrub. Model buses are always populated when cached;
+  // ERCOT rows carry both the congestion component (in `modeled_congestion`)
+  // and the raw SPP (in `lmp`) so the right pane can share the GridMap
+  // coloring path with the model side.
   useEffect(() => {
     if (!timestamps.length) return;
     const ts = timestamps[currentIndex];
@@ -238,21 +246,36 @@ export default function App() {
       setBuses(entry.buses);
       setMeta(entry.meta as SnapshotMeta);
     }
-    // ERCOT side (S3.4). Reshape SP congestion into BusState-shaped rows so
-    // the right pane can share the existing GridMap coloring path; the
-    // point source treats `bus_id` as a promoteId regardless of whether
-    // the id is a model bus or a settlement point.
     const ercotEntry = getErcotCached(ts);
-    if (ercotEntry) {
-      setErcotBuses(
-        ercotEntry.sps.map((s) => ({
+    const sppEntry = getErcotSppCached(ts);
+    if (ercotEntry || sppEntry) {
+      // Union of SP ids across both caches, so an SP that appears in only
+      // one still shows up on the map (colored per whichever field is set).
+      const byId = new Map<string, BusState>();
+      for (const s of ercotEntry?.sps ?? []) {
+        byId.set(s.sp_id, {
           bus_id: s.sp_id,
           modeled_congestion: s.congestion,
           binding_proximity: null,
           lmp: null,
           basis: null,
-        }))
-      );
+        });
+      }
+      for (const s of sppEntry?.sps ?? []) {
+        const cur = byId.get(s.sp_id);
+        if (cur) {
+          cur.lmp = s.spp;
+        } else {
+          byId.set(s.sp_id, {
+            bus_id: s.sp_id,
+            modeled_congestion: null,
+            binding_proximity: null,
+            lmp: s.spp,
+            basis: null,
+          });
+        }
+      }
+      setErcotBuses(Array.from(byId.values()));
     } else {
       setErcotBuses([]);
     }
@@ -280,18 +303,21 @@ export default function App() {
           setLmpStats(computeLmpStats(allLmp));
           setMcStats(computeModeledCongestionStats(allMc));
 
-          // Same window pass for the ERCOT side (S3.4). Walk the cache
-          // rather than the response so we get the deduped, label-stripped
+          // Same window pass for the ERCOT side. Walk the caches rather
+          // than the responses so we get the deduped, label-stripped
           // entries `prefetchWindow` already stored.
           const allErcot: Array<number | null> = [];
+          const allSpp: Array<number | null> = [];
           for (const t of ts) {
             const e = getErcotCached(t);
-            if (!e) continue;
-            for (const sp of e.sps) allErcot.push(sp.congestion);
+            if (e) for (const sp of e.sps) allErcot.push(sp.congestion);
+            const s = getErcotSppCached(t);
+            if (s) for (const sp of s.sps) allSpp.push(sp.spp);
           }
           setErcotMcStats(
             allErcot.length ? computeModeledCongestionStats(allErcot) : null
           );
+          setErcotSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
 
           // Build sparkline series — one point per timestamp, in the same order.
           // We walk `ts` and pull from the cached entries via interval_ts to
@@ -415,43 +441,6 @@ export default function App() {
     setPinnedLine(null);
   }, []);
 
-  // Diff-mode per-cluster delta at the current scrubber hour.
-  // Snaps the timestamp to the closest hour in `scorecard.series.hours`
-  // (within a 90-minute tolerance); returns null when the scorecard is
-  // absent, empty, or the cursor lands outside the covered window.
-  const busClusterDelta = useMemo(() => {
-    if (comparisonMode !== "diff") return null;
-    if (!scorecard || !timestamps.length) return null;
-    const s = scorecard.series;
-    if (!s.hours.length || !s.cluster_ids.length) return null;
-    const targetMs = timestamps[currentIndex].getTime();
-    let bestIdx = -1;
-    let bestDelta = Infinity;
-    for (let i = 0; i < s.hours.length; i++) {
-      // Scorecard hours ship as ``<scenario_label>|<iso>``; drop the label
-      // before parsing.
-      const iso = s.hours[i].split("|", 2)[1] ?? s.hours[i];
-      const t = new Date(iso).getTime();
-      if (!isFinite(t)) continue;
-      const d = Math.abs(t - targetMs);
-      if (d < bestDelta) {
-        bestDelta = d;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx < 0 || bestDelta > 90 * 60 * 1000) return null;
-    const modelRow = s.model_Z[bestIdx] ?? [];
-    const ercotRow = s.ercot_Z[bestIdx] ?? [];
-    const out = new Map<number, number>();
-    for (let j = 0; j < s.cluster_ids.length; j++) {
-      const m = modelRow[j];
-      const e = ercotRow[j];
-      if (m == null || e == null || !isFinite(m) || !isFinite(e)) continue;
-      out.set(s.cluster_ids[j], m - e);
-    }
-    return out;
-  }, [comparisonMode, scorecard, timestamps, currentIndex]);
-
   useEffect(() => {
     if (!pinnedBus) return;
     const fresh = buses.find((b) => b.bus_id === pinnedBus.busId) ?? null;
@@ -460,13 +449,55 @@ export default function App() {
     }
   }, [buses]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Right pane content per active palette:
+  //   MC   → SP topology colored by SPP − system_λ
+  //   LMP  → SP topology colored by raw SPP
+  //   BP   → empty placeholder (ERCOT has no comparable signal)
+  const rightPane = (() => {
+    if (rightKind === "empty") {
+      return (
+        <div className="pane-empty">
+          <div className="pane-empty__msg">
+            ERCOT · no comparable signal for binding proximity
+          </div>
+        </div>
+      );
+    }
+    const badge = spTopologyEmpty
+      ? "ERCOT · no SPs (rebuild topology cache)"
+      : `ERCOT · ${spTopology?.buses.features.length ?? 0} SPs · ${ercotBuses.length} lit`;
+    return (
+      <>
+        <GridMap
+          topology={spTopology}
+          buses={ercotBuses}
+          meta={null}
+          viewMode={rightKind === "ercot_spp" ? "lmp" : "modeled_congestion"}
+          lmpStats={rightKind === "ercot_spp" ? ercotSppStats : null}
+          mcStats={rightKind === "ercot_congestion" ? ercotMcStats : null}
+          onBusHover={() => {}}
+          onLineHover={() => {}}
+          onBusClick={() => {}}
+          onLineClick={() => {}}
+          onMapClick={() => {}}
+          selectedBusId={null}
+          selectedLineId={null}
+          showZones={false}
+          tightClusterIds={tightClusterIds}
+          selectedClusterId={null}
+          side="ercot"
+          onMapReady={handleRightReady}
+        />
+        <div className="pane-badge">{badge}</div>
+      </>
+    );
+  })();
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Header
         viewMode={viewMode}
         onViewMode={setViewMode}
-        comparisonMode={comparisonMode}
-        onComparisonMode={setComparisonMode}
         lastUpdated={lastUpdated}
         connectionState={connState}
       />
@@ -479,13 +510,10 @@ export default function App() {
           position: "relative",
         }}
       >
-        {/* Map — layout branches on comparisonMode. Main GridMap stays
-            mounted across all modes so camera + pinned state survive
-            mode switches. Diff mode swaps coloring via `busClusterDelta`;
-            split adds a synced ERCOT pane on the right. */}
+        {/* Every palette is a paired split: left = model bus grid,
+            right = ERCOT counterpart appropriate to the palette. */}
         <div style={{ flex: 1, position: "relative" }}>
           <CompareMap
-            mode={comparisonMode}
             main={
               <GridMap
                 topology={topology}
@@ -501,47 +529,14 @@ export default function App() {
                 onMapClick={handleClearPinned}
                 selectedBusId={pinnedBus?.busId ?? null}
                 selectedLineId={pinnedLine?.lineId ?? null}
-                showZones={comparisonMode === "diff" ? false : showZones}
+                showZones={showZones}
                 tightClusterIds={tightClusterIds}
                 selectedClusterId={selectedClusterId}
                 side="model"
                 onMapReady={handleMainReady}
-                busClusterDelta={
-                  comparisonMode === "diff" ? busClusterDelta : null
-                }
               />
             }
-            right={
-              <>
-                <GridMap
-                  topology={spTopology}
-                  buses={ercotBuses}
-                  meta={null}
-                  viewMode="modeled_congestion"
-                  lmpStats={null}
-                  mcStats={ercotMcStats}
-                  onBusHover={() => {}}
-                  onLineHover={() => {}}
-                  onBusClick={() => {}}
-                  onLineClick={() => {}}
-                  onMapClick={() => {}}
-                  selectedBusId={null}
-                  selectedLineId={null}
-                  showZones={false}
-                  tightClusterIds={tightClusterIds}
-                  selectedClusterId={null}
-                  side="ercot"
-                  onMapReady={handleRightReady}
-                />
-                <div className="pane-badge">
-                  {spTopologyEmpty
-                    ? "ERCOT · no SPs (rebuild topology cache)"
-                    : `ERCOT · ${
-                        spTopology?.buses.features.length ?? 0
-                      } SPs · ${ercotBuses.length} lit`}
-                </div>
-              </>
-            }
+            right={rightPane}
           />
           <DetailCard
             meta={meta}
@@ -559,7 +554,6 @@ export default function App() {
             showZones={showZones}
             onToggleZones={() => setShowZones((s) => !s)}
             tightClusterIds={tightClusterIds}
-            comparisonMode={comparisonMode}
           />
           <style>{`
             .pane-badge {
@@ -576,6 +570,25 @@ export default function App() {
               letter-spacing: 0.08em;
               text-transform: uppercase;
               pointer-events: none;
+            }
+            .pane-empty {
+              width: 100%;
+              height: 100%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(15, 18, 23, 0.4);
+            }
+            .pane-empty__msg {
+              padding: 6px 10px;
+              background: rgba(15, 18, 23, 0.85);
+              border: 1px solid var(--border);
+              border-radius: 3px;
+              color: var(--text-muted);
+              font-family: 'Barlow Condensed', sans-serif;
+              font-size: 11px;
+              letter-spacing: 0.06em;
+              text-transform: uppercase;
             }
           `}</style>
         </div>

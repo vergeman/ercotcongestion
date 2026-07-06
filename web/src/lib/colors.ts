@@ -174,138 +174,6 @@ export function lmpColor(norm: number): string {
 }
 
 // =============================================================================
-// Congestion-vs-basis rank view ("Δ Rank")
-// =============================================================================
-//
-// For each snapshot, rank every bus by signed modeled_congestion (ascending)
-// and by signed basis (ascending), normalize to [0, 1], and compute the
-// signed difference:
-//
-//   delta = pct_modeled_congestion − pct_basis
-//
-//   delta > 0  → model ranks this bus MORE congested than the market does
-//   delta < 0  → market ranks this bus MORE congested than the model does
-//   delta ≈ 0  → model and market agree on this bus's rank
-//
-// Both inputs signed (no abs) — an "export-side" bus in the model should
-// pair with a negative basis in the market; ranking them signed preserves
-// that agreement in the low-percentile band as well as the high.
-//
-// Buses missing either input are excluded from ranking and returned as null
-// (rendered neutral on the map).
-//
-// Per-snapshot, not window-wide — we want "where in *this* picture do model
-// and market disagree most," not a stable cross-frame anchor.
-
-// Convert an array of values into per-element percentile rank in [0, 1].
-// Ties get the average rank. Nulls are preserved as null in the output.
-function percentileRank(values: Array<number | null>): Array<number | null> {
-  const n = values.length;
-  // Collect (originalIndex, value) for non-null entries.
-  const indexed: Array<{ i: number; v: number }> = [];
-  for (let i = 0; i < n; i++) {
-    const v = values[i];
-    if (v != null && isFinite(v)) indexed.push({ i, v });
-  }
-  if (indexed.length === 0) return values.map(() => null);
-  if (indexed.length === 1) {
-    const out: Array<number | null> = values.map(() => null);
-    out[indexed[0].i] = 0.5;
-    return out;
-  }
-
-  // Sort by value ascending.
-  indexed.sort((a, b) => a.v - b.v);
-
-  // Assign average rank for ties.
-  const ranks = new Array<number>(indexed.length);
-  let i = 0;
-  while (i < indexed.length) {
-    let j = i;
-    while (j + 1 < indexed.length && indexed[j + 1].v === indexed[i].v) j++;
-    const avgRank = (i + j) / 2; // 0-based, average of run
-    for (let k = i; k <= j; k++) ranks[k] = avgRank;
-    i = j + 1;
-  }
-
-  // Normalize ranks to [0, 1] and place back into original positions.
-  const out: Array<number | null> = values.map(() => null);
-  const denom = indexed.length - 1;
-  for (let k = 0; k < indexed.length; k++) {
-    out[indexed[k].i] = ranks[k] / denom;
-  }
-  return out;
-}
-
-// Compute per-bus congestion-vs-basis rank delta for a single snapshot.
-// Returns a Map keyed by bus_id; missing entries (excluded buses) map to null.
-export function computeCongestionVsBasisRank(
-  buses: Array<{
-    bus_id: string;
-    modeled_congestion: number | null;
-    basis: number | null;
-  }>
-): Map<string, number | null> {
-  // Both signed — no abs(). See section header for the rationale.
-  const validMask = buses.map(
-    (b) => b.modeled_congestion != null && b.basis != null
-  );
-  const mcMasked: Array<number | null> = buses.map((b, i) =>
-    validMask[i] ? b.modeled_congestion : null
-  );
-  const basisMasked: Array<number | null> = buses.map((b, i) =>
-    validMask[i] ? b.basis : null
-  );
-
-  const mcPct = percentileRank(mcMasked);
-  const basisPct = percentileRank(basisMasked);
-
-  const out = new Map<string, number | null>();
-  for (let i = 0; i < buses.length; i++) {
-    const m = mcPct[i];
-    const b = basisPct[i];
-    if (m == null || b == null) {
-      out.set(buses[i].bus_id, null);
-    } else {
-      out.set(buses[i].bus_id, m - b); // ∈ [-1, 1]
-    }
-  }
-  return out;
-}
-
-// Diverging color: purple (−1, model under) → cream (0) → teal (+1, model over).
-// Anchors picked from the design palette (c-purple #7F77DD, c-teal #1D9E75)
-// with a light cream center distinct from the LMP cream.
-const DELTA_NEUTRAL_COLOR = "#1a4731"; // null/missing — dim green, no-signal read
-const DELTA_PURPLE = [127, 119, 221]; // −1
-const DELTA_CREAM = [232, 226, 215]; //  0
-const DELTA_TEAL = [29, 158, 117]; // +1
-
-// γ damping flattens the cream band so small disagreements stay neutral and
-// only meaningful rank gaps register as color.
-const DELTA_GAMMA = 1.6;
-
-// Map a rank delta in [−1, 1] to RGB.
-export function rankDeltaColor(delta: number | null): string {
-  if (delta == null) return DELTA_NEUTRAL_COLOR;
-  const sign = Math.sign(delta);
-  const mag = Math.min(1, Math.pow(Math.abs(delta), DELTA_GAMMA));
-  const target = sign < 0 ? DELTA_PURPLE : DELTA_TEAL;
-  const r = Math.round(DELTA_CREAM[0] + (target[0] - DELTA_CREAM[0]) * mag);
-  const g = Math.round(DELTA_CREAM[1] + (target[1] - DELTA_CREAM[1]) * mag);
-  const b = Math.round(DELTA_CREAM[2] + (target[2] - DELTA_CREAM[2]) * mag);
-  return `rgb(${r},${g},${b})`;
-}
-
-// Anchors exposed for the legend.
-export const DELTA_ANCHORS = {
-  purple: `rgb(${DELTA_PURPLE.join(",")})`,
-  cream: `rgb(${DELTA_CREAM.join(",")})`,
-  teal: `rgb(${DELTA_TEAL.join(",")})`,
-  gamma: DELTA_GAMMA,
-};
-
-// =============================================================================
 // Modeled congestion (diverging): signed Σ PTDF·μ per bus
 // =============================================================================
 //
@@ -314,14 +182,23 @@ export const DELTA_ANCHORS = {
 //   norm < 0  → export side, blue
 //   norm ≈ 0  → cream (no signal)
 //
-// Window-percentile anchors (mirrors LmpStats): p_high = percentile(|mc|, 0.99);
+// Window-percentile anchors (mirrors LmpStats): p_high = percentile(|mc|, 0.90);
 // p_low = −p_high so the palette is symmetric around zero. γ damping flattens
 // the cream band so noise near zero stays neutral. Rational tail beyond p_high
 // keeps outlier snapshots darkening without crushing the mid range.
 
-const MC_PCT_HIGH = 0.99;
-// γ > 1 flattens near zero; matches LMP_GAMMA for consistent visual weight.
-const MC_GAMMA = 1.8;
+// P90 (not P99) so the anchor is set by "typical binding hours," not by a
+// single scarcity event. On a multi-day window one $400+ mc value at P99
+// pushes normal-hour buses (|mc| = $30–$90) into the damped cream band.
+// P90 leaves the tail's darkest pixels for the outlier hours (they still
+// ride the rational tail past MC_CORE_END) while giving mid-range values
+// visible saturation.
+const MC_PCT_HIGH = 0.9;
+// γ closer to 1 keeps the sensitivity roughly linear from floor to anchor.
+// The old γ = 1.8 combined with a P99 anchor was doubly damping: it took
+// both the anchor stretch and a strong power curve on top, so a $36 bus
+// against a $400 P99 rendered near-cream.
+const MC_GAMMA = 1.2;
 // |mc| = p_high maps to |norm| = MC_CORE_END; the remaining [MC_CORE_END, 1]
 // band is the log-compressed tail for outliers.
 const MC_CORE_END = 0.9;
@@ -490,26 +367,3 @@ export function clusterColor(
   ];
 }
 
-// =============================================================================
-// Zone diff (S3.3, Diff mode)
-// =============================================================================
-//
-// Diverging palette on Δ = model_Z(t) − ercot_Z(t) per cluster. Anchor at
-// ±1.0 (Z-scores) — beyond that saturates. Center = green (agreement).
-
-export const ZONE_DIFF_ANCHOR = 1.0;
-const ZDIFF_CENTER = [110, 195, 130]; // green — agreement
-const ZDIFF_UNDER = [59, 130, 246]; // blue — model < ercot (under-predict)
-const ZDIFF_OVER = [239, 68, 68]; // red — model > ercot (over-predict)
-
-export function zoneDiffColor(delta: number | null | undefined): string {
-  if (delta == null || !isFinite(delta)) return CLUSTER_GRAY;
-  const t = Math.max(-1, Math.min(1, delta / ZONE_DIFF_ANCHOR));
-  if (t === 0) return `rgb(${ZDIFF_CENTER.join(",")})`;
-  const target = t > 0 ? ZDIFF_OVER : ZDIFF_UNDER;
-  const mag = Math.abs(t);
-  const r = Math.round(ZDIFF_CENTER[0] + (target[0] - ZDIFF_CENTER[0]) * mag);
-  const g = Math.round(ZDIFF_CENTER[1] + (target[1] - ZDIFF_CENTER[1]) * mag);
-  const b = Math.round(ZDIFF_CENTER[2] + (target[2] - ZDIFF_CENTER[2]) * mag);
-  return `rgb(${r},${g},${b})`;
-}

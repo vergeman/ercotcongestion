@@ -1,12 +1,18 @@
 import type {
+  ErcotSppRangeEntry,
   ErcotStateRangeEntry,
   StateRangeEntry,
   StateRangeResponse,
 } from "./types";
-import { fetchErcotStateRange, fetchStateRange } from "./client";
+import {
+  fetchErcotSppRange,
+  fetchErcotStateRange,
+  fetchStateRange,
+} from "./client";
 
 const cache = new Map<string, StateRangeEntry>();
 const ercotCache = new Map<string, ErcotStateRangeEntry>();
+const ercotSppCache = new Map<string, ErcotSppRangeEntry>();
 
 function cacheKey(ts: Date): string {
   return ts.toISOString();
@@ -28,20 +34,26 @@ export function getCached(ts: Date): StateRangeEntry | undefined {
   return cache.get(cacheKey(roundToInterval(ts)));
 }
 
-// S3.4 — same-cadence cache for the ERCOT side. `undefined` means either
-// the ERCOT artifact is missing (backend 503) or this hour wasn't in the
-// requested window. Consumers should render the model side regardless.
+// ERCOT congestion (SPP − system_λ) side. `undefined` means either the
+// backend has no artifact for this window (503) or this hour wasn't
+// requested. Consumers must fall back to rendering the model side alone.
 export function getErcotCached(ts: Date): ErcotStateRangeEntry | undefined {
   return ercotCache.get(cacheKey(roundToInterval(ts)));
+}
+
+// Raw DAM SPP side. Same soft-fail contract as `getErcotCached`.
+export function getErcotSppCached(ts: Date): ErcotSppRangeEntry | undefined {
+  return ercotSppCache.get(cacheKey(roundToInterval(ts)));
 }
 
 export async function prefetchWindow(
   start: Date,
   end: Date
 ): Promise<StateRangeResponse> {
-  const [modelData, ercotData] = await Promise.all([
+  const [modelData, ercotData, ercotSppData] = await Promise.all([
     fetchStateRange(start, end),
     fetchErcotStateRange(start, end),
+    fetchErcotSppRange(start, end),
   ]);
   for (const entry of modelData.entries) {
     const ts = roundToInterval(new Date(entry.interval_ts));
@@ -56,6 +68,12 @@ export async function prefetchWindow(
       if (!ercotCache.has(key)) ercotCache.set(key, entry);
     }
   }
+  if (ercotSppData) {
+    for (const entry of ercotSppData.entries) {
+      const ts = roundToInterval(new Date(entry.interval_ts));
+      ercotSppCache.set(cacheKey(ts), entry);
+    }
+  }
   return modelData;
 }
 
@@ -68,4 +86,5 @@ export function getAvailableTimestamps(): Date[] {
 export function clearCache(): void {
   cache.clear();
   ercotCache.clear();
+  ercotSppCache.clear();
 }

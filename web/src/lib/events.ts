@@ -66,11 +66,11 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     description:
       "Feb 19, 2005 — localized line stress at the Rabbit Hill corridor.",
     what_it_tests:
-      "Highest-signal localized stress test. Rank-difference view should agree with reality here if the model is doing anything useful.",
+      "Highest-signal localized stress test. ERCOT congestion should light up the same corridor as the modeled signal if the model is doing anything useful.",
     window_start: "2005-02-19T00:00:00Z",
     window_end: "2005-02-20T00:00:00Z",
     cursor_ts: "2005-02-19T15:00:00Z",
-    suggested_view: "congestion_vs_basis",
+    suggested_view: "modeled_congestion",
   },
   {
     id: "summer_stability_2005_may23",
@@ -82,7 +82,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2005-05-23T12:00:00Z",
     window_end: "2005-05-24T06:00:00Z",
     cursor_ts: "2005-05-23T21:00:00Z",
-    suggested_view: "congestion_vs_basis",
+    suggested_view: "modeled_congestion",
   },
 ];
 
