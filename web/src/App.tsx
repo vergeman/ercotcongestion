@@ -611,7 +611,6 @@ export default function App() {
             lmpStats={lmpStats}
             mcStats={mcStats}
             showZones={showZones}
-            onToggleZones={() => setShowZones((s) => !s)}
             tightClusterIds={tightClusterIds}
           />
           <style>{`
@@ -657,6 +656,8 @@ export default function App() {
           scorecard={scorecard}
           selectedClusterId={selectedClusterId}
           onSelectCluster={handleSelectCluster}
+          showZones={showZones}
+          onToggleZones={() => setShowZones((s) => !s)}
         />
       </div>
 
