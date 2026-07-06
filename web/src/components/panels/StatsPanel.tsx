@@ -7,6 +7,8 @@ interface Props {
   scorecard: ScorecardResponse | null;
   selectedClusterId: number | null;
   onSelectCluster: (id: number | null) => void;
+  showZones: boolean;
+  onToggleZones: () => void;
 }
 
 function Stat({
@@ -44,6 +46,8 @@ export default function StatsPanel({
   scorecard,
   selectedClusterId,
   onSelectCluster,
+  showZones,
+  onToggleZones,
 }: Props) {
   // Sort by corr desc, nulls last — this is the primary quality axis on the
   // scorecard, so a stable top-down ordering matches how a reader scans.
@@ -86,10 +90,7 @@ export default function StatsPanel({
               <span className="label">sign%</span>
               <span className="mono">
                 {scorecard.headline.mean_sign_agreement != null
-                  ? `${fmt(
-                      scorecard.headline.mean_sign_agreement * 100,
-                      0
-                    )}%`
+                  ? `${fmt(scorecard.headline.mean_sign_agreement * 100, 0)}%`
                   : "—"}
               </span>
             </div>
@@ -98,6 +99,13 @@ export default function StatsPanel({
               <span className="mono">{scorecard.headline.n_hours}</span>
             </div>
           </div>
+          <button
+            type="button"
+            className={"zones-toggle label" + (showZones ? " active" : "")}
+            onClick={onToggleZones}
+          >
+            {showZones ? "Toggle Zone Layers ✓" : "Toggle Zone Layers"}
+          </button>
           <div className="scorecard-rows">
             <div className="scorecard-row scorecard-row--head label">
               <span>zone</span>
@@ -121,13 +129,14 @@ export default function StatsPanel({
                 >
                   <span
                     className="scorecard-row__zone mono"
-                    style={{ ["--zone-color" as string]: clusterColor(
-                      z.cluster_id,
-                      tightSet
-                    ) }}
+                    style={{
+                      ["--zone-color" as string]: clusterColor(
+                        z.cluster_id,
+                        tightSet
+                      ),
+                    }}
                   >
-                    <span className="scorecard-row__swatch" />
-                    Z{z.cluster_id}
+                    <span className="scorecard-row__swatch" />Z{z.cluster_id}
                   </span>
                   <span className="mono">{z.n_buses}</span>
                   <span className="mono">{fmt(z.corr, 2)}</span>
@@ -136,9 +145,7 @@ export default function StatsPanel({
                       ? `${fmt(z.sign_agreement * 100, 0)}%`
                       : "—"}
                   </span>
-                  <span className="mono">
-                    {fmt(z.model_side_std, 2)}
-                  </span>
+                  <span className="mono">{fmt(z.model_side_std, 2)}</span>
                 </div>
               );
             })}
@@ -395,6 +402,27 @@ export default function StatsPanel({
         .panel-section__header {
           margin-bottom: 6px;
           color: var(--text-secondary);
+        }
+        .zones-toggle {
+          display: block;
+          width: 100%;
+          margin-bottom: 6px;
+          background: transparent;
+          color: var(--text-secondary);
+          border: 1px solid var(--border);
+          border-radius: 3px;
+          padding: 6px 10px;
+          font-family: 'Barlow Condensed', sans-serif;
+          font-weight: 600;
+          font-size: 12px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+        .zones-toggle:hover { color: var(--accent); }
+        .zones-toggle.active {
+          color: var(--accent);
+          border-color: var(--accent);
         }
         .panel-empty {
           color: var(--text-muted);
