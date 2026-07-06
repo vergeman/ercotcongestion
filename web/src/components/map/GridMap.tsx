@@ -636,8 +636,27 @@ export default function GridMap({
   // color mapping, so the two panes are directly comparable by eye.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !buses.length || !map.getSource("buses")) return;
+    if (!map || !map.getSource("buses")) return;
     if (showZones) return;
+
+    // No snapshot loaded yet: fall back to topology so a Zones-off toggle
+    // still clears the cluster-color feature state the Zones effect painted.
+    if (!buses.length) {
+      if (!topology) return;
+      const topo = topology as {
+        buses: GeoJSON.FeatureCollection<
+          GeoJSON.Point,
+          { bus_id: string }
+        >;
+      };
+      for (const feat of topo.buses.features) {
+        map.removeFeatureState(
+          { source: "buses", id: feat.properties.bus_id },
+          "color"
+        );
+      }
+      return;
+    }
 
     for (const bus of buses) {
       let color: string;
@@ -661,7 +680,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats, showZones, sourcesReady]);
+  }, [buses, viewMode, lmpStats, mcStats, showZones, topology, sourcesReady]);
 
   // Zones layer coloring — runs off `topology`, independent of the
   // per-timestamp `buses` snapshot so the tags render before any window is
