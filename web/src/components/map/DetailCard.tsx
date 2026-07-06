@@ -14,7 +14,7 @@ interface HoveredLine {
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
-  spState: { congestion: number | null } | null;
+  spState: { congestion: number | null; spp: number | null } | null;
 }
 
 interface Props {
@@ -115,6 +115,14 @@ function SpBody({ sp }: { sp: HoveredSp }) {
                 Math.abs(sp.spState.congestion),
                 2
               )}/MWh`
+            : null
+        }
+      />
+      <Row
+        label="DAM SPP"
+        value={
+          sp.spState && sp.spState.spp != null
+            ? `$${fmt(sp.spState.spp, 2)}/MWh`
             : null
         }
       />

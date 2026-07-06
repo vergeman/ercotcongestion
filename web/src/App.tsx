@@ -48,7 +48,7 @@ interface HoveredLine {
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
-  spState: { congestion: number | null } | null;
+  spState: { congestion: number | null; spp: number | null } | null;
 }
 
 // The right pane's ERCOT counterpart depends on the active palette.
@@ -460,9 +460,9 @@ export default function App() {
   // ERCOT pane SP interactions. GridMap fires `onBusHover(sp_id, props)` on
   // the right pane because SP features are aliased with `bus_id = sp_id`.
   const spStateFor = useCallback(
-    (spId: string): { congestion: number | null } | null => {
+    (spId: string): { congestion: number | null; spp: number | null } | null => {
       const row = ercotBuses.find((b) => b.bus_id === spId);
-      return row ? { congestion: row.modeled_congestion } : null;
+      return row ? { congestion: row.modeled_congestion, spp: row.lmp } : null;
     },
     [ercotBuses]
   );
@@ -492,7 +492,10 @@ export default function App() {
   useEffect(() => {
     if (!pinnedSp) return;
     const fresh = spStateFor(pinnedSp.spId);
-    if (fresh?.congestion !== pinnedSp.spState?.congestion) {
+    if (
+      fresh?.congestion !== pinnedSp.spState?.congestion ||
+      fresh?.spp !== pinnedSp.spState?.spp
+    ) {
       setPinnedSp({ ...pinnedSp, spState: fresh });
     }
   }, [ercotBuses]); // eslint-disable-line react-hooks/exhaustive-deps
