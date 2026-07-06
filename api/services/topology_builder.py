@@ -77,12 +77,13 @@ def build_topology() -> dict[str, Any]:
         bus_capacity = {}
 
     bus_cluster = _load_bus_cluster_labels()
+    sp_cluster, sp_corr = _load_sp_cluster_labels(bus_cluster)
 
     buses_fc = _buses_feature_collection(
         n, weather_lookup, load_lookup, bus_capacity, bus_cluster,
     )
     lines_fc = _lines_feature_collection(n)
-    sps_fc = _settlement_points_feature_collection()
+    sps_fc = _settlement_points_feature_collection(sp_cluster, sp_corr)
     zones_fc = _load_zone_polygons()
 
     return {
@@ -112,7 +113,51 @@ def _load_bus_cluster_labels() -> dict[str, int]:
         return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
 
 
-def _settlement_points_feature_collection() -> dict[str, Any]:
+def _load_sp_cluster_labels(
+    bus_cluster: dict[str, int],
+) -> tuple[dict[str, int], dict[str, float]]:
+    """Return ({sp_id: cluster_id}, {sp_id: best_corr}) via CM.1 mapping.
+
+    Joins `mapping_correlation_<run>.npz` (per-SP best_bus/best_corr) with
+    the model-side bus cluster labels: cluster[sp] = bus_cluster[best_bus[sp]].
+    SPs whose best_bus is absent from the labels dict are skipped. Soft-fails
+    to empty dicts when either input is missing — the frontend then treats
+    those SPs as unclustered.
+    """
+    import numpy as np
+
+    if not bus_cluster:
+        return {}, {}
+
+    mapping_path = (
+        f"{settings.compute_runs_dir}/{settings.active_run_id}/mapping/"
+        f"mapping_correlation_{settings.active_run_id}.npz"
+    )
+    if not os.path.exists(mapping_path):
+        log.warning(
+            "SP↔bus correlation mapping not found at %s; sp cluster_id will be null",
+            mapping_path,
+        )
+        return {}, {}
+
+    sp_cluster: dict[str, int] = {}
+    sp_corr: dict[str, float] = {}
+    with np.load(mapping_path, allow_pickle=False) as z:
+        for sp_id, best_bus, best_corr in zip(z['sp_id'], z['best_bus'], z['best_corr']):
+            sp = str(sp_id)
+            bus = str(best_bus)
+            cid = bus_cluster.get(bus)
+            if cid is None:
+                continue
+            sp_cluster[sp] = cid
+            sp_corr[sp] = float(best_corr)
+    return sp_cluster, sp_corr
+
+
+def _settlement_points_feature_collection(
+    sp_cluster: dict[str, int],
+    sp_corr: dict[str, float],
+) -> dict[str, Any]:
     """Return SP points as GeoJSON. Rows missing lat/lon are dropped."""
     try:
         df = pd.read_csv(settings.settlement_points_geocoded_csv)
@@ -132,6 +177,8 @@ def _settlement_points_feature_collection() -> dict[str, Any]:
             'properties': {
                 'sp_id': sp_id,
                 'sp_type': str(row.get('sp_type') or ''),
+                'cluster_id': sp_cluster.get(sp_id),
+                'best_corr': sp_corr.get(sp_id),
             },
         })
     return {'type': 'FeatureCollection', 'features': features}
@@ -160,13 +207,17 @@ def _cache_is_current(topo: dict[str, Any]) -> bool:
     """Detect stale caches from older schema revisions.
 
     A cache without `settlement_points` at top level, or bus features without
-    `cluster_id`, was written before 0048's S3.2/S3.4 schema. Rebuild instead
-    of silently serving a payload the frontend can't use.
+    `cluster_id`, was written before 0048's S3.2/S3.4 schema. A cache whose
+    SP features lack `cluster_id` predates 0059. Rebuild instead of silently
+    serving a payload the frontend can't use.
     """
     if 'settlement_points' not in topo:
         return False
     features = topo.get('buses', {}).get('features', [])
     if features and 'cluster_id' not in features[0].get('properties', {}):
+        return False
+    sp_features = topo.get('settlement_points', {}).get('features', [])
+    if sp_features and 'cluster_id' not in sp_features[0].get('properties', {}):
         return False
     return True
 
