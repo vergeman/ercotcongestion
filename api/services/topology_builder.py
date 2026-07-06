@@ -155,6 +155,21 @@ def _load_sp_cluster_labels(
     return sp_cluster, sp_corr
 
 
+def _sp_load_zone_from_name(sp_id: str) -> str | None:
+    """Best-effort load_zone from an SP name prefix.
+
+    `LZ_XXX` → load zone `XXX`; `HB_XXX` → hub `XXX_HUB`. Anything else
+    (OTHER, RN, generator resource names) returns None — no reliable
+    prefix mapping exists for those.
+    """
+    if sp_id.startswith('LZ_'):
+        return sp_id[len('LZ_'):].lower() or None
+    if sp_id.startswith('HB_'):
+        rest = sp_id[len('HB_'):]
+        return f"{rest.lower()}_hub" if rest else None
+    return None
+
+
 def _settlement_points_feature_collection(
     sp_cluster: dict[str, int],
     sp_corr: dict[str, float],
@@ -167,8 +182,12 @@ def _settlement_points_feature_collection(
         return {'type': 'FeatureCollection', 'features': []}
     df = df.dropna(subset=['lat', 'lon'])
     features = []
+    n_tagged = 0
     for _, row in df.iterrows():
         sp_id = str(row['settlement_point'])
+        load_zone = _sp_load_zone_from_name(sp_id)
+        if load_zone is not None:
+            n_tagged += 1
         features.append({
             'type': 'Feature',
             'geometry': {
@@ -178,10 +197,12 @@ def _settlement_points_feature_collection(
             'properties': {
                 'sp_id': sp_id,
                 'sp_type': str(row.get('sp_type') or ''),
+                'load_zone': load_zone,
                 'cluster_id': sp_cluster.get(sp_id),
                 'best_corr': sp_corr.get(sp_id),
             },
         })
+    log.info("SP load_zone tagged %d/%d via name prefix", n_tagged, len(features))
     return {'type': 'FeatureCollection', 'features': features}
 
 
@@ -209,8 +230,9 @@ def _cache_is_current(topo: dict[str, Any]) -> bool:
 
     A cache without `settlement_points` at top level, or bus features without
     `cluster_id`, was written before 0048's S3.2/S3.4 schema. A cache whose
-    SP features lack `cluster_id` predates 0059. Rebuild instead of silently
-    serving a payload the frontend can't use.
+    SP features lack `cluster_id` predates 0059. A cache whose SP features
+    lack `load_zone` predates 0057. Rebuild instead of silently serving a
+    payload the frontend can't use.
     """
     if 'settlement_points' not in topo:
         return False
@@ -219,6 +241,8 @@ def _cache_is_current(topo: dict[str, Any]) -> bool:
         return False
     sp_features = topo.get('settlement_points', {}).get('features', [])
     if sp_features and 'cluster_id' not in sp_features[0].get('properties', {}):
+        return False
+    if sp_features and 'load_zone' not in sp_features[0].get('properties', {}):
         return False
     return True
 
