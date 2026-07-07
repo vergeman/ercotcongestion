@@ -19,9 +19,10 @@ so persisting to a DB column would either overwrite prior sweeps or need
 every param in the primary key. Per-run on-disk keeps sweep results
 addressable without design lock-in.
 
-Usage::
+Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
-    python -m compute.implied_binding_proximity.runner \
+    docker compose run --rm compute \
+      python -m compute.implied_binding_proximity.runner \
         --run-id <id> \
         --start 2025-05-24 --end 2025-07-23 \
         [--window-days 60] [--refit-days 7]
