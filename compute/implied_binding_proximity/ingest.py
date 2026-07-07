@@ -10,9 +10,9 @@ persists in one step, sharing the same helpers in ``persist.py``.
 
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
-    docker compose run --rm compute \\
-      python -m compute.implied_binding_proximity.ingest \\
-        --run-id ibp_sweep_w60_r7_l0.01 \\
+    docker compose run --rm compute \
+      python -m compute.implied_binding_proximity.ingest \
+        --run-id ibp_sweep_w60_r7_l0.1_s100_h25 \
         [--layer ercot] [--promote]
 """
 from __future__ import annotations
@@ -55,11 +55,13 @@ def _load_npz(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--run-id", required=True)
-    p.add_argument("--layer", default=DEFAULT_LAYER,
-                   help=f"Map layer this run serves (default {DEFAULT_LAYER}).")
     p.add_argument("--promote", action="store_true",
-                   help="After a successful backfill, point "
-                        "implied_binding_proximity_current[layer] at this run_id.")
+                   help="Point implied_binding_proximity_current[--layer] at "
+                        "this run_id so the API starts serving it. Backfill "
+                        "always writes rows to the DB; --promote decides "
+                        "whether to also flip the served pointer.")
+    p.add_argument("--layer", default=DEFAULT_LAYER,
+                   help=f"Map layer --promote flips (default {DEFAULT_LAYER}).")
     p.add_argument("--runs-root", type=Path, default=RUNS_ROOT,
                    help=argparse.SUPPRESS)
     args = p.parse_args(argv)

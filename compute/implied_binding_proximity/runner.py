@@ -145,16 +145,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="Skip per-column standardization of M before the ridge "
                         "solve (default: on).")
     p.add_argument("--persist", action="store_true",
-                   help="After writing the npz, also insert the panel into "
-                        "implied_binding_proximity so the API can serve it. "
-                        "Off by default so sweeps stay on-disk-only.")
+                   help="Write the panel to implied_binding_proximity under "
+                        "this run_id. Makes the run available in the DB but "
+                        "does NOT change what the API serves.")
     p.add_argument("--promote", action="store_true",
-                   help="With --persist, also point "
-                        "implied_binding_proximity_current[--layer] at this "
-                        "run_id. No-op without --persist.")
+                   help="Point implied_binding_proximity_current[--layer] at "
+                        "this run_id so the API starts serving it. Requires "
+                        "--persist (no-op otherwise).")
     p.add_argument("--layer", default=DEFAULT_LAYER,
-                   help=f"Map layer this run serves when promoted "
-                        f"(default {DEFAULT_LAYER}).")
+                   help=f"Map layer --promote flips (default {DEFAULT_LAYER}).")
     args = p.parse_args(argv)
 
     logging.basicConfig(

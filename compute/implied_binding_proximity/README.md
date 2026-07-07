@@ -54,9 +54,9 @@ range, walks the rolling window, and writes results under
 | `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
-| `--persist` | (off) | After writing the npz, also insert the panel into `implied_binding_proximity` under this `run_id` so the API can serve it. Off by default so sweeps stay on-disk-only. |
-| `--promote` | (off) | With `--persist`, point `implied_binding_proximity_current[--layer]` at this `run_id` so the API starts serving it. No-op without `--persist`. |
-| `--layer` | `ercot` | Map layer this run serves when promoted. |
+| `--persist` | (off) | Write the panel to `implied_binding_proximity` under this `run_id`. Makes the run **available** in the DB. Does not change what the API serves. |
+| `--promote` | (off) | Point `implied_binding_proximity_current[--layer]` at this `run_id`. Makes the run **served** by the API. Requires `--persist` (no-op otherwise). |
+| `--layer` | `ercot` | Map layer `--promote` flips. |
 
 ### DB persistence
 
@@ -179,3 +179,22 @@ The progression:
 
 Net: the defaults now write into `fit.py` as `MIN_BINDING_HOURS = 25`,
 `RIDGE_LAMBDA = 1e-1`, `STD_FLOOR = 100.0` reflect these findings.
+
+### Corresponding sweep run
+
+The calibrated combo lives on disk under
+`compute/runs/ibp_sweep_w60_r7_l0.1_s100_h25/` — that's the sweep run_id
+encoding the values in the "full year" row (window=60, refit=7, λ=1e-1,
+std_floor=100, min_binding_hours=25). A plain `runner.py --run-id <name>`
+with no knob overrides reproduces the same panel under `<name>` since
+these are the module defaults. See
+[`compute/runs/README.md`](../runs/README.md#sweep-run_id-naming) for the
+full naming convention.
+
+To persist this run to the API-served table:
+
+```bash
+docker compose run --rm compute \
+  python -m compute.implied_binding_proximity.ingest \
+    --run-id ibp_sweep_w60_r7_l0.1_s100_h25 --promote
+```
