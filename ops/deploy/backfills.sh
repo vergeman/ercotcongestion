@@ -20,9 +20,13 @@ run_job() {
   # kubectl -n "$NS" delete job "$job_name" --ignore-not-found
 
   echo "==> Applying $manifest"
-  # Limit envsubst to ${IMAGE_REPO}; otherwise it eats shell vars ($START, $ep, …)
-  # inside container command blocks before kubectl ever sees them.
-  envsubst '${IMAGE_REPO}' < "jobs/$manifest" | kubectl apply -f -
+  export IMAGE_TAG="$(cat ../../.image-tag)"
+  : "${IMAGE_REPO:?IMAGE_REPO not set}"
+  : "${IMAGE_TAG:?IMAGE_TAG not set (../../.image-tag empty?)}"
+
+  # Limit envsubst to ${IMAGE_REPO} ${IMAGE_TAG}; otherwise it eats shell vars
+  # ($START, $ep, …) inside container command blocks before kubectl ever sees them.
+  envsubst '${IMAGE_REPO} ${IMAGE_TAG}' < "jobs/$manifest" | kubectl apply -f -
 
   echo "==> Tailing logs for $job_name (will block until job finishes)"
   kubectl -n "$NS" wait --for=condition=ready --timeout=300s pod -l job-name="$job_name" || true
