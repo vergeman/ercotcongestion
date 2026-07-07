@@ -163,10 +163,16 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     log.info("M=%s, C=%s", M.shape, C.shape)
 
+    # Panel index is tz-aware (Postgres TIMESTAMPTZ); match tz on all
+    # boundary comparisons so we don't hit naive-vs-aware TypeErrors.
+    panel_tz = M.index.tz if hasattr(M.index, "tz") else None
+    start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
+    end_ts = datetime.combine(end, datetime.min.time()).replace(tzinfo=panel_tz)
+
     def on_refit(window: RefitWindow) -> None:
         # Skip diagnostic emission for refit boundaries whose score period
         # falls entirely outside the requested range.
-        if window.score_end <= datetime.combine(start, datetime.min.time()):
+        if window.score_end <= start_ts:
             return
         _write_diagnostics(out_dir, args.run_id, window, args.min_binding_hours)
         r2 = refit_diagnostics(
@@ -194,8 +200,6 @@ def main(argv: list[str] | None = None) -> int:
     # Trim to the requested [start, end) — the read window pulled extra
     # trailing history to warm up the first refit.
     if not bp.empty:
-        start_ts = datetime.combine(start, datetime.min.time())
-        end_ts = datetime.combine(end, datetime.min.time())
         bp = bp.loc[(bp.index >= start_ts) & (bp.index < end_ts)]
 
     if bp.empty:
@@ -203,23 +207,26 @@ def main(argv: list[str] | None = None) -> int:
         return 4
 
     out_path = out_dir / "bp_ercot.npz"
+    # savez_compressed auto-appends .npz if missing, which confuses an
+    # atomic .tmp swap; open the tmp file explicitly so it lands where we say.
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-    np.savez_compressed(
-        tmp,
-        hours=np.array([ts.isoformat() for ts in bp.index], dtype=str),
-        settlement_points=np.array(bp.columns.astype(str), dtype=str),
-        bp_ercot=bp.to_numpy(dtype=float),
-        params=np.array(json.dumps({
-            "window_days": args.window_days,
-            "refit_days": args.refit_days,
-            "min_binding_hours": args.min_binding_hours,
-            "ridge_lambda": args.ridge_lambda,
-            "ref_method": args.ref_method,
-            "standardize": bool(args.standardize),
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-        }), dtype=str),
-    )
+    with open(tmp, "wb") as f:
+        np.savez_compressed(
+            f,
+            hours=np.array([ts.isoformat() for ts in bp.index], dtype=str),
+            settlement_points=np.array(bp.columns.astype(str), dtype=str),
+            bp_ercot=bp.to_numpy(dtype=float),
+            params=np.array(json.dumps({
+                "window_days": args.window_days,
+                "refit_days": args.refit_days,
+                "min_binding_hours": args.min_binding_hours,
+                "ridge_lambda": args.ridge_lambda,
+                "ref_method": args.ref_method,
+                "standardize": bool(args.standardize),
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            }), dtype=str),
+        )
     tmp.replace(out_path)
     log.info(
         "wrote %s: hours=%d SPs=%d", out_path, bp.shape[0], bp.shape[1],
