@@ -1,0 +1,93 @@
+"""Shared helpers to persist a bp_ercot panel into Postgres.
+
+Two callers:
+
+* ``runner.py`` — the normal path. After writing ``bp_ercot.npz`` it calls
+  these helpers directly so a single invocation fits, writes the npz, and
+  updates the DB in one step.
+* ``ingest.py`` — the backfill path for an npz already on disk (an older
+  run, a run copied off a sweep host, etc.).
+
+Both paths converge on the same row-writing routine so the DB view is
+consistent regardless of how the panel got there.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Iterable
+
+import numpy as np
+
+log = logging.getLogger("compute.implied_binding_proximity.persist")
+
+REQUIRED_REF_METHOD = "system_lambda"
+DEFAULT_LAYER = "ercot"
+
+
+def check_ref_method(ref_method: str | None) -> None:
+    """Guard against persisting a run fit against a non-distributed-slack ref.
+
+    bp_ercot only makes sense to serve when the fit used ``system_lambda``
+    (or another distributed-slack ref). Other refs would produce values
+    that aren't comparable to what the API expects.
+    """
+    if ref_method != REQUIRED_REF_METHOD:
+        raise ValueError(
+            f"refusing to persist run with ref_method={ref_method!r} "
+            f"(required {REQUIRED_REF_METHOD!r}). Only distributed-slack "
+            f"fits are DB-compatible."
+        )
+
+
+def delete_run(conn, run_id: str) -> int:
+    """Clear any prior rows for ``run_id``. Makes re-persistence idempotent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM implied_binding_proximity WHERE run_id = %s",
+            (run_id,),
+        )
+        return cur.rowcount
+
+
+def copy_bp_rows(
+    conn,
+    run_id: str,
+    hours: Iterable,
+    settlement_points: Iterable,
+    bp: np.ndarray,
+) -> int:
+    """Stream the unpivoted (ts, sp, bp, run_id) grid via ``COPY FROM STDIN``.
+
+    Skips non-finite entries — bp_ercot can carry NaN where a refit window
+    didn't cover a settlement point, and ``bp REAL NOT NULL`` would reject
+    them.
+    """
+    hours_iso = [str(h) for h in hours]
+    sps_str = [str(s) for s in settlement_points]
+    sql = (
+        "COPY implied_binding_proximity "
+        "(ts, settlement_point, bp, run_id) FROM STDIN"
+    )
+    n_rows = 0
+    with conn.cursor() as cur, cur.copy(sql) as cp:
+        for i, ts in enumerate(hours_iso):
+            row = bp[i]
+            for j, sp in enumerate(sps_str):
+                v = float(row[j])
+                if not np.isfinite(v):
+                    continue
+                cp.write_row((ts, sp, v, run_id))
+                n_rows += 1
+    return n_rows
+
+
+def set_current_pointer(conn, layer: str, run_id: str) -> None:
+    """Upsert ``implied_binding_proximity_current[layer] = run_id``."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO implied_binding_proximity_current "
+            "(layer, run_id) VALUES (%s, %s) "
+            "ON CONFLICT (layer) DO UPDATE "
+            "SET run_id = EXCLUDED.run_id, promoted_at = now()",
+            (layer, run_id),
+        )

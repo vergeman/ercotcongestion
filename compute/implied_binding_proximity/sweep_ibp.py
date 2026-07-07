@@ -12,7 +12,7 @@ Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
     docker compose run --rm compute \\
       python -m compute.implied_binding_proximity.sweep_ibp \\
-        --start 2025-01-01 --end 2025-07-01 \\
+        --start 2025-01-01 --end 2025-12-31 \\
         [--window-days 60] [--refit-days 7,14] [--ridge-lambda 1e-3,1e-2,1e-1] \\
         [--out /compute/implied_binding_proximity/ibp_sweep_summary.csv]
 """
