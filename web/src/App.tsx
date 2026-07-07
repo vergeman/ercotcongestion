@@ -205,10 +205,15 @@ export default function App() {
   // rewires the sync from scratch. Also kicks MapLibre to resize since
   // the container might have changed dimensions.
   const rightKind = rightPaneFor(viewMode);
+  // BP falls back to the empty placeholder only after a window load has
+  // actually confirmed no run is promoted. Before load, we mirror
+  // MC/LMP: render the topology so operators see the SP layout while
+  // they pick a window.
+  const bpUnavailable = timestamps.length > 0 && bpRunId == null;
   const rightHasMap =
     rightKind === "ercot_congestion" ||
     rightKind === "ercot_spp" ||
-    (rightKind === "ercot_bp" && bpRunId != null);
+    (rightKind === "ercot_bp" && !bpUnavailable);
   useEffect(() => {
     if (!rightHasMap) {
       teardownSyncRef.current?.();
@@ -571,7 +576,7 @@ export default function App() {
         </div>
       );
     }
-    if (rightKind === "ercot_bp" && bpRunId == null) {
+    if (rightKind === "ercot_bp" && bpUnavailable) {
       return (
         <div className="pane-empty">
           <div className="pane-empty__msg">
@@ -603,7 +608,7 @@ export default function App() {
     const featCount = spTopology?.buses.features.length ?? 0;
     const badge = spTopologyEmpty
       ? "ERCOT · no SPs (rebuild topology cache)"
-      : rightKind === "ercot_bp"
+      : rightKind === "ercot_bp" && bpRunId
       ? `ERCOT · ${featCount} SPs · ${litCount} lit · ${bpRunId}`
       : `ERCOT · ${featCount} SPs · ${litCount} lit`;
     return (
