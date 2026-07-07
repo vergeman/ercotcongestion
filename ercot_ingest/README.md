@@ -1,9 +1,9 @@
 # ERCOT Data
 
 * API: https://developer.ercot.com/applications/pubapi/relnotes/
-* NP6-86-CD — SCED Shadow Prices and Binding Transmission Constraints
-  * https://www.ercot.com/mp/data-products/data-product-details?id=NP6-86-CD
-  * API Shadow Prices 5-min Increments: /np6-86-cd/shdw_prices_bnd_trns_const
+* NP4-191-CD — DAM Binding/Active Constraint Shadow Prices
+  * https://www.ercot.com/mp/data-products/data-product-details?id=NP4-191-CD
+  * API DAM Shadow Prices (hourly): /np4-191-cd/dam_shadow_prices
 
 * NP3-233-CD — Hourly Resource Outage Capacity
   * https://www.ercot.com/mp/data-products/data-product-details?id=NP3-233-CD
@@ -39,7 +39,7 @@
 | load_forecast         |            | hourly           |
 | wind/solar            |            | hourly           |
 | outage                |            | hourly           |
-| shadow                | np6-86-cd  | hourly           |
+| dam_shadow            | np4-191-cd | 1 day            |
 | actual_load           |            | daily            |
 | spp zonal (lmp zonal) | np6-905-cd | 15 min           |
 
@@ -59,7 +59,7 @@
 
 | Report             | Republish                 | Loader                        |
 |--------------------|---------------------------|-------------------------------|
-| Shadow Prices SCED | No (new pub every 5min)   | DO NOTHING                    |
+| DAM Shadow Prices  | No (one publish per DAM)  | Upsert (numerics)             |
 | Load by Zone       | No                        | DO NOTHING                    |
 | Outages Zonal      | Yes (revised outage list) | DO NOTHING - See Key*         |
 | Wind Regional      | Yes (revised forecast)    | Upsert to most recent dataset |

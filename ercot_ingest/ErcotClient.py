@@ -1,5 +1,5 @@
 """
-Ingest 1 hour of NP6-86-CD + NP3-233-CD into Postgres.
+Ingest a recent window of ERCOT public reports into Postgres.
 Idempotent: re-running same window inserts zero new rows.
 """
 import os
@@ -18,10 +18,10 @@ from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
 from loaders import (ERCOT_TZ,
-                     load_shadow_prices, load_outages,
-                     load_dam_spp, load_dam_lambda, load_rt_lmp,
-                     load_sced_lambda, load_load_forecast,
-                     print_top_shadow_prices, print_recent_outages)
+                     load_outages,
+                     load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
+                     load_rt_lmp, load_sced_lambda, load_load_forecast,
+                     print_recent_outages)
 
 load_dotenv()
 
@@ -177,18 +177,6 @@ def main():
     print(f"  {len(zonal_lmp)} rows")
 
     #
-    # Shadow
-    #
-
-    print("\nFetching NP6-86-CD…")
-    shadow = client.get(
-        "/np6-86-cd/shdw_prices_bnd_trns_const",
-        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
-    )
-    print(f"  {len(shadow)} rows")
-
-
-    #
     # Outages
     #
 
@@ -209,6 +197,17 @@ def main():
         deliveryDateFrom=date_from, deliveryDateTo=date_to,
     )
     print(f"  {len(dam_spp)} rows")
+
+    #
+    # DAM Shadow Prices
+    #
+
+    print("\nFetching NP4-191-CD…")
+    dam_shadow = client.get(
+        "/np4-191-cd/dam_shadow_prices",
+        deliveryDateFrom=date_from, deliveryDateTo=date_to,
+    )
+    print(f"  {len(dam_shadow)} rows")
 
     #
     # DAM System Lambda
@@ -261,24 +260,23 @@ def main():
 
     print("\nWriting to Postgres…")
     with psycopg.connect(PG_DSN) as conn:
-        n_shadow = load_shadow_prices(conn, shadow)
         n_outages = load_outages(conn, outages)
         n_dam_spp = load_dam_spp(conn, dam_spp)
+        n_dam_shadow = load_dam_shadow_prices(conn, dam_shadow)
         n_dam_lambda = load_dam_lambda(conn, dam_lambda)
         n_rt_lmp = load_rt_lmp(conn, rt_lmp)
         n_sced_lambda = load_sced_lambda(conn, sced_lambda)
         n_load_fcst = load_load_forecast(conn, load_fcst)
         conn.commit()
-        print(f"  shadow_prices:       {n_shadow} inserted")
-        print(f"  outages_zonal:       {n_outages} inserted")
-        print(f"  ercot_dam_spp:       {n_dam_spp} inserted")
-        print(f"  dam_system_lambda:   {n_dam_lambda} inserted")
-        print(f"  ercot_rt_lmp:        {n_rt_lmp} inserted")
-        print(f"  sced_system_lambda:  {n_sced_lambda} inserted")
-        print(f"  load_forecast_zonal: {n_load_fcst} inserted")
+        print(f"  outages_zonal:            {n_outages} inserted")
+        print(f"  ercot_dam_spp:            {n_dam_spp} inserted")
+        print(f"  ercot_dam_shadow_prices:  {n_dam_shadow} inserted")
+        print(f"  dam_system_lambda:        {n_dam_lambda} inserted")
+        print(f"  ercot_rt_lmp:             {n_rt_lmp} inserted")
+        print(f"  sced_system_lambda:       {n_sced_lambda} inserted")
+        print(f"  load_forecast_zonal:      {n_load_fcst} inserted")
 
         print("\n--- Verification queries ---")
-        print_top_shadow_prices(conn, iso_from, iso_to)
         print_recent_outages(conn, iso_from, iso_to)
 
 if __name__ == "__main__":
