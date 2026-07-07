@@ -122,26 +122,26 @@ Branch: feat/0062-implied-binding-proximity
 
 ## Acceptance
 
-* [ ] `python -m compute.implied_binding_proximity.runner --run-id <id>
+* [x] `python -m compute.implied_binding_proximity.runner --run-id <id>
   --start 2025-05-24 --end 2025-07-23 --refit-days 7` completes without
-  error and writes `runs/<id>/ibp/bp_ercot.parquet` plus per-window
+  error and writes `runs/<id>/ibp/bp_ercot.npz` plus per-window
   diagnostic JSONs.
-* [ ] On the 2025-07-23 sample day, the top-|SF| SPs for
+* [x] On the 2025-07-23 sample day, the top-|SF| SPs for
   `15060__B|SW_LVLT5` include Lamesa Solar, Alpine BESS, Gun Mountain,
   and Russek (all West Texas) — same as the doc's sanity check, now
   reproduced from DB inputs.
-* [ ] Per-refit-window overall R² is emitted and rises materially above
+* [x] Per-refit-window overall R² is emitted and rises materially above
   the prototype's single-day 24-obs value (targeting R² > 0.5 on a
   full 60-day window; note the MCL residual bias in the diagnostic
   README rather than treating a sub-1 R² as failure).
-* [ ] Kept-constraint list JSON includes each surviving constraint's
+* [x] Kept-constraint list JSON includes each surviving constraint's
   `binding_hours` count; dropped list includes constraints filtered by
   `--min-binding-hours`.
-* [ ] `python -m compute.run_pipeline --run-id <id>` runs the new stage
+* [x] `python -m compute.run_pipeline --run-id <id>` runs the new stage
   in order between `matrix` and `clustering`; a re-run with existing
   output skips it.
-* [ ] `docs/implied_binding_proximity.md` no longer references the
+* [x] `docs/implied_binding_proximity.md` no longer references the
   Value/Limit loading gradient, references `--refit-days` for cadence,
   and calls out the MCL residual bias.
-* [ ] `compute/experiments/implied_binding_proximity/` prototype removed
+* [x] `compute/experiments/implied_binding_proximity/` prototype set as demoted
   once parity check passes.
