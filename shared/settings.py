@@ -36,7 +36,7 @@ class Settings:
     # to the frontend. The scorecard endpoint takes run_id/algo/k as query
     # params, but topology bakes the bus↔cluster join into the cached GeoJSON.
     compute_runs_dir:      str  = os.environ.get('COMPUTE_RUNS_DIR', '/compute/runs')
-    active_run_id:         str  = os.environ.get('ACTIVE_RUN_ID', 'v1-120')
+    active_run_id:         str  = os.environ.get('ACTIVE_RUN_ID', 'v1-annual')
     active_cluster_algo:   str  = os.environ.get('ACTIVE_CLUSTER_ALGO', 'system_lambda_merit_order_hierarchical_on_beta')
     active_cluster_k:      int  = int(os.environ.get('ACTIVE_CLUSTER_K', '6'))
     # ERCOT-side congestion matrix key prefix inside congestion_matrices.npz.

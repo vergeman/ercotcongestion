@@ -42,7 +42,6 @@ spec:
   containers:
     - name: compute
       image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
-      imagePullPolicy: Always
       command: ["sleep", "infinity"]
       envFrom:
         - configMapRef:
