@@ -13,6 +13,8 @@ import {
   getCached,
   getErcotCached,
   getErcotSppCached,
+  getIbpErcotCached,
+  getIbpPromotedRunId,
   getAvailableTimestamps,
 } from "./api/prefetch";
 import {
@@ -48,15 +50,26 @@ interface HoveredLine {
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
-  spState: { congestion: number | null; spp: number | null } | null;
+  spState: {
+    congestion: number | null;
+    spp: number | null;
+    bp: number | null;
+  } | null;
 }
 
 // The right pane's ERCOT counterpart depends on the active palette.
-// Kept as a helper so the render tree below stays declarative.
-type RightPaneKind = "ercot_congestion" | "ercot_spp" | "empty";
+// Kept as a helper so the render tree below stays declarative. `ercot_bp`
+// is picked when the BP palette is active AND a bp_ercot run is promoted;
+// otherwise BP falls through to the empty placeholder.
+type RightPaneKind =
+  | "ercot_congestion"
+  | "ercot_spp"
+  | "ercot_bp"
+  | "empty";
 function rightPaneFor(vm: ViewMode): RightPaneKind {
   if (vm === "modeled_congestion") return "ercot_congestion";
   if (vm === "lmp") return "ercot_spp";
+  if (vm === "binding_proximity") return "ercot_bp";
   return "empty";
 }
 
@@ -77,6 +90,10 @@ export default function App() {
   const [pinnedLine, setPinnedLine] = useState<HoveredLine | null>(null);
   const [hoveredSp, setHoveredSp] = useState<HoveredSp | null>(null);
   const [pinnedSp, setPinnedSp] = useState<HoveredSp | null>(null);
+  // Which bp_ercot run painted the currently-loaded window, or null if
+  // no run is promoted. Read by the right-pane teardown effect (so the
+  // camera sync drops when BP has no run) and by the render branch.
+  const [bpRunId, setBpRunId] = useState<string | null>(null);
 
   // Zone scorecard — loaded once per run. Selection is lifted here so the
   // GridMap can highlight members and the StatsPanel row can show selected.
@@ -183,12 +200,17 @@ export default function App() {
     },
     [rearmSync]
   );
-  // Right pane can unmount (binding_proximity has no counterpart). Drop the
-  // stale ref so a later remount rewires the sync from scratch. Also kicks
-  // MapLibre to resize since the container might have changed dimensions.
+  // Right pane can unmount (BP kind with no promoted run also falls back
+  // to the empty placeholder). Drop the stale ref so a later remount
+  // rewires the sync from scratch. Also kicks MapLibre to resize since
+  // the container might have changed dimensions.
   const rightKind = rightPaneFor(viewMode);
+  const rightHasMap =
+    rightKind === "ercot_congestion" ||
+    rightKind === "ercot_spp" ||
+    (rightKind === "ercot_bp" && bpRunId != null);
   useEffect(() => {
-    if (rightKind === "empty") {
+    if (!rightHasMap) {
       teardownSyncRef.current?.();
       teardownSyncRef.current = null;
       rightMapRef.current = null;
@@ -198,7 +220,7 @@ export default function App() {
       rightMapRef.current?.resize();
     });
     return () => cancelAnimationFrame(r);
-  }, [rightKind]);
+  }, [rightHasMap]);
 
   // Window-wide LMP stats. Computed once on window load and reused for
   // every frame so coloring is stable across playback.
@@ -213,8 +235,9 @@ export default function App() {
   // Window-wide stats for the raw ERCOT SPP side (LMP palette family).
   const [ercotSppStats, setErcotSppStats] = useState<LmpStats | null>(null);
   // Per-current-snapshot ERCOT rows in BusState shape (bus_id = sp_id).
-  // MC branch reads `modeled_congestion`; LMP branch reads `lmp`. Both are
-  // populated when the corresponding cache has data for the current hour.
+  // MC branch reads `modeled_congestion`; LMP branch reads `lmp`; BP
+  // branch reads `binding_proximity`. All three are populated when the
+  // corresponding cache has data for the current hour.
   const [ercotBuses, setErcotBuses] = useState<BusState[]>([]);
   // Per-timestamp series for the timeline sparkline
   // (modeled_congestion_abs_total + n_binding_lines). Aligned 1:1 with
@@ -256,9 +279,11 @@ export default function App() {
     }
     const ercotEntry = getErcotCached(ts);
     const sppEntry = getErcotSppCached(ts);
-    if (ercotEntry || sppEntry) {
-      // Union of SP ids across both caches, so an SP that appears in only
-      // one still shows up on the map (colored per whichever field is set).
+    const bpEntry = getIbpErcotCached(ts);
+    if (ercotEntry || sppEntry || bpEntry) {
+      // Union of SP ids across all three caches, so an SP that appears in
+      // only one still shows up on the map (colored per whichever field
+      // is set for the active palette).
       const byId = new Map<string, BusState>();
       for (const s of ercotEntry?.sps ?? []) {
         byId.set(s.sp_id, {
@@ -279,6 +304,20 @@ export default function App() {
             modeled_congestion: null,
             binding_proximity: null,
             lmp: s.spp,
+            basis: null,
+          });
+        }
+      }
+      for (const s of bpEntry?.sps ?? []) {
+        const cur = byId.get(s.sp_id);
+        if (cur) {
+          cur.binding_proximity = s.bp;
+        } else {
+          byId.set(s.sp_id, {
+            bus_id: s.sp_id,
+            modeled_congestion: null,
+            binding_proximity: s.bp,
+            lmp: null,
             basis: null,
           });
         }
@@ -326,6 +365,9 @@ export default function App() {
             allErcot.length ? computeModeledCongestionStats(allErcot) : null
           );
           setErcotSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
+          // Prefetch has finished; the promoted bp_ercot run id (if any)
+          // is now stable for the window and drives the right-pane badge.
+          setBpRunId(getIbpPromotedRunId());
 
           // Build sparkline series — one point per timestamp, in the same order.
           // We walk `ts` and pull from the cached entries via interval_ts to
@@ -460,9 +502,21 @@ export default function App() {
   // ERCOT pane SP interactions. GridMap fires `onBusHover(sp_id, props)` on
   // the right pane because SP features are aliased with `bus_id = sp_id`.
   const spStateFor = useCallback(
-    (spId: string): { congestion: number | null; spp: number | null } | null => {
+    (
+      spId: string
+    ): {
+      congestion: number | null;
+      spp: number | null;
+      bp: number | null;
+    } | null => {
       const row = ercotBuses.find((b) => b.bus_id === spId);
-      return row ? { congestion: row.modeled_congestion, spp: row.lmp } : null;
+      return row
+        ? {
+            congestion: row.modeled_congestion,
+            spp: row.lmp,
+            bp: row.binding_proximity,
+          }
+        : null;
     },
     [ercotBuses]
   );
@@ -494,7 +548,8 @@ export default function App() {
     const fresh = spStateFor(pinnedSp.spId);
     if (
       fresh?.congestion !== pinnedSp.spState?.congestion ||
-      fresh?.spp !== pinnedSp.spState?.spp
+      fresh?.spp !== pinnedSp.spState?.spp ||
+      fresh?.bp !== pinnedSp.spState?.bp
     ) {
       setPinnedSp({ ...pinnedSp, spState: fresh });
     }
@@ -503,7 +558,9 @@ export default function App() {
   // Right pane content per active palette:
   //   MC   → SP topology colored by SPP − system_λ
   //   LMP  → SP topology colored by raw SPP
-  //   BP   → empty placeholder (ERCOT has no comparable signal)
+  //   BP   → SP topology colored by promoted bp_ercot (or a placeholder
+  //          if no run is promoted yet — signals ingestion state, not
+  //          modeling gap)
   const rightPane = (() => {
     if (rightKind === "empty") {
       return (
@@ -514,18 +571,50 @@ export default function App() {
         </div>
       );
     }
+    if (rightKind === "ercot_bp" && bpRunId == null) {
+      return (
+        <div className="pane-empty">
+          <div className="pane-empty__msg">
+            ERCOT · no bp_ercot run promoted yet
+          </div>
+        </div>
+      );
+    }
+    // Right-pane viewMode + stats vary by kind; centralize the mapping
+    // so both GridMap and Legend read the same values.
+    const rightViewMode: ViewMode =
+      rightKind === "ercot_spp"
+        ? "lmp"
+        : rightKind === "ercot_bp"
+        ? "binding_proximity"
+        : "modeled_congestion";
+    const rightLmpStats = rightKind === "ercot_spp" ? ercotSppStats : null;
+    const rightMcStats =
+      rightKind === "ercot_congestion" ? ercotMcStats : null;
+    // Count of SPs actually lit by the active field, so the badge tells
+    // the operator how much of the topology is painted this hour.
+    const litCount = ercotBuses.filter((b) =>
+      rightKind === "ercot_spp"
+        ? b.lmp != null
+        : rightKind === "ercot_bp"
+        ? b.binding_proximity != null
+        : b.modeled_congestion != null
+    ).length;
+    const featCount = spTopology?.buses.features.length ?? 0;
     const badge = spTopologyEmpty
       ? "ERCOT · no SPs (rebuild topology cache)"
-      : `ERCOT · ${spTopology?.buses.features.length ?? 0} SPs · ${ercotBuses.length} lit`;
+      : rightKind === "ercot_bp"
+      ? `ERCOT · ${featCount} SPs · ${litCount} lit · ${bpRunId}`
+      : `ERCOT · ${featCount} SPs · ${litCount} lit`;
     return (
       <>
         <GridMap
           topology={spTopology}
           buses={ercotBuses}
           meta={null}
-          viewMode={rightKind === "ercot_spp" ? "lmp" : "modeled_congestion"}
-          lmpStats={rightKind === "ercot_spp" ? ercotSppStats : null}
-          mcStats={rightKind === "ercot_congestion" ? ercotMcStats : null}
+          viewMode={rightViewMode}
+          lmpStats={rightLmpStats}
+          mcStats={rightMcStats}
           onBusHover={handleSpHover}
           onLineHover={() => {}}
           onBusClick={handleSpClick}
@@ -541,10 +630,10 @@ export default function App() {
         />
         <div className="pane-badge">{badge}</div>
         <Legend
-          viewMode={rightKind === "ercot_spp" ? "lmp" : "modeled_congestion"}
+          viewMode={rightViewMode}
           buses={ercotBuses}
-          lmpStats={rightKind === "ercot_spp" ? ercotSppStats : null}
-          mcStats={rightKind === "ercot_congestion" ? ercotMcStats : null}
+          lmpStats={rightLmpStats}
+          mcStats={rightMcStats}
           showZones={false}
           tightClusterIds={tightClusterIds}
           variant="palette-only"
