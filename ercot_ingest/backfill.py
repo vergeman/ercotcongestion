@@ -23,8 +23,8 @@ from ErcotClient import ErcotClient, PG_DSN
 from loaders import (ERCOT_TZ,
                      load_zonal_lmp, load_shadow_prices, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
-                     load_dam_spp, load_dam_lambda, load_rt_lmp,
-                     load_sced_lambda, load_load_forecast)
+                     load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
+                     load_rt_lmp, load_sced_lambda, load_load_forecast)
 
 
 ENDPOINTS = {
@@ -74,6 +74,13 @@ ENDPOINTS = {
     "dam_spp": {
         "path": "/np4-190-cd/dam_stlmnt_pnt_prices",
         "loader": load_dam_spp,
+        "from_param": "deliveryDateFrom",
+        "to_param": "deliveryDateTo",
+        "param_format": "date",
+    },
+    "dam_shadow": {
+        "path": "/np4-191-cd/dam_shadow_prices",
+        "loader": load_dam_shadow_prices,
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
@@ -182,8 +189,8 @@ def main():
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
                         choices=["shadow", "outages", "loads", "wind", "solar", "zonal_lmp",
-                                 "dam_spp", "dam_lambda", "rt_lmp", "sced_lambda",
-                                 "load_forecast", "all"],
+                                 "dam_spp", "dam_shadow", "dam_lambda", "rt_lmp",
+                                 "sced_lambda", "load_forecast", "all"],
                         default="all")
     parser.add_argument("--resume", action="store_true",
                         help="Skip windows already in ingest_log")
