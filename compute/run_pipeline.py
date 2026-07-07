@@ -58,6 +58,7 @@ DEFAULT_COORDS_ERCOT = Path("/data/processed/settlement_points_geocoded.csv")
 
 STAGES = (
     "matrix",
+    "implied_binding_proximity",
     "correlation_map",
     "basis_regression",
     "cca",
@@ -197,6 +198,8 @@ def _read_tail(path: Path, n_lines: int) -> str:
 def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
+    if stage == "implied_binding_proximity":
+        return [run_dir / "ibp" / "bp_ercot.npz"]
     if stage == "correlation_map":
         return [run_dir / "mapping" / f"mapping_correlation_{run_id}.npz"]
     if stage == "basis_regression":
@@ -222,6 +225,16 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
         refs = _list_arg(args.ref_methods)
         if refs:
             cmd += ["--ref-methods", *refs]
+        return cmd
+    if stage == "implied_binding_proximity":
+        cmd = base + [
+            "compute.implied_binding_proximity.runner",
+            "--run-id", args.run_id,
+            "--window-days", str(args.ibp_window_days),
+            "--refit-days", str(args.ibp_refit_days),
+            "--ridge-lambda", str(args.ibp_ridge_lambda),
+            "--ref-method", args.ibp_ref_method,
+        ]
         return cmd
     if stage == "correlation_map":
         return base + [
@@ -340,6 +353,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--scorecard-k", type=int, default=6,
                     help="Cluster count the scorecard aggregates over "
                          "(must be in --ks; default 6).")
+    ap.add_argument("--ibp-window-days", type=int, default=60,
+                    help="Rolling fit window (days) for implied_binding_proximity "
+                         "(default 60).")
+    ap.add_argument("--ibp-refit-days", type=int, default=7,
+                    help="Refit cadence (days) for implied_binding_proximity "
+                         "(default 7 — weekly).")
+    ap.add_argument("--ibp-ridge-lambda", type=float, default=1e-2,
+                    help="Ridge lambda for implied_binding_proximity (default 1e-2).")
+    ap.add_argument("--ibp-ref-method", default="system_lambda",
+                    help="Reference-price method for implied_binding_proximity "
+                         "(default system_lambda; only distributed-slack "
+                         "references make sense for this fit).")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
