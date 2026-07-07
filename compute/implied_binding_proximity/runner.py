@@ -179,11 +179,12 @@ def main(argv: list[str] | None = None) -> int:
             window.M_window, window.C_window, window.SF, args.min_binding_hours,
         )["r2_overall"]
         log.info(
-            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d r2=%s",
+            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
             window.window_start.date(), window.window_end.date(),
             window.score_start.date(), window.score_end.date(),
             int((window.M_window > 0).sum().ge(args.min_binding_hours).sum()),
             int((window.M_window > 0).sum().lt(args.min_binding_hours).sum()),
+            int(window.SF.attrs.get("n_clipped", 0)),
             f"{r2:.3f}" if r2 is not None else "nan",
         )
 

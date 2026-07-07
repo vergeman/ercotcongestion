@@ -19,6 +19,14 @@ import pandas as pd
 
 MIN_BINDING_HOURS = 10
 RIDGE_LAMBDA = 1e-2
+# One-binding-hour ~$1 std: constraints whose in-window shadow-price std is
+# below this get treated like zero-variance columns during standardization.
+# Without the floor, a nearly-quiet column's `1/scale` rescale inflates its
+# coefficient into the physically-impossible range.
+STD_FLOOR = 1.0
+# SFs are unitless in [-1, 1]. Anything larger is a numerical artifact of the
+# ridge solve on a poorly-conditioned column; clip and count.
+SF_ABS_CAP = 1.0
 
 
 def implied_shift_factors(
@@ -54,7 +62,9 @@ def implied_shift_factors(
     kept_cols = keep[keep].index
     Mk = M.loc[:, kept_cols]
     if Mk.shape[1] == 0:
-        return pd.DataFrame(columns=C.columns)
+        out = pd.DataFrame(columns=C.columns)
+        out.attrs["n_clipped"] = 0
+        return out
 
     idx = M.index.intersection(C.index)
     X = Mk.loc[idx].to_numpy(dtype=float)
@@ -62,10 +72,11 @@ def implied_shift_factors(
     K = X.shape[1]
 
     if standardize:
-        # Column-wise std over the fitted rows; guard the zero-column edge
-        # case with a floor so we don't divide by zero on a degenerate window.
-        scale = X.std(axis=0, ddof=0)
-        scale = np.where(scale > 0, scale, 1.0)
+        # Column-wise std over the fitted rows, floored so both zero-variance
+        # and low-variance columns get the same treatment. Without the floor,
+        # a near-quiet column's `1/scale` rescale inflates its coefficient
+        # into the physically-impossible range.
+        scale = np.maximum(X.std(axis=0, ddof=0), STD_FLOOR)
         Xs = X / scale
     else:
         scale = np.ones(K)
@@ -75,4 +86,9 @@ def implied_shift_factors(
     # Undo the scaling so SF is returned in $/MWh-per-MW units regardless of
     # `standardize`. Sign flip matches the identity C = −M · SFᵀ.
     beta = beta / scale[:, None]
-    return pd.DataFrame(-beta, index=kept_cols, columns=C.columns)
+    sf = -beta
+    n_clipped = int(np.sum(np.abs(sf) > SF_ABS_CAP))
+    sf = np.clip(sf, -SF_ABS_CAP, SF_ABS_CAP)
+    out = pd.DataFrame(sf, index=kept_cols, columns=C.columns)
+    out.attrs["n_clipped"] = n_clipped
+    return out

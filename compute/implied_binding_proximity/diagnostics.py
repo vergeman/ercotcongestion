@@ -78,6 +78,7 @@ def refit_diagnostics(
         "n_constraints_in_window": int(M_window.shape[1]),
         "n_kept": int(len(kept)),
         "n_dropped": int(len(dropped)),
+        "n_sf_clipped": int(SF.attrs.get("n_clipped", 0)),
         "min_binding_hours": int(min_hours),
         "r2_overall": None if np.isnan(r2_overall) else r2_overall,
         "per_sp_r2": {
