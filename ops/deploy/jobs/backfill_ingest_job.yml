@@ -48,10 +48,11 @@ spec:
             - python
             - /ercot_ingest/backfill.py
             - --start
-            - "2026-05-01"
+            - "2025-01-01"
             - --end
             - "2026-06-30"
-            - --resume
+            - --endpoint
+            - "dam_lambda"
           envFrom:
             - configMapRef:
                 name: api-config
