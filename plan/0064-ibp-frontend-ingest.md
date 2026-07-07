@@ -67,6 +67,7 @@ Assuming the defaults above.
 ### API surface (out of scope for this plan — flag for follow-up)
 
 * The backend endpoint that reads this table is a follow-up. Note whichever backend module owns the map-layer feed and file a follow-up plan referencing this one. Suggested query shape: `SELECT settlement_point, bp FROM implied_binding_proximity WHERE ts = %s AND run_id = (SELECT run_id FROM implied_binding_proximity_current WHERE layer = 'ercot')`.
+* Filed as [plan 0065 - ibp-api-endpoint](0065-ibp-api-endpoint.md).
 
 ## Acceptance
 
