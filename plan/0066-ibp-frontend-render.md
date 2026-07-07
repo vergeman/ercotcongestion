@@ -188,19 +188,19 @@ Assuming defaults above. Four sections = four commits.
 
 ## Acceptance
 
-* [ ] `GET /ibp/ercot_range?start=...&end=...` returns a range payload
+* [x] `GET /ibp/ercot_range?start=...&end=...` returns a range payload
       with `run_id` and one entry per hour (empty `points` allowed).
       503 when nothing promoted or window is empty.
-* [ ] Selecting the **Binding Proximity** tab renders the ERCOT SP
+* [x] Selecting the **Binding Proximity** tab renders the ERCOT SP
       topology on the right pane, colored by `bp` on the sequential
       slate→amber→red palette.
-* [ ] Scrubbing the timeline updates the right pane in lockstep with the
+* [x] Scrubbing the timeline updates the right pane in lockstep with the
       left (both draw from the prefetched window).
-* [ ] Hover / pin an SP → DetailCard shows a `Binding Proximity` row
+* [x] Hover / pin an SP → DetailCard shows a `Binding Proximity` row
       formatted as a percentage.
-* [ ] Right-pane badge shows the promoted `run_id` (visible & stable
+* [x] Right-pane badge shows the promoted `run_id` (visible & stable
       across scrubs within a window).
-* [ ] Flipping the promoted pointer + loading a new window swaps
+* [x] Flipping the promoted pointer + loading a new window swaps
       `run_id` in the badge without a redeploy.
-* [ ] No BP run promoted → right pane shows `ERCOT · no bp_ercot run
+* [x] No BP run promoted → right pane shows `ERCOT · no bp_ercot run
       promoted yet` and the left (model) pane still renders normally.
