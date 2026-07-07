@@ -73,9 +73,10 @@ market-participant access; the regression approach needs only public data.
    prices, zeros where not binding.
 2. **Congestion panel.** Existing decomposition, pivoted to `C` of shape
    `(hours × SPs)`.
-3. **Rolling ridge regression.** Over a 60-day window (re-fit weekly), keep
-   constraints with ≥ ~10 binding hours (a coefficient cannot be identified
-   for a constraint that never moves), then solve
+3. **Rolling ridge regression.** Over a 60-day window (re-fit every
+   `--refit-days` days, default 7), keep constraints with ≥ `--min-binding-hours`
+   binding hours (default 10; a coefficient cannot be identified for a
+   constraint that never moves), then solve
 
    ```
    C ≈ − M · SFᵀ        (ridge-regularized least squares)
@@ -87,19 +88,19 @@ market-participant access; the regression approach needs only public data.
 4. **Metric.** Per hour:
 
    ```
-   bp_ercot[sp, h] = max over constraints active in h of
-                     |SF_implied[sp, c]| · min(1, Value_c(h) / Limit_c(h))
+   bp_ercot[sp, h] = max over constraints binding in h of |SF_implied[sp, c]|
    ```
 
-   In the DAM report, binding rows have Value = Limit, so the loading term is
-   1 and the metric reduces to `max |SF|` over binding constraints; active
-   non-binding rows (μ = 0, Value < Limit) supply the sub-1.0 near-binding
-   gradient, mirroring the model side.
+   NP4-191 publishes only binding rows (μ > 0), so the "loading fraction"
+   term from the model-side metric is identically 1 and drops out. Hours
+   with no binding constraint yield `bp_ercot = 0` for every SP, matching
+   the model side on quiet hours.
 5. **Map.** Every value lands on a geocoded SP. Toggle against model-side
    `binding_proximity` per snapshot.
 
-Implementation: `ercot_binding_proximity.py` (rolling window, weekly re-fit,
-long-format parquet keyed `(ts, settlement_point)`).
+Implementation: `compute.implied_binding_proximity.runner` (rolling window,
+default weekly re-fit, npz output at `runs/<run_id>/ibp/bp_ercot.npz` with
+per-refit-window diagnostics JSON alongside).
 
 ## Relation to model-side metrics
 
@@ -234,8 +235,32 @@ layers — worth calling out in validation rather than treating as model error.
   reason for the rolling re-fit.
 * **Reference-price error** in the congestion decomposition leaks into the
   regression; a falling R² is the first symptom.
+* **MCL residual bias.** The regression input is
+  `congestion = LMP − system_lambda`, which is `MCC + MCL` — the marginal
+  cost of losses is folded in. ERCOT publishes no SP-level MCL feed to
+  subtract, so losses appear as an R² ceiling below 1 and a small,
+  systematic bias for SPs far from load centers. R² < 1 on the diagnostic
+  is expected; treat it as a residual to note, not a failure signal.
 * **RT variant** inherits all of the above plus temporal-averaging noise;
   treat DAM as the headline layer.
+
+## Diagnostics
+
+The runner writes one JSON per refit window under
+`runs/<run_id>/ibp/diagnostics_YYYYMMDD.json` (the date is the score-period
+start). Each file records how trustworthy that week's fit is:
+
+| Field | Meaning |
+|---|---|
+| `window_start` / `window_end` | Trailing window used for the fit (window_end is exclusive). |
+| `score_start` / `score_end` | Interval this fit was used to score (exclusive end). |
+| `n_fit_hours` | Rows the ridge saw. |
+| `n_constraints_in_window` | Distinct constraint keys with any binding row in the window. |
+| `n_kept` / `n_dropped` | Constraints above / below `--min-binding-hours`. |
+| `r2_overall` | R² of the fit on the training rows. Read against the MCL bias caveat above — a plateau well below 1 is expected, not a failure. |
+| `per_sp_r2` | R² per settlement point; useful for spotting SPs where the fit is systematically off. |
+| `kept_constraints` | List of `{key, binding_hours}` for constraints that survived the filter, sorted by binding hours. |
+| `dropped_constraints` | Same shape, for constraints filtered by `--min-binding-hours`. |
 
 ## FAQ
 
