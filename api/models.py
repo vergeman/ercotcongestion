@@ -125,6 +125,23 @@ class ErcotSppRangeResponse(BaseModel):
     entries: list[ErcotSppRangeEntry]
 
 
+# ---- /api/ibp/ercot ------------------------------------------------------
+#
+# Serves the promoted bp_ercot panel for a single hour. The run_id is
+# resolved per-request from ``implied_binding_proximity_current[ercot]``
+# so promotion flips take effect without a redeploy.
+
+class IbpErcotPoint(BaseModel):
+    settlement_point: str
+    bp: float
+
+
+class IbpErcotResponse(BaseModel):
+    ts: datetime
+    run_id: str
+    points: list[IbpErcotPoint]
+
+
 # ---- /api/validation (zone-aggregated scorecard) -------------------------
 
 class ScorecardZone(BaseModel):
