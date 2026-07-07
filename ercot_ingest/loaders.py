@@ -444,8 +444,10 @@ def load_dam_shadow_prices(conn, df: pd.DataFrame) -> int:
         if limit_mw is not None and value_mw is not None and limit_mw != value_mw:
             non_binding += 1
 
+        constraint_id = r.get("constraintID", r.get("constraintId"))
+
         records.append((
-            ts, dst, int(r["constraintID"]),
+            ts, dst, int(constraint_id),
             r["constraintName"], r["contingencyName"],
             _f(r.get("shadowPrice")),
             limit_mw, value_mw,
