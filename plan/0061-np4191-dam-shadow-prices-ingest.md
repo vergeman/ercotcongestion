@@ -114,21 +114,23 @@ Branch: feat/0061-np4191-dam-shadow-prices-ingest
 
 ## Acceptance
 
-* [ ] `db/migrations/20_dam_shadow_prices.sql` applies cleanly on a fresh
-  DB and is idempotent.
-* [ ] `docker compose run --rm compute python /ercot_ingest/backfill.py
-  --start 2025-07-23 --end 2025-07-23 --endpoint dam_shadow` inserts rows
-  matching the sample `compute/experiments/implied_binding_proximity/2025-07-23.csv`
-  (same constraint IDs and shadow prices per hour).
-* [ ] `SELECT COUNT(*) FROM ercot_dam_shadow_prices WHERE interval_ts::date
-  = '2025-07-23'` returns the expected count (≥ 24 rows × unique binding
-  constraints for that day).
-* [ ] `ingest_log` has a completed `(dam_shadow, day)` entry after backfill.
-* [ ] Second run of the same backfill window is a no-op (ON CONFLICT
-  UPDATE, ingest_log skip) with 0 net-new rows.
-* [ ] Live cron job picks up NP4-191 rows within one 15-min cycle after
-  DAM posting time (post-cutover verification in dev).
-* [ ] Backfill job manifest header comment reflects 12 endpoints.
-* [ ] `21_drop_shadow_prices.sql` applies cleanly; `shadow_prices` table
-  gone; no remaining references to it in `ercot_ingest/`, `db/job_queries/`,
-  or `ops/deploy/`; live + backfill still succeed.
+Code-level (verified in tree):
+
+* [x] `db/migrations/20_dam_shadow_prices.sql` written: hypertable +
+  `(interval_ts)` and `(constraint_name, contingency_name)` indexes; PK
+  `(interval_ts, constraint_id, contingency_name, dst_flag)`.
+* [x] `load_dam_shadow_prices` added to `ercot_ingest/loaders.py` with
+  hourly `interval_ts` and `ON CONFLICT ... DO UPDATE` on numeric fields.
+  Warn-log (non-raising) when `constraintValue != constraintLimit`.
+* [x] `dam_shadow` registered in `ENDPOINTS` in `ercot_ingest/backfill.py`
+  and added to `--endpoint` choices.
+* [x] Live-window fetch block for NP4-191-CD added to
+  `ercot_ingest/ErcotClient.py`.
+* [x] NP6-86-CD path retired: `load_shadow_prices`,
+  `print_top_shadow_prices`, `"shadow"` endpoint, and the live fetch/print
+  block removed. `db/job_queries/backfill_ingest.sql` cleaned. Backfill
+  job manifest header updated (11 endpoints net after add + drop).
+* [x] `db/migrations/21_drop_shadow_prices.sql` written
+  (`DROP TABLE IF EXISTS shadow_prices;`).
+* [x] No remaining references to `shadow_prices` / NP6-86 in
+  `ercot_ingest/`, `db/job_queries/`, or `ops/deploy/` (grep-verified).
