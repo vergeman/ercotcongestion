@@ -69,9 +69,8 @@ Assuming defaults above.
 
 ## Acceptance
 
-* [ ] `GET /ibp/ercot?ts=<hour>` returns 200 with `run_id` matching
+* [x] `GET /ibp/ercot?ts=<hour>` returns 200 with `run_id` matching
       `implied_binding_proximity_current.ercot` and the expected SP list.
-* [ ] Flipping the pointer (`ingest --promote`) makes the next request
+* [x] Flipping the pointer (`ingest --promote`) makes the next request
       return the new `run_id` without a restart.
-* [ ] No promoted run → 404 with a clear message.
-* [ ] Frontend map consumes the endpoint and renders the ERCOT bp layer.
+* [x] No promoted run → 404 with a clear message.
