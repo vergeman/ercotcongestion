@@ -17,8 +17,20 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-MIN_BINDING_HOURS = 10
-RIDGE_LAMBDA = 1e-2
+# Defaults tuned via the sweep in `sweep_ibp.py` (see README "Trial
+# findings"). `min=25 / λ=0.1 / std_floor=100` on a 60-day / weekly-refit
+# schedule keeps p95(bp_ercot) around 0.55, mean R² ~0.985, and clip rate
+# below 0.03% of cells over the full 2025 shadow-price range.
+MIN_BINDING_HOURS = 25
+RIDGE_LAMBDA = 1e-1
+# Constraints whose in-window shadow-price std is below this get treated
+# like zero-variance columns during standardization. Without the floor, a
+# near-quiet column's `1/scale` rescale inflates its coefficient into the
+# physically-impossible range and the ±1 cap has to catch it.
+STD_FLOOR = 100.0
+# SFs are unitless in [-1, 1]. Anything larger is a numerical artifact of the
+# ridge solve on a poorly-conditioned column; clip and count.
+SF_ABS_CAP = 1.0
 
 
 def implied_shift_factors(
@@ -27,6 +39,7 @@ def implied_shift_factors(
     lam: float = RIDGE_LAMBDA,
     min_hours: int = MIN_BINDING_HOURS,
     standardize: bool = True,
+    std_floor: float = STD_FLOOR,
 ) -> pd.DataFrame:
     """Ridge-solve for ``SF`` (constraints × SPs) on the given window.
 
@@ -49,12 +62,19 @@ def implied_shift_factors(
         before solving, then rescale the recovered coefficients back. Keeps
         the ridge penalty from disproportionately shrinking small-μ
         constraints.
+    std_floor : float
+        Lower bound on the per-column std used for standardization; larger
+        values suppress inflation of coefficients on low-variance columns
+        at the cost of over-shrinking their signal. Ignored when
+        ``standardize=False``.
     """
     keep = (M > 0).sum() >= min_hours
     kept_cols = keep[keep].index
     Mk = M.loc[:, kept_cols]
     if Mk.shape[1] == 0:
-        return pd.DataFrame(columns=C.columns)
+        out = pd.DataFrame(columns=C.columns)
+        out.attrs["n_clipped"] = 0
+        return out
 
     idx = M.index.intersection(C.index)
     X = Mk.loc[idx].to_numpy(dtype=float)
@@ -62,10 +82,11 @@ def implied_shift_factors(
     K = X.shape[1]
 
     if standardize:
-        # Column-wise std over the fitted rows; guard the zero-column edge
-        # case with a floor so we don't divide by zero on a degenerate window.
-        scale = X.std(axis=0, ddof=0)
-        scale = np.where(scale > 0, scale, 1.0)
+        # Column-wise std over the fitted rows, floored so both zero-variance
+        # and low-variance columns get the same treatment. Without the floor,
+        # a near-quiet column's `1/scale` rescale inflates its coefficient
+        # into the physically-impossible range.
+        scale = np.maximum(X.std(axis=0, ddof=0), std_floor)
         Xs = X / scale
     else:
         scale = np.ones(K)
@@ -75,4 +96,9 @@ def implied_shift_factors(
     # Undo the scaling so SF is returned in $/MWh-per-MW units regardless of
     # `standardize`. Sign flip matches the identity C = −M · SFᵀ.
     beta = beta / scale[:, None]
-    return pd.DataFrame(-beta, index=kept_cols, columns=C.columns)
+    sf = -beta
+    n_clipped = int(np.sum(np.abs(sf) > SF_ABS_CAP))
+    sf = np.clip(sf, -SF_ABS_CAP, SF_ABS_CAP)
+    out = pd.DataFrame(sf, index=kept_cols, columns=C.columns)
+    out.attrs["n_clipped"] = n_clipped
+    return out

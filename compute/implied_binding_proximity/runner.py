@@ -19,9 +19,10 @@ so persisting to a DB column would either overwrite prior sweeps or need
 every param in the primary key. Per-run on-disk keeps sweep results
 addressable without design lock-in.
 
-Usage::
+Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
-    python -m compute.implied_binding_proximity.runner \
+    docker compose run --rm compute \
+      python -m compute.implied_binding_proximity.runner \
         --run-id <id> \
         --start 2025-05-24 --end 2025-07-23 \
         [--window-days 60] [--refit-days 7]
@@ -41,7 +42,7 @@ import psycopg
 from compute.config import PG_DSN
 
 from .diagnostics import diagnostics_filename, refit_diagnostics
-from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA
+from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from .panels import load_congestion_panel, load_shadow_prices
 from .rolling import RefitWindow, rolling_bp
 
@@ -116,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"(default {MIN_BINDING_HOURS}).")
     p.add_argument("--ridge-lambda", type=float, default=RIDGE_LAMBDA,
                    help=f"Ridge regularization strength (default {RIDGE_LAMBDA}).")
+    p.add_argument("--std-floor", type=float, default=STD_FLOOR,
+                   help=f"Lower bound on the per-column std used for "
+                        f"standardization (default {STD_FLOOR}). Larger "
+                        f"values suppress inflation on low-variance columns.")
     p.add_argument("--ref-method", default=DEFAULT_REF_METHOD,
                    help=f"Reference-price method for the congestion input "
                         f"(default {DEFAULT_REF_METHOD}). Only system_lambda "
@@ -179,11 +184,12 @@ def main(argv: list[str] | None = None) -> int:
             window.M_window, window.C_window, window.SF, args.min_binding_hours,
         )["r2_overall"]
         log.info(
-            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d r2=%s",
+            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
             window.window_start.date(), window.window_end.date(),
             window.score_start.date(), window.score_end.date(),
             int((window.M_window > 0).sum().ge(args.min_binding_hours).sum()),
             int((window.M_window > 0).sum().lt(args.min_binding_hours).sum()),
+            int(window.SF.attrs.get("n_clipped", 0)),
             f"{r2:.3f}" if r2 is not None else "nan",
         )
 
@@ -194,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         lam=args.ridge_lambda,
         min_hours=args.min_binding_hours,
         standardize=args.standardize,
+        std_floor=args.std_floor,
         on_refit_window=on_refit,
     )
 
@@ -221,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                 "refit_days": args.refit_days,
                 "min_binding_hours": args.min_binding_hours,
                 "ridge_lambda": args.ridge_lambda,
+                "std_floor": args.std_floor,
                 "ref_method": args.ref_method,
                 "standardize": bool(args.standardize),
                 "start": start.isoformat(),

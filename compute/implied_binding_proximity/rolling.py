@@ -16,7 +16,7 @@ from typing import Callable
 
 import pandas as pd
 
-from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, implied_shift_factors
+from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR, implied_shift_factors
 from .metric import binding_proximity
 
 
@@ -48,6 +48,7 @@ def rolling_bp(
     lam: float = RIDGE_LAMBDA,
     min_hours: int = MIN_BINDING_HOURS,
     standardize: bool = True,
+    std_floor: float = STD_FLOOR,
     on_refit_window: Callable[[RefitWindow], None] | None = None,
 ) -> pd.DataFrame:
     """Refit every ``refit_days``, score the interval that follows.
@@ -105,7 +106,8 @@ def rolling_bp(
             SF = pd.DataFrame(columns=C_all.columns)
         else:
             SF = implied_shift_factors(
-                M_win, C_win, lam=lam, min_hours=min_hours, standardize=standardize,
+                M_win, C_win, lam=lam, min_hours=min_hours,
+                standardize=standardize, std_floor=std_floor,
             )
 
         if on_refit_window is not None:
