@@ -54,6 +54,27 @@ range, walks the rolling window, and writes results under
 | `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
+| `--persist` | (off) | After writing the npz, also insert the panel into `implied_binding_proximity` under this `run_id` so the API can serve it. Off by default so sweeps stay on-disk-only. |
+| `--promote` | (off) | With `--persist`, point `implied_binding_proximity_current[--layer]` at this `run_id` so the API starts serving it. No-op without `--persist`. |
+| `--layer` | `ercot` | Map layer this run serves when promoted. |
+
+### DB persistence
+
+`bp_ercot.npz` is always the primary artifact. `--persist` writes the same
+panel into Postgres (table `implied_binding_proximity`, keyed by `run_id`)
+so the API can serve it without reading npz off disk. `--promote` flips the
+`implied_binding_proximity_current` pointer in the same connection so
+promotion is atomic with ingest.
+
+Sweeps (`sweep_ibp.py`) leave both flags off — sweep panels stay on disk
+where they can be inspected without polluting the served table. Once
+you've calibrated and want to promote a fresh run, `runner.py --persist
+--promote` does the fit and the DB update in one invocation.
+
+To backfill an npz that's already on disk (e.g. an old run, or a sweep run
+you've decided to promote after the fact), use
+`compute.implied_binding_proximity.ingest` — it shares the same
+`persist.py` helpers so the row shape is identical.
 
 ### Numerical guardrails
 
@@ -71,11 +92,13 @@ range, walks the rolling window, and writes results under
 docker compose run --rm compute \
   python -m compute.implied_binding_proximity.runner \
     --run-id ibp_prod_2025 \
-    --start 2025-01-01 --end 2026-01-01
+    --start 2025-01-01 --end 2026-01-01 \
+    --persist --promote
 ```
 
 Every knob defaults to the values in the "Trial findings" table below, so
-this is the recommended production invocation.
+this is the recommended production invocation. Drop `--persist --promote`
+for exploratory single-run refits you don't want the API to serve.
 
 ## Sweep
 

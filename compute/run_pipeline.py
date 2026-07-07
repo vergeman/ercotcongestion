@@ -235,6 +235,10 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
             "--ridge-lambda", str(args.ibp_ridge_lambda),
             "--ref-method", args.ibp_ref_method,
         ]
+        if args.ibp_persist:
+            cmd += ["--persist"]
+        if args.ibp_promote:
+            cmd += ["--promote"]
         return cmd
     if stage == "correlation_map":
         return base + [
@@ -365,6 +369,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Reference-price method for implied_binding_proximity "
                          "(default system_lambda; only distributed-slack "
                          "references make sense for this fit).")
+    ap.add_argument("--ibp-persist", action="store_true",
+                    help="Also insert the ibp panel into "
+                         "implied_binding_proximity so the API can serve it. "
+                         "Off by default; on for pipeline runs you intend to "
+                         "promote.")
+    ap.add_argument("--ibp-promote", action="store_true",
+                    help="With --ibp-persist, point "
+                         "implied_binding_proximity_current[ercot] at this "
+                         "run_id after ingest.")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
