@@ -23,6 +23,11 @@ The three knobs the runner and sweep share:
   binding constraints, at the cost of underfitting the well-conditioned
   bulk. Standardization means λ acts uniformly across columns regardless
   of their raw $/MWh scale.
+* `--std-floor` — lower bound on the per-column shadow-price std used
+  for standardization. Larger floors suppress `1/scale` inflation on
+  low-variance columns (fewer SFs clip against the ±1 cap) at the cost
+  of over-shrinking real signal from constraints that just happen to
+  have small typical μ.
 
 ## Runner
 
@@ -44,16 +49,18 @@ range, walks the rolling window, and writes results under
 | `--start`, `--end` | from `reference_dates.json` | `[start, end)`; date-only, YYYY-MM-DD. |
 | `--window-days` | `60` | Trailing window used for each fit. |
 | `--refit-days` | `7` | Days between successive fits. `1` reproduces the prototype's daily refit. |
-| `--min-binding-hours` | `10` | Drop constraints binding fewer hours in the window. |
-| `--ridge-lambda` | `1e-2` | Ridge regularization strength on the standardized system. |
+| `--min-binding-hours` | `25` | Drop constraints binding fewer hours in the window. |
+| `--ridge-lambda` | `1e-1` | Ridge regularization strength on the standardized system. |
+| `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
 
 ### Numerical guardrails
 
-* `STD_FLOOR = 1.0` — before dividing by column std, floor the scale so
+* `STD_FLOOR = 100.0` — default lower bound on per-column std used during
+  standardization (overridable via `--std-floor`). Floors the scale so
   low-variance constraints don't get their coefficients inflated by the
-  rescale-back step.
+  rescale-back step. See "Trial findings" for how this value was chosen.
 * `SF_ABS_CAP = 1.0` — SFs are unitless in `[-1, 1]`; anything above is a
   numerical artifact and gets clipped. The clipped count is reported per
   refit as `n_sf_clipped`.
@@ -63,10 +70,12 @@ range, walks the rolling window, and writes results under
 ```bash
 docker compose run --rm compute \
   python -m compute.implied_binding_proximity.runner \
-    --run-id ibp_prod_2025h1 \
-    --start 2025-01-01 --end 2025-07-01 \
-    --window-days 60 --refit-days 7 --ridge-lambda 1e-2
+    --run-id ibp_prod_2025 \
+    --start 2025-01-01 --end 2026-01-01
 ```
+
+Every knob defaults to the values in the "Trial findings" table below, so
+this is the recommended production invocation.
 
 ## Sweep
 
@@ -85,25 +94,65 @@ Panels are re-loaded per run (no reuse); each invocation is independent.
 | `--start`, `--end` | *required* | Passed through to every runner invocation. |
 | `--window-days` | `60` | Comma-separated grid, e.g. `30,60,90`. |
 | `--refit-days` | `7,14` | Comma-separated grid. |
-| `--ridge-lambda` | `1e-3,1e-2,1e-1` | Comma-separated grid. |
+| `--ridge-lambda` | `1e-2,1e-1,1` | Comma-separated grid; brackets the production default. |
+| `--std-floor` | `50,100,200` | Comma-separated grid; brackets the production default. |
+| `--min-binding-hours` | `10,25,50` | Comma-separated grid. Prunes rarely-binding constraints out of the fit before the ridge solve. |
 | `--out` | *stdout* | If set, write the summary DataFrame to a CSV instead of printing. |
 
-Each combination gets `run_id = ibp_sweep_w{W}_r{R}_l{lam:g}`; that ID is
-grep-able against the produced `runs/<run_id>/ibp/` directory. The output
-table is sorted by `bp_max` descending so outliers surface at the top.
+Each combination gets
+`run_id = ibp_sweep_w{W}_r{R}_l{lam:g}_s{floor:g}_h{min_hours}`; that ID
+is grep-able against the produced `runs/<run_id>/ibp/` directory.
+The output table is sorted by `bp_max` descending so outliers surface at
+the top.
 
 ### Example
 
 ```bash
 docker compose run --rm compute \
   python -m compute.implied_binding_proximity.sweep_ibp \
-    --start 2025-01-01 --end 2025-07-01 \
-    --window-days 60 \
-    --refit-days 7,14 \
-    --ridge-lambda 1e-3,1e-2,1e-1 \
+    --start 2025-01-01 --end 2026-01-01 \
     --out /compute/implied_binding_proximity/ibp_sweep_summary.csv
 ```
 
-The default 6-combo grid over a 6-month range takes roughly 30–60 minutes:
-each combo re-queries Postgres for the full trailing window (~8 months
-including warmup) and does a rolling fit across it.
+The default grid is 2 × 3 × 3 × 3 = 54 combinations bracketing the
+production defaults. A single combo over a full year takes ~4 minutes
+inside the container; budget accordingly.
+
+## Trial findings
+
+The defaults above were picked from five trials against the 2025 DAM
+shadow-price panel. All runs used `--window-days 60 --refit-days 7`;
+`min_h` is `--min-binding-hours`, `floor` is `--std-floor`, `clipped` is
+the total SF entries the ±1 cap caught across all refits. The raw
+per-combo rows are in `ibp_sweep_trials.csv`.
+
+| Trial | Range | min_h | floor | ridge λ | mean R² | median n_kept | p95 | p99 | clipped |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline           | 2025 H1 | 10 |   1 | 1e-1 | 0.983 | 683.5 | 1.000 | 1.00 | 260,270 |
+| std-floor grid     | 2025 H1 | 10 |  25 | 1e-1 | 0.990 | 683.5 | 0.898 | 1.00 |   7,320 |
+| floor + min_hours  | 2025 H1 | 25 |  50 | 1e-1 | 0.982 | 423.5 | 0.878 | 1.00 |   4,583 |
+| floor + min_hours  | 2025 H1 | 25 | 100 | 1e-1 | 0.982 | 423.5 | 0.723 | 0.93 |   2,067 |
+| window sweep (w=30)| 2025 H1 | 25 | 100 | 1e-1 | 0.975 | 267.5 | 0.558 | 0.89 |   1,334 |
+| **full year**      | 2025    | 25 | 100 | 1e-1 | **0.985** | 422.5 | **0.559** | **0.895** | 2,538 |
+
+The progression:
+
+1. **Baseline** left the p95/p99/max all pinned at the cap of 1.0. The
+   ±1 clip was catching 260k+ SF entries per run — evidence that the raw
+   ridge solve was producing physically impossible values on a big chunk
+   of low-variance constraints, not just a numerical tail.
+2. **Raising `--std-floor` alone** (1 → 25) knocked ~35× off the clip
+   count and dropped p95 off the cap, but p99 was still saturating.
+3. **Stricter `--min-binding-hours`** (10 → 25) combined with `floor=100`
+   pruned the noisy tail before the ridge saw it. First point where p99
+   dropped below the cap (0.93). `min_h ≥ 50` cost too many constraints
+   without further gains.
+4. **Shorter windows** (30/45 vs 60) tightened the bulk further but shed
+   ~40% of constraints — a tradeoff, not a strict win.
+5. **Full-year run** improved every metric vs the 6-month version at the
+   same settings: mean R² 0.982 → 0.985, p95 0.72 → 0.56, clip rate held
+   at ~0.03% of cells over an 8730 × 1084 output. More history → more
+   stable per-column scales → less inflation.
+
+Net: the defaults now write into `fit.py` as `MIN_BINDING_HOURS = 25`,
+`RIDGE_LAMBDA = 1e-1`, `STD_FLOOR = 100.0` reflect these findings.

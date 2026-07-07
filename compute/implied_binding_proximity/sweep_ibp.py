@@ -33,9 +33,12 @@ log = logging.getLogger("compute.implied_binding_proximity.sweep_ibp")
 COMPUTE_DIR = Path(__file__).resolve().parent.parent
 RUNS_ROOT = COMPUTE_DIR / "runs"
 
+# Grids bracket the production defaults (see README "Trial findings").
 DEFAULT_WINDOW_DAYS = "60"
 DEFAULT_REFIT_DAYS = "7,14"
-DEFAULT_RIDGE_LAMBDA = "1e-3,1e-2,1e-1"
+DEFAULT_RIDGE_LAMBDA = "1e-2,1e-1,1"
+DEFAULT_STD_FLOOR = "50,100,200"
+DEFAULT_MIN_BINDING_HOURS = "10,25,50"
 
 
 def _ints(csv: str) -> list[int]:
@@ -46,12 +49,18 @@ def _floats(csv: str) -> list[float]:
     return [float(x) for x in csv.split(",") if x.strip()]
 
 
-def _run_id(window: int, refit: int, lam: float) -> str:
-    return f"ibp_sweep_w{window}_r{refit}_l{lam:g}"
+def _run_id(
+    window: int, refit: int, lam: float, std_floor: float, min_hours: int,
+) -> str:
+    return (
+        f"ibp_sweep_w{window}_r{refit}_l{lam:g}"
+        f"_s{std_floor:g}_h{min_hours}"
+    )
 
 
 def _invoke_runner(
-    run_id: str, start: str, end: str, window: int, refit: int, lam: float,
+    run_id: str, start: str, end: str,
+    window: int, refit: int, lam: float, std_floor: float, min_hours: int,
 ) -> int:
     cmd = [
         sys.executable, "-m", "compute.implied_binding_proximity.runner",
@@ -60,6 +69,8 @@ def _invoke_runner(
         "--window-days", str(window),
         "--refit-days", str(refit),
         "--ridge-lambda", repr(lam),
+        "--std-floor", repr(std_floor),
+        "--min-binding-hours", str(min_hours),
     ]
     log.info("running %s", " ".join(cmd))
     return subprocess.run(cmd).returncode
@@ -67,6 +78,7 @@ def _invoke_runner(
 
 def _summarize_run(
     run_id: str, window: int, refit: int, lam: float,
+    std_floor: float, min_hours: int,
 ) -> dict | None:
     ibp_dir = RUNS_ROOT / run_id / "ibp"
     npz_path = ibp_dir / "bp_ercot.npz"
@@ -93,6 +105,8 @@ def _summarize_run(
         "window_days": window,
         "refit_days": refit,
         "ridge_lambda": lam,
+        "std_floor": std_floor,
+        "min_binding_hours": min_hours,
         "mean_r2": float(np.mean(r2_values)) if r2_values else float("nan"),
         "median_n_kept": (
             float(np.median(n_kept_values)) if n_kept_values else float("nan")
@@ -116,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"Comma-separated refit-days grid (default {DEFAULT_REFIT_DAYS}).")
     p.add_argument("--ridge-lambda", default=DEFAULT_RIDGE_LAMBDA,
                    help=f"Comma-separated ridge-lambda grid (default {DEFAULT_RIDGE_LAMBDA}).")
+    p.add_argument("--std-floor", default=DEFAULT_STD_FLOOR,
+                   help=f"Comma-separated std-floor grid (default {DEFAULT_STD_FLOOR}).")
+    p.add_argument("--min-binding-hours", default=DEFAULT_MIN_BINDING_HOURS,
+                   help=f"Comma-separated min-binding-hours grid (default {DEFAULT_MIN_BINDING_HOURS}).")
     p.add_argument("--out", type=Path, default=None,
                    help="CSV output path; prints to stdout if omitted.")
     args = p.parse_args(argv)
@@ -128,21 +146,34 @@ def main(argv: list[str] | None = None) -> int:
     windows = _ints(args.window_days)
     refits = _ints(args.refit_days)
     lambdas = _floats(args.ridge_lambda)
-    combos = [(w, r, lam) for w in windows for r in refits for lam in lambdas]
+    floors = _floats(args.std_floor)
+    min_hours_list = _ints(args.min_binding_hours)
+    combos = [
+        (w, r, lam, sf, mh)
+        for w in windows for r in refits for lam in lambdas
+        for sf in floors for mh in min_hours_list
+    ]
     log.info(
-        "sweep: %d combos over windows=%s refits=%s lambdas=%s",
-        len(combos), windows, refits, lambdas,
+        "sweep: %d combos over windows=%s refits=%s lambdas=%s "
+        "std_floors=%s min_binding_hours=%s",
+        len(combos), windows, refits, lambdas, floors, min_hours_list,
     )
 
-    for window, refit, lam in combos:
-        run_id = _run_id(window, refit, lam)
-        rc = _invoke_runner(run_id, args.start, args.end, window, refit, lam)
+    for window, refit, lam, floor, min_h in combos:
+        run_id = _run_id(window, refit, lam, floor, min_h)
+        rc = _invoke_runner(
+            run_id, args.start, args.end,
+            window, refit, lam, floor, min_h,
+        )
         if rc != 0:
             log.error("runner failed for %s (rc=%d)", run_id, rc)
 
     rows: list[dict] = []
-    for window, refit, lam in combos:
-        row = _summarize_run(_run_id(window, refit, lam), window, refit, lam)
+    for window, refit, lam, floor, min_h in combos:
+        row = _summarize_run(
+            _run_id(window, refit, lam, floor, min_h),
+            window, refit, lam, floor, min_h,
+        )
         if row is not None:
             rows.append(row)
 

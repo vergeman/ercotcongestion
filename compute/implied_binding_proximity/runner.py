@@ -42,7 +42,7 @@ import psycopg
 from compute.config import PG_DSN
 
 from .diagnostics import diagnostics_filename, refit_diagnostics
-from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA
+from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from .panels import load_congestion_panel, load_shadow_prices
 from .rolling import RefitWindow, rolling_bp
 
@@ -117,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"(default {MIN_BINDING_HOURS}).")
     p.add_argument("--ridge-lambda", type=float, default=RIDGE_LAMBDA,
                    help=f"Ridge regularization strength (default {RIDGE_LAMBDA}).")
+    p.add_argument("--std-floor", type=float, default=STD_FLOOR,
+                   help=f"Lower bound on the per-column std used for "
+                        f"standardization (default {STD_FLOOR}). Larger "
+                        f"values suppress inflation on low-variance columns.")
     p.add_argument("--ref-method", default=DEFAULT_REF_METHOD,
                    help=f"Reference-price method for the congestion input "
                         f"(default {DEFAULT_REF_METHOD}). Only system_lambda "
@@ -196,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         lam=args.ridge_lambda,
         min_hours=args.min_binding_hours,
         standardize=args.standardize,
+        std_floor=args.std_floor,
         on_refit_window=on_refit,
     )
 
@@ -223,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                 "refit_days": args.refit_days,
                 "min_binding_hours": args.min_binding_hours,
                 "ridge_lambda": args.ridge_lambda,
+                "std_floor": args.std_floor,
                 "ref_method": args.ref_method,
                 "standardize": bool(args.standardize),
                 "start": start.isoformat(),
