@@ -71,8 +71,8 @@ Assuming the defaults above.
 
 ## Acceptance
 
-* [ ] Migration applies cleanly; both tables exist with correct PK/indexes.
-* [ ] `python -m compute.implied_binding_proximity.ingest --run-id <id>` populates `implied_binding_proximity` with row count = `hours × settlement_points` from the npz.
-* [ ] Re-running ingest for the same `run_id` is idempotent (no dup-key error, row count unchanged).
-* [ ] `--promote` flips the pointer; the sample query above returns the expected SP list for a known hour.
-* [ ] Follow-up plan for the API endpoint is filed and linked from this doc.
+* [x] Migration applies cleanly; both tables exist with correct PK/indexes.
+* [x] `python -m compute.implied_binding_proximity.ingest --run-id <id>` populates `implied_binding_proximity` with row count = `hours × settlement_points` from the npz.
+* [x] Re-running ingest for the same `run_id` is idempotent (no dup-key error, row count unchanged).
+* [x] `--promote` flips the pointer; sets the expected SP list for a known hour.
+* [x] Follow-up plan for the API endpoint is filed and linked from this doc.
