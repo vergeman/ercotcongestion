@@ -54,6 +54,27 @@ range, walks the rolling window, and writes results under
 | `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
+| `--persist` | (off) | Write the panel to `implied_binding_proximity` under this `run_id`. Makes the run **available** in the DB. Does not change what the API serves. |
+| `--promote` | (off) | Point `implied_binding_proximity_current[--layer]` at this `run_id`. Makes the run **served** by the API. Requires `--persist` (no-op otherwise). |
+| `--layer` | `ercot` | Map layer `--promote` flips. |
+
+### DB persistence
+
+`bp_ercot.npz` is always the primary artifact. `--persist` writes the same
+panel into Postgres (table `implied_binding_proximity`, keyed by `run_id`)
+so the API can serve it without reading npz off disk. `--promote` flips the
+`implied_binding_proximity_current` pointer in the same connection so
+promotion is atomic with ingest.
+
+Sweeps (`sweep_ibp.py`) leave both flags off — sweep panels stay on disk
+where they can be inspected without polluting the served table. Once
+you've calibrated and want to promote a fresh run, `runner.py --persist
+--promote` does the fit and the DB update in one invocation.
+
+To backfill an npz that's already on disk (e.g. an old run, or a sweep run
+you've decided to promote after the fact), use
+`compute.implied_binding_proximity.ingest` — it shares the same
+`persist.py` helpers so the row shape is identical.
 
 ### Numerical guardrails
 
@@ -71,11 +92,13 @@ range, walks the rolling window, and writes results under
 docker compose run --rm compute \
   python -m compute.implied_binding_proximity.runner \
     --run-id ibp_prod_2025 \
-    --start 2025-01-01 --end 2026-01-01
+    --start 2025-01-01 --end 2026-01-01 \
+    --persist --promote
 ```
 
 Every knob defaults to the values in the "Trial findings" table below, so
-this is the recommended production invocation.
+this is the recommended production invocation. Drop `--persist --promote`
+for exploratory single-run refits you don't want the API to serve.
 
 ## Sweep
 
@@ -156,3 +179,22 @@ The progression:
 
 Net: the defaults now write into `fit.py` as `MIN_BINDING_HOURS = 25`,
 `RIDGE_LAMBDA = 1e-1`, `STD_FLOOR = 100.0` reflect these findings.
+
+### Corresponding sweep run
+
+The calibrated combo lives on disk under
+`compute/runs/ibp_sweep_w60_r7_l0.1_s100_h25/` — that's the sweep run_id
+encoding the values in the "full year" row (window=60, refit=7, λ=1e-1,
+std_floor=100, min_binding_hours=25). A plain `runner.py --run-id <name>`
+with no knob overrides reproduces the same panel under `<name>` since
+these are the module defaults. See
+[`compute/runs/README.md`](../runs/README.md#sweep-run_id-naming) for the
+full naming convention.
+
+To persist this run to the API-served table:
+
+```bash
+docker compose run --rm compute \
+  python -m compute.implied_binding_proximity.ingest \
+    --run-id ibp_sweep_w60_r7_l0.1_s100_h25 --promote
+```

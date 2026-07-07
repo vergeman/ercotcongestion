@@ -19,13 +19,22 @@ so persisting to a DB column would either overwrite prior sweeps or need
 every param in the primary key. Per-run on-disk keeps sweep results
 addressable without design lock-in.
 
+DB persistence: pass ``--persist`` to also write the panel into
+``implied_binding_proximity`` (keyed by ``run_id``) so the API can serve it.
+Add ``--promote`` to flip ``implied_binding_proximity_current[layer]`` at
+the same time. Sweeps leave both flags off and stay on-disk-only. To
+backfill an npz already on disk without refitting, use
+``compute.implied_binding_proximity.ingest`` — it shares the same
+``persist.py`` helpers.
+
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
     docker compose run --rm compute \
       python -m compute.implied_binding_proximity.runner \
         --run-id <id> \
         --start 2025-05-24 --end 2025-07-23 \
-        [--window-days 60] [--refit-days 7]
+        [--window-days 60] [--refit-days 7] \
+        [--persist [--promote]]
 """
 from __future__ import annotations
 
@@ -44,6 +53,13 @@ from compute.config import PG_DSN
 from .diagnostics import diagnostics_filename, refit_diagnostics
 from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from .panels import load_congestion_panel, load_shadow_prices
+from .persist import (
+    DEFAULT_LAYER,
+    check_ref_method,
+    copy_bp_rows,
+    delete_run,
+    set_current_pointer,
+)
 from .rolling import RefitWindow, rolling_bp
 
 log = logging.getLogger("compute.implied_binding_proximity.runner")
@@ -128,6 +144,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-standardize", dest="standardize", action="store_false",
                    help="Skip per-column standardization of M before the ridge "
                         "solve (default: on).")
+    p.add_argument("--persist", action="store_true",
+                   help="Write the panel to implied_binding_proximity under "
+                        "this run_id. Makes the run available in the DB but "
+                        "does NOT change what the API serves.")
+    p.add_argument("--promote", action="store_true",
+                   help="Point implied_binding_proximity_current[--layer] at "
+                        "this run_id so the API starts serving it. Requires "
+                        "--persist (no-op otherwise).")
+    p.add_argument("--layer", default=DEFAULT_LAYER,
+                   help=f"Map layer --promote flips (default {DEFAULT_LAYER}).")
     args = p.parse_args(argv)
 
     logging.basicConfig(
@@ -239,6 +265,28 @@ def main(argv: list[str] | None = None) -> int:
     log.info(
         "wrote %s: hours=%d SPs=%d", out_path, bp.shape[0], bp.shape[1],
     )
+
+    if args.persist:
+        # Fail fast if the ref method won't be DB-compatible, before we open
+        # a connection or wipe prior rows.
+        check_ref_method(args.ref_method)
+        with psycopg.connect(PG_DSN) as conn:
+            n_deleted = delete_run(conn, args.run_id)
+            log.info("cleared %d prior rows for run_id=%s", n_deleted, args.run_id)
+            n_rows = copy_bp_rows(
+                conn, args.run_id,
+                [ts.isoformat() for ts in bp.index],
+                bp.columns.astype(str).tolist(),
+                bp.to_numpy(dtype=float),
+            )
+            log.info("copied %d rows into implied_binding_proximity", n_rows)
+            if args.promote:
+                set_current_pointer(conn, args.layer, args.run_id)
+                log.info("promoted layer=%s -> run_id=%s", args.layer, args.run_id)
+            conn.commit()
+    elif args.promote:
+        log.warning("--promote is a no-op without --persist; ignoring")
+
     return 0
 
 

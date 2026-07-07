@@ -235,6 +235,10 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
             "--ridge-lambda", str(args.ibp_ridge_lambda),
             "--ref-method", args.ibp_ref_method,
         ]
+        if args.ibp_persist:
+            cmd += ["--persist"]
+        if args.ibp_promote:
+            cmd += ["--promote"]
         return cmd
     if stage == "correlation_map":
         return base + [
@@ -359,12 +363,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--ibp-refit-days", type=int, default=7,
                     help="Refit cadence (days) for implied_binding_proximity "
                          "(default 7 — weekly).")
-    ap.add_argument("--ibp-ridge-lambda", type=float, default=1e-2,
-                    help="Ridge lambda for implied_binding_proximity (default 1e-2).")
+    ap.add_argument("--ibp-ridge-lambda", type=float, default=1e-1,
+                    help="Ridge lambda for implied_binding_proximity "
+                         "(default 1e-1 — matches the calibrated value in "
+                         "compute/implied_binding_proximity/fit.py; see "
+                         "README 'Trial findings').")
     ap.add_argument("--ibp-ref-method", default="system_lambda",
                     help="Reference-price method for implied_binding_proximity "
                          "(default system_lambda; only distributed-slack "
                          "references make sense for this fit).")
+    ap.add_argument("--ibp-persist", action="store_true",
+                    help="Write the ibp panel into implied_binding_proximity "
+                         "under this run_id. Makes the run available in the "
+                         "DB but does NOT change what the API serves.")
+    ap.add_argument("--ibp-promote", action="store_true",
+                    help="Point implied_binding_proximity_current[ercot] at "
+                         "this run_id so the API starts serving it. Requires "
+                         "--ibp-persist (no-op otherwise).")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
