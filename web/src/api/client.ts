@@ -5,6 +5,7 @@ import type {
   PtdfResponse,
   ErcotStateRangeResponse,
   ErcotSppRangeResponse,
+  IbpErcotRangeResponse,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -60,6 +61,42 @@ export async function fetchErcotSppRange(
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`ercot_spp_range ${r.status}`);
   return r.json();
+}
+
+// Promoted implied-binding-proximity panel across the window. Same
+// soft-fail contract: 503 returns null so the model side still renders.
+// The backend emits `{settlement_point, bp}` items grouped under `points`;
+// we translate at the boundary into the client's `{sp_id, bp}` under
+// `sps` so it matches the other ERCOT-side range types.
+export async function fetchIbpErcotRange(
+  start: Date,
+  end: Date
+): Promise<IbpErcotRangeResponse | null> {
+  const r = await fetch(
+    `${BASE}/ibp/ercot_range?start=${start.toISOString()}&end=${end.toISOString()}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`ibp_ercot_range ${r.status}`);
+  const raw = (await r.json()) as {
+    start: string;
+    end: string;
+    count: number;
+    run_id: string;
+    entries: {
+      interval_ts: string;
+      points: { settlement_point: string; bp: number | null }[];
+    }[];
+  };
+  return {
+    start: raw.start,
+    end: raw.end,
+    count: raw.count,
+    run_id: raw.run_id,
+    entries: raw.entries.map((e) => ({
+      interval_ts: e.interval_ts,
+      sps: e.points.map((p) => ({ sp_id: p.settlement_point, bp: p.bp })),
+    })),
+  };
 }
 
 export async function fetchScorecard(

@@ -104,6 +104,27 @@ export interface ErcotSppRangeResponse {
   entries: ErcotSppRangeEntry[];
 }
 
+// Promoted implied-binding-proximity panel per settlement point, per hour.
+// Wire shape renames `settlement_point` → `sp_id` at the boundary so it
+// matches the other ERCOT-side range types the client already consumes.
+export interface ErcotSpBp {
+  sp_id: string;
+  bp: number | null;
+}
+
+export interface IbpErcotRangeEntry {
+  interval_ts: string;
+  sps: ErcotSpBp[];
+}
+
+export interface IbpErcotRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  run_id: string;
+  entries: IbpErcotRangeEntry[];
+}
+
 // Every ViewMode drives a paired split view: model side on the left,
 // ERCOT counterpart on the right (empty for binding proximity — ERCOT
 // doesn't publish a comparable signal).
