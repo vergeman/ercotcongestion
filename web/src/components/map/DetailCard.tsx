@@ -14,7 +14,11 @@ interface HoveredLine {
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
-  spState: { congestion: number | null; spp: number | null } | null;
+  spState: {
+    congestion: number | null;
+    spp: number | null;
+    bp: number | null;
+  } | null;
 }
 
 interface Props {
@@ -126,6 +130,12 @@ function SpBody({ sp }: { sp: HoveredSp }) {
             : null
         }
       />
+      {sp.spState?.bp != null && (
+        <Row
+          label="Binding Proximity"
+          value={`${fmt(sp.spState.bp * 100, 1)}%`}
+        />
+      )}
     </>
   );
 }

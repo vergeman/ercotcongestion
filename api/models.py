@@ -142,6 +142,27 @@ class IbpErcotResponse(BaseModel):
     points: list[IbpErcotPoint]
 
 
+# ---- /api/ibp/ercot_range -----------------------------------------------
+#
+# Range sibling of /ibp/ercot. One round-trip per prefetch window; slots
+# into the client's prefetchWindow fan-out alongside /ercot_state_range and
+# /ercot_spp_range. Same 503 soft-fail contract as the other ERCOT-side
+# range endpoints when nothing is promoted yet, so the client can render
+# the model pane alone.
+
+class IbpErcotRangeEntry(BaseModel):
+    interval_ts: datetime
+    points: list[IbpErcotPoint]
+
+
+class IbpErcotRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    run_id: str
+    entries: list[IbpErcotRangeEntry]
+
+
 # ---- /api/validation (zone-aggregated scorecard) -------------------------
 
 class ScorecardZone(BaseModel):
