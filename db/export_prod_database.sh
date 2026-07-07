@@ -68,7 +68,6 @@ RESUME_FROM="${RESUME_FROM:-}"
 # (you don't), but matching the order tables appear in migrations keeps things
 # tidy. If you add a table to migrations, add it here too.
 TABLES=(
-  shadow_prices
   outages_zonal
   ingest_log
   load_by_zone
@@ -79,6 +78,7 @@ TABLES=(
   ercot_zonal_lmp
   bus_load_zones
   ercot_dam_spp
+  ercot_dam_shadow_prices
   dam_system_lambda
   ercot_rt_lmp
   sced_system_lambda
@@ -255,21 +255,21 @@ ORDER BY t.relname;
 
 \echo
 \echo == Row counts ==
-SELECT 'shadow_prices'         AS tbl, count(*) FROM shadow_prices
-UNION ALL SELECT 'outages_zonal',         count(*) FROM outages_zonal
-UNION ALL SELECT 'ingest_log',            count(*) FROM ingest_log
-UNION ALL SELECT 'load_by_zone',          count(*) FROM load_by_zone
-UNION ALL SELECT 'wind_hourly_regional',  count(*) FROM wind_hourly_regional
-UNION ALL SELECT 'solar_hourly_regional', count(*) FROM solar_hourly_regional
-UNION ALL SELECT 'bus_snapshots',         count(*) FROM bus_snapshots
-UNION ALL SELECT 'snapshot_meta',         count(*) FROM snapshot_meta
-UNION ALL SELECT 'ercot_zonal_lmp',       count(*) FROM ercot_zonal_lmp
-UNION ALL SELECT 'bus_load_zones',        count(*) FROM bus_load_zones
-UNION ALL SELECT 'ercot_dam_spp',         count(*) FROM ercot_dam_spp
-UNION ALL SELECT 'dam_system_lambda',     count(*) FROM dam_system_lambda
-UNION ALL SELECT 'ercot_rt_lmp',          count(*) FROM ercot_rt_lmp
-UNION ALL SELECT 'sced_system_lambda',    count(*) FROM sced_system_lambda
-UNION ALL SELECT 'load_forecast_zonal',   count(*) FROM load_forecast_zonal
+SELECT 'outages_zonal'              AS tbl, count(*) FROM outages_zonal
+UNION ALL SELECT 'ingest_log',              count(*) FROM ingest_log
+UNION ALL SELECT 'load_by_zone',            count(*) FROM load_by_zone
+UNION ALL SELECT 'wind_hourly_regional',    count(*) FROM wind_hourly_regional
+UNION ALL SELECT 'solar_hourly_regional',   count(*) FROM solar_hourly_regional
+UNION ALL SELECT 'bus_snapshots',           count(*) FROM bus_snapshots
+UNION ALL SELECT 'snapshot_meta',           count(*) FROM snapshot_meta
+UNION ALL SELECT 'ercot_zonal_lmp',         count(*) FROM ercot_zonal_lmp
+UNION ALL SELECT 'bus_load_zones',          count(*) FROM bus_load_zones
+UNION ALL SELECT 'ercot_dam_spp',           count(*) FROM ercot_dam_spp
+UNION ALL SELECT 'ercot_dam_shadow_prices', count(*) FROM ercot_dam_shadow_prices
+UNION ALL SELECT 'dam_system_lambda',       count(*) FROM dam_system_lambda
+UNION ALL SELECT 'ercot_rt_lmp',            count(*) FROM ercot_rt_lmp
+UNION ALL SELECT 'sced_system_lambda',      count(*) FROM sced_system_lambda
+UNION ALL SELECT 'load_forecast_zonal',     count(*) FROM load_forecast_zonal
 ORDER BY tbl;
 SQL
 
