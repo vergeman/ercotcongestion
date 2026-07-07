@@ -4,7 +4,7 @@ Backfill ERCOT public reports over a date range.
 Usage:
     docker compose run --rm compute
     python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23
-    python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint shadow
+    python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23 --endpoint dam_shadow
     python /ercot_ingest/backfill.py --start 2026-02-23 --end 2026-04-23 --resume
 
 Chunks by day. Idempotent: re-running skips completed (endpoint, day) pairs.
@@ -19,9 +19,9 @@ import psycopg
 from ErcotClient import ErcotClient, PG_DSN
 # ERCOT_TZ: ERCOT's public API interprets naive timestamp filters in Central
 # Time. Sending UTC made the live window land ~5h in the future and return 0
-# rows — see live_updater going silent on shadow_prices since 2026-04-24.
+# rows.
 from loaders import (ERCOT_TZ,
-                     load_zonal_lmp, load_shadow_prices, load_outages,
+                     load_zonal_lmp, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
                      load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
                      load_rt_lmp, load_sced_lambda, load_load_forecast)
@@ -35,13 +35,6 @@ ENDPOINTS = {
         "to_param": "deliveryDateTo",
         "param_format": "date",
         "extra_params": {"settlementPointType": "HU"}
-    },
-    "shadow": {
-        "path": "/np6-86-cd/shdw_prices_bnd_trns_const",
-        "loader": load_shadow_prices,
-        "from_param": "SCEDTimestampFrom",
-        "to_param": "SCEDTimestampTo",
-        "param_format": "datetime",  # yyyy-MM-ddTHH:mm:ss
     },
     "outages": {
         "path": "/np3-233-cd/hourly_res_outage_cap",
@@ -188,7 +181,7 @@ def main():
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
-                        choices=["shadow", "outages", "loads", "wind", "solar", "zonal_lmp",
+                        choices=["outages", "loads", "wind", "solar", "zonal_lmp",
                                  "dam_spp", "dam_shadow", "dam_lambda", "rt_lmp",
                                  "sced_lambda", "load_forecast", "all"],
                         default="all")

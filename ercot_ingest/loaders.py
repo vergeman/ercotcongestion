@@ -107,39 +107,6 @@ def load_zonal_lmp(conn, df: pd.DataFrame) -> int:
         return cur.rowcount
 
 
-def load_shadow_prices(conn, df: pd.DataFrame) -> int:
-
-    if df.empty:
-        return 0
-
-    records = [
-        (
-            _ercot_ts_to_utc(r["SCEDTimestamp"], bool(r["repeatedHourFlag"])),
-            bool(r["repeatedHourFlag"]), int(r["constraintID"]),
-            r["constraintName"], r["contingencyName"],
-            _f(r["shadowPrice"]), _f(r["maxShadowPrice"]),
-            _f(r["limit"]), _f(r["value"]), _f(r["violatedMW"]),
-            r.get("fromStation"), r.get("toStation"),
-            _f(r.get("fromStationkV")), _f(r.get("toStationkV")),
-            r.get("CCTStatus"),
-        )
-        for _, r in df.iterrows()
-    ]
-
-    sql = """
-        INSERT INTO shadow_prices (
-            sced_timestamp, repeated_hour_flag, constraint_id, constraint_name,
-            contingency_name, shadow_price, max_shadow_price, limit_mw, value_mw,
-            violated_mw, from_station, to_station, from_kv, to_kv, cct_status
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT DO NOTHING
-    """
-
-    with conn.cursor() as cur:
-        cur.executemany(sql, records)
-        return cur.rowcount
-
-
 def load_outages(conn, df: pd.DataFrame) -> int:
 
     if df.empty:
@@ -670,30 +637,6 @@ def _f(x):
 #
 # PRINT
 #
-
-def print_top_shadow_prices(conn, start_iso, end_iso, limit = 5) -> None:
-    """Quick sanity check: top N binding constraints in a window."""
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            SELECT sced_timestamp, constraint_name, contingency_name, shadow_price
-            FROM shadow_prices
-            WHERE sced_timestamp BETWEEN %s AND %s
-              AND shadow_price > 0
-            ORDER BY shadow_price DESC
-            LIMIT %s
-            """,
-            (start_iso, end_iso, limit),
-        )
-        print(f"\nTop {limit} binding constraints:")
-        for row in cur.fetchall():
-            print(
-                f"  {row['sced_timestamp']}  "
-                f"{row['constraint_name']:25s}  "
-                f"{row['contingency_name']:15s}  "
-                f"${row['shadow_price']:.2f}"
-            )
-
 
 def print_recent_outages(conn, start_iso, end_iso, limit = 5) -> None:
     """Quick sanity check: first N outage hours from latest publish in window."""
