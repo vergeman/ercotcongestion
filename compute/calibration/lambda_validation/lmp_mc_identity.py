@@ -15,7 +15,7 @@ considered upheld if median |r| stays under 1 $/MWh and P95 stays under
 
 Usage:
     docker compose run --rm compute python \\
-        -m compute.experiments.lambda_validation.lmp_mc_identity \\
+        -m compute.calibration.lambda_validation.lmp_mc_identity \\
         --start 2025-01-03 --end 2025-01-06
 """
 from __future__ import annotations

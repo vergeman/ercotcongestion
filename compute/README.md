@@ -91,38 +91,57 @@ scarcity-priced tails, occasional negatives). Doesn't touch model output:
 
 ```
 docker compose run --rm compute python \
-    -m compute.experiments.lambda_validation.dam_lambda_range
+    -m compute.calibration.lambda_validation.dam_lambda_range
 ```
 
-**Hub k-nearest sweep** — recomputes `hub_avg` for k ∈ {1,5,25,100,200,300,
-500,1000,2000} from the persisted congestion column and reports
-per-hub correlation / median-ratio / negative-count vs. ERCOT DAM SPP.
-Requires an existing model run (`--model-results` and `--ercot-results`;
-defaults point at v1-120-postfix):
+**Hub k-nearest sweep** — picks `k` for the model-side `hub_avg` reference
+price. For each ERCOT hub `H`, model `hub_avg(k) = mean(LMP_b)` over the `k`
+model buses nearest `H`'s geographic centroid; the comparator is the
+published ERCOT DAM SPP for that same hub settlement point (one scalar per
+hour, straight from `ercot_dam_spp` — not a k-average on the ERCOT side).
+Sweeps k ∈ {1,5,25,100,200,300,500,1000,2000} by streaming per-bus LMPs
+from `bus_snapshots`. Emits a recommended k on stdout and at the top of the
+report — smallest k with no spike / no negative and drift ≤ 5%; falls back
+to the lowest-drift k if none clears the gate:
 
 ```
 docker compose run --rm compute python \
-    -m compute.experiments.hub_k_sweep.sweep \
-    --model-results /compute/runs/<run_id>/congestion/model_results.json.gz \
-    --ercot-results /compute/runs/<run_id>/congestion/ercot_results.json.gz \
-    --out /compute/experiments/hub_k_sweep/hub_k_sweep.md
+    -m compute.calibration.hub_k_sweep.sweep \
+    --start 2025-01-01 --end 2025-12-01 \
+    --out /compute/calibration/hub_k_sweep/hub_k_sweep.md
 ```
 
-If either sweep flags a shift (HB_NORTH max spiking, HB_WEST going majority-
+Per-hub table columns and what they tell us:
+
+* `corr` — Pearson correlation of model `hub_avg(k)` against the ERCOT hub
+  SPP over the window. Movement match: does the model's hub price track
+  the published hub price hour-by-hour?
+* `med_ratio` — median of `hub_avg(k) / ERCOT_hub_SPP`. Level bias:
+  1.0 = matched central level, > 1 = model systematically overshoots,
+  negative = model dips below zero on hours where ERCOT stays positive.
+* `n_spike(|x|>500)` — hours where `|hub_avg(k)| > $500`. A single unstable
+  bus in a small k-nearest set drags the mean into a spike; larger k damps
+  this. Should be zero once the neighborhood is wide enough to average out
+  solver artifacts.
+* `n_neg` — hours where `hub_avg(k) < 0`. ERCOT hub SPPs are essentially
+  always ≥ 0, so frequent negatives mean the k-nearest set picks up too
+  many export-constrained (cheap-side) buses — the HB_WEST k=1 failure
+  mode from 0049.
+
+If the sweep flags a shift (HB_NORTH max spiking, HB_WEST going majority-
 negative, or `merit_order`/`system_lambda` correlation collapsing), update
 `HUB_K_NEAREST` in `compute.congestion.metrics` and rerun the backfill before
-serving. On the current codebase (`k=200`, `merit_order` fixed), the expected
-outcome is: no change.
+serving.
 
 **Cross-method λ comparison** — side-by-side of all methods vs. NP4-523-CD
-on the model window. Useful for a full-year confirmation that `merit_order`
-still tracks published λ:
+over the requested window, reading `snapshot_meta.reference_prices` and
+`dam_system_lambda.system_lambda` directly. Useful for a full-year
+confirmation that `merit_order` still tracks published λ:
 
 ```
 docker compose run --rm compute python \
-    -m compute.experiments.lambda_validation.cross_method_compare \
-    --model-results /compute/runs/<run_id>/congestion/model_results.json.gz \
-    --ercot-results /compute/runs/<run_id>/congestion/ercot_results.json.gz
+    -m compute.calibration.lambda_validation.cross_method_compare \
+    --start 2025-01-01 --end 2025-12-01
 ```
 
 ### 3. Build a dates file

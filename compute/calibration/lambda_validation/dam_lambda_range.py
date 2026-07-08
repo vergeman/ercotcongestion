@@ -12,9 +12,9 @@ reports — the pass/fail interpretation is recorded in `docs/dam_lambda_range.m
 
 Usage:
     docker compose run --rm compute python \\
-        -m compute.experiments.lambda_validation.dam_lambda_range
+        -m compute.calibration.lambda_validation.dam_lambda_range
     docker compose run --rm compute python \\
-        -m compute.experiments.lambda_validation.dam_lambda_range \\
+        -m compute.calibration.lambda_validation.dam_lambda_range \\
         --start 2025-01-01 --end 2026-07-01 --out docs/dam_lambda_range.md
 """
 import argparse
@@ -29,7 +29,7 @@ from compute.config import PG_DSN
 
 DEFAULT_START = "2025-01-01"
 DEFAULT_END   = "2026-07-01"
-DEFAULT_OUT   = Path("/compute/experiments/lambda_validation/dam_lambda_range.md")
+DEFAULT_OUT   = Path("/compute/calibration/lambda_validation/dam_lambda_range.md")
 
 # Baseline band the plan is checking against.
 BASELINE_LO = 20.0
