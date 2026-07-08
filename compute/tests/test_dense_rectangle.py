@@ -217,6 +217,48 @@ def test_threshold_strategy_reproduces_all_or_nothing():
         assert not np.isnan(new_ercot[m]).any()
 
 
+def test_all_nan_method_on_ercot_side_is_ignored():
+    # Simulates system_lambda_merit_order_ercot_C — a method whose ercot
+    # matrix is entirely NaN because it isn't computed on that side. The
+    # sweep must treat it as absent, not as an unsatisfiable constraint.
+    n_hours = 100
+    ts = _timestamps(n_hours)
+    sp_ids = ["sp_a", "sp_b"]
+    model_C = _dense_bus_C(2, n_hours)
+    ercot_C = _sp_C_from_first_dense([0, 0], n_hours)
+    # Wipe m2 on the SP side entirely.
+    ercot_C["m2"][:] = np.nan
+
+    new_ts, _, new_ercot, new_sp_ids = _select_dense_rectangle(
+        ts, model_C, ercot_C, sp_ids, REF_METHODS,
+        strategy="max_area", min_sp_fraction=0.90,
+    )
+    assert new_sp_ids == sp_ids
+    assert len(new_ts) == n_hours
+    # m1 (the viable one) stays dense on the kept slice.
+    assert not np.isnan(new_ercot["m1"]).any()
+
+
+def test_all_nan_method_on_model_side_is_ignored():
+    # Simulates system_lambda_model_C — 100% NaN on the model side.
+    # Sweep must not drop every column just because that method is empty.
+    n_hours = 100
+    ts = _timestamps(n_hours)
+    sp_ids = ["sp_a"]
+    model_C = _dense_bus_C(3, n_hours)
+    model_C["m2"][:] = np.nan  # method absent on model side
+    ercot_C = _sp_C_from_first_dense([0], n_hours)
+
+    new_ts, new_model, _, new_sp_ids = _select_dense_rectangle(
+        ts, model_C, ercot_C, sp_ids, REF_METHODS,
+        strategy="max_area", min_sp_fraction=1.0,
+    )
+    assert new_sp_ids == sp_ids
+    assert len(new_ts) == n_hours
+    # m1 stays dense on the kept slice.
+    assert not np.isnan(new_model["m1"]).any()
+
+
 def test_bus_side_gap_drops_column_not_shift_start():
     # A late-window column where every bus is structurally NaN (reference
     # prices missing at that ts) must be dropped as a column — not turned

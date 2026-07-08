@@ -296,14 +296,33 @@ def build_ercot_matrices(
 SP_COVERAGE_STRATEGIES = ("max_area", "max_hours", "threshold")
 
 
-def _structural_missing(
+def _viable_methods(
     mats: dict[str, np.ndarray], ref_methods: list[str],
+) -> list[str]:
+    """Methods whose matrix has at least one finite cell on this side.
+
+    Several reference methods only make sense on one axis — e.g. system_lambda
+    is only computed on the ERCOT side, system_lambda_merit_order only on the
+    model side. Their per-side matrix is written all-NaN. Treating those NaN
+    cells as constraints on the sweep would strip every column; instead we
+    treat a fully-NaN method as "not present on this side" and skip it when
+    deriving the dense mask.
+    """
+    return [m for m in ref_methods if np.isfinite(mats[m]).any()]
+
+
+def _method_missing_union(
+    mats: dict[str, np.ndarray], methods: list[str],
 ) -> np.ndarray:
-    """(row, hour) NaN in every method — LMP/SPP absent, not a method gap."""
-    first = ref_methods[0]
-    missing = np.isnan(mats[first])
-    for m in ref_methods[1:]:
-        missing &= np.isnan(mats[m])
+    """(row, hour) NaN in ANY of ``methods`` — enforces "dense in every
+    listed method" once the resulting mask is cleared."""
+    if not methods:
+        first = next(iter(mats.values()))
+        return np.zeros(first.shape, dtype=bool)
+    first = methods[0]
+    missing = np.isnan(mats[first]).copy()
+    for m in methods[1:]:
+        missing |= np.isnan(mats[m])
     return missing
 
 
@@ -420,13 +439,23 @@ def _select_dense_rectangle(
     if n_hours == 0 or n_sp == 0:
         return timestamps, model_C, ercot_C, sp_ids
 
-    bus_missing = _structural_missing(model_C, ref_methods)   # (n_bus, n_hours)
+    viable_bus_methods = _viable_methods(model_C, ref_methods)
+    viable_sp_methods = _viable_methods(ercot_C, ref_methods)
+    if len(viable_bus_methods) != len(ref_methods) or len(viable_sp_methods) != len(ref_methods):
+        skipped_bus = sorted(set(ref_methods) - set(viable_bus_methods))
+        skipped_sp = sorted(set(ref_methods) - set(viable_sp_methods))
+        if skipped_bus:
+            print(f"  dense check skips model-side (all-NaN) methods: {skipped_bus}")
+        if skipped_sp:
+            print(f"  dense check skips ercot-side (all-NaN) methods: {skipped_sp}")
 
-    # Bus-side structural NaN comes from reference_prices being NULL at a
-    # timestamp — uniform across buses. It's a column defect, not a start-of-
-    # coverage signal, so we drop those hours outright rather than shift the
-    # SP-side start cutoff (which would happily wipe the whole window when
-    # the bad hour is late in the year).
+    bus_missing = _method_missing_union(model_C, viable_bus_methods)  # (n_bus, n_hours)
+
+    # Bus-side NaN comes from reference_prices being NULL at a timestamp —
+    # uniform across buses at that ts (for a given method). It's a column
+    # defect, not a start-of-coverage signal, so we drop those hours outright
+    # rather than shift the SP-side start cutoff (which would happily wipe
+    # the whole window when the bad hour is late in the year).
     bus_bad_hour = bus_missing.any(axis=0)
     if bus_bad_hour.any():
         keep_mask = ~bus_bad_hour
@@ -445,7 +474,7 @@ def _select_dense_rectangle(
         if n_hours == 0:
             return timestamps, model_C, ercot_C, sp_ids
 
-    sp_missing = _structural_missing(ercot_C, ref_methods)    # (n_sp, n_hours)
+    sp_missing = _method_missing_union(ercot_C, viable_sp_methods)  # (n_sp, n_hours)
     sp_first_dense = _first_dense_hour(sp_missing)
 
     # Sort SPs by first-dense hour ascending; keep the k earliest to emerge.
