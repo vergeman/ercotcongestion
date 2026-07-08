@@ -99,15 +99,11 @@ export async function fetchIbpErcotRange(
   };
 }
 
-export async function fetchScorecard(
-  runId: string,
-  algo = "hierarchical_on_beta",
-  k = 6
-): Promise<ScorecardResponse> {
-  const r = await fetch(
-    `${BASE}/validation?run_id=${encodeURIComponent(runId)}` +
-      `&algo=${encodeURIComponent(algo)}&k=${k}`
-  );
+// The served run/cell is chosen by the API's `compute.promote` symlink
+// tree, not by request-time params. `/validation` takes no query args;
+// the response's own `params` block names the cell.
+export async function fetchScorecard(): Promise<ScorecardResponse> {
+  const r = await fetch(`${BASE}/validation`);
   if (!r.ok) throw new Error(`validation ${r.status}`);
   return r.json();
 }
