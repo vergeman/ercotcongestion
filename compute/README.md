@@ -167,6 +167,7 @@ run, either bump `--per-regime` or generate a flat all-hours file from
         → correlation_map → basis_regression → cca   (CM.1–CM.3 mapping)
         → clustering                                  (β-loading sweep)
         → scorecard                                   (per-zone headline)
+        → promote                                     (opt-in — flip serving)
 
 OPF is a prerequisite, not a stage: `write_snapshots.py` must have already
 populated `bus_snapshots` / `snapshot_meta` for every timestamp in the
@@ -195,9 +196,17 @@ Common flags:
   Default is `hierarchical_on_beta` (β-loadings from CM.2). `hybrid_geo`
   is the geographic/behavioral fallback.
 * `--ks 4,6,8,10,12,16` — cluster counts to sweep.
-* `--scorecard-algo hierarchical_on_beta` / `--scorecard-k 6` — which
-  `(algo, K)` cell the scorecard aggregates over. Must be present in the
-  sweep grid (`--algos` × `--ks`). Defaults are the CM.6 primary.
+* `--scorecard-ref system_lambda_merit_order` / `--scorecard-algo hierarchical_on_beta`
+  / `--scorecard-k 6` — which `(ref, algo, K)` cell the scorecard aggregates
+  over. Must be present in the sweep grid (`--ref-methods` × `--algos` × `--ks`).
+  Defaults are the CM.6 primary. The scorecard writer emits per-cell filenames
+  (`scorecard_<run_id>_<ref>_<algo>_k<K>.json`) so multiple cells for the
+  same run coexist — `compute.promote` picks which one is served.
+* `--promote` — after `scorecard`, run `compute.promote` to flip the
+  `runs/current` symlink, the per-cell symlinks inside the run, and the
+  IBP DB pointer at this run + the chosen scorecard cell. Idempotent
+  (repeats are no-ops). Off by default so a rebuild doesn't silently
+  switch what the API serves.
 * `--skip-completed` (default) / `--no-skip-completed` / `--force` — control
   reuse of prior stage outputs under the same `--run-id`.
 
@@ -207,8 +216,9 @@ Artifacts land under `compute/runs/<run_id>/` with stage subdirs
 
 The mapping and scorecard outputs — `mapping_correlation_<run_id>.npz`,
 `mapping_basis_<run_id>.npz`, `mapping_cca_<run_id>.json`,
-`scorecard_<run_id>.json`, `scorecard_series_<run_id>.npz` — are the Sprint
-5 acceptance artifacts (correlation map, per-SP basis R², CCA scalar,
+`scorecard_<run_id>_<ref>_<algo>_k<K>.json`,
+`scorecard_series_<run_id>_<ref>_<algo>_k<K>.npz` — are the Sprint 5
+acceptance artifacts (correlation map, per-SP basis R², CCA scalar,
 per-zone scorecard, per-hour `model_Z`/`ercot_Z`).
 
 ### 5. Pick the presentation partition (optional)
@@ -230,12 +240,37 @@ Then rerun the scorecard alone for the chosen cell:
 ```
 docker compose run --rm compute python \
     -m compute.mapping.scorecard --run-id v1-fy26 \
-    --algo <chosen_algo> --k <chosen_k>
+    --ref <chosen_ref> --algo <chosen_algo> --k <chosen_k>
 ```
 
-Or re-invoke `run_pipeline.py` with `--scorecard-algo` / `--scorecard-k`
-set to the chosen cell and `--skip-completed` (default) — every prior stage
-is a no-op and only the scorecard reruns.
+Or re-invoke `run_pipeline.py` with `--scorecard-ref` / `--scorecard-algo`
+/ `--scorecard-k` set to the chosen cell and `--skip-completed` (default) —
+every prior stage is a no-op and only the scorecard (and, if requested,
+promote) reruns.
+
+To point the API at the newly-selected cell in the same call, add
+`--promote`:
+
+```
+docker compose run --rm compute python -m compute.run_pipeline \
+    --run-id v1-fy26 \
+    --scorecard-ref system_lambda_merit_order \
+    --scorecard-algo hierarchical_on_beta \
+    --scorecard-k 8 \
+    --promote
+```
+
+Or run `compute.promote` on its own after the fact (same flags, no
+compute work — flips symlinks and DB pointer only):
+
+```
+docker compose run --rm compute python -m compute.promote \
+    --run-id v1-fy26 \
+    --ref system_lambda_merit_order \
+    --algo hierarchical_on_beta \
+    --k 8 \
+    [--dry-run]
+```
 
 
 ## Browsing derived-zone GeoJSONs
@@ -288,42 +323,64 @@ inside the container.
 
 ### Which run the API surfaces
 
-Four env vars in `shared/settings.py` decide what the frontend sees:
+`compute.promote` (see step 5 above) manages the entire selection surface:
+
+* `runs/current` — a top-level symlink naming the served run.
+* `runs/current/mapping/scorecard.json`,
+  `runs/current/mapping/scorecard_series.npz`,
+  `runs/current/clustering/cluster_labels.npz` — per-cell symlinks
+  pointing at the promoted `(ref, algo, K)` cell.
+* `implied_binding_proximity_current[ercot]` — the DB pointer for IBP
+  rows, flipped in the same `compute.promote` call.
+
+Two knobs in `shared/settings.py`:
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `ACTIVE_RUN_ID` | `v1-120` | Run whose artifacts feed topology + ERCOT state |
-| `ACTIVE_CLUSTER_ALGO` | `system_lambda_merit_order_hierarchical_on_beta` | Which clustering the topology bakes in |
-| `ACTIVE_CLUSTER_K` | `6` | Cluster count for that algo |
-| `ACTIVE_ERCOT_REF` | `system_lambda` | ERCOT-side reference method to read from the matrix |
-| `COMPUTE_RUNS_DIR` | `/compute/runs` | Root of the runs tree inside the container |
+| `SERVED_RUN_DIR` | `/compute/runs/current` | The only path the API opens; usually the top-level symlink |
+| `COMPUTE_RUNS_DIR` | `/compute/runs` | Root of the runs tree — used by `compute.promote` on the compute pod |
 
 ### Consumers
 
-| Endpoint / module | Reads | Uses `ACTIVE_RUN_ID`? |
-|---|---|---|
-| `api/services/topology_builder.py` | `runs/<active>/clustering/cluster_labels_<algo>_k<k>.npz` | yes — baked into `topology.json` cache |
-| `api/ercot_state.py` | `runs/<active>/matrix/congestion_matrices.npz` | yes |
-| `api/validation.py` | `runs/<run_id>/mapping/scorecard_<run_id>.json` + `scorecard_series_<run_id>.npz` | **no** — `run_id` is a query param |
-| `api/state.py` | `snapshot_meta` + `bus_snapshots` in Postgres | N/A (DB, not files) |
+| Endpoint / module | Reads |
+|---|---|
+| `api/services/topology_builder.py` | `<served>/clustering/cluster_labels.npz` (symlink); `<served>/mapping/mapping_correlation_<run>.npz`; `<served>/clustering/zones_<ref>_<algo>_k<K>.geojson`. Bus↔cluster join baked into `topology.json`; cache invalidated when the symlink's target or mtime changes. |
+| `api/ercot_state.py` | `<served>/matrix/congestion_matrices.npz`. Ref key derived from `<served>/mapping/scorecard.json`'s `params.ref`, cached by mtime. |
+| `api/validation.py` | `<served>/mapping/scorecard.json` + `scorecard_series.npz` (symlinks). No query params. |
+| `api/meta.py` | `readlink(<served>)`, `<served>/mapping/scorecard.json`'s `params`, `implied_binding_proximity_current[ercot]`. |
+| `api/state.py` | `snapshot_meta` + `bus_snapshots` in Postgres (unrelated to promote). |
 
-Other run artifacts (`mapping_correlation_*.npz`, `mapping_basis_*.npz`) are
-intermediate — consumed by later compute stages, not served by the API.
+Other run artifacts (`mapping_basis_*.npz`, `mapping_cca_*.json`, per-cell
+scorecards not currently linked-to) are intermediate — consumed by later
+compute stages or held on disk as historical cells.
 
-### Switching the active run
+### Switching the served run/cell
+
+One idempotent CLI call, no API restart, no image rebuild, no configmap
+edit:
 
 ```bash
-# in .env or a docker-compose override
-ACTIVE_RUN_ID=<run-id>
-
-docker compose restart api
-
-# ACTIVE_RUN_ID is baked into topology.json — bust the cache
-rm data/processed/topology.json
+docker compose run --rm compute python -m compute.promote \
+    --run-id v1-annual \
+    --ref system_lambda_merit_order \
+    --algo hierarchical_on_beta \
+    --k 6
 ```
 
-`GET /api/validation?run_id=<run-id>&algo=<algo>&k=<k>` takes `run_id`
-directly and does not require a restart.
+The topology cache (`topology.json`) stamps a `(readlink target, mtime)`
+key for `cluster_labels.npz` and rebuilds itself on the next request
+whenever either shifts, so a promote-flip busts it automatically.
+
+Inspecting what's live:
+
+```bash
+readlink /compute/runs/current                              # → v1-annual
+readlink /compute/runs/current/mapping/scorecard.json       # → the served cell
+psql -c "SELECT run_id, promoted_at FROM \
+         implied_binding_proximity_current WHERE layer='ercot'"
+
+curl http://localhost:8000/meta                             # same, as JSON
+```
 
 ---
 
@@ -380,7 +437,17 @@ Each stage script is also runnable directly for ad-hoc use. All accept
 * **Scorecard** —
   ```
   python -m compute.mapping.scorecard --run-id debug-11 \
+      --ref system_lambda_merit_order \
       --algo hierarchical_on_beta --k 6
+  ```
+
+* **Promote** — no compute; just flips symlinks + the IBP DB pointer to
+  make an already-built cell live for the API. Idempotent, safe to re-run.
+  ```
+  python -m compute.promote --run-id debug-11 \
+      --ref system_lambda_merit_order \
+      --algo hierarchical_on_beta --k 6 \
+      [--dry-run]
   ```
 
 

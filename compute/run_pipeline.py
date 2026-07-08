@@ -64,6 +64,10 @@ STAGES = (
     "cca",
     "clustering",
     "scorecard",
+    # `promote` is opt-in via `--promote`: flips the served-cell symlinks +
+    # IBP DB pointer to this run. Skipped by default so a rebuild doesn't
+    # silently switch what the API serves.
+    "promote",
 )
 TAIL_LINES = 80
 
@@ -219,6 +223,12 @@ def _stage_outputs(
             f"_k{int(args.scorecard_k)}"
         )
         return [run_dir / "mapping" / f"scorecard_{cell}.json"]
+    if stage == "promote":
+        # No file outputs — promote is a state mutation (symlinks + DB
+        # pointer). ``_run_stage`` treats an empty list as "no skip
+        # candidates", so the CLI runs every invocation. ``compute.promote``
+        # is itself idempotent, so re-runs are cheap.
+        return []
     raise ValueError(stage)
 
 
@@ -285,6 +295,14 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
             "--algo", args.scorecard_algo,
             "--k", str(args.scorecard_k),
         ]
+    if stage == "promote":
+        return base + [
+            "compute.promote",
+            "--run-id", args.run_id,
+            "--ref", args.scorecard_ref,
+            "--algo", args.scorecard_algo,
+            "--k", str(args.scorecard_k),
+        ]
     raise ValueError(stage)
 
 
@@ -299,7 +317,9 @@ def _run_stage(
     force: bool,
 ) -> bool:
     """Execute one stage; return True on ok/skipped, False on failure."""
-    if not force and skip_completed and all(p.exists() for p in outputs):
+    # ``outputs`` empty ⇒ stage has no file artifact (e.g. promote is a
+    # state mutation). Never skip those — the outer loop gates them.
+    if not force and skip_completed and outputs and all(p.exists() for p in outputs):
         meta["stages"][stage] = {"status": "skipped", "elapsed_s": 0.0}
         _write_meta(meta_path, meta)
         print(f"skip: {stage} already complete")
@@ -393,7 +413,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--ibp-promote", action="store_true",
                     help="Point implied_binding_proximity_current[ercot] at "
                          "this run_id so the API starts serving it. Requires "
-                         "--ibp-persist (no-op otherwise).")
+                         "--ibp-persist (no-op otherwise). Prefer top-level "
+                         "--promote, which flips FS and DB pointers together.")
+    ap.add_argument("--promote", action="store_true",
+                    help="After the scorecard stage, run compute.promote to "
+                         "flip the served-cell symlinks + IBP DB pointer to "
+                         "(run-id, scorecard-ref, scorecard-algo, scorecard-k). "
+                         "Idempotent; no-op if already promoted. This is the "
+                         "unified alternative to --ibp-promote — it covers "
+                         "both filesystem-served state and the DB pointer.")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
@@ -455,6 +483,9 @@ def main(argv: list[str] | None = None) -> int:
     print("pre-flight: ok")
 
     for stage in STAGES:
+        # Opt-in: don't flip serving state unless the caller explicitly asked.
+        if stage == "promote" and not args.promote:
+            continue
         cmd = _stage_cmd(stage, args)
         outputs = _stage_outputs(stage, run_dir, args.run_id, args)
         ok = _run_stage(
