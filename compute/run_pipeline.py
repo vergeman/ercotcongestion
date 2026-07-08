@@ -263,6 +263,7 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
         return base + [
             "compute.mapping.correlation_map",
             "--run-id", args.run_id,
+            "--var-threshold", str(args.corr_var_threshold),
         ]
     if stage == "basis_regression":
         return base + [
@@ -377,6 +378,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          f"Default: {DEFAULT_DATES_FILE}.")
     ap.add_argument("--ref-methods", default=None,
                     help="Comma list passed to matrix --ref-methods. Default: all.")
+    ap.add_argument("--corr-var-threshold", type=float, default=0.5,
+                    help="Std threshold ($/MWh) for correlation_map's "
+                         "prefilter_low_variance. Annual windows dilute per-bus "
+                         "std so the correlation_map default (1.0, tuned for "
+                         "3-day peak runs) drops every bus. 0.5 keeps annual "
+                         "runs alive while still filtering flat rows.")
     ap.add_argument("--algos", default=None,
                     help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
