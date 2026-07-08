@@ -1,63 +1,49 @@
 """
-Hub LMP k-nearest sweep (0049 S4.2).
+Hub LMP k-nearest sweep (0068).
 
 For each ERCOT hub centroid, model `hub_avg` originally read the single
 nearest synthetic bus. That produced HB_NORTH spikes to $2116 and made
 HB_WEST negative on 38 of 93 non-shed snapshots (v1-120 backfill).
 
-This script sweeps k over {1,3,5,7,10}, recomputes hub LMPs directly from
-persisted per-bus LMPs in model_results.json.gz, and compares against the
-ERCOT DAM SPP hub values in ercot_results.json.gz to pick a k. Per-bus LMPs
-are reconstructed exactly from `congestion["hub_avg"]` + `hub_lmps["HB_BUSAVG"]`
-(the congestion column is stored as `lmps - HB_BUSAVG_ref`, so the sum
-recovers the original LMP series to 3-decimal round trip precision).
+This script sweeps k over K_VALUES, reads per-bus model LMPs directly from
+`bus_snapshots`, joins ERCOT DAM SPP hub values from `ercot_dam_spp`, and
+picks the k that clears the spike/negative/drift gate.
 
 Usage:
-    docker compose run --rm compute python -m compute.experiments.hub_k_sweep.sweep
-    docker compose run --rm compute python -m compute.experiments.hub_k_sweep.sweep \
-        --model-results /compute/runs/v1-120-postfix/congestion/model_results.json.gz \
-        --ercot-results /compute/runs/v1-120/congestion/ercot_results.json.gz \
-        --out docs/hub_k_sweep.md
+    docker compose run --rm compute python \\
+        -m compute.calibration.hub_k_sweep.sweep --start 2025-01-01 --end 2026-07-01
+    docker compose run --rm compute python \\
+        -m compute.calibration.hub_k_sweep.sweep \\
+        --dates-file /compute/sample_specs/reference_dates_120.json \\
+        --out /compute/calibration/hub_k_sweep/hub_k_sweep.md
 """
 import argparse
-import gzip
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pypsa
+import psycopg
 
-from compute.config import NETWORK_NC
+from compute.config import NETWORK_BUS_COORDS_CSV, PG_DSN
 from compute.congestion.compute import CUSTOM_HUBS, HUB_BUSAVG
 
 
 HUBS = (HUB_BUSAVG, *CUSTOM_HUBS)
 K_VALUES = (1, 5, 25, 100, 200, 300, 500, 1000, 2000)
 SPIKE_ABS = 500.0
+DRIFT_GATE = 0.05
 HUB_CENTROIDS_CSV = Path("/data/processed/hubs_lz_centroids.csv")
-DEFAULT_MODEL = Path("/compute/runs/v1-120-postfix/congestion/model_results.json.gz")
-DEFAULT_ERCOT = Path("/compute/runs/v1-120/congestion/ercot_results.json.gz")
-DEFAULT_OUT = Path("/compute/experiments/hub_k_sweep/hub_k_sweep.md")
+DEFAULT_START = "2025-01-01"
+DEFAULT_END = "2026-07-01"
+DEFAULT_OUT = Path("/compute/calibration/hub_k_sweep/hub_k_sweep.md")
 
 
-def _load_json_gz(path: Path) -> list[dict]:
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rt") as f:
-        return json.load(f)
-
-
-def _reconstruct_lmps(rec: dict) -> pd.Series | None:
-    """lmps[b] = cong["hub_avg"][b] + hub_lmps["HB_BUSAVG"]. Returns None if
-    the record is missing either piece."""
-    cong = (rec.get("congestion") or {}).get("hub_avg")
-    hubs = rec.get("hub_lmps") or {}
-    ref = hubs.get(HUB_BUSAVG)
-    if not cong or ref is None:
-        return None
-    s = pd.Series(cong, dtype=float) + float(ref)
-    s.index = s.index.astype(str)
-    return s
+def _coerce_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
 def _hub_knn_indices(
@@ -78,6 +64,96 @@ def _hub_knn_indices(
         order = np.argsort(d2)[:k_max]
         out[hub] = bus_ids[order]
     return out
+
+
+def _fetch_ok_timestamps(
+    conn, start: datetime, end: datetime
+) -> list[datetime]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT interval_ts FROM snapshot_meta "
+            "WHERE status = 'ok' AND interval_ts BETWEEN %s AND %s "
+            "ORDER BY interval_ts",
+            (start, end),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def _fetch_ercot_hub_spp(
+    conn, ts_list: list[datetime]
+) -> dict[str, dict[datetime, float]]:
+    """Return {hub: {ts: dam_spp}} for HUBS present in ercot_dam_spp.
+    DST-safe (mirrors compute/ercot/transforms.py)."""
+    out: dict[str, dict[datetime, float]] = {h: {} for h in HUBS}
+    if not ts_list:
+        return out
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (interval_ts, settlement_point)
+                   interval_ts, settlement_point, dam_spp
+            FROM ercot_dam_spp
+            WHERE interval_ts = ANY(%s) AND settlement_point = ANY(%s)
+            ORDER BY interval_ts, settlement_point, dst_flag ASC
+            """,
+            (ts_list, list(HUBS)),
+        )
+        for ts, sp, v in cur:
+            if sp in out:
+                out[sp][ts] = float(v)
+    return out
+
+
+def _stream_model_hub_means(
+    conn,
+    ts_list: list[datetime],
+    knn_top: dict[str, np.ndarray],
+) -> dict[int, dict[str, dict[datetime, float]]]:
+    """Stream bus_snapshots.lmp, accumulate k-nearest sum+count per
+    (k, hub, ts) incrementally, and return the mean per (k, hub, ts). No
+    per-ts pd.Series is ever materialized."""
+    # bus_id -> list[(hub, pos)] for buses in some hub's top-k_max ranking.
+    bus_hub_pos: dict[str, list[tuple[str, int]]] = {}
+    for hub, ranked in knn_top.items():
+        for pos, bid in enumerate(ranked):
+            bus_hub_pos.setdefault(str(bid), []).append((hub, int(pos)))
+
+    sum_by_k: dict[int, dict[str, dict[datetime, float]]] = {
+        k: {h: {} for h in knn_top} for k in K_VALUES
+    }
+    cnt_by_k: dict[int, dict[str, dict[datetime, int]]] = {
+        k: {h: {} for h in knn_top} for k in K_VALUES
+    }
+
+    with conn.cursor(name='hub_k_sweep_stream') as cur:
+        cur.itersize = 10_000
+        cur.execute(
+            "SELECT interval_ts, bus_id, lmp FROM bus_snapshots "
+            "WHERE interval_ts = ANY(%s) AND lmp IS NOT NULL",
+            (ts_list,),
+        )
+        for ts, bus_id, lmp in cur:
+            hubs_pos = bus_hub_pos.get(str(bus_id))
+            if not hubs_pos:
+                continue
+            lmp_f = float(lmp)
+            for hub, pos in hubs_pos:
+                for k in K_VALUES:
+                    if pos < k:
+                        sum_by_k[k][hub][ts] = sum_by_k[k][hub].get(ts, 0.0) + lmp_f
+                        cnt_by_k[k][hub][ts] = cnt_by_k[k][hub].get(ts, 0) + 1
+
+    mean_by_k: dict[int, dict[str, dict[datetime, float]]] = {
+        k: {h: {} for h in knn_top} for k in K_VALUES
+    }
+    for k in K_VALUES:
+        for hub in knn_top:
+            counts = cnt_by_k[k][hub]
+            sums = sum_by_k[k][hub]
+            for ts, c in counts.items():
+                if c > 0:
+                    mean_by_k[k][hub][ts] = sums[ts] / c
+    return mean_by_k
 
 
 def _stats(model: pd.Series, ercot: pd.Series) -> dict:
@@ -132,97 +208,145 @@ def _hub_table_md(hub: str, per_k: dict[int, dict]) -> str:
     return header + "\n".join(rows) + "\n"
 
 
+def _pick_k(
+    aggregate_drift: dict[int, float],
+    aggregate_spikes: dict[int, int],
+    aggregate_neg: dict[int, int],
+) -> tuple[int, str]:
+    """Return (k, rationale). Smallest k with no spike, no negative, and
+    mean(|1 − med_ratio|) ≤ DRIFT_GATE (tie-break: lowest drift). Fallback:
+    k with lowest drift overall."""
+    passing = [
+        k for k in K_VALUES
+        if aggregate_spikes[k] == 0
+        and aggregate_neg[k] == 0
+        and not np.isnan(aggregate_drift[k])
+        and aggregate_drift[k] <= DRIFT_GATE
+    ]
+    if passing:
+        best = min(passing, key=lambda k: (k, aggregate_drift[k]))
+        return best, (
+            f"smallest k with no spike / no negative and drift ≤ {DRIFT_GATE:.2f}"
+        )
+    with_drift = [k for k in K_VALUES if not np.isnan(aggregate_drift[k])]
+    if not with_drift:
+        return K_VALUES[0], "no k had valid drift data; defaulting to smallest k"
+    best = min(with_drift, key=lambda k: aggregate_drift[k])
+    return best, "no k cleared the gate; showing lowest-drift"
+
+
+def _load_dates_file(path: Path) -> list[datetime]:
+    with open(path, "r") as f:
+        raw = json.load(f)
+    if isinstance(raw, list):
+        flat = list(raw)
+    elif isinstance(raw, dict):
+        flat = [ts for ts_list in raw.values() for ts in ts_list]
+    else:
+        raise ValueError(
+            f"{path}: expected list[str] or dict[str, list[str]], "
+            f"got {type(raw).__name__}"
+        )
+    out: list[datetime] = []
+    seen: set[datetime] = set()
+    for s in flat:
+        ts = _coerce_utc(datetime.fromisoformat(s))
+        if ts in seen:
+            continue
+        seen.add(ts)
+        out.append(ts)
+    out.sort()
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model-results", type=Path, default=DEFAULT_MODEL)
-    ap.add_argument("--ercot-results", type=Path, default=DEFAULT_ERCOT)
+    ap.add_argument("--start", default=DEFAULT_START,
+                    help=f"UTC start (inclusive). Default: {DEFAULT_START}.")
+    ap.add_argument("--end", default=DEFAULT_END,
+                    help=f"UTC end (inclusive). Default: {DEFAULT_END}.")
+    ap.add_argument("--dates-file", type=Path, default=None,
+                    help="Optional JSON list (or {regime:[iso]} dict) of UTC "
+                         "timestamps; intersects with snapshot_meta status='ok' "
+                         "in the window.")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = ap.parse_args()
 
-    model_recs = _load_json_gz(args.model_results)
-    ercot_recs = _load_json_gz(args.ercot_results)
+    start = _coerce_utc(datetime.fromisoformat(args.start))
+    end = _coerce_utc(datetime.fromisoformat(args.end))
 
-    ercot_by_ts: dict[str, dict[str, float]] = {}
-    for r in ercot_recs:
-        if r.get("status") != "ok":
-            continue
-        hubs = r.get("hub_lmps") or {}
-        ercot_by_ts[r["ts"]] = {h: float(v) for h, v in hubs.items() if v is not None}
+    with psycopg.connect(PG_DSN) as conn:
+        ok_ts = _fetch_ok_timestamps(conn, start, end)
+        if args.dates_file:
+            wanted = set(_load_dates_file(args.dates_file))
+            ok_ts = [t for t in ok_ts if t in wanted]
+        if not ok_ts:
+            raise SystemExit(f"no ok snapshots in {start}..{end}")
 
-    n = pypsa.Network(NETWORK_NC)
-    hub_centroids = pd.read_csv(HUB_CENTROIDS_CSV).set_index("settlement_point")
-    bus_xy = n.buses[["y", "x"]].rename(columns={"y": "lat", "x": "lon"}).dropna()
-    bus_coords_full = bus_xy[["lat", "lon"]].to_numpy()
-    bus_ids_full = bus_xy.index.astype(str).to_numpy()
-    k_max = max(K_VALUES)
-    knn_top = _hub_knn_indices(bus_coords_full, bus_ids_full, hub_centroids, k_max)
+        hub_centroids = pd.read_csv(HUB_CENTROIDS_CSV).set_index("settlement_point")
+        bus_xy = pd.read_csv(
+            NETWORK_BUS_COORDS_CSV, usecols=["bus", "lat", "lon"]
+        ).dropna(subset=["lat", "lon"]).drop_duplicates(subset=["bus"])
+        bus_coords_full = bus_xy[["lat", "lon"]].to_numpy()
+        bus_ids_full = bus_xy["bus"].astype(str).to_numpy()
+        k_max = max(K_VALUES)
+        knn_top = _hub_knn_indices(bus_coords_full, bus_ids_full, hub_centroids, k_max)
 
-    # For each snapshot, for each k, for each hub -> model value.
-    model_by_k: dict[int, dict[str, dict[str, float]]] = {
-        k: {h: {} for h in HUBS} for k in K_VALUES
-    }
-    ercot_by_hub: dict[str, dict[str, float]] = {h: {} for h in HUBS}
-    n_matched = 0
-    n_no_ercot = 0
-    n_no_lmps = 0
+        ercot_by_hub = _fetch_ercot_hub_spp(conn, ok_ts)
+        model_by_k = _stream_model_hub_means(conn, ok_ts, knn_top)
 
-    for rec in model_recs:
-        if rec.get("status") != "ok":
-            continue
-        ts = rec["ts"]
-        ercot_hubs = ercot_by_ts.get(ts)
-        if not ercot_hubs:
-            n_no_ercot += 1
-            continue
-        lmps = _reconstruct_lmps(rec)
-        if lmps is None:
-            n_no_lmps += 1
-            continue
-        n_matched += 1
-        for hub, ranked_ids in knn_top.items():
-            ercot_val = ercot_hubs.get(hub)
-            if ercot_val is None:
-                continue
-            ercot_by_hub[hub][ts] = ercot_val
-            for k in K_VALUES:
-                ids_k = ranked_ids[:k]
-                vals = lmps.reindex(ids_k).dropna()
-                if vals.empty:
-                    continue
-                model_by_k[k][hub][ts] = float(vals.mean())
+    n_matched = len(ok_ts)
+    print(f"matched snapshots: {n_matched}")
 
-    print(f"matched snapshots: {n_matched}  no_ercot: {n_no_ercot}  no_lmps: {n_no_lmps}")
+    aggregate_ratios: dict[int, list[float]] = {k: [] for k in K_VALUES}
+    aggregate_spikes: dict[int, int] = {k: 0 for k in K_VALUES}
+    aggregate_neg: dict[int, int] = {k: 0 for k in K_VALUES}
 
-    md_lines = [
-        "# Hub LMP k-nearest sweep",
-        "",
-        "Model `hub_avg` averages the k synthetic buses nearest each ERCOT hub "
-        "centroid. This sweep re-derives per-bus LMPs from the persisted "
-        "`hub_avg` congestion column of the v1-120-postfix backfill and "
-        "compares each k against the ERCOT DAM SPP for the same timestamps.",
-        "",
-        f"* Snapshots matched: {n_matched}",
-        f"* Model results: `{args.model_results}`",
-        f"* ERCOT results: `{args.ercot_results}`",
-        "",
-    ]
-    aggregate_ratios = {k: [] for k in K_VALUES}
-    aggregate_spikes = {k: 0 for k in K_VALUES}
-    aggregate_neg = {k: 0 for k in K_VALUES}
-
+    hub_tables: list[str] = []
     for hub in HUBS:
-        per_k = {}
-        ercot_series = pd.Series(ercot_by_hub[hub], dtype=float)
+        ercot_series = pd.Series(ercot_by_hub.get(hub, {}), dtype=float)
         if ercot_series.empty:
             continue
+        per_k = {}
         for k in K_VALUES:
-            model_series = pd.Series(model_by_k[k][hub], dtype=float)
+            model_series = pd.Series(model_by_k[k].get(hub, {}), dtype=float)
             per_k[k] = _stats(model_series, ercot_series)
             if per_k[k]["n"] > 0:
                 aggregate_ratios[k].append(per_k[k]["median_ratio"])
                 aggregate_spikes[k] += per_k[k]["n_spike"]
                 aggregate_neg[k] += per_k[k]["n_negative"]
-        md_lines.append(_hub_table_md(hub, per_k))
+        hub_tables.append(_hub_table_md(hub, per_k))
+
+    aggregate_drift: dict[int, float] = {}
+    for k in K_VALUES:
+        ratios = [r for r in aggregate_ratios[k] if pd.notna(r)]
+        aggregate_drift[k] = (
+            float(np.mean([abs(1.0 - r) for r in ratios])) if ratios else float("nan")
+        )
+
+    picked_k, rationale = _pick_k(aggregate_drift, aggregate_spikes, aggregate_neg)
+    print(f"recommended k={picked_k}")
+
+    md_lines: list[str] = [
+        "# Hub LMP k-nearest sweep",
+        "",
+        "## Recommended k",
+        "",
+        f"**k = {picked_k}** — {rationale}.",
+        "",
+        f"* mean(|1 − med_ratio|) = {_fmt(aggregate_drift[picked_k], '.3f')}",
+        f"* total n_spike (|x| > {SPIKE_ABS:.0f}) = {aggregate_spikes[picked_k]}",
+        f"* total n_neg = {aggregate_neg[picked_k]}",
+        "",
+        "Model `hub_avg` averages the k synthetic buses nearest each ERCOT hub "
+        "centroid. This sweep reads per-bus LMPs directly from `bus_snapshots` "
+        "and compares each k against the ERCOT DAM SPP for the same timestamps.",
+        "",
+        f"* Snapshots matched: {n_matched}",
+        f"* Window: {start.isoformat()} .. {end.isoformat()}",
+        "",
+    ]
+    md_lines.extend(hub_tables)
 
     md_lines.append("## Summary (across all hubs)\n")
     md_lines.append(
@@ -230,10 +354,8 @@ def main():
         "|---:|---:|---:|---:|"
     )
     for k in K_VALUES:
-        ratios = [r for r in aggregate_ratios[k] if pd.notna(r)]
-        drift = float(np.mean([abs(1.0 - r) for r in ratios])) if ratios else float("nan")
         md_lines.append(
-            f"| {k} | {_fmt(drift, '.3f')} | {aggregate_spikes[k]} | "
+            f"| {k} | {_fmt(aggregate_drift[k], '.3f')} | {aggregate_spikes[k]} | "
             f"{aggregate_neg[k]} |"
         )
     md_lines.append("")
