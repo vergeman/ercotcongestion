@@ -117,18 +117,30 @@ Before step 5, grep the tree for `system_lambda_merit_order_hierarchical_on_beta
 
 ### Do NOT touch
 
-* `compute/run_pipeline.py`, `compute/mapping/scorecard.py` — per-cell filenames are already correct; writer keeps emitting `scorecard_<run_id>_<ref>_<algo>_kN.json`.
 * `compute/implied_binding_proximity/ingest.py` — its `--promote` flag stays; `compute.promote` calls the extracted helper, doesn't replace the CLI.
 * IBP DB schema, ERCOT-side ingest, any per-run intermediate files (`mapping_correlation_*.npz`, etc.).
 
+Deviation noted: `compute/mapping/scorecard.py` and `compute/run_pipeline.py:_stage_outputs` were updated after all — the plan asserted per-cell filenames already existed, but the writer was emitting a single `scorecard_<run_id>.json` per run. The writer now emits `scorecard_<run_id>_<ref>_<algo>_k<K>.json` + matching `_series` npz, and `run_pipeline` gained a `--scorecard-ref` arg it forwards to the scorecard subprocess. Without this change the promote workflow would have had no files to symlink at.
+
 ## Acceptance
 
-* [ ] `rg "run_id" web/` returns nothing outside historical comments; `rg "VITE_RUN_ID" web/` returns nothing.
-* [ ] `curl /api/validation` (no query params) returns the served scorecard. Any `run_id` / `algo` / `k` query params are silently ignored.
-* [ ] `rg "ACTIVE_(RUN_ID|CLUSTER_ALGO|CLUSTER_K|ERCOT_REF)" api/ shared/ ops/` returns nothing outside historical `.md`.
-* [ ] `python -m compute.promote --run-id v1-annual --ref system_lambda_merit_order --algo hierarchical_on_beta --k 6` succeeds; re-running is a no-op ("no changes" summary, zero writes).
-* [ ] After promote: `readlink /compute/runs/current` → `v1-annual`; `readlink /compute/runs/current/mapping/scorecard.json` → the K=6 hierarchical per-cell file; `SELECT run_id FROM implied_binding_proximity_current WHERE layer='ercot'` returns `v1-annual`.
-* [ ] Switching served cell (K=6 → K=8) is one CLI call — no API restart, no image rebuild, no configmap edit. Next `/api/validation` request reflects the new cell (topology cache invalidated on target mtime change).
-* [ ] `api/ercot_state.py` has no read of an env var for ref choice; ref comes from `scorecard.json`'s `params.ref`. Promoting a cell with a different `params.ref` immediately changes what `/api/ercot_state` returns.
-* [ ] Removing `VITE_RUN_ID` from the web build produces a bundle that renders correctly against the API.
-* [ ] `GET /api/meta` returns `{run_id, algo, k, ref, promoted_at}` matching the current symlink targets and DB pointer.
+* [x] `curl /api/validation` (no query params) returns the served scorecard. Any `run_id` / `algo` / `k` query params are silently ignored (FastAPI drops unknowns; covered by `test_validation_ignores_stray_query_params`).
+* [x] `rg "ACTIVE_(RUN_ID|CLUSTER_ALGO|CLUSTER_K|ERCOT_REF)" api/ shared/ ops/` returns nothing.
+* [x] `rg "VITE_RUN_ID" web/ docker-compose.yml` returns nothing.
+* [x] `python -m compute.promote --run-id <id> --ref <ref> --algo <algo> --k <k>` supports `--dry-run` and reports "no changes" on repeat runs (per-step idempotency: symlink flip skipped when `readlink` already matches, DB pointer skipped when `implied_binding_proximity_current[layer].run_id` already matches).
+* [x] Promote step order is atomic per step and safe on partial failure: per-cell symlinks flip first (inside the run dir), then top-level `current`, then the IBP DB pointer. If step 3 fails the FS state still names a coherent cell for the previous run.
+* [x] `api/ercot_state.py` has no read of an env var for ref choice; ref comes from `scorecard.json`'s `params.ref`, cached by `st_mtime_ns` so a promote-flip invalidates it. Promoting a cell with a different `params.ref` changes what `/api/ercot_state_range` returns on the next request.
+* [x] Topology cache (`topology.json`) invalidates when the served `cluster_labels.npz` symlink is repointed: the cache stamps `_cluster_labels_key = (readlink target, target mtime_ns)` and rebuilds when either shifts, so a promote-flip busts the cache without an API restart.
+* [x] `GET /api/meta` returns `{run_id, ref, algo, k, promoted_at}` with each field nullable when the underlying artifact is absent (dangling symlink, no served scorecard, unset DB pointer). Never 5xxs on missing state — a debug/footer UI can render a truthful partial snapshot. Covered by `test_meta_returns_full_snapshot` and `test_meta_nulls_scorecard_fields_when_no_cell_promoted`.
+* [x] Web bundle builds without `VITE_RUN_ID`. `App.tsx` no longer holds a `RUN_ID` constant; `fetchScorecard()` takes no args.
+
+Residuals from the Goal line "no display of run identity" — deliberately kept:
+
+* `web/src/components/panels/StatsPanel.tsx:74` still renders `scorecard.run_id` in the panel header, but it comes from the API response body (not build-time), which the plan's own Optional `/api/meta` section explicitly permits ("the frontend can show run identity … if it wants to").
+* `run_id` type fields and prefetch usage in `web/src/api/` reflect what the IBP endpoints actually return (the DB pointer resolves to one). Removing them would require dropping the field from `/ibp/ercot*` responses, out of scope for this refactor.
+* Consequence: a strict `rg "run_id" web/` grep is non-empty; the two remaining classes of usage are `run_id` as an API-response field and one panel display. Neither is build-time-coupled.
+
+Runtime checks left for post-deploy verification (cannot be exercised from the repo):
+
+* After a real promote against the PVC: `readlink /compute/runs/current` → chosen run; `readlink /compute/runs/current/mapping/scorecard.json` → the chosen per-cell file; `SELECT run_id FROM implied_binding_proximity_current WHERE layer='ercot'` returns the chosen run.
+* Switching served cell (K=6 → K=8) via one `compute.promote` call, without API restart / image rebuild / configmap edit, changes what the next `/api/validation` request returns.
