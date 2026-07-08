@@ -72,14 +72,23 @@ and the "Trial findings" table for how these values were chosen.
 
 ## Which run reaches the API / frontend
 
-The API reads run artifacts off the `./compute:/compute` bind mount — no ingestion.
-Two independent selection paths:
+The API reads run artifacts off the `./compute:/compute` bind mount — no
+ingestion. One selection plane, managed by `compute.promote`:
 
-* **API (topology + ercot state)**: env vars in `.env.dev`, resolved at container
-  create time. `ACTIVE_RUN_ID` picks the run; `ACTIVE_CLUSTER_ALGO` /
-  `ACTIVE_CLUSTER_K` / `ACTIVE_ERCOT_REF` select which artifact within it.
-  Change means `docker compose up -d api` (not `restart`) + `rm api/static/topology.json`.
-* **Frontend (validation panel)**: `VITE_RUN_ID` in `.env.dev`, passed as the
-  `run_id=` query param to `/validation`. Change means `docker compose restart web`.
+* Filesystem-served state — `runs/current` (top-level symlink) plus
+  per-cell symlinks inside it (`mapping/scorecard.json`,
+  `mapping/scorecard_series.npz`, `clustering/cluster_labels.npz`).
+* DB-served state — `implied_binding_proximity_current[ercot]`.
 
-The two must match, or the map bakes labels from one run and the scorecard panel reads another.
+Switching cells:
+
+```
+docker compose run --rm compute python -m compute.promote \
+    --run-id <run-id> --ref <ref> --algo <algo> --k <k>
+```
+
+No API restart, no image rebuild, no configmap edit. The topology cache
+invalidates automatically when the `cluster_labels.npz` symlink is
+repointed. The frontend takes no build-time run parameter — `fetchScorecard()`
+is arg-less and `/api/meta` exposes the currently-served identity on
+request.
