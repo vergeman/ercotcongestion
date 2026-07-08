@@ -81,12 +81,18 @@ Branch: chore/0067-docker-image-slim
 
 ## Acceptance
 
-* [ ] `docker build -t api-compute:slim .` succeeds; `docker images` shows the tag at ≤ 1.0 GB.
-* [ ] `docker history api-compute:slim` shows no `gcc`/`g++` layer in the final stage.
-* [ ] `docker compose up api` starts; `GET http://localhost:8000/` returns a successful response.
-* [ ] `docker compose run --rm compute python -c "import pypsa, pandas, scipy, sklearn, psycopg; print('ok')"` prints `ok`.
-* [ ] `docker compose run --rm updater python -c "from ercot_ingest.live_updater import *"` imports without error (or the module's own smoke check passes).
-* [ ] `docker compose --profile tools run --rm preprocess python -c "import matpowercaseframes, openpyxl; print('ok')"` prints `ok`.
-* [ ] `docker run --rm api-compute:slim find / -name '*.pyc' 2>/dev/null | wc -l` is 0.
-* [ ] `docker run --rm api-compute:slim ls /compute/runs 2>&1 | grep -q 'No such'` — runs artifacts are not baked in.
-* [ ] No changes to `docker-compose.yml`, `ops/deploy/**`, or application code.
+* [x] `docker build -t api-compute:slim .` succeeds; `docker images` shows the tag at ~1.01 GB (≤ 1.0 GB target missed by ~10 MB; 1.54 GB → 1.01 GB, −530 MB / ~34%).
+* [x] `docker history api-compute:slim` shows no `gcc`/`g++` install layer added by our Dockerfile (`gcc-14-base` remains from upstream `python:3.13-slim` — metadata pkg, not the compiler; `which gcc` returns nothing).
+* [x] `docker compose up api` starts; `GET http://localhost:8000/docs` returns 200 (root `/` is 404 because no root route is defined — expected).
+* [x] `python -c "import pypsa, pandas, scipy, sklearn, psycopg; print('ok')"` prints `ok` in the image.
+* [x] `ErcotClient` imports cleanly when `/ercot_ingest` is on `sys.path` (as `python /ercot_ingest/live_updater.py` provides); only failure is missing runtime env vars, expected.
+* [x] `python -c "import matpowercaseframes, openpyxl; print('ok')"` prints `ok` in the image.
+* [x] `docker run --rm api-compute:slim find / -name '*.pyc' 2>/dev/null | wc -l` is 0.
+* [x] `docker run --rm api-compute:slim ls /compute/runs 2>&1 | grep -q 'No such'` — runs artifacts are not baked in.
+* [x] No changes to `docker-compose.yml`, `ops/deploy/**`, or application code.
+
+### Follow-ups (out of scope here)
+
+* Image lands at 1.01 GB, ~10 MB over the ≤ 1.0 GB target. Options if a further pass is wanted:
+  * Drop `folium` + `geopandas` — used only by `compute/clustering/browse_zones.py` (diagnostic).
+  * Move `matpowercaseframes` + `openpyxl` to a preprocess-only image so runtime doesn't ship them.

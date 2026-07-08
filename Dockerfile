@@ -4,16 +4,20 @@
 # Build from repo root:
 #   docker build -t api-compute:<tag> .
 #
-# Layout inside the image:
+# Multi-stage layout:
+#   builder — installs gcc/g++/libpq-dev, pip-installs into /install
+#             (--prefix), strips __pycache__ / tests / *.pyc from
+#             site-packages. Toolchain never ships to runtime.
+#   runtime — python:3.13-slim + libpq5 only. Copies /install → /usr/local,
+#             adds the shifty user, then COPYs application code.
+#
+# Layout inside the runtime image:
 #   /api             FastAPI app
 #   /compute         snapshot writer + supporting modules
 #   /ercot_ingest    live_updater + ErcotClient
 #   /opt/shared      shared.settings package (PYTHONPATH=/opt → import shared)
 #   /data/processed  preprocessing artifacts (CSVs + .nc network)
 #   /api/static      writable cache directory (e.g. topology.json)
-#
-# Multi-stage: builder installs deps with gcc/g++/libpq-dev; runtime keeps
-# only libpq5 + the resulting site-packages under /install.
 
 FROM python:3.13-slim AS builder
 
