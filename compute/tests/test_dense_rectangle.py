@@ -217,6 +217,33 @@ def test_threshold_strategy_reproduces_all_or_nothing():
         assert not np.isnan(new_ercot[m]).any()
 
 
+def test_bus_side_gap_drops_column_not_shift_start():
+    # A late-window column where every bus is structurally NaN (reference
+    # prices missing at that ts) must be dropped as a column — not turned
+    # into a start-cutoff shift that would zero out the whole window.
+    n_hours = 100
+    ts = _timestamps(n_hours)
+    sp_ids = ["sp_a", "sp_b"]
+    model_C = _dense_bus_C(3, n_hours)
+    # All buses NaN in every method at the last hour.
+    for m in REF_METHODS:
+        model_C[m][:, 99] = np.nan
+    ercot_C = _sp_C_from_first_dense([0, 0], n_hours)
+
+    new_ts, new_model, new_ercot, new_sp_ids = _select_dense_rectangle(
+        ts, model_C, ercot_C, sp_ids, REF_METHODS,
+        strategy="max_area", min_sp_fraction=0.90,
+    )
+    assert new_sp_ids == sp_ids
+    assert len(new_ts) == 99
+    assert new_ts[-1] == ts[98]  # the dropped hour was the last, not sliced from start
+    for m in REF_METHODS:
+        assert new_model[m].shape == (3, 99)
+        assert new_ercot[m].shape == (2, 99)
+        assert not np.isnan(new_model[m]).any()
+        assert not np.isnan(new_ercot[m]).any()
+
+
 def test_unknown_strategy_raises():
     ts = _timestamps(10)
     with pytest.raises(ValueError):

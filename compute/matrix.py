@@ -421,18 +421,39 @@ def _select_dense_rectangle(
         return timestamps, model_C, ercot_C, sp_ids
 
     bus_missing = _structural_missing(model_C, ref_methods)   # (n_bus, n_hours)
-    sp_missing = _structural_missing(ercot_C, ref_methods)    # (n_sp, n_hours)
 
+    # Bus-side structural NaN comes from reference_prices being NULL at a
+    # timestamp — uniform across buses. It's a column defect, not a start-of-
+    # coverage signal, so we drop those hours outright rather than shift the
+    # SP-side start cutoff (which would happily wipe the whole window when
+    # the bad hour is late in the year).
+    bus_bad_hour = bus_missing.any(axis=0)
+    if bus_bad_hour.any():
+        keep_mask = ~bus_bad_hour
+        for m in ref_methods:
+            model_C[m] = model_C[m][:, keep_mask]
+            ercot_C[m] = ercot_C[m][:, keep_mask]
+        dropped_ts = [ts for ts, b in zip(timestamps, bus_bad_hour) if b]
+        timestamps = [ts for ts, k in zip(timestamps, keep_mask) if k]
+        n_hours = len(timestamps)
+        preview = ", ".join(ts.isoformat() for ts in dropped_ts[:5])
+        more = "" if len(dropped_ts) <= 5 else f" ... (+{len(dropped_ts) - 5} more)"
+        print(
+            f"  dropped {len(dropped_ts)} hour(s) with no reference prices "
+            f"on the bus side: {preview}{more}"
+        )
+        if n_hours == 0:
+            return timestamps, model_C, ercot_C, sp_ids
+
+    sp_missing = _structural_missing(ercot_C, ref_methods)    # (n_sp, n_hours)
     sp_first_dense = _first_dense_hour(sp_missing)
-    bus_first_dense = _first_dense_hour(bus_missing)
-    bus_hour_cutoff = int(bus_first_dense.max()) if bus_first_dense.size else 0
 
     # Sort SPs by first-dense hour ascending; keep the k earliest to emerge.
     sp_order = np.argsort(sp_first_dense, kind="stable")
     sorted_first_dense = sp_first_dense[sp_order]
 
     # k = number of SPs kept, 1..n_sp.
-    hour_cutoffs = np.maximum(sorted_first_dense, bus_hour_cutoff)
+    hour_cutoffs = sorted_first_dense
     hours_kept = np.clip(n_hours - hour_cutoffs, 0, None)
     k_range = np.arange(1, n_sp + 1)
     areas = k_range * hours_kept
