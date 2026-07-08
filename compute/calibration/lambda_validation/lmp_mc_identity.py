@@ -30,9 +30,9 @@ import psycopg
 from compute.config import PG_DSN
 
 # The identity holds against whichever system_λ estimator the pipeline used
-# when writing snapshot_meta. `system_lambda_merit_order` is the active ref
-# (ACTIVE_ERCOT_REF = "system_lambda"); if the model was run against a
-# different estimator, swap this column via --lambda-col.
+# when writing snapshot_meta. `system_lambda_merit_order` is the default
+# (matches compute.mapping.correlation_map.DEFAULT_MODEL_REF); if the model
+# was run against a different estimator, swap this column via --lambda-col.
 DEFAULT_LAMBDA_COL = "system_lambda_merit_order"
 
 # Tolerance thresholds. "A few $/MWh" per the plan.

@@ -36,8 +36,6 @@ import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 
 type ConnectionState = "ok" | "error" | "loading";
 
-const RUN_ID = import.meta.env.VITE_RUN_ID ?? "v1-120";
-
 interface HoveredBus {
   busId: string;
   props: Record<string, unknown>;
@@ -262,10 +260,11 @@ export default function App() {
       .catch(() => setConnState("error"));
   }, []);
 
-  // Scorecard load — soft-fail. If the run doesn't have a scorecard yet the
-  // panel section just doesn't render; nothing else depends on it.
+  // Scorecard load — soft-fail. If nothing is promoted the panel section
+  // just doesn't render; nothing else depends on it. The API picks the
+  // cell via its `compute.promote` symlink tree, so no args here.
   useEffect(() => {
-    fetchScorecard(RUN_ID)
+    fetchScorecard()
       .then(setScorecard)
       .catch(() => setScorecard(null));
   }, []);

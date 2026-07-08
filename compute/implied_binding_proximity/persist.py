@@ -10,6 +10,10 @@ Two callers:
 
 Both paths converge on the same row-writing routine so the DB view is
 consistent regardless of how the panel got there.
+
+``promote_layer`` is the standalone pointer-flip entry point used by
+``compute.promote`` to unify filesystem-served state and DB-served state
+under one operator command.
 """
 from __future__ import annotations
 
@@ -17,6 +21,9 @@ import logging
 from typing import Iterable
 
 import numpy as np
+import psycopg
+
+from compute.config import PG_DSN
 
 log = logging.getLogger("compute.implied_binding_proximity.persist")
 
@@ -91,3 +98,30 @@ def set_current_pointer(conn, layer: str, run_id: str) -> None:
             "SET run_id = EXCLUDED.run_id, promoted_at = now()",
             (layer, run_id),
         )
+
+
+def get_current_pointer(conn, layer: str) -> tuple[str, object] | None:
+    """Return ``(run_id, promoted_at)`` for ``layer``, or None if unset."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id, promoted_at FROM implied_binding_proximity_current "
+            "WHERE layer = %s",
+            (layer,),
+        )
+        row = cur.fetchone()
+        return (row[0], row[1]) if row else None
+
+
+def promote_layer(run_id: str, layer: str = DEFAULT_LAYER) -> bool:
+    """Flip the IBP served pointer for ``layer`` to ``run_id``.
+
+    Idempotent: returns True when the pointer moved, False when it was
+    already at ``run_id`` (no write, no ``promoted_at`` bump).
+    """
+    with psycopg.connect(PG_DSN) as conn:
+        current = get_current_pointer(conn, layer)
+        if current is not None and current[0] == run_id:
+            return False
+        set_current_pointer(conn, layer, run_id)
+        conn.commit()
+        return True

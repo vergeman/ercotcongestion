@@ -64,6 +64,10 @@ STAGES = (
     "cca",
     "clustering",
     "scorecard",
+    # `promote` is opt-in via `--promote`: flips the served-cell symlinks +
+    # IBP DB pointer to this run. Skipped by default so a rebuild doesn't
+    # silently switch what the API serves.
+    "promote",
 )
 TAIL_LINES = 80
 
@@ -195,7 +199,9 @@ def _read_tail(path: Path, n_lines: int) -> str:
     return "".join(lines[-n_lines:])
 
 
-def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
+def _stage_outputs(
+    stage: str, run_dir: Path, run_id: str, args: argparse.Namespace,
+) -> list[Path]:
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
     if stage == "implied_binding_proximity":
@@ -209,7 +215,20 @@ def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
     if stage == "clustering":
         return [run_dir / "clustering" / "summary.json"]
     if stage == "scorecard":
-        return [run_dir / "mapping" / f"scorecard_{run_id}.json"]
+        # Cell-scoped: (ref, algo, k) participate in the filename so multiple
+        # cells for the same run can coexist and ``compute.promote`` can pick
+        # one to serve by symlink.
+        cell = (
+            f"{run_id}_{args.scorecard_ref}_{args.scorecard_algo}"
+            f"_k{int(args.scorecard_k)}"
+        )
+        return [run_dir / "mapping" / f"scorecard_{cell}.json"]
+    if stage == "promote":
+        # No file outputs — promote is a state mutation (symlinks + DB
+        # pointer). ``_run_stage`` treats an empty list as "no skip
+        # candidates", so the CLI runs every invocation. ``compute.promote``
+        # is itself idempotent, so re-runs are cheap.
+        return []
     raise ValueError(stage)
 
 
@@ -272,6 +291,15 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
         return base + [
             "compute.mapping.scorecard",
             "--run-id", args.run_id,
+            "--ref", args.scorecard_ref,
+            "--algo", args.scorecard_algo,
+            "--k", str(args.scorecard_k),
+        ]
+    if stage == "promote":
+        return base + [
+            "compute.promote",
+            "--run-id", args.run_id,
+            "--ref", args.scorecard_ref,
             "--algo", args.scorecard_algo,
             "--k", str(args.scorecard_k),
         ]
@@ -289,7 +317,9 @@ def _run_stage(
     force: bool,
 ) -> bool:
     """Execute one stage; return True on ok/skipped, False on failure."""
-    if not force and skip_completed and all(p.exists() for p in outputs):
+    # ``outputs`` empty ⇒ stage has no file artifact (e.g. promote is a
+    # state mutation). Never skip those — the outer loop gates them.
+    if not force and skip_completed and outputs and all(p.exists() for p in outputs):
         meta["stages"][stage] = {"status": "skipped", "elapsed_s": 0.0}
         _write_meta(meta_path, meta)
         print(f"skip: {stage} already complete")
@@ -351,6 +381,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
                     help="Comma list of ints passed to clustering --ks. Default: 4,6,8,10,12,16.")
+    ap.add_argument("--scorecard-ref", default="system_lambda_merit_order",
+                    help="Reference method the scorecard partitions against "
+                         "(default system_lambda_merit_order — matches "
+                         "compute.mapping.correlation_map.DEFAULT_MODEL_REF).")
     ap.add_argument("--scorecard-algo", default="hierarchical_on_beta",
                     help="Clustering algo the scorecard aggregates over "
                          "(must be in --algos; default hierarchical_on_beta).")
@@ -379,7 +413,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--ibp-promote", action="store_true",
                     help="Point implied_binding_proximity_current[ercot] at "
                          "this run_id so the API starts serving it. Requires "
-                         "--ibp-persist (no-op otherwise).")
+                         "--ibp-persist (no-op otherwise). Prefer top-level "
+                         "--promote, which flips FS and DB pointers together.")
+    ap.add_argument("--promote", action="store_true",
+                    help="After the scorecard stage, run compute.promote to "
+                         "flip the served-cell symlinks + IBP DB pointer to "
+                         "(run-id, scorecard-ref, scorecard-algo, scorecard-k). "
+                         "Idempotent; no-op if already promoted. This is the "
+                         "unified alternative to --ibp-promote — it covers "
+                         "both filesystem-served state and the DB pointer.")
     ap.add_argument("--coords-model", type=Path, default=DEFAULT_COORDS_MODEL,
                     help=f"Bus coords CSV for clustering. Default: {DEFAULT_COORDS_MODEL}.")
     ap.add_argument("--coords-ercot", type=Path, default=DEFAULT_COORDS_ERCOT,
@@ -441,8 +483,11 @@ def main(argv: list[str] | None = None) -> int:
     print("pre-flight: ok")
 
     for stage in STAGES:
+        # Opt-in: don't flip serving state unless the caller explicitly asked.
+        if stage == "promote" and not args.promote:
+            continue
         cmd = _stage_cmd(stage, args)
-        outputs = _stage_outputs(stage, run_dir, args.run_id)
+        outputs = _stage_outputs(stage, run_dir, args.run_id, args)
         ok = _run_stage(
             stage, cmd, outputs, run_dir, meta, meta_path,
             skip_completed=args.skip_completed, force=args.force,
@@ -452,6 +497,23 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nrun_dir: {run_dir}")
     print(f"size:    {_dir_size_human(run_dir)}")
+
+    if not args.promote:
+        # The API is still serving whatever was last promoted — this run's
+        # artifacts are on disk but not live yet. Print a copy-pasteable
+        # command so activating it is one step.
+        print(
+            "\nNOTE: --promote was not set; this run is NOT being served yet.\n"
+            "      Activate it (flip runs/current + per-cell symlinks + IBP\n"
+            "      DB pointer) with:\n\n"
+            f"        python -m compute.promote \\\n"
+            f"            --run-id {args.run_id} \\\n"
+            f"            --ref {args.scorecard_ref} \\\n"
+            f"            --algo {args.scorecard_algo} \\\n"
+            f"            --k {args.scorecard_k}\n\n"
+            "      (Add --dry-run first to preview.) The command is\n"
+            "      idempotent; re-running is a no-op."
+        )
     return 0
 
 

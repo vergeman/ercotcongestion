@@ -92,26 +92,37 @@ def build_topology() -> dict[str, Any]:
         'lines': lines_fc,
         'settlement_points': sps_fc,
         'zones': zones_fc,
+        # Stamp the cluster-labels identity so cache invalidation catches
+        # a symlink repoint even if the two targets share an mtime.
+        '_cluster_labels_key': _cluster_labels_key(),
     }
 
 
 def _load_bus_cluster_labels() -> dict[str, int]:
-    """Return {bus_id: cluster_id} for the active run's clustering artifact.
+    """Return {bus_id: cluster_id} for the served run's clustering cell.
 
-    Soft-fails to {} when the run/algo/k combination has no labels file —
-    the frontend then treats every bus as unclustered.
+    Reads ``<served_run_dir>/clustering/cluster_labels.npz`` — a symlink
+    ``compute.promote`` points at the per-cell realisation. Soft-fails
+    to {} when the labels file is missing so the frontend renders every
+    bus as unclustered rather than 500ing.
     """
     import numpy as np
 
-    labels_path = (
-        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
-        f"cluster_labels_{settings.active_cluster_algo}_k{settings.active_cluster_k}.npz"
-    )
+    labels_path = f"{settings.served_run_dir}/clustering/cluster_labels.npz"
     if not os.path.exists(labels_path):
         log.warning("bus cluster labels not found at %s; cluster_id will be null", labels_path)
         return {}
     with np.load(labels_path, allow_pickle=False) as z:
         return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
+
+
+def _served_run_id() -> str:
+    """Basename of what ``served_run_dir`` resolves to — i.e. the served run_id.
+
+    Works whether ``served_run_dir`` is the top-level ``current`` symlink
+    (typical) or an override pointing directly at a run dir.
+    """
+    return os.path.basename(os.path.realpath(settings.served_run_dir))
 
 
 def _load_sp_cluster_labels(
@@ -130,9 +141,11 @@ def _load_sp_cluster_labels(
     if not bus_cluster:
         return {}, {}
 
+    # mapping_correlation is per-run, not per-cell, so it carries the run_id
+    # in its filename rather than sitting behind a symlink.
+    run_id = _served_run_id()
     mapping_path = (
-        f"{settings.compute_runs_dir}/{settings.active_run_id}/mapping/"
-        f"mapping_correlation_{settings.active_run_id}.npz"
+        f"{settings.served_run_dir}/mapping/mapping_correlation_{run_id}.npz"
     )
     if not os.path.exists(mapping_path):
         log.warning(
@@ -209,14 +222,33 @@ def _settlement_points_feature_collection(
 def _load_zone_polygons() -> dict[str, Any] | None:
     """Return cluster polygon FeatureCollection, or None if absent.
 
-    File convention mirrors the bus cluster labels naming: the polygons
-    live at ``zones_<active_cluster_algo>_k<k>.geojson`` inside the run's
-    clustering directory. A missing file yields ``None`` — the frontend
-    then keeps its polygon-free rendering path.
+    File convention mirrors bus cluster labels naming: the polygons live
+    at ``zones_<ref>_<algo>_k<k>.geojson`` inside the run's clustering
+    directory. Cell params (ref, algo, k) come from the served
+    ``scorecard.json``'s ``params`` field so the polygons naturally track
+    whichever cell ``compute.promote`` has promoted.
+
+    A missing file — or a served run with no scorecard yet — yields
+    ``None``; the frontend then keeps its polygon-free rendering path.
     """
+    scorecard_path = f"{settings.served_run_dir}/mapping/scorecard.json"
+    if not os.path.exists(scorecard_path):
+        log.info(
+            "no served scorecard at %s; cannot derive zone polygon filename",
+            scorecard_path,
+        )
+        return None
+    with open(scorecard_path) as f:
+        params = json.load(f).get("params", {})
+    ref = params.get("ref")
+    algo = params.get("algo")
+    k = params.get("k")
+    if not (ref and algo and k is not None):
+        log.info("scorecard params missing ref/algo/k; topology zones = null")
+        return None
     polygons_path = (
-        f"{settings.compute_runs_dir}/{settings.active_run_id}/clustering/"
-        f"zones_{settings.active_cluster_algo}_k{settings.active_cluster_k}.geojson"
+        f"{settings.served_run_dir}/clustering/"
+        f"zones_{ref}_{algo}_k{int(k)}.geojson"
     )
     if not os.path.exists(polygons_path):
         log.info("zone polygons not found at %s; topology zones = null", polygons_path)
@@ -225,13 +257,35 @@ def _load_zone_polygons() -> dict[str, Any] | None:
         return json.load(f)
 
 
+def _cluster_labels_key() -> tuple[str | None, int | None]:
+    """Return ``(readlink_target, target_mtime_ns)`` for cluster_labels.npz.
+
+    ``compute.promote`` repoints the symlink; both fields are stamped in
+    the cache so the invalidation catches a repoint even when the two
+    targets happen to share an mtime.
+    """
+    labels_path = f"{settings.served_run_dir}/clustering/cluster_labels.npz"
+    try:
+        target = os.readlink(labels_path)
+    except (FileNotFoundError, OSError):
+        target = None
+    try:
+        mtime_ns = os.stat(labels_path).st_mtime_ns
+    except FileNotFoundError:
+        mtime_ns = None
+    return (target, mtime_ns)
+
+
 def _cache_is_current(topo: dict[str, Any]) -> bool:
-    """Detect stale caches from older schema revisions.
+    """Detect stale caches from older schema revisions or a promote-flip.
 
     A cache without `settlement_points` at top level, or bus features without
     `cluster_id`, was written before 0048's S3.2/S3.4 schema. A cache whose
     SP features lack `cluster_id` predates 0059. A cache whose SP features
-    lack `load_zone` predates 0057. Rebuild instead of silently serving a
+    lack `load_zone` predates 0057. A cache whose ``_cluster_labels_key``
+    doesn't match the current symlink identity predates the last promote —
+    the bus↔cluster join is baked into the GeoJSON, so a symlink flip
+    invalidates the whole cache. Rebuild instead of silently serving a
     payload the frontend can't use.
     """
     if 'settlement_points' not in topo:
@@ -243,6 +297,11 @@ def _cache_is_current(topo: dict[str, Any]) -> bool:
     if sp_features and 'cluster_id' not in sp_features[0].get('properties', {}):
         return False
     if sp_features and 'load_zone' not in sp_features[0].get('properties', {}):
+        return False
+    stamped = topo.get('_cluster_labels_key')
+    if stamped is None:
+        return False
+    if list(stamped) != list(_cluster_labels_key()):
         return False
     return True
 

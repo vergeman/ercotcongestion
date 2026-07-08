@@ -1,16 +1,24 @@
 """GET /ercot_state_range — per-hour ERCOT SP congestion for a window.
 
-Reads the active run's ``matrix/congestion_matrices.npz``. Keys are namespaced
-by reference method — ``<ercot_ref>_ercot_C``, ``<ercot_ref>_ercot_sp_ids``,
-``<ercot_ref>_ercot_hours`` — matching ``compute.mapping.correlation_map``.
+Reads the currently-served run's ``matrix/congestion_matrices.npz`` under
+``settings.served_run_dir``. Keys are namespaced by reference method —
+``<ref>_ercot_C``, ``<ref>_ercot_sp_ids``, ``<ref>_ercot_hours`` — matching
+``compute.mapping.correlation_map``.
 
-The endpoint is additive: it does not touch ``/state``, ``/state_range``, or
-``/validation``. Missing / zero-sized artifacts return 503 rather than
-synthesising values.
+The ref itself is not a separate env var: it is read from the served
+``mapping/scorecard.json``'s ``params.ref`` field, with an in-process
+cache invalidated when the JSON's mtime changes. Promoting a scorecard
+cell built against a different ref automatically switches the ERCOT
+column served here. If we ever need to serve a scorecard on one ref and
+ERCOT-state on another, add a per-endpoint override then — not up front.
+
+Missing artifacts return 503 rather than synthesising values.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,12 +34,48 @@ router = APIRouter()
 
 
 def _matrix_path() -> Path:
-    return (
-        Path(settings.compute_runs_dir)
-        / settings.active_run_id
-        / "matrix"
-        / "congestion_matrices.npz"
-    )
+    return Path(settings.served_run_dir) / "matrix" / "congestion_matrices.npz"
+
+
+def _scorecard_json_path() -> Path:
+    return Path(settings.served_run_dir) / "mapping" / "scorecard.json"
+
+
+# In-process cache of the last (mtime_ns, ref) pair. Cleared whenever the
+# scorecard file the symlink resolves to changes mtime — a symlink flip
+# by ``compute.promote`` counts because ``os.stat`` follows the link.
+_REF_CACHE: dict[str, tuple[int, str]] = {}
+
+
+def _read_served_ref() -> str:
+    """Return ``params.ref`` from the served scorecard.json, mtime-cached."""
+    path = _scorecard_json_path()
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"no scorecard is currently served (missing {path}). "
+                f"Promote a run with: python -m compute.promote."
+            ),
+        ) from exc
+
+    key = str(path)
+    cached = _REF_CACHE.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+
+    with open(path) as f:
+        params = json.load(f).get("params", {})
+    ref = params.get("ref")
+    if not ref:
+        raise HTTPException(
+            status_code=503,
+            detail=f"served scorecard {path} has no params.ref",
+        )
+    _REF_CACHE[key] = (mtime, ref)
+    return ref
 
 
 def _coerce_utc(ts: datetime) -> datetime:
@@ -53,13 +97,10 @@ def get_ercot_state_range(
     if not path.exists():
         raise HTTPException(
             status_code=503,
-            detail=(
-                f"congestion matrices not built for run_id={settings.active_run_id}; "
-                f"missing {path}"
-            ),
+            detail=f"congestion matrices not built for served run; missing {path}",
         )
 
-    ref = settings.active_ercot_ref
+    ref = _read_served_ref()
     with np.load(path, allow_pickle=False) as z:
         keys = {
             "C": f"{ref}_ercot_C",

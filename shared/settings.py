@@ -32,16 +32,14 @@ class Settings:
     max_state_range_hours: int  = int(os.environ.get('MAX_STATE_RANGE_HOURS', 24 * 14))
 
     # ---- Runs -------------------------------------------------------------
-    # The "active" run whose artifacts (cluster labels, scorecard) are surfaced
-    # to the frontend. The scorecard endpoint takes run_id/algo/k as query
-    # params, but topology bakes the bus↔cluster join into the cached GeoJSON.
+    # ``served_run_dir`` is the only knob the API reads. It is a symlink
+    # managed by ``compute.promote`` — the API is oblivious to which run,
+    # cell, or ref is live. Every artifact is opened at a fixed path
+    # underneath (``mapping/scorecard.json``, ``clustering/cluster_labels.npz``,
+    # ``matrix/congestion_matrices.npz``, ...) and the symlinks decide what
+    # those paths resolve to.
     compute_runs_dir:      str  = os.environ.get('COMPUTE_RUNS_DIR', '/compute/runs')
-    active_run_id:         str  = os.environ.get('ACTIVE_RUN_ID', 'v1-annual')
-    active_cluster_algo:   str  = os.environ.get('ACTIVE_CLUSTER_ALGO', 'system_lambda_merit_order_hierarchical_on_beta')
-    active_cluster_k:      int  = int(os.environ.get('ACTIVE_CLUSTER_K', '6'))
-    # ERCOT-side congestion matrix key prefix inside congestion_matrices.npz.
-    # Default matches compute.mapping.correlation_map.DEFAULT_ERCOT_REF.
-    active_ercot_ref:      str  = os.environ.get('ACTIVE_ERCOT_REF', 'system_lambda')
+    served_run_dir:        str  = os.environ.get('SERVED_RUN_DIR', '/compute/runs/current')
 
     # ---- Data Processed --------- -----------------------------------------
     network_nc                     = f'{processed_dir}/{case_stem}.nc'
