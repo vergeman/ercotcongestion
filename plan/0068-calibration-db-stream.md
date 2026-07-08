@@ -49,12 +49,27 @@ Branch: refactor/0068-calibration-db-stream
 
 ## Acceptance
 
-* [ ] `compute/calibration/hub_k_sweep/sweep.py` and `compute/calibration/lambda_validation/{dam_lambda_range,cross_method_compare,lmp_mc_identity}.py` exist; `compute/experiments/hub_k_sweep/` and `compute/experiments/lambda_validation/` are gone; `compute/experiments/shed_canary/` is untouched.
-* [ ] `grep -rn "model_results.json\|ercot_results.json" compute/calibration/` returns nothing.
-* [ ] `python -m compute.calibration.hub_k_sweep.sweep --start 2025-01-01 --end 2025-01-08` completes without opening any file under `compute/runs/`, writes `compute/calibration/hub_k_sweep/hub_k_sweep.md` with the same per-hub / summary tables as today plus a `## Recommended k` section at the top; `matched snapshots:` matches `SELECT count(*) FROM snapshot_meta WHERE status='ok' AND interval_ts BETWEEN ...`.
-* [ ] Sweep stdout ends with a `recommended k=<value>` line and the same value appears in `## Recommended k` in the report.
-* [ ] `python -m compute.calibration.lambda_validation.cross_method_compare --start 2025-01-01 --end 2025-01-08` writes `cross_method.md` with the same section set (Distribution — all, Distribution — shed-clean, Pairwise Pearson — all, Pairwise Pearson — shed-clean, Delta vs merit_order, Notes) and column headers as the current `experiments/lambda_validation/cross_method.md`.
-* [ ] `python -m compute.calibration.lambda_validation.dam_lambda_range` produces the existing NP4-523-CD range report unchanged (only `DEFAULT_OUT` path differs).
-* [ ] `compute/README.md` Section 2 references `compute.calibration.*` module paths and no longer mentions `--model-results` / `--ercot-results`.
-* [ ] `rg "compute\.experiments\.(hub_k_sweep|lambda_validation)"` returns nothing outside archived `.md` files.
+* [x] `compute/calibration/hub_k_sweep/sweep.py` and `compute/calibration/lambda_validation/{dam_lambda_range,cross_method_compare,lmp_mc_identity}.py` exist; `compute/experiments/hub_k_sweep/` and `compute/experiments/lambda_validation/` are gone; `compute/experiments/shed_canary/` is untouched.
+* [x] `grep -rn "model_results.json\|ercot_results.json" compute/calibration/` returns nothing.
+* [x] `python -m compute.calibration.hub_k_sweep.sweep --start ... --end ...` completes without opening any file under `compute/runs/`, writes `compute/calibration/hub_k_sweep/hub_k_sweep.md` with the same per-hub / summary tables as today plus a `## Recommended k` section at the top; `matched snapshots:` matches `SELECT count(*) FROM snapshot_meta WHERE status='ok' AND interval_ts BETWEEN ...`.
+* [x] Sweep stdout ends with a `recommended k=<value>` line and the same value appears in `## Recommended k` in the report.
+* [x] `python -m compute.calibration.lambda_validation.cross_method_compare --start ... --end ...` writes `cross_method.md` with the same section set (Distribution — all, Distribution — shed-clean, Pairwise Pearson — all, Pairwise Pearson — shed-clean, Delta vs merit_order, Notes) and column headers as the pre-0068 report.
+* [x] `python -m compute.calibration.lambda_validation.dam_lambda_range` produces the existing NP4-523-CD range report unchanged (only `DEFAULT_OUT` path differs).
+* [x] `compute/README.md` Section 2 references `compute.calibration.*` module paths and no longer mentions `--model-results` / `--ercot-results`.
+* [x] `rg "compute\.experiments\.(hub_k_sweep|lambda_validation)"` returns nothing outside archived `.md` files.
+
+## Findings from full-year run
+
+First run against the full DB (`--start 2025-01-01 --end 2025-12-31`, 8705 ok snapshots) surfaces two things the plan didn't anticipate — recording here so the follow-up work has context.
+
+* **The strict `_pick_k` gate is unpassable on real data.** `n_spike` sits at ~370 across every k because those are legitimate $5000 cap-hit hours ($5000 = ERCOT DAM price cap), not solver artifacts — every k-nearest neighborhood includes them. The picker always falls back to the lowest-drift k. On the full year it picked k=2000, but that's the fallback metric optimizing "mean drift across hubs" and letting HB_WEST's failure dominate the average — not a real recommendation.
+* **HB_WEST is broken at every k, differently.** Majority-negative below k=300 (5,057 / 8,705 hours at k=200 — the current codebase default), then 2–5× overshoot above k=300 as the k-neighborhood spills out of west Texas into the system mean. No k averaging fixes this; it's a hub-centroid / model-bus-density issue.
+* **The other four hubs are dead flat across k.** HB_BUSAVG / HB_HOUSTON / HB_NORTH / HB_SOUTH med_ratios move < 5% across k ∈ {100..500}; correlations are pinned at ~0.47–0.49 for all k.
+* **Honest engineering pick on full-year data: `HUB_K_NEAREST = 300`** — smallest k that zeros HB_WEST's 5,057 negatives, other four hubs indifferent. The current default (200) is actively worse on the full year than 300 because it lets HB_WEST negatives through; the codebase was calibrated on the v1-120 summer-peak sample which under-represents wind-glut hours.
+
+## Follow-ups (out of scope for 0068)
+
+* [ ] Bump `HUB_K_NEAREST` 200 → 300 in `compute/congestion/metrics.py` and rerun the backfill; verify HB_WEST hub_avg negatives go to zero downstream (matrix, cross_method_compare).
+* [ ] Refine `_pick_k` gate so it can actually pass on real data: exclude cap-hits from `n_spike` (they're not neighborhood artifacts), and gate per-hub rather than on `mean(|1 − med_ratio|)` across hubs (currently HB_WEST's failure dominates the average and drags the pick toward system-mean k values).
+* [ ] Investigate HB_WEST hub_avg failure mode separately — likely hub centroid placement vs west-Texas model bus density, or reconsider treating HB_WEST as diagnostic-only rather than a scoring hub. Not a k problem.
 
