@@ -37,6 +37,14 @@ METHODS = (
     "system_lambda_kkt",
     "system_lambda_merit_order",
     "simple_mean",
+    # Model-side only. Sourced from bus_snapshots.modeled_congestion
+    # (= Σ PTDF · signed μ per bus) directly rather than LMP − scalar_ref.
+    # Retains the per-bus KKT residual instead of collapsing it to a
+    # median. See handoff-congestion-matrix-tests.md for the diagnosis
+    # of the merit_order common-mode this replaces. compute_congestion()
+    # leaves this column NaN — model matrix builder fills it from the
+    # DB column directly.
+    "kkt_perbus",
 )
 
 

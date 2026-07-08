@@ -123,10 +123,17 @@ def build_model_matrices(
 ) -> tuple[dict[str, np.ndarray], list[str]]:
     """Stream bus_snapshots + snapshot_meta and fill per-method model_C.
 
-    Congestion for each method is ``lmp[bus, ts] - reference_prices[method][ts]``.
+    For scalar-ref methods, congestion is ``lmp[bus, ts] − reference_prices[method][ts]``.
     Any (bus, ts) whose method reference is NULL stays NaN. Buses whose LMP
     is NULL at any ts are excluded up front by ``_fetch_bus_ids`` to keep
     model_C free of LMP-driven NaN rows.
+
+    The ``kkt_perbus`` method is special: it is filled from
+    ``bus_snapshots.modeled_congestion`` (= Σ PTDF · signed μ per bus)
+    directly, retaining the per-bus KKT residual rather than collapsing it
+    to a scalar reference. See ``handoff-congestion-matrix-tests.md`` for
+    why this replaces ``LMP − system_lambda_merit_order`` as the honest
+    model-side congestion signal.
     """
     refs_by_ts = _fetch_reference_prices(conn, timestamps)
     bus_ids, dropped_bus_ids = _fetch_bus_ids(conn, timestamps)
@@ -142,31 +149,50 @@ def build_model_matrices(
 
     bus_idx = {b: i for i, b in enumerate(bus_ids)}
     ts_idx = {t: j for j, t in enumerate(timestamps)}
-    ref_vec = _build_ref_vec(refs_by_ts, timestamps, ref_methods)
+    scalar_methods = [m for m in ref_methods if m != "kkt_perbus"]
+    per_bus = "kkt_perbus" in ref_methods
+    ref_vec = _build_ref_vec(refs_by_ts, timestamps, scalar_methods)
 
     model_C: dict[str, np.ndarray] = {
         m: np.full((n_bus, n_hours), np.nan, dtype=float) for m in ref_methods
     }
 
+    select_cols = "interval_ts, bus_id, lmp"
+    where = "lmp IS NOT NULL"
+    if per_bus:
+        select_cols += ", modeled_congestion"
+        # modeled_congestion has NaN for pre-fix snapshots; keep the LMP-based
+        # scalar methods populated even at those hours, so we OR the presence
+        # of *either* field into the WHERE.
+        where = "(lmp IS NOT NULL OR modeled_congestion IS NOT NULL)"
+
     with conn.cursor(name='bus_snapshots_stream') as cur:
         cur.itersize = 10_000
         cur.execute(
-            "SELECT interval_ts, bus_id, lmp FROM bus_snapshots "
-            "WHERE interval_ts = ANY(%s) AND lmp IS NOT NULL",
+            f"SELECT {select_cols} FROM bus_snapshots "
+            f"WHERE interval_ts = ANY(%s) AND {where}",
             (timestamps,),
         )
-        for ts, bus_id, lmp in cur:
+        for row in cur:
+            if per_bus:
+                ts, bus_id, lmp, mc = row
+            else:
+                ts, bus_id, lmp = row
+                mc = None
             i = bus_idx.get(bus_id)
             if i is None:
                 continue
             j = ts_idx.get(ts)
             if j is None:
                 continue
-            lmp_f = float(lmp)
-            for m in ref_methods:
-                r = ref_vec[m][j]
-                if not np.isnan(r):
-                    model_C[m][i, j] = lmp_f - r
+            if lmp is not None:
+                lmp_f = float(lmp)
+                for m in scalar_methods:
+                    r = ref_vec[m][j]
+                    if not np.isnan(r):
+                        model_C[m][i, j] = lmp_f - r
+            if per_bus and mc is not None:
+                model_C["kkt_perbus"][i, j] = float(mc)
 
     return model_C, bus_ids
 
@@ -587,6 +613,12 @@ def main():
 
     if not 0.0 <= args.min_sp_fraction <= 1.0:
         raise SystemExit("--min-sp-fraction must be in [0.0, 1.0]")
+
+    if args.run_id == "v1-annual":
+        raise SystemExit(
+            "refusing to overwrite v1-annual ship-state artifacts; "
+            "pick a different --run-id"
+        )
 
     timestamps = _load_dates(args.dates_file)
     if not timestamps:
