@@ -1,14 +1,13 @@
 """
-Cross-method reference-price comparison for 0049 S4.3.
+Cross-method reference-price comparison (0068).
 
-Reads persisted `reference_prices` dicts from the v1-120-postfix backfill
-(model side) and v1-120 backfill (ERCOT side) and reports per-method
-distribution + pairwise correlation across the matched snapshot set. The
-model-side sample is limited to the 120-snapshot v1-120 window until the
-S4.1 canary clears the full-year re-backfill; the ERCOT-side pull adds the
-published NP4-523-CD `system_lambda` for the same timestamps.
+Reads per-method model-side `reference_prices` and `load_shed_mw` from
+`snapshot_meta` and joins the published ERCOT NP4-523-CD `system_lambda`
+from `dam_system_lambda` on `interval_ts`. Reports per-method distribution,
+pairwise Pearson correlation, and delta stats vs the fixed model reference
+(`system_lambda_merit_order`) over the matched snapshot set.
 
-Methods compared (all in `reference_prices`):
+Methods compared:
 
     hub_avg, load_weighted, gen_weighted, lmp_median,
     system_lambda (ERCOT NP4-523-CD; published, no model analogue),
@@ -21,24 +20,22 @@ congestion module.
 
 Usage:
     docker compose run --rm compute python \\
-        -m compute.experiments.lambda_validation.cross_method_compare
-    docker compose run --rm compute python \\
-        -m compute.experiments.lambda_validation.cross_method_compare \\
-        --model-results /compute/runs/v1-120-postfix/congestion/model_results.json.gz \\
-        --ercot-results /compute/runs/v1-120/congestion/ercot_results.json.gz \\
-        --out /compute/experiments/lambda_validation/cross_method.md
+        -m compute.calibration.lambda_validation.cross_method_compare \\
+        --start 2025-01-01 --end 2026-07-01
 """
 import argparse
-import gzip
-import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import psycopg
 
-# Model-side and ERCOT-side per-method reference-price series live under
-# reference_prices[method]. On the ERCOT side, only `system_lambda` is
-# populated (published λ) — model-only estimators come back as None.
+from compute.config import PG_DSN
+
+# Model-side per-method reference-price series live under
+# snapshot_meta.reference_prices (jsonb). ERCOT-side `system_lambda` is the
+# NP4-523-CD published λ from dam_system_lambda.
 MODEL_METHODS = (
     "hub_avg",
     "load_weighted",
@@ -49,43 +46,74 @@ MODEL_METHODS = (
 )
 ERCOT_METHOD = "system_lambda"     # NP4-523-CD, ERCOT side only
 
-DEFAULT_MODEL = Path("/compute/runs/v1-120-postfix/congestion/model_results.json.gz")
-DEFAULT_ERCOT = Path("/compute/runs/v1-120/congestion/ercot_results.json.gz")
-DEFAULT_OUT   = Path("/compute/experiments/lambda_validation/cross_method.md")
+DEFAULT_START = "2025-01-01"
+DEFAULT_END   = "2026-07-01"
+DEFAULT_OUT   = Path("/compute/calibration/lambda_validation/cross_method.md")
 
 
-def _load_json_gz(path: Path) -> list[dict]:
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rt") as f:
-        return json.load(f)
+def _coerce_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
-def _refs_by_ts(records: list[dict]) -> dict[str, dict[str, float | None]]:
-    out: dict[str, dict[str, float | None]] = {}
-    for r in records:
-        if r.get("status") != "ok":
-            continue
-        refs = r.get("reference_prices") or {}
-        out[r["ts"]] = refs
-    return out
+def _fetch_model_rows(
+    conn, start: datetime, end: datetime
+) -> tuple[dict[datetime, dict[str, float | None]], dict[datetime, float]]:
+    """One round trip: reference_prices (jsonb) and load_shed_mw over the
+    ok-status window. Returns (model_by_ts, shed_by_ts)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT interval_ts, reference_prices, load_shed_mw
+            FROM snapshot_meta
+            WHERE status = 'ok' AND interval_ts BETWEEN %s AND %s
+            ORDER BY interval_ts
+            """,
+            (start, end),
+        )
+        model_by_ts: dict[datetime, dict[str, float | None]] = {}
+        shed_by_ts: dict[datetime, float] = {}
+        for ts, refs, shed in cur.fetchall():
+            model_by_ts[ts] = refs or {}
+            shed_by_ts[ts] = float(shed or 0.0)
+    return model_by_ts, shed_by_ts
+
+
+def _fetch_system_lambda(
+    conn, ts_list: list[datetime]
+) -> dict[datetime, float]:
+    """dam_system_lambda.system_lambda per ts. DST-safe."""
+    if not ts_list:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (interval_ts) interval_ts, system_lambda
+            FROM dam_system_lambda
+            WHERE interval_ts = ANY(%s)
+            ORDER BY interval_ts, dst_flag ASC
+            """,
+            (ts_list,),
+        )
+        return {ts: float(v) for ts, v in cur.fetchall() if v is not None}
 
 
 def _build_frame(
-    model_by_ts: dict[str, dict],
-    ercot_by_ts: dict[str, dict],
-    shed_by_ts:  dict[str, float],
-) -> tuple[pd.DataFrame, list[str]]:
+    model_by_ts: dict[datetime, dict[str, float | None]],
+    system_lambda_by_ts: dict[datetime, float],
+    shed_by_ts:  dict[datetime, float],
+) -> tuple[pd.DataFrame, list[datetime]]:
     """Wide (ts × method) DataFrame. Only timestamps present on the model
     side are used (that is the analysis window); ERCOT `system_lambda`
     joins on ts and is NaN where absent."""
-    rows: dict[str, dict[str, float]] = {}
+    rows: dict[datetime, dict[str, float]] = {}
     for ts, mrefs in model_by_ts.items():
         row: dict[str, float] = {}
         for m in MODEL_METHODS:
             v = mrefs.get(m) if mrefs else None
             row[m] = float(v) if v is not None else np.nan
-        erefs = ercot_by_ts.get(ts) or {}
-        v = erefs.get(ERCOT_METHOD)
+        v = system_lambda_by_ts.get(ts)
         row[ERCOT_METHOD] = float(v) if v is not None else np.nan
         rows[ts] = row
     ts_order = sorted(rows)
@@ -136,18 +164,21 @@ def _render_md(
     corr_noshed: pd.DataFrame,
     ref_col: str,
     ref_delta: dict[str, dict],
-    shed_ts: list[str],
+    shed_ts: list,
     n_clean: int,
+    start: datetime,
+    end: datetime,
 ) -> str:
     cols = list(df.columns)
     lines: list[str] = []
-    lines.append("# λ cross-method comparison (0049 S4.3)\n")
+    lines.append("# λ cross-method comparison\n")
     lines.append(
-        f"Sample: **{df.shape[0]}** snapshots from v1-120-postfix "
-        f"(model side, post-shed / post-k-nearest). Shed-tainted snapshots "
-        f"(Pass-1 `load_shed_mw > 0`): **{len(shed_ts)}**; shed-clean "
-        f"subset: **{n_clean}**. ERCOT `system_lambda` (NP4-523-CD) joined "
-        f"from the v1-120 ercot_results by ts.\n"
+        f"Sample: **{df.shape[0]}** ok snapshots over "
+        f"`{start.isoformat()}` .. `{end.isoformat()}` (model side, "
+        f"`snapshot_meta.reference_prices`). Shed-tainted snapshots "
+        f"(`load_shed_mw > 0`): **{len(shed_ts)}**; shed-clean subset: "
+        f"**{n_clean}**. ERCOT `system_lambda` (NP4-523-CD) joined from "
+        f"`dam_system_lambda` by ts.\n"
     )
     lines.append(
         "`system_lambda_merit_order` is the fixed model reference — the "
@@ -155,13 +186,6 @@ def _render_md(
         "column is an approximation compared against it. `system_lambda` "
         "(NP4-523-CD) is the real ERCOT-published λ and the closest "
         "external validator we have.\n"
-    )
-    lines.append(
-        "The v1-120 sample is a summer-peak stress set, so essentially all "
-        "snapshots hit shed and the shed-clean subset is not "
-        "statistically meaningful in this window. It is reported anyway so "
-        "the code is ready for the full-year re-backfill; interpret with "
-        "sample size in mind.\n"
     )
 
     def _stats_table(stats: dict[str, dict], title: str) -> list[str]:
@@ -237,24 +261,10 @@ def _render_md(
         "approximation."
     )
     lines.append(
-        "* Model-side sample is the v1-120 canary window (post-shed-fix, "
-        "post-k-nearest). Full-year re-backfill will re-run this table."
-    )
-    lines.append(
-        "* `system_lambda` join drops any snapshot missing from the ERCOT "
-        "side (n reported per method above)."
+        "* `system_lambda` join drops any snapshot missing from "
+        "`dam_system_lambda` (n reported per method above)."
     )
     return "\n".join(lines) + "\n"
-
-
-def _shed_map(records: list[dict]) -> dict[str, float]:
-    """ts -> Pass-1 load_shed_mw for the model-side records (0.0 if key
-    missing / record errored). Used to build the shed-clean subset."""
-    return {
-        r["ts"]: float(r.get("load_shed_mw") or 0.0)
-        for r in records
-        if r.get("status") == "ok"
-    }
 
 
 def _delta_stats(df: pd.DataFrame, ref_col: str) -> dict[str, dict]:
@@ -285,21 +295,23 @@ def _delta_stats(df: pd.DataFrame, ref_col: str) -> dict[str, dict]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model-results", type=Path, default=DEFAULT_MODEL)
-    ap.add_argument("--ercot-results", type=Path, default=DEFAULT_ERCOT)
+    ap.add_argument("--start", default=DEFAULT_START,
+                    help=f"UTC start (inclusive). Default: {DEFAULT_START}.")
+    ap.add_argument("--end", default=DEFAULT_END,
+                    help=f"UTC end (inclusive). Default: {DEFAULT_END}.")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = ap.parse_args()
 
-    model_recs = _load_json_gz(args.model_results)
-    ercot_recs = _load_json_gz(args.ercot_results)
+    start = _coerce_utc(datetime.fromisoformat(args.start))
+    end   = _coerce_utc(datetime.fromisoformat(args.end))
 
-    model_by_ts = _refs_by_ts(model_recs)
-    ercot_by_ts = _refs_by_ts(ercot_recs)
-    shed_by_ts  = _shed_map(model_recs)
+    with psycopg.connect(PG_DSN) as conn:
+        model_by_ts, shed_by_ts = _fetch_model_rows(conn, start, end)
+        system_lambda_by_ts = _fetch_system_lambda(conn, list(model_by_ts.keys()))
 
-    df, shed_ts = _build_frame(model_by_ts, ercot_by_ts, shed_by_ts)
+    df, shed_ts = _build_frame(model_by_ts, system_lambda_by_ts, shed_by_ts)
     if df.empty:
-        raise SystemExit("no matched model-side records")
+        raise SystemExit(f"no ok snapshots in {start}..{end}")
 
     clean = df.drop(index=shed_ts, errors="ignore")
 
@@ -318,6 +330,7 @@ def main():
         ref_delta=ref_delta,
         shed_ts=shed_ts,
         n_clean=clean.shape[0],
+        start=start, end=end,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(md)
