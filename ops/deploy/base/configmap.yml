@@ -21,11 +21,11 @@ data:
   MAX_STATE_RANGE_HOURS: "336"   # 14 days
   MIN_VALIDATION_HOUR: "24"
 
-  # Compute
-  ACTIVE_RUN_ID: "v1-annual"
-  ACTIVE_CLUSTER_ALGO: "system_lambda_merit_order_hierarchical_on_beta"
-  ACTIVE_CLUSTER_K: "6"
-  ACTIVE_ERCOT_REF: "system_lambda"
+  # Compute — which run/cell is served is decided by the `compute.promote`
+  # symlink tree on the PVC, not by env vars. `SERVED_RUN_DIR` is the only
+  # knob the API reads, and its default (/compute/runs/current) works out
+  # of the box; override here only if the PVC layout diverges.
+  # SERVED_RUN_DIR: "/compute/runs/current"
 
 ---
 apiVersion: v1
