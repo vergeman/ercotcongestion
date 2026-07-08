@@ -11,6 +11,7 @@
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "@cloudflare/workerd-linux-64": "^1.20260708.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "maplibre-gl": "^5.24.0",

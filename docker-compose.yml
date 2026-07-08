@@ -102,7 +102,7 @@ services:
       - "5173:5173"
     volumes:
       - ./web:/web
-      - /web/node_modules
+      - node_modules:/web/node_modules
     command: npm run dev -- --host 0.0.0.0
 
   # TODO: replace w/ cron
@@ -125,3 +125,4 @@ services:
 volumes:
   pgdata:
   proxy-wrangler-config:
+  node_modules:
