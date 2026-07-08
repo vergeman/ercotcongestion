@@ -497,6 +497,23 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nrun_dir: {run_dir}")
     print(f"size:    {_dir_size_human(run_dir)}")
+
+    if not args.promote:
+        # The API is still serving whatever was last promoted — this run's
+        # artifacts are on disk but not live yet. Print a copy-pasteable
+        # command so activating it is one step.
+        print(
+            "\nNOTE: --promote was not set; this run is NOT being served yet.\n"
+            "      Activate it (flip runs/current + per-cell symlinks + IBP\n"
+            "      DB pointer) with:\n\n"
+            f"        python -m compute.promote \\\n"
+            f"            --run-id {args.run_id} \\\n"
+            f"            --ref {args.scorecard_ref} \\\n"
+            f"            --algo {args.scorecard_algo} \\\n"
+            f"            --k {args.scorecard_k}\n\n"
+            "      (Add --dry-run first to preview.) The command is\n"
+            "      idempotent; re-running is a no-op."
+        )
     return 0
 
 

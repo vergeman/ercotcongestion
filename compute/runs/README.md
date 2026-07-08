@@ -87,6 +87,22 @@ docker compose run --rm compute python -m compute.promote \
     --run-id <run-id> --ref <ref> --algo <algo> --k <k>
 ```
 
+What each arg means:
+
+| Arg | What it names | Example | Source of truth |
+|---|---|---|---|
+| `--run-id` | The pipeline run whose artifacts you want to serve. Names the subdir under `compute/runs/` and appears in per-run filenames (e.g. `mapping_correlation_<run_id>.npz`). Chosen at pipeline-launch time. | `v1-annual` | `compute/runs/<run_id>/` |
+| `--ref` | Reference-price method used to build the model-side congestion matrix and the partition — see `compute/mapping/correlation_map.py`. Defines which `<ref>_model_C` slab in `congestion_matrices.npz` the scorecard aggregates over, and also the ERCOT-side matrix column `api/ercot_state.py` reads (they share the same ref axis under the promote-model). | `system_lambda_merit_order` | `DEFAULT_MODEL_REF` |
+| `--algo` | Clustering algorithm used to partition buses. Sweep options live in `compute/clustering/`; the pipeline's `--algos` flag chooses which get built. | `hierarchical_on_beta` | `compute/clustering/runner.py` |
+| `--k` | Cluster count for that algorithm — one of the `--ks` swept by the pipeline. | `6` | `compute/clustering/runner.py` |
+
+Together `(ref, algo, k)` names a **cell** — one row in the clustering
+sweep. Every run contains many cells on disk; promote picks one to
+serve. The corresponding files must already exist under the run dir
+(promote fails loudly otherwise); build them via the pipeline's
+`--scorecard-ref` / `--scorecard-algo` / `--scorecard-k` flags or by
+running `compute.mapping.scorecard` directly.
+
 No API restart, no image rebuild, no configmap edit. The topology cache
 invalidates automatically when the `cluster_labels.npz` symlink is
 repointed. The frontend takes no build-time run parameter — `fetchScorecard()`

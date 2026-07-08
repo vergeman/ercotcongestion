@@ -14,10 +14,10 @@ into a single idempotent op.
 
 Usage (inside the ``compute`` docker service; needs psycopg + db)::
 
-    python -m compute.promote \\
-        --run-id v1-annual \\
-        --ref system_lambda_merit_order \\
-        --algo hierarchical_on_beta \\
+    python -m compute.promote \
+        --run-id v1-annual \
+        --ref system_lambda_merit_order \
+        --algo hierarchical_on_beta \
         --k 6
 
 Ordering: cell-level symlinks are flipped first inside the run dir, then
