@@ -159,7 +159,7 @@ def _stream_model_hub_means(
 def _stats(model: pd.Series, ercot: pd.Series) -> dict:
     m = model.dropna()
     e = ercot.dropna()
-    joined = pd.concat([m.rename("m"), e.rename("e")], axis=1).dropna()
+    joined = pd.concat([m.rename("m"), e.rename("e")], axis=1, sort=False).dropna()
     if joined.empty:
         return {"n": 0}
     corr = joined["m"].corr(joined["e"])
