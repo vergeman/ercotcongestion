@@ -195,7 +195,9 @@ def _read_tail(path: Path, n_lines: int) -> str:
     return "".join(lines[-n_lines:])
 
 
-def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
+def _stage_outputs(
+    stage: str, run_dir: Path, run_id: str, args: argparse.Namespace,
+) -> list[Path]:
     if stage == "matrix":
         return [run_dir / "matrix" / "congestion_matrices.npz"]
     if stage == "implied_binding_proximity":
@@ -209,7 +211,14 @@ def _stage_outputs(stage: str, run_dir: Path, run_id: str) -> list[Path]:
     if stage == "clustering":
         return [run_dir / "clustering" / "summary.json"]
     if stage == "scorecard":
-        return [run_dir / "mapping" / f"scorecard_{run_id}.json"]
+        # Cell-scoped: (ref, algo, k) participate in the filename so multiple
+        # cells for the same run can coexist and ``compute.promote`` can pick
+        # one to serve by symlink.
+        cell = (
+            f"{run_id}_{args.scorecard_ref}_{args.scorecard_algo}"
+            f"_k{int(args.scorecard_k)}"
+        )
+        return [run_dir / "mapping" / f"scorecard_{cell}.json"]
     raise ValueError(stage)
 
 
@@ -272,6 +281,7 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
         return base + [
             "compute.mapping.scorecard",
             "--run-id", args.run_id,
+            "--ref", args.scorecard_ref,
             "--algo", args.scorecard_algo,
             "--k", str(args.scorecard_k),
         ]
@@ -351,6 +361,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
                     help="Comma list of ints passed to clustering --ks. Default: 4,6,8,10,12,16.")
+    ap.add_argument("--scorecard-ref", default="system_lambda_merit_order",
+                    help="Reference method the scorecard partitions against "
+                         "(default system_lambda_merit_order — matches "
+                         "compute.mapping.correlation_map.DEFAULT_MODEL_REF).")
     ap.add_argument("--scorecard-algo", default="hierarchical_on_beta",
                     help="Clustering algo the scorecard aggregates over "
                          "(must be in --algos; default hierarchical_on_beta).")
@@ -442,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for stage in STAGES:
         cmd = _stage_cmd(stage, args)
-        outputs = _stage_outputs(stage, run_dir, args.run_id)
+        outputs = _stage_outputs(stage, run_dir, args.run_id, args)
         ok = _run_stage(
             stage, cmd, outputs, run_dir, meta, meta_path,
             skip_completed=args.skip_completed, force=args.force,

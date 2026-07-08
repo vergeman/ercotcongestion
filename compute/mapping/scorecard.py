@@ -15,9 +15,11 @@ Reads:
   * `runs/<run_id>/mapping/mapping_correlation_<run_id>.npz`
   * `runs/<run_id>/clustering/cluster_labels_<ref>_<algo>_k<K>.npz`
 
-Writes:
-  * `runs/<run_id>/mapping/scorecard_<run_id>.json`
-  * `runs/<run_id>/mapping/scorecard_series_<run_id>.npz`
+Writes (one file per cell — running with different (ref, algo, k) does
+not overwrite; ``compute.promote`` picks a cell to serve by symlinking
+``mapping/scorecard.json`` at the chosen file):
+  * `runs/<run_id>/mapping/scorecard_<run_id>_<ref>_<algo>_k<K>.json`
+  * `runs/<run_id>/mapping/scorecard_series_<run_id>_<ref>_<algo>_k<K>.npz`
 
 Usage:
     python -m compute.mapping.scorecard --run-id v1-120 \
@@ -350,8 +352,9 @@ def _write_outputs(
 ) -> tuple[Path, Path]:
     out_dir = _mapping_dir(run_id)
     out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = out_dir / f"scorecard_{run_id}.json"
-    npz_path = out_dir / f"scorecard_series_{run_id}.npz"
+    cell = f"{run_id}_{ref}_{algo}_k{int(k)}"
+    json_path = out_dir / f"scorecard_{cell}.json"
+    npz_path = out_dir / f"scorecard_series_{cell}.npz"
 
     zones = []
     for i, z in enumerate(cluster_ids.tolist()):
