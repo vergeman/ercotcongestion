@@ -3,14 +3,28 @@ preprocess/
 ops/
 docs/
 db/*.tar.gz
+*.png
 
 data/raw/
 
-data/experiments/*
-!data/experiments/hub_k_sweep
-!data/experiments/lambda_validation
-!data/experiments/shed_canary
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+compute/runs/
+compute/experiments/
+!compute/experiments/hub_k_sweep
+!compute/experiments/lambda_validation
+!compute/experiments/shed_canary
+compute/experiments/**/__pycache__/
+compute/experiments/**/*.pyc
+compute/**/*.md
+compute/**/tests/
+compute/test_*.py
+compute/verify_*.py
+api/tests/
+.git/
+.claude/
 
-data/runs/*
-!data/runs/v1-120
-!data/runs/v1-120-postfix
+summary.md
+*.md
+!README.md

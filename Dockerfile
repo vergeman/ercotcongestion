@@ -4,7 +4,14 @@
 # Build from repo root:
 #   docker build -t api-compute:<tag> .
 #
-# Layout inside the image:
+# Multi-stage layout:
+#   builder — installs gcc/g++/libpq-dev, pip-installs into /install
+#             (--prefix), strips __pycache__ / tests / *.pyc from
+#             site-packages. Toolchain never ships to runtime.
+#   runtime — python:3.13-slim + libpq5 only. Copies /install → /usr/local,
+#             adds the shifty user, then COPYs application code.
+#
+# Layout inside the runtime image:
 #   /api             FastAPI app
 #   /compute         snapshot writer + supporting modules
 #   /ercot_ingest    live_updater + ErcotClient
@@ -12,16 +19,16 @@
 #   /data/processed  preprocessing artifacts (CSVs + .nc network)
 #   /api/static      writable cache directory (e.g. topology.json)
 
-FROM python:3.13-slim
+FROM python:3.13-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         g++ \
-        libpq5 \
+        libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Combined dep set (api + compute + ingest).
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --prefix=/install \
         requests \
         fastapi \
         uvicorn[standard] \
@@ -37,6 +44,22 @@ RUN pip install --no-cache-dir \
         openpyxl \
         python-dotenv \
         httpx
+
+# Drop bytecode + bundled test suites from site-packages before it's copied
+# into the runtime image. scipy/sklearn/pandas ship sizable test trees.
+RUN find /install -depth \
+        \( -type d -a \( -name __pycache__ -o -name tests -o -name test \) \
+         -o -type f -a \( -name '*.pyc' -o -name '*.pyo' \) \) \
+        -exec rm -rf {} +
+
+
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
 
 # Create the unprivileged user before COPY so we can chown in one shot.
 RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
@@ -62,7 +85,8 @@ RUN mkdir -p /api/static && chown shifty:shifty /api/static
 #   /opt      → shared package
 ENV PYTHONPATH=/api:/compute:/:/opt \
     MALLOC_ARENA_MAX=2 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 USER shifty
 WORKDIR /api
