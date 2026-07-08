@@ -41,6 +41,13 @@ RUN pip install --no-cache-dir --prefix=/install \
         python-dotenv \
         httpx
 
+# Drop bytecode + bundled test suites from site-packages before it's copied
+# into the runtime image. scipy/sklearn/pandas ship sizable test trees.
+RUN find /install -depth \
+        \( -type d -a \( -name __pycache__ -o -name tests -o -name test \) \
+         -o -type f -a \( -name '*.pyc' -o -name '*.pyo' \) \) \
+        -exec rm -rf {} +
+
 
 FROM python:3.13-slim
 
@@ -74,7 +81,8 @@ RUN mkdir -p /api/static && chown shifty:shifty /api/static
 #   /opt      → shared package
 ENV PYTHONPATH=/api:/compute:/:/opt \
     MALLOC_ARENA_MAX=2 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 USER shifty
 WORKDIR /api
