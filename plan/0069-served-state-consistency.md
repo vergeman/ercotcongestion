@@ -124,23 +124,20 @@ Deviation noted: `compute/mapping/scorecard.py` and `compute/run_pipeline.py:_st
 
 ## Acceptance
 
-* [x] `curl /api/validation` (no query params) returns the served scorecard. Any `run_id` / `algo` / `k` query params are silently ignored (FastAPI drops unknowns; covered by `test_validation_ignores_stray_query_params`).
-* [x] `rg "ACTIVE_(RUN_ID|CLUSTER_ALGO|CLUSTER_K|ERCOT_REF)" api/ shared/ ops/` returns nothing.
-* [x] `rg "VITE_RUN_ID" web/ docker-compose.yml` returns nothing.
-* [x] `python -m compute.promote --run-id <id> --ref <ref> --algo <algo> --k <k>` supports `--dry-run` and reports "no changes" on repeat runs (per-step idempotency: symlink flip skipped when `readlink` already matches, DB pointer skipped when `implied_binding_proximity_current[layer].run_id` already matches).
-* [x] Promote step order is atomic per step and safe on partial failure: per-cell symlinks flip first (inside the run dir), then top-level `current`, then the IBP DB pointer. If step 3 fails the FS state still names a coherent cell for the previous run.
-* [x] `api/ercot_state.py` has no read of an env var for ref choice; ref comes from `scorecard.json`'s `params.ref`, cached by `st_mtime_ns` so a promote-flip invalidates it. Promoting a cell with a different `params.ref` changes what `/api/ercot_state_range` returns on the next request.
-* [x] Topology cache (`topology.json`) invalidates when the served `cluster_labels.npz` symlink is repointed: the cache stamps `_cluster_labels_key = (readlink target, target mtime_ns)` and rebuilds when either shifts, so a promote-flip busts the cache without an API restart.
-* [x] `GET /api/meta` returns `{run_id, ref, algo, k, promoted_at}` with each field nullable when the underlying artifact is absent (dangling symlink, no served scorecard, unset DB pointer). Never 5xxs on missing state — a debug/footer UI can render a truthful partial snapshot. Covered by `test_meta_returns_full_snapshot` and `test_meta_nulls_scorecard_fields_when_no_cell_promoted`.
-* [x] Web bundle builds without `VITE_RUN_ID`. `App.tsx` no longer holds a `RUN_ID` constant; `fetchScorecard()` takes no args.
+Verified in-repo:
 
-Residuals from the Goal line "no display of run identity" — deliberately kept:
+* [x] `rg "ACTIVE_(RUN_ID|CLUSTER_ALGO|CLUSTER_K|ERCOT_REF)" api/ shared/ ops/` and `rg "VITE_RUN_ID" web/ docker-compose.yml` both empty.
+* [x] `GET /api/validation` takes no params; stray `run_id`/`algo`/`k` are ignored (`test_validation_ignores_stray_query_params`).
+* [x] `compute.promote` is per-step idempotent (symlink skipped when `readlink` matches; DB pointer skipped when already at `run_id`); `--dry-run` touches nothing; step order is symlinks → top-level `current` → DB.
+* [x] `api/ercot_state.py` reads ref from `scorecard.json`'s `params.ref`, cached by `st_mtime_ns` — promote-flip invalidates on the next request.
+* [x] `topology.json` stamps `_cluster_labels_key = (readlink target, mtime_ns)`; rebuilds when either shifts.
+* [x] `GET /api/meta` returns `{run_id, ref, algo, k, promoted_at}`, each field nullable, never 5xxs (`test_meta_*`).
+* [x] `App.tsx` has no `RUN_ID`; `fetchScorecard()` is arg-less.
+* [x] `run_pipeline.py` gained a `promote` stage (opt-in `--promote`) and prints a copy-pasteable `compute.promote` command when it isn't set.
 
-* `web/src/components/panels/StatsPanel.tsx:74` still renders `scorecard.run_id` in the panel header, but it comes from the API response body (not build-time), which the plan's own Optional `/api/meta` section explicitly permits ("the frontend can show run identity … if it wants to").
-* `run_id` type fields and prefetch usage in `web/src/api/` reflect what the IBP endpoints actually return (the DB pointer resolves to one). Removing them would require dropping the field from `/ibp/ercot*` responses, out of scope for this refactor.
-* Consequence: a strict `rg "run_id" web/` grep is non-empty; the two remaining classes of usage are `run_id` as an API-response field and one panel display. Neither is build-time-coupled.
+Deliberately kept (not build-time-coupled): `scorecard.run_id` rendered in `StatsPanel.tsx`, and `run_id` fields in `web/src/api/` types/prefetch — the plan's `/api/meta` clause permits displaying run identity from API responses.
 
-Runtime checks left for post-deploy verification (cannot be exercised from the repo):
+Verify after deploy:
 
-* After a real promote against the PVC: `readlink /compute/runs/current` → chosen run; `readlink /compute/runs/current/mapping/scorecard.json` → the chosen per-cell file; `SELECT run_id FROM implied_binding_proximity_current WHERE layer='ercot'` returns the chosen run.
-* Switching served cell (K=6 → K=8) via one `compute.promote` call, without API restart / image rebuild / configmap edit, changes what the next `/api/validation` request returns.
+* `readlink /compute/runs/current` → chosen run; per-cell symlinks resolve to the chosen `(ref, algo, k)` file; `SELECT run_id FROM implied_binding_proximity_current WHERE layer='ercot'` matches.
+* One `compute.promote` call flips served cell (K=6 → K=8) with no API restart / image rebuild / configmap edit; next `/api/validation` reflects it.
