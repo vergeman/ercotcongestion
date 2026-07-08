@@ -293,57 +293,181 @@ def build_ercot_matrices(
     return ercot_C, sp_ids
 
 
-def _prune_structural_hours(
+SP_COVERAGE_STRATEGIES = ("max_area", "max_hours", "threshold")
+
+
+def _structural_missing(
+    mats: dict[str, np.ndarray], ref_methods: list[str],
+) -> np.ndarray:
+    """(row, hour) NaN in every method — LMP/SPP absent, not a method gap."""
+    first = ref_methods[0]
+    missing = np.isnan(mats[first])
+    for m in ref_methods[1:]:
+        missing &= np.isnan(mats[m])
+    return missing
+
+
+def _first_dense_hour(missing: np.ndarray) -> np.ndarray:
+    """Per-row earliest hour index from which the row is fully dense to the end.
+
+    Equals ``1 + (last structural-NaN column index)`` if any NaN exists,
+    else 0. Non-monotonic gaps are handled conservatively — a row with a
+    late-window gap can never be part of a rectangle that starts before
+    that gap.
+    """
+    n_rows, n_cols = missing.shape
+    if n_rows == 0:
+        return np.zeros(0, dtype=int)
+    col_idx = np.arange(n_cols)
+    # For each row: max col index where missing is True, or -1 if none.
+    masked = np.where(missing, col_idx, -1)
+    last_nan = masked.max(axis=1)
+    return (last_nan + 1).astype(int)
+
+
+def _log_sweep(
+    sorted_first_dense: np.ndarray,
+    hours_kept: np.ndarray,
+    areas: np.ndarray,
+    k_sel: int,
+    timestamps: list[datetime],
+    dropped_sp_ids: list[str],
+    strategy: str,
+    min_sp_fraction: float,
+) -> None:
+    """Emit the sweep table so the chosen cutoff is auditable."""
+    n_sp = len(sorted_first_dense)
+    print(
+        f"  dense-rectangle sweep (strategy={strategy}, "
+        f"min_sp_fraction={min_sp_fraction:.2f}):"
+    )
+    print("    k    n_sp_kept  n_hours_kept       area  latest_kept_sp_first_seen")
+
+    def _row(k: int, marker: str = " ") -> None:
+        idx = k - 1
+        cutoff = int(sorted_first_dense[idx])
+        ts_str = timestamps[cutoff].isoformat() if 0 <= cutoff < len(timestamps) else "-"
+        print(
+            f"  {marker} {k:>4}  {k:>9}  {int(hours_kept[idx]):>12}  "
+            f"{int(areas[idx]):>9}  {ts_str}"
+        )
+
+    # Chosen k, then the 3 next-best alternatives by area (excluding chosen).
+    _row(k_sel, marker="*")
+    order = np.argsort(-areas)
+    alt_shown = 0
+    for pos in order:
+        k = int(pos) + 1
+        if k == k_sel:
+            continue
+        _row(k)
+        alt_shown += 1
+        if alt_shown >= 3:
+            break
+
+    if dropped_sp_ids:
+        preview = ", ".join(dropped_sp_ids[:10])
+        more = (
+            "" if len(dropped_sp_ids) <= 10
+            else f" ... (+{len(dropped_sp_ids) - 10} more)"
+        )
+        print(
+            f"  dropped {len(dropped_sp_ids)} SP(s) to enlarge hour window "
+            f"({100.0 * len(dropped_sp_ids) / n_sp:.1f}% of SPs): "
+            f"{preview}{more}"
+        )
+
+
+def _select_dense_rectangle(
     timestamps: list[datetime],
     model_C: dict[str, np.ndarray],
     ercot_C: dict[str, np.ndarray],
+    sp_ids: list[str],
     ref_methods: list[str],
-) -> tuple[list[datetime], dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Drop hour columns where any surviving bus/SP is structurally missing.
+    strategy: str = "max_area",
+    min_sp_fraction: float = 0.90,
+) -> tuple[
+    list[datetime], dict[str, np.ndarray], dict[str, np.ndarray], list[str],
+]:
+    """Pick the largest dense (SP subset × hour subset) rectangle.
 
-    'Structural' = NaN in EVERY method for the same (row, hour), i.e. the
-    underlying LMP/SPP is absent rather than one method's reference being
-    None. Method-specific NaN (reference-price gap for a single method) is
-    left in place — downstream tools already prefilter for that.
+    SPs come online throughout the year (batteries, solar), so the old
+    "drop any hour where any SP is NaN" rule sacrificed most of the window
+    to preserve every SP. This sweep instead trades a small number of
+    late-arriving SPs for a much larger hour axis.
 
-    Rationale: at year scale, an SP with occasional publication gaps (a few
-    days out of 365) is much more valuable to keep than to blacklist. Trade
-    a few hour columns to preserve the row axis. On dense-coverage runs
-    (like the current 3-day test) this drops nothing.
+    Strategy:
+    * ``max_area`` (default) — argmax over ``k * n_hours_kept(k)``, with a
+      floor of ``min_sp_fraction * n_sp`` on kept SPs so we never strip the
+      row axis too far to chase hours.
+    * ``max_hours`` — maximize hours kept subject to the same floor.
+    * ``threshold`` — keep all SPs, prune hours before the last SP's
+      first-dense hour. Reproduces the pre-fix all-or-nothing behavior.
+
+    The output rectangle is fully dense; downstream code sees no NaN cells
+    that weren't already method-specific.
     """
+    if strategy not in SP_COVERAGE_STRATEGIES:
+        raise ValueError(
+            f"unknown sp-coverage strategy: {strategy!r} "
+            f"(expected one of {SP_COVERAGE_STRATEGIES})"
+        )
     if not ref_methods:
-        return timestamps, model_C, ercot_C
+        return timestamps, model_C, ercot_C, sp_ids
 
-    def _structural(mats: dict[str, np.ndarray]) -> np.ndarray:
-        # Missing in every method → structural (LMP/SPP absent).
-        first = ref_methods[0]
-        missing = np.isnan(mats[first])
-        for m in ref_methods[1:]:
-            missing &= np.isnan(mats[m])
-        return missing
+    n_hours = len(timestamps)
+    n_sp = len(sp_ids)
+    if n_hours == 0 or n_sp == 0:
+        return timestamps, model_C, ercot_C, sp_ids
 
-    bus_missing = _structural(model_C)   # (n_bus, n_hours)
-    sp_missing  = _structural(ercot_C)   # (n_sp, n_hours)
+    bus_missing = _structural_missing(model_C, ref_methods)   # (n_bus, n_hours)
+    sp_missing = _structural_missing(ercot_C, ref_methods)    # (n_sp, n_hours)
 
-    bad_hour = bus_missing.any(axis=0) | sp_missing.any(axis=0)
-    if not bad_hour.any():
-        return timestamps, model_C, ercot_C
+    sp_first_dense = _first_dense_hour(sp_missing)
+    bus_first_dense = _first_dense_hour(bus_missing)
+    bus_hour_cutoff = int(bus_first_dense.max()) if bus_first_dense.size else 0
 
-    keep = ~bad_hour
-    dropped_ts = [ts for ts, b in zip(timestamps, bad_hour) if b]
-    new_timestamps = [ts for ts, k in zip(timestamps, keep) if k]
-    for m in ref_methods:
-        model_C[m] = model_C[m][:, keep]
-        ercot_C[m] = ercot_C[m][:, keep]
+    # Sort SPs by first-dense hour ascending; keep the k earliest to emerge.
+    sp_order = np.argsort(sp_first_dense, kind="stable")
+    sorted_first_dense = sp_first_dense[sp_order]
 
-    preview = ", ".join(ts.isoformat() for ts in dropped_ts[:5])
-    more = "" if len(dropped_ts) <= 5 else f" ... (+{len(dropped_ts) - 5} more)"
-    pct = 100.0 * len(dropped_ts) / len(timestamps)
-    print(
-        f"  dropped {len(dropped_ts)} hour(s) ({pct:.1f}% of window) with "
-        f"structural bus/SP gaps: {preview}{more}"
+    # k = number of SPs kept, 1..n_sp.
+    hour_cutoffs = np.maximum(sorted_first_dense, bus_hour_cutoff)
+    hours_kept = np.clip(n_hours - hour_cutoffs, 0, None)
+    k_range = np.arange(1, n_sp + 1)
+    areas = k_range * hours_kept
+
+    min_k = max(1, int(np.ceil(min_sp_fraction * n_sp)))
+    if strategy == "threshold":
+        k_sel = n_sp
+    else:
+        elig = k_range >= min_k
+        # Guaranteed non-empty since min_k <= n_sp.
+        scores = areas if strategy == "max_area" else hours_kept
+        elig_scores = np.where(elig, scores, -1)
+        k_sel = int(k_range[np.argmax(elig_scores)])
+
+    kept_sp_positions = sp_order[:k_sel]
+    dropped_sp_positions = sp_order[k_sel:]
+    dropped_sp_ids = [sp_ids[i] for i in dropped_sp_positions]
+
+    _log_sweep(
+        sorted_first_dense, hours_kept, areas, k_sel,
+        timestamps, dropped_sp_ids, strategy, min_sp_fraction,
     )
-    return new_timestamps, model_C, ercot_C
+
+    hour_cutoff_sel = int(hour_cutoffs[k_sel - 1])
+    if k_sel == n_sp and hour_cutoff_sel == 0:
+        return timestamps, model_C, ercot_C, sp_ids
+
+    kept_sp_mask = np.zeros(n_sp, dtype=bool)
+    kept_sp_mask[kept_sp_positions] = True
+    for m in ref_methods:
+        model_C[m] = model_C[m][:, hour_cutoff_sel:]
+        ercot_C[m] = ercot_C[m][kept_sp_mask][:, hour_cutoff_sel:]
+    new_sp_ids = [sp for sp, keep in zip(sp_ids, kept_sp_mask) if keep]
+    new_timestamps = timestamps[hour_cutoff_sel:]
+    return new_timestamps, model_C, ercot_C, new_sp_ids
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +525,18 @@ def main():
     ap.add_argument('--ref-methods', nargs='+', default=list(METHODS),
                     choices=list(METHODS),
                     help='Subset of reference methods (default: all).')
+    ap.add_argument('--sp-coverage-strategy', default='max_area',
+                    choices=list(SP_COVERAGE_STRATEGIES),
+                    help='How to trade SPs against hours when picking the '
+                         'dense rectangle. threshold reproduces the pre-fix '
+                         'all-or-nothing behavior. (default: max_area)')
+    ap.add_argument('--min-sp-fraction', type=float, default=0.90,
+                    help='Floor on the fraction of SPs kept by max_area / '
+                         'max_hours strategies (default: 0.90).')
     args = ap.parse_args()
+
+    if not 0.0 <= args.min_sp_fraction <= 1.0:
+        raise SystemExit("--min-sp-fraction must be in [0.0, 1.0]")
 
     timestamps = _load_dates(args.dates_file)
     if not timestamps:
@@ -447,8 +582,10 @@ def main():
         )
         print(f"  ercot: {len(sp_ids)} SPs × {len(timestamps)} hours")
 
-        timestamps, model_C, ercot_C = _prune_structural_hours(
-            timestamps, model_C, ercot_C, args.ref_methods,
+        timestamps, model_C, ercot_C, sp_ids = _select_dense_rectangle(
+            timestamps, model_C, ercot_C, sp_ids, args.ref_methods,
+            strategy=args.sp_coverage_strategy,
+            min_sp_fraction=args.min_sp_fraction,
         )
 
     write_matrices_npz(
