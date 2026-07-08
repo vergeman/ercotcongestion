@@ -507,6 +507,47 @@ snapshot `2025-08-19T19:00`; see `docs/sample-recompute-gate-results.md`).
 - Uncongested → 0 on every bus (all `μ = 0`).
 - Islanded buses (absent from PTDF columns) carry NaN.
 
+#### Why the congestion matrix reads `modeled_congestion` directly (`kkt_perbus`)
+
+Under DC-OPF the KKT identity says
+`LMP_i = λ + Σ_ℓ PTDF[ℓ,i]·μ_signed_ℓ`, so
+`LMP_i − Σ PTDF·μ = λ` is bus-independent at the optimum.
+Two consequences the matrix pipeline hinges on:
+
+1. `Σ PTDF · μ` = `LMP − λ_per_bus_KKT` up to numerical residual. It's
+   the same "congestion component" whether you build it forward from
+   the duals or backward from LMP minus the per-bus KKT residual.
+2. `Σ PTDF · μ` lives in the common-mode-free subspace by construction:
+   its bus-mean is ~0 per hour (empirically 13 std over `v1-annual`,
+   vs 5 for ERCOT — small residual from bus-population asymmetry, not
+   a bug).
+
+Before 0071, model-side `model_C = LMP − system_lambda_merit_order`
+subtracted the copper-plate (**uncongested**) λ from a **congested** LMP,
+so the difference carried an extra scalar-per-hour term
+`(λ_congested − λ_uncongested)` on every bus. On `v1-annual` that scalar
+has `std ≈ 260, mean ≈ −117` (see plan 0071 Check B). No per-bus signal
+survived correlation against ERCOT once that common-mode was riding in.
+
+The `kkt_perbus` reference method skips the scalar subtraction entirely
+and writes `model_C[b, t] = modeled_congestion[b, t]` straight from
+`bus_snapshots`. `compute/matrix.py::build_model_matrices` recognizes
+the name and widens its streaming query accordingly. On the ERCOT side,
+`system_lambda` (SCED power-balance dual) remains the correct
+congested-reference match — see the `correlation_map` invocation in
+plan 0071 for the canonical pairing.
+
+**What this fix does — and what it does not.** On `v1-annual-kkt`,
+`kkt_perbus × system_lambda` lifts `correlation_map` median_corr from
+0.232 → 0.297, matching the `load_weighted × load_weighted` proxy
+(0.298). That is the algebraic common-mode leaving the model side.
+It does **not** by itself dissolve the winner-concentration or lift
+the p90/p99 tail (still 3 buses claim 42% of SPs, `pct>0.5` = 1%).
+That residual is a zonal-level component that a system-wide reference
+cannot cancel by construction; a per-load-zone reference is the natural
+follow-up. See `plan/0071-kkt-perbus-congestion.md` for the full
+comparison table.
+
 ### Binding proximity — bus-level distance to binding
 
 `binding_proximity[b] = max_ℓ |PTDF[ℓ, b]| · |flow_ℓ| / (s_nom_ℓ · s_max_pu_ℓ)`.
