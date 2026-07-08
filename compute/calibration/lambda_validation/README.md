@@ -69,13 +69,13 @@ $500-2000 concentrated on 2026-01-26 (a winter cold snap), scattered
 spring/summer $100-500 stress days, and 260 negative-λ hours clustered in
 November 2025 and April 2026 (wind gluts). Details, per-day cluster tables, and
 top/bottom hour lists:
-[`compute/experiments/lambda_validation/dam_lambda_range.md`](../compute/experiments/lambda_validation/dam_lambda_range.md).
+[`compute/calibration/lambda_validation/dam_lambda_range.md`](../compute/calibration/lambda_validation/dam_lambda_range.md).
 
 ### Cross-method comparison
 
 Side-by-side of every method above on the v1-120-postfix model window (with
 NP4-523-CD `system_lambda` joined in as the external validator):
-[`compute/experiments/lambda_validation/cross_method.md`](../compute/experiments/lambda_validation/cross_method.md).
+[`compute/calibration/lambda_validation/cross_method.md`](../compute/calibration/lambda_validation/cross_method.md).
 The v1-120 window is a summer-peak stress sample, so almost every snapshot
 activated shed; the shed-clean subset is only 1 record and will fill out in the
 full-year re-backfill. Notable from the shed-tainted window: `merit_order` is
