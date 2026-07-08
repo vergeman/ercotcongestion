@@ -11,17 +11,20 @@
 #   /opt/shared      shared.settings package (PYTHONPATH=/opt → import shared)
 #   /data/processed  preprocessing artifacts (CSVs + .nc network)
 #   /api/static      writable cache directory (e.g. topology.json)
+#
+# Multi-stage: builder installs deps with gcc/g++/libpq-dev; runtime keeps
+# only libpq5 + the resulting site-packages under /install.
 
-FROM python:3.13-slim
+FROM python:3.13-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         g++ \
-        libpq5 \
+        libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Combined dep set (api + compute + ingest).
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --prefix=/install \
         requests \
         fastapi \
         uvicorn[standard] \
@@ -37,6 +40,15 @@ RUN pip install --no-cache-dir \
         openpyxl \
         python-dotenv \
         httpx
+
+
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
 
 # Create the unprivileged user before COPY so we can chown in one shot.
 RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
