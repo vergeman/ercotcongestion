@@ -22,6 +22,7 @@ import psycopg
 from compute.config import PG_DSN
 from compute.congestion.compute import METHODS, compute_congestion
 from compute.ercot.transforms import (
+    assign_load_zones,
     assign_weather_zones,
     build_hub_lmps,
     build_sp_load_weights,
@@ -38,6 +39,11 @@ BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR / "runs"
 
 ERCOT_CHUNK_SIZE = 168  # 1 week of hourly ts per DB round-trip
+
+# Run-ids that already own archived ship-state artifacts. matrix.main()
+# refuses to write to these so a re-run cannot clobber the reference runs
+# used by the compare harness.
+GUARDED_RUN_IDS = {"v1-annual", "v1-annual-kkt"}
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +255,9 @@ def build_ercot_matrices(
     sps_per_zone = sp_to_zone.value_counts().to_dict()
     nameplate = tracked['nameplate_mw'].astype(float)
 
+    enable_zone_local_spp = "zone_local_spp" in ref_methods
+    sp_to_load_zone = assign_load_zones(tracked) if enable_zone_local_spp else None
+
     sp_ids = list(tracked.index)
     sp_idx = {s: i for i, s in enumerate(sp_ids)}
     ts_idx = {t: j for j, t in enumerate(timestamps)}
@@ -294,6 +303,30 @@ def build_ercot_matrices(
                     continue
                 vals = col.to_numpy(dtype=float)
                 ercot_C[m][sp_positions[keep], j] = vals[keep]
+
+            if enable_zone_local_spp and sp_to_load_zone is not None:
+                # Per-ts, per-load-zone mean of the raw SPPs (excluding the
+                # HB_* aggregator SPs, which have no load_zone). Then
+                # subtract from every SP in that zone. Hub SPs remain NaN
+                # in zone_local_spp.
+                zone_labels = sp_to_load_zone.reindex(lmps.index)
+                valid = lmps.notna() & zone_labels.notna()
+                if valid.any():
+                    zone_mean = (
+                        lmps[valid]
+                        .groupby(zone_labels[valid])
+                        .mean()
+                        .to_dict()
+                    )
+                    for sp in lmps.index[valid]:
+                        i = sp_idx.get(sp, -1)
+                        if i < 0:
+                            continue
+                        z = zone_labels.at[sp]
+                        zm = zone_mean.get(z)
+                        if zm is None:
+                            continue
+                        ercot_C["zone_local_spp"][i, j] = float(lmps.at[sp] - zm)
 
     # Drop SPs that NEVER appeared in DAM SPP over the entire window —
     # chronically missing points that would just create all-NaN rows.
@@ -614,10 +647,11 @@ def main():
     if not 0.0 <= args.min_sp_fraction <= 1.0:
         raise SystemExit("--min-sp-fraction must be in [0.0, 1.0]")
 
-    if args.run_id == "v1-annual":
+    if args.run_id in GUARDED_RUN_IDS:
         raise SystemExit(
-            "refusing to overwrite v1-annual ship-state artifacts; "
-            "pick a different --run-id"
+            f"refusing to overwrite ship-state artifacts under "
+            f"--run-id={args.run_id!r} (guarded set: {sorted(GUARDED_RUN_IDS)}); "
+            f"pick a different --run-id"
         )
 
     timestamps = _load_dates(args.dates_file)

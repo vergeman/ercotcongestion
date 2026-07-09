@@ -45,6 +45,13 @@ METHODS = (
     # leaves this column NaN — model matrix builder fills it from the
     # DB column directly.
     "kkt_perbus",
+    # ERCOT-side only. `SPP[sp, t] − mean_{sp' in zone(sp)} SPP[sp', t]`,
+    # where zone is the 4-way load zone via assign_load_zones(). Equivalent
+    # to recentering the congestion component (SPP − λ) because λ is
+    # scalar per timestamp and cancels inside the zone-mean subtraction.
+    # compute_congestion() leaves the column NaN; matrix builder fills it
+    # per-ts. See plan/0073-add-zone-local-spp.md.
+    "zone_local_spp",
 )
 
 

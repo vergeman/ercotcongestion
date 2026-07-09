@@ -1,0 +1,17 @@
+[
+  {
+    "name": "kkt_x_lambda (0071 baseline)",
+    "model_ref": "kkt_perbus",
+    "ercot_ref": "system_lambda"
+  },
+  {
+    "name": "kkt_x_zone_local_spp (ERCOT-only recenter)",
+    "model_ref": "kkt_perbus",
+    "ercot_ref": "zone_local_spp"
+  },
+  {
+    "name": "load_weighted_x_load_weighted (proxy ceiling)",
+    "model_ref": "load_weighted",
+    "ercot_ref": "load_weighted"
+  }
+]

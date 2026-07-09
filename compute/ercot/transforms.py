@@ -67,6 +67,34 @@ def assign_weather_zones(tracked: pd.DataFrame) -> pd.Series:
     return out
 
 
+# 4-way ERCOT load zones — the ones ERCOT actually settles LMPs against.
+# Aligned 1:1 with the 4 traditional trading hubs (HB_HOUSTON etc.).
+# HB_PAN is a hub but has no separate load zone — Panhandle buses settle
+# as LZ_NORTH.
+LOAD_ZONES = ('houston', 'north', 'south', 'west')
+
+
+def assign_load_zones(tracked: pd.DataFrame) -> pd.Series:
+    """For each tracked SP, nearest-bus lookup -> 4-way ERCOT load zone
+    (one of LOAD_ZONES). 4-way sibling of assign_weather_zones() used by
+    the zone_local_spp method in matrix.py."""
+    bz = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
+    bz['ercot_load_zone'] = (
+        bz['ercot_load_zone'].astype(str).str.lower().str.strip()
+    )
+    valid_bz = bz.dropna(subset=['lat', 'lon', 'ercot_load_zone'])
+    valid_bz = valid_bz[valid_bz['ercot_load_zone'].isin(LOAD_ZONES)]
+    bus_coords = valid_bz[['lat', 'lon']].to_numpy()
+    bus_zones = valid_bz['ercot_load_zone'].to_numpy()
+
+    sp_xy = tracked[['lat', 'lon']].dropna()
+    out = pd.Series(index=tracked.index, dtype=object)
+    for sp, (slat, slon) in sp_xy.iterrows():
+        d2 = (bus_coords[:, 0] - slat) ** 2 + (bus_coords[:, 1] - slon) ** 2
+        out.loc[sp] = bus_zones[int(np.argmin(d2))]
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Batched DB queries (one round-trip per data source per chunk of timestamps)
 # ---------------------------------------------------------------------------
