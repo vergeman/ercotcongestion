@@ -33,6 +33,33 @@ const activeHaloBusIds: Set<string> = new Set();
 //   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
 const HALO_PEAK_OPACITY = 0.7;
 
+// Major ERCOT-region cities, for map orientation only. Rendered as a faint
+// symbol layer beneath the data layers — no basemap, keeps the dark canvas.
+const CITY_LABELS: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+  type: "FeatureCollection",
+  features: (
+    [
+      ["Houston", -95.37, 29.76],
+      ["Dallas", -96.8, 32.78],
+      ["Fort Worth", -97.33, 32.75],
+      ["San Antonio", -98.49, 29.42],
+      ["Austin", -97.74, 30.27],
+      ["Corpus Christi", -97.4, 27.8],
+      ["Laredo", -99.51, 27.51],
+      ["Lubbock", -101.86, 33.58],
+      ["Amarillo", -101.83, 35.22],
+      ["Midland", -102.08, 31.99],
+      ["Waco", -97.15, 31.55],
+      ["McAllen", -98.23, 26.2],
+      ["Abilene", -99.73, 32.45],
+    ] as [string, number, number][]
+  ).map(([name, lng, lat]) => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [lng, lat] },
+    properties: { name },
+  })),
+};
+
 function applyHalos(
   map: maplibregl.Map,
   buses: Array<{ bus_id: string; ptdf: number }>
@@ -229,6 +256,34 @@ export default function GridMap({
           type: "geojson",
           data: topo.lines as GeoJSON.FeatureCollection,
           promoteId: "line_id",
+        });
+      }
+
+      // City orientation labels — added first so the data layers below draw
+      // on top and labels never obscure a bus.
+      if (!map.getSource("cities")) {
+        map.addSource("cities", { type: "geojson", data: CITY_LABELS });
+      }
+      if (!map.getLayer("city-labels")) {
+        map.addLayer({
+          id: "city-labels",
+          type: "symbol",
+          source: "cities",
+          layout: {
+            "text-field": ["get", "name"],
+            "text-font": ["Noto Sans Regular"],
+            "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 8, 14],
+            "text-anchor": "left",
+            "text-offset": [0.6, 0],
+            "text-letter-spacing": 0.08,
+            "text-transform": "uppercase",
+          },
+          paint: {
+            "text-color": "#5b6b7f",
+            "text-halo-color": "#0a0d12",
+            "text-halo-width": 1.2,
+            "text-opacity": 0.75,
+          },
         });
       }
 
