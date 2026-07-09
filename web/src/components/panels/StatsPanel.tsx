@@ -68,113 +68,6 @@ export default function StatsPanel({
   );
   return (
     <div className="stats-panel">
-      {scorecard && (
-        <div className="panel-section">
-          <div className="panel-section__header label">
-            Cluster Scorecard · {scorecard.run_id}
-          </div>
-          <div className="scorecard-headline">
-            <div
-              className="scorecard-headline__item"
-              title="Per-hour spatial Spearman across the derived cluster means, averaged over hours. Not per-SP temporal — see the correlation map summary."
-            >
-              <span className="label">rank ρ</span>
-              <span className="mono">
-                {fmt(scorecard.headline.zone_rank_spearman_per_hour, 2)}
-              </span>
-            </div>
-            <div
-              className="scorecard-headline__item"
-              title="Mean over zones of per-zone Pearson correlation between the model-side zone mean and the ERCOT-side zone mean over hours."
-            >
-              <span className="label">mean r</span>
-              <span className="mono">
-                {fmt(scorecard.headline.mean_corr, 2)}
-              </span>
-            </div>
-            <div
-              className="scorecard-headline__item"
-              title="Mean over zones of the fraction of hours where model and ERCOT zone means share the same sign, restricted to hours where both exceed the deadband."
-            >
-              <span className="label">sign%</span>
-              <span className="mono">
-                {scorecard.headline.mean_sign_agreement != null
-                  ? `${fmt(scorecard.headline.mean_sign_agreement * 100, 0)}%`
-                  : "—"}
-              </span>
-            </div>
-            <div
-              className="scorecard-headline__item"
-              title="Count of shared hours between the model and ERCOT sides that scoring ran on."
-            >
-              <span className="label">hours</span>
-              <span className="mono">{scorecard.headline.n_hours}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className={"zones-toggle label" + (showZones ? " active" : "")}
-            onClick={onToggleZones}
-          >
-            {showZones ? "Toggle Zone Layers ✓" : "Toggle Zone Layers"}
-          </button>
-          <div className="scorecard-rows">
-            <div className="scorecard-row scorecard-row--head label">
-              <span title="Derived cluster id from the promoted partition; the ERCOT SPs feed this zone via CM.1 best_bus mapping.">
-                zone
-              </span>
-              <span title="Count of model buses tagged to this zone by the partition.">
-                buses
-              </span>
-              <span title="Pearson correlation between the model-side and ERCOT-side zone means over hours.">
-                corr
-              </span>
-              <span title="Fraction of hours (excluding both-below-deadband) where model and ERCOT zone means share the same sign.">
-                sign%
-              </span>
-              <span title="Std of per-bus corr(bus, ercot_Z) inside the zone — a within-zone dispersion of tracking quality.">
-                disp
-              </span>
-            </div>
-            {sortedZones.map((z) => {
-              const selected = z.cluster_id === selectedClusterId;
-              return (
-                <div
-                  key={z.cluster_id}
-                  className={
-                    "scorecard-row" +
-                    (selected ? " scorecard-row--selected" : "")
-                  }
-                  onClick={() =>
-                    onSelectCluster(selected ? null : z.cluster_id)
-                  }
-                >
-                  <span
-                    className="scorecard-row__zone mono"
-                    style={{
-                      ["--zone-color" as string]: clusterColor(
-                        z.cluster_id,
-                        tightSet
-                      ),
-                    }}
-                  >
-                    <span className="scorecard-row__swatch" />Z{z.cluster_id}
-                  </span>
-                  <span className="mono">{z.n_buses}</span>
-                  <span className="mono">{fmt(z.corr, 2)}</span>
-                  <span className="mono">
-                    {z.sign_agreement != null
-                      ? `${fmt(z.sign_agreement * 100, 0)}%`
-                      : "—"}
-                  </span>
-                  <span className="mono">{fmt(z.model_side_std, 2)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="panel-section">
         <div className="panel-section__header label">System State</div>
         {meta ? (
@@ -261,26 +154,117 @@ export default function StatsPanel({
         )}
       </div>
 
-      {meta && (
+      {scorecard && (
         <div className="panel-section">
-          <div className="panel-section__header label">LMP Range</div>
-          <div className="lmp-range">
-            <div className="lmp-item">
-              <span className="label">min</span>
-              <span className="mono" style={{ color: "#3b82f6" }}>
-                ${fmt(meta.lmp_min)}
+          <div className="panel-section__header label">
+            Cluster Correlation · {scorecard.run_id}
+          </div>
+          <div className="scorecard-headline">
+            <div
+              className="scorecard-headline__item"
+              title="Per-hour spatial Spearman across the derived cluster means, averaged over hours. Not per-SP temporal — see the correlation map summary."
+            >
+              <span className="label">rank ρ</span>
+              <span className="mono">
+                {fmt(scorecard.headline.zone_rank_spearman_per_hour, 2)}
               </span>
             </div>
-            <div className="lmp-item">
-              <span className="label">avg</span>
-              <span className="mono">${fmt(meta.lmp_mean)}</span>
-            </div>
-            <div className="lmp-item">
-              <span className="label">max</span>
-              <span className="mono" style={{ color: "#ef4444" }}>
-                ${fmt(meta.lmp_max)}
+            <div
+              className="scorecard-headline__item"
+              title="Mean over zones of per-zone Pearson correlation between the model-side zone mean and the ERCOT-side zone mean over hours."
+            >
+              <span className="label">mean r</span>
+              <span className="mono">
+                {fmt(scorecard.headline.mean_corr, 2)}
               </span>
             </div>
+            <div
+              className="scorecard-headline__item"
+              title="Mean over zones of the fraction of hours where model and ERCOT zone means share the same sign, restricted to hours where both exceed the deadband."
+            >
+              <span className="label">sign%</span>
+              <span className="mono">
+                {scorecard.headline.mean_sign_agreement != null
+                  ? `${fmt(scorecard.headline.mean_sign_agreement * 100, 0)}%`
+                  : "—"}
+              </span>
+            </div>
+            <div
+              className="scorecard-headline__item"
+              title="Count of shared hours between the model and ERCOT sides that scoring ran on."
+            >
+              <span className="label">hours</span>
+              <span className="mono">{scorecard.headline.n_hours}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scorecard && (
+        <div className="panel-section">
+          <div className="panel-section__header label">
+            Cluster Scorecard · {scorecard.run_id}
+          </div>
+          <button
+            type="button"
+            className={"zones-toggle label" + (showZones ? " active" : "")}
+            onClick={onToggleZones}
+          >
+            {showZones ? "Toggle Zone Layers ✓" : "Toggle Zone Layers"}
+          </button>
+          <div className="scorecard-rows">
+            <div className="scorecard-row scorecard-row--head label">
+              <span title="Derived cluster id from the promoted partition; the ERCOT SPs feed this zone via CM.1 best_bus mapping.">
+                zone
+              </span>
+              <span title="Count of model buses tagged to this zone by the partition.">
+                buses
+              </span>
+              <span title="Pearson correlation between the model-side and ERCOT-side zone means over hours.">
+                corr
+              </span>
+              <span title="Fraction of hours (excluding both-below-deadband) where model and ERCOT zone means share the same sign.">
+                sign%
+              </span>
+              <span title="Std of per-bus corr(bus, ercot_Z) inside the zone — a within-zone dispersion of tracking quality.">
+                disp
+              </span>
+            </div>
+            {sortedZones.map((z) => {
+              const selected = z.cluster_id === selectedClusterId;
+              return (
+                <div
+                  key={z.cluster_id}
+                  className={
+                    "scorecard-row" +
+                    (selected ? " scorecard-row--selected" : "")
+                  }
+                  onClick={() =>
+                    onSelectCluster(selected ? null : z.cluster_id)
+                  }
+                >
+                  <span
+                    className="scorecard-row__zone mono"
+                    style={{
+                      ["--zone-color" as string]: clusterColor(
+                        z.cluster_id,
+                        tightSet
+                      ),
+                    }}
+                  >
+                    <span className="scorecard-row__swatch" />Z{z.cluster_id}
+                  </span>
+                  <span className="mono">{z.n_buses}</span>
+                  <span className="mono">{fmt(z.corr, 2)}</span>
+                  <span className="mono">
+                    {z.sign_agreement != null
+                      ? `${fmt(z.sign_agreement * 100, 0)}%`
+                      : "—"}
+                  </span>
+                  <span className="mono">{fmt(z.model_side_std, 2)}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -464,17 +448,6 @@ export default function StatsPanel({
           color: var(--text-muted);
         }
         .stat--secondary { padding-top: 0; margin-top: -2px; }
-
-        .lmp-range { display: flex; }
-        .lmp-item {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1px;
-          padding: 3px 0;
-        }
-        .lmp-item .mono { font-size: 11px; }
 
         .list-items { display: flex; flex-direction: column; gap: 1px; }
         .list-item {
