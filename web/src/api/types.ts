@@ -24,6 +24,7 @@ export interface SnapshotMeta {
   interval_ts: string;
   status: string;
   objective_cost: number | null;
+  dam_system_lambda: number | null;
   total_load_mw: number | null;
   total_gen_mw: number | null;
   n_binding_lines: number | null;

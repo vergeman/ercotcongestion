@@ -102,6 +102,14 @@ export default function StatsPanel({
               }
             />
             <Stat
+              label="DAM System λ"
+              value={
+                meta.dam_system_lambda != null
+                  ? `$${fmt(meta.dam_system_lambda, 2)}/MWh`
+                  : null
+              }
+            />
+            <Stat
               label="‖Modeled Congestion‖"
               value={
                 meta.modeled_congestion_abs_total != null
