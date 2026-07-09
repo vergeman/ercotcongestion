@@ -3,7 +3,6 @@ export interface BusState {
   modeled_congestion: number | null;
   binding_proximity: number | null;
   lmp: number | null;
-  basis: number | null;
 }
 
 export interface BindingLine {

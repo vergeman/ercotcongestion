@@ -90,12 +90,6 @@ function BusBody({ bus }: { bus: HoveredBus }) {
                 : null
             }
           />
-          <Row
-            label="Basis"
-            value={
-              bus.busState.basis != null ? fmt(bus.busState.basis, 4) : null
-            }
-          />
         </>
       )}
     </>
