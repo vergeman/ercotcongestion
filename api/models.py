@@ -13,7 +13,6 @@ class BusState(BaseModel):
     modeled_congestion: float | None
     binding_proximity: float | None = None
     lmp: float | None
-    basis: float | None = None
 
 class BindingLine(BaseModel):
     line: str
