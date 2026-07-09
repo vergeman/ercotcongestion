@@ -6,7 +6,7 @@ Branch: refactor/0078-statspanel-layout-and-lmp-legend
 ## Goal
 
 * Reorder `StatsPanel`: System State renders first.
-* Split the scorecard headline (rank ρ, mean r, sign%, hours) into its own "Model Correlation" section, separate from the per-zone table.
+* Split the scorecard headline (rank ρ, mean r, sign%, hours) into its own "Cluster Correlations" section, separate from the per-zone table.
 * Remove the LMP Range section from `StatsPanel`; render current-snapshot LMP min/mean/max in each map's `Legend` (model pane and ERCOT pane) instead.
 
 ## Context
@@ -23,7 +23,7 @@ Branch: refactor/0078-statspanel-layout-and-lmp-legend
 * Entry point: `StatsPanel` JSX body (section order/grouping); `Legend`'s `isLmp` render block.
 * Step 1 — `StatsPanel.tsx`: move the "System State" `panel-section` block to render first, before any scorecard content.
 * Step 2 — `StatsPanel.tsx`: split the existing `{scorecard && (...)}` block into two independent sections:
-  * "Model Correlation" — the `scorecard-headline` grid only (rank ρ / mean r / sign% / hours tiles), still gated on `scorecard`.
+  * "Cluster Correlations" — the `scorecard-headline` grid only (rank ρ / mean r / sign% / hours tiles), still gated on `scorecard`.
   * "Cluster Scorecard" — the zones-toggle button + `scorecard-rows` table (header row + per-zone rows), unchanged in content and behavior.
 * Step 3 — `StatsPanel.tsx`: delete the "LMP Range" `panel-section` block entirely (the one reading `meta.lmp_min/lmp_mean/lmp_max`), along with its now-unused `.lmp-range`/`.lmp-item` styles.
 * Step 4 — `Legend.tsx`: inside the `isLmp` branch, add a `useMemo` that computes `{min, mean, max}` from `buses` (filter `b.lmp != null`), and render it as an additional `legend__sub` line under the existing window-stats line, for both `variant="full"` and `variant="palette-only"` (so it shows on model and ERCOT panes alike). Label it distinctly from the existing "window ... · P.." line (e.g. "snapshot $x – $y · avg $z") so the two ranges (window vs. current snapshot) aren't confused.
@@ -33,10 +33,10 @@ Branch: refactor/0078-statspanel-layout-and-lmp-legend
 
 ## Acceptance
 
-* [ ] "System State" is the first `panel-section` rendered in `StatsPanel`.
-* [ ] "Model Correlation" section renders the four headline tiles, independent of the per-zone table section.
-* [ ] "Cluster Scorecard" section still renders the zones toggle and unchanged per-zone rows/columns.
-* [ ] "LMP Range" section no longer renders in `StatsPanel`; `meta.lmp_min/mean/max` are unused in that file.
-* [ ] Both model and ERCOT `Legend` instances show a current-snapshot LMP min/mean/max line, computed from their respective `buses` prop, with no new props/API fields added.
-* [ ] `npm run build` (or `tsc --noEmit`) passes in `web/`.
-* [ ] Manual browser check: new section order, headline/scorecard split, and both legends' snapshot-range line render correctly.
+* [x] "System State" is the first `panel-section` rendered in `StatsPanel`.
+* [x] "Cluster Correlation" section renders the four headline tiles, independent of the per-zone table section.
+* [x] "Cluster Scorecard" section still renders the zones toggle and unchanged per-zone rows/columns.
+* [x] "LMP Range" section no longer renders in `StatsPanel`; `meta.lmp_min/mean/max` are unused in that file.
+* [x] Both model and ERCOT `Legend` instances show a current-snapshot LMP min/mean/max line, computed from their respective `buses` prop, with no new props/API fields added.
+* [x] `npm run build` (or `tsc --noEmit`) passes in `web/`.
+* [x] Manual browser check: new section order, headline/scorecard split, and both legends' snapshot-range line render correctly.
