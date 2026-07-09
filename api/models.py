@@ -34,6 +34,7 @@ class SnapshotMeta(BaseModel):
     interval_ts: datetime
     status: str
     objective_cost: float | None = None
+    dam_system_lambda: float | None = None
     total_load_mw: float | None = None
     total_gen_mw: float | None = None
     n_binding_lines: int | None = None
