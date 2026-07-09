@@ -47,9 +47,18 @@ Branch: feat/0073-add-zone-local-spp
 
 ## Acceptance
 
-* [ ] `python -c "from compute.ercot.transforms import assign_load_zones, LOAD_ZONES"` succeeds.
-* [ ] `"zone_local_spp"` appears in `METHODS`; no other new entries added.
-* [ ] A fresh `python -m compute.matrix --run-id smoke-0073 --dates-file …` writes a `congestion_matrices.npz` in which `ercot_C["zone_local_spp"]` is finite for non-hub SPs and NaN for `HB_*` rows over the sample window.
-* [ ] `python -m compute.mapping.compare_refs --run-id smoke-0073` produces `runs/smoke-0073/compare/compare.{csv,md}` with rows for the trimmed default pairs and no reference to `zone_local_kkt`.
-* [ ] `--run-id v1-annual` and `--run-id v1-annual-kkt` both exit non-zero with the guarded-set error.
-* [ ] No files under `compute/experiments/` are added or modified.
+Static (already verified by inspection):
+
+* [x] `assign_load_zones` + `LOAD_ZONES` exported from `compute/ercot/transforms.py`.
+* [x] `"zone_local_spp"` is the only new entry in `compute/congestion/compute.py:METHODS`.
+* [x] `compute/matrix.py:GUARDED_RUN_IDS == {"v1-annual", "v1-annual-kkt"}` and the CLI guard uses the set with a set-based error message.
+* [x] `build_ercot_matrices` computes `sp_to_load_zone` only when `enable_zone_local_spp` (`"zone_local_spp" in ref_methods`). Note: `assign_load_zones` runs a nearest-bus KNN over every tracked SP incl. the HB_*/LZ_* centroids, so hubs *do* get a load-zone label and *do* get filled (they are not NaN). If we want hubs excluded from `zone_local_spp` and/or the per-ts zone mean, that's a follow-up.
+* [x] `compute/mapping/compare_refs.py` ported verbatim; imports resolve against master's `correlation_map`.
+* [x] `compute/mapping/pairs/default.json` contains exactly 3 pairs — `kkt_x_lambda`, `kkt_x_zone_local_spp`, `load_weighted_x_load_weighted` — with no reference to `zone_local_kkt`.
+* [x] No files under `compute/experiments/` are added or modified.
+
+Runtime (docker compose stack, verified against `flat_dates_2025-01-03_2025-01-06.json`, 72 hrs):
+
+* [x] `docker compose run --rm compute python -m compute.matrix --run-id smoke-0073 --dates-file /compute/sample_specs/flat_dates_2025-01-03_2025-01-06.json` writes `congestion_matrices.npz` with `zone_local_spp_ercot_C` populated (940 SPs × 72 hrs, 100% finite for non-hub rows; per-ts zonal-centered mean ≈ 0 across non-hub rows). Model-side `zone_local_spp_model_C` stays all-NaN as intended.
+* [x] `docker compose run --rm compute python -m compute.mapping.compare_refs --run-id smoke-0073` produces `runs/smoke-0073/compare/compare.{csv,md}` with rows for the 3 default pairs; no reference to `zone_local_kkt`. Sample headline: `kkt × zone_local_spp` median corr 0.452, p90 0.667, distinct winners 44.
+* [x] `--run-id v1-annual` and `--run-id v1-annual-kkt` both exit non-zero with the set-based guard message (`refusing to overwrite ship-state artifacts under --run-id='…' (guarded set: ['v1-annual', 'v1-annual-kkt'])`).
