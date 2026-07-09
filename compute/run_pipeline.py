@@ -281,7 +281,7 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
             "--coords-model", str(args.coords_model),
         ]
         # --ref-methods is not forwarded — CM.6 fixed the clustering ref axis
-        # on the default (system_lambda_merit_order). Matrix still consumes it.
+        # on the default (kkt_perbus). Matrix still consumes it.
         if args.algos:
             cmd += ["--algos", args.algos]
         if args.ks:
@@ -381,9 +381,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="Comma list passed to clustering --algos. Default: all four.")
     ap.add_argument("--ks", default=None,
                     help="Comma list of ints passed to clustering --ks. Default: 4,6,8,10,12,16.")
-    ap.add_argument("--scorecard-ref", default="system_lambda_merit_order",
+    ap.add_argument("--scorecard-ref", default="kkt_perbus",
                     help="Reference method the scorecard partitions against "
-                         "(default system_lambda_merit_order — matches "
+                         "(default kkt_perbus) — matches "
                          "compute.mapping.correlation_map.DEFAULT_MODEL_REF).")
     ap.add_argument("--scorecard-algo", default="hierarchical_on_beta",
                     help="Clustering algo the scorecard aggregates over "

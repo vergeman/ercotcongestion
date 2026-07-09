@@ -5,7 +5,7 @@ Reads per-method model-side `reference_prices` and `load_shed_mw` from
 `snapshot_meta` and joins the published ERCOT NP4-523-CD `system_lambda`
 from `dam_system_lambda` on `interval_ts`. Reports per-method distribution,
 pairwise Pearson correlation, and delta stats vs the fixed model reference
-(`system_lambda_merit_order`) over the matched snapshot set.
+(`kkt_perbus`) over the matched snapshot set.
 
 Methods compared:
 
@@ -13,6 +13,7 @@ Methods compared:
     system_lambda (ERCOT NP4-523-CD; published, no model analogue),
     system_lambda_kkt (model-side KKT clean-bus median),
     system_lambda_merit_order (model-side copper-plate via merit-order).
+    kkt_perbus
 
 `simple_mean` is skipped — it is the trivial mean(lmps) baseline, not a λ
 approximation, and only exists as a centering sanity check inside the
@@ -43,11 +44,12 @@ MODEL_METHODS = (
     "lmp_median",
     "system_lambda_kkt",
     "system_lambda_merit_order",
+    "kkt_perbus"
 )
-ERCOT_METHOD = "system_lambda"     # NP4-523-CD, ERCOT side only
+ERCOT_METHOD = "zone_local_spp"
 
 DEFAULT_START = "2025-01-01"
-DEFAULT_END   = "2026-07-01"
+DEFAULT_END   = "2026-01-01"
 DEFAULT_OUT   = Path("/compute/calibration/lambda_validation/cross_method.md")
 
 
@@ -181,11 +183,8 @@ def _render_md(
         f"`dam_system_lambda` by ts.\n"
     )
     lines.append(
-        "`system_lambda_merit_order` is the fixed model reference — the "
-        "exact copper-plate λ recovered by economic dispatch. Every other "
-        "column is an approximation compared against it. `system_lambda` "
-        "(NP4-523-CD) is the real ERCOT-published λ and the closest "
-        "external validator we have.\n"
+        "`kkt_perbus` is the fixed model reference. Every other "
+        "column is an approximation compared against it. "
     )
 
     def _stats_table(stats: dict[str, dict], title: str) -> list[str]:
@@ -320,13 +319,13 @@ def main():
     stats_noshed = {m: _dist_stats(clean[m]) for m in cols}
     corr_all     = _pairwise_corr(df, cols)
     corr_noshed  = _pairwise_corr(clean, cols)
-    ref_delta    = _delta_stats(clean, "system_lambda_merit_order")
+    ref_delta    = _delta_stats(clean, "kkt_perbus")
 
     md = _render_md(
         df=df,
         stats_all=stats_all, stats_noshed=stats_noshed,
         corr_all=corr_all, corr_noshed=corr_noshed,
-        ref_col="system_lambda_merit_order",
+        ref_col="kkt_perbus",
         ref_delta=ref_delta,
         shed_ts=shed_ts,
         n_clean=clean.shape[0],

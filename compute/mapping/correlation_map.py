@@ -5,8 +5,8 @@ Maps each ERCOT SP to its most-correlated model bus over shared hours.
 
 Model and ERCOT sides use different reference-price methods that target
 the same conceptual quantity (system marginal energy):
-  * model:  `system_lambda_merit_order` (merit-order stack, ~$29 stable)
-  * ercot:  `system_lambda` (ERCOT-published system lambda)
+  * model:  `kkt_perbus` (merit-order stack, ~$29 stable)
+  * ercot:  `zone_local_spp` (ERCOT-published system lambda)
 Values are expected to track but not equal.
 
 Reads `runs/<run_id>/matrix/congestion_matrices.npz` (produced by
@@ -19,8 +19,8 @@ Reads `runs/<run_id>/matrix/congestion_matrices.npz` (produced by
 
 Usage:
     python -m compute.mapping.correlation_map --run-id v1-120 \
-        [--model-ref system_lambda_merit_order] \
-        [--ercot-ref system_lambda] \
+        [--model-ref kkt_perbus] \
+        [--ercot-ref zone_local_spp] \
         [--var-threshold 1.0] [--topk 5] [--dry-run]
 """
 from __future__ import annotations
@@ -34,8 +34,8 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUNS_ROOT = BASE_DIR / "runs"
 
-DEFAULT_MODEL_REF = "system_lambda_merit_order"
-DEFAULT_ERCOT_REF = "system_lambda"
+DEFAULT_MODEL_REF = "kkt_perbus"
+DEFAULT_ERCOT_REF = "zone_local_spp"
 
 
 def _matrix_npz_path(run_id: str) -> Path:
@@ -50,8 +50,8 @@ def load_matrices(
     """Load model and ERCOT congestion matrices under (possibly different)
     reference methods and align them on their shared hour axis.
 
-    The model side (`system_lambda_merit_order`) and the ERCOT side
-    (`system_lambda`) target the same conceptual reference (system
+    The model side (`kkt_perbus`) and the ERCOT side
+    (`zone_local_spp`) target the same conceptual reference (system
     marginal energy) but are computed from different sources, so keys
     diverge in the npz.
 

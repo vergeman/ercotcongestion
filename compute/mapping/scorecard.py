@@ -23,7 +23,7 @@ not overwrite; ``compute.promote`` picks a cell to serve by symlinking
 
 Usage:
     python -m compute.mapping.scorecard --run-id v1-120 \
-        [--ref system_lambda_merit_order] \
+        [--ref kkt_perbus] \
         [--algo hierarchical_on_beta] [--k 6] \
         [--deadband 2.0] [--min-members 3]
 """

@@ -14,9 +14,9 @@ Usage:
     python -m compute.experiments.regime_scorecard.run \
         --run-id v1-annual \
         --bins congestion_magnitude:q4,net_load:q4,binding_active \
-        --ref system_lambda_merit_order \
-        --model-ref system_lambda_merit_order \
-        --ercot-ref system_lambda \
+        --ref kkt_perbus \
+        --model-ref kkt_perbus \
+        --ercot-ref zone_local_spp \
         --algo hierarchical_on_beta \
         --k 6
 """

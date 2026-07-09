@@ -16,7 +16,7 @@ Usage (inside the ``compute`` docker service; needs psycopg + db)::
 
     python -m compute.promote \
         --run-id v1-annual \
-        --ref system_lambda_merit_order \
+        --ref kkt_perbus \
         --algo hierarchical_on_beta \
         --k 6
 
@@ -169,7 +169,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--ref", required=True,
-                    help="Reference method (e.g. system_lambda_merit_order).")
+                    help="Reference method (e.g. kkt_perbus).")
     ap.add_argument("--algo", required=True,
                     help="Clustering algorithm (e.g. hierarchical_on_beta).")
     ap.add_argument("--k", type=int, required=True)

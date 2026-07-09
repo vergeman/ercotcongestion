@@ -2,7 +2,7 @@
 
 Composition layer over 0017 (algorithms) and 0018 (diagnostics). Reads the
 model-side bus×hour matrix persisted by 0016 for the fixed reference
-(`system_lambda_merit_order` — see CM.6), runs every requested (algo, K),
+(`kkt_perbus`), runs every requested (algo, K),
 and emits a summary JSON plus per-cell `cluster_labels_<ref>_<algo>_k<K>.npz`
 (arrays `bus_id`, `cluster_id`).
 
@@ -62,7 +62,7 @@ log = logging.getLogger("compute.clustering.runner")
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
-DEFAULT_REF = "system_lambda_merit_order"
+DEFAULT_REF = "kkt_perbus"
 
 ALGOS: dict[str, Callable] = {
     # Primary — clusters on Stage-B β-loadings (CM.2). Requires the mapping
