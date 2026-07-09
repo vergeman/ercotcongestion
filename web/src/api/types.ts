@@ -145,7 +145,7 @@ export interface ScorecardZone {
 }
 
 export interface ScorecardHeadline {
-  rank_spearman: number | null;
+  zone_rank_spearman_per_hour: number | null;
   mean_corr: number | null;
   mean_sign_agreement: number | null;
   n_hours: number;
