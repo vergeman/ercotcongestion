@@ -46,16 +46,12 @@ case "${1:-all}" in
   snapshots)
     run_job backfill_snapshots_job.yml backfill-snapshots
     ;;
-  basis)
-    run_job backfill_basis_job.yml backfill-basis
-    ;;
   all)
     run_job backfill_ingest_job.yml    backfill-ingest
     run_job backfill_snapshots_job.yml backfill-snapshots
-    run_job backfill_basis_job.yml     backfill-basis
     ;;
   *)
-    echo "Usage: $0 [ingest|snapshots|basis|all]"
+    echo "Usage: $0 [ingest|snapshots|all]"
     exit 1
     ;;
 esac
