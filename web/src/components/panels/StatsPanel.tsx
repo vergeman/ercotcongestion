@@ -74,19 +74,28 @@ export default function StatsPanel({
             Cluster Scorecard · {scorecard.run_id}
           </div>
           <div className="scorecard-headline">
-            <div className="scorecard-headline__item">
+            <div
+              className="scorecard-headline__item"
+              title="Per-hour spatial Spearman across the derived cluster means, averaged over hours. Not per-SP temporal — see the correlation map summary."
+            >
               <span className="label">rank ρ</span>
               <span className="mono">
-                {fmt(scorecard.headline.rank_spearman, 2)}
+                {fmt(scorecard.headline.zone_rank_spearman_per_hour, 2)}
               </span>
             </div>
-            <div className="scorecard-headline__item">
+            <div
+              className="scorecard-headline__item"
+              title="Mean over zones of per-zone Pearson correlation between the model-side zone mean and the ERCOT-side zone mean over hours."
+            >
               <span className="label">mean r</span>
               <span className="mono">
                 {fmt(scorecard.headline.mean_corr, 2)}
               </span>
             </div>
-            <div className="scorecard-headline__item">
+            <div
+              className="scorecard-headline__item"
+              title="Mean over zones of the fraction of hours where model and ERCOT zone means share the same sign, restricted to hours where both exceed the deadband."
+            >
               <span className="label">sign%</span>
               <span className="mono">
                 {scorecard.headline.mean_sign_agreement != null
@@ -94,7 +103,10 @@ export default function StatsPanel({
                   : "—"}
               </span>
             </div>
-            <div className="scorecard-headline__item">
+            <div
+              className="scorecard-headline__item"
+              title="Count of shared hours between the model and ERCOT sides that scoring ran on."
+            >
               <span className="label">hours</span>
               <span className="mono">{scorecard.headline.n_hours}</span>
             </div>
@@ -108,11 +120,21 @@ export default function StatsPanel({
           </button>
           <div className="scorecard-rows">
             <div className="scorecard-row scorecard-row--head label">
-              <span>zone</span>
-              <span>buses</span>
-              <span>corr</span>
-              <span>sign%</span>
-              <span>disp</span>
+              <span title="Derived cluster id from the promoted partition; the ERCOT SPs feed this zone via CM.1 best_bus mapping.">
+                zone
+              </span>
+              <span title="Count of model buses tagged to this zone by the partition.">
+                buses
+              </span>
+              <span title="Pearson correlation between the model-side and ERCOT-side zone means over hours.">
+                corr
+              </span>
+              <span title="Fraction of hours (excluding both-below-deadband) where model and ERCOT zone means share the same sign.">
+                sign%
+              </span>
+              <span title="Std of per-bus corr(bus, ercot_Z) inside the zone — a within-zone dispersion of tracking quality.">
+                disp
+              </span>
             </div>
             {sortedZones.map((z) => {
               const selected = z.cluster_id === selectedClusterId;

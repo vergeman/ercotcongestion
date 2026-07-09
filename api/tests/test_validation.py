@@ -41,7 +41,7 @@ def _write_artifact(run_dir: Path, run_id: str, ref: str, algo: str, k: int) -> 
             'deadband': 2.0, 'min_members': 3,
         },
         'headline': {
-            'rank_spearman': 0.42, 'mean_corr': 0.55,
+            'zone_rank_spearman_per_hour': 0.42, 'mean_corr': 0.55,
             'mean_sign_agreement': 0.71, 'n_hours': 3, 'n_zones': 2,
         },
         'zones': [
@@ -80,7 +80,7 @@ def test_validation_returns_served_scorecard(client, served_run_dir):
     assert body['params']['algo'] == CELL_ALGO
     assert body['params']['k'] == CELL_K
     assert body['headline']['n_zones'] == 2
-    assert body['headline']['rank_spearman'] == 0.42
+    assert body['headline']['zone_rank_spearman_per_hour'] == 0.42
     assert body['warnings'] == ['zone 2 dropped: n_sps=1 (< 3)']
 
     zones = body['zones']

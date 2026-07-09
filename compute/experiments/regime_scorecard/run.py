@@ -120,7 +120,7 @@ def _compare_pooled(
     with open(path) as f:
         existing = json.load(f).get("headline", {})
     drift: list[str] = []
-    for key in ("rank_spearman", "mean_corr", "mean_sign_agreement"):
+    for key in ("zone_rank_spearman_per_hour", "mean_corr", "mean_sign_agreement"):
         a = pooled.get(key)
         b = existing.get(key)
         if a is None or b is None:
@@ -177,12 +177,12 @@ def _build_buckets(
                 f"bucket {result.bucket_labels[bucket_id]!r} has "
                 f"{n_hours} hours (< {min_bucket_hours}); metrics skipped"
             )
-            row["rank_spearman"] = None
+            row["zone_rank_spearman_per_hour"] = None
             row["mean_corr"] = None
             row["mean_sign_agreement"] = None
         else:
             headline = _score_bucket(model_Z, ercot_Z, mask, deadband)
-            row["rank_spearman"] = headline["rank_spearman"]
+            row["zone_rank_spearman_per_hour"] = headline["zone_rank_spearman_per_hour"]
             row["mean_corr"] = headline["mean_corr"]
             row["mean_sign_agreement"] = headline["mean_sign_agreement"]
         buckets.append(row)
@@ -222,7 +222,7 @@ def _write_output(
         "label": "pooled",
         "n_hours": pooled.get("n_hours"),
         "hours": None,
-        "rank_spearman": pooled.get("rank_spearman"),
+        "zone_rank_spearman_per_hour": pooled.get("zone_rank_spearman_per_hour"),
         "mean_corr": pooled.get("mean_corr"),
         "mean_sign_agreement": pooled.get("mean_sign_agreement"),
     }
@@ -262,11 +262,11 @@ def _print_table(scheme: str, buckets: list[dict], pooled: dict) -> None:
     print(f"\n=== {scheme} ===")
     print(f"{'bucket':>10} {'n_hours':>8} {'rank_sp':>10} {'mean_corr':>10} {'sign_agr':>10}")
     for b in buckets:
-        rs = _fmt(b.get("rank_spearman"))
+        rs = _fmt(b.get("zone_rank_spearman_per_hour"))
         mc = _fmt(b.get("mean_corr"))
         sa = _fmt(b.get("mean_sign_agreement"))
         print(f"{b['label']:>10} {b['n_hours']:>8} {rs:>10} {mc:>10} {sa:>10}")
-    rs = _fmt(pooled.get("rank_spearman"))
+    rs = _fmt(pooled.get("zone_rank_spearman_per_hour"))
     mc = _fmt(pooled.get("mean_corr"))
     sa = _fmt(pooled.get("mean_sign_agreement"))
     print(f"{'pooled':>10} {pooled.get('n_hours', 0):>8} {rs:>10} {mc:>10} {sa:>10}")

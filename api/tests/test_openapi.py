@@ -46,7 +46,7 @@ def test_openapi_carries_renamed_fields_and_no_fragility(client):
         assert f in zone, f
 
     headline = _props(spec, 'ScorecardHeadline')
-    for f in ('rank_spearman', 'mean_corr', 'mean_sign_agreement', 'n_hours', 'n_zones'):
+    for f in ('zone_rank_spearman_per_hour', 'mean_corr', 'mean_sign_agreement', 'n_hours', 'n_zones'):
         assert f in headline, f
 
     series = _props(spec, 'ScorecardSeries')

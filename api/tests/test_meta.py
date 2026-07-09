@@ -33,7 +33,7 @@ def _write_scorecard(run_dir: Path, ref: str, algo: str, k: int) -> None:
     (run_dir / 'mapping' / 'scorecard.json').write_text(json.dumps({
         'run_id': run_dir.name,
         'params': {'ref': ref, 'algo': algo, 'k': k, 'deadband': 2.0, 'min_members': 3},
-        'headline': {'rank_spearman': 0.0, 'mean_corr': 0.0,
+        'headline': {'zone_rank_spearman_per_hour': 0.0, 'mean_corr': 0.0,
                      'mean_sign_agreement': 0.0, 'n_hours': 0, 'n_zones': 0},
         'zones': [],
         'warnings': [],

@@ -191,7 +191,14 @@ class ScorecardZone(BaseModel):
 
 
 class ScorecardHeadline(BaseModel):
-    rank_spearman: float | None
+    zone_rank_spearman_per_hour: float | None = Field(
+        None,
+        description=(
+            "Mean over hours of per-hour spatial rank correlation across "
+            "the derived-zone means; not comparable to the per-SP "
+            "temporal Spearman in mapping_correlation_summary."
+        ),
+    )
     mean_corr: float | None
     mean_sign_agreement: float | None
     n_hours: int
