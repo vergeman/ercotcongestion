@@ -83,6 +83,8 @@ TABLES=(
   ercot_rt_lmp
   sced_system_lambda
   load_forecast_zonal
+  implied_binding_proximity
+  implied_binding_proximity_current
 )
 
 # ---- preflight --------------------------------------------------------------
@@ -270,6 +272,8 @@ UNION ALL SELECT 'dam_system_lambda',       count(*) FROM dam_system_lambda
 UNION ALL SELECT 'ercot_rt_lmp',            count(*) FROM ercot_rt_lmp
 UNION ALL SELECT 'sced_system_lambda',      count(*) FROM sced_system_lambda
 UNION ALL SELECT 'load_forecast_zonal',     count(*) FROM load_forecast_zonal
+UNION ALL SELECT 'implied_binding_proximity', count(*) FROM implied_binding_proximity
+UNION ALL SELECT 'implied_binding_proximity_current', count(*) FROM implied_binding_proximity_current
 ORDER BY tbl;
 SQL
 
