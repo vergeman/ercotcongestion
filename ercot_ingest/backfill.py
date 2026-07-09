@@ -24,7 +24,7 @@ from loaders import (ERCOT_TZ,
                      load_zonal_lmp, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
                      load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
-                     load_rt_lmp, load_sced_lambda, load_load_forecast)
+                     load_sced_lambda, load_load_forecast)
 
 
 ENDPOINTS = {
@@ -84,13 +84,6 @@ ENDPOINTS = {
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
-    },
-    "rt_lmp": {
-        "path": "/np6-788-cd/lmp_node_zone_hub",
-        "loader": load_rt_lmp,
-        "from_param": "SCEDTimestampFrom",
-        "to_param": "SCEDTimestampTo",
-        "param_format": "datetime",
     },
     "sced_lambda": {
         "path": "/np6-322-cd/sced_system_lambda",
@@ -182,7 +175,7 @@ def main():
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
                         choices=["outages", "loads", "wind", "solar", "zonal_lmp",
-                                 "dam_spp", "dam_shadow", "dam_lambda", "rt_lmp",
+                                 "dam_spp", "dam_shadow", "dam_lambda",
                                  "sced_lambda", "load_forecast", "all"],
                         default="all")
     parser.add_argument("--resume", action="store_true",

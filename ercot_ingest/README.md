@@ -32,7 +32,6 @@
 
 | product               | id         | frequency Update |
 |-----------------------|------------|------------------|
-| rt_lmp                | np6-788-cd | 5 min            |
 | dam_spp               | np4-190-cd | 1 day            |
 | dam_lambda            | np4-523-cd | 1 day            |
 | sced lambda           | np6-322-cd | 5 min            |

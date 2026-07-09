@@ -80,7 +80,6 @@ TABLES=(
   ercot_dam_spp
   ercot_dam_shadow_prices
   dam_system_lambda
-  ercot_rt_lmp
   sced_system_lambda
   load_forecast_zonal
   implied_binding_proximity
@@ -269,7 +268,6 @@ UNION ALL SELECT 'bus_load_zones',          count(*) FROM bus_load_zones
 UNION ALL SELECT 'ercot_dam_spp',           count(*) FROM ercot_dam_spp
 UNION ALL SELECT 'ercot_dam_shadow_prices', count(*) FROM ercot_dam_shadow_prices
 UNION ALL SELECT 'dam_system_lambda',       count(*) FROM dam_system_lambda
-UNION ALL SELECT 'ercot_rt_lmp',            count(*) FROM ercot_rt_lmp
 UNION ALL SELECT 'sced_system_lambda',      count(*) FROM sced_system_lambda
 UNION ALL SELECT 'load_forecast_zonal',     count(*) FROM load_forecast_zonal
 UNION ALL SELECT 'implied_binding_proximity', count(*) FROM implied_binding_proximity

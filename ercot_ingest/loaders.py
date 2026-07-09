@@ -513,34 +513,6 @@ def load_dam_lambda(conn, df: pd.DataFrame) -> int:
         return cur.rowcount
 
 
-def load_rt_lmp(conn, df: pd.DataFrame) -> int:
-    """Load NP6-788-CD: RT LMPs at Settlement Points. ~5-min SCED grain."""
-    if df.empty:
-        return 0
-
-    # ERCOT response casing for the price field has historically varied.
-    lmp_col = "LMP" if "LMP" in df.columns else "lmp"
-
-    records = []
-    for _, r in df.iterrows():
-        rhf = bool(r.get("repeatedHourFlag", False))
-        records.append((
-            _ercot_ts_to_utc(r["SCEDTimestamp"], rhf), rhf,
-            r["settlementPoint"], _f(r[lmp_col]),
-        ))
-
-    sql = """
-        INSERT INTO ercot_rt_lmp (
-            sced_timestamp, repeated_hour_flag, settlement_point, lmp
-        ) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (sced_timestamp, settlement_point, repeated_hour_flag) DO UPDATE SET
-            lmp = EXCLUDED.lmp
-    """
-    with conn.cursor() as cur:
-        cur.executemany(sql, records)
-        return cur.rowcount
-
-
 def load_sced_lambda(conn, df: pd.DataFrame) -> int:
     """Load NP6-322-CD: SCED System Lambda. ~5-min grain (~288 rows/day)."""
     if df.empty:
