@@ -161,6 +161,57 @@ def correlate(model_C: np.ndarray, ercot_C: np.ndarray) -> np.ndarray:
     return (a_z @ b_z.T) / n
 
 
+def correlate_spearman(model_C: np.ndarray, ercot_C: np.ndarray) -> np.ndarray:
+    """Spearman rank correlation R[i, j] = corr(rank(model_i), rank(ercot_j)).
+
+    Rank each row over time via ``argsort(argsort(...))`` (dense ranks
+    with ties broken by first occurrence), then Pearson on ranks.
+    Same shape and NaN semantics as ``correlate``.
+    """
+    if model_C.size == 0 or ercot_C.size == 0:
+        return np.empty((model_C.shape[0], ercot_C.shape[0]), dtype=float)
+    if model_C.shape[1] != ercot_C.shape[1]:
+        raise ValueError(
+            f"hour axis mismatch: model_C has {model_C.shape[1]} cols, "
+            f"ercot_C has {ercot_C.shape[1]}"
+        )
+    a_ranks = np.argsort(np.argsort(model_C, axis=1), axis=1).astype(float)
+    b_ranks = np.argsort(np.argsort(ercot_C, axis=1), axis=1).astype(float)
+    return correlate(a_ranks, b_ranks)
+
+
+def sign_agreement(
+    model_C: np.ndarray,
+    ercot_C: np.ndarray,
+    deadband: float = 2.0,
+) -> np.ndarray:
+    """Fraction of jointly-outside-deadband hours where signs agree.
+
+    S[i, j] = mean_t [ sign(model_i[t]) == sign(ercot_j[t]) ] over hours
+    with both |model_i[t]| > deadband and |ercot_j[t]| > deadband.
+    Same (n_bus, n_sp) shape as ``correlate``. NaN when a pair has no
+    eligible hours.
+    """
+    if model_C.size == 0 or ercot_C.size == 0:
+        return np.empty((model_C.shape[0], ercot_C.shape[0]), dtype=float)
+    if model_C.shape[1] != ercot_C.shape[1]:
+        raise ValueError(
+            f"hour axis mismatch: model_C has {model_C.shape[1]} cols, "
+            f"ercot_C has {ercot_C.shape[1]}"
+        )
+    m_pos = (model_C > deadband).astype(float)
+    m_neg = (model_C < -deadband).astype(float)
+    e_pos = (ercot_C > deadband).astype(float)
+    e_neg = (ercot_C < -deadband).astype(float)
+    m_elig = m_pos + m_neg
+    e_elig = e_pos + e_neg
+    agree = m_pos @ e_pos.T + m_neg @ e_neg.T
+    eligible = m_elig @ e_elig.T
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = agree / eligible
+    return np.where(eligible > 0, out, np.nan)
+
+
 def select_best_and_topk(
     R: np.ndarray,
     bus_ids: np.ndarray,
@@ -239,6 +290,8 @@ def write_outputs(
     sp_ids: np.ndarray,
     best_bus: np.ndarray,
     best_corr: np.ndarray,
+    best_spearman: np.ndarray,
+    best_sign: np.ndarray,
     topk: list[list[tuple[str, float]]],
     *,
     n_bus_kept: int,
@@ -271,11 +324,15 @@ def write_outputs(
         sp_id=sp_ids.astype(str),
         best_bus=best_bus.astype(str),
         best_corr=best_corr.astype(float),
+        best_spearman=best_spearman.astype(float),
+        best_sign=best_sign.astype(float),
         topk_bus=topk_bus.astype(str),
         topk_corr=topk_corr,
     )
 
     finite = best_corr[np.isfinite(best_corr)]
+    finite_sp = best_spearman[np.isfinite(best_spearman)]
+    finite_sign = best_sign[np.isfinite(best_sign)]
     n_sp = int(sp_ids.shape[0])
     summary = {
         "run_id": run_id,
@@ -289,6 +346,9 @@ def write_outputs(
         "pct_gt_0_7": float((finite > 0.7).mean()) if finite.size else None,
         "pct_gt_0_5": float((finite > 0.5).mean()) if finite.size else None,
         "median_corr": float(np.median(finite)) if finite.size else None,
+        "median_spearman": float(np.median(finite_sp)) if finite_sp.size else None,
+        "median_sign": float(np.median(finite_sign)) if finite_sign.size else None,
+        "pct_sign_gt_0_7": float((finite_sign > 0.7).mean()) if finite_sign.size else None,
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
@@ -354,8 +414,20 @@ def main(argv: list[str] | None = None) -> None:
     R = correlate(model_C, ercot_C)  # ← bus × sp Pearson correlation matrix
     best_bus, best_corr, topk = select_best_and_topk(R, bus_ids, args.topk)
 
+    # Diagnostic metrics at the Pearson-argmax bus (not re-argmaxed per
+    # metric): downstream consumers of best_bus rely on Pearson-argmax
+    # stability, so Spearman/sign are additive columns only.
+    R_sp = correlate_spearman(model_C, ercot_C)
+    R_sign = sign_agreement(model_C, ercot_C)
+    R_ranked = np.where(np.isnan(R), -np.inf, R)
+    best_idx = np.argmax(R_ranked, axis=0)
+    n_sp_kept = ercot_C.shape[0]
+    j_idx = np.arange(n_sp_kept)
+    best_spearman = R_sp[best_idx, j_idx] if n_sp_kept else np.empty(0, dtype=float)
+    best_sign = R_sign[best_idx, j_idx] if n_sp_kept else np.empty(0, dtype=float)
+
     npz_path, summary_path, summary = write_outputs(
-        args.run_id, sp_ids, best_bus, best_corr, topk,
+        args.run_id, sp_ids, best_bus, best_corr, best_spearman, best_sign, topk,
         n_bus_kept=int(bus_ids.shape[0]),
         n_bus_dropped=int(dropped_bus.shape[0]),
         n_sp_dropped=int(dropped_sp.shape[0]),
@@ -368,12 +440,19 @@ def main(argv: list[str] | None = None) -> None:
     med = summary["median_corr"]
     p7 = summary["pct_gt_0_7"]
     p5 = summary["pct_gt_0_5"]
-    print(
-        f"summary: median_corr={med:.3f} "
-        f"pct>0.7={p7 * 100:.1f}% pct>0.5={p5 * 100:.1f}% "
-        f"(n_sp={summary['n_sp']}, n_bus={summary['n_bus']})"
-        if med is not None else "summary: no finite correlations"
-    )
+    med_sp = summary["median_spearman"]
+    med_sign = summary["median_sign"]
+    p_sign_7 = summary["pct_sign_gt_0_7"]
+    if med is not None:
+        print(
+            f"summary: median_corr={med:.3f} "
+            f"pct>0.7={p7 * 100:.1f}% pct>0.5={p5 * 100:.1f}% "
+            f"median_spearman={med_sp:.3f} median_sign={med_sign:.3f} "
+            f"pct_sign>0.7={p_sign_7 * 100:.1f}% "
+            f"(n_sp={summary['n_sp']}, n_bus={summary['n_bus']})"
+        )
+    else:
+        print("summary: no finite correlations")
 
 
 if __name__ == "__main__":
