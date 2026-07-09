@@ -266,7 +266,7 @@ Preserve TAMU's load shape while capturing ERCOT's temporal variation.
 ## Snapshot Tables
 
 * `bus_snapshots`: (`interval_ts`, `bus_id`), `modeled_congestion`,
-  `binding_proximity`, `lmp`, `basis`
+  `binding_proximity`, `lmp`
   * collected in `write_snapshots.py` from `network.buses.index`
   * `modeled_congestion` (signed $/MWh, `Σ_ℓ PTDF[ℓ,b] · μ_signed[ℓ]`) and
     `binding_proximity` (bus-aggregated loading fraction) per bus per hour
@@ -280,16 +280,3 @@ Preserve TAMU's load shape while capturing ERCOT's temporal variation.
     `modeled_congestion_total` (signed sum, may be negative),
     `modeled_congestion_abs_total`, `modeled_congestion_top10_share`
     (concentration on |mc|), `binding_proximity_max`, `binding_proximity_p95`
-
-
-## Basis Calculation
-
-* Definition: `basis = bus_lmp (model)  -  zonal_lmp (ERCOT, hourly mean)`
-* `zonal_lmp` comes from `ercot_zonal_lmp_hourly`, joined on a bus's
-  `ercot_load_zone` (north / houston / south / west).
-* Buses of load_zone 'non_ercot' get NULL; undefined basis.
-
-* Implementation:
-  * `compute/snapshot.py`: `_compute_basis()` - actual calculation
-  * `compute/write_snapshots.py`: stores at write time
-  * `compute/backfill_basis.py`: repopulate previous historical rows
