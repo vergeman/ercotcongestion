@@ -3,8 +3,9 @@
 Sweeps the tied `(line_derate, tx_derate)` knob applied in
 `apply_static_mutations` (`compute/operating_conditions.py`), on the Sprint-0
 sample. Answers three questions: feasibility band, spatial rank stability
-across the band, and which derate best matches observed basis. Signed
-`modeled_congestion` throughout — never squared, never divided by headroom.
+across the band, and which derate best matches observed basis (bus LMP minus
+zonal LMP). Signed `modeled_congestion` throughout — never squared, never
+divided by headroom.
 
 **Depends on:** Sprint 1 (zonal load geography) and Sprint 2 (signed metric).
 Calibrating derate against basis on wrong load geography, or against the
