@@ -295,7 +295,6 @@ export default function App() {
           modeled_congestion: s.congestion,
           binding_proximity: null,
           lmp: null,
-          basis: null,
         });
       }
       for (const s of sppEntry?.sps ?? []) {
@@ -308,7 +307,6 @@ export default function App() {
             modeled_congestion: null,
             binding_proximity: null,
             lmp: s.spp,
-            basis: null,
           });
         }
       }
@@ -322,7 +320,6 @@ export default function App() {
             modeled_congestion: null,
             binding_proximity: s.bp,
             lmp: null,
-            basis: null,
           });
         }
       }

@@ -52,7 +52,28 @@ from congestion import modeled_congestion_at, binding_proximity_at
 from operating_conditions import apply_operating_conditions
 from operating_data_adapter import OperatingDataAdapter
 from ptdf_lodf import get_ptdf_lodf
-from snapshot import _compute_basis
+
+
+def _compute_basis(
+    lmps: pd.Series,
+    bus_load_zone: pd.Series | None,
+    zonal_lmp_by_zone: dict,
+) -> pd.Series:
+    """basis[bus] = lmp[bus] - zonal_lmp[zone(bus)].
+
+    Inlined from the now-removed compute/snapshot.py::_compute_basis (plan
+    0076 dropped the `basis` column and its live computation; this experiment
+    keeps its own copy since it calibrates derate against basis).
+    """
+    if bus_load_zone is None:
+        return pd.Series(np.nan, index=lmps.index, name='basis')
+    zone_for_bus = bus_load_zone.reindex(lmps.index)
+    zone_lmp_series = zone_for_bus.map(
+        {z: v for z, v in zonal_lmp_by_zone.items() if v is not None}
+    )
+    basis = lmps - zone_lmp_series
+    basis.name = 'basis'
+    return basis
 
 logging.basicConfig(
     level=logging.INFO,

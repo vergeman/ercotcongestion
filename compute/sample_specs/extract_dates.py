@@ -58,8 +58,8 @@ QUERIES = {
     """,
     "mild_shoulder": """
         WITH Ranked AS (
-            SELECT interval_ts, n_binding_lines, fragility_total, total_load_mw,
-                   ROW_NUMBER() OVER(PARTITION BY interval_ts::date ORDER BY n_binding_lines ASC, fragility_total ASC, total_load_mw ASC) as rn
+            SELECT interval_ts, n_binding_lines, total_load_mw,
+                   ROW_NUMBER() OVER(PARTITION BY interval_ts::date ORDER BY n_binding_lines ASC, total_load_mw ASC) as rn
             FROM snapshot_meta
             WHERE status='ok' AND interval_ts >= '2025-01-01 UTC'
               AND EXTRACT(MONTH FROM interval_ts) IN (3,4,5,10,11)
@@ -67,7 +67,7 @@ QUERIES = {
         SELECT interval_ts
         FROM Ranked
         WHERE rn = 1
-        ORDER BY n_binding_lines ASC, fragility_total ASC, total_load_mw ASC
+        ORDER BY n_binding_lines ASC, total_load_mw ASC
         LIMIT %s;
     """,
     "winter_peak": """

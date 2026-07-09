@@ -1,7 +1,7 @@
 """Schema regression guard.
 
 Locks in:
-  * Post-fragility renames on `BusState` and `SnapshotMeta`.
+  * `BusState` and `SnapshotMeta` field names.
   * Zone-aggregated `ScorecardResponse` shape (0047) — replaces the
     legacy bus-level `ValidationResponse` / `CorrelationResult` /
     `ScatterPoint` types.
@@ -13,7 +13,7 @@ def _props(schema: dict, name: str) -> dict:
     return schema['components']['schemas'][name]['properties']
 
 
-def test_openapi_carries_renamed_fields_and_no_fragility(client):
+def test_openapi_carries_renamed_fields(client):
     r = client.get('/openapi.json')
     assert r.status_code == 200
     spec = r.json()
@@ -52,6 +52,3 @@ def test_openapi_carries_renamed_fields_and_no_fragility(client):
     series = _props(spec, 'ScorecardSeries')
     for f in ('hours', 'cluster_ids', 'model_Z', 'ercot_Z'):
         assert f in series, f
-
-    flat = str(schemas)
-    assert 'fragility' not in flat

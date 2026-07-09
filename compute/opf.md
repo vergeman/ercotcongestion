@@ -193,16 +193,18 @@ whole grid.
 
 ## OPF
 
-Validating TAMU `modeled_congestion` against ERCOT basis — the price
-differential between zonal and hub LMPs. Basis is purely an economic quantity,
-driven by binding transmission constraints and shadow prices.
+Validating TAMU `modeled_congestion` against ERCOT's real price signal — the
+differential between zonal and hub LMPs (formerly tracked as the retired
+`basis` column, computed as `bus_lmp − zonal_lmp`; see plan 0076). That
+differential is purely an economic quantity, driven by binding transmission
+constraints and shadow prices.
 
 If the bus-level congestion metric were purely structural it would have weak
-correlation with basis because it wouldn't know anything about prices.
-`modeled_congestion = Σ_ℓ PTDF[ℓ, b] · μ_signed[ℓ]` is shadow-price-weighted
-by construction — the whole thesis: can TAMU's synthetic grid predict where
-real economic congestion shows up? The metric has to speak the same language
-as basis.
+correlation with that differential because it wouldn't know anything about
+prices. `modeled_congestion = Σ_ℓ PTDF[ℓ, b] · μ_signed[ℓ]` is
+shadow-price-weighted by construction — the whole thesis: can TAMU's
+synthetic grid predict where real economic congestion shows up? The metric
+has to speak the same language as the market's own price spread.
 
 ## Historical: fragility exploration (metric retired)
 

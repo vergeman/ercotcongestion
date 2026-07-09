@@ -77,16 +77,14 @@ for noisy in ('pypsa', 'linopy', 'highspy', 'pypsa.consistency',
 UPSERT_BUS_SNAPSHOT_SQL = """
     INSERT INTO bus_snapshots (
         interval_ts, bus_id,
-        fragility, modeled_congestion, binding_proximity,
-        lmp, basis, dispatch
+        modeled_congestion, binding_proximity,
+        lmp, dispatch
     )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s)
     ON CONFLICT (interval_ts, bus_id) DO UPDATE SET
-        fragility          = EXCLUDED.fragility,
         modeled_congestion = EXCLUDED.modeled_congestion,
         binding_proximity  = EXCLUDED.binding_proximity,
         lmp                = EXCLUDED.lmp,
-        basis              = EXCLUDED.basis,
         dispatch           = EXCLUDED.dispatch
 """
 
@@ -95,7 +93,6 @@ UPSERT_META_SQL = """
         interval_ts, status, computed_at,
         objective_cost, total_load_mw, total_gen_mw, n_binding_lines,
         lmp_min, lmp_mean, lmp_max,
-        fragility_total, fragility_top10_share,
         modeled_congestion_total, modeled_congestion_abs_total,
         modeled_congestion_top10_share,
         binding_proximity_max, binding_proximity_p95,
@@ -110,7 +107,6 @@ UPSERT_META_SQL = """
         %s, %s, now(),
         %s, %s, %s, %s,
         %s, %s, %s,
-        %s, %s,
         %s, %s,
         %s,
         %s, %s,
@@ -131,8 +127,6 @@ UPSERT_META_SQL = """
         lmp_min                         = EXCLUDED.lmp_min,
         lmp_mean                        = EXCLUDED.lmp_mean,
         lmp_max                         = EXCLUDED.lmp_max,
-        fragility_total                 = EXCLUDED.fragility_total,
-        fragility_top10_share           = EXCLUDED.fragility_top10_share,
         modeled_congestion_total        = EXCLUDED.modeled_congestion_total,
         modeled_congestion_abs_total    = EXCLUDED.modeled_congestion_abs_total,
         modeled_congestion_top10_share  = EXCLUDED.modeled_congestion_top10_share,
@@ -169,7 +163,6 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     mc        = result['modeled_congestion']
     bp        = result['binding_proximity']
     lmps      = result['lmps']
-    basis     = result.get('basis')
 
     # Per-bus dispatch: aggregate generator dispatch to bus totals. NaN
     # (→ NULL) at buses with no generators; _f handles that conversion. Also
@@ -180,18 +173,14 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
     except Exception as e:
         log.warning(f"build_dispatch_per_bus failed at {ts}: {e}")
 
-    # bus_snapshots: one row per bus. fragility column retained but written
-    # NULL during the 2A→2B/2C cutover; dropped in Migration B.
     bus_rows = []
     for bus_id in network.buses.index:
         bus_rows.append((
             ts,
             str(bus_id),
-            None,                   # fragility (retired)
             _f(mc, bus_id),
             _f(bp, bus_id),
             _f(lmps, bus_id),
-            _f(basis, bus_id),
             _f(dispatch_per_bus, bus_id),
         ))
 
@@ -265,8 +254,6 @@ def write_snapshot(conn, ts: datetime, result: dict, op: dict, network) -> None:
         meta.get('lmp_min'),
         meta.get('lmp_mean'),
         meta.get('lmp_max'),
-        None,  # fragility_total (retired)
-        None,  # fragility_top10_share (retired)
         meta.get('modeled_congestion_total'),
         meta.get('modeled_congestion_abs_total'),
         meta.get('modeled_congestion_top10_share'),
@@ -306,7 +293,6 @@ def write_failure(
         ts, status,
         None, None, None, None,     # objective_cost, total_load, total_gen, n_binding
         None, None, None,           # lmp_min/mean/max
-        None, None,                 # fragility_total, fragility_top10_share (retired)
         None, None, None,           # modeled_congestion_total/abs_total/top10_share
         None, None,                 # binding_proximity_max/p95
         None, None, None,           # binding_lines, top_contingencies, dispatch_by_carrier

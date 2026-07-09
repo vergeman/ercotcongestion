@@ -55,11 +55,10 @@ def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
     assert len(data['buses']) == 2
     assert data['buses'][0]['bus_id'] == 'B1'
 
-    # Schema regression guard: new metric fields present, old field absent.
+    # Schema regression guard: new metric fields present.
     for bus in data['buses']:
         assert 'modeled_congestion' in bus
         assert 'binding_proximity' in bus
-        assert 'fragility' not in bus
 
 
 def test_state_404_when_missing(client, fake_pool, ts_utc):
@@ -89,12 +88,11 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
     assert len(data['entries'][0]['buses']) == 2
     assert len(data['entries'][1]['buses']) == 2
 
-    # Schema regression guard: new metric fields present, old field absent.
+    # Schema regression guard: new metric fields present.
     for entry in data['entries']:
         for bus in entry['buses']:
             assert 'modeled_congestion' in bus
             assert 'binding_proximity' in bus
-            assert 'fragility' not in bus
 
 
 def test_state_range_rejects_inverted_window(client, ts_utc):

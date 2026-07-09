@@ -205,8 +205,6 @@ def _build_result_at(
     flows = line_p0 if line_p0 is not None else pd.Series(0.0, index=n.lines.index)
 
     bus_load_zone     = op.get('bus_load_zone')
-    zonal_lmp_by_zone = op.get('zonal_lmp_by_zone') or {}
-    basis = _compute_basis(lmps, bus_load_zone, zonal_lmp_by_zone)
 
     mu_up = line_mu_up.abs() if line_mu_up is not None else pd.Series(0.0, index=n.lines.index)
     mu_lo = line_mu_lo.abs() if line_mu_lo is not None else pd.Series(0.0, index=n.lines.index)
@@ -237,8 +235,6 @@ def _build_result_at(
         'binding_proximity_p95': (
             float(bp.quantile(0.95)) if bp.notna().any() else None
         ),
-        'basis_n_resolved': int(basis.notna().sum()),
-        'basis_abs_mean': float(basis.abs().mean()) if basis.notna().any() else None,
         'load_shed_total_mw': float(shed_mw.sum()),
         'n_shed_buses': int((shed_mw > 1e-3).sum()),
     }
@@ -252,7 +248,6 @@ def _build_result_at(
         'modeled_congestion': mc,
         'binding_proximity': bp,
         'lmps': lmps,
-        'basis': basis,
         'dispatch': dispatch,
         'flows': flows,
         'binding_lines': list(binding_lines.index),
@@ -271,25 +266,3 @@ def _per_snapshot_objective(n, ts) -> float | None:
     mc = n.generators['marginal_cost'].reindex(gp.index).fillna(0.0)
     weighting = float(n.snapshot_weightings.objective.loc[ts])
     return float((gp * mc).sum() * weighting)
-
-
-def _compute_basis(
-    lmps: pd.Series,
-    bus_load_zone: pd.Series | None,
-    zonal_lmp_by_zone: dict[str, float | None],
-) -> pd.Series:
-    """basis[bus] = lmp[bus] - zonal_lmp[zone(bus)].
-
-    NaN where the bus has no ERCOT zone (non_ercot) or where the zone has no
-    zonal LMP at this timestamp. Caller writes NaN as NULL to the DB.
-    """
-    if bus_load_zone is None:
-        return pd.Series(np.nan, index=lmps.index, name='basis')
-
-    zone_for_bus = bus_load_zone.reindex(lmps.index)
-    zone_lmp_series = zone_for_bus.map(
-        {z: v for z, v in zonal_lmp_by_zone.items() if v is not None}
-    )
-    basis = lmps - zone_lmp_series
-    basis.name = 'basis'
-    return basis

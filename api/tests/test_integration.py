@@ -5,7 +5,7 @@ Skipped by default; run with:
     docker compose run --rm -e RUN_INTEGRATION=1 api pytest /api/tests/test_integration.py -v
 
 Requires Migration A applied and at least one recomputed snapshot
-(bus_snapshots.modeled_congestion + basis populated for some interval_ts).
+(bus_snapshots.modeled_congestion populated for some interval_ts).
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.integration
 
 
 def _latest_recomputed_ts():
-    """Most recent interval_ts with both modeled_congestion and basis populated."""
+    """Most recent interval_ts with modeled_congestion populated."""
     pool = db_module.get_pool()
     with pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -30,7 +30,6 @@ def _latest_recomputed_ts():
             FROM bus_snapshots bs
             JOIN snapshot_meta sm ON sm.interval_ts = bs.interval_ts
             WHERE bs.modeled_congestion IS NOT NULL
-              AND bs.basis IS NOT NULL
               AND sm.status = 'ok'
             ORDER BY bs.interval_ts DESC
             LIMIT 1
@@ -52,7 +51,6 @@ def test_state_endpoint(real_client):
     for bus in body['buses']:
         assert 'modeled_congestion' in bus
         assert 'binding_proximity' in bus
-        assert 'fragility' not in bus
 
 
 def test_state_range_endpoint(real_client):
@@ -66,7 +64,6 @@ def test_state_range_endpoint(real_client):
     for entry in body['entries']:
         for bus in entry['buses']:
             assert 'modeled_congestion' in bus
-            assert 'fragility' not in bus
 
 
 # /validation is now artifact-driven (0047 scorecard) rather than
