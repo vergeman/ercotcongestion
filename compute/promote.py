@@ -54,6 +54,11 @@ def _cell_targets(run_id: str, ref: str, algo: str, k: int) -> list[tuple[str, s
          f"scorecard_series_{run_id}_{ref}_{algo}_k{k}.npz"),
         ("clustering/cluster_labels.npz",
          f"cluster_labels_{ref}_{algo}_k{k}.npz"),
+        # Run-scoped, not cell-scoped (no ref/algo/k) — depends only on
+        # run_id, but flipped here alongside the cell links since promote
+        # only walks this one list.
+        ("mapping/mapping_correlation_summary.json",
+         f"mapping_correlation_summary_{run_id}.json"),
     ]
 
 

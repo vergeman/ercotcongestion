@@ -166,6 +166,27 @@ export interface ScorecardParams {
   min_members: number;
 }
 
+// 0079 — per-SP model-vs-ERCOT correlation summary, folded into
+// ScorecardResponse below. Mirrors api/models.py::MappingCorrelationSummary.
+// Run-scoped, not per-cell — unlike the rest of ScorecardResponse, there
+// is no zones/series breakdown, and it may be absent (null).
+export interface MappingCorrelationSummary {
+  run_id: string;
+  model_ref: string;
+  ercot_ref: string;
+  var_threshold: number;
+  n_sp: number;
+  n_bus: number;
+  n_sp_dropped: number;
+  n_bus_dropped: number;
+  pct_gt_0_7: number;
+  pct_gt_0_5: number;
+  median_corr: number;
+  median_spearman: number;
+  median_sign: number;
+  pct_sign_gt_0_7: number;
+}
+
 export interface ScorecardResponse {
   run_id: string;
   params: ScorecardParams;
@@ -173,6 +194,7 @@ export interface ScorecardResponse {
   zones: ScorecardZone[];
   series: ScorecardSeries;
   warnings: string[];
+  mapping_correlation: MappingCorrelationSummary | null;
 }
 
 export interface BusFeatureProperties {

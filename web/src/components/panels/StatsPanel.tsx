@@ -28,7 +28,10 @@ function Stat({
 
 function fmt(v: number | null, decimals = 1): string {
   if (v == null) return "—";
-  return v.toLocaleString("en-US", { maximumFractionDigits: decimals });
+  return v.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 }
 
 function fmtPostingAge(postingTs: string | null): string {
@@ -49,6 +52,7 @@ export default function StatsPanel({
   showZones,
   onToggleZones,
 }: Props) {
+  const mappingCorrelation = scorecard?.mapping_correlation ?? null;
   // Sort by corr desc, nulls last — this is the primary quality axis on the
   // scorecard, so a stable top-down ordering matches how a reader scans.
   const sortedZones = useMemo(() => {
@@ -153,6 +157,53 @@ export default function StatsPanel({
           <div className="panel-empty label">no snapshot selected</div>
         )}
       </div>
+
+      {mappingCorrelation && (
+        <div className="panel-section">
+          <div className="panel-section__header label">
+            Model Correlation · {mappingCorrelation.model_ref} →{" "}
+            {mappingCorrelation.ercot_ref}
+          </div>
+          <div className="scorecard-headline">
+            <div
+              className="scorecard-headline__item"
+              title="Median Spearman rank correlation between each SP and its best-matched bus, over hours."
+            >
+              <span className="label">median ρ</span>
+              <span className="mono">
+                {fmt(mappingCorrelation.median_spearman, 2)}
+              </span>
+            </div>
+            <div
+              className="scorecard-headline__item"
+              title="Median Pearson correlation between each SP and its single best-matched bus, over hours."
+            >
+              <span className="label">median r</span>
+              <span className="mono">
+                {fmt(mappingCorrelation.median_corr, 2)}
+              </span>
+            </div>
+            <div
+              className="scorecard-headline__item"
+              title="Median sign-agreement fraction between each SP and its best-matched bus."
+            >
+              <span className="label">median sign%</span>
+              <span className="mono">
+                {fmt(mappingCorrelation.median_sign * 100, 0)}%
+              </span>
+            </div>
+            <div
+              className="scorecard-headline__item"
+              title="Fraction of SPs with best-bus Pearson correlation > 0.5."
+            >
+              <span className="label">r&gt;0.5</span>
+              <span className="mono">
+                {fmt(mappingCorrelation.pct_gt_0_5 * 100, 0)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {scorecard && (
         <div className="panel-section">
