@@ -219,6 +219,25 @@ class ScorecardParams(BaseModel):
     min_members: int
 
 
+# Per-SP model-vs-ERCOT correlation summary, folded into ScorecardResponse
+# below. Run-scoped (not per-cell) — its own file has no ref/algo/k.
+class MappingCorrelationSummary(BaseModel):
+    run_id: str
+    model_ref: str
+    ercot_ref: str
+    var_threshold: float
+    n_sp: int
+    n_bus: int
+    n_sp_dropped: int
+    n_bus_dropped: int
+    pct_gt_0_7: float
+    pct_gt_0_5: float
+    median_corr: float
+    median_spearman: float
+    median_sign: float
+    pct_sign_gt_0_7: float
+
+
 class ScorecardResponse(BaseModel):
     run_id: str
     params: ScorecardParams
@@ -226,6 +245,11 @@ class ScorecardResponse(BaseModel):
     zones: list[ScorecardZone]
     series: ScorecardSeries
     warnings: list[str] = Field(default_factory=list)
+    mapping_correlation: MappingCorrelationSummary | None = Field(
+        None,
+        description="Per-SP model-vs-ERCOT correlation summary, if the "
+                    "run-scoped artifact is present; None otherwise.",
+    )
 
 
 # ---- /api/topology -------------------------------------------------------

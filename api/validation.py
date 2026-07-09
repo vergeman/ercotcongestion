@@ -14,6 +14,12 @@ min_members, ref, algo, k) is read from the JSON's own ``params`` field.
 
 A missing symlink target returns 503: the correct fix is to promote a
 run, not to reshape the request.
+
+Also folds in ``mapping/mapping_correlation_summary.json`` (per-SP
+model-vs-ERCOT correlation, written by ``compute.mapping.correlation_map``)
+as an optional ``mapping_correlation`` field. That artifact is run-scoped,
+not cell-scoped, and has its own lifecycle — its absence doesn't 503 the
+whole response, it's just omitted (``None``).
 """
 from __future__ import annotations
 
@@ -24,6 +30,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 
 from models import (
+    MappingCorrelationSummary,
     ScorecardHeadline,
     ScorecardParams,
     ScorecardResponse,
@@ -47,6 +54,14 @@ def _load_series(npz_path: Path) -> ScorecardSeries:
             model_Z=z["model_Z"].astype(float).tolist(),
             ercot_Z=z["ercot_Z"].astype(float).tolist(),
         )
+
+
+def _load_mapping_correlation(mdir: Path) -> MappingCorrelationSummary | None:
+    path = mdir / "mapping_correlation_summary.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return MappingCorrelationSummary(**json.load(f))
 
 
 @router.get(
@@ -79,4 +94,5 @@ def get_validation() -> ScorecardResponse:
         zones=[ScorecardZone(**z) for z in payload["zones"]],
         series=_load_series(npz_path),
         warnings=payload.get("warnings", []),
+        mapping_correlation=_load_mapping_correlation(mdir),
     )
