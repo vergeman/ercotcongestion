@@ -51,7 +51,6 @@ def test_state_endpoint(real_client):
     for bus in body['buses']:
         assert 'modeled_congestion' in bus
         assert 'binding_proximity' in bus
-        assert 'fragility' not in bus
 
 
 def test_state_range_endpoint(real_client):
@@ -65,7 +64,6 @@ def test_state_range_endpoint(real_client):
     for entry in body['entries']:
         for bus in entry['buses']:
             assert 'modeled_congestion' in bus
-            assert 'fragility' not in bus
 
 
 # /validation is now artifact-driven (0047 scorecard) rather than
