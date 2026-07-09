@@ -20,7 +20,7 @@ from psycopg.rows import dict_row
 from loaders import (ERCOT_TZ,
                      load_outages,
                      load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
-                     load_rt_lmp, load_sced_lambda, load_load_forecast,
+                     load_sced_lambda, load_load_forecast,
                      print_recent_outages)
 
 load_dotenv()
@@ -221,17 +221,6 @@ def main():
     print(f"  {len(dam_lambda)} rows")
 
     #
-    # RT LMP
-    #
-
-    print("\nFetching NP6-788-CD…")
-    rt_lmp = client.get(
-        "/np6-788-cd/lmp_node_zone_hub",
-        SCEDTimestampFrom=iso_from, SCEDTimestampTo=iso_to,
-    )
-    print(f"  {len(rt_lmp)} rows")
-
-    #
     # SCED System Lambda
     #
 
@@ -264,7 +253,6 @@ def main():
         n_dam_spp = load_dam_spp(conn, dam_spp)
         n_dam_shadow = load_dam_shadow_prices(conn, dam_shadow)
         n_dam_lambda = load_dam_lambda(conn, dam_lambda)
-        n_rt_lmp = load_rt_lmp(conn, rt_lmp)
         n_sced_lambda = load_sced_lambda(conn, sced_lambda)
         n_load_fcst = load_load_forecast(conn, load_fcst)
         conn.commit()
@@ -272,7 +260,6 @@ def main():
         print(f"  ercot_dam_spp:            {n_dam_spp} inserted")
         print(f"  ercot_dam_shadow_prices:  {n_dam_shadow} inserted")
         print(f"  dam_system_lambda:        {n_dam_lambda} inserted")
-        print(f"  ercot_rt_lmp:             {n_rt_lmp} inserted")
         print(f"  sced_system_lambda:       {n_sced_lambda} inserted")
         print(f"  load_forecast_zonal:      {n_load_fcst} inserted")
 
