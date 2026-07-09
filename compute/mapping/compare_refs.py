@@ -8,8 +8,8 @@ For each pair configured in the input JSON we:
   * Compute the SP -> best-bus correlation array (Pearson over shared hours).
   * Emit a headline row: median_corr, p90, p99, pct>0.5, distinct_winners,
     top-3 winner share.
-  * Opportunistically merge in scorecard metrics (rank_spearman, mean_corr,
-    mean_sign_agreement) from any existing
+  * Opportunistically merge in scorecard metrics (zone_rank_spearman_per_hour,
+    mean_corr, mean_sign_agreement) from any existing
     `runs/<run_id>/mapping/scorecard_<run_id>_<model_ref>_*_k*.json`
     file for the same model-side ref. If none exists, those columns are NaN.
 
@@ -43,7 +43,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_PAIRS = BASE_DIR / "pairs" / "default.json"
 
 METRIC_ORDER = (
-    "rank_spearman",
+    "zone_rank_spearman_per_hour",
     "mean_corr",
     "sign_agreement",
     "median_corr",
@@ -88,19 +88,19 @@ def _scorecard_metrics(run_id: str, model_ref: str) -> dict[str, float | None]:
     """
     d = _mapping_dir(run_id)
     if not d.exists():
-        return {"rank_spearman": None, "mean_corr": None, "sign_agreement": None}
+        return {"zone_rank_spearman_per_hour": None, "mean_corr": None, "sign_agreement": None}
     candidates = sorted(
         d.glob(f"scorecard_{run_id}_{model_ref}_*_k*.json"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     if not candidates:
-        return {"rank_spearman": None, "mean_corr": None, "sign_agreement": None}
+        return {"zone_rank_spearman_per_hour": None, "mean_corr": None, "sign_agreement": None}
     with open(candidates[0]) as f:
         raw = json.load(f)
     headline = raw.get("headline") or raw
     return {
-        "rank_spearman": headline.get("rank_spearman"),
+        "zone_rank_spearman_per_hour": headline.get("zone_rank_spearman_per_hour"),
         "mean_corr": headline.get("mean_corr"),
         "sign_agreement": (
             headline.get("mean_sign_agreement")
@@ -199,7 +199,7 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def _write_md(path: Path, rows: list[dict[str, Any]], run_id: str) -> None:
     header_cols = [
         "pair",
-        "rank_spearman",
+        "zone_rank_spearman_per_hour",
         "mean_corr",
         "sign_agree",
         "median",
@@ -223,7 +223,7 @@ def _write_md(path: Path, rows: list[dict[str, Any]], run_id: str) -> None:
         lines.append(
             "| " + " | ".join([
                 r.get("name", ""),
-                _fmt(r.get("rank_spearman")),
+                _fmt(r.get("zone_rank_spearman_per_hour")),
                 _fmt(r.get("mean_corr")),
                 _fmt(r.get("sign_agreement")),
                 _fmt(r.get("median_corr")),

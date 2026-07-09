@@ -10,6 +10,10 @@ model-side clustering artifact (`bus_id → cluster_id`). Buses use the
 same clustering artifact directly. This is the behavioral tag path —
 not point-in-polygon — retired by CM.4/CM.5.
 
+Headline `zone_rank_spearman_per_hour` is a per-hour spatial rank
+across cluster means. For per-SP temporal rank correlation, see
+`mapping_correlation_summary_<run_id>.json::median_spearman`.
+
 Reads:
   * `runs/<run_id>/matrix/congestion_matrices.npz`  (via CM.1 loader)
   * `runs/<run_id>/mapping/mapping_correlation_<run_id>.npz`
@@ -219,7 +223,7 @@ def _sign_agreement(a: np.ndarray, b: np.ndarray, deadband: float) -> np.ndarray
     return np.where(n > 0, out, np.nan)
 
 
-def _rank_spearman_per_hour(model_Z: np.ndarray, ercot_Z: np.ndarray) -> np.ndarray:
+def _zone_rank_spearman_per_hour(model_Z: np.ndarray, ercot_Z: np.ndarray) -> np.ndarray:
     """Per-hour Spearman across zones = Pearson on ranks across the zone axis.
 
     Skips hours where either side is constant (rank correlation undefined).
@@ -255,12 +259,12 @@ def score(
     """
     corr = _pearson_columns(model_Z, ercot_Z)
     sign = _sign_agreement(model_Z, ercot_Z, deadband)
-    spearman = _rank_spearman_per_hour(model_Z, ercot_Z)
+    spearman = _zone_rank_spearman_per_hour(model_Z, ercot_Z)
     finite_sp = spearman[np.isfinite(spearman)]
     finite_corr = corr[np.isfinite(corr)]
     finite_sign = sign[np.isfinite(sign)]
     headline = {
-        "rank_spearman": float(finite_sp.mean()) if finite_sp.size else None,
+        "zone_rank_spearman_per_hour": float(finite_sp.mean()) if finite_sp.size else None,
         "mean_corr": float(finite_corr.mean()) if finite_corr.size else None,
         "mean_sign_agreement": float(finite_sign.mean()) if finite_sign.size else None,
         "n_hours": int(model_Z.shape[0]),
@@ -463,11 +467,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(f"wrote {json_path}")
     print(f"wrote {npz_path}")
-    rs = headline["rank_spearman"]
+    rs = headline["zone_rank_spearman_per_hour"]
     mc = headline["mean_corr"]
     ms = headline["mean_sign_agreement"]
     print(
-        f"headline: rank_spearman={rs:.3f} mean_corr={mc:.3f} "
+        f"headline: zone_rank_spearman_per_hour={rs:.3f} mean_corr={mc:.3f} "
         f"mean_sign_agreement={ms:.3f} (n_hours={headline['n_hours']}, "
         f"n_zones={headline['n_zones']})"
         if rs is not None else "headline: no finite metrics"

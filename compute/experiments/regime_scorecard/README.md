@@ -2,7 +2,7 @@
 
 Step 1 of [plan/handoff-regime.md](../../../plan/handoff-regime.md).
 Recomputes the existing zone-aggregated scorecard metrics — `mean_corr`,
-`rank_spearman`, `mean_sign_agreement` — **per regime bucket** and reports
+`zone_rank_spearman_per_hour`, `mean_sign_agreement` — **per regime bucket** and reports
 them alongside the pooled numbers. Answers: does the model track ERCOT
 better in stressed hours than in slack hours, or is pooled tracking
 diluted by hours where nothing much is happening?
@@ -21,7 +21,7 @@ outputs land in `runs/<run>/experiments/regime_scorecard/`.
   net-load quartiles — sign_agreement holds ~72-75% whether it's a
   windy shoulder hour or a heat-wave scarcity hour. Every other pair
   sags 12-20 points in the low-net-load (windy/mild) regime.
-* The **only** pair whose `rank_spearman` climbs monotonically with
+* The **only** pair whose `zone_rank_spearman_per_hour` climbs monotonically with
   congestion magnitude (Q1 → Q4: 0.06 → 0.37). Every other pair peaks
   in Q2/Q3 and dips in Q4 — a pathology on the biggest-congestion hours.
 
@@ -38,7 +38,7 @@ outputs land in `runs/<run>/experiments/regime_scorecard/`.
 * Q4 = highest 25% (43.3 → 68.8 GW — heat-wave / scarcity hours).
 
 A "bucket" is literally the timestamp list that fell in that range.
-`Q4 rank_spearman = 0.35` means "on the 1954 hours with the highest
+`Q4 zone_rank_spearman_per_hour = 0.35` means "on the 1954 hours with the highest
 net-load, the model's rank ordering of zonal congestion correlates
 0.35 with ERCOT's." The diagnostic reports all four buckets so we can
 see the shape of the tracking-vs-regime curve — which bucket
@@ -70,7 +70,7 @@ on each side. That's the meaningful benchmark.
 
 ### `net_load:q4` — where the pairs separate
 
-**`rank_spearman` by quartile:**
+**`zone_rank_spearman_per_hour` by quartile:**
 
 |                              |    Q1 |    Q2 |    Q3 |    Q4 | Q1→Q4 spread |
 |------------------------------|------:|------:|------:|------:|-------------:|
@@ -101,7 +101,7 @@ uninformative for net_load.
 
 ### `congestion_magnitude:q4` — the healthiest signature
 
-**`rank_spearman` by quartile:**
+**`zone_rank_spearman_per_hour` by quartile:**
 
 |                              |    Q1 |    Q2 |    Q3 |    Q4 |
 |------------------------------|------:|------:|------:|------:|
@@ -141,7 +141,7 @@ writeup and any downstream regime work.** Rationale:
    (72-75% in every quartile). Portfolio-piece framing: "the model
    identifies sign of zonal congestion at ~72% accuracy, uniformly
    across the net-load distribution."
-3. Only pair whose `rank_spearman` improves monotonically with
+3. Only pair whose `zone_rank_spearman_per_hour` improves monotonically with
    congestion magnitude — the right direction if scarcity events are
    the headline story.
 4. Regime dilution disappears — so the handoff's regime-conditioning
@@ -175,7 +175,7 @@ Ordered by leverage-per-effort:
    `compute.clustering.runner` with `--ref kkt_perbus` and rerun this
    diagnostic — the regime picture may sharpen further when the
    partition is on the same method as the model side.
-4. **Investigate why `kkt × zls` `rank_spearman` is *lower* in Q1
+4. **Investigate why `kkt × zls` `zone_rank_spearman_per_hour` is *lower* in Q1
    congestion_magnitude buckets.** 0.056 on 1954 quiet hours is close
    to noise. Is it that there's genuinely nothing to rank when
    congestion is small, or is zone_local_spp introducing artifacts in
@@ -254,11 +254,11 @@ invocation share matrix + partition loads.
   },
   "buckets": [
     {"id": 0, "label": "Q1", "range": [11447, 27056], "n_hours": 1954,
-     "rank_spearman": 0.21, "mean_corr": 0.29, "mean_sign_agreement": 0.75,
+     "zone_rank_spearman_per_hour": 0.21, "mean_corr": 0.29, "mean_sign_agreement": 0.75,
      "hours": ["2025-02-06T06:00:00+00:00", ...]},
     ...,
     {"id": null, "label": "pooled", "n_hours": 7816, "hours": null,
-     "rank_spearman": ..., "mean_corr": ..., "mean_sign_agreement": ...}
+     "zone_rank_spearman_per_hour": ..., "mean_corr": ..., "mean_sign_agreement": ...}
   ],
   "warnings": [...]
 }

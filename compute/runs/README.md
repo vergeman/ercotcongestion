@@ -108,3 +108,53 @@ invalidates automatically when the `cluster_labels.npz` symlink is
 repointed. The frontend takes no build-time run parameter — `fetchScorecard()`
 is arg-less and `/api/meta` exposes the currently-served identity on
 request.
+
+## Served summary files
+
+Two `mapping/` JSONs carry the headline numbers that reach the API and
+frontend. They answer different questions — see the row-level notes.
+
+### `mapping_correlation_summary_<run_id>.json` — per-SP mapping quality
+
+Written by `compute/mapping/correlation_map.py`. For each ERCOT SP, its
+Pearson-best model bus is picked; the file summarizes that distribution
+across the ~964 SPs.
+
+| Field | Meaning |
+|---|---|
+| `model_ref` / `ercot_ref` | Which columns of `congestion_matrices.npz` were used (e.g. `kkt_perbus` × `zone_local_spp`). |
+| `n_sp` / `n_bus` | Rectangle size after variance prefilter. |
+| `median_corr` | Median across SPs of Pearson corr(SP, best-bus) over hours. Typical strong pair ≈ 0.32. |
+| `median_spearman` | Same, but Spearman rank correlation over hours. Outlier-robust; typically higher than `median_corr` on the same pair. |
+| `median_sign` | Median fraction of hours where SP and best-bus have the same sign. 0.5 = random; 0.7+ = substantive directional agreement. |
+| `pct_gt_0_5` / `pct_gt_0_7` | Fraction of SPs whose Pearson corr(best-bus) exceeds 0.5 / 0.7 — the "tail" of well-mapped SPs. |
+| `pct_sign_gt_0_7` | Fraction of SPs whose sign-agreement with best-bus exceeds 0.7. |
+
+Note: all `best_*` values are taken *at the Pearson-argmax bus*, not
+re-argmaxed per metric.
+
+### `scorecard_<cell>.json` — per-hour zone-aggregated fit
+
+Written by `compute/mapping/scorecard.py` for a `(ref, algo, k)` cell.
+Groups buses and SPs into clusters, aggregates congestion within each
+cluster per hour, and scores model-side vs ERCOT-side agreement.
+
+Headline (`headline` block):
+
+| Field | Meaning |
+|---|---|
+| `zone_rank_spearman_per_hour` | Mean over hours of per-hour spatial Spearman across the derived-zone means. Measures *"do the zones line up hour by hour?"* Not comparable to `median_spearman` in the correlation summary. |
+| `mean_corr` | Mean across zones of Pearson corr(model_Z, ercot_Z) over hours. Per-zone temporal fit, averaged. |
+| `mean_sign_agreement` | Mean across zones of the fraction of hours where model_Z and ercot_Z have the same sign (with `$deadband` slack). |
+| `n_hours` / `n_zones` | Rectangle behind the score (zones dropped by `min_members` are excluded). |
+
+Per-zone rows (`zones` block) carry the same three metrics at zone
+granularity plus `n_buses`, `n_sps`, `model_side_std`, `ercot_side_std`,
+and outlier lists.
+
+### Which one to look at
+
+* *"How well does an individual SP track a specific bus?"* → correlation
+  summary (`median_corr`, `median_spearman`, `median_sign`).
+* *"Do the derived zones agree on when/where congestion happens?"* →
+  scorecard headline (`zone_rank_spearman_per_hour`, `mean_corr`).
