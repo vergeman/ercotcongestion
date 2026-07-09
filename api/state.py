@@ -30,7 +30,7 @@ router = APIRouter()
 
 # Column list aliased to match SnapshotMeta field names.
 # Just wildcard for now, no distinction.
-META_COLS = """*"""
+META_COLS = """sm.*"""
 
 
 def _coerce_utc(ts: datetime) -> datetime:
@@ -54,7 +54,18 @@ def get_state(t: datetime = Query(..., description='ISO-8601 UTC timestamp')) ->
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                f"SELECT {META_COLS} FROM snapshot_meta WHERE interval_ts = %s",
+                f"""
+                SELECT {META_COLS}, dsl.system_lambda AS dam_system_lambda
+                FROM snapshot_meta sm
+                LEFT JOIN LATERAL (
+                    SELECT system_lambda
+                    FROM dam_system_lambda d
+                    WHERE d.interval_ts = sm.interval_ts
+                    ORDER BY d.dst_flag ASC
+                    LIMIT 1
+                ) dsl ON true
+                WHERE sm.interval_ts = %s
+                """,
                 (ts,),
             )
             meta_row = cur.fetchone()
@@ -103,11 +114,18 @@ def get_state_range(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
-                SELECT {META_COLS}
-                FROM snapshot_meta
-                WHERE interval_ts >= %s AND interval_ts < %s
-                  AND status = 'ok'
-                ORDER BY interval_ts
+                SELECT {META_COLS}, dsl.system_lambda AS dam_system_lambda
+                FROM snapshot_meta sm
+                LEFT JOIN LATERAL (
+                    SELECT system_lambda
+                    FROM dam_system_lambda d
+                    WHERE d.interval_ts = sm.interval_ts
+                    ORDER BY d.dst_flag ASC
+                    LIMIT 1
+                ) dsl ON true
+                WHERE sm.interval_ts >= %s AND sm.interval_ts < %s
+                  AND sm.status = 'ok'
+                ORDER BY sm.interval_ts
                 """,
                 (s, e),
             )

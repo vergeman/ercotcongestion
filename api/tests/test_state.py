@@ -17,6 +17,7 @@ def _meta_row(ts: datetime, status: str = 'ok') -> dict:
         'interval_ts': ts,
         'status': status,
         'objective_cost': 1234.5,
+        'dam_system_lambda': 42.75,
         'total_load_mw': 50000.0,
         'total_gen_mw': 50100.0,
         'n_binding_lines': 3,
@@ -52,6 +53,7 @@ def test_state_returns_meta_and_buses(client, fake_pool, ts_utc):
     assert data['interval_ts'].startswith('2026-03-25T22:00')
     assert data['meta']['status'] == 'ok'
     assert data['meta']['n_binding_lines'] == 3
+    assert data['meta']['dam_system_lambda'] == 42.75
     assert len(data['buses']) == 2
     assert data['buses'][0]['bus_id'] == 'B1'
 
@@ -85,6 +87,8 @@ def test_state_range_groups_buses_per_snapshot(client, fake_pool, ts_utc):
 
     assert data['count'] == 2
     assert len(data['entries']) == 2
+    assert data['entries'][0]['meta']['dam_system_lambda'] == 42.75
+    assert data['entries'][1]['meta']['dam_system_lambda'] == 42.75
     assert len(data['entries'][0]['buses']) == 2
     assert len(data['entries'][1]['buses']) == 2
 
