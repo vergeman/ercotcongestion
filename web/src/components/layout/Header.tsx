@@ -17,7 +17,7 @@ export default function Header({
     <header className="header">
       <div className="header__brand">
         <span className="header__logo">⚡</span>
-        <span className="header__title">ERCOT Grid Stress</span>
+        <span className="header__title">ERCOT Stress</span>
         <span className="header__sub label">
           DC-OPF · 2751 buses · TAMU synthetic
         </span>
