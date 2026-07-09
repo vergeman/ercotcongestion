@@ -157,7 +157,7 @@ export default function StatsPanel({
       {scorecard && (
         <div className="panel-section">
           <div className="panel-section__header label">
-            Model Correlation · {scorecard.run_id}
+            Cluster Correlation · {scorecard.run_id}
           </div>
           <div className="scorecard-headline">
             <div
