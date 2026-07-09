@@ -79,6 +79,26 @@ export default function Legend({
     ];
   }, [isLmp, lmpStats]);
 
+  // Current-snapshot LMP min/mean/max, distinct from the window-wide
+  // percentile range above — derived from this pane's own bus array so
+  // model and ERCOT panes each show their own snapshot range.
+  const lmpSnapshot = useMemo(() => {
+    if (!isLmp) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    let n = 0;
+    for (const b of buses) {
+      if (b.lmp == null) continue;
+      if (b.lmp < min) min = b.lmp;
+      if (b.lmp > max) max = b.lmp;
+      sum += b.lmp;
+      n += 1;
+    }
+    if (n === 0) return null;
+    return { min, mean: sum / n, max };
+  }, [buses, isLmp]);
+
   // Bar gradient depends on view mode.
   const barGradient = isModeledCongestion
     ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
@@ -171,6 +191,13 @@ export default function Legend({
             window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
             P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
           </div>
+          {lmpSnapshot && (
+            <div className="legend__sub label">
+              snapshot {formatDollar(lmpSnapshot.min)} –{" "}
+              {formatDollar(lmpSnapshot.max)} · avg{" "}
+              {formatDollar(lmpSnapshot.mean)}
+            </div>
+          )}
         </>
       )}
 
