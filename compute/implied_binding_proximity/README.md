@@ -7,6 +7,64 @@ constraints binding at that hour.
 
 Method background: `docs/implied_binding_proximity.md`.
 
+## Why `system_lambda` and not `zone_local_spp`
+
+`--ref-method` is guarded to `system_lambda` (see `panels.py` and
+`persist.py`), and it must stay that way. This trips people up because the
+**congestion-matrix correlation** stage (`compute.mapping.correlation_map`)
+deliberately uses `zone_local_spp` — a sweep there showed that de-meaning
+zonal common-mode captured the real congestion structure better. That result
+is correct *there* and does **not** transfer here, because the two stages do
+fundamentally different math.
+
+**Correlation is a similarity measure.** `correlation_map` scores each
+model-bus / SP pair with Pearson correlation, which internally centers each
+series by its own mean and is invariant to any affine shift. It asks "does SP
+`j` *move like* bus `i`?" For that question, stripping the zonal common-mode is
+a legitimate normalization: the removed component is uninformative for
+discriminating which bus an SP maps to, and it is applied symmetrically to both
+sides of a measure that ignores absolute level. Hence the sweep win.
+
+**The implied-SF fit is a structural regression, not a similarity.** It
+reconstructs the ERCOT LMP decomposition identity
+
+```
+LMP[sp] − system_lambda = Σ_c SF[c, sp] · μ_c          (− losses)
+```
+
+and *serves the absolute magnitude* `bp_ercot[h, sp] = max_c |SF[c, sp]|`. For
+that output to mean what the map claims, the left-hand side must **be** the
+true congestion component that `Σ SF·μ` is defined to equal. `system_lambda` is
+already the correct additive reference in that identity, so `LMP −
+system_lambda` is already pure congestion — the zone-mean of *that* quantity is
+the average **real congestion** of the zone, not noise.
+
+De-meaning by zone therefore corrupts the fit in a way it cannot corrupt the
+correlation:
+
+```
+LMP[sp] − zone_mean = Σ_c ( SF[c, sp] − ⟨SF[c, ·]⟩_zone ) · μ_c
+```
+
+You would recover **zone-relative** shift factors, not physical ones. And
+unlike correlation you can only de-mean one side — the features `μ_c` are
+system-constraint shadow prices, not zonal quantities — so the ridge is forced
+to explain a de-meaned target with non-de-meaned features and absorbs the
+discrepancy into distorted coefficients. (The `[-1, 1]` SF cap and `std_floor`
+in the Trial-findings table were also calibrated against the `system_lambda`
+target and would not transfer.) On the served map, `max_c |SF|` would then
+answer *"how differently does this SP respond versus its zone-mates?"* — an SP
+strongly but *uniformly* exposed to a binding constraint gets pulled toward
+zero, the opposite of what a binding-proximity map wants.
+
+| | Congestion-matrix correlation | Implied-SF fit (this stage) |
+| --- | --- | --- |
+| Operation | Pearson similarity | Regression to an additive identity |
+| Cares about absolute level? | No (centered internally) | **Yes** — output is `max\|SF\|` |
+| Zone mean is… | uninformative common-mode → strip it | **real congestion** → must keep it |
+| De-meaning applied to… | both sides symmetrically | only the target → distorts coefficients |
+| Correct ref | `zone_local_spp` | `system_lambda` |
+
 ## Fit knobs
 
 The three knobs the runner and sweep share:
