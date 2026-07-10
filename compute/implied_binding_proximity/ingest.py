@@ -52,6 +52,51 @@ def _load_npz(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     return hours, sps, bp, params
 
 
+def ingest_run(
+    run_id: str,
+    *,
+    runs_root: Path = RUNS_ROOT,
+    promote: bool = False,
+    layer: str = DEFAULT_LAYER,
+) -> int:
+    """Backfill ``run_id``'s ``bp_ercot.npz`` into Postgres; return rows written.
+
+    The npz is authoritative: prior rows for ``run_id`` are cleared and
+    replaced so the DB always matches the on-disk artifact. With
+    ``promote=True`` the served pointer is flipped in the same transaction,
+    so persist + promote are atomic.
+
+    Shared by the ``ingest`` CLI and ``compute.promote`` so both write rows
+    the same way. Raises ``FileNotFoundError`` if the npz is absent and
+    ``ValueError`` if it was fit against a non-distributed-slack ref.
+    """
+    npz_path = runs_root / run_id / "ibp" / "bp_ercot.npz"
+    if not npz_path.exists():
+        raise FileNotFoundError(npz_path)
+
+    hours, sps, bp, params = _load_npz(npz_path)
+    check_ref_method(params.get("ref_method"))
+    log.info(
+        "loaded %s: hours=%d SPs=%d params=%s",
+        npz_path, hours.shape[0], sps.shape[0], params,
+    )
+
+    with psycopg.connect(PG_DSN) as conn:
+        n_deleted = delete_run(conn, run_id)
+        log.info("cleared %d prior rows for run_id=%s", n_deleted, run_id)
+
+        n_rows = copy_bp_rows(conn, run_id, hours, sps, bp)
+        log.info("copied %d rows into implied_binding_proximity", n_rows)
+
+        if promote:
+            set_current_pointer(conn, layer, run_id)
+            log.info("promoted layer=%s -> run_id=%s", layer, run_id)
+
+        conn.commit()
+
+    return n_rows
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--run-id", required=True)
@@ -71,35 +116,19 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    npz_path = args.runs_root / args.run_id / "ibp" / "bp_ercot.npz"
-    if not npz_path.exists():
-        log.error("bp_ercot.npz not found at %s", npz_path)
-        return 2
-
-    hours, sps, bp, params = _load_npz(npz_path)
     try:
-        check_ref_method(params.get("ref_method"))
+        ingest_run(
+            args.run_id,
+            runs_root=args.runs_root,
+            promote=args.promote,
+            layer=args.layer,
+        )
+    except FileNotFoundError as e:
+        log.error("bp_ercot.npz not found at %s", e)
+        return 2
     except ValueError as e:
         log.error("%s", e)
         return 2
-
-    log.info(
-        "loaded %s: hours=%d SPs=%d params=%s",
-        npz_path, hours.shape[0], sps.shape[0], params,
-    )
-
-    with psycopg.connect(PG_DSN) as conn:
-        n_deleted = delete_run(conn, args.run_id)
-        log.info("cleared %d prior rows for run_id=%s", n_deleted, args.run_id)
-
-        n_rows = copy_bp_rows(conn, args.run_id, hours, sps, bp)
-        log.info("copied %d rows into implied_binding_proximity", n_rows)
-
-        if args.promote:
-            set_current_pointer(conn, args.layer, args.run_id)
-            log.info("promoted layer=%s -> run_id=%s", args.layer, args.run_id)
-
-        conn.commit()
 
     return 0
 
