@@ -302,8 +302,30 @@ def _stage_cmd(stage: str, args: argparse.Namespace) -> list[str]:
             "--ref", args.scorecard_ref,
             "--algo", args.scorecard_algo,
             "--k", str(args.scorecard_k),
+            # Pass our runs root explicitly: compute.promote now reads the run's
+            # bp_ercot.npz from here to persist ibp rows, so it must match where
+            # this pipeline wrote them (compute.promote's own default is the
+            # container path /compute/runs).
+            "--runs-root", str(RUNS_ROOT),
         ]
     raise ValueError(stage)
+
+
+def _ibp_ingest_cmd(args: argparse.Namespace) -> list[str]:
+    """Backfill an existing bp_ercot.npz into Postgres without a refit.
+
+    Used in place of the full runner when the ibp npz is already on disk but
+    ``--ibp-persist`` was requested, so the DB stays in sync with the artifact
+    (and, with ``--ibp-promote``, the served pointer flips atomically).
+    """
+    cmd = [
+        sys.executable, "-m",
+        "compute.implied_binding_proximity.ingest",
+        "--run-id", args.run_id,
+    ]
+    if args.ibp_promote:
+        cmd += ["--promote"]
+    return cmd
 
 
 def _run_stage(
@@ -488,6 +510,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
         cmd = _stage_cmd(stage, args)
         outputs = _stage_outputs(stage, run_dir, args.run_id, args)
+        # The ibp stage's DB persist/promote are side effects the npz output
+        # path doesn't capture: skip-completed on an existing bp_ercot.npz would
+        # leave the served table stale while `promote` still flips the pointer
+        # at a row-less run_id -> API 503. When persist is requested and the npz
+        # is already on disk, backfill it into Postgres via `ingest` (no refit)
+        # and force the stage to run instead of skipping.
+        if (
+            stage == "implied_binding_proximity"
+            and args.ibp_persist
+            and not args.force
+            and all(p.exists() for p in outputs)
+        ):
+            cmd = _ibp_ingest_cmd(args)
+            outputs = []  # empty => _run_stage never skips (as with `promote`)
         ok = _run_stage(
             stage, cmd, outputs, run_dir, meta, meta_path,
             skip_completed=args.skip_completed, force=args.force,

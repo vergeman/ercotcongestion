@@ -88,6 +88,21 @@ def copy_bp_rows(
     return n_rows
 
 
+def run_has_rows(conn, run_id: str) -> bool:
+    """True if ``implied_binding_proximity`` has any rows for ``run_id``.
+
+    Read-your-writes safe: called within the same transaction as a preceding
+    ``copy_bp_rows`` (runner/ingest), it sees the not-yet-committed rows; called
+    on a fresh connection (``promote_layer``), it sees only committed rows.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM implied_binding_proximity WHERE run_id = %s LIMIT 1",
+            (run_id,),
+        )
+        return cur.fetchone() is not None
+
+
 def set_current_pointer(conn, layer: str, run_id: str) -> None:
     """Upsert ``implied_binding_proximity_current[layer] = run_id``."""
     with conn.cursor() as cur:
@@ -117,11 +132,22 @@ def promote_layer(run_id: str, layer: str = DEFAULT_LAYER) -> bool:
 
     Idempotent: returns True when the pointer moved, False when it was
     already at ``run_id`` (no write, no ``promoted_at`` bump).
+
+    Raises ``ValueError`` if ``run_id`` has no rows in
+    ``implied_binding_proximity`` — flipping the pointer at a row-less run
+    would make the API serve empty windows (503). Persist the panel first
+    (``runner --persist`` or ``ingest``).
     """
     with psycopg.connect(PG_DSN) as conn:
         current = get_current_pointer(conn, layer)
         if current is not None and current[0] == run_id:
             return False
+        if not run_has_rows(conn, run_id):
+            raise ValueError(
+                f"refusing to promote layer={layer!r} to run_id={run_id!r}: "
+                f"no rows in implied_binding_proximity for that run_id. "
+                f"Persist the panel first (runner --persist / ingest)."
+            )
         set_current_pointer(conn, layer, run_id)
         conn.commit()
         return True
