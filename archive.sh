@@ -24,6 +24,7 @@ tar --exclude='__pycache__' \
     --exclude='compute/experiments/*' \
     --exclude='compute/runs/*' \
     --exclude='compute/clusters.html' \
+    --exclude='diagnostics*.json' \
     --exclude='data' \
     --exclude='docs/notes/*' \
     --exclude='plan/0*.md' \
@@ -31,4 +32,7 @@ tar --exclude='__pycache__' \
     --exclude='web/package-lock.json' \
     --exclude='web/node_modules' \
     --exclude='web/.vite' \
+    --exclude='web/.wranger' \
+    --exclude='web/dist' \
+    --exclude='./claude' \
     -zcvf ercotstress.tar.gz .

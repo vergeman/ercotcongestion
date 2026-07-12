@@ -76,7 +76,6 @@ TABLES=(
   bus_snapshots
   snapshot_meta
   ercot_zonal_lmp
-  bus_load_zones
   ercot_dam_spp
   ercot_dam_shadow_prices
   dam_system_lambda
@@ -264,7 +263,6 @@ UNION ALL SELECT 'solar_hourly_regional',   count(*) FROM solar_hourly_regional
 UNION ALL SELECT 'bus_snapshots',           count(*) FROM bus_snapshots
 UNION ALL SELECT 'snapshot_meta',           count(*) FROM snapshot_meta
 UNION ALL SELECT 'ercot_zonal_lmp',         count(*) FROM ercot_zonal_lmp
-UNION ALL SELECT 'bus_load_zones',          count(*) FROM bus_load_zones
 UNION ALL SELECT 'ercot_dam_spp',           count(*) FROM ercot_dam_spp
 UNION ALL SELECT 'ercot_dam_shadow_prices', count(*) FROM ercot_dam_shadow_prices
 UNION ALL SELECT 'dam_system_lambda',       count(*) FROM dam_system_lambda
