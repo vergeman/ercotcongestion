@@ -162,8 +162,16 @@ def evaluate(
 
     # First refit needs a full trailing window behind it.
     starts = pd.date_range(days[0] + win, end_day, freq=refit, inclusive="left")
+    log.info("evaluate: window=%dd refit=%dd λ=%g min_hours=%d — %d refit "
+             "boundaries [%s → %s]", window_days, refit_days, lam, min_hours,
+             len(starts), starts[0].date() if len(starts) else None,
+             starts[-1].date() if len(starts) else None)
+    tick = max(1, len(starts) // 8)   # ~8 progress lines per combo
     rows: list[dict] = []
-    for s in starts:
+    for k, s in enumerate(starts):
+        if k and k % tick == 0:
+            log.info("  ...scored %d/%d weeks (through %s)",
+                     k, len(starts), s.date())
         score_end = min(s + refit, end_day + day)
 
         # HONEST fit: window ends where scoring begins. This is also the
@@ -230,6 +238,8 @@ def sf_decay(
     days = pd.Index(M.index.normalize().unique()).sort_values()
     anchors = pd.date_range(days[0] + win, days[-1],
                             freq=pd.Timedelta(days=anchor_step_days), inclusive="left")
+    log.info("sf_decay: fitting %d anchors (window=%dd, λ=%g) for Δ=%s",
+             len(anchors), window_days, lam, list(deltas_days))
 
     SFs: dict[pd.Timestamp, pd.DataFrame] = {}
     for a in anchors:
