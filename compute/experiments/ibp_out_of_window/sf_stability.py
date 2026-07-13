@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from compute.implied_binding_proximity.fit import implied_shift_factors
+from compute.sf.fit import implied_shift_factors
 
 from .common import REFIT_DAYS, WINDOW_DAYS, load_panels, window
 

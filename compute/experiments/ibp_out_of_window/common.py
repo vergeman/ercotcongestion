@@ -1,7 +1,7 @@
 """Shared rig for the out-of-window IBP experiments.
 
 Every script here imports the production fit unmodified
-(`compute.implied_binding_proximity.fit.implied_shift_factors`) and the
+(`compute.sf.fit.implied_shift_factors`) and the
 production panels. The *only* departure from `rolling.rolling_bp` is the
 window boundary:
 
@@ -23,7 +23,7 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.implied_binding_proximity.panels import (
+from compute.sf.panels import (
     load_congestion_panel,
     load_shadow_prices,
 )

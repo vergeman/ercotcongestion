@@ -29,7 +29,7 @@ def _ensure_loaded() -> None:
         return
 
     import pypsa
-    from ptdf_lodf import get_ptdf_lodf
+    from compute.legacy.ptdf_lodf import get_ptdf_lodf
 
     log.info("PTDF service: loading network from %s", NETWORK_NC)
     n = pypsa.Network(NETWORK_NC)

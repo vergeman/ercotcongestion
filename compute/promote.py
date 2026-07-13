@@ -43,8 +43,8 @@ import os
 import sys
 from pathlib import Path
 
-from compute.implied_binding_proximity.ingest import ingest_run
-from compute.implied_binding_proximity.persist import (
+from compute.sf.ingest import ingest_run
+from compute.sf.persist import (
     DEFAULT_LAYER,
     promote_layer,
 )
