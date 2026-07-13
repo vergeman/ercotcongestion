@@ -19,5 +19,6 @@ compute/runs/*
 *.odt
 *.gz
 *.png
+!docs/v1/*.png
 .image-tag
 web/dist/
