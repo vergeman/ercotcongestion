@@ -102,6 +102,41 @@ def test_two_stage_matches_single_shot(planted):
         assert cut_groups(link, rho).equals(group_constraints(M, rho))
 
 
+def test_inactive_columns_do_not_change_the_grouping(planted):
+    """The real panel is keyed by every constraint in the loaded history (~8,445
+    over 2.5 years), but inside one 240d window most never bind. Those are held
+    out of the clustering tree — an ~3,900² correlation instead of 8,445² — on
+    the claim that they are forced singletons anyway. This is that claim: padding
+    the panel with quiet columns must not move a single label."""
+    M, _ = planted
+    padded = M.copy()
+    for i in range(25):
+        padded[f"QUIET{i}|C"] = 0.0
+    padded["ONE_HOUR|C"] = 0.0
+    padded.iloc[3, padded.columns.get_loc("ONE_HOUR|C")] = 250.0
+
+    base = group_constraints(M, rho_min=RHO)
+    padded_labels = group_constraints(padded, rho_min=RHO)
+
+    # Original constraints: labels unchanged.
+    pd.testing.assert_series_equal(base, padded_labels.loc[base.index],
+                                   check_names=False)
+    # Padding columns: present, and each its own group.
+    for i in range(25):
+        assert padded_labels[f"QUIET{i}|C"] == f"QUIET{i}|C"
+    assert padded_labels["ONE_HOUR|C"] == "ONE_HOUR|C"
+    assert padded_labels.nunique() == base.nunique() + 26
+
+
+def test_linkage_holds_out_inactive_columns(planted):
+    M, _ = planted
+    link = constraint_linkage(M)
+    assert "E_never|C" in link.singletons     # never binds
+    assert "F_thin|C" in link.singletons      # one binding hour
+    assert "A0|C" in link.keys
+    assert set(link.keys) | set(link.singletons) == set(M.columns)
+
+
 def test_single_column_panel():
     M = pd.DataFrame({"only|C": [1.0, 0.0, 3.0]})
     labels = group_constraints(M, rho_min=RHO)

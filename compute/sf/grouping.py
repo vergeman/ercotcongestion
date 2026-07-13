@@ -54,12 +54,14 @@ def mu_mass(M: pd.DataFrame) -> pd.Series:
 class ConstraintLinkage:
     """A window's clustering tree, cuttable at any ``rho_min``.
 
-    ``Z`` is the scipy linkage over ``1 − corr``; ``keys`` are the constraint
-    columns in ``Z``'s row order; ``mass`` is the per-constraint μ-mass used to
-    name each group by its dominant member.
+    ``Z`` is the scipy linkage over ``1 − corr``; ``keys`` are the *clusterable*
+    constraints in ``Z``'s row order; ``singletons`` are the window-inactive
+    columns held out of the tree (see ``constraint_linkage``); ``mass`` is the
+    per-constraint μ-mass used to name each group by its dominant member.
     """
     Z: np.ndarray
     keys: pd.Index
+    singletons: pd.Index
     mass: pd.Series
     linkage: str
 
@@ -96,21 +98,36 @@ def constraint_corr(M: pd.DataFrame) -> np.ndarray:
 def constraint_linkage(
     M: pd.DataFrame, linkage: str = "complete"
 ) -> ConstraintLinkage:
-    """Build the clustering tree for one window. The expensive half."""
-    keys = pd.Index(M.columns)
-    mass = mu_mass(M)
-    if M.shape[1] <= 1:
-        return ConstraintLinkage(
-            Z=np.empty((0, 4)), keys=keys, mass=mass, linkage=linkage
-        )
+    """Build the clustering tree for one window. The expensive half.
 
-    dist = np.clip(1.0 - constraint_corr(M), 0.0, 2.0)
+    **Only window-active columns enter the tree.** ``M`` is keyed by every
+    constraint in the loaded history — 8,445 of them over 2.5 years — but inside
+    any one 240-day window most never bind, and a column with fewer than
+    ``MIN_CORR_HOURS`` binding hours has no usable correlation with anything and
+    is forced to a singleton regardless. Clustering them anyway means an
+    8,445² correlation per window instead of ~3,900², for provably identical
+    labels. The held-out columns are recorded in ``singletons`` and mapped to
+    themselves by ``cut_groups``.
+    """
+    all_keys = pd.Index(M.columns)
+    mass = mu_mass(M)
+    active_mask = ((M != 0).sum(axis=0) >= MIN_CORR_HOURS).to_numpy()
+    keys = all_keys[active_mask]
+    singletons = all_keys[~active_mask]
+
+    if len(keys) <= 1:
+        return ConstraintLinkage(Z=np.empty((0, 4)), keys=keys,
+                                 singletons=all_keys.difference(keys),
+                                 mass=mass, linkage=linkage)
+
+    dist = np.clip(1.0 - constraint_corr(M[keys]), 0.0, 2.0)
     # squareform demands an exactly symmetric, zero-diagonal matrix; corrcoef
     # can leave float asymmetry in the last bit.
     dist = (dist + dist.T) / 2.0
     np.fill_diagonal(dist, 0.0)
     Z = scipy_linkage(squareform(dist, checks=False), method=linkage)
-    return ConstraintLinkage(Z=Z, keys=keys, mass=mass, linkage=linkage)
+    return ConstraintLinkage(Z=Z, keys=keys, singletons=singletons,
+                             mass=mass, linkage=linkage)
 
 
 def cut_groups(link: ConstraintLinkage, rho_min: float) -> pd.Series:
@@ -134,12 +151,16 @@ def cut_groups(link: ConstraintLinkage, rho_min: float) -> pd.Series:
     ``implied_shift_factors.constraint_key`` TEXT column absorbs both.
     """
     keys = link.keys
+    all_keys = keys.append(link.singletons)
     if len(keys) <= 1 or rho_min >= 1.0:
-        return pd.Series(keys, index=keys, dtype=object)
+        return pd.Series(all_keys, index=all_keys, dtype=object)
 
     labels = fcluster(link.Z, t=1.0 - rho_min, criterion="distance")
     mass = link.mass
-    out = pd.Series(index=keys, dtype=object)
+    out = pd.Series(index=all_keys, dtype=object)
+    # Window-inactive columns were held out of the tree; they are singletons by
+    # construction, so they key to themselves.
+    out.loc[link.singletons] = link.singletons
     for lab in np.unique(labels):
         members = keys[labels == lab]
         ranked = sorted(members, key=lambda k: (-float(mass[k]), str(k)))
