@@ -76,6 +76,8 @@ log = logging.getLogger("compute.sf.runner")
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
+# NOTE: the honest OOS re-sweep (plan/0082 S1.5) selects window=240 (with
+# λ=1.0, see fit.RIDGE_LAMBDA). Left at 60 here; adopt at S5 (promote a real run).
 DEFAULT_WINDOW_DAYS = 60
 DEFAULT_REFIT_DAYS = 7
 DEFAULT_REF_METHOD = "system_lambda"

@@ -180,6 +180,40 @@ def write_window_meta(conn, run_id: str, meta: Mapping) -> None:
         )
 
 
+def update_eval_metrics(conn, run_id: str, rows: Iterable) -> int:
+    """Backfill ``oos_r2`` / ``coverage`` on existing ``sf_window_meta`` rows.
+
+    Matched by ``(run_id, score_start)`` — the honest OOS fit uses a different
+    ``window_start`` than the persisted lookahead fit, but both describe the
+    same scored week, so ``score_start`` is the join key. Only rows already
+    written by ``--persist-sf`` are touched; ``rows`` for weeks with no meta row
+    match nothing. ``rows``: iterable of ``(score_start, oos_r2, coverage)``,
+    where ``score_start`` is a datetime and the metrics may be ``None``.
+    Returns the number of rows updated.
+    """
+    n = 0
+    with conn.cursor() as cur:
+        for score_start, oos_r2, coverage in rows:
+            cur.execute(
+                "UPDATE sf_window_meta SET oos_r2 = %s, coverage = %s "
+                "WHERE run_id = %s AND score_start = %s",
+                (oos_r2, coverage, run_id, score_start),
+            )
+            n += cur.rowcount
+    return n
+
+
+def count_null_eval(conn, run_id: str) -> int:
+    """How many ``sf_window_meta`` rows for ``run_id`` still lack ``oos_r2``."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM sf_window_meta "
+            "WHERE run_id = %s AND oos_r2 IS NULL",
+            (run_id,),
+        )
+        return int(cur.fetchone()[0])
+
+
 def run_has_rows(conn, run_id: str) -> bool:
     """True if ``implied_binding_proximity`` has any rows for ``run_id``.
 
