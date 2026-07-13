@@ -1,44 +1,57 @@
-"""Hyperparameter sweep over (window-days, refit-days, ridge-lambda).
+"""Hyperparameter sweep over (window, refit, ridge-λ), ranked on OOS metrics.
 
-Invokes ``compute.sf.runner`` for each grid combination
-and summarizes per-run ``bp_ercot`` distribution + refit diagnostics into a
-single table. Each run lands under its own ``runs/<run_id>/ibp/`` so results
-are addressable and grep-able by run_id.
+Selection target changed (S1.4): the old sweep sorted on ``bp_max`` and reported
+in-sample ``mean_r2`` — an in-sample DOF curve, monotone in ``n_kept``, i.e.
+cosmetics. The config was never picked against anything held out. This version
+ranks on the honest out-of-window metrics from ``compute.sf.eval`` (default the
+oracle-μ pooled R², the SF map's ceiling), so the operating point is chosen on
+what the pivot actually needs.
 
-Panel loading is not reused across runs — every invocation re-queries
-Postgres. Simple and slow; revisit if the grid grows.
+Architecture change: panels are loaded from Postgres ONCE and every combo is
+scored in-process via ``eval.evaluate`` (was: a fresh ``runner`` subprocess +
+DB re-query per combo). With the grid the pivot mandates — window ∈
+{60,120,240,365}, refit ∈ {7,14}, λ across its effective range — reloading a
+multi-year panel per combo was the dominant cost.
 
-Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
+After ranking, the SF drift curve ``corr(SF_t, SF_{t+Δ})`` is emitted for the
+winning config (Δ ∈ {7,14,30,60}).
 
     docker compose run --rm compute \\
       python -m compute.sf.sweep_ibp \\
-        --start 2025-01-01 --end 2025-12-31 \\
-        [--window-days 60] [--refit-days 7,14] [--ridge-lambda 1e-3,1e-2,1e-1] \\
+        --start 2025-01-01 --end 2026-01-01 \\
+        [--window-days 60,120,240,365] [--refit-days 7,14] \\
+        [--ridge-lambda 0.1,1,10,100,1000] [--rank-by oos_pooled_r2] \\
         [--out /compute/sf/ibp_sweep_summary.csv]
 """
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-import subprocess
 import sys
-from pathlib import Path
+from datetime import date, datetime, timedelta
 
-import numpy as np
 import pandas as pd
+import psycopg
+
+from compute.config import PG_DSN
+from compute.sf.eval import evaluate, sf_decay
+from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger("compute.sf.sweep_ibp")
 
-COMPUTE_DIR = Path(__file__).resolve().parent.parent
-RUNS_ROOT = COMPUTE_DIR / "runs"
-
-# Grids bracket the production defaults (see README "Trial findings").
-DEFAULT_WINDOW_DAYS = "60"
+# Grids the pivot mandates: window/refit/λ across their effective ranges.
+# λ old default 0.1 vs XᵀX diag ≈1440 — decorative; extend up to where it bites.
+DEFAULT_WINDOW_DAYS = "60,120,240,365"
 DEFAULT_REFIT_DAYS = "7,14"
-DEFAULT_RIDGE_LAMBDA = "1e-2,1e-1,1"
-DEFAULT_STD_FLOOR = "50,100,200"
-DEFAULT_MIN_BINDING_HOURS = "10,25,50"
+DEFAULT_RIDGE_LAMBDA = "0.1,1,10,100,1000"
+DEFAULT_STD_FLOOR = "100"
+DEFAULT_MIN_BINDING_HOURS = "25"
+
+# Means reported per combo; ranked on --rank-by. Higher is better for all.
+METRIC_COLS = [
+    "oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
+    "topdecile_hit", "coverage", "sf_stability",
+]
 
 
 def _ints(csv: str) -> list[int]:
@@ -49,99 +62,39 @@ def _floats(csv: str) -> list[float]:
     return [float(x) for x in csv.split(",") if x.strip()]
 
 
-def _run_id(
-    window: int, refit: int, lam: float, std_floor: float, min_hours: int,
-) -> str:
-    return (
-        f"ibp_sweep_w{window}_r{refit}_l{lam:g}"
-        f"_s{std_floor:g}_h{min_hours}"
-    )
+def _parse_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
 
 
-def _invoke_runner(
-    run_id: str, start: str, end: str,
-    window: int, refit: int, lam: float, std_floor: float, min_hours: int,
-) -> int:
-    cmd = [
-        sys.executable, "-m", "compute.sf.runner",
-        "--run-id", run_id,
-        "--start", start, "--end", end,
-        "--window-days", str(window),
-        "--refit-days", str(refit),
-        "--ridge-lambda", repr(lam),
-        "--std-floor", repr(std_floor),
-        "--min-binding-hours", str(min_hours),
-    ]
-    log.info("running %s", " ".join(cmd))
-    return subprocess.run(cmd).returncode
-
-
-def _summarize_run(
-    run_id: str, window: int, refit: int, lam: float,
-    std_floor: float, min_hours: int,
-) -> dict | None:
-    ibp_dir = RUNS_ROOT / run_id / "ibp"
-    npz_path = ibp_dir / "bp_ercot.npz"
-    if not npz_path.exists():
-        log.warning("no bp_ercot.npz at %s; skipping", npz_path)
-        return None
-    with np.load(npz_path) as z:
-        bp = z["bp_ercot"]
-
-    r2_values: list[float] = []
-    n_kept_values: list[int] = []
-    n_sf_clipped_sum = 0
-    for f in sorted(ibp_dir.glob("diagnostics_*.json")):
-        with open(f) as fp:
-            d = json.load(fp)
-        if d.get("r2_overall") is not None:
-            r2_values.append(float(d["r2_overall"]))
-        n_kept_values.append(int(d.get("n_kept", 0)))
-        n_sf_clipped_sum += int(d.get("n_sf_clipped", 0))
-
-    flat = bp[np.isfinite(bp)]
-    return {
-        "run_id": run_id,
-        "window_days": window,
-        "refit_days": refit,
-        "ridge_lambda": lam,
-        "std_floor": std_floor,
-        "min_binding_hours": min_hours,
-        "mean_r2": float(np.mean(r2_values)) if r2_values else float("nan"),
-        "median_n_kept": (
-            float(np.median(n_kept_values)) if n_kept_values else float("nan")
-        ),
-        "bp_p95": float(np.quantile(flat, 0.95)) if flat.size else float("nan"),
-        "bp_p99": float(np.quantile(flat, 0.99)) if flat.size else float("nan"),
-        "bp_max": float(flat.max()) if flat.size else float("nan"),
-        "n_sf_clipped": n_sf_clipped_sum,
-    }
+def _summarize(df: pd.DataFrame) -> dict:
+    """Mean each metric over the scored weeks; median n_kept."""
+    out = {c: float(df[c].mean()) for c in METRIC_COLS}
+    out["median_n_kept"] = float(df["n_kept"].median())
+    out["n_weeks"] = int(len(df))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--start", required=True,
-                   help="Inclusive start date (YYYY-MM-DD).")
-    p.add_argument("--end", required=True,
-                   help="Exclusive end date (YYYY-MM-DD).")
-    p.add_argument("--window-days", default=DEFAULT_WINDOW_DAYS,
-                   help=f"Comma-separated window-days grid (default {DEFAULT_WINDOW_DAYS}).")
-    p.add_argument("--refit-days", default=DEFAULT_REFIT_DAYS,
-                   help=f"Comma-separated refit-days grid (default {DEFAULT_REFIT_DAYS}).")
-    p.add_argument("--ridge-lambda", default=DEFAULT_RIDGE_LAMBDA,
-                   help=f"Comma-separated ridge-lambda grid (default {DEFAULT_RIDGE_LAMBDA}).")
-    p.add_argument("--std-floor", default=DEFAULT_STD_FLOOR,
-                   help=f"Comma-separated std-floor grid (default {DEFAULT_STD_FLOOR}).")
-    p.add_argument("--min-binding-hours", default=DEFAULT_MIN_BINDING_HOURS,
-                   help=f"Comma-separated min-binding-hours grid (default {DEFAULT_MIN_BINDING_HOURS}).")
-    p.add_argument("--out", type=Path, default=None,
+    p.add_argument("--start", type=_parse_date, required=True,
+                   help="Inclusive first day to score (YYYY-MM-DD).")
+    p.add_argument("--end", type=_parse_date, required=True,
+                   help="Exclusive last day to score (YYYY-MM-DD).")
+    p.add_argument("--window-days", default=DEFAULT_WINDOW_DAYS)
+    p.add_argument("--refit-days", default=DEFAULT_REFIT_DAYS)
+    p.add_argument("--ridge-lambda", default=DEFAULT_RIDGE_LAMBDA)
+    p.add_argument("--std-floor", default=DEFAULT_STD_FLOOR)
+    p.add_argument("--min-binding-hours", default=DEFAULT_MIN_BINDING_HOURS)
+    p.add_argument("--rank-by", default="oos_pooled_r2", choices=METRIC_COLS,
+                   help="OOS metric to sort by (default oos_pooled_r2).")
+    p.add_argument("--no-decay", dest="emit_decay", action="store_false",
+                   help="Skip the SF decay curve for the winning config.")
+    p.add_argument("--out", type=str, default=None,
                    help="CSV output path; prints to stdout if omitted.")
     args = p.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     windows = _ints(args.window_days)
     refits = _ints(args.refit_days)
@@ -153,46 +106,68 @@ def main(argv: list[str] | None = None) -> int:
         for w in windows for r in refits for lam in lambdas
         for sf in floors for mh in min_hours_list
     ]
-    log.info(
-        "sweep: %d combos over windows=%s refits=%s lambdas=%s "
-        "std_floors=%s min_binding_hours=%s",
-        len(combos), windows, refits, lambdas, floors, min_hours_list,
-    )
 
-    for window, refit, lam, floor, min_h in combos:
-        run_id = _run_id(window, refit, lam, floor, min_h)
-        rc = _invoke_runner(
-            run_id, args.start, args.end,
-            window, refit, lam, floor, min_h,
-        )
-        if rc != 0:
-            log.error("runner failed for %s (rc=%d)", run_id, rc)
+    # Load panels ONCE, with enough warmup behind `start` for the largest
+    # window's disjoint-stability pair (2×window). evaluate/sf_decay reindex.
+    read_start = args.start - timedelta(days=2 * max(windows))
+    log.info("loading panels once: read=[%s, %s), %d combos",
+             read_start, args.end, len(combos))
+    with psycopg.connect(PG_DSN) as conn:
+        M = load_shadow_prices(conn, read_start, args.end)
+        C = load_congestion_panel(conn, read_start, args.end)
+    if M.empty or C.empty:
+        log.error("empty panel(s): M=%s C=%s", M.shape, C.shape)
+        return 3
+    log.info("M=%s C=%s", M.shape, C.shape)
+
+    start_ts = pd.Timestamp(args.start, tz=M.index.tz)
+    day = pd.Timedelta(days=1)
 
     rows: list[dict] = []
-    for window, refit, lam, floor, min_h in combos:
-        row = _summarize_run(
-            _run_id(window, refit, lam, floor, min_h),
-            window, refit, lam, floor, min_h,
-        )
-        if row is not None:
-            rows.append(row)
+    for i, (w, r, lam, floor, mh) in enumerate(combos, 1):
+        # Trim to this window's warmup so small windows don't fit the whole
+        # loaded history (compute stays proportional to the window).
+        lo = start_ts - 2 * w * day
+        Mc = M.loc[M.index >= lo]
+        Cc = C.loc[C.index >= lo]
+        log.info("[%d/%d] window=%d refit=%d λ=%g floor=%g min_hours=%d",
+                 i, len(combos), w, r, lam, floor, mh)
+        df = evaluate(Mc, Cc, window_days=w, refit_days=r, lam=lam,
+                      min_hours=mh, standardize=True, std_floor=floor)
+        df = df[df["score_start"] >= start_ts]
+        if df.empty:
+            log.warning("  no scored weeks; skipping")
+            continue
+        rows.append({
+            "window_days": w, "refit_days": r, "ridge_lambda": lam,
+            "std_floor": floor, "min_binding_hours": mh, **_summarize(df),
+        })
 
     if not rows:
-        log.error("no runs produced summarizable output")
+        log.error("no combos produced scored weeks")
         return 1
 
-    df = pd.DataFrame(rows).sort_values("bp_max", ascending=False)
-    if args.out is not None:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(args.out, index=False)
+    summary = pd.DataFrame(rows).sort_values(args.rank_by, ascending=False)
+    with pd.option_context("display.max_rows", None, "display.width", None,
+                           "display.max_columns", None):
+        print(summary.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+
+    if args.out:
+        summary.to_csv(args.out, index=False)
         log.info("wrote %s", args.out)
-    else:
-        with pd.option_context(
-            "display.max_rows", None,
-            "display.width", None,
-            "display.max_columns", None,
-        ):
-            print(df.to_string(index=False))
+
+    if args.emit_decay:
+        top = summary.iloc[0]
+        w = int(top.window_days)
+        lo = start_ts - 2 * w * day
+        decay = sf_decay(M.loc[M.index >= lo], C.loc[C.index >= lo],
+                         window_days=w, lam=float(top.ridge_lambda),
+                         min_hours=int(top.min_binding_hours),
+                         std_floor=float(top.std_floor))
+        print(f"\n=== SF decay curve — winning config "
+              f"(window={w}, λ={top.ridge_lambda:g}) ===")
+        print(decay.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+
     return 0
 
 
