@@ -27,6 +27,12 @@ backfill an npz already on disk without refitting, use
 ``compute.sf.ingest`` — it shares the same
 ``persist.py`` helpers.
 
+SF matrix persistence: pass ``--persist-sf`` (independent of ``--persist``)
+to also write the per-refit ``SF`` matrix into ``implied_shift_factors`` and
+one row per refit into ``sf_window_meta``, keyed by ``run_id``. Entries below
+``--sf-threshold`` are dropped. This is what downstream v3 surfaces read;
+``bp_ercot`` (scalar) is unaffected.
+
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
     docker compose run --rm compute \
@@ -57,8 +63,11 @@ from .persist import (
     DEFAULT_LAYER,
     check_ref_method,
     copy_bp_rows,
+    copy_sf_rows,
     delete_run,
+    delete_sf_run,
     set_current_pointer,
+    write_window_meta,
 )
 from .rolling import RefitWindow, rolling_bp
 
@@ -70,6 +79,7 @@ RUNS_ROOT = BASE_DIR.parent / "runs"
 DEFAULT_WINDOW_DAYS = 60
 DEFAULT_REFIT_DAYS = 7
 DEFAULT_REF_METHOD = "system_lambda"
+DEFAULT_SF_THRESHOLD = 1e-3
 
 
 def _parse_date(s: str) -> date:
@@ -154,6 +164,14 @@ def main(argv: list[str] | None = None) -> int:
                         "--persist (no-op otherwise).")
     p.add_argument("--layer", default=DEFAULT_LAYER,
                    help=f"Map layer --promote flips (default {DEFAULT_LAYER}).")
+    p.add_argument("--persist-sf", action="store_true",
+                   help="Write the per-refit SF matrix to implied_shift_factors "
+                        "(+ sf_window_meta) under this run_id. Independent of "
+                        "--persist; the bp path is unaffected either way.")
+    p.add_argument("--sf-threshold", type=float, default=DEFAULT_SF_THRESHOLD,
+                   help=f"With --persist-sf, drop SF entries with |sf| below "
+                        f"this (default {DEFAULT_SF_THRESHOLD}). The matrix is "
+                        f"dense but mostly negligible; this keeps row counts sane.")
     args = p.parse_args(argv)
 
     logging.basicConfig(
@@ -200,12 +218,31 @@ def main(argv: list[str] | None = None) -> int:
     start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
     end_ts = datetime.combine(end, datetime.min.time()).replace(tzinfo=panel_tz)
 
+    # SF persistence (S0b) streams each refit window to the DB as it's fit,
+    # inside one transaction opened before the fit loop and committed after.
+    # This keeps memory flat (no buffering ~52 dense SF matrices) and shares
+    # the on_refit callback that already carries SF.
+    sf_conn = None
+    sf_stats = {"windows": 0, "rows": 0}
+    if args.persist_sf:
+        check_ref_method(args.ref_method)
+        sf_conn = psycopg.connect(PG_DSN)
+        n_sf, n_meta = delete_sf_run(sf_conn, args.run_id)
+        log.info(
+            "cleared %d prior SF rows / %d meta rows for run_id=%s",
+            n_sf, n_meta, args.run_id,
+        )
+
     def on_refit(window: RefitWindow) -> None:
         # Skip diagnostic emission for refit boundaries whose score period
         # falls entirely outside the requested range.
         if window.score_end <= start_ts:
             return
         _write_diagnostics(out_dir, args.run_id, window, args.min_binding_hours)
+        binding = (window.M_window > 0).sum()
+        n_kept = int(binding.ge(args.min_binding_hours).sum())
+        n_dropped = int(binding.lt(args.min_binding_hours).sum())
+        n_clipped = int(window.SF.attrs.get("n_clipped", 0))
         r2 = refit_diagnostics(
             window.M_window, window.C_window, window.SF, args.min_binding_hours,
         )["r2_overall"]
@@ -213,11 +250,24 @@ def main(argv: list[str] | None = None) -> int:
             "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
             window.window_start.date(), window.window_end.date(),
             window.score_start.date(), window.score_end.date(),
-            int((window.M_window > 0).sum().ge(args.min_binding_hours).sum()),
-            int((window.M_window > 0).sum().lt(args.min_binding_hours).sum()),
-            int(window.SF.attrs.get("n_clipped", 0)),
+            n_kept, n_dropped, n_clipped,
             f"{r2:.3f}" if r2 is not None else "nan",
         )
+        if sf_conn is not None:
+            ws = window.window_start.isoformat()
+            n = copy_sf_rows(sf_conn, args.run_id, ws, window.SF, args.sf_threshold)
+            write_window_meta(sf_conn, args.run_id, {
+                "window_start": ws,
+                "window_end": window.window_end.isoformat(),
+                "score_start": window.score_start.isoformat(),
+                "score_end": window.score_end.isoformat(),
+                "n_kept": n_kept,
+                "n_dropped": n_dropped,
+                "n_sf_clipped": n_clipped,
+                "fit_r2": r2,
+            })
+            sf_stats["windows"] += 1
+            sf_stats["rows"] += n
 
     bp = rolling_bp(
         M, C,
@@ -229,6 +279,14 @@ def main(argv: list[str] | None = None) -> int:
         std_floor=args.std_floor,
         on_refit_window=on_refit,
     )
+
+    if sf_conn is not None:
+        sf_conn.commit()
+        sf_conn.close()
+        log.info(
+            "persisted SF: %d windows, %d rows into implied_shift_factors",
+            sf_stats["windows"], sf_stats["rows"],
+        )
 
     # Trim to the requested [start, end) — the read window pulled extra
     # trailing history to warm up the first refit.
