@@ -23,6 +23,9 @@ import pandas as pd
 # below 0.03% of cells over the full 2025 shadow-price range.
 MIN_BINDING_HOURS = 25
 RIDGE_LAMBDA = 1e-1
+# NOTE: the honest OOS re-sweep (plan/0082 S1.5) selects RIDGE_LAMBDA=1.0 on a
+# 240-day window — better OOS R² (0.708→0.734), coverage (0.810→0.861), and
+# refit-horizon drift. Left at 1e-1 here; adopt at S5 (promote a real run).
 # Constraints whose in-window shadow-price std is below this get treated
 # like zero-variance columns during standardization. Without the floor, a
 # near-quiet column's `1/scale` rescale inflates its coefficient into the
