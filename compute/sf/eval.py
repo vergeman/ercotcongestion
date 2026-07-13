@@ -45,6 +45,7 @@ from compute.sf.fit import (
     MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR, implied_shift_factors,
 )
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.sf.eval")
 
@@ -222,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-binding-hours", type=int, default=MIN_BINDING_HOURS)
     p.add_argument("--std-floor", type=float, default=STD_FLOOR)
     p.add_argument("--no-standardize", dest="standardize", action="store_false")
+    p.add_argument("--persist-eval", action="store_true",
+                   help="Backfill oos_r2/coverage onto this run_id's existing "
+                        "sf_window_meta rows (from an earlier runner "
+                        "--persist-sf with matching hyperparameters). Matched "
+                        "by score_start.")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -240,15 +246,35 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     log.info("M=%s C=%s", M.shape, C.shape)
 
-    df = evaluate(M, C, args.window_days, args.refit_days, args.ridge_lambda,
-                  args.min_binding_hours, args.standardize, args.std_floor)
-    # Keep only scored weeks in the requested range (read window pulled extra).
+    df_full = evaluate(M, C, args.window_days, args.refit_days, args.ridge_lambda,
+                       args.min_binding_hours, args.standardize, args.std_floor)
+    # Keep only scored weeks in the requested range for display/CSV (the read
+    # window pulled extra warmup history). df_full drives the meta backfill so
+    # the week straddling `start` is matched too.
     panel_tz = M.index.tz
     start_ts = pd.Timestamp(args.start, tz=panel_tz)
-    df = df[df["score_start"] >= start_ts].reset_index(drop=True)
+    df = df_full[df_full["score_start"] >= start_ts].reset_index(drop=True)
     if df.empty:
         log.error("no scored weeks in [%s, %s)", args.start, args.end)
         return 4
+
+    if args.persist_eval:
+        def _clean(v: float):
+            return None if v is None or not np.isfinite(v) else float(v)
+        rows = [
+            (r.score_start.to_pydatetime(), _clean(r.oos_pooled_r2), _clean(r.coverage))
+            for r in df_full.itertuples()
+        ]
+        with psycopg.connect(PG_DSN) as conn:
+            matched = update_eval_metrics(conn, args.run_id, rows)
+            conn.commit()
+            remaining = count_null_eval(conn, args.run_id)
+        log.info("backfilled sf_window_meta: %d rows matched for run_id=%s",
+                 matched, args.run_id)
+        if remaining:
+            log.warning("%d sf_window_meta rows for run_id=%s still have NULL "
+                        "oos_r2 (score_start/refit misalignment, or out of the "
+                        "eval range)", remaining, args.run_id)
 
     out_dir = RUNS_ROOT / args.run_id / "ibp"
     out_dir.mkdir(parents=True, exist_ok=True)
