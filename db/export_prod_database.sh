@@ -83,6 +83,8 @@ TABLES=(
   load_forecast_zonal
   implied_binding_proximity
   implied_binding_proximity_current
+  implied_shift_factors
+  sf_window_meta
 )
 
 # ---- preflight --------------------------------------------------------------
