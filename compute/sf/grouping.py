@@ -175,9 +175,58 @@ def aggregate_mu(M: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:
     cols = M.columns.intersection(labels.index)
     if len(cols) == 0:
         return pd.DataFrame(index=M.index)
-    grouped = M[cols].T.groupby(labels.loc[cols].to_numpy()).sum().T
+
+    lab = labels.loc[cols]
+    if lab.is_unique:
+        # Nothing merged, so the mapping is the identity (a singleton group is
+        # named for its only member) and the "aggregate" IS the panel. Return it
+        # untouched rather than round-tripping through groupby-sum: that rebuilds
+        # the array with a different memory layout, which changes the BLAS
+        # reduction order inside the ridge and moves the solution by ~1e-13.
+        # Numerically trivial — but it would make `rho_min=1.0` an approximate
+        # rather than an exact no-op, and the grouped-vs-ungrouped comparison
+        # this whole section turns on assumes that baseline is exact.
+        return M if len(cols) == M.shape[1] else M[cols]
+
+    grouped = M[cols].T.groupby(lab.to_numpy()).sum().T
     grouped.columns.name = None
     return grouped.reindex(columns=sorted(grouped.columns))
+
+
+def project_sf(SF: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
+    """Project an *ungrouped* SF into the group row-space. The fair-drift control.
+
+    ``SF_proj[g, sp] = Σ_{c∈g} w_c · SF[c, sp]``, with ``w_c`` the within-group
+    μ-mass shares — i.e. exactly the combination that is identifiable under
+    collinearity, which is the whole reason the group is the fit's unit.
+
+    Why S2 needs this: correlating a ~950-row grouped SF against a ~1,020-row
+    ungrouped SF is not an apples-to-apples stability test — the grouped matrix
+    would look steadier partly just for being smaller and better-conditioned.
+    Projecting the *ungrouped* fit into the same group row-space isolates "did
+    grouping stabilize the estimate" from "we changed the object".
+
+    Members absent from ``SF`` (dropped by ``min_hours``) are excluded and the
+    remaining shares renormalized, so a group is represented by the members the
+    ungrouped fit actually estimated. Groups with no surviving member are
+    dropped.
+    """
+    if SF.empty or members.empty:
+        return pd.DataFrame(columns=SF.columns)
+
+    m = members[members["constraint_key"].isin(SF.index)].copy()
+    if m.empty:
+        return pd.DataFrame(columns=SF.columns)
+    totals = m.groupby("group_key")["mu_mass_share"].transform("sum")
+    sizes = m.groupby("group_key")["mu_mass_share"].transform("size")
+    w = np.where(totals > 0, m["mu_mass_share"] / totals, 1.0 / sizes)
+
+    W = pd.DataFrame({"group_key": m["group_key"].to_numpy(), "w": w},
+                     index=m["constraint_key"].to_numpy())
+    weighted = SF.loc[W.index].mul(W["w"].to_numpy(), axis=0)
+    out = weighted.groupby(W["group_key"].to_numpy()).sum()
+    out.index.name = None
+    return out.reindex(sorted(out.index))
 
 
 def group_members(M: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:

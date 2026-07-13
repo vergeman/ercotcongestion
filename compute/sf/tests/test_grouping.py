@@ -14,6 +14,7 @@ from compute.sf.grouping import (
     cut_groups,
     group_constraints,
     group_members,
+    project_sf,
 )
 
 RHO = 0.8
@@ -133,6 +134,19 @@ def test_aggregate_mu_columns_deterministic(planted):
     assert list(Mg.columns) == sorted(Mg.columns)
 
 
+def test_aggregate_mu_identity_labels_return_the_panel_untouched(planted):
+    """When nothing merges, the aggregate must be the panel *itself* — not a
+    groupby-sum round trip. The rebuild changes the array's memory layout, which
+    changes BLAS reduction order in the ridge and shifts the solution by ~1e-13.
+    That is enough to make rho_min=1.0 a non-exact no-op, which would confound
+    every grouped-vs-ungrouped comparison in the R3 measurement."""
+    M, _ = planted
+    identity = group_constraints(M, rho_min=1.0)
+    Mg = aggregate_mu(M, identity)
+    assert Mg is M                                   # same object, no copy
+    assert list(Mg.columns) == list(M.columns)       # original order preserved
+
+
 def test_aggregate_mu_drops_constraints_absent_from_labels(planted):
     """Score-time behavior: labels come from the fit window, so a constraint
     that first appears in the scored week has no group and no SF column — it is
@@ -179,3 +193,62 @@ def test_empty_panel_is_handled(empty):
     labels = pd.Series(dtype=object)
     assert aggregate_mu(empty, labels).empty
     assert group_members(empty, labels).empty
+
+
+# ------------------------------------------------------------------ projection
+
+def _fake_sf(keys, n_sp=4) -> pd.DataFrame:
+    rng = np.random.default_rng(1)
+    return pd.DataFrame(rng.normal(0, 0.3, (len(keys), n_sp)),
+                        index=pd.Index(keys), columns=[f"SP{i}" for i in range(n_sp)])
+
+
+def test_project_sf_is_the_mass_weighted_member_average(planted):
+    M, _ = planted
+    labels = group_constraints(M, rho_min=RHO)
+    members = group_members(M, labels)
+    SF = _fake_sf(M.columns)
+
+    proj = project_sf(SF, members)
+    assert list(proj.index) == sorted(labels.unique())
+
+    a_key = labels["A0|C"]
+    w = members[members.group_key == a_key].set_index("constraint_key")["mu_mass_share"]
+    expected = SF.loc[w.index].mul(w, axis=0).sum()
+    assert np.allclose(proj.loc[a_key].to_numpy(), expected.to_numpy())
+
+
+def test_project_sf_singleton_group_is_the_constraint_itself(planted):
+    M, _ = planted
+    labels = group_constraints(M, rho_min=RHO)
+    SF = _fake_sf(M.columns)
+    proj = project_sf(SF, group_members(M, labels))
+    assert np.allclose(proj.loc["C0|C"].to_numpy(), SF.loc["C0|C"].to_numpy())
+
+
+def test_project_sf_renormalizes_over_members_the_fit_kept(planted):
+    """`min_hours` drops constraints from the ungrouped SF. A group must then be
+    represented by the members that were actually estimated — not diluted toward
+    zero by missing rows."""
+    M, _ = planted
+    labels = group_constraints(M, rho_min=RHO)
+    members = group_members(M, labels)
+    a_key = labels["A0|C"]
+
+    survivors = [k for k in M.columns if k != "A1|C"]      # drop one A member
+    SF = _fake_sf(survivors)
+    proj = project_sf(SF, members)
+
+    w = members[(members.group_key == a_key)
+                & (members.constraint_key != "A1|C")].set_index("constraint_key")
+    w = w["mu_mass_share"] / w["mu_mass_share"].sum()      # renormalized
+    expected = SF.loc[w.index].mul(w, axis=0).sum()
+    assert np.allclose(proj.loc[a_key].to_numpy(), expected.to_numpy())
+
+
+def test_project_sf_drops_groups_with_no_surviving_member(planted):
+    M, _ = planted
+    labels = group_constraints(M, rho_min=RHO)
+    members = group_members(M, labels)
+    SF = _fake_sf([k for k in M.columns if k != "C0|C"])
+    assert "C0|C" not in project_sf(SF, members).index

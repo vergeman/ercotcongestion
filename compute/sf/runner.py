@@ -116,7 +116,10 @@ def _write_diagnostics(out_dir: Path, run_id: str, window: RefitWindow, min_hour
         "window_end": window.window_end.isoformat(),
         "score_start": window.score_start.isoformat(),
         "score_end": window.score_end.isoformat(),
-        **refit_diagnostics(window.M_window, window.C_window, window.SF, min_hours),
+        # M_fit, not M_window: under grouping SF's rows are group keys, so the
+        # panel whose columns match them is the aggregate. Same object when
+        # ungrouped.
+        **refit_diagnostics(window.M_fit, window.C_window, window.SF, min_hours),
     }
     path = out_dir / diagnostics_filename(window.score_start)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -241,12 +244,12 @@ def main(argv: list[str] | None = None) -> int:
         if window.score_end <= start_ts:
             return
         _write_diagnostics(out_dir, args.run_id, window, args.min_binding_hours)
-        binding = (window.M_window > 0).sum()
+        binding = (window.M_fit > 0).sum()
         n_kept = int(binding.ge(args.min_binding_hours).sum())
         n_dropped = int(binding.lt(args.min_binding_hours).sum())
         n_clipped = int(window.SF.attrs.get("n_clipped", 0))
         r2 = refit_diagnostics(
-            window.M_window, window.C_window, window.SF, args.min_binding_hours,
+            window.M_fit, window.C_window, window.SF, args.min_binding_hours,
         )["r2_overall"]
         log.info(
             "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
