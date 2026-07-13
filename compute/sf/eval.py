@@ -205,6 +205,66 @@ def evaluate(
     return pd.DataFrame(rows)
 
 
+def sf_decay(
+    M: pd.DataFrame,
+    C: pd.DataFrame,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    deltas_days: tuple[int, ...] = (7, 14, 30, 60),
+    anchor_step_days: int = 7,
+    lam: float = RIDGE_LAMBDA,
+    min_hours: int = MIN_BINDING_HOURS,
+    standardize: bool = True,
+    std_floor: float = STD_FLOOR,
+) -> pd.DataFrame:
+    """SF drift curve: ``corr(SF_t, SF_{t+Δ})`` vs lag Δ.
+
+    Fits the honest SF once per weekly anchor (window ending at the anchor),
+    then correlates pairs Δ apart — reusing every fit across all Δ. As Δ grows
+    from a mostly-overlapping 7d toward the full window, the correlation decays
+    from ~0.9 to the honest disjoint ~0.47; that decay is the drift the
+    quasi-static premise misses. One row per Δ.
+    """
+    idx = M.index.union(C.index).sort_values()
+    M, C = M.reindex(idx).fillna(0.0), C.reindex(idx)
+    win = pd.Timedelta(days=window_days)
+    days = pd.Index(M.index.normalize().unique()).sort_values()
+    anchors = pd.date_range(days[0] + win, days[-1],
+                            freq=pd.Timedelta(days=anchor_step_days), inclusive="left")
+
+    SFs: dict[pd.Timestamp, pd.DataFrame] = {}
+    for a in anchors:
+        w = (M.index >= a - win) & (M.index < a)
+        Mw, Cw = M.loc[w], C.loc[w]
+        if Mw.empty:
+            continue
+        sf = implied_shift_factors(Mw, Cw, lam=lam, min_hours=min_hours,
+                                   standardize=standardize, std_floor=std_floor)
+        if not sf.empty:
+            SFs[a] = sf
+
+    keys = pd.DatetimeIndex(sorted(SFs))
+    tol = pd.Timedelta(days=anchor_step_days) / 2
+    rows: list[dict] = []
+    for D in deltas_days:
+        delta = pd.Timedelta(days=D)
+        corrs: list[float] = []
+        for a in keys:
+            # nearest anchor to a+Δ, within half a step
+            target = a + delta
+            j = keys.get_indexer([target], method="nearest")[0]
+            a2 = keys[j]
+            if abs(a2 - target) > tol or a2 == a:
+                continue
+            corrs.append(_sf_corr(SFs[a], SFs[a2]))
+        corrs = [c for c in corrs if np.isfinite(c)]
+        rows.append({
+            "delta_days": D,
+            "mean_corr": float(np.mean(corrs)) if corrs else float("nan"),
+            "n_pairs": len(corrs),
+        })
+    return pd.DataFrame(rows)
+
+
 def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
@@ -228,6 +288,9 @@ def main(argv: list[str] | None = None) -> int:
                         "sf_window_meta rows (from an earlier runner "
                         "--persist-sf with matching hyperparameters). Matched "
                         "by score_start.")
+    p.add_argument("--emit-decay", action="store_true",
+                   help="Also compute the SF drift curve corr(SF_t, SF_{t+Δ}) "
+                        "for Δ ∈ {7,14,30,60} and save decay.csv.")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -295,6 +358,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"coverage        : {df.coverage.mean():.3f}")
     print(f"SF stability    (disjoint 60d) : {df.sf_stability.mean():.3f}")
     log.info("wrote %s", out_path)
+
+    if args.emit_decay:
+        decay = sf_decay(M, C, args.window_days, lam=args.ridge_lambda,
+                         min_hours=args.min_binding_hours,
+                         standardize=args.standardize, std_floor=args.std_floor)
+        decay.to_csv(out_dir / "decay.csv", index=False)
+        print("\n=== SF decay curve — corr(SF_t, SF_{t+Δ}) ===")
+        print(decay.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+        log.info("wrote %s", out_dir / "decay.csv")
     return 0
 
 
