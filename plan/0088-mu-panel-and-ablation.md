@@ -5,7 +5,9 @@ Branch: feat/0088-mu-panel-and-ablation
 
 **Companion to** `plan/version3-implementation-plan.md` §S6 (S6b, S6d).
 **Predecessor:** `plan/0087-ruc-probe-and-ingest.md` — CLOSED, both gates failed.
-**Sibling (parallel, independent branch):** `plan/0089-generation-channel-ceiling.md`.
+**Sibling (parallel, independent branch):** `plan/0089-generation-outage-arm.md`
+(the NP1-346 generation-outage arm; `plan/0090-generation-channel-ceiling.md` is the
+demoted 60-day ceiling).
 
 ## Goal
 
