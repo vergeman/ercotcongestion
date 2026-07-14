@@ -167,8 +167,18 @@ def evaluate(
     rho_min: float | None = None,
     control: bool = False,
     linkage_cache: dict | None = None,
+    score_from: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """One row per scored week. M, C need NOT be pre-aligned.
+
+    ``score_from`` skips refit boundaries before it *without fitting them*. The
+    caller must still hand in the warmup history behind it (2×window for the
+    disjoint-stability pair) — this drops the weeks that history exists to serve,
+    not the history. Trimming the returned frame instead pays for ~`window_days`
+    of fits per combo and throws them away; at a 240d window that is ~34 wasted
+    weeks. Only ``group_churn`` on the first scored week differs (NaN rather than
+    a comparison against a discarded warmup week); every other column is
+    unchanged.
 
     ``rho_min`` (S2 / plan 0083) switches the fit's unit from the individual
     constraint to the collinear *group*. Also emits ``n_groups`` and
@@ -237,13 +247,18 @@ def evaluate(
         return (r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
                 sign_agreement(Y, Yh), topdecile_hit(Y, Yh))
 
-    # First refit needs a full trailing window behind it.
+    # First refit needs a full trailing window behind it. The refit grid is
+    # anchored at days[0] + win regardless of `score_from`, so the scored weeks
+    # land on the same boundaries whether or not the warmup is skipped.
     starts = pd.date_range(days[0] + win, end_day, freq=refit, inclusive="left")
+    if score_from is not None:
+        starts = starts[starts >= score_from]
+    if not len(starts):
+        return pd.DataFrame()
     log.info("evaluate: window=%dd refit=%dd λ=%g min_hours=%d rho_min=%s%s — %d "
              "refit boundaries [%s → %s]", window_days, refit_days, lam, min_hours,
              rho_min, " +control" if control else "",
-             len(starts), starts[0].date() if len(starts) else None,
-             starts[-1].date() if len(starts) else None)
+             len(starts), starts[0].date(), starts[-1].date())
     tick = max(1, len(starts) // 8)   # ~8 progress lines per combo
     rows: list[dict] = []
     prev_labels: pd.Series | None = None
