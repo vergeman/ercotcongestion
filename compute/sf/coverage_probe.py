@@ -1,23 +1,46 @@
-"""S1.1 / R2 probe — is the SF coverage gap mostly seasonal memory?
+"""Coverage-gap decomposition — what is the novel mu-mass actually made of?
 
-The out-of-window harness (``experiments/ibp_out_of_window``) found that in a
-typical week ~19% of the mu-mass driving congestion comes from constraints the
-trailing-60d fit has no column for (implicit SF=0). Two mechanisms with
-opposite fixes:
+In a typical week some of the mu-mass driving congestion falls on constraints
+the trailing fit has no column for (implicit SF=0). At the operating point 0082
+selected -- ``(240, 7, lambda=1)`` -- that gap is ~14% of mass. This splits it
+into the three tiers that have three DIFFERENT fixes, and reports the ceiling on
+what the cheapest of them can buy.
 
-  * seasonal memory — the constraint DID bind in the past year, just not in the
-    last 60 days. A warm-start (longer window / historical constraint priors)
-    gives it a column back. No new modeling.
-  * genuinely new — the constraint has no history at all. Only a faster refit
-    cadence or a structural model helps.
+The tiers are keyed on what a **lifetime constraint library** could actually do,
+not on whether the key was ever seen:
 
-This decomposes the *novel* mu-mass (binding in the scored week, absent from the
-trailing fit) into those two buckets, using the extended NP4-191 history. It
-needs only the shadow-price panel M (mu-mass and constraint presence) — no
-congestion panel, no ridge fit.
+  * **A -- warm-startable.** Some EARLIER fit window kept this key, so a fitted
+    SF row exists to inherit. This is the tier a warm-start closes; nothing else
+    is. (Note this is strictly narrower than 0082's ``seen_material``: clearing
+    ``min_hours`` inside a real fit window is the operational bar, not clearing
+    it somewhere in a lookback band.)
+  * **B -- seen, never fitted.** Bound at some point in history but never enough
+    hours in any one window to be fitted. The library has nothing to inject; only
+    a lower ``min_hours`` or a faster refit reaches these.
+  * **C -- genuinely new.** No history at all. Irreducible -- flag honestly,
+    widen bands.
 
-Pass criterion: seasonal share of novel mass >= 0.60 resolves R2 favorably —
-the gap closes with a warm-start, not a modeling project.
+``coverage_ceiling = 1 - (mass_B + mass_C) / mass_total`` is therefore the most
+coverage a perfect warm-start could reach. **Gate G1 (plan/0084): build the
+library only if ``coverage_ceiling - coverage >= 0.03``.** Below three points of
+mu-mass the R2 payoff is inside week-to-week noise.
+
+Two history modes:
+
+  * **lifetime** (default) -- the band behind the fit window is all history to
+    date. Weeks are admitted once ``--min-history-days`` of band sits behind the
+    fit window; ``hist_days`` is emitted per week so a growing band is visible
+    rather than silent.
+  * **fixed lookback** (``--lookback-days``) -- the 0082/R2 band ``[s-lookback,
+    s-window)`` and its two ``seasonal_*_share`` columns. Kept ONLY so that
+    result stays reproducible: at ``--window-days 60 --lookback-days 365`` this
+    reproduces R2's 0.507 / 0.303.
+
+**Why the default moved.** R2 ran at ``window=60``, where the band
+``[s-365d, s-60d)`` is 305 days. At ``window=240`` that same band is **125
+days** -- a season, not a year -- so every share it reported at the real
+operating point would be deflated by construction. The band was the bug, not the
+number.
 
     docker compose run --rm compute python -m compute.sf.coverage_probe
 """
@@ -36,77 +59,210 @@ from compute.sf.panels import load_shadow_prices
 
 log = logging.getLogger("compute.sf.coverage_probe")
 
-DEFAULT_WINDOW_DAYS = 60
+# The point 0082/S1.5 selected on honest OOS metrics. Not yet the code defaults
+# in fit.py/runner.py (that is S5) -- but the probe must measure the gap at the
+# point the product will actually run at, so it defaults here.
+DEFAULT_WINDOW_DAYS = 240
 DEFAULT_REFIT_DAYS = 7
-DEFAULT_LOOKBACK_DAYS = 365
 DEFAULT_MIN_HOURS = 25
-PASS_THRESHOLD = 0.60
+DEFAULT_MIN_HISTORY_DAYS = 365
+
+# plan/0084 gate G1, fixed before the run.
+GATE_MIN_LIFT = 0.03
+
+# RTC+B cutover. No pooled share without this split visible (handoff 3).
+RTCB_DATE = pd.Timestamp("2025-12-05")
+
+# Mass-weighted staleness buckets for tier A: how old the inherited SF row would
+# be. Tunes (or kills) a decay factor later; do not build one on this alone.
+AGE_BUCKETS = [(0, 30), (30, 90), (90, 180), (180, 10**6)]
 
 
 def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
+def _age_shares(ages: np.ndarray, mass: np.ndarray) -> dict:
+    """Mass-weighted share of tier-A mass in each staleness bucket."""
+    total = float(mass.sum())
+    out = {}
+    for lo, hi in AGE_BUCKETS:
+        label = f"age_{lo}_{hi}" if hi < 10**6 else f"age_gt{lo}"
+        sel = (ages >= lo) & (ages < hi)
+        out[label] = float(mass[sel].sum()) / total if total > 0 else np.nan
+    return out
+
+
 def probe(
     M: pd.DataFrame,
-    window_days: int,
-    refit_days: int,
-    lookback_days: int,
-    min_hours: int,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    refit_days: int = DEFAULT_REFIT_DAYS,
+    min_hours: int = DEFAULT_MIN_HOURS,
+    min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
+    lookback_days: int | None = None,
 ) -> pd.DataFrame:
-    """One row per scored week with a full ``lookback_days`` of history behind."""
+    """One row per scored week.
+
+    Walks the refit grid forward, maintaining the two pieces of state a library
+    would have at that moment -- ``ever_fitted`` (keys some earlier window kept,
+    with the boundary it was last kept at) and ``ever_seen`` (keys that have
+    bound at all). Both are strictly backward-looking: the fit at boundary ``s``
+    is the CURRENT fit, so tier A counts only boundaries ``s' < s``. Accumulating
+    after the row is emitted is what enforces that.
+
+    ``lookback_days`` switches to the 0082/R2 fixed band and its legacy columns.
+    """
     day = pd.Timedelta(days=1)
     win = pd.Timedelta(days=window_days)
-    look = pd.Timedelta(days=lookback_days)
     refit = pd.Timedelta(days=refit_days)
+    legacy = lookback_days is not None
+    look = pd.Timedelta(days=lookback_days or 0)
 
     days = pd.Index(M.index.normalize().unique()).sort_values()
     data_min, data_max = days[0], days[-1]
-    # First scored week whose lookback window [s-365d, s-60d) fits in history.
-    first = data_min + look
-    starts = pd.date_range(first, data_max, freq=refit, inclusive="left")
+
+    # The refit grid's anchor decides which weeks get scored, so the legacy mode
+    # must anchor exactly where R2 anchored (data_min + lookback) or it lands on
+    # different weeks and the 0.507/0.303 comparison is not like-for-like.
+    anchor = data_min + (look if legacy else win)
+    starts = pd.date_range(anchor, data_max, freq=refit, inclusive="left")
+
+    # Library state, carried forward across boundaries.
+    last_fitted: dict[str, pd.Timestamp] = {}   # key -> boundary last kept at
+    ever_seen: set[str] = set()
+    # Seed `ever_seen` with everything that bound before the first boundary; the
+    # loop extends it one refit period at a time.
+    M_pre = M.loc[M.index < starts[0]] if len(starts) else M.iloc[:0]
+    ever_seen |= set(M_pre.columns[(M_pre > 0).any()])
+    prev_bound = starts[0] if len(starts) else data_min
 
     rows: list[dict] = []
     for s in starts:
+        # Extend `ever_seen` with binds in [prev_bound, s) -- history strictly
+        # behind the scored week, including the current fit window (a constraint
+        # that bound 3h in-window was SEEN; it just wasn't fitted).
+        M_gap = M.loc[(M.index >= prev_bound) & (M.index < s)]
+        if not M_gap.empty:
+            ever_seen |= set(M_gap.columns[(M_gap > 0).any()])
+        prev_bound = s
+
         score_end = min(s + refit, data_max + day)
+
+        # The current fit's kept set: what this window would actually estimate.
+        M_win = M.loc[(M.index >= s - win) & (M.index < s)]
+        kept = set(M_win.columns[(M_win > 0).sum() >= min_hours]) if not M_win.empty \
+            else set()
 
         # mu-mass per constraint over the scored week (mu >= 0; slack = 0).
         M_score = M.loc[(M.index >= s) & (M.index < score_end)]
         mass = M_score.clip(lower=0).sum(axis=0)
         mass = mass[mass > 0]
         total = float(mass.sum())
-        if total <= 0:
-            continue
 
-        # Kept set: constraints the trailing-60d fit would keep (binding >= min_hours).
-        M_win = M.loc[(M.index >= s - win) & (M.index < s)]
-        kept = set(M_win.columns[(M_win > 0).sum() >= min_hours])
+        hist_days = int(((s - win) - data_min) / day)
+        admitted = (s >= data_min + look) if legacy else (hist_days >= min_history_days)
 
-        novel_mass_s = mass[~mass.index.isin(kept)]
-        novel_mass = float(novel_mass_s.sum())
-        coverage = 1.0 - novel_mass / total
+        if total > 0 and admitted:
+            novel_s = mass[~mass.index.isin(kept)]
+            novel = float(novel_s.sum())
+            coverage = 1.0 - novel / total
 
-        # Historical lookback window, strictly before the trailing fit.
-        M_hist = M.loc[(M.index >= s - look) & (M.index < s - win)]
-        seen_any = set(M_hist.columns[(M_hist > 0).any()])
-        seen_material = set(M_hist.columns[(M_hist > 0).sum() >= min_hours])
+            row = {
+                "week": s.date(),
+                "hist_days": hist_days,
+                "coverage": coverage,
+                "total_mass": total,
+                "novel_mass": novel,
+                "n_novel_keys": int(novel_s.size),
+                "post_rtcb": bool(s >= RTCB_DATE.tz_localize(s.tz)
+                                  if s.tz else s >= RTCB_DATE),
+            }
 
-        seasonal_any = float(novel_mass_s[novel_mass_s.index.isin(seen_any)].sum())
-        seasonal_material = float(
-            novel_mass_s[novel_mass_s.index.isin(seen_material)].sum()
-        )
+            # --- tiers (partition novel mass; A subset of seen by construction)
+            a_keys = novel_s.index[novel_s.index.isin(last_fitted.keys())]
+            rest = novel_s.drop(a_keys)
+            b_keys = rest.index[rest.index.isin(ever_seen)]
+            c_keys = rest.index.drop(b_keys)
 
-        rows.append({
-            "week": s.date(),
-            "coverage": coverage,
-            "total_mass": total,
-            "novel_mass": novel_mass,
-            "seasonal_any_mass": seasonal_any,
-            "seasonal_material_mass": seasonal_material,
-            "seasonal_any_share": seasonal_any / novel_mass if novel_mass > 0 else np.nan,
-            "seasonal_material_share": seasonal_material / novel_mass if novel_mass > 0 else np.nan,
-        })
+            mass_a = float(novel_s[a_keys].sum())
+            mass_b = float(novel_s[b_keys].sum())
+            mass_c = float(novel_s[c_keys].sum())
+
+            # The most a perfect warm-start could reach: B and C stay uncovered.
+            ceiling = 1.0 - (mass_b + mass_c) / total
+
+            ages = np.array([(s - last_fitted[k]) / day for k in a_keys], dtype=float)
+            a_mass = novel_s[a_keys].to_numpy(dtype=float)
+            row.update({
+                "mass_warmstartable": mass_a,
+                "mass_seen_unfitted": mass_b,
+                "mass_new": mass_c,
+                "share_warmstartable": mass_a / novel if novel > 0 else np.nan,
+                "share_seen_unfitted": mass_b / novel if novel > 0 else np.nan,
+                "share_new": mass_c / novel if novel > 0 else np.nan,
+                "n_warmstartable": int(a_keys.size),
+                "n_seen_unfitted": int(b_keys.size),
+                "n_new": int(c_keys.size),
+                "coverage_ceiling": ceiling,
+                "ceiling_lift": ceiling - coverage,
+                "mean_age_days": float(np.average(ages, weights=a_mass))
+                                 if a_mass.sum() > 0 else np.nan,
+                **_age_shares(ages, a_mass),
+            })
+
+            # --- legacy R2 band, for reproducibility of 0.507 / 0.303 only
+            if legacy:
+                M_hist = M.loc[(M.index >= s - look) & (M.index < s - win)]
+                seen_any = set(M_hist.columns[(M_hist > 0).any()])
+                seen_material = set(
+                    M_hist.columns[(M_hist > 0).sum() >= min_hours]
+                )
+                s_any = float(novel_s[novel_s.index.isin(seen_any)].sum())
+                s_mat = float(novel_s[novel_s.index.isin(seen_material)].sum())
+                row.update({
+                    "seasonal_any_mass": s_any,
+                    "seasonal_material_mass": s_mat,
+                    "seasonal_any_share": s_any / novel if novel > 0 else np.nan,
+                    "seasonal_material_share": s_mat / novel if novel > 0 else np.nan,
+                })
+
+            rows.append(row)
+
+        # Accumulate AFTER emitting: the fit at `s` is the current one, so it
+        # must not count as a prior fit for this week's tier A.
+        for k in kept:
+            last_fitted[k] = s
+
     return pd.DataFrame(rows)
+
+
+def _summarize(df: pd.DataFrame, label: str, min_hours: int, legacy: bool) -> None:
+    """Mass-weighted aggregates -- the honest way to combine per-week shares."""
+    novel = df["novel_mass"].sum()
+    print(f"\n=== {label} — {len(df)} weeks "
+          f"(hist band {df.hist_days.min()}–{df.hist_days.max()}d) ===")
+    print(f"coverage (mu-mass with a fitted SF column) : {df.coverage.mean():.3f}")
+    print(f"novel share (the gap)                      : {1 - df.coverage.mean():.3f}")
+    print("novel mass by tier (mass-weighted):")
+    print(f"  A  warm-startable  (a prior fit kept it) : "
+          f"{df.mass_warmstartable.sum() / novel:.3f}")
+    print(f"  B  seen, never fitted                    : "
+          f"{df.mass_seen_unfitted.sum() / novel:.3f}")
+    print(f"  C  genuinely new                         : "
+          f"{df.mass_new.sum() / novel:.3f}")
+    print(f"coverage ceiling (perfect warm-start)      : "
+          f"{df.coverage_ceiling.mean():.3f}")
+    lift = df.coverage_ceiling.mean() - df.coverage.mean()
+    print(f"  → achievable lift                        : {lift:+.3f}")
+    print("tier-A staleness (share of A mass by age of the inherited row):")
+    for lo, hi in AGE_BUCKETS:
+        col = f"age_{lo}_{hi}" if hi < 10**6 else f"age_gt{lo}"
+        print(f"  {col:<12} : {df[col].mean():.3f}")
+    if legacy:
+        print(f"[legacy R2 band] seasonal share, bound at all   : "
+              f"{df.seasonal_any_mass.sum() / novel:.3f}")
+        print(f"[legacy R2 band] seasonal share, bound >= {min_hours}h : "
+              f"{df.seasonal_material_mass.sum() / novel:.3f}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,9 +273,17 @@ def main(argv: list[str] | None = None) -> int:
                    help="Exclusive load end (default: latest NP4-191 date + 1d).")
     p.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS)
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
-    p.add_argument("--lookback-days", type=int, default=DEFAULT_LOOKBACK_DAYS,
-                   help="Seasonal-memory lookback behind the trailing fit window.")
     p.add_argument("--min-binding-hours", type=int, default=DEFAULT_MIN_HOURS)
+    p.add_argument("--min-history-days", type=int, default=DEFAULT_MIN_HISTORY_DAYS,
+                   help="Admit a week once this much history sits behind its fit "
+                        "window. Lifetime mode only.")
+    p.add_argument("--lookback-days", type=int, default=None,
+                   help="Use the 0082/R2 fixed band [s-lookback, s-window) and "
+                        "emit its seasonal_* columns instead of a lifetime band. "
+                        "At --window-days 60 --lookback-days 365 this reproduces "
+                        "R2's 0.507/0.303.")
+    p.add_argument("--out", type=str, default=None,
+                   help="Write the per-week rows to CSV.")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -144,28 +308,48 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     log.info("M=%s", M.shape)
 
-    df = probe(M, args.window_days, args.refit_days,
-               args.lookback_days, args.min_binding_hours)
+    legacy = args.lookback_days is not None
+    df = probe(M, args.window_days, args.refit_days, args.min_binding_hours,
+               args.min_history_days, args.lookback_days)
     if df.empty:
-        log.error("no scored weeks had a full %d-day lookback", args.lookback_days)
+        log.error("no scored weeks cleared the history requirement "
+                  "(window %dd, min-history %dd)",
+                  args.window_days, args.min_history_days)
         return 4
 
-    pd.set_option("display.width", 200)
-    print(df.to_string(index=False, float_format=lambda v: f"{v:10.3f}"))
+    pd.set_option("display.width", 250)
+    show = [c for c in ("week", "hist_days", "coverage", "coverage_ceiling",
+                        "ceiling_lift", "share_warmstartable",
+                        "share_seen_unfitted", "share_new", "mean_age_days",
+                        "n_novel_keys") if c in df.columns]
+    print(df[show].to_string(index=False, float_format=lambda v: f"{v:9.3f}"))
 
-    # Mass-weighted aggregates — the honest way to combine per-week shares.
-    tot_novel = df["novel_mass"].sum()
-    share_any = df["seasonal_any_mass"].sum() / tot_novel
-    share_material = df["seasonal_material_mass"].sum() / tot_novel
-    print(f"\n=== R2 probe over {len(df)} weeks "
-          f"(lookback {args.lookback_days}d, min_hours {args.min_binding_hours}) ===")
-    print(f"mean coverage (mu-mass with an SF column)     : {df.coverage.mean():.3f}")
-    print(f"mean novel share (the gap)                    : {1 - df.coverage.mean():.3f}")
-    print(f"seasonal share of novel mass  (bound at all)  : {share_any:.3f}")
-    print(f"seasonal share of novel mass  (bound >= {args.min_binding_hours}h) : {share_material:.3f}")
-    verdict = "SEASONAL — warm-start closes it" if share_any >= PASS_THRESHOLD \
-        else "NOT mostly seasonal — needs faster refit / model"
-    print(f"\nR2 verdict (>= {PASS_THRESHOLD:.2f} seasonal): {verdict}")
+    mode = (f"fixed lookback {args.lookback_days}d" if legacy else "lifetime band")
+    _summarize(df, f"coverage decomposition — window {args.window_days}d, "
+                   f"refit {args.refit_days}d, min_hours {args.min_binding_hours}, "
+                   f"{mode}", args.min_binding_hours, legacy)
+
+    # RTC+B split. Suggestive-vs-clean caveat: at window=240 the post-cutover fit
+    # windows still straddle the cutover.
+    for post, sub in df.groupby("post_rtcb"):
+        if len(sub) < 2:
+            continue
+        _summarize(sub, f"{'POST' if post else 'PRE'}-RTC+B",
+                   args.min_binding_hours, legacy)
+
+    if args.out:
+        df.to_csv(args.out, index=False)
+        log.info("wrote %s", args.out)
+
+    # --- Gate G1 (plan/0084), fixed before the run and not edited after.
+    lift = df.coverage_ceiling.mean() - df.coverage.mean()
+    verdict = ("PASS — build the library (commits 3–4)" if lift >= GATE_MIN_LIFT
+               else "FAIL — warm-start cannot buy enough; skip to the "
+                    "latency/admission work")
+    print(f"\n=== GATE G1 (achievable coverage lift >= {GATE_MIN_LIFT:.2f}) ===")
+    print(f"coverage {df.coverage.mean():.3f} → ceiling "
+          f"{df.coverage_ceiling.mean():.3f}  (lift {lift:+.3f})")
+    print(f"G1: {verdict}")
     return 0
 
 
