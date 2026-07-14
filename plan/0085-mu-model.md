@@ -144,20 +144,42 @@ the skill-decomposition finding (oracle 0.746 vs naive ~0.20) stands on its own.
 
 ## Acceptance
 
-* [ ] **R4 spike** recorded: constraint-key → station match rate, joinable μ-mass
+* [x] **R4 spike** recorded: constraint-key → station match rate, joinable μ-mass
       share, hand-audited sample, decision against the pre-registered bar.
-* [ ] No feature reads data unavailable at DAM close — asserted by a test that
-      fails on a deliberately leaked actual.
-* [ ] Heads trained walk-forward on trailing windows ending strictly before each
+      *Leg A passes (8,465/8,490 keys; 97.6% of μ-mass). Leg B is unreachable —
+      every outage product is behind the MIS Secure Area. Joinable μ-mass 0.000 →
+      **ZONAL FALLBACK** per the bar.*
+* [x] No feature reads data unavailable at DAM close — asserted by a test that
+      fails on a deliberately leaked actual. *Pinned from both sides: one test
+      fails if a feature sees the delivery day, another fails if it can't see all
+      24 hours of D-1 (whose shadow prices clear on D-2 and are public at DAM
+      close).*
+* [x] Heads trained walk-forward on trailing windows ending strictly before each
       scored week; a run at the `sf/eval.py` window convention reproduces its
-      week boundaries.
-* [ ] Head 1 calibration reported (reliability curve + Brier), not only AUC.
-* [ ] Model, climatology, persistence, null **and oracle** scored in one harness
+      week boundaries. *46 weeks, 2025-08-14 → 2026-06-25 — exactly `sf/eval`'s
+      grid. The phase drifted twice before this was pinned; `score.py` now reads
+      the grid off the model's own output rather than re-deriving it.*
+* [x] Head 1 calibration reported (reliability curve + Brier), not only AUC.
+      *Brier 0.02441, ECE 0.0009, AUC 0.8951 — the reliability curve tracks the
+      diagonal in every bucket.*
+* [x] Model, climatology, persistence, null **and oracle** scored in one harness
       on identical weeks; both currencies; per-regime and pre/post-RTC+B splits.
-* [ ] Nodal P10/P50/P90 emitted; empirical coverage of the bands reported (a P90
-      that isn't hit 10% of the time is not a P90).
-* [ ] **R5 verdict recorded against the §5.5 gate**, with the re-measured
-      persistence baseline printed beside it.
-* [ ] Runs at both `min_hours` operating points, or explicitly states which one it
-      assumes and why.
-* [ ] Tests green.
+      *`compute/mu/score.py`. Re-measuring the baselines is what exposed the false
+      "no-lose" premise.*
+* [x] Nodal P10/P50/P90 emitted; empirical coverage of the bands reported (a P90
+      that isn't hit 10% of the time is not a P90). *coverage80 = **0.673** vs an
+      0.800 target — the bands are too narrow. Cause: binding is sampled
+      independently per constraint, but constraints bind together (the same
+      collinearity that failed R3).*
+* [x] **R5 verdict recorded against the §5.5 gate**, with the re-measured
+      persistence baseline printed beside it. ***NOT THE PRODUCT*** *in all three
+      splits; existence test **FAIL** (model 0.548/0.787/0.523 vs persistence
+      0.496/0.736/**0.561** — it loses top-decile, the screener's own metric).*
+* [x] Runs at both `min_hours` operating points, or explicitly states which one it
+      assumes and why. ***Assumes `min_hours=25`*** *— the `fit.py` default, and the
+      value at which R1's re-sweep selected `(240, λ=1)`. The whole branch is a
+      comparison **between μ sources on a fixed map**, so the map is held at the
+      adopted point and not re-swept: varying it would change every row of the table
+      by the same amount and answer a question (S5's) that this branch is explicitly
+      told not to answer.*
+* [x] Tests green. *67 in `compute/mu/tests`.*
