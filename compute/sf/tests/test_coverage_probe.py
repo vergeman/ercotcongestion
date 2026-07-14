@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.coverage_probe import probe
+from compute.sf.coverage_probe import admission_stats, probe
 
 D0 = pd.Timestamp("2025-01-01")
 WINDOW, REFIT, MIN_HOURS, MIN_HIST = 60, 7, 25, 100
@@ -43,6 +43,10 @@ def planted() -> pd.DataFrame:
     # C — genuinely new: its first bind ever is in the scored week itself.
     for key in ("A", "B", "C"):
         _bind(M, key, 200, 10, mu=100.0)
+    # C binds again later. Without a RECURRENCE, admitting a constraint buys no
+    # coverage — it got its column after the only mass it ever carried. The
+    # coverage payoff of a lower bar lives entirely in the repeat offenders.
+    _bind(M, "C", 250, 10, mu=100.0)
     return M
 
 
@@ -104,6 +108,42 @@ def test_history_bar_admits_only_weeks_with_a_real_band(planted):
     assert (df.hist_days >= MIN_HIST).all()
     # hist_days is the band BEHIND the fit window, and it grows with time.
     assert df.hist_days.is_monotonic_increasing
+
+
+def test_latency_excludes_constraints_born_before_the_panel(planted):
+    """BG binds from hour zero, so its 'first bind' is an artifact of where the
+    data starts, not a birth. Counting it would report a latency for a lifetime
+    we never observed. Only A, B and C are born inside the window."""
+    st = admission_stats(planted, WINDOW, REFIT, MIN_HOURS, MIN_HIST)
+    assert st["n_new_keys"] == 3
+
+
+def test_min_hours_is_what_rejects_the_thin_constraints(planted):
+    """B (10h total) and C (10h) never reach 25h in a window, so they are never
+    admitted at all. Drop the bar to 5h and both get columns — this is the tier-B
+    mechanism the real panel says carries 58% of the gap."""
+    strict = admission_stats(planted, WINDOW, REFIT, min_hours=25,
+                             min_history_days=MIN_HIST)
+    loose = admission_stats(planted, WINDOW, REFIT, min_hours=5,
+                            min_history_days=MIN_HIST)
+    assert strict["n_admitted"] == 1          # A only
+    assert strict["admit_rate"] == pytest.approx(1 / 3)
+    assert strict["never_admitted_mass_share"] > 0
+
+    assert loose["admit_rate"] == pytest.approx(1.0)
+    assert loose["never_admitted_mass_share"] == pytest.approx(0.0)
+    assert loose["blind_mass_share"] < strict["blind_mass_share"]
+    assert loose["coverage"] > strict["coverage"]
+
+
+def test_refit_cadence_bounds_the_latency(planted):
+    """A constraint can only be admitted at a refit boundary, so the cadence is a
+    floor on how fast a new constraint can get a column."""
+    weekly = admission_stats(planted, WINDOW, refit_days=7, min_hours=MIN_HOURS,
+                             min_history_days=MIN_HIST)
+    daily = admission_stats(planted, WINDOW, refit_days=1, min_hours=MIN_HOURS,
+                            min_history_days=MIN_HIST)
+    assert daily["median_latency_days"] < weekly["median_latency_days"]
 
 
 def test_legacy_lookback_mode_emits_the_r2_columns(planted):

@@ -82,6 +82,42 @@ def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
+class _BindCounts:
+    """O(1) binding-hour counts over any day-aligned window.
+
+    Every refit boundary needs one thing from the trailing window: how many hours
+    each constraint bound, to compare against ``min_hours``. Slicing the panel to
+    get it copies a (window_hours x constraints) float frame per boundary — ~140MB
+    at a 240d window, and ``refit=1`` walks ~800 of them. A cumulative daily count
+    answers the same question from a table 16x smaller than one such slice.
+
+    Counts are integers, so this is EXACT, not an approximation: the kept sets it
+    produces are identical to the ones the slicing version produced. Refit
+    boundaries are day-aligned, so daily granularity loses nothing.
+    """
+
+    def __init__(self, M: pd.DataFrame) -> None:
+        self.columns = M.columns
+        daily = (M > 0).astype(np.int32).groupby(M.index.normalize()).sum()
+        self.days = daily.index
+        # Leading zero row so counts(lo, hi) is a plain difference.
+        self.cum = np.vstack([
+            np.zeros((1, len(self.columns)), dtype=np.int64),
+            daily.to_numpy(dtype=np.int64).cumsum(axis=0),
+        ])
+
+    def counts(self, lo, hi) -> np.ndarray:
+        i = self.days.searchsorted(lo, side="left")
+        j = self.days.searchsorted(hi, side="left")
+        return self.cum[j] - self.cum[i]
+
+    def kept(self, lo, hi, min_hours: int) -> set:
+        return set(self.columns[self.counts(lo, hi) >= min_hours])
+
+    def seen(self, lo, hi) -> set:
+        return set(self.columns[self.counts(lo, hi) > 0])
+
+
 def _age_shares(ages: np.ndarray, mass: np.ndarray) -> dict:
     """Mass-weighted share of tier-A mass in each staleness bucket."""
     total = float(mass.sum())
@@ -127,31 +163,24 @@ def probe(
     anchor = data_min + (look if legacy else win)
     starts = pd.date_range(anchor, data_max, freq=refit, inclusive="left")
 
+    if not len(starts):
+        return pd.DataFrame()
+    bc = _BindCounts(M)
+
     # Library state, carried forward across boundaries.
     last_fitted: dict[str, pd.Timestamp] = {}   # key -> boundary last kept at
-    ever_seen: set[str] = set()
-    # Seed `ever_seen` with everything that bound before the first boundary; the
-    # loop extends it one refit period at a time.
-    M_pre = M.loc[M.index < starts[0]] if len(starts) else M.iloc[:0]
-    ever_seen |= set(M_pre.columns[(M_pre > 0).any()])
-    prev_bound = starts[0] if len(starts) else data_min
 
     rows: list[dict] = []
     for s in starts:
-        # Extend `ever_seen` with binds in [prev_bound, s) -- history strictly
-        # behind the scored week, including the current fit window (a constraint
-        # that bound 3h in-window was SEEN; it just wasn't fitted).
-        M_gap = M.loc[(M.index >= prev_bound) & (M.index < s)]
-        if not M_gap.empty:
-            ever_seen |= set(M_gap.columns[(M_gap > 0).any()])
-        prev_bound = s
+        # Everything that bound anywhere strictly before the scored week —
+        # including inside the current fit window (a constraint that bound 3h
+        # in-window was SEEN; it just wasn't fitted).
+        ever_seen = bc.seen(data_min, s)
 
         score_end = min(s + refit, data_max + day)
 
         # The current fit's kept set: what this window would actually estimate.
-        M_win = M.loc[(M.index >= s - win) & (M.index < s)]
-        kept = set(M_win.columns[(M_win > 0).sum() >= min_hours]) if not M_win.empty \
-            else set()
+        kept = bc.kept(s - win, s, min_hours)
 
         # mu-mass per constraint over the scored week (mu >= 0; slack = 0).
         M_score = M.loc[(M.index >= s) & (M.index < score_end)]
@@ -212,11 +241,8 @@ def probe(
 
             # --- legacy R2 band, for reproducibility of 0.507 / 0.303 only
             if legacy:
-                M_hist = M.loc[(M.index >= s - look) & (M.index < s - win)]
-                seen_any = set(M_hist.columns[(M_hist > 0).any()])
-                seen_material = set(
-                    M_hist.columns[(M_hist > 0).sum() >= min_hours]
-                )
+                seen_any = bc.seen(s - look, s - win)
+                seen_material = bc.kept(s - look, s - win, min_hours)
                 s_any = float(novel_s[novel_s.index.isin(seen_any)].sum())
                 s_mat = float(novel_s[novel_s.index.isin(seen_material)].sum())
                 row.update({
@@ -234,6 +260,98 @@ def probe(
             last_fitted[k] = s
 
     return pd.DataFrame(rows)
+
+
+def admission_stats(
+    M: pd.DataFrame,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    refit_days: int = DEFAULT_REFIT_DAYS,
+    min_hours: int = DEFAULT_MIN_HOURS,
+    min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
+) -> dict:
+    """Novel-constraint latency: how long from a constraint's first bind to its
+    first SF column, under ``(window, refit, min_hours)``.
+
+    The handoff's design target is ~1 day and nobody had measured the actual
+    number. Two knobs gate admission and both are swept here: ``min_hours`` (the
+    constraint must bind that many hours inside the window) and ``refit_days``
+    (it can only be admitted at a refit boundary).
+
+    ``blind_mass_share`` is the metric that matters — mu-mass that binds while
+    the constraint still has no column, as a share of all mass over the region.
+    Latency in days is the mechanism; blind mass is the damage, and it is what
+    connects this directly to the coverage gap.
+
+    **Censoring is handled by exclusion, not by pretending.** Keys already
+    binding before the first refit boundary have no observable "first bind" (the
+    panel starts mid-life), so they are dropped. Keys born late enough that they
+    have not been admitted by the end of the panel are counted in
+    ``admit_rate``/``never_admitted_mass`` but cannot contribute a latency.
+    """
+    day = pd.Timedelta(days=1)
+    win = pd.Timedelta(days=window_days)
+    refit = pd.Timedelta(days=refit_days)
+
+    days = pd.Index(M.index.normalize().unique()).sort_values()
+    data_min, data_max = days[0], days[-1]
+    anchor = data_min + win
+    starts = pd.date_range(anchor, data_max, freq=refit, inclusive="left")
+    if not len(starts):
+        return {}
+
+    binding = M > 0
+    # First bind per key. Keys never binding get NaT and drop out below.
+    first_bind = binding.idxmax().where(binding.any(), pd.NaT)
+
+    # Uncensored births only: the key's first bind must fall on-or-after the
+    # first boundary, or we are measuring a lifetime that began before the data.
+    born = first_bind[first_bind >= starts[0]].dropna()
+    if born.empty:
+        return {}
+
+    bc = _BindCounts(M)
+    first_col: dict[str, pd.Timestamp] = {}
+    for s in starts:
+        for k in bc.kept(s - win, s, min_hours):
+            first_col.setdefault(k, s)
+
+    end = data_max + day
+    lat, blind, total_born_mass = [], [], []
+    for k, f in born.items():
+        c = first_col.get(k)
+        # Mass that bound with no column: from first bind until admitted (or,
+        # if never admitted, until the panel ends).
+        stop = c if c is not None else end
+        col = M[k]
+        blind.append(float(col.loc[(col.index >= f) & (col.index < stop)]
+                           .clip(lower=0).sum()))
+        total_born_mass.append(float(col.clip(lower=0).sum()))
+        if c is not None:
+            lat.append((c - f) / day)
+
+    lat = np.array(lat, dtype=float)
+    blind_mass = float(np.sum(blind))
+    # Denominator: all mass over the region a column could have covered.
+    M_region = M.loc[M.index >= anchor]
+    region_mass = float(M_region.clip(lower=0).to_numpy(dtype=float).sum())
+    never = [b for k, b in zip(born.index, total_born_mass) if k not in first_col]
+
+    cov = probe(M, window_days, refit_days, min_hours, min_history_days)
+    return {
+        "window_days": window_days,
+        "refit_days": refit_days,
+        "min_hours": min_hours,
+        "n_new_keys": int(born.size),
+        "n_admitted": int(sum(k in first_col for k in born.index)),
+        "admit_rate": float(sum(k in first_col for k in born.index) / born.size),
+        "median_latency_days": float(np.median(lat)) if lat.size else np.nan,
+        "p90_latency_days": float(np.percentile(lat, 90)) if lat.size else np.nan,
+        "blind_mass_share": blind_mass / region_mass if region_mass > 0 else np.nan,
+        "never_admitted_mass_share": (float(np.sum(never)) / region_mass
+                                      if region_mass > 0 else np.nan),
+        "coverage": float(cov["coverage"].mean()) if not cov.empty else np.nan,
+        "n_weeks": int(len(cov)),
+    }
 
 
 def _summarize(df: pd.DataFrame, label: str, min_hours: int, legacy: bool) -> None:
@@ -282,6 +400,14 @@ def main(argv: list[str] | None = None) -> int:
                         "emit its seasonal_* columns instead of a lifetime band. "
                         "At --window-days 60 --lookback-days 365 this reproduces "
                         "R2's 0.507/0.303.")
+    p.add_argument("--emit-latency", action="store_true",
+                   help="Instead of the tier table, sweep the two admission "
+                        "knobs (--refit-grid x --min-hours-grid) and report "
+                        "novel-constraint latency, blind mu-mass and coverage "
+                        "for each. Needs no ridge fits — the ACCURACY guard on "
+                        "any move comes from sweep_ibp, not from here.")
+    p.add_argument("--refit-grid", default="1,3,7")
+    p.add_argument("--min-hours-grid", default="5,10,25")
     p.add_argument("--out", type=str, default=None,
                    help="Write the per-week rows to CSV.")
     args = p.parse_args(argv)
@@ -307,6 +433,28 @@ def main(argv: list[str] | None = None) -> int:
         log.error("empty shadow-price panel over [%s, %s)", start, end)
         return 3
     log.info("M=%s", M.shape)
+
+    if args.emit_latency:
+        rows = []
+        for r in (int(x) for x in args.refit_grid.split(",") if x.strip()):
+            for mh in (int(x) for x in args.min_hours_grid.split(",") if x.strip()):
+                log.info("admission: window=%d refit=%d min_hours=%d",
+                         args.window_days, r, mh)
+                st = admission_stats(M, args.window_days, r, mh,
+                                     args.min_history_days)
+                if st:
+                    rows.append(st)
+        grid = pd.DataFrame(rows)
+        print(grid.to_string(index=False, float_format=lambda v: f"{v:9.3f}"))
+        print("\nmedian/p90 latency = days from a new constraint's first bind to "
+              "its first SF column.\nblind_mass_share = mu-mass that bound while "
+              "the constraint still had no column.\nCurrent operating point is "
+              f"refit=7, min_hours={DEFAULT_MIN_HOURS}. A move needs the OOS "
+              "accuracy guard from sweep_ibp.")
+        if args.out:
+            grid.to_csv(args.out, index=False)
+            log.info("wrote %s", args.out)
+        return 0
 
     legacy = args.lookback_days is not None
     df = probe(M, args.window_days, args.refit_days, args.min_binding_hours,
