@@ -1,4 +1,4 @@
-# 0084 - coverage-decomposition — G1 = FAIL (library not built); admission verdict PENDING
+# 0084 - coverage-decomposition — G1 = FAIL (library not built); admission guard = PASS (`min_hours=25` rejected)
 
 Type: feat
 Branch: feat/0084-coverage-decomposition
@@ -7,7 +7,9 @@ Branch: feat/0084-coverage-decomposition
 warm-start (commits 3–4) were **not built** — 0082's 240d window had already
 absorbed the seasonal memory they existed to recover. The measurement redirected
 the branch: the gap is **58% rejection** (`min_hours=25`) vs **16% forgetting**,
-so the admission work (commit 5) became the main event. Narrative in
+so the admission work (commit 5) became the main event — **and it paid**: the
+46-week guard sweep rejects `min_hours=25` outright (coverage 0.863 → 0.926,
+latency 23.5 d → 6.5 d, and OOS R² *up*, not traded). Narrative in
 `plan/0084-summary.md`.
 
 ## Goal
@@ -237,10 +239,54 @@ Nothing traded — every metric improves, stability included. `min_hours=25` was
 discarding ~1,240 identifiable columns per window and paying for it. Same species
 as 0082's decorative λ: a knob never selected against anything.
 
-**NOT YET A VERDICT — `min_hours` is not adopted.** Those 8 weeks are all
-post-RTC+B, and RTC+B is where this project keeps finding regime breaks. The
-46-week confirmation spanning both sides is running (`ibp_sweep_admission.csv`).
-The bar does not move until it lands.
+**Guard sweep — 46 weeks, both sides of RTC+B, identical weeks per arm.**
+`min_hours ∈ {5,10,25}` at `(240, 7, λ=1)`. Latency from `admission_stats` on the
+same panel (counting, no fits).
+
+| min_hours | OOS R² | Spearman | sign | top-dec | coverage | median latency | p90 | admit rate | median cols |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 | 0.798 | **0.854** | **0.934** | **0.779** | **0.926** | **6.5 d** | 99 d | **0.542** | 2,199 |
+| 10 | **0.801** | 0.851 | 0.932 | 0.776 | 0.906 | 11.8 d | 151 d | 0.376 | 1,645 |
+| 25 *(today)* | 0.787 | 0.834 | 0.922 | 0.760 | 0.863 | 23.5 d | 192 d | 0.208 | 1,068 |
+
+**The bar clears, and it clears for both 5 and 10** (`OOS R² ≥ 0.787 − 0.005` and
+median latency improves ≥ 2 d). **`min_hours=25` is dominated on every column
+reported** — it was never selected against anything, and it is rejected.
+
+The 8-week post-RTC+B read held up over the full range, so the regime worry did
+not materialize: the sign of the effect is the same pre and post.
+
+| era | mh=5 | mh=10 | mh=25 |
+|---|---|---|---|
+| pre-RTC+B OOS R² (17 wk) | 0.773 | **0.800** | 0.787 |
+| post-RTC+B OOS R² (29 wk) | **0.813** | 0.802 | 0.786 |
+
+**But the pooled mean hides a fat left tail at `min_hours=5`, and it is the exact
+failure the guard existed to catch.** Paired week-by-week, mh=5 beats mh=25 on
+**39/46 weeks** (median Δ +0.012) — yet on **2025-09-18 it goes negative: OOS
+−0.070 against mh=25's +0.364, with in-sample 0.994.** That is not noise, it is a
+textbook under-identification blow-up: the arm bought coverage (0.864 vs 0.459 on
+that week — an anomalous week for every arm) by admitting columns it could not
+identify, and fitted them to the in-sample noise. Drop that one week and mh=5's
+edge is clean and consistent (mean Δ +0.022, sd 0.039). Keep it, and mh=5's
+*pooled* mean (0.798) falls below mh=10's (0.801) — **mh=10's higher mean is
+entirely that single week**, since mh=5 beats mh=10 on 36/46 weeks and on the
+median-of-weeks (0.880 vs 0.867).
+
+**So the two arms differ in kind, not in degree, and the pre-registered bar does
+not discriminate between them:**
+
+* **`min_hours=5`** — best coverage (0.926), fastest latency (6.5 d), wins the
+  typical week. **Owns a negative-R² week.**
+* **`min_hours=10`** — most of the coverage gain (0.906 of the 0.926) and most of
+  the latency gain (11.8 d of the 6.5 d), **and no blow-up: on the collapse week
+  it held 0.387, beating even mh=25.** The conservative buy.
+
+**Adoption is S5's call, not this branch's** — recorded here so it is made with
+the tail visible rather than off the pooled mean. A defensible S5 choice is
+`min_hours=10`; choosing 5 means accepting a rare week where the map is worse
+than useless, which for a *screening* product may well be acceptable and for a
+*forecast* product is not. Either way **`min_hours=25` does not survive.**
 
 **Perf (incidental but load-bearing).** The first admission grid **did not
 finish** (killed at 26 min): each boundary sliced a ~140MB float frame out of the
@@ -271,10 +317,12 @@ counts) makes it exact-and-O(1) — **26min+ → 25s**, numbers bit-identical.
 * [x] Novel-constraint latency measured (median 23.5d / p90 192d at the current
       point); `admission_grid.csv` committed; the cheap grid carries no accuracy
       claim by construction — the guard comes from `sweep_ibp`.
-* [ ] **PENDING** — 46-week `min_hours ∈ {5,10,25}` guard sweep at `(240, 7, λ=1)`,
-      pre/post-RTC+B split. Adopt `min_hours` only if OOS R² ≥ current − 0.005
-      **and** median latency improves ≥ 2 days. Coverage alone does not justify a
-      move.
+* [x] 46-week `min_hours ∈ {5,10,25}` guard sweep at `(240, 7, λ=1)` landed,
+      pre/post-RTC+B split recorded. **Bar cleared by both 5 and 10** (OOS R²
+      ≥ current − 0.005 **and** median latency improves ≥ 2 d); `min_hours=25` is
+      dominated and rejected. Coverage alone did not have to carry it — R²,
+      Spearman, sign and top-decile all improve too. **5 vs 10 is left to S5 with
+      the tail on the record** (mh=5 owns a negative-R² week, 2025-09-18).
 * [x] Gated work honored: no library, no warm-start, no migration, no runner
       flag. **Bars not moved.**
 * [x] 48 tests green (37 existing + 11 new).
@@ -284,7 +332,14 @@ counts) makes it exact-and-O(1) — **26min+ → 25s**, numbers bit-identical.
 * **`refit=1` is unguarded.** The cheap grid says it takes latency 6.5d → 2.4d,
   but no OOS arm was run for it (7× the fits). Guard it before adopting.
 * **Adoption belongs to S5**, with `(240, λ=1)`. Do not change `fit.py` defaults
-  here.
+  here. The `min_hours` guard has now *run* — S5 picks 5 or 10 off the table
+  above; it does not get to pick 25.
+* **The 2025-09-18 collapse is worth one look before S5 picks.** Every arm scored
+  poorly that week (mh=25 coverage 0.459 — a novel-mass spike) but only mh=5 went
+  negative. If a cheap guard exists (e.g. a per-window condition-number or
+  `n_kept`-vs-`n_hours` floor that trips only on weeks like this), mh=5's coverage
+  becomes buyable without the tail. **Do not tune `min_hours` per week to make the
+  number go away** — that is fitting the guard to the outlier.
 * **RTC+B, third sighting.** Coverage is materially better post-cutover (0.875 vs
   0.841) and tier A is 2.7× larger (0.209 vs 0.078). With 0083's ~2× disjoint
   stability jump, that is now two independent post-RTC+B signals — feeds

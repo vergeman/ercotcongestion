@@ -1,0 +1,512 @@
+"""The two heads: P(bind) and E[mu | bind].
+
+plan/0085 commit 3.
+
+**Pooled, not per-constraint.** One model over all constraints, with constraint
+identity entering as *features* (its own binding history, plus a target-encoded
+binding rate) rather than as N separate models. A per-constraint GBM for something
+that binds 5 hours in 240 days is hopeless, and 0084's guard sweep has now made
+that the common case rather than the exception: `min_hours=25` is dead, so the map
+carries ~1,650-2,200 columns and roughly half of them are thin binders. Pooling
+borrows strength across constraints and is robust to either operating point.
+
+**Head 1 — P(bind at h).** Gradient-boosted classifier. The headline metric is
+**calibration**, not AUC, and the distinction is not pedantry: commit 5 samples
+binding sets from these probabilities and pushes them through the SF map to get
+nodal P10/P50/P90. A model that ranks perfectly but says 0.9 when it means 0.5
+produces beautifully ordered, systematically wrong bands. AUC cannot see that;
+Brier and the reliability curve can.
+
+**Head 2 — E[mu | bind].** The plan says conditional climatology FIRST, quantile
+regression only if the simple version is beaten — so both are built and scored
+head-to-head here, and `mu_head` reports which won rather than assuming. The
+climatology is bucketed on net load, which is the physical driver: congestion
+magnitude is a function of how hard the system is being pushed.
+
+**Honest walk-forward.** Train on the trailing window ending STRICTLY BEFORE the
+scored week — the same convention as `sf/eval.evaluate`, whose refit grid this
+deliberately mirrors so the two can be compared week-for-week in commit 4. Every
+quantity fitted on training data (including the target encoding and the
+climatology buckets) is fitted inside the window and applied forward. There are no
+exceptions and no "just for the sweep".
+"""
+from __future__ import annotations
+
+import logging
+import time
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import (HistGradientBoostingClassifier,
+                              HistGradientBoostingRegressor)
+from sklearn.metrics import brier_score_loss, roc_auc_score
+
+from compute.mu.features import BIND_DEADBAND
+
+log = logging.getLogger("compute.mu.mu_model")
+
+# Mirrors the SF operating point adopted in 0082 (window=240d, refit=7d) so the
+# mu-model's scored weeks land on the same boundaries as the SF map's.
+DEFAULT_TRAIN_DAYS = 240
+DEFAULT_REFIT_DAYS = 7
+
+# Columns that are targets or bookkeeping, never inputs.
+NON_FEATURES = ("y_mu", "y_bind", "delivery_day")
+
+# Smoothing for the target encoding. A constraint seen for 3 hours should not be
+# handed a 1.0 binding rate; it should be pulled most of the way back to the pooled
+# mean. `n / (n + PRIOR_STRENGTH)` is the weight its own history gets.
+PRIOR_STRENGTH = 50.0
+
+MU_FLOOR = 1.0   # $/MWh; log1p is taken on mu, so this only guards the tail
+
+
+def feature_cols(panel: pd.DataFrame) -> list[str]:
+    return [c for c in panel.columns
+            if c not in NON_FEATURES and not c.startswith("vintage_")]
+
+
+# --------------------------------------------------------------------------
+# Constraint identity, without a per-constraint model
+# --------------------------------------------------------------------------
+
+def target_encoding(train: pd.DataFrame) -> tuple[pd.Series, float]:
+    """Smoothed binding rate per constraint, fitted on TRAIN ONLY.
+
+    This is the feature that carries constraint identity into a pooled model. It
+    is also the single most dangerous feature in the package: computed over the
+    whole panel it would encode the scored week's own binding rate, which is the
+    target. It is therefore fitted here, from `train`, and applied forward — and
+    `test_target_encoding_is_blind_to_the_scored_week` pins that.
+
+    Returns `(per-key rate, pooled mean)`. The pooled mean is the fallback for a
+    key the training window never saw — the honest answer for a constraint we know
+    nothing about is "whatever a typical constraint does".
+    """
+    g = train.groupby(level="key")["y_bind"]
+    n, k = g.count(), g.sum()
+    pooled = float(train["y_bind"].mean()) if len(train) else 0.0
+    smoothed = (k + PRIOR_STRENGTH * pooled) / (n + PRIOR_STRENGTH)
+    return smoothed.astype("float32"), pooled
+
+
+def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float) -> pd.DataFrame:
+    out = panel.copy()
+    keys = out.index.get_level_values("key")
+    out["key_bind_rate"] = enc.reindex(keys).fillna(pooled).to_numpy("float32")
+    return out
+
+
+# --------------------------------------------------------------------------
+# Head 1 — P(bind)
+# --------------------------------------------------------------------------
+
+def fit_bind_head(train: pd.DataFrame, cols: list[str],
+                  seed: int = 0) -> HistGradientBoostingClassifier:
+    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s
+    note on why the covariate holes must not be filled."""
+    model = HistGradientBoostingClassifier(
+        max_iter=200, learning_rate=0.06, max_leaf_nodes=31,
+        min_samples_leaf=100, l2_regularization=1.0,
+        early_stopping=False, random_state=seed)
+    model.fit(train[cols], train["y_bind"])
+    return model
+
+
+def reliability(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> pd.DataFrame:
+    """The reliability curve: in the bucket where we said ~x, how often did it happen?
+
+    Reported alongside Brier because Brier is a single number that mixes
+    calibration and resolution; the curve says *where* the model lies, which is
+    what tells you whether the downstream bands are trustworthy at the high-p end
+    (the only end anyone acts on).
+    """
+    edges = np.linspace(0, 1, n_bins + 1)
+    b = np.clip(np.digitize(p, edges[1:-1]), 0, n_bins - 1)
+    df = pd.DataFrame({"bin": b, "p": p, "y": y})
+    out = df.groupby("bin").agg(n=("y", "size"), p_mean=("p", "mean"),
+                                y_rate=("y", "mean"))
+    out["gap"] = out["y_rate"] - out["p_mean"]
+    return out
+
+
+def bind_metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    """Calibration first, discrimination second — deliberately in that order."""
+    rel = reliability(y, p)
+    # Weight each bin's miscalibration by how much of the mass sits in it.
+    ece = float((rel["n"] / rel["n"].sum() * rel["gap"].abs()).sum())
+    return {
+        "brier": float(brier_score_loss(y, p)),
+        "ece": ece,
+        "auc": float(roc_auc_score(y, p)) if 0 < y.mean() < 1 else np.nan,
+        "base_rate": float(y.mean()),
+        "mean_pred": float(p.mean()),
+    }
+
+
+# --------------------------------------------------------------------------
+# Head 2 — E[mu | bind]
+# --------------------------------------------------------------------------
+
+def fit_mu_climatology(train: pd.DataFrame, n_buckets: int = 6
+                       ) -> tuple[pd.Series, np.ndarray, float]:
+    """Conditional climatology: mean mu per (net-load bucket x hour-of-day), on binders.
+
+    The plan's stated backbone, and the thing quantile regression has to beat.
+    Bucket edges come from the TRAINING window's net load only — fitting them
+    across train+test would leak the scored week's distribution (the same mistake
+    `legacy/regimes/binners._qcut` makes).
+    """
+    binders = train[train["y_bind"] == 1]
+    grand = float(binders["y_mu"].mean()) if len(binders) else 0.0
+    if binders.empty:
+        return pd.Series(dtype="float64"), np.array([]), grand
+
+    edges = np.unique(np.quantile(train["net_load"].dropna(),
+                                  np.linspace(0, 1, n_buckets + 1)[1:-1]))
+    cells = binders.groupby([np.digitize(binders["net_load"], edges),
+                             binders["hour"]])["y_mu"].mean()
+    return cells, edges, grand
+
+
+def predict_mu_climatology(panel: pd.DataFrame, cells: pd.Series,
+                           edges: np.ndarray, grand: float) -> np.ndarray:
+    if cells.empty:
+        return np.full(len(panel), grand)
+    idx = pd.MultiIndex.from_arrays([np.digitize(panel["net_load"], edges),
+                                     panel["hour"]])
+    return cells.reindex(idx).fillna(grand).to_numpy()
+
+
+def fit_mu_head(train: pd.DataFrame, cols: list[str],
+                seed: int = 0) -> HistGradientBoostingRegressor:
+    """GBM on log1p(mu), trained on BINDING rows only.
+
+    Two choices worth stating. Training only on binders is what makes this
+    `E[mu | bind]` rather than `E[mu]` — the unconditional mean is mostly zeros
+    and would be a different (and useless) quantity. And mu is heavy-tailed
+    (measured max $1,088 against a mean of $48), so a squared-error fit on the raw
+    scale would spend the model on a handful of extreme hours; log1p pulls that in
+    and the prediction is mapped back with expm1.
+    """
+    binders = train[train["y_bind"] == 1]
+    model = HistGradientBoostingRegressor(
+        max_iter=200, learning_rate=0.06, max_leaf_nodes=31,
+        min_samples_leaf=50, l2_regularization=1.0,
+        early_stopping=False, random_state=seed)
+    model.fit(binders[cols], np.log1p(binders["y_mu"].clip(lower=MU_FLOOR)))
+    return model
+
+
+def predict_mu_head(model: HistGradientBoostingRegressor, panel: pd.DataFrame,
+                    cols: list[str]) -> np.ndarray:
+    return np.expm1(model.predict(panel[cols])).clip(min=0.0)
+
+
+# --------------------------------------------------------------------------
+# The walk
+# --------------------------------------------------------------------------
+
+def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
+                     score_from: pd.Timestamp | None = None,
+                     anchor: pd.Timestamp | None = None) -> pd.DatetimeIndex:
+    """The weekly refit grid, phase-locked to `sf/eval`.
+
+    **`score_from` IS a grid point, and that is the whole trick.** Commit 4 scores
+    every mu source in one harness on IDENTICAL weeks, and commit 5 pushes those
+    weeks through an SF map refit on `sf/eval`'s grid — so a grid that is merely
+    *weekly* is not enough, it has to be weekly **in the same phase**.
+
+    `sf/eval` derives its phase from `days[0] + train_days` of whatever panel that
+    run loaded. Reproducing that here means reproducing a start date we do not
+    otherwise need, and getting it wrong is silent: the run still produces 46
+    tidy weeks, just not the same 46. It has now been wrong twice — anchored on
+    the covariate panel the weeks landed 2 days late, and anchored on this run's
+    shadow-price panel (which starts at the covariate range, not the SF sweep's)
+    still 1 day late, at 2025-08-15 against sf's 2025-08-14.
+
+    So stop deriving the phase and take it. `--score-from` is already given a real
+    `sf/eval` week start, which pins the phase exactly with nothing left to infer.
+    `anchor` remains only for the no-`score_from` case (tests, standalone use),
+    where there is no week to lock onto.
+    """
+    days = pd.DatetimeIndex(
+        panel.index.get_level_values("interval_ts").normalize().unique()).sort_values()
+
+    if score_from is not None:
+        origin = pd.Timestamp(score_from).tz_convert(days.tz)
+        if origin - pd.Timedelta(days=train_days) < days[0]:
+            raise ValueError(
+                f"score_from={origin.date()} needs {train_days}d of history back to "
+                f"{(origin - pd.Timedelta(days=train_days)).date()}, but the panel "
+                f"starts {days[0].date()}. The first week would train on a short "
+                f"window and score anyway — refusing.")
+        return pd.date_range(origin, days[-1], freq=pd.Timedelta(days=refit_days),
+                             inclusive="left")
+
+    origin = pd.Timestamp(anchor).tz_convert(days.tz) if anchor is not None else days[0]
+    return pd.date_range(origin + pd.Timedelta(days=train_days), days[-1],
+                         freq=pd.Timedelta(days=refit_days), inclusive="left")
+
+
+def walk_forward(panel: pd.DataFrame,
+                 train_days: int = DEFAULT_TRAIN_DAYS,
+                 refit_days: int = DEFAULT_REFIT_DAYS,
+                 score_from: pd.Timestamp | None = None,
+                 anchor: pd.Timestamp | None = None,
+                 seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fit both heads on each trailing window; predict the next `refit_days`.
+
+    Returns `(predictions, weekly)`:
+
+      predictions  one row per scored (hour, constraint), with `p_bind`,
+                   `mu_clim`, `mu_gbm` and the realized `y_bind` / `y_mu`. This is
+                   what commit 4's harness and commit 5's sampler consume.
+      weekly       one row per scored week: head-1 calibration and head-2 error,
+                   so a bad week is visible as a week rather than averaged away.
+    """
+    cols = feature_cols(panel) + ["key_bind_rate"]
+    ts = panel.index.get_level_values("interval_ts")
+    starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
+    if not len(starts):
+        return pd.DataFrame(), pd.DataFrame()
+
+    # The panel is built hour by hour, so it arrives sorted by time — which lets a
+    # fold be a contiguous `iloc` slice (a view) instead of `panel[(ts>=lo)&(ts<s)]`
+    # (a fresh ~1 GB copy of 4.5M rows, twice per week, on top of the 2.5 GB panel).
+    # Sortedness is what makes that legal, so check it rather than assume it.
+    if not ts.is_monotonic_increasing:
+        raise ValueError("panel must be sorted by interval_ts")
+
+    log.info("walk_forward: train=%dd refit=%dd — %d weeks [%s → %s]",
+             train_days, refit_days, len(starts), starts[0].date(), starts[-1].date())
+
+    preds, weeks = [], []
+    t_walk = time.perf_counter()
+    for i, s in enumerate(starts):
+        t0 = time.perf_counter()
+        lo = s - pd.Timedelta(days=train_days)
+        hi = s + pd.Timedelta(days=refit_days)
+
+        # STRICTLY before: the train slice ENDS at `s`, so the scored week never
+        # touches the fit. `searchsorted(..., "left")` on `s` puts the first row of
+        # the scored week at the boundary and excludes it from train — same
+        # half-open window as the mask it replaces.
+        # `ts.searchsorted`, not `np.searchsorted(np.asarray(ts), ...)`: pandas 3
+        # renders a tz-aware index as an OBJECT array of Timestamps, which then
+        # compares tz-aware against tz-naive datetime64 and raises. The index's own
+        # searchsorted keeps both the timezone and the (microsecond) unit.
+        a, b, c = ts.searchsorted([lo, s, hi], side="left")
+        train, score = panel.iloc[a:b], panel.iloc[b:c]
+        if train.empty or score.empty or train["y_bind"].sum() < 10:
+            continue
+
+        enc, pooled = target_encoding(train)
+        train_e = apply_encoding(train, enc, pooled)
+        score_e = apply_encoding(score, enc, pooled)
+
+        bind = fit_bind_head(train_e, cols, seed)
+        p = bind.predict_proba(score_e[cols])[:, 1]
+
+        cells, edges, grand = fit_mu_climatology(train_e)
+        mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
+        mu_gbm = predict_mu_head(fit_mu_head(train_e, cols, seed), score_e, cols)
+
+        out = pd.DataFrame({
+            "p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm,
+            "y_bind": score_e["y_bind"].to_numpy(),
+            "y_mu": score_e["y_mu"].to_numpy(),
+        }, index=score_e.index)
+        out["week"] = s
+        preds.append(out)
+
+        row = {"week": s, "n_train": len(train), "n_score": len(score),
+               **bind_metrics(out["y_bind"].to_numpy(), p)}
+        hit = out[out["y_bind"] == 1]
+        if len(hit):
+            for name in ("mu_clim", "mu_gbm"):
+                err = hit[name] - hit["y_mu"]
+                row[f"mae_{name}"] = float(err.abs().mean())
+                ss = float(((hit["y_mu"] - hit["y_mu"].mean()) ** 2).sum())
+                row[f"r2_{name}"] = (1.0 - float((err ** 2).sum()) / ss
+                                     if ss > 0 else np.nan)
+        weeks.append(row)
+
+        # Per week, not every 8th: a 46-week walk is the long pole in this branch
+        # and "is it stuck or is it slow" should not need a guess. The running ETA
+        # is what makes an early kill (a misphased grid, a bad panel) cheap.
+        dt = time.perf_counter() - t0
+        done, elapsed = i + 1, time.perf_counter() - t_walk
+        log.info("  week %2d/%d %s  %.0fs  (train %s, score %s)  eta %.0fm",
+                 done, len(starts), s.date(), dt, f"{len(train):,}", f"{len(score):,}",
+                 (elapsed / done) * (len(starts) - done) / 60)
+
+    return (pd.concat(preds) if preds else pd.DataFrame(),
+            pd.DataFrame(weeks))
+
+
+# --------------------------------------------------------------------------
+# Persisting the predictions — the input to commits 4 and 5
+# --------------------------------------------------------------------------
+
+def save_preds(path: str, preds: pd.DataFrame) -> None:
+    """Write the prediction frame as a compressed .npz.
+
+    **Not parquet:** the compute image ships neither pyarrow nor fastparquet, so
+    `to_parquet` raises — and it would have raised at the END of a ~2h walk, after
+    every fit was already paid for. npz needs only numpy.
+
+    The constraint key is factorized to int32 codes against a vocabulary rather
+    than stored as a string per row: at ~11M rows and ~30-char keys, the naive
+    encoding is over a gigabyte of mostly-repeated text.
+
+    Timestamps go out as int64 UTC **microseconds** — npz has no tz-aware dtype,
+    and silently dropping a timezone here is exactly how an hour-shift enters a
+    panel the leak audit has already signed off on. Microseconds, not nanoseconds,
+    because pandas 3 makes `us` the default resolution (`date_range` returns
+    `datetime64[us]` while `to_datetime(unit="ns")` returns `ns`), so an ns
+    round-trip comes back with a different dtype and silently fails an index
+    comparison. The data is hourly; there is no precision to lose either way.
+    """
+    df = preds.reset_index()
+    codes, vocab = pd.factorize(df["key"], sort=True)
+
+    def epoch_us(s: pd.Series) -> np.ndarray:
+        return (pd.DatetimeIndex(s).tz_convert("UTC").tz_localize(None)
+                .to_numpy("datetime64[us]").astype("int64"))
+
+    np.savez_compressed(
+        path,
+        interval_ts=epoch_us(df["interval_ts"]),
+        week=epoch_us(df["week"]),
+        key_code=codes.astype("int32"),
+        key_vocab=np.asarray(vocab, dtype=object).astype("U"),
+        p_bind=df["p_bind"].to_numpy("float32"),
+        mu_clim=df["mu_clim"].to_numpy("float32"),
+        mu_gbm=df["mu_gbm"].to_numpy("float32"),
+        y_bind=df["y_bind"].to_numpy("int8"),
+        y_mu=df["y_mu"].to_numpy("float32"),   # NaN where it did not bind
+    )
+
+
+def load_preds(path: str) -> pd.DataFrame:
+    """Inverse of `save_preds`. Round-trips exactly — see the test."""
+    z = np.load(path, allow_pickle=False)
+    vocab = z["key_vocab"]
+    df = pd.DataFrame({
+        "interval_ts": pd.to_datetime(z["interval_ts"], unit="us", utc=True),
+        "key": vocab[z["key_code"]],
+        "week": pd.to_datetime(z["week"], unit="us", utc=True),
+        "p_bind": z["p_bind"], "mu_clim": z["mu_clim"], "mu_gbm": z["mu_gbm"],
+        "y_bind": z["y_bind"], "y_mu": z["y_mu"],
+    })
+    return df.set_index(["interval_ts", "key"])
+
+
+def _fmt_reliability(rel: pd.DataFrame) -> str:
+    lines = ["  p_bin      n     said    happened     gap"]
+    for b, r in rel.iterrows():
+        bar = "#" * int(round(r["y_rate"] * 20))
+        lines.append(f"  {b/10:.1f}-{(b+1)/10:.1f} {int(r['n']):7d} "
+                     f"{r['p_mean']:7.3f} {r['y_rate']:11.3f} {r['gap']:+7.3f}  {bar}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import os
+
+    import psycopg
+
+    from compute.mu.features import build_panel
+    from compute.sf.panels import load_shadow_prices
+
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--start", default="2024-12-11", help="first day of data read")
+    p.add_argument("--end", default="2026-07-01")
+    p.add_argument("--score-from", default=None,
+                   help="first scored week (default: first available boundary)")
+    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
+    p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
+    p.add_argument("--policy", default="active_28d", choices=["active_28d", "all"])
+    p.add_argument("--out", default=None, help="write weekly metrics CSV here")
+    p.add_argument("--preds-out", default=None,
+                   help="write per-row predictions .npz here (commit 4/5 input)")
+    args = p.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    lo = pd.Timestamp(args.start, tz="America/Chicago")
+    hi = pd.Timestamp(args.end, tz="America/Chicago")
+    dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
+           f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
+
+    with psycopg.connect(dsn) as conn:
+        log.info("loading shadow prices %s → %s", lo.date(), hi.date())
+        M = load_shadow_prices(conn, lo, hi)
+        log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
+        panel = build_panel(conn, M, lo, hi, policy=args.policy)
+
+    log.info("panel = %s rows x %s cols, %.2f GB", f"{len(panel):,}",
+             panel.shape[1], panel.memory_usage(deep=False).sum() / 1e9)
+
+    score_from = pd.Timestamp(args.score_from, tz="UTC") if args.score_from else None
+    # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
+    # with sf/eval's — see refit_boundaries.
+    preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
+                                 score_from, anchor=M.index[0].normalize())
+    if weekly.empty:
+        print("no scorable weeks")
+        return 1
+
+    y = preds["y_bind"].to_numpy()
+    pr = preds["p_bind"].to_numpy()
+    pooled = bind_metrics(y, pr)
+
+    print("\n=== HEAD 1: P(bind) — calibration first ===")
+    print(f"  weeks {len(weekly)}   rows {len(preds):,}   "
+          f"base rate {pooled['base_rate']:.4f}   mean pred {pooled['mean_pred']:.4f}")
+    print(f"  Brier {pooled['brier']:.5f}   ECE {pooled['ece']:.4f}   "
+          f"AUC {pooled['auc']:.4f}")
+    print("\n  reliability curve (said vs happened):")
+    print(_fmt_reliability(reliability(y, pr)))
+
+    hit = preds[preds["y_bind"] == 1]
+    print("\n=== HEAD 2: E[mu | bind] ===")
+    print(f"  binding rows {len(hit):,}   mean mu ${hit['y_mu'].mean():.2f}")
+    for name in ("mu_clim", "mu_gbm"):
+        mae = float((hit[name] - hit["y_mu"]).abs().mean())
+        print(f"  {name:8s} MAE ${mae:7.2f}   "
+              f"weekly R2 {weekly[f'r2_{name}'].mean():+.3f}")
+    print(f"\n  VERDICT: {mu_head_verdict(weekly)}")
+
+    if args.out:
+        weekly.to_csv(args.out, index=False)
+        print(f"\nwrote {args.out}")
+    if args.preds_out:
+        save_preds(args.preds_out, preds)
+        print(f"wrote {args.preds_out}")
+    return 0
+
+
+def mu_head_verdict(weekly: pd.DataFrame) -> str:
+    """Which head-2 wins? The plan says climatology unless the GBM beats it.
+
+    Stated as a function so the answer is recorded rather than assumed. A tie goes
+    to the climatology: it is simpler, and the plan pre-registered it as the
+    backbone.
+    """
+    if weekly.empty or "mae_mu_gbm" not in weekly:
+        return "climatology (no comparison available)"
+    clim, gbm = weekly["mae_mu_clim"].mean(), weekly["mae_mu_gbm"].mean()
+    better = weekly["mae_mu_gbm"] < weekly["mae_mu_clim"]
+    if gbm < clim:
+        return (f"GBM (MAE {gbm:.2f} vs climatology {clim:.2f}; "
+                f"wins {int(better.sum())}/{len(weekly)} weeks)")
+    return (f"climatology (MAE {clim:.2f} vs GBM {gbm:.2f}; "
+            f"GBM wins only {int(better.sum())}/{len(weekly)} weeks)")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
