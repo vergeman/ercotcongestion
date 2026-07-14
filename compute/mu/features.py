@@ -442,14 +442,24 @@ def build_panel(conn, M: pd.DataFrame, start, end,
                                                 if c.startswith("vintage_")]),
                         left_on="interval_ts", right_index=True, how="left")
 
-    mu = M.reindex(index=hours).fillna(0.0).abs()
+    # Stack only the keys that are actually candidates. Stacking all of `M`
+    # (13.6k hours x ~2.2k keys) materialises ~30M cells to read back ~10M, and
+    # this is the peak-memory line of the whole package.
+    used = panel["key"].unique()
+    mu = M.reindex(index=hours, columns=used).fillna(0.0).abs()
     lookup = mu.stack()
     lookup.index.names = ["interval_ts", "key"]
     y = lookup.reindex(pd.MultiIndex.from_frame(panel[["interval_ts", "key"]]))
 
     panel["y_mu"] = y.to_numpy()
-    panel["y_bind"] = (panel["y_mu"] > BIND_DEADBAND).astype(int)
+    panel["y_bind"] = (panel["y_mu"] > BIND_DEADBAND).astype("int8")
     panel.loc[panel["y_bind"] == 0, "y_mu"] = np.nan
+
+    # float32 halves the panel (~10M rows x ~50 cols). The covariates are MW and
+    # $/MWh at 4-5 significant figures; float64 stores precision that does not
+    # exist in the source data.
+    floats = panel.select_dtypes("float64").columns.drop("y_mu", errors="ignore")
+    panel[floats] = panel[floats].astype("float32")
 
     return panel.set_index(["interval_ts", "key"]).sort_index()
 
