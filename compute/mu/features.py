@@ -70,6 +70,11 @@ BIND_DEADBAND = 1.0
 # Trailing spans for the binding-history features, in days.
 HISTORY_WINDOWS = (1, 7, 28)
 
+# Trailing spans for the lagged-magnitude features (`lag_*`), in days. Short by
+# design: these exist to carry *recent* magnitude, which is the content of
+# persistence, and 28d of it is already covered by `mean_mu_28d`.
+LAG_WINDOWS = (1, 7)
+
 
 # --------------------------------------------------------------------------
 # The availability model. Everything else in this file defers to these three.
@@ -314,6 +319,23 @@ def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
 
     `M` is the shadow-price panel (hours x constraint key), as
     `compute.sf.panels.load_shadow_prices` returns it.
+
+    **The `lag_*` columns are a defect fix, not a feature (plan/0088 commit 2).**
+    Until 0088 this function emitted bind *incidence* recency (`binds_1d/7d/28d`,
+    `days_since_bind`, `bind_rate_life`) plus a 28-day mean magnitude — and **no
+    short-lag magnitude at all.** It could say *how often* a constraint bound
+    lately and *how big it usually is over a month*, but not **how big it was
+    yesterday**.
+
+    That is a hole with a name: **persistence's entire content is yesterday's μ.**
+    So the μ-model was not strictly more informed than the baseline it had to beat,
+    and in 0085 it duly lost to it on top-decile (0.523 vs 0.561). The data was
+    already in `M` the whole time. `lag_mu_1d/7d` and `lag_max_mu_1d/7d` close it.
+
+    **No new cutoff is needed, and that is the one place the DAM's publication
+    quirk works in our favour:** day D-1's shadow prices *cleared* on D-2 and are
+    public well before the 10:00 DAM close on D-1. So `history_cutoff` already
+    admits all 24 hours of D-1, and these features are legal by construction.
     """
     binds = (M.fillna(0.0).abs() > BIND_DEADBAND)
     mu = M.fillna(0.0).abs().where(binds, 0.0)
@@ -323,6 +345,11 @@ def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
     day_idx = delivery_day_of(M.index)
     daily_binds = binds.groupby(day_idx).sum()
     daily_mu = mu.groupby(day_idx).sum()
+    daily_peak = mu.groupby(day_idx).max()
+    # Hours actually present per day — NOT a hardcoded 24. DST days have 23 and 25,
+    # and the panel's first and last days can be partial. Dividing a day's μ-sum by
+    # 24 on a 23-hour day would quietly understate it.
+    daily_hours = pd.Series(1, index=M.index).groupby(day_idx).sum()
 
     frames = []
     for d in days:
@@ -334,6 +361,8 @@ def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
             continue
         b = daily_binds.loc[past_days]
         m = daily_mu.loc[past_days]
+        pk = daily_peak.loc[past_days]
+        nh = daily_hours.loc[past_days]
 
         row = {}
         for w in HISTORY_WINDOWS:
@@ -342,6 +371,25 @@ def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
         row["bind_rate_life"] = b.sum() / max(len(b) * 24, 1)
         row["mean_mu_28d"] = (m.iloc[-28:].sum()
                               / b.iloc[-28:].sum().replace(0, np.nan))
+
+        # The lagged magnitudes. **Averaged over ALL hours in the window, not over
+        # binding hours** — a slack hour's μ is a true, observed 0.0, not a missing
+        # value, and that is not a technicality: it is the definition persistence
+        # itself uses (`score.mu_persistence` reindexes to D-1 and fills 0.0). A
+        # bind-conditional mean here would be a *different and much weaker*
+        # quantity, undefined on exactly the quiet constraints whose quietness is
+        # the most predictive thing about them. `mean_mu_28d` is already the
+        # bind-conditional flavour; these are deliberately the other one.
+        #
+        # Hence no NaN and no fill: every value is a real observed average.
+        for w in LAG_WINDOWS:
+            row[f"lag_mu_{w}d"] = m.iloc[-w:].sum() / max(int(nh.iloc[-w:].sum()), 1)
+            # The peak, kept separately, because the mean and the tail are
+            # different signals and 0086 is the proof: the model that knows a
+            # constraint's *average* still cannot tell which ones spike. A daily
+            # mean of $4 is a constraint that bound gently all day OR one that hit
+            # $96 for an hour, and only the second is a top-decile event.
+            row[f"lag_max_mu_{w}d"] = pk.iloc[-w:].max()
 
         # Days since the constraint last bound. A never-binder gets the full span,
         # which is the honest encoding of "no evidence it ever binds".
@@ -395,7 +443,10 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
 
 
 def build_panel(conn, M: pd.DataFrame, start, end,
-                policy: str = "active_28d") -> pd.DataFrame:
+                policy: str = "active_28d",
+                C: pd.DataFrame | None = None,
+                score_from: pd.Timestamp | None = None,
+                with_weather: bool = False) -> pd.DataFrame:
     """The design matrix: one row per (delivery hour, candidate constraint).
 
     Columns are the system covariates (same for every constraint in an hour) plus
@@ -422,6 +473,23 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     market never saw, which is the same class of error as a lookahead: it makes
     the model look better than the information available to it. The gradient
     boosters in commit 3 take NaN natively; let them see the hole.
+
+    **The 0088 arms are opt-in, and both default to off**, so a caller that asks
+    for nothing gets exactly 0085's panel — which is what keeps every existing
+    test honest:
+
+      ``C``             turns on the **geography** arm (commit 3). The `geo_*`
+                        columns need the congestion panel because they come from
+                        `SF`, which is *fitted* from `M` and `C` together.
+      ``with_weather``  turns on the **weather-response** arm (commit 4). It needs
+                        no extra data at all — only `M` and the forecasts already
+                        in `sys_panel`.
+      ``score_from``    phase-locks both arms' refit grids to the scoring harness's.
+                        It selects nothing and gates nothing.
+
+    The ablation (commit 5) builds this **once** with every arm on, then selects
+    arms by column-name prefix. These flags exist so a single-arm run can skip work
+    it does not need, never so that an arm can be measured on a different panel.
     """
     sys_panel = system_panel(conn, start, end)
     if sys_panel.empty:
@@ -441,6 +509,26 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     panel = panel.merge(sys_panel.drop(columns=[c for c in sys_panel.columns
                                                 if c.startswith("vintage_")]),
                         left_on="interval_ts", right_index=True, how="left")
+
+    # Geography: per (delivery_day, key), from the honestly-refit SF. A LEFT join,
+    # so a constraint the week's SF could not locate keeps its hole rather than
+    # borrowing another constraint's position.
+    if C is not None and not C.empty:
+        from compute.mu.geo import geo_panel
+        geo = geo_panel(M, C, days, anchor=score_from)
+        if not geo.empty:
+            panel = panel.merge(geo.reset_index(), on=["delivery_day", "key"],
+                                how="left")
+
+    # Weather-response vectors: per (delivery_day, key), correlations over the same
+    # trailing window. Needs no `C` and no crosswalk — only M and the forecasts that
+    # are already in `sys_panel`. Same LEFT join, same law about holes.
+    if with_weather:
+        from compute.mu.weather import wx_panel
+        wx = wx_panel(M, sys_panel, days, anchor=score_from)
+        if not wx.empty:
+            panel = panel.merge(wx.reset_index(), on=["delivery_day", "key"],
+                                how="left")
 
     # Stack only the keys that are actually candidates. Stacking all of `M`
     # (13.6k hours x ~2.2k keys) materialises ~30M cells to read back ~10M, and

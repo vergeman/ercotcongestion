@@ -61,9 +61,71 @@ PRIOR_STRENGTH = 50.0
 MU_FLOOR = 1.0   # $/MWh; log1p is taken on mu, so this only guards the tail
 
 
-def feature_cols(panel: pd.DataFrame) -> list[str]:
+# --------------------------------------------------------------------------
+# The ablation arms (plan/0088)
+# --------------------------------------------------------------------------
+# **Build the panel once; express an arm as a subset of its columns.** This is
+# the load-bearing engineering decision of 0088 and it is worth being explicit
+# about why: `build_panel` materialises ~10M rows and is the peak-memory line of
+# the package. Rebuilding it five times to run five arms would cost five walks'
+# worth of the most expensive step in the branch — and, far worse, would leave
+# five *separately constructed* panels whose differences are not guaranteed to be
+# only the arm. Here the panel is a fixed object and the arm is a column mask, so
+# "the only thing that varies is the feature set" is a fact about the code rather
+# than a claim in a docstring.
+#
+# Each arm owns a column-name prefix. A new covariate joins an arm by being named
+# for it; there is no registry to update and no way for a column to be silently
+# claimed by the wrong arm.
+ARM_PREFIXES = {
+    "lag": "lag_",   # commit 2 — lagged realized mu (the persistence content)
+    "geo": "geo_",   # commit 3 — constraint geography via the |SF| centroid
+    "wx": "wx_",     # commit 4 — per-constraint weather-response vectors
+}
+
+# `base` is 0085's feature set exactly — the thing every arm must be measured
+# against. `all` is every arm at once. The single-arm rows are what make the
+# contributions attributable.
+FEATURE_SETS = {
+    "base": (),
+    "lag": ("lag",),
+    "geo": ("geo",),
+    "wx": ("wx",),
+    "all": ("lag", "geo", "wx"),
+}
+
+
+def feature_cols(panel: pd.DataFrame, arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                 ) -> list[str]:
+    """The feature columns for one arm.
+
+    A column belongs to an arm iff it carries that arm's prefix; everything else
+    is `base`. Selecting an arm therefore means *dropping* the prefixed columns of
+    the arms not selected — the base features are always present, in every arm.
+
+    The default is every arm, so a caller that does not care about the ablation
+    (the tests, any downstream user) keeps the old behaviour of "all the columns
+    there are".
+    """
+    unknown = set(arms) - set(ARM_PREFIXES)
+    if unknown:
+        raise ValueError(f"unknown arm(s): {sorted(unknown)}; "
+                         f"known: {sorted(ARM_PREFIXES)}")
+
+    dropped = tuple(p for a, p in ARM_PREFIXES.items() if a not in arms)
     return [c for c in panel.columns
-            if c not in NON_FEATURES and not c.startswith("vintage_")]
+            if c not in NON_FEATURES
+            and not c.startswith("vintage_")
+            and not c.startswith(dropped)]
+
+
+def arms_for(features: str) -> tuple[str, ...]:
+    """Resolve a `--features` name to its arms. Refuses an unknown name rather
+    than silently scoring `base` and calling it something else."""
+    if features not in FEATURE_SETS:
+        raise ValueError(f"unknown feature set {features!r}; "
+                         f"known: {sorted(FEATURE_SETS)}")
+    return FEATURE_SETS[features]
 
 
 # --------------------------------------------------------------------------
@@ -254,8 +316,13 @@ def walk_forward(panel: pd.DataFrame,
                  refit_days: int = DEFAULT_REFIT_DAYS,
                  score_from: pd.Timestamp | None = None,
                  anchor: pd.Timestamp | None = None,
-                 seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+                 seed: int = 0,
+                 arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fit both heads on each trailing window; predict the next `refit_days`.
+
+    `arms` selects the ablation arm (plan/0088): the panel is the same object in
+    every arm, and only the column mask changes.
 
     Returns `(predictions, weekly)`:
 
@@ -265,7 +332,7 @@ def walk_forward(panel: pd.DataFrame,
       weekly       one row per scored week: head-1 calibration and head-2 error,
                    so a bad week is visible as a week rather than averaged away.
     """
-    cols = feature_cols(panel) + ["key_bind_rate"]
+    cols = feature_cols(panel, arms) + ["key_bind_rate"]
     ts = panel.index.get_level_values("interval_ts")
     starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
     if not len(starts):
@@ -278,8 +345,9 @@ def walk_forward(panel: pd.DataFrame,
     if not ts.is_monotonic_increasing:
         raise ValueError("panel must be sorted by interval_ts")
 
-    log.info("walk_forward: train=%dd refit=%dd — %d weeks [%s → %s]",
-             train_days, refit_days, len(starts), starts[0].date(), starts[-1].date())
+    log.info("walk_forward: train=%dd refit=%dd arms=%s — %d cols, %d weeks [%s → %s]",
+             train_days, refit_days, ",".join(arms) or "base", len(cols),
+             len(starts), starts[0].date(), starts[-1].date())
 
     preds, weeks = [], []
     t_walk = time.perf_counter()
@@ -419,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     import psycopg
 
     from compute.mu.features import build_panel
-    from compute.sf.panels import load_shadow_prices
+    from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--start", default="2024-12-11", help="first day of data read")
@@ -429,6 +497,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d", choices=["active_28d", "all"])
+    p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS),
+                   help="ablation arm (plan/0088): which covariate families the "
+                        "model may see. The panel is built identically either way.")
     p.add_argument("--out", default=None, help="write weekly metrics CSV here")
     p.add_argument("--preds-out", default=None,
                    help="write per-row predictions .npz here (commit 4/5 input)")
@@ -442,20 +513,35 @@ def main(argv: list[str] | None = None) -> int:
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
+    score_from_ts = (pd.Timestamp(args.score_from, tz="UTC")
+                     if args.score_from else None)
+    arms = arms_for(args.features)
+
     with psycopg.connect(dsn) as conn:
         log.info("loading shadow prices %s → %s", lo.date(), hi.date())
         M = load_shadow_prices(conn, lo, hi)
+        # The congestion panel is loaded only for the geography arm — it is what
+        # `SF` is fitted against. Skipping it when no arm needs it keeps the base
+        # run identical to 0085's and saves a large read.
+        C = None
+        if "geo" in arms:
+            C = load_congestion_panel(conn, lo, hi)
+            log.info("C = %s (geography arm is on)", C.shape)
         log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
-        panel = build_panel(conn, M, lo, hi, policy=args.policy)
+        panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
+                            score_from=score_from_ts,
+                            with_weather="wx" in arms)
 
-    log.info("panel = %s rows x %s cols, %.2f GB", f"{len(panel):,}",
-             panel.shape[1], panel.memory_usage(deep=False).sum() / 1e9)
+    log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
+             f"{len(panel):,}", panel.shape[1],
+             panel.memory_usage(deep=False).sum() / 1e9, args.features,
+             len(feature_cols(panel, arms)) + 1)
 
-    score_from = pd.Timestamp(args.score_from, tz="UTC") if args.score_from else None
     # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
     # with sf/eval's — see refit_boundaries.
     preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
-                                 score_from, anchor=M.index[0].normalize())
+                                 score_from_ts, anchor=M.index[0].normalize(),
+                                 arms=arms)
     if weekly.empty:
         print("no scorable weeks")
         return 1
@@ -464,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     pr = preds["p_bind"].to_numpy()
     pooled = bind_metrics(y, pr)
 
-    print("\n=== HEAD 1: P(bind) — calibration first ===")
+    print(f"\n=== HEAD 1: P(bind) — calibration first === [arm: {args.features}]")
     print(f"  weeks {len(weekly)}   rows {len(preds):,}   "
           f"base rate {pooled['base_rate']:.4f}   mean pred {pooled['mean_pred']:.4f}")
     print(f"  Brier {pooled['brier']:.5f}   ECE {pooled['ece']:.4f}   "

@@ -20,7 +20,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.mu_model import (PRIOR_STRENGTH, apply_encoding, bind_metrics,
+from compute.mu.mu_model import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
+                                 arms_for, bind_metrics, feature_cols,
                                  fit_mu_climatology, load_preds, mu_head_verdict,
                                  predict_mu_climatology, refit_boundaries,
                                  reliability, save_preds, target_encoding,
@@ -44,6 +45,69 @@ def _panel(n_days: int = 60, keys=("A|c", "B|c"), seed: int = 0) -> pd.DataFrame
                 "y_mu": (net - 50000) / 100 if binds else np.nan,
             })
     return pd.DataFrame(rows).set_index(["interval_ts", "key"]).sort_index()
+
+
+# --------------------------------------------------- the ablation arms (0088)
+
+def _armed_panel() -> pd.DataFrame:
+    p = _panel(n_days=5)
+    p["lag_mu_1d"] = 1.0
+    p["geo_dist_wind_north"] = 2.0
+    p["wx_corr_load_north"] = 3.0
+    p["vintage_load"] = pd.Timestamp("2025-01-01", tz="UTC")
+    return p
+
+
+def test_base_arm_sees_no_arm_column():
+    """`base` is 0085's feature set — the control the whole ablation is read
+    against. If an arm column leaked into it, every arm would be measured against
+    a moving baseline and the table would mean nothing."""
+    cols = feature_cols(_armed_panel(), arms=())
+    assert "net_load" in cols          # base features are always present
+    assert not [c for c in cols if c.startswith(("lag_", "geo_", "wx_"))]
+
+
+def test_each_arm_adds_only_its_own_columns():
+    p = _armed_panel()
+    base = set(feature_cols(p, arms=()))
+    for arm, col in [("lag", "lag_mu_1d"), ("geo", "geo_dist_wind_north"),
+                     ("wx", "wx_corr_load_north")]:
+        got = set(feature_cols(p, arms=(arm,)))
+        assert got - base == {col}, f"arm {arm!r} pulled in the wrong columns"
+
+
+def test_all_arm_is_every_arm_and_the_targets_are_never_features():
+    p = _armed_panel()
+    cols = feature_cols(p, arms=arms_for("all"))
+    assert {"lag_mu_1d", "geo_dist_wind_north", "wx_corr_load_north"} <= set(cols)
+    # the bookkeeping columns stay out of every arm, `all` included
+    assert not {"y_mu", "y_bind", "delivery_day", "vintage_load"} & set(cols)
+
+
+def test_arms_are_nested_base_subset_of_single_subset_of_all():
+    """The ablation is only readable if the arms are nested: `+lag` must be `base`
+    plus lagged mu and NOTHING else. A non-nested arm makes a difference in the
+    score unattributable to the covariate."""
+    p = _armed_panel()
+    base, all_ = set(feature_cols(p, arms=())), set(feature_cols(p, arms=arms_for("all")))
+    for name in ("lag", "geo", "wx"):
+        arm = set(feature_cols(p, arms=arms_for(name)))
+        assert base < arm < all_
+
+
+def test_unknown_feature_set_is_refused_rather_than_silently_scoring_base():
+    """A typo'd `--features` must not quietly produce a `base` run labelled as an
+    arm — that is a wrong number with a confident name on it."""
+    with pytest.raises(ValueError, match="unknown feature set"):
+        arms_for("lagg")
+    with pytest.raises(ValueError, match="unknown arm"):
+        feature_cols(_armed_panel(), arms=("outage",))
+
+
+def test_every_feature_set_resolves():
+    p = _armed_panel()
+    for name in FEATURE_SETS:
+        assert feature_cols(p, arms=arms_for(name))
 
 
 # ------------------------------------------------------- the target encoding
