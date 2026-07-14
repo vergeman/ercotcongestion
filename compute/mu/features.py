@@ -445,7 +445,8 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
 def build_panel(conn, M: pd.DataFrame, start, end,
                 policy: str = "active_28d",
                 C: pd.DataFrame | None = None,
-                score_from: pd.Timestamp | None = None) -> pd.DataFrame:
+                score_from: pd.Timestamp | None = None,
+                with_weather: bool = False) -> pd.DataFrame:
     """The design matrix: one row per (delivery hour, candidate constraint).
 
     Columns are the system covariates (same for every constraint in an hour) plus
@@ -473,12 +474,22 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     the model look better than the information available to it. The gradient
     boosters in commit 3 take NaN natively; let them see the hole.
 
-    **`C` is optional, and passing it turns on the geography arm** (plan/0088
-    commit 3): the `geo_*` columns need the congestion panel because they are
-    derived from `SF`, which is *fitted* from `M` and `C` together. Without `C`
-    the panel is exactly 0085's, which is what keeps every existing caller and
-    test honest. `score_from` only phase-locks the geography's refit grid to the
-    scoring harness's; it selects nothing and gates nothing.
+    **The 0088 arms are opt-in, and both default to off**, so a caller that asks
+    for nothing gets exactly 0085's panel — which is what keeps every existing
+    test honest:
+
+      ``C``             turns on the **geography** arm (commit 3). The `geo_*`
+                        columns need the congestion panel because they come from
+                        `SF`, which is *fitted* from `M` and `C` together.
+      ``with_weather``  turns on the **weather-response** arm (commit 4). It needs
+                        no extra data at all — only `M` and the forecasts already
+                        in `sys_panel`.
+      ``score_from``    phase-locks both arms' refit grids to the scoring harness's.
+                        It selects nothing and gates nothing.
+
+    The ablation (commit 5) builds this **once** with every arm on, then selects
+    arms by column-name prefix. These flags exist so a single-arm run can skip work
+    it does not need, never so that an arm can be measured on a different panel.
     """
     sys_panel = system_panel(conn, start, end)
     if sys_panel.empty:
@@ -507,6 +518,16 @@ def build_panel(conn, M: pd.DataFrame, start, end,
         geo = geo_panel(M, C, days, anchor=score_from)
         if not geo.empty:
             panel = panel.merge(geo.reset_index(), on=["delivery_day", "key"],
+                                how="left")
+
+    # Weather-response vectors: per (delivery_day, key), correlations over the same
+    # trailing window. Needs no `C` and no crosswalk — only M and the forecasts that
+    # are already in `sys_panel`. Same LEFT join, same law about holes.
+    if with_weather:
+        from compute.mu.weather import wx_panel
+        wx = wx_panel(M, sys_panel, days, anchor=score_from)
+        if not wx.empty:
+            panel = panel.merge(wx.reset_index(), on=["delivery_day", "key"],
                                 how="left")
 
     # Stack only the keys that are actually candidates. Stacking all of `M`

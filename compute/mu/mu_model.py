@@ -529,7 +529,8 @@ def main(argv: list[str] | None = None) -> int:
             log.info("C = %s (geography arm is on)", C.shape)
         log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
         panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
-                            score_from=score_from_ts)
+                            score_from=score_from_ts,
+                            with_weather="wx" in arms)
 
     log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
              f"{len(panel):,}", panel.shape[1],
