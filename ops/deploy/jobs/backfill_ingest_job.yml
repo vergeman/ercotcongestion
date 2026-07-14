@@ -44,13 +44,14 @@ spec:
           imagePullPolicy: Always
           command:
             - python
-            - /ercot_ingest/backfill.py
+            - /ercot_ingest/backfill_dam_close.py
             - --start
-            - "2025-01-01"
+            - "2024-12-01"
             - --end
-            - "2026-06-30"
-            - --endpoint
-            - "dam_lambda"
+            - "2026-07-01"
+            - --resume
+            #- --endpoint
+            #- "dam_lambda"
           envFrom:
             - configMapRef:
                 name: api-config
