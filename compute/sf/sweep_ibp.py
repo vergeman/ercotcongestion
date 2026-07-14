@@ -179,8 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         df = evaluate(Mc, Cc, window_days=w, refit_days=r, lam=lam,
                       min_hours=mh, standardize=True, std_floor=floor,
                       rho_min=rho, control=args.control and rho is not None,
-                      linkage_cache=linkage_cache)
-        df = df[df["score_start"] >= start_ts]
+                      linkage_cache=linkage_cache, score_from=start_ts)
         if df.empty:
             log.warning("  no scored weeks; skipping")
             continue
