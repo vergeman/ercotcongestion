@@ -1,7 +1,14 @@
-# 0084 - coverage-decomposition
+# 0084 - coverage-decomposition — G1 = FAIL (library not built); admission verdict PENDING
 
 Type: feat
 Branch: feat/0084-coverage-decomposition
+
+**Outcome: gate G1 failed (+0.019 vs a +0.03 bar).** The lifetime library and
+warm-start (commits 3–4) were **not built** — 0082's 240d window had already
+absorbed the seasonal memory they existed to recover. The measurement redirected
+the branch: the gap is **58% rejection** (`min_hours=25`) vs **16% forgetting**,
+so the admission work (commit 5) became the main event. Narrative in
+`plan/0084-summary.md`.
 
 ## Goal
 
@@ -81,7 +88,11 @@ Rework the probe to run honestly at `(240, λ=1)`:
   (how stale the inherited row would be).
 * Pre/post-RTC+B split on every share.
 
-**Commit 3 — `library.py`, the lifetime constraint library (pure + a reader).**
+**Commit 3 — gated. NOT BUILT** (G1 closed). No `library.py`, no
+`ConstraintLibrary`, no `latest_sf` reader.
+
+*Design as specified, kept for the record:*
+**`library.py`, the lifetime constraint library (pure + a reader).**
 * In-memory `ConstraintLibrary`, built **incrementally during the eval walk**:
   after each refit, record each kept constraint's SF row with its `as_of`
   (window_end) and binding hours. `lookup(keys, as_of)` returns rows fitted
@@ -96,7 +107,13 @@ Rework the probe to run honestly at `(240, λ=1)`:
   and migration 25 already indexes `(run_id, window_start)`. Add
   `latest_sf(conn, run_id, as_of)` to `persist.py`.
 
-**Commit 4 — warm-start scoring + the R6 measurement.**
+**Commit 4 — gated. NOT BUILT** (G1 closed). R6 was never run: with a ceiling of
++0.019 coverage, no warm-start arm could clear an R² bar, and 70% of the mass it
+would inherit is >90d stale. R6 is **withdrawn, not failed** — it was never
+measured, because the gate that precedes it said the measurement could not pay.
+
+*Design as specified, kept for the record:*
+**warm-start scoring + the R6 measurement.**
 * `evaluate(warm_start=...)`: `"off"` (status quo) | `"last"` (inherit the
   library row) | `"placebo"`. Augment `SF` with library rows for scored-week
   constraints lacking a column, then score as usual.
@@ -165,26 +182,110 @@ this branch) · `metric.py` / `bp = max|SF|` · served `bp_ercot` /
 `grouping.py` (R3 is closed; do not re-litigate it as a coverage lever).
 **Do NOT** adopt `(240, λ=1)` as code defaults — still S5. Pass them on the CLI.
 
+## Result
+
+**Gate G1 — FAIL.** 46 weeks, `(240, 7, λ=1)`, lifetime history band:
+
+| tier | share of novel μ-mass |
+|---|---|
+| A — warm-startable (a prior fit kept it) | **0.157** |
+| B — seen, never fitted (`min_hours` rejected it) | **0.580** |
+| C — genuinely new | 0.263 |
+
+Coverage **0.863** → ceiling **0.882**. Achievable lift **+0.019** vs a **+0.03**
+bar. And the ceiling is optimistic: **70% of tier-A mass is >90d stale** (37% at
+90–180d, 33% beyond).
+
+**Cause — the same trap 0083 fell into, caught one branch earlier.** Tier A was
+**0.250** at `window=60` and is **0.157** at `window=240`: *0082's window change
+had already bought most of the seasonal memory the library was designed to
+recover.* The fix was obsolete before it was written. R2's "0.507/0.303 seasonal"
+was measured at the retired operating point — and at `(60, 365)` this probe still
+reproduces it **exactly**, so the rework reinterprets R2 rather than replacing it.
+(Note tier A ≠ R2's `seen_material`: 0.250 vs 0.303 at the *same* settings. The
+operational bar is "a real fit window kept it," not "it bound ≥25h somewhere in a
+lookback band.")
+
+**The redirect — the bar is the bug.** Tier B is **3.7× tier A**. These
+constraints are not forgotten, they are **rejected** by `min_hours=25`. Measuring
+the two admission knobs (no ridge fits needed):
+
+| refit | min_hours | median latency | p90 | blind μ-mass | admit rate | coverage |
+|---|---|---|---|---|---|---|
+| **7** | **25** *(today)* | **23.5 d** | 192 d | **0.105** | **0.208** | **0.863** |
+| 7 | 5 | 6.5 d | 99 d | 0.062 | 0.542 | 0.926 |
+| 1 | 5 | 2.4 d | 97 d | 0.036 | 0.545 | **0.956** |
+
+**The handoff's design target was ~1 day; the measured median is 23.5 days**, and
+**only 21% of new constraints ever receive a column at all.** `min_hours` drives
+coverage; `refit` sets the latency floor. Together: 0.863 → **0.956** coverage —
+**5× the +0.019 a perfect library could have bought.**
+
+**Accuracy guard — first read (8 weeks, identical weeks both arms, post-RTC+B):**
+
+| | mh=25 | mh=5 | Δ |
+|---|---|---|---|
+| OOS pooled R² | 0.812 | 0.835 | **+0.023** |
+| rank-Spearman | 0.823 | 0.847 | **+0.024** |
+| sign-agree | 0.940 | 0.948 | +0.008 |
+| top-decile | 0.788 | 0.798 | +0.010 |
+| coverage | 0.897 | 0.957 | **+0.060** |
+| sf_stability | 0.553 | 0.599 | **+0.047** |
+| n_kept | 1,097 | 2,340 | +1,244 |
+
+Nothing traded — every metric improves, stability included. `min_hours=25` was
+discarding ~1,240 identifiable columns per window and paying for it. Same species
+as 0082's decorative λ: a knob never selected against anything.
+
+**NOT YET A VERDICT — `min_hours` is not adopted.** Those 8 weeks are all
+post-RTC+B, and RTC+B is where this project keeps finding regime breaks. The
+46-week confirmation spanning both sides is running (`ibp_sweep_admission.csv`).
+The bar does not move until it lands.
+
+**Perf (incidental but load-bearing).** The first admission grid **did not
+finish** (killed at 26 min): each boundary sliced a ~140MB float frame out of the
+panel purely to compute *integer* binding counts. `_BindCounts` (daily cumulative
+counts) makes it exact-and-O(1) — **26min+ → 25s**, numbers bit-identical.
+
 ## Acceptance
 
-* [ ] `sweep_ibp` trims to `--start` inside the week loop; a fixed grid produces
-      byte-identical summary rows to the pre-fix version at lower wall-clock.
-* [ ] `coverage_probe` runs at `(240, 7, λ=1)` with a lifetime history band,
-      emits `hist_days`, and reproduces 0082's 0.507/0.303 exactly when invoked
-      with the old `(60, lookback=365)` arguments.
-* [ ] Tier table (A/B/C mass shares + `coverage_ceiling` + tier-A age
-      distribution) recorded, pre/post-RTC+B split visible. **G1 verdict
-      recorded before commits 3–4 are written.**
-* [ ] `ConstraintLibrary.lookup(as_of)` never returns a row fitted at or after
-      `as_of` — asserted by a test that fails on a deliberately leaked row.
-* [ ] `warm_start="off"` reproduces current `evaluate` metrics **bit-exactly**
-      on real panels (0083's no-op check caught a real BLAS-reduction-order bug
-      this way; every result here is a *difference* from this baseline).
-* [ ] R6 verdict recorded against the bars above, with the placebo arm's number
-      printed next to the warm-start arm's — pass or fail.
-* [ ] Novel-constraint latency measured (median/p90) at the current operating
-      point; admission sweep CSV committed; `refit ∈ {1,3}` arms scored on a
-      declared range, not silently pooled with the `refit=7` range.
-* [ ] Gated work honored: if R6 fails, no `--warm-start` on the runner, no
-      persisted warm rows. Bars not moved.
-* [ ] Tests green (37 existing + new library/warm-start cases).
+* [x] `sweep_ibp` trims to `--start` inside the week loop — **bit-exact**
+      (`DataFrame.equals`) at **3.27×** (52 weeks fitted → 17, 494s → 151s).
+      Caveat recorded: grouped arms' `group_churn` is NaN on the first scored
+      week (it previously compared against a discarded warmup week); dead path
+      since R3 failed.
+* [x] `coverage_probe` runs at `(240, 7, λ=1)` with a lifetime history band,
+      emits `hist_days`, and reproduces 0082's 0.507/0.303 **exactly** at
+      `(60, lookback=365)` — including both RTC+B arms.
+* [x] Tier table (A/B/C + `coverage_ceiling` + tier-A age distribution) recorded,
+      pre/post-RTC+B visible. **G1 verdict recorded BEFORE commits 3–4 were
+      written** — they were not written.
+* [x] ~~`ConstraintLibrary.lookup(as_of)` no-lookahead test~~ — **N/A, gate
+      closed.** The equivalent lookahead risk *was* tested where it survived: a
+      constraint whose first bind is in the scored week must land in tier C, not
+      tier B (an `ever_seen` built from the whole panel would inflate the
+      library's reachable mass).
+* [x] ~~`warm_start="off"` bit-exact no-op~~ — **N/A, gate closed.**
+* [x] ~~R6 verdict~~ — **withdrawn, not failed.** Never measured: G1 says the
+      measurement cannot pay.
+* [x] Novel-constraint latency measured (median 23.5d / p90 192d at the current
+      point); `admission_grid.csv` committed; the cheap grid carries no accuracy
+      claim by construction — the guard comes from `sweep_ibp`.
+* [ ] **PENDING** — 46-week `min_hours ∈ {5,10,25}` guard sweep at `(240, 7, λ=1)`,
+      pre/post-RTC+B split. Adopt `min_hours` only if OOS R² ≥ current − 0.005
+      **and** median latency improves ≥ 2 days. Coverage alone does not justify a
+      move.
+* [x] Gated work honored: no library, no warm-start, no migration, no runner
+      flag. **Bars not moved.**
+* [x] 48 tests green (37 existing + 11 new).
+
+## Follow-ups (not blocking)
+
+* **`refit=1` is unguarded.** The cheap grid says it takes latency 6.5d → 2.4d,
+  but no OOS arm was run for it (7× the fits). Guard it before adopting.
+* **Adoption belongs to S5**, with `(240, λ=1)`. Do not change `fit.py` defaults
+  here.
+* **RTC+B, third sighting.** Coverage is materially better post-cutover (0.875 vs
+  0.841) and tier A is 2.7× larger (0.209 vs 0.078). With 0083's ~2× disjoint
+  stability jump, that is now two independent post-RTC+B signals — feeds
+  handoff §5.5 item 1.
