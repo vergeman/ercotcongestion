@@ -24,7 +24,8 @@ from loaders import (ERCOT_TZ,
                      load_zonal_lmp, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
                      load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
-                     load_sced_lambda, load_load_forecast)
+                     load_sced_lambda, load_load_forecast,
+                     load_wind_forecast, load_solar_forecast)
 
 
 ENDPOINTS = {
@@ -95,6 +96,33 @@ ENDPOINTS = {
     "load_forecast": {
         "path": "/np3-561-cd/7d_load_fcast_by_wzn",
         "loader": load_load_forecast,
+        "from_param": "postedDatetimeFrom",
+        "to_param": "postedDatetimeTo",
+        "param_format": "datetime",
+    },
+    # The same two products as `wind` / `solar` above, fetched by POSTING time
+    # rather than delivery date and written to the vintaged tables (migration 26)
+    # instead of the actuals tables. Both are needed and they are not redundant:
+    #
+    #   wind / solar          -> what the hour turned out to be   (actuals)
+    #   wind_forecast / solar_forecast -> what was believed, and WHEN (vintages)
+    #
+    # The actuals loaders dedup to the most recent posting, which is why they can
+    # never answer "what did we know at DAM close?" — the surviving row is the one
+    # published ~2 days later. Keep these entries in ENDPOINTS so `live_updater`
+    # picks them up on its normal cycle: without them, the vintaged tables stop
+    # accumulating the moment the backfill's end date passes, and the mu-model's
+    # covariates silently go stale.
+    "wind_forecast": {
+        "path": "/np4-742-cd/wpp_hrly_actual_fcast_geo",
+        "loader": load_wind_forecast,
+        "from_param": "postedDatetimeFrom",
+        "to_param": "postedDatetimeTo",
+        "param_format": "datetime",
+    },
+    "solar_forecast": {
+        "path": "/np4-745-cd/spp_hrly_actual_fcast_geo",
+        "loader": load_solar_forecast,
         "from_param": "postedDatetimeFrom",
         "to_param": "postedDatetimeTo",
         "param_format": "datetime",
@@ -174,9 +202,7 @@ def main():
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (UTC), inclusive")
     parser.add_argument("--endpoint",
-                        choices=["outages", "loads", "wind", "solar", "zonal_lmp",
-                                 "dam_spp", "dam_shadow", "dam_lambda",
-                                 "sced_lambda", "load_forecast", "all"],
+                        choices=[*ENDPOINTS, "all"],
                         default="all")
     parser.add_argument("--resume", action="store_true",
                         help="Skip windows already in ingest_log")

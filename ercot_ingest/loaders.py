@@ -584,6 +584,82 @@ def load_load_forecast(conn, df: pd.DataFrame) -> int:
         return cur.rowcount
 
 
+_WIND_REGIONS = ("system_wide", "panhandle", "coastal", "south", "west", "north")
+_SOLAR_REGIONS = ("system_wide", "centerwest", "northwest", "farwest", "fareast",
+                  "southeast", "centereast")
+
+# ERCOT's JSON spells regions in camelCase and the system-wide one differently.
+_API_REGION = {"system_wide": "SystemWide", "panhandle": "Panhandle",
+               "coastal": "Coastal", "south": "South", "west": "West",
+               "north": "North", "centerwest": "CenterWest",
+               "northwest": "NorthWest", "farwest": "FarWest",
+               "fareast": "FarEast", "southeast": "SouthEast",
+               "centereast": "CenterEast"}
+
+
+def _load_vintaged_forecast(conn, df, table: str, regions: tuple[str, ...],
+                            fcst_prefix: str, band_prefix: str) -> int:
+    """Insert every published vintage of a wind/solar forecast, keeping them all.
+
+    The difference from ``load_wind_hourly`` / ``load_solar_hourly`` is the whole
+    point of this function, so it is worth stating: those loaders **dedup to the
+    most recent posting per hour** and key on ``interval_ts`` alone, which is
+    right for actuals and destroys the forecast. What survives there is the
+    version ERCOT published ~2 days AFTER the hour — measured 0.0% of rows were
+    knowable at DAM close. Here a posting is immutable: keyed by
+    ``(posted_datetime, interval_ts)``, ``DO NOTHING`` on conflict, no dedup. A
+    vintage is a historical fact and re-fetching it must not rewrite it.
+
+    Rows whose ``interval_ts`` is at or before ``posted_datetime`` are kept with
+    their realized ``gen_*``; rows ahead of it carry forecast only. The table's
+    CHECK constraint enforces that, so a vintage mix-up fails loudly at insert
+    rather than quietly becoming skill.
+    """
+    if df.empty:
+        return 0
+
+    cols = (["posted_datetime", "interval_ts", "delivery_date", "hour_ending", "dst_flag"]
+            + [f"gen_{r}" for r in regions]
+            + [f"{fcst_prefix}_{r}" for r in regions]
+            + [f"{band_prefix}_{r}" for r in regions]
+            + ["cop_hsl_system_wide"])
+
+    records = []
+    for _, r in df.iterrows():
+        op_day = pd.to_datetime(r["deliveryDate"]).date()
+        he_raw = r["hourEnding"]
+        hour = int(he_raw.split(":")[0]) if isinstance(he_raw, str) else int(he_raw)
+        dst = bool(r.get("DSTFlag", False))
+
+        row = [_ercot_ts_to_utc(r["postedDatetime"], dst),
+               _to_interval_ts(op_day, hour, 1, dst), op_day, hour, dst]
+        for prefix in ("gen", fcst_prefix.upper(), band_prefix.upper()):
+            for reg in regions:
+                row.append(_f(r.get(f"{prefix}{_API_REGION[reg]}")))
+        row.append(_f(r.get("COPHSLSystemWide")))
+        records.append(tuple(row))
+
+    sql = (f"INSERT INTO {table} ({', '.join(cols)}) "
+           f"VALUES ({', '.join(['%s'] * len(cols))}) "
+           f"ON CONFLICT (posted_datetime, interval_ts, dst_flag) DO NOTHING")
+
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_wind_forecast(conn, df: pd.DataFrame) -> int:
+    """NP4-742-CD, vintaged. See ``_load_vintaged_forecast``."""
+    return _load_vintaged_forecast(conn, df, "wind_forecast_regional",
+                                   _WIND_REGIONS, "stwpf", "wgrpp")
+
+
+def load_solar_forecast(conn, df: pd.DataFrame) -> int:
+    """NP4-745-CD, vintaged. See ``_load_vintaged_forecast``."""
+    return _load_vintaged_forecast(conn, df, "solar_forecast_regional",
+                                   _SOLAR_REGIONS, "stppf", "pvgrpp")
+
+
 def _to_interval_ts(operating_day, hour_ending: int, interval_id: int = 1, dst_flag: bool = False):
     """
     ERCOT publishes hour_ending in CT. Convert to UTC.
@@ -600,13 +676,23 @@ def _to_interval_ts(operating_day, hour_ending: int, interval_id: int = 1, dst_f
 
 
 def _f(x):
-    """Coerce empty strings/None to None, else float."""
+    """Coerce empty strings/None/NaN to None, else float.
+
+    NaN must not reach the database. Postgres accepts NaN in a DOUBLE PRECISION
+    column as a **non-null value**, so `IS NULL` does not find it, aggregates
+    poison to NaN, and a CHECK written as `col IS NULL OR ...` passes it through.
+    pandas hands us NaN for every missing cell, and `float(nan)` is a perfectly
+    good float — so without this branch, "missing" silently becomes "present and
+    meaningless". (Pre-existing: 8 rows in `wind_hourly_regional` and 6 in
+    `solar_hourly_regional` were already storing NaN when this was found.)
+    """
     if x is None or x == "":
         return None
     try:
-        return float(x)
+        v = float(x)
     except (TypeError, ValueError):
         return None
+    return None if v != v else v  # NaN is the only value not equal to itself
 
 #
 # PRINT
