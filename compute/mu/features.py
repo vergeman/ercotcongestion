@@ -221,7 +221,16 @@ def outage_panel(conn, start, end) -> pd.DataFrame:
                                               nonexistent="shift_forward")
                          .dt.tz_convert("UTC"))
     df = df.drop(columns=["operating_date", "hour_ending"]).set_index("interval_ts")
-    return df.rename(columns={"posted_datetime": "vintage_outage"})
+
+    # DST. `outages_zonal` carries no dst_flag and reports 24 hour-endings every
+    # day, including the 23-hour spring-forward one — so its bogus 02:00 row gets
+    # shifted onto 03:00 and collides with the real one. The other panels are
+    # DISTINCT ON (interval_ts) and cannot collide; this one can, and an ordinary
+    # concat then dies with "Reindexing only valid with uniquely valued Index".
+    # Keep the last row: on the fall-back day that is the second (post-transition)
+    # pass over the repeated hour, which is the one still in effect.
+    return (df[~df.index.duplicated(keep="last")]
+            .rename(columns={"posted_datetime": "vintage_outage"}))
 
 
 def calendar_features(idx: pd.DatetimeIndex) -> pd.DataFrame:
@@ -398,6 +407,21 @@ def build_panel(conn, M: pd.DataFrame, start, end,
 
     The targets come from `M` and are the ONLY place day D's own data appears. No
     feature column may be derived from them.
+
+    **Missing covariates stay NaN. Do not fill them.** Over 2024-12-11..2026-07-01
+    the panel has exactly two pockets of missingness, and both are meaningful:
+
+      * outage columns are absent before **2024-12-31** — `outages_zonal` ingest
+        simply starts there (529 hours, all of them before the first scored week,
+        so they touch only the earliest training margin);
+      * solar is absent for **2 hours ever**, 2025-03-09 07:00 and 2026-03-08
+        07:00 UTC — the DST spring-forward hour, which does not exist locally.
+        Wind publishes a row for it, solar does not.
+
+    Filling either with a zero or a neighbour would invent a covariate value the
+    market never saw, which is the same class of error as a lookahead: it makes
+    the model look better than the information available to it. The gradient
+    boosters in commit 3 take NaN natively; let them see the hole.
     """
     sys_panel = system_panel(conn, start, end)
     if sys_panel.empty:

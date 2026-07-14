@@ -189,6 +189,28 @@ def test_calendar_is_derivable_from_the_clock_alone():
     assert cal["hour_cos"].max() == pytest.approx(1.0)
 
 
+# ------------------------------------------------------------- DST
+
+def test_spring_forward_hour_does_not_duplicate_the_index():
+    """`outages_zonal` has no dst_flag and reports 24 hour-endings every day —
+    including the 23-hour spring-forward day, whose 02:00 does not exist locally.
+    Shifting it forward lands it on 03:00, colliding with the real row, and the
+    concat in `system_panel` then dies with "Reindexing only valid with uniquely
+    valued Index". Found on the full-range run; pinned here.
+    """
+    day = pd.Timestamp("2025-03-09")          # ERCOT spring-forward
+    local = (pd.to_datetime([day] * 24)
+             + pd.to_timedelta(range(24), unit="h"))
+    ts = (local.tz_localize("America/Chicago", ambiguous=True,
+                            nonexistent="shift_forward").tz_convert("UTC"))
+    assert ts.duplicated().any(), "fixture must reproduce the collision"
+
+    df = pd.DataFrame({"x": range(24)}, index=ts)
+    deduped = df[~df.index.duplicated(keep="last")]
+    assert not deduped.index.duplicated().any()
+    assert len(deduped) == 23                 # a spring-forward day IS 23 hours
+
+
 # ------------------------------------------------------------- candidate policy
 
 def test_candidate_policy_changes_the_base_rate_not_just_the_row_count():
