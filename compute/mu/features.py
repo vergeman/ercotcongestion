@@ -443,7 +443,9 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
 
 
 def build_panel(conn, M: pd.DataFrame, start, end,
-                policy: str = "active_28d") -> pd.DataFrame:
+                policy: str = "active_28d",
+                C: pd.DataFrame | None = None,
+                score_from: pd.Timestamp | None = None) -> pd.DataFrame:
     """The design matrix: one row per (delivery hour, candidate constraint).
 
     Columns are the system covariates (same for every constraint in an hour) plus
@@ -470,6 +472,13 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     market never saw, which is the same class of error as a lookahead: it makes
     the model look better than the information available to it. The gradient
     boosters in commit 3 take NaN natively; let them see the hole.
+
+    **`C` is optional, and passing it turns on the geography arm** (plan/0088
+    commit 3): the `geo_*` columns need the congestion panel because they are
+    derived from `SF`, which is *fitted* from `M` and `C` together. Without `C`
+    the panel is exactly 0085's, which is what keeps every existing caller and
+    test honest. `score_from` only phase-locks the geography's refit grid to the
+    scoring harness's; it selects nothing and gates nothing.
     """
     sys_panel = system_panel(conn, start, end)
     if sys_panel.empty:
@@ -489,6 +498,16 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     panel = panel.merge(sys_panel.drop(columns=[c for c in sys_panel.columns
                                                 if c.startswith("vintage_")]),
                         left_on="interval_ts", right_index=True, how="left")
+
+    # Geography: per (delivery_day, key), from the honestly-refit SF. A LEFT join,
+    # so a constraint the week's SF could not locate keeps its hole rather than
+    # borrowing another constraint's position.
+    if C is not None and not C.empty:
+        from compute.mu.geo import geo_panel
+        geo = geo_panel(M, C, days, anchor=score_from)
+        if not geo.empty:
+            panel = panel.merge(geo.reset_index(), on=["delivery_day", "key"],
+                                how="left")
 
     # Stack only the keys that are actually candidates. Stacking all of `M`
     # (13.6k hours x ~2.2k keys) materialises ~30M cells to read back ~10M, and

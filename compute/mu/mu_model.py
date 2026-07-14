@@ -487,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     import psycopg
 
     from compute.mu.features import build_panel
-    from compute.sf.panels import load_shadow_prices
+    from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--start", default="2024-12-11", help="first day of data read")
@@ -513,23 +513,33 @@ def main(argv: list[str] | None = None) -> int:
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
+    score_from_ts = (pd.Timestamp(args.score_from, tz="UTC")
+                     if args.score_from else None)
+    arms = arms_for(args.features)
+
     with psycopg.connect(dsn) as conn:
         log.info("loading shadow prices %s → %s", lo.date(), hi.date())
         M = load_shadow_prices(conn, lo, hi)
+        # The congestion panel is loaded only for the geography arm — it is what
+        # `SF` is fitted against. Skipping it when no arm needs it keeps the base
+        # run identical to 0085's and saves a large read.
+        C = None
+        if "geo" in arms:
+            C = load_congestion_panel(conn, lo, hi)
+            log.info("C = %s (geography arm is on)", C.shape)
         log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
-        panel = build_panel(conn, M, lo, hi, policy=args.policy)
+        panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
+                            score_from=score_from_ts)
 
-    arms = arms_for(args.features)
     log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
              f"{len(panel):,}", panel.shape[1],
              panel.memory_usage(deep=False).sum() / 1e9, args.features,
              len(feature_cols(panel, arms)) + 1)
 
-    score_from = pd.Timestamp(args.score_from, tz="UTC") if args.score_from else None
     # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
     # with sf/eval's — see refit_boundaries.
     preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
-                                 score_from, anchor=M.index[0].normalize(),
+                                 score_from_ts, anchor=M.index[0].normalize(),
                                  arms=arms)
     if weekly.empty:
         print("no scorable weeks")
