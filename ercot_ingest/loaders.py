@@ -11,6 +11,8 @@ import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
 
+from outage_parse import to_records  # NP1-346 archive parse (sibling module)
+
 log = logging.getLogger(__name__)
 
 # ERCOT publishes naive timestamp strings in Central Time. Postgres TIMESTAMPTZ
@@ -136,6 +138,33 @@ def load_outages(conn, df: pd.DataFrame) -> int:
         ON CONFLICT DO NOTHING
     """
 
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
+def load_resource_outages(conn, df: pd.DataFrame, posted_date) -> int:
+    """Load one NP1-346-ER snapshot (Unplanned Resource Outages) at vintage `posted_date`.
+
+    Archive product — unlike every other loader here, the `df` is an xlsx sheet (see
+    `outage_parse.parse_report`), and the vintage is the archive document's posting date,
+    not a row column, so it is passed in. Keyed (posted_date, resource_unit_code,
+    actual_outage_start): unit codes repeat within a snapshot (one resource, several
+    concurrent outages), so the unit code alone would drop rows. See migration 27.
+    """
+    records = to_records(df, posted_date)
+    if not records:
+        return 0
+
+    sql = """
+        INSERT INTO resource_outages (
+            posted_date, resource_unit_code, actual_outage_start,
+            resource_name, fuel_type, outage_type,
+            available_mw_max, available_mw_during, effective_mw_reduction,
+            planned_end_date, actual_end_date, nature_of_work
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT DO NOTHING
+    """
     with conn.cursor() as cur:
         cur.executemany(sql, records)
         return cur.rowcount

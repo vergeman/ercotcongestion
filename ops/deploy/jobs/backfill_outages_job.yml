@@ -1,0 +1,65 @@
+# Backfill NP1-346-ER unplanned resource outages (plan/0089 commit 2).
+#
+# Usage:
+#   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
+#   envsubst < ops/deploy/jobs/backfill_outages_job.yml | kubectl apply -f -
+#
+#   kubectl -n ercotstress logs -f job/backfill-outages
+#
+# Archive product (zip→xlsx, one document per posting date), so it is a separate driver
+# from backfill_ingest — see ercot_ingest/backfill_outages.py. Idempotent: --resume reads
+# ingest_log and skips posted_dates already done, and the table's ON CONFLICT DO NOTHING
+# absorbs re-runs. Adjust --start / --end to bound a different window.
+#
+# Expected runtime: ~1 API call per posting date over the panel range (~600 days), rate-
+# limited ~3s apart → on the order of 30-60 min on a cold DB, seconds on --resume.
+#
+# After it finishes:
+#   kubectl -n ercotstress delete job backfill-outages
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backfill-outages
+  namespace: ercotstress
+  labels:
+    app: ercot-ingest
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 86400          # 24h hard cap; bump if needed
+  template:
+    metadata:
+      labels:
+        app: ercot-ingest
+        job: backfill-outages
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: backfill-outages
+          image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+          imagePullPolicy: Always
+          command:
+            - python
+            - /ercot_ingest/backfill_outages.py
+            - --start
+            - "2024-12-11"
+            - --end
+            - "2026-07-01"
+            - --resume
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: postgres-credentials
+            - secretRef:
+                name: ercot-ingest-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
