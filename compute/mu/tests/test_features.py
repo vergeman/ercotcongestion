@@ -16,9 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.features import (BIND_DEADBAND, audit_leakage, binding_history,
-                                 calendar_features, dam_close, delivery_day_of,
-                                 history_cutoff, net_load_regime)
+from compute.mu.features import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
+                                 binding_history, calendar_features, dam_close,
+                                 delivery_day_of, history_cutoff, net_load_regime)
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
@@ -152,6 +152,98 @@ def test_never_binding_constraint_gets_an_honest_days_since(M):
     assert h.loc[(D, "B|c"), "binds_28d"] == 0
     assert h.loc[(D, "B|c"), "bind_rate_life"] == 0.0
     assert h.loc[(D, "B|c"), "days_since_bind"] > 0   # not 0, which would read as "bound yesterday"
+
+
+# ------------------------------------------------- lagged mu (plan/0088 commit 2)
+
+def _local_day(day: str) -> pd.DatetimeIndex:
+    """The 24 UTC hours belonging to an ERCOT-local delivery day."""
+    return (pd.date_range(pd.Timestamp(day).tz_localize(ERCOT_TZ),
+                          periods=24, freq="h").tz_convert("UTC"))
+
+
+def test_lag_mu_1d_is_exactly_yesterdays_realized_mu(M):
+    """**The acceptance criterion for commit 2, stated as arithmetic.**
+
+    Plant a known shape on D-1 — 6 hours at $120, 18 hours slack — and demand the
+    exact number back. `lag_mu_1d` is the mean over ALL 24 hours (6*120/24 = 30.0),
+    not the mean over binding hours (120.0): a slack hour's mu is an observed zero,
+    and that is the same convention `score.mu_persistence` uses. Asserting the
+    exact value is what makes the two definitions impossible to confuse later.
+    """
+    d_minus_1 = _local_day("2025-08-01")
+    M.loc[M.index.isin(d_minus_1[:6]), "A|c"] = 120.0
+
+    h = binding_history(M, pd.DatetimeIndex([D]))
+
+    assert h.loc[(D, "A|c"), "lag_mu_1d"] == pytest.approx(6 * 120.0 / 24)
+    assert h.loc[(D, "A|c"), "lag_max_mu_1d"] == pytest.approx(120.0)
+    # and the 7d window sees the same six hours spread over seven days
+    assert h.loc[(D, "A|c"), "lag_mu_7d"] == pytest.approx(6 * 120.0 / (7 * 24))
+    assert h.loc[(D, "A|c"), "lag_max_mu_7d"] == pytest.approx(120.0)
+
+
+def test_lag_mu_cannot_see_the_delivery_day(M):
+    """The leak test, planted rather than asserted — as for the rest of `binding_history`.
+
+    Day D is the target. Load it with the largest mu in the fixture and demand that
+    every lag column is byte-identical to the run where day D is quiet. A `lag_*`
+    column that moved here would be reading its own answer, and it would look like
+    a spectacular result.
+    """
+    M.loc[M.index.isin(_local_day("2025-08-01")), "A|c"] = 40.0   # admissible D-1
+
+    quiet = binding_history(M, pd.DatetimeIndex([D]))
+
+    leaked = M.copy()
+    leaked.loc[leaked.index.isin(_local_day("2025-08-02")), "A|c"] = 9999.0
+    after = binding_history(leaked, pd.DatetimeIndex([D]))
+
+    lag = [c for c in quiet.columns if c.startswith("lag_")]
+    assert lag, "the lag columns vanished — this test would pass vacuously"
+    pd.testing.assert_frame_equal(quiet[lag], after[lag])
+
+
+def test_lag_mu_is_zero_not_nan_for_a_quiet_constraint(M):
+    """A constraint that did not bind yesterday has a mu of 0.0, and that is an
+    OBSERVATION, not a hole.
+
+    This is the one place in the panel where a zero is right and a NaN is wrong,
+    so it is pinned. `mean_mu_28d` is the bind-conditional quantity and is
+    genuinely undefined for a never-binder; `lag_mu_*` is not, and confusing the
+    two would hand the model a NaN for precisely the quiet constraints whose
+    quietness is the most predictive thing about them.
+    """
+    h = binding_history(M, pd.DatetimeIndex([D]))
+    for c in ("lag_mu_1d", "lag_mu_7d", "lag_max_mu_1d", "lag_max_mu_7d"):
+        assert h.loc[(D, "B|c"), c] == 0.0
+
+
+def test_lag_mu_respects_the_deadband(M):
+    """Sub-deadband dust is not a bind, and it contributes no magnitude either —
+    `mu` is masked by `binds`, so the two definitions cannot drift apart."""
+    M.loc[M.index.isin(_local_day("2025-08-01")), "A|c"] = BIND_DEADBAND * 0.5
+    h = binding_history(M, pd.DatetimeIndex([D]))
+    assert h.loc[(D, "A|c"), "lag_mu_1d"] == 0.0
+    assert h.loc[(D, "A|c"), "lag_max_mu_1d"] == 0.0
+
+
+def test_lag_mu_1d_uses_the_days_real_hour_count_not_a_hardcoded_24():
+    """A spring-forward day has 23 hours. Dividing its mu-sum by 24 would understate
+    it by ~4% — small, silent, and exactly the kind of thing that survives for a year.
+
+    2026-03-08 is the DST transition; 2026-03-09 is the delivery day whose D-1 it is.
+    """
+    idx = pd.date_range("2026-03-01", "2026-03-10", freq="h", tz="UTC")
+    M = pd.DataFrame(0.0, index=idx, columns=["A|c"])
+
+    d_minus_1 = delivery_day_of(M.index) == pd.Timestamp("2026-03-08")
+    assert d_minus_1.sum() == 23, "fixture is not actually a spring-forward day"
+    M.loc[d_minus_1, "A|c"] = 46.0
+
+    h = binding_history(M, pd.DatetimeIndex([pd.Timestamp("2026-03-09")]))
+    # every hour of a 23-hour day at $46 -> the mean is $46, not 23*46/24 = $44.08
+    assert h.loc[(pd.Timestamp("2026-03-09"), "A|c"), "lag_mu_1d"] == pytest.approx(46.0)
 
 
 # ------------------------------------------------------------- regime edges
