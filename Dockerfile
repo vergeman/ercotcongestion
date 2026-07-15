@@ -51,6 +51,7 @@ COPY --chown=shifty:shifty ercot_ingest/  /ercot_ingest/
 # Phase 2: still baked in. Move to S3 init container or PVC if these start
 # changing more frequently than the code.
 COPY --chown=shifty:shifty data/processed /data/processed/
+COPY --chown=shifty:shifty data/raw/ercot_geocode /data/raw/ercot_geocode/
 
 # API writes its topology cache here on first request.
 RUN mkdir -p /api/static && chown shifty:shifty /api/static

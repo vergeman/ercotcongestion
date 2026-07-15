@@ -4,7 +4,8 @@ ops/
 docs/
 db/*.tar.gz
 
-data/raw/
+data/raw/*
+!data/raw/ercot_geocode
 
 data/experiments/*
 !data/experiments/hub_k_sweep
