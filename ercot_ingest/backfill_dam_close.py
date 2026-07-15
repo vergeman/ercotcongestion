@@ -218,6 +218,39 @@ def backfill_one_day(client: ErcotClient, conn, key: str, delivery_day: date,
           f"{len(vintage)} rows kept of {fetched}, {inserted} new")
 
 
+# Recurring refresh, folded into the single 15-minute `ercot-ingest` cron. All three
+# vintaged forecasts are refreshed here at DAM-close cadence, so none of them ride
+# `backfill.py`'s ENDPOINTS (where a whole-day posting window over-fetches ~24
+# vintages). The recent days these touch are within NP3-561's API retention, so the
+# archive fallback in `_fetch` is not exercised on the live path.
+LIVE_PRODUCTS = ("load_forecast_dam", "wind_forecast_dam", "solar_forecast_dam")
+LIVE_LOOKBACK_DAYS = 3
+
+
+def update_recent(client, conn) -> None:
+    """Keep the DAM-close forecast vintages fresh, called by `live_updater` each cycle.
+
+    Self-throttling, so a once-a-day vintage is not chased at 15-minute grain:
+    `backfill_one_day` checks `is_completed` before any network, so a delivery day
+    whose vintage is already logged costs one lookup and returns. We refresh the last
+    few delivery days (a late or missed vintage gets filled) plus **tomorrow**, whose
+    DAM-close vintage is published on *today* before 10:00 CT — but only once we are
+    past that hour, since asking earlier is a guaranteed-empty API call every cycle."""
+    now_ct = datetime.now(timezone.utc).astimezone(ERCOT_TZ)
+    start = now_ct.date() - timedelta(days=LIVE_LOOKBACK_DAYS)
+    end = now_ct.date() + (timedelta(days=1) if now_ct.hour >= DAM_CLOSE_HOUR
+                           else timedelta(0))
+    d = start
+    while d <= end:
+        for key in LIVE_PRODUCTS:
+            try:
+                backfill_one_day(client, conn, key, d, resume=True)
+            except Exception as e:                       # noqa: BLE001
+                conn.rollback()
+                print(f"  [{key}] {d} — FAILED: {e}")
+        d += timedelta(days=1)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--start", required=True, help="first DELIVERY day, YYYY-MM-DD")

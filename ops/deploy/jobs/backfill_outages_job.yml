@@ -1,27 +1,26 @@
-# Backfill ingest data from ERCOT for 2025-01-01 → 2026-05-07.
+# Backfill NP1-346-ER unplanned resource outages (plan/0089 commit 2).
 #
 # Usage:
 #   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
-#   envsubst < ops/deploy/jobs/backfill_ingest_job.yml | kubectl apply -f -
+#   envsubst < ops/deploy/jobs/backfill_outages_job.yml | kubectl apply -f -
 #
-#   kubectl -n ercotstress logs -f job/backfill-ingest
+#   kubectl -n ercotstress logs -f job/backfill-outages
 #
-# This script is idempotent. --resume reads ingest_log and skips any
-# (endpoint, day) pairs that already succeeded, so re-running fills only the
-# gaps. Adjust --start / --end below to bound a different window.
+# Archive product (zip→xlsx, one document per posting date), so it is a separate driver
+# from backfill_ingest — see ercot_ingest/backfill_outages.py. Idempotent: --resume reads
+# ingest_log and skips posted_dates already done, and the table's ON CONFLICT DO NOTHING
+# absorbs re-runs. Adjust --start / --end to bound a different window.
 #
-# Expected runtime: hours. ERCOT API is rate-limited; ~493 days × 10 endpoints
-# in the worst case (zonal_lmp, outages, loads, wind, solar, dam_spp,
-# dam_shadow, dam_lambda, sced_lambda, load_forecast). Resume mode means
-# most calls will be skipped if your DB already has data.
+# Expected runtime: ~1 API call per posting date over the panel range (~600 days), rate-
+# limited ~3s apart → on the order of 30-60 min on a cold DB, seconds on --resume.
 #
 # After it finishes:
-#   kubectl -n ercotstress delete job backfill-ingest
+#   kubectl -n ercotstress delete job backfill-outages
 
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: backfill-ingest
+  name: backfill-outages
   namespace: ercotstress
   labels:
     app: ercot-ingest
@@ -33,25 +32,23 @@ spec:
     metadata:
       labels:
         app: ercot-ingest
-        job: backfill-ingest
+        job: backfill-outages
     spec:
       restartPolicy: Never
       imagePullSecrets:
         - name: regcred
       containers:
-        - name: backfill
+        - name: backfill-outages
           image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
           imagePullPolicy: Always
           command:
             - python
-            - /ercot_ingest/backfill_dam_close.py
+            - /ercot_ingest/backfill_outages.py
             - --start
-            - "2024-12-01"
+            - "2024-12-11"
             - --end
             - "2026-07-01"
             - --resume
-            #- --endpoint
-            #- "dam_lambda"
           envFrom:
             - configMapRef:
                 name: api-config

@@ -54,6 +54,7 @@ def _armed_panel() -> pd.DataFrame:
     p["lag_mu_1d"] = 1.0
     p["geo_dist_wind_north"] = 2.0
     p["wx_corr_load_north"] = 3.0
+    p["out_exposure_now"] = 4.0             # plan/0089 — the outage arm's prefix
     p["vintage_load"] = pd.Timestamp("2025-01-01", tz="UTC")
     return p
 
@@ -64,7 +65,7 @@ def test_base_arm_sees_no_arm_column():
     a moving baseline and the table would mean nothing."""
     cols = feature_cols(_armed_panel(), arms=())
     assert "net_load" in cols          # base features are always present
-    assert not [c for c in cols if c.startswith(("lag_", "geo_", "wx_"))]
+    assert not [c for c in cols if c.startswith(("lag_", "geo_", "wx_", "out_"))]
 
 
 def test_each_arm_adds_only_its_own_columns():
@@ -108,6 +109,23 @@ def test_every_feature_set_resolves():
     p = _armed_panel()
     for name in FEATURE_SETS:
         assert feature_cols(p, arms=arms_for(name))
+
+
+def test_outage_arm_is_isolated_and_leaves_0088_arms_untouched():
+    """plan/0089's arm is additive: `out` is `base` plus the outage exposure and
+    NOTHING else, and — the load-bearing claim — introducing the `out_` prefix must
+    leave 0088's frozen `base` and `all` byte-identical even on a panel that carries
+    the covariate, so the two branches remain comparable week-for-week."""
+    p = _armed_panel()
+    base = set(feature_cols(p, arms=()))
+    assert set(feature_cols(p, arms=arms_for("out"))) - base == {"out_exposure_now"}
+
+    # base and all never see the outage column, however present it is in the panel.
+    assert "out_exposure_now" not in base
+    all_ = set(feature_cols(p, arms=arms_for("all")))
+    assert "out_exposure_now" not in all_
+    # all+out is exactly 0088's all plus the outage exposure.
+    assert set(feature_cols(p, arms=arms_for("all+out"))) - all_ == {"out_exposure_now"}
 
 
 # ------------------------------------------------------- the target encoding

@@ -143,6 +143,39 @@ class ErcotClient:
 
         return pd.DataFrame(rows, columns=fields) if fields else pd.DataFrame()
 
+    # ------------------------------------------------------------------ archive
+    # Archive products (e.g. NP1-346-ER unplanned resource outages) are not served
+    # by the JSON `/np*-cd/...` endpoints `get()` pages through: they are a document
+    # index plus per-document binary downloads (a zip wrapping an xlsx). Transport
+    # only — unzip/parse lives in `outage_parse.py`.
+
+    def _archive_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._get_token()}",
+                "Ocp-Apim-Subscription-Key": SUB_KEY}
+
+    def archive_index(self, product: str) -> pd.DataFrame:
+        """Every archived document for `product`: (docId, postDatetime, posted).
+
+        Paged 100 at a time; sorted oldest→newest with `posted` parsed to a datetime."""
+        rows, page = [], 1
+        while True:
+            payload = self._request(
+                "GET", f"{BASE_URL}/archive/{product}", headers=self._archive_headers(),
+                params={"size": 100, "page": page}).json()
+            rows.extend(payload.get("archives", []))
+            if page >= payload["_meta"]["totalPages"]:
+                break
+            page += 1
+        df = pd.DataFrame(rows)
+        df["posted"] = pd.to_datetime(df["postDatetime"])
+        return df.sort_values("posted").reset_index(drop=True)
+
+    def download_archive(self, product: str, doc_id: int) -> bytes:
+        """One archived document's raw bytes (a zip wrapping an xlsx)."""
+        return self._request(
+            "GET", f"{BASE_URL}/archive/{product}", headers=self._archive_headers(),
+            params={"download": int(doc_id)}).content
+
 #
 # MAIN
 #

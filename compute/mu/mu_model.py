@@ -81,17 +81,27 @@ ARM_PREFIXES = {
     "lag": "lag_",   # commit 2 — lagged realized mu (the persistence content)
     "geo": "geo_",   # commit 3 — constraint geography via the |SF| centroid
     "wx": "wx_",     # commit 4 — per-constraint weather-response vectors
+    "out": "out_",   # plan/0089 — per-constraint generation-outage exposure
 }
 
 # `base` is 0085's feature set exactly — the thing every arm must be measured
 # against. `all` is every arm at once. The single-arm rows are what make the
 # contributions attributable.
+#
+# **The first five keys are 0088's pre-registered arms (`plan/s6-gate.md`) and are
+# frozen — do not edit them.** `out` and `all+out` are plan/0089's additions, and
+# they are additive on purpose: because `out` joins `ARM_PREFIXES`, every existing
+# arm now *drops* the `out_` columns, so `base` and `all` are byte-identical to 0088
+# on a panel that carries the outage covariate. The new arms are the only ones that
+# can see it.
 FEATURE_SETS = {
     "base": (),
     "lag": ("lag",),
     "geo": ("geo",),
     "wx": ("wx",),
     "all": ("lag", "geo", "wx"),
+    "out": ("out",),                        # plan/0089 — outage exposure alone
+    "all+out": ("lag", "geo", "wx", "out"),  # plan/0089 — 0088's `all` + outage
 }
 
 
@@ -152,8 +162,20 @@ def target_encoding(train: pd.DataFrame) -> tuple[pd.Series, float]:
     return smoothed.astype("float32"), pooled
 
 
-def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float) -> pd.DataFrame:
-    out = panel.copy()
+def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float,
+                   columns: list[str] | None = None) -> pd.DataFrame:
+    """Attach the target-encoded `key_bind_rate`, on a copy of the fold.
+
+    `columns` slims that copy to the columns the walk will actually read. The
+    ablation panel carries **every** arm's columns (~90), but a single arm's fold
+    consumes only its own features plus the two targets (~50) — copying all 90 per
+    fold was a ~2x-wider allocation than the walk uses, and per-fold copies are the
+    peak-memory line of the walk. Under copy-on-write `panel[columns]` shares data
+    until `.copy()`, so this stays a single slim materialisation rather than two.
+    `columns=None` keeps the old whole-fold behaviour for callers that want it.
+    """
+    src = panel if columns is None else panel[columns]
+    out = src.copy()
     keys = out.index.get_level_values("key")
     out["key_bind_rate"] = enc.reindex(keys).fillna(pooled).to_numpy("float32")
     return out
@@ -163,15 +185,31 @@ def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float) -> pd.Dat
 # Head 1 — P(bind)
 # --------------------------------------------------------------------------
 
-def fit_bind_head(train: pd.DataFrame, cols: list[str],
+def fold_matrix(frame: pd.DataFrame, cols: list[str]) -> np.ndarray:
+    """A feature matrix as float64, built column by column into a pre-allocated
+    F-order array. HistGBM upcasts X to float64 for binning regardless of input
+    dtype — there is no float32 path — so handing it the float64 directly changes no
+    value. Used for the scored week (small); the train-side bind matrix is filled
+    inline in `walk_forward` straight from the panel view to skip the wide float32
+    fold copy the wide `all` arm cannot afford. F-order matches HistGBM's binning.
+    """
+    x = np.empty((len(frame), len(cols)), dtype=np.float64, order="F")
+    for j, c in enumerate(cols):
+        x[:, j] = frame[c].to_numpy()
+    return x
+
+
+def fit_bind_head(x: np.ndarray, y: np.ndarray,
                   seed: int = 0) -> HistGradientBoostingClassifier:
-    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s
-    note on why the covariate holes must not be filled."""
+    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s note
+    on why the covariate holes must not be filled. `x` is the fold's float64 feature
+    matrix from `fold_matrix`, built by the caller so the float32 fold copy is freed
+    before this fit; positional columns, so the caller keeps `cols` order stable."""
     model = HistGradientBoostingClassifier(
         max_iter=200, learning_rate=0.06, max_leaf_nodes=31,
         min_samples_leaf=100, l2_regularization=1.0,
         early_stopping=False, random_state=seed)
-    model.fit(train[cols], train["y_bind"])
+    model.fit(x, y)
     return model
 
 
@@ -332,7 +370,13 @@ def walk_forward(panel: pd.DataFrame,
       weekly       one row per scored week: head-1 calibration and head-2 error,
                    so a bad week is visible as a week rather than averaged away.
     """
-    cols = feature_cols(panel, arms) + ["key_bind_rate"]
+    feat = feature_cols(panel, arms)
+    cols = feat + ["key_bind_rate"]
+    # The only columns a fold consumes: this arm's features (which already include
+    # base `net_load`/`hour` for the climatology) plus the two targets. Slimming the
+    # per-fold copy to these drops the ~40 other-arm columns the ablation panel
+    # carries but this arm never reads — see `apply_encoding`.
+    keep = feat + ["y_bind", "y_mu"]
     ts = panel.index.get_level_values("interval_ts")
     starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
     if not len(starts):
@@ -370,15 +414,38 @@ def walk_forward(panel: pd.DataFrame,
             continue
 
         enc, pooled = target_encoding(train)
-        train_e = apply_encoding(train, enc, pooled)
-        score_e = apply_encoding(score, enc, pooled)
+        score_e = apply_encoding(score, enc, pooled, keep)
 
-        bind = fit_bind_head(train_e, cols, seed)
-        p = bind.predict_proba(score_e[cols])[:, 1]
+        # Never materialise the full-width float32 fold copy. On the wide `all`
+        # arm (86 features) that copy is ~1.7 GB and it has to coexist with the
+        # ~3.3 GB float64 bind matrix while the matrix is filled — together, on
+        # top of the ~4 GB panel, that tips the densest late-walk folds over this
+        # node's RAM. `apply_encoding` only *adds* one column (`key_bind_rate`);
+        # every other fold column is a raw panel column already in `train`. So the
+        # bind matrix is filled straight from the panel view plus that one encoded
+        # column, and only the small consumers are encoded in full: the mu head
+        # trains on binding rows alone (a few percent), and the climatology reads
+        # four base columns off the view. Each value is exactly what a full
+        # `apply_encoding` then `fold_matrix` produced — same float32 columns, same
+        # float32 `key_bind_rate` upcast to float64, same `cols` order — so every
+        # fitted value is unchanged; `test`/`compare_base` pin the bit-identity.
+        binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
+        clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()
+        y_bind_tr = train["y_bind"].to_numpy()
 
-        cells, edges, grand = fit_mu_climatology(train_e)
+        key_rate = enc.reindex(
+            train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
+        x_tr = np.empty((len(train), len(cols)), dtype=np.float64, order="F")
+        for j, c in enumerate(feat):
+            x_tr[:, j] = train[c].to_numpy()
+        x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
+
+        bind = fit_bind_head(x_tr, y_bind_tr, seed)
+        p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
+
+        cells, edges, grand = fit_mu_climatology(clim_e)
         mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
-        mu_gbm = predict_mu_head(fit_mu_head(train_e, cols, seed), score_e, cols)
+        mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
 
         out = pd.DataFrame({
             "p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm,

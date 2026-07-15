@@ -43,6 +43,17 @@ spec:
     - name: compute
       image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
       command: ["sleep", "infinity"]
+      env:
+        # Keep RSS near the true working set on this shared node. With several CPUs
+        # glibc otherwise fragments allocations across many per-thread arenas and
+        # holds freed build-phase memory as RSS into the walk — enough to OOM a job
+        # (e.g. the mu ablation) whose live set is well under the limit. ARENA_MAX
+        # caps the arenas; TRIM_THRESHOLD_ returns freed pages to the OS promptly.
+        # Negligible cost for this large-allocation pandas/numpy/sklearn workload.
+        - name: MALLOC_ARENA_MAX
+          value: "2"
+        - name: MALLOC_TRIM_THRESHOLD_
+          value: "0"
       envFrom:
         - configMapRef:
             name: api-config
