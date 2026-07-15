@@ -44,11 +44,12 @@ spec:
           imagePullPolicy: Always
           command:
             - python
+            #- /ercot_ingest/backfill.py
             - /ercot_ingest/backfill_dam_close.py
             - --start
-            - "2024-12-01"
+            - "2024-12-10"
             - --end
-            - "2026-07-01"
+            - "2025-05-02"
             - --resume
             #- --endpoint
             #- "dam_lambda"

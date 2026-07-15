@@ -1,5 +1,43 @@
 # Compute
 
+ABLATION FULL RUN
+
+```
+docker compose run --rm compute python -m compute.mu.ablate \
+    --score-from 2025-08-14 --preds-dir /compute/mu/ablation --out /compute/mu/ablation.csv
+
+python -m compute.mu.outage_ablate --score-from 2025-08-14 --score \
+    --preds-dir /compute/runs/outage_ablation \
+    --out /compute/runs/outage_ablation.csv
+
+```
+
+
+Need to clean out memory
+
+```
+kubectl -n default scale \
+    deploy/prometheus-kube-prometheus-operator --replicas=0
+kubectl -n default scale \
+    statefulset/prometheus-prometheus-kube-prometheus-prometheus --replicas=0
+kubectl -n default scale \
+    statefulset/alertmanager-prometheus-kube-prometheus-alertmanager --replicas=0
+kubectl -n default scale \
+    deploy/prometheus-grafana --replicas=0
+```
+
+Restart
+
+```
+kubectl -n default scale \
+    deploy/prometheus-kube-prometheus-operator --replicas=1
+kubectl -n default scale \
+    deploy/prometheus-grafana --replicas=1
+```
+
+---
+
+
 * `config.py`: config object that pulls from `/shared/settings.py`; kept to
   reduce changes during development.
 
