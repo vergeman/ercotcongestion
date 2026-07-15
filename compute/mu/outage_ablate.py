@@ -20,8 +20,12 @@ zonal outage signal, and `out − base` is precisely the lift of going **per-con
 that aggregate. If it is not positive, the arm degrades to the fallback R4 already gave us,
 and commit 5 says so plainly (plan/0089).
 
+Walk-only by default (build the panel, save each arm's preds npz, memory-frugal); pass
+`--score` for the assembly pass that scores the cached npz and writes the CSV + verdict.
+`run_outage_ablation.sh` drives the per-arm walks then one `--score` pass.
+
     docker compose run --rm compute python -m compute.mu.outage_ablate \
-      --score-from 2025-08-14 --out /compute/mu/outage_ablation.csv
+      --score-from 2025-08-14 --score --out /compute/mu/outage_ablation.csv
 """
 from __future__ import annotations
 
@@ -105,6 +109,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--preds-dir", default="/compute/mu/outage_ablation")
     p.add_argument("--out", default="/compute/mu/outage_ablation.csv")
     p.add_argument("--no-resume", action="store_true")
+    # Walk-only is the DEFAULT: build the panel, run each arm's walk, save its preds
+    # npz, then stop — freeing M/C/regimes first (the walk reads only the panel) so
+    # the memory-heavy fit clears a small node; the `all` arm's first fold otherwise
+    # peaks right at this node's RAM. `--score` opts into the assembly pass — reuse
+    # the cached npz, score every arm through the 0085 harness, write the CSV +
+    # verdict. Scoring holds M/C but does no heavy fit, so it is safe once at the end.
+    p.add_argument("--score", dest="walk_only", action="store_false",
+                   help="score the cached preds and write the CSV/verdict (the "
+                        "assembly pass). Default is walk-only — save npz and stop.")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -146,6 +159,25 @@ def main(argv: list[str] | None = None) -> int:
                          "placed nothing; the ablation cannot measure the arm")
 
     anchor = M.index[0].normalize()
+
+    if args.walk_only:
+        # Per-arm isolated pass. The walk reads only `panel`; M/C/sysp/regimes are
+        # scoring inputs held for the loop below. Free them here so the heavy fit
+        # (the `all` arm's first fold peaks near this node's RAM) has ~1 GB more to
+        # breathe. The npz is the whole product of this mode — the assembly pass
+        # (no --walk-only) reloads M/C and scores from these cached npz.
+        import gc
+        del M, C, sysp, regimes
+        gc.collect()
+        for arm in arms:
+            run_arm(panel, arm, preds_dir / f"preds_{arm.replace('+', '_')}.npz",
+                    args.train_days, args.refit_days, score_from, anchor,
+                    resume=not args.no_resume)
+            log.info("arm %-8s: preds saved (walk-only)", arm)
+        log.info("walk-only: %d arm(s) done, %.0f min", len(arms),
+                 (time.perf_counter() - t0) / 60)
+        return 0
+
     rows = []
     for arm in arms:
         preds = run_arm(panel, arm, preds_dir / f"preds_{arm.replace('+', '_')}.npz",

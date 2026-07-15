@@ -185,15 +185,31 @@ def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float,
 # Head 1 — P(bind)
 # --------------------------------------------------------------------------
 
-def fit_bind_head(train: pd.DataFrame, cols: list[str],
+def fold_matrix(frame: pd.DataFrame, cols: list[str]) -> np.ndarray:
+    """A feature matrix as float64, built column by column into a pre-allocated
+    F-order array. HistGBM upcasts X to float64 for binning regardless of input
+    dtype — there is no float32 path — so handing it the float64 directly changes no
+    value. Used for the scored week (small); the train-side bind matrix is filled
+    inline in `walk_forward` straight from the panel view to skip the wide float32
+    fold copy the wide `all` arm cannot afford. F-order matches HistGBM's binning.
+    """
+    x = np.empty((len(frame), len(cols)), dtype=np.float64, order="F")
+    for j, c in enumerate(cols):
+        x[:, j] = frame[c].to_numpy()
+    return x
+
+
+def fit_bind_head(x: np.ndarray, y: np.ndarray,
                   seed: int = 0) -> HistGradientBoostingClassifier:
-    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s
-    note on why the covariate holes must not be filled."""
+    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s note
+    on why the covariate holes must not be filled. `x` is the fold's float64 feature
+    matrix from `fold_matrix`, built by the caller so the float32 fold copy is freed
+    before this fit; positional columns, so the caller keeps `cols` order stable."""
     model = HistGradientBoostingClassifier(
         max_iter=200, learning_rate=0.06, max_leaf_nodes=31,
         min_samples_leaf=100, l2_regularization=1.0,
         early_stopping=False, random_state=seed)
-    model.fit(train[cols], train["y_bind"])
+    model.fit(x, y)
     return model
 
 
@@ -398,15 +414,38 @@ def walk_forward(panel: pd.DataFrame,
             continue
 
         enc, pooled = target_encoding(train)
-        train_e = apply_encoding(train, enc, pooled, keep)
         score_e = apply_encoding(score, enc, pooled, keep)
 
-        bind = fit_bind_head(train_e, cols, seed)
-        p = bind.predict_proba(score_e[cols])[:, 1]
+        # Never materialise the full-width float32 fold copy. On the wide `all`
+        # arm (86 features) that copy is ~1.7 GB and it has to coexist with the
+        # ~3.3 GB float64 bind matrix while the matrix is filled — together, on
+        # top of the ~4 GB panel, that tips the densest late-walk folds over this
+        # node's RAM. `apply_encoding` only *adds* one column (`key_bind_rate`);
+        # every other fold column is a raw panel column already in `train`. So the
+        # bind matrix is filled straight from the panel view plus that one encoded
+        # column, and only the small consumers are encoded in full: the mu head
+        # trains on binding rows alone (a few percent), and the climatology reads
+        # four base columns off the view. Each value is exactly what a full
+        # `apply_encoding` then `fold_matrix` produced — same float32 columns, same
+        # float32 `key_bind_rate` upcast to float64, same `cols` order — so every
+        # fitted value is unchanged; `test`/`compare_base` pin the bit-identity.
+        binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
+        clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()
+        y_bind_tr = train["y_bind"].to_numpy()
 
-        cells, edges, grand = fit_mu_climatology(train_e)
+        key_rate = enc.reindex(
+            train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
+        x_tr = np.empty((len(train), len(cols)), dtype=np.float64, order="F")
+        for j, c in enumerate(feat):
+            x_tr[:, j] = train[c].to_numpy()
+        x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
+
+        bind = fit_bind_head(x_tr, y_bind_tr, seed)
+        p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
+
+        cells, edges, grand = fit_mu_climatology(clim_e)
         mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
-        mu_gbm = predict_mu_head(fit_mu_head(train_e, cols, seed), score_e, cols)
+        mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
 
         out = pd.DataFrame({
             "p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm,
