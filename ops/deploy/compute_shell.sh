@@ -24,10 +24,10 @@ export IMAGE_TAG="$(cat ../../.image-tag)"
 : "${IMAGE_REPO:?IMAGE_REPO not set}"
 : "${IMAGE_TAG:?IMAGE_TAG not set (../../.image-tag empty?)}"
 
-export CPU_REQUEST="${CPU_REQUEST:-2}"
-export CPU_LIMIT="${CPU_LIMIT:-2}"
+export CPU_REQUEST="${CPU_REQUEST:-3}"
+export CPU_LIMIT="${CPU_LIMIT:-6}"
 export MEM_REQUEST="${MEM_REQUEST:-2Gi}"
-export MEM_LIMIT="${MEM_LIMIT:-8Gi}"
+export MEM_LIMIT="${MEM_LIMIT:-16Gi}"
 
 export IMAGE_REPO
 envsubst < jobs/compute_shell_pod.yml.template | kubectl apply -f -

@@ -442,6 +442,27 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
     raise ValueError(f"unknown candidate policy: {policy!r}")
 
 
+def _downcast_join(df: pd.DataFrame) -> pd.DataFrame:
+    """float64 → float32 on a frame about to be merged into the panel.
+
+    float32 is the panel's *final* storage dtype anyway (see the terminal cast in
+    `build_panel`): the covariates are MW and $/MWh at 4-5 significant figures, so
+    float64 stores precision the source data does not have. Doing it here, on each
+    component **before** it is joined, is what keeps the assembled panel from ever
+    going float64-wide — the state whose end-of-build cast to float32 doubled the
+    panel and OOM-killed the ablation. Result-identical to casting at the end,
+    because the walk always saw the float32 panel; only the peak changes.
+
+    Only applied to frames being merged in, never to a frame something is still
+    computed from (e.g. the float64 `sys_panel` `wx_panel` reads) — downcasting
+    those would change a covariate rather than just its storage.
+    """
+    f64 = df.select_dtypes("float64").columns
+    if len(f64):
+        df[f64] = df[f64].astype("float32")
+    return df
+
+
 def build_panel(conn, M: pd.DataFrame, start, end,
                 policy: str = "active_28d",
                 C: pd.DataFrame | None = None,
@@ -506,14 +527,19 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     if hist.empty:
         return pd.DataFrame()
 
-    # Cross the day's candidates with the day's hours.
+    # Cross the day's candidates with the day's hours. Each component is downcast to
+    # float32 *before* it is merged (`_downcast_join`) so the wide panel is never
+    # materialised in float64 — see that helper for why this is result-identical and
+    # why it matters for peak memory.
     frame = pd.DataFrame({"interval_ts": hours,
                           "delivery_day": delivery_day_of(hours)})
-    panel = frame.merge(hist.reset_index(), on="delivery_day", how="inner")
+    panel = frame.merge(_downcast_join(hist.reset_index()), on="delivery_day",
+                        how="inner")
 
-    panel = panel.merge(sys_panel.drop(columns=[c for c in sys_panel.columns
-                                                if c.startswith("vintage_")]),
-                        left_on="interval_ts", right_index=True, how="left")
+    panel = panel.merge(
+        _downcast_join(sys_panel.drop(columns=[c for c in sys_panel.columns
+                                               if c.startswith("vintage_")])),
+        left_on="interval_ts", right_index=True, how="left")
 
     # Geography: per (delivery_day, key), from the honestly-refit SF. A LEFT join,
     # so a constraint the week's SF could not locate keeps its hole rather than
@@ -522,18 +548,24 @@ def build_panel(conn, M: pd.DataFrame, start, end,
         from compute.mu.geo import geo_panel
         geo = geo_panel(M, C, days, anchor=score_from)
         if not geo.empty:
-            panel = panel.merge(geo.reset_index(), on=["delivery_day", "key"],
-                                how="left")
+            panel = panel.merge(_downcast_join(geo.reset_index()),
+                                on=["delivery_day", "key"], how="left")
+            del geo
 
     # Weather-response vectors: per (delivery_day, key), correlations over the same
     # trailing window. Needs no `C` and no crosswalk — only M and the forecasts that
     # are already in `sys_panel`. Same LEFT join, same law about holes.
+    #
+    # `wx_panel` is handed the float64 `sys_panel` (NOT a downcast copy): it computes
+    # weather-response correlations from those columns, so downcasting them first
+    # would change the covariate, not just its storage. Only the join copy is slimmed.
     if with_weather:
         from compute.mu.weather import wx_panel
         wx = wx_panel(M, sys_panel, days, anchor=score_from)
         if not wx.empty:
-            panel = panel.merge(wx.reset_index(), on=["delivery_day", "key"],
-                                how="left")
+            panel = panel.merge(_downcast_join(wx.reset_index()),
+                                on=["delivery_day", "key"], how="left")
+            del wx
 
     # Generation-outage exposure (plan/0089): per (delivery_day, key), |SF| dotted
     # against the located outage MW of the D-4 vintage. Same construction as `geo`
@@ -553,27 +585,37 @@ def build_panel(conn, M: pd.DataFrame, start, end,
                                        pd.Timestamp(end).date())
         out = outage_exposure_panel(M, C, outages, days, anchor=score_from)
         if not out.empty:
-            panel = panel.merge(out.reset_index(), on=["delivery_day", "key"],
-                                how="left")
+            panel = panel.merge(_downcast_join(out.reset_index()),
+                                on=["delivery_day", "key"], how="left")
+            del out
 
-    # Stack only the keys that are actually candidates. Stacking all of `M`
-    # (13.6k hours x ~2.2k keys) materialises ~30M cells to read back ~10M, and
-    # this is the peak-memory line of the whole package.
-    used = panel["key"].unique()
-    mu = M.reindex(index=hours, columns=used).fillna(0.0).abs()
-    lookup = mu.stack()
-    lookup.index.names = ["interval_ts", "key"]
-    y = lookup.reindex(pd.MultiIndex.from_frame(panel[["interval_ts", "key"]]))
+    # The target read: |μ| at each (hour, key) the panel asks about. The obvious
+    # `M.reindex(cols=used).stack()` materialises a ~30M-row MultiIndexed Series to
+    # read back ~10M values — historically the peak-memory line of the package. A
+    # dense gather does the same lookup without ever building that index: reindex M
+    # to the candidate columns once (a 13.6k × ~2.2k matrix), then fancy-index it by
+    # the panel's (hour, key) integer positions. Every panel key is in `used` and
+    # every panel hour is in `hours`, so no position is missing; NaN (M had no cell)
+    # becomes 0.0, exactly as `.fillna(0.0)` did.
+    used = pd.Index(panel["key"].unique())
+    mu = M.reindex(index=hours, columns=used).abs().to_numpy()
+    ri = hours.get_indexer(pd.DatetimeIndex(panel["interval_ts"]))
+    ci = used.get_indexer(panel["key"])
+    y = mu[ri, ci]
+    del mu
+    y[np.isnan(y)] = 0.0
 
-    panel["y_mu"] = y.to_numpy()
+    panel["y_mu"] = y
     panel["y_bind"] = (panel["y_mu"] > BIND_DEADBAND).astype("int8")
     panel.loc[panel["y_bind"] == 0, "y_mu"] = np.nan
 
-    # float32 halves the panel (~10M rows x ~50 cols). The covariates are MW and
-    # $/MWh at 4-5 significant figures; float64 stores precision that does not
-    # exist in the source data.
+    # Belt-and-braces: every covariate was downcast before its merge, so this should
+    # find nothing but `y_mu` (kept float64 as the NaN-bearing target). Left in as a
+    # cheap invariant — if a float64 covariate ever sneaks through, it is caught here
+    # rather than silently doubling the panel again.
     floats = panel.select_dtypes("float64").columns.drop("y_mu", errors="ignore")
-    panel[floats] = panel[floats].astype("float32")
+    if len(floats):
+        panel[floats] = panel[floats].astype("float32")
 
     return panel.set_index(["interval_ts", "key"]).sort_index()
 
