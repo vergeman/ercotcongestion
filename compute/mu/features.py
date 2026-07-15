@@ -446,7 +446,8 @@ def build_panel(conn, M: pd.DataFrame, start, end,
                 policy: str = "active_28d",
                 C: pd.DataFrame | None = None,
                 score_from: pd.Timestamp | None = None,
-                with_weather: bool = False) -> pd.DataFrame:
+                with_weather: bool = False,
+                with_outage: bool = False) -> pd.DataFrame:
     """The design matrix: one row per (delivery hour, candidate constraint).
 
     Columns are the system covariates (same for every constraint in an hour) plus
@@ -484,6 +485,10 @@ def build_panel(conn, M: pd.DataFrame, start, end,
       ``with_weather``  turns on the **weather-response** arm (commit 4). It needs
                         no extra data at all — only `M` and the forecasts already
                         in `sys_panel`.
+      ``with_outage``   turns on the **generation-outage** arm (plan/0089). Like
+                        `C`, it is |SF|-based, so it needs the congestion panel and
+                        raises without it; it also reads `resource_outages` and the
+                        authoritative crosswalk to place units onto settlement points.
       ``score_from``    phase-locks both arms' refit grids to the scoring harness's.
                         It selects nothing and gates nothing.
 
@@ -528,6 +533,27 @@ def build_panel(conn, M: pd.DataFrame, start, end,
         wx = wx_panel(M, sys_panel, days, anchor=score_from)
         if not wx.empty:
             panel = panel.merge(wx.reset_index(), on=["delivery_day", "key"],
+                                how="left")
+
+    # Generation-outage exposure (plan/0089): per (delivery_day, key), |SF| dotted
+    # against the located outage MW of the D-4 vintage. Same construction as `geo`
+    # — it fits its own honestly-refit SF from M and C — so it needs `C` (the SF's
+    # settlement-point space) and the authoritative crosswalk to place units there.
+    # Same LEFT join, same law about holes: a day whose vintage/SF cannot place a
+    # constraint keeps its NaN rather than borrowing a zero.
+    if with_outage:
+        if C is None or C.empty:
+            raise ValueError("with_outage needs the congestion panel C — the outage "
+                             "exposure is |SF|·MW and the SF is fitted from M and C")
+        from compute.mu.outage_crosswalk import load_crosswalk
+        from compute.mu.outage_exposure import (load_located_outages,
+                                                outage_exposure_panel)
+        outages = load_located_outages(conn, load_crosswalk(), set(C.columns),
+                                       pd.Timestamp(start).date(),
+                                       pd.Timestamp(end).date())
+        out = outage_exposure_panel(M, C, outages, days, anchor=score_from)
+        if not out.empty:
+            panel = panel.merge(out.reset_index(), on=["delivery_day", "key"],
                                 how="left")
 
     # Stack only the keys that are actually candidates. Stacking all of `M`

@@ -81,17 +81,27 @@ ARM_PREFIXES = {
     "lag": "lag_",   # commit 2 — lagged realized mu (the persistence content)
     "geo": "geo_",   # commit 3 — constraint geography via the |SF| centroid
     "wx": "wx_",     # commit 4 — per-constraint weather-response vectors
+    "out": "out_",   # plan/0089 — per-constraint generation-outage exposure
 }
 
 # `base` is 0085's feature set exactly — the thing every arm must be measured
 # against. `all` is every arm at once. The single-arm rows are what make the
 # contributions attributable.
+#
+# **The first five keys are 0088's pre-registered arms (`plan/s6-gate.md`) and are
+# frozen — do not edit them.** `out` and `all+out` are plan/0089's additions, and
+# they are additive on purpose: because `out` joins `ARM_PREFIXES`, every existing
+# arm now *drops* the `out_` columns, so `base` and `all` are byte-identical to 0088
+# on a panel that carries the outage covariate. The new arms are the only ones that
+# can see it.
 FEATURE_SETS = {
     "base": (),
     "lag": ("lag",),
     "geo": ("geo",),
     "wx": ("wx",),
     "all": ("lag", "geo", "wx"),
+    "out": ("out",),                        # plan/0089 — outage exposure alone
+    "all+out": ("lag", "geo", "wx", "out"),  # plan/0089 — 0088's `all` + outage
 }
 
 
