@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 from ErcotClient import ErcotClient, PG_DSN
 from backfill import ENDPOINTS, backfill_one_window
+from backfill_dam_close import update_recent as update_forecasts
 from backfill_outages import update_recent as update_outages
 
 INTERVAL_SECONDS = 900  # 15 min
@@ -30,6 +31,15 @@ def update_recent_window(client, conn, hours_back: int = 2):
         except Exception as e:
             log(f"  [{key}] FAILED: {e}")
             conn.rollback()
+    # Vintaged load/wind/solar DAM-close forecasts (NP3-561, NP4-742/745-CD). Moved out
+    # of ENDPOINTS so the hourly over-fetch stops; refreshed here at DAM-close cadence
+    # instead. Self-throttling: already-logged delivery days are one cheap lookup each.
+    # See backfill_dam_close.update_recent.
+    try:
+        update_forecasts(client, conn)
+    except Exception as e:
+        log(f"  [forecast_dam] FAILED: {e}")
+        conn.rollback()
     # NP1-346 unplanned resource outages — a once-daily archive feed folded into this
     # single cron. Self-throttling: on most cycles this is one ingest_log lookup and
     # returns; it hits the archive ~once a day. See backfill_outages.update_recent.

@@ -24,8 +24,7 @@ from loaders import (ERCOT_TZ,
                      load_zonal_lmp, load_outages,
                      load_load_by_zone, load_wind_hourly, load_solar_hourly,
                      load_dam_spp, load_dam_shadow_prices, load_dam_lambda,
-                     load_sced_lambda, load_load_forecast,
-                     load_wind_forecast, load_solar_forecast)
+                     load_sced_lambda)
 
 
 ENDPOINTS = {
@@ -93,40 +92,14 @@ ENDPOINTS = {
         "to_param": "SCEDTimestampTo",
         "param_format": "datetime",
     },
-    "load_forecast": {
-        "path": "/np3-561-cd/7d_load_fcast_by_wzn",
-        "loader": load_load_forecast,
-        "from_param": "postedDatetimeFrom",
-        "to_param": "postedDatetimeTo",
-        "param_format": "datetime",
-    },
-    # The same two products as `wind` / `solar` above, fetched by POSTING time
-    # rather than delivery date and written to the vintaged tables (migration 26)
-    # instead of the actuals tables. Both are needed and they are not redundant:
-    #
-    #   wind / solar          -> what the hour turned out to be   (actuals)
-    #   wind_forecast / solar_forecast -> what was believed, and WHEN (vintages)
-    #
-    # The actuals loaders dedup to the most recent posting, which is why they can
-    # never answer "what did we know at DAM close?" — the surviving row is the one
-    # published ~2 days later. Keep these entries in ENDPOINTS so `live_updater`
-    # picks them up on its normal cycle: without them, the vintaged tables stop
-    # accumulating the moment the backfill's end date passes, and the mu-model's
-    # covariates silently go stale.
-    "wind_forecast": {
-        "path": "/np4-742-cd/wpp_hrly_actual_fcast_geo",
-        "loader": load_wind_forecast,
-        "from_param": "postedDatetimeFrom",
-        "to_param": "postedDatetimeTo",
-        "param_format": "datetime",
-    },
-    "solar_forecast": {
-        "path": "/np4-745-cd/spp_hrly_actual_fcast_geo",
-        "loader": load_solar_forecast,
-        "from_param": "postedDatetimeFrom",
-        "to_param": "postedDatetimeTo",
-        "param_format": "datetime",
-    },
+    # The vintaged forecasts (load NP3-561-CD, wind NP4-742-CD, solar NP4-745-CD) are
+    # deliberately NOT ingested here. Fetched by posting time over a whole-day window,
+    # those endpoints return *every* publication — ~24 vintages a day — but the model
+    # only ever reads the single one admissible at DAM close. They belong to
+    # `backfill_dam_close.py`, which keeps exactly one vintage per delivery day, and
+    # whose `update_recent()` `live_updater` calls each cycle to stay fresh. Carrying
+    # them here made both a bulk `backfill.py` run and every live cycle pull the other
+    # 23 postings for nothing.
 }
 
 def is_completed(conn, endpoint: str, start: datetime, end: datetime) -> bool:
