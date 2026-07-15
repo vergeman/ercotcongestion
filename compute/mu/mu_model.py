@@ -162,8 +162,20 @@ def target_encoding(train: pd.DataFrame) -> tuple[pd.Series, float]:
     return smoothed.astype("float32"), pooled
 
 
-def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float) -> pd.DataFrame:
-    out = panel.copy()
+def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float,
+                   columns: list[str] | None = None) -> pd.DataFrame:
+    """Attach the target-encoded `key_bind_rate`, on a copy of the fold.
+
+    `columns` slims that copy to the columns the walk will actually read. The
+    ablation panel carries **every** arm's columns (~90), but a single arm's fold
+    consumes only its own features plus the two targets (~50) — copying all 90 per
+    fold was a ~2x-wider allocation than the walk uses, and per-fold copies are the
+    peak-memory line of the walk. Under copy-on-write `panel[columns]` shares data
+    until `.copy()`, so this stays a single slim materialisation rather than two.
+    `columns=None` keeps the old whole-fold behaviour for callers that want it.
+    """
+    src = panel if columns is None else panel[columns]
+    out = src.copy()
     keys = out.index.get_level_values("key")
     out["key_bind_rate"] = enc.reindex(keys).fillna(pooled).to_numpy("float32")
     return out
@@ -342,7 +354,13 @@ def walk_forward(panel: pd.DataFrame,
       weekly       one row per scored week: head-1 calibration and head-2 error,
                    so a bad week is visible as a week rather than averaged away.
     """
-    cols = feature_cols(panel, arms) + ["key_bind_rate"]
+    feat = feature_cols(panel, arms)
+    cols = feat + ["key_bind_rate"]
+    # The only columns a fold consumes: this arm's features (which already include
+    # base `net_load`/`hour` for the climatology) plus the two targets. Slimming the
+    # per-fold copy to these drops the ~40 other-arm columns the ablation panel
+    # carries but this arm never reads — see `apply_encoding`.
+    keep = feat + ["y_bind", "y_mu"]
     ts = panel.index.get_level_values("interval_ts")
     starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
     if not len(starts):
@@ -380,8 +398,8 @@ def walk_forward(panel: pd.DataFrame,
             continue
 
         enc, pooled = target_encoding(train)
-        train_e = apply_encoding(train, enc, pooled)
-        score_e = apply_encoding(score, enc, pooled)
+        train_e = apply_encoding(train, enc, pooled, keep)
+        score_e = apply_encoding(score, enc, pooled, keep)
 
         bind = fit_bind_head(train_e, cols, seed)
         p = bind.predict_proba(score_e[cols])[:, 1]
