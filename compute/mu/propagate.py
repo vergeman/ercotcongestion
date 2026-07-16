@@ -33,6 +33,7 @@ not assumed away.
 """
 from __future__ import annotations
 
+import io
 import logging
 import time
 from dataclasses import dataclass
@@ -159,6 +160,65 @@ def load_nodal(path: str) -> pd.DataFrame:
         "p10": z["p10"], "p50": z["p50"], "p90": z["p90"], "point": z["point"],
         "week": pd.to_datetime(z["week"], unit="us", utc=True),
     })
+
+
+@dataclass
+class SfMuArtifact:
+    """The per-day SF matrix + point-μ vector the interactive endpoints reconstruct
+    drivers / what-if from (§4a) — shipped instead of ~240k materialized driver
+    rows/day. `SF` is (K constraints × N SPs); `E_mu` is (H hours × K) on the SAME
+    constraint-key vocab as `SF.index`, so a node's drivers at `ts` are the plain
+    aligned product `contrib[k] = −E_mu.loc[ts, k]·SF.loc[k, sp]`, and the stable
+    unsigned headline is `SF.loc[:, sp].abs().max()` (the sign-flip guardrail, §4a).
+    """
+    SF: pd.DataFrame        # index = constraint keys, columns = settlement points
+    E_mu: pd.DataFrame      # index = tz-aware UTC hours, columns = constraint keys
+
+
+def build_sf_mu_artifact(SF: pd.DataFrame, E_mu: pd.DataFrame) -> bytes:
+    """Serialize the day's `SF` + `E_mu` to a flat vocab-coded npz blob (§4a).
+
+    Same idiom as `save_nodal`/`save_preds`: the constraint keys and SPs are stored
+    once as string vocabs and the matrices as dense float32 on those axes — the
+    whole day is one compact object (~1–2k constraints × ~1k SPs, single-digit MB),
+    not a per-node-hour row explosion. `E_mu` is aligned onto `SF.index` so both
+    carry one shared key vocab and the read-time `−E_mu·SF` decomposition needs no
+    realignment. Returns the npz bytes for the `forecast_sf_artifact.sf_npz` bytea;
+    `save_sf_mu` writes the identical bytes to disk. Round-trips via `load_sf_mu`.
+    """
+    E = E_mu.reindex(columns=SF.index)          # one shared constraint-key vocab
+    buf = io.BytesIO()
+    np.savez_compressed(
+        buf,
+        key_vocab=np.asarray(SF.index, dtype=object).astype("U"),
+        sp_vocab=np.asarray(SF.columns, dtype=object).astype("U"),
+        sf=SF.to_numpy(np.float32),                          # (K, N)
+        ts=_epoch_us(E.index),                               # (H,) UTC µs
+        e_mu=E.to_numpy(np.float32),                         # (H, K)
+    )
+    return buf.getvalue()
+
+
+def save_sf_mu(path: str, SF: pd.DataFrame, E_mu: pd.DataFrame) -> None:
+    """`build_sf_mu_artifact` to disk — the on-disk artifact of record (§5c);
+    identical bytes to the DB bytea, so either sink is authoritative."""
+    with open(path, "wb") as fh:
+        fh.write(build_sf_mu_artifact(SF, E_mu))
+
+
+def load_sf_mu(src) -> SfMuArtifact:
+    """Inverse of `build_sf_mu_artifact`: accepts a filesystem path or the raw npz
+    `bytes` (the DB bytea) and returns the SF/E_mu frames on their shared
+    constraint-key vocab. Round-trips exactly — see the test."""
+    z = np.load(io.BytesIO(src) if isinstance(src, (bytes, bytearray)) else src,
+                allow_pickle=False)
+    keys = z["key_vocab"]
+    return SfMuArtifact(
+        SF=pd.DataFrame(z["sf"], index=keys, columns=z["sp_vocab"]),
+        E_mu=pd.DataFrame(z["e_mu"],
+                          index=pd.to_datetime(z["ts"], unit="us", utc=True),
+                          columns=keys),
+    )
 
 
 ERCOT_TZ = "America/Chicago"      # delivery_date = operating-day CT date of ts
