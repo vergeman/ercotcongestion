@@ -769,8 +769,16 @@ def apply_manual_overrides(out: pd.DataFrame) -> pd.DataFrame:
     if ov.empty:
         return out
 
+    # Sentinel (0, 0) = "cannot place." Force the coordinate to NaN so every
+    # downstream reader — all of which dropna on lat/lon — treats it as an
+    # honest hole. Left as literal (0, 0) it plots off the coast of Africa and
+    # drags |SF|-weighted constraint centroids toward the equator.
+    is_sentinel = (ov["lat"] == 0) & (ov["lon"] == 0)
+    unplaceable = set(ov.loc[is_sentinel, "settlement_point"])
+    ov = ov[~is_sentinel]
+
     known = set(out["settlement_point"])
-    stale = sorted(set(ov["settlement_point"]) - known)
+    stale = sorted((set(ov["settlement_point"]) | unplaceable) - known)
     if stale:
         print(f"[overrides] WARN: {len(stale)} override SPs not in current "
               f"SP universe (typo or retired): {stale[:5]}{'...' if len(stale) > 5 else ''}")
@@ -781,7 +789,15 @@ def apply_manual_overrides(out: pd.DataFrame) -> pd.DataFrame:
     out.loc[mask, "lon"] = out.loc[mask, "settlement_point"].map(ov_idx["lon"])
     out.loc[mask, "match_method"] = "manual"
     out.loc[mask, "match_confidence"] = 1.0
-    print(f"[overrides] applied {int(mask.sum())} manual rows from {MANUAL_OVERRIDES_CSV.name}")
+
+    umask = out["settlement_point"].isin(unplaceable)
+    out.loc[umask, ["lat", "lon"]] = float("nan")
+    out.loc[umask, "match_method"] = "manual_unplaceable"
+    out.loc[umask, "match_confidence"] = 0.0
+
+    print(f"[overrides] applied {int(mask.sum())} manual rows, "
+          f"{int(umask.sum())} marked unplaceable (0,0 sentinel), "
+          f"from {MANUAL_OVERRIDES_CSV.name}")
     return out
 
 
