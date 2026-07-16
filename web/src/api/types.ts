@@ -90,6 +90,8 @@ export interface ConstraintGeo {
   kv_max: number | null;
   spread_km: number | null;
   max_abs_sf: number | null;
+  n_rail: number | null;
+  peak_offrail: number | null;
   binding_hours: number | null;
 }
 
@@ -140,6 +142,8 @@ export interface ConstraintReach {
   lat: number | null;
   lon: number | null;
   max_abs_sf: number | null;
+  n_rail: number | null;
+  peak_offrail: number | null;
   binding_hours: number | null;
   sps: ReachSp[];
 }

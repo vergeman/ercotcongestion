@@ -135,7 +135,8 @@ def get_map_constraints() -> list[ConstraintGeo]:
         run_id, window_start = _resolve(cur)
         cur.execute(
             "SELECT constraint_key, lat, lon, zone_shares, kv_mean, kv_max, "
-            "spread_km, max_abs_sf, binding_hours FROM constraint_geo "
+            "spread_km, max_abs_sf, n_rail, peak_offrail, binding_hours "
+            "FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s "
             "ORDER BY max_abs_sf DESC NULLS LAST",
             (run_id, window_start),
@@ -211,7 +212,8 @@ def get_map_reach(
         meta = _meta_row(cur, run_id, window_start)
 
         cur.execute(
-            "SELECT lat, lon, max_abs_sf, binding_hours FROM constraint_geo "
+            "SELECT lat, lon, max_abs_sf, n_rail, peak_offrail, binding_hours "
+            "FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s AND constraint_key = %s",
             (run_id, window_start, constraint),
         )
@@ -249,6 +251,8 @@ def get_map_reach(
         lat=geo.get("lat"),
         lon=geo.get("lon"),
         max_abs_sf=geo.get("max_abs_sf"),
+        n_rail=geo.get("n_rail"),
+        peak_offrail=geo.get("peak_offrail"),
         binding_hours=geo.get("binding_hours"),
         sps=sps,
     )

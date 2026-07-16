@@ -42,10 +42,13 @@ function pct2(v: number | null | undefined): string {
   return v.toFixed(2);
 }
 
-// Low-confidence thresholds — mirror GridMap.tsx / docs/ERCOT_constraints.md §4.
-// binding_hours barely above the fit floor, or a peak |SF| pinned at the ±1
-// clip, means the SF is a fit artifact, not a measured sensitivity.
-const LOW_BINDING_HOURS = 50;
+// Low-confidence is a shape verdict — mirror GridMap.tsx / docs §4. The artifact
+// is the ridge clamp (>= RAIL_MULTI nodes co-equal at the ±1 cap, or a lone rail
+// with no graded body beneath it), NOT a low hour count. binding_hours is a
+// separate "thin support" caveat: clean-but-brief constraints are trustworthy.
+const RAIL_MULTI = 2;
+const BODY_FLOOR = 0.1;
+const THIN_HOURS = 50;
 const CLIPPED_SF = 0.999;
 
 function Row({
@@ -186,10 +189,17 @@ function ReachBody({
 }) {
   const exportEnd = reach.sps.filter((s) => s.sf < 0).length;
   const importEnd = reach.sps.filter((s) => s.sf >= 0).length;
-  const clipped = reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF;
-  const lowSupport =
-    reach.binding_hours != null && reach.binding_hours < LOW_BINDING_HOURS;
-  const lowConf = clipped || lowSupport;
+  const nRail = reach.n_rail ?? 0;
+  const clipped =
+    nRail >= 1 || (reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF);
+  // Ridge-clamp artifact: several nodes at the cap, or a lone rail with no body.
+  const railArtifact =
+    nRail >= RAIL_MULTI ||
+    (nRail >= 1 &&
+      (reach.peak_offrail == null || reach.peak_offrail < BODY_FLOOR));
+  const thin =
+    reach.binding_hours != null && reach.binding_hours < THIN_HOURS;
+  const lowConf = railArtifact;
   return (
     <>
       <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
@@ -204,7 +214,11 @@ function ReachBody({
         {reach.binding_hours != null
           ? `${reach.binding_hours} binding h`
           : "— binding h"}
-        {lowConf && " · ⚠ low confidence"}
+        {lowConf
+          ? " · ⚠ low confidence — ridge clamp"
+          : thin
+          ? " · thin support"
+          : ""}
       </div>
       <div className="dc-drivers-title label">
         drives {reach.sps.length} nodes · {exportEnd} export / {importEnd} import

@@ -110,6 +110,8 @@ class ConstraintGeo(BaseModel):
     kv_max: float | None = None
     spread_km: float | None = None
     max_abs_sf: float | None = None
+    n_rail: int | None = None          # nodes pinned at the ±1 clamp (|SF|>=0.999)
+    peak_offrail: float | None = None  # top of the graded body beneath the rail
     binding_hours: int | None = None
 
 
@@ -175,5 +177,7 @@ class ConstraintReach(BaseModel):
     lat: float | None = None
     lon: float | None = None
     max_abs_sf: float | None = None
+    n_rail: int | None = None
+    peak_offrail: float | None = None
     binding_hours: int | None = None
     sps: list[ReachSp]
