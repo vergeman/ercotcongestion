@@ -1,6 +1,7 @@
 services:
   db:
     image: timescale/timescaledb:latest-pg16
+    shm_size: 1g
     container_name: db
     env_file:
       - .env.dev
