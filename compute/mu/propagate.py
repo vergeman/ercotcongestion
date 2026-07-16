@@ -522,7 +522,17 @@ def main(argv: list[str] | None = None) -> int:
                    help="stream the per-week nodal P10/P50/P90 + point panel to "
                         "this flat vocab-coded .npz; omit and nothing changes "
                         "(no panel, metrics CSV byte-identical)")
+    p.add_argument("--to-db", action="store_true",
+                   help="COPY the --nodal-out panel into forecast_nodal and flip "
+                        "the forecast_current[ercot] pointer (after rows land); "
+                        "requires --nodal-out and --run-id")
+    p.add_argument("--run-id", default=None,
+                   help="model-version tag for the forecast_nodal rows + pointer "
+                        "(e.g. mu-all-v1); required with --to-db")
     args = p.parse_args(argv)
+    if args.to_db and not (args.nodal_out and args.run_id):
+        p.error("--to-db requires --nodal-out (the panel is loaded from it) "
+                "and --run-id")
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -543,6 +553,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.out and not bands.empty:
         bands.to_csv(args.out, index=False)
         print(f"wrote {args.out}")
+
+    if args.to_db:
+        # Load the panel just written to disk, then flip the pointer LAST — one
+        # transaction, so a reader never sees a half-written run.
+        with psycopg.connect(dsn) as conn:
+            n = nodal_to_db(args.nodal_out, conn, run_id=args.run_id)
+            upsert_pointer(conn, FORECAST_LAYER, args.run_id)
+            conn.commit()
+        log.info("forecast_nodal <- %s rows (run_id=%s); forecast_current[%s] -> %s",
+                 n, args.run_id, FORECAST_LAYER, args.run_id)
     return 0
 
 
