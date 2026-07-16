@@ -637,6 +637,22 @@ export default function GridMap({
         showConstraints ? "visible" : "none"
       );
 
+      // While a constraint is pinned (reach mode), fade the overlay hard so its
+      // bubbles stop hiding the nodes lighting up beneath them — otherwise most
+      // clicks land under a marker and the reach is invisible. The layer stays
+      // present (faintly) so you can still hop between constraints.
+      const dimmed = !!reach;
+      map.setPaintProperty(
+        "constraint-markers",
+        "circle-opacity",
+        dimmed ? 0.1 : 1
+      );
+      map.setPaintProperty(
+        "constraint-markers",
+        "circle-stroke-opacity",
+        dimmed ? 0.12 : 0.9
+      );
+
       // Highlight the clicked node's drivers (Commit C wires the source).
       const next = highlightedConstraints ?? new Set<string>();
       for (const id of prevHighlightRef.current) {
@@ -657,7 +673,7 @@ export default function GridMap({
 
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [constraints, showConstraints, highlightedConstraints, sourcesReady]);
+  }, [constraints, showConstraints, highlightedConstraints, reach, sourcesReady]);
 
   // Reach corridor arc: the dipole axis between the constraint's export- and
   // import-end centroids. Drawn beneath the SP circles so it reads as ground,
