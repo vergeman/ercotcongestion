@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type maplibregl from "maplibre-gl";
-import type { SpRow, ViewMode } from "./api/types";
-import { fetchTopology } from "./api/client";
+import type { SpRow, ViewMode, ConstraintGeo } from "./api/types";
+import { fetchTopology, fetchMapConstraints } from "./api/client";
 import {
   prefetchWindow,
   getErcotCached,
@@ -62,6 +62,11 @@ export default function App() {
   // aligned 1:1 with `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
+
+  // Constraint overlay (SF structure) — fixed per refit, so fetched once, not
+  // time-indexed. `null` while loading or on 503 (map renders without it).
+  const [constraints, setConstraints] = useState<ConstraintGeo[] | null>(null);
+  const [showConstraints, setShowConstraints] = useState(true);
 
   // settlement_points FeatureCollection, shared by both panes.
   const spPoints = useMemo(() => {
@@ -141,6 +146,14 @@ export default function App() {
         setConnState("ok");
       })
       .catch(() => setConnState("error"));
+  }, []);
+
+  // Constraint overlay load — once, independent of the playback window (the SF
+  // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
+  useEffect(() => {
+    fetchMapConstraints()
+      .then((c) => setConstraints(c))
+      .catch(() => setConstraints(null));
   }, []);
 
   // Merge the congestion + SPP caches into per-SP rows for the current hour.
@@ -327,7 +340,13 @@ export default function App() {
 
   const leftPane = (
     <>
-      <GridMap {...paneProps} side="prediction" onMapReady={handleMainReady} />
+      <GridMap
+        {...paneProps}
+        side="prediction"
+        onMapReady={handleMainReady}
+        constraints={constraints}
+        showConstraints={showConstraints}
+      />
       <div className="pane-badge">{badgeFor("PREDICTION · placeholder")}</div>
       <Legend
         viewMode={viewMode}
@@ -336,6 +355,7 @@ export default function App() {
         mcStats={congestionStats}
         variant="palette-only"
         paneLabel="PREDICTION · placeholder (= actual)"
+        constraintOverlay={showConstraints && !!constraints?.length}
       />
     </>
   );
@@ -362,6 +382,10 @@ export default function App() {
         onViewMode={setViewMode}
         lastUpdated={lastUpdated}
         connectionState={connState}
+        showConstraints={showConstraints}
+        onToggleConstraints={
+          constraints?.length ? setShowConstraints : undefined
+        }
       />
 
       <div
