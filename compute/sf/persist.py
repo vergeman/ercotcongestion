@@ -17,6 +17,7 @@ under one operator command.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Iterable, Mapping
 
@@ -143,6 +144,54 @@ def copy_sf_rows(
                     continue
                 cp.write_row((run_id, ws, key, sp, v))
                 n_rows += 1
+    return n_rows
+
+
+def delete_constraint_geo(conn, run_id: str) -> int:
+    """Clear any prior constraint_geo rows for ``run_id``. Makes the geo-persist
+    idempotent (delete-then-copy), mirroring ``delete_sf_run`` for the SF path."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM constraint_geo WHERE run_id = %s", (run_id,))
+        return cur.rowcount
+
+
+def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame) -> int:
+    """Stream one refit window's constraint geography via ``COPY FROM STDIN``.
+
+    ``geo`` is indexed by ``constraint_key`` with columns ``lat, lon, spread_km,
+    kv_mean, kv_max, zone_shares (dict), max_abs_sf, binding_hours``. Non-finite
+    floats become NULL — a constraint whose |SF| mass lands entirely on
+    uncoordinated settlement points is an honest hole, not a fallback.
+    ``zone_shares`` is serialized to JSON text for the ``jsonb`` column. Returns
+    the number of rows written.
+    """
+    if geo.empty:
+        return 0
+    ws = str(window_start)
+    sql = (
+        "COPY constraint_geo "
+        "(run_id, window_start, constraint_key, lat, lon, spread_km, "
+        " kv_mean, kv_max, zone_shares, max_abs_sf, binding_hours) FROM STDIN"
+    )
+
+    def _f(v) -> float | None:
+        v = float(v)
+        return v if np.isfinite(v) else None
+
+    n_rows = 0
+    with conn.cursor() as cur, cur.copy(sql) as cp:
+        for key, r in geo.iterrows():
+            shares = r["zone_shares"]
+            js = json.dumps(shares) if isinstance(shares, dict) and shares else None
+            bh = r["binding_hours"]
+            bh = int(bh) if bh is not None and np.isfinite(bh) else None
+            cp.write_row((
+                run_id, ws, str(key),
+                _f(r["lat"]), _f(r["lon"]), _f(r["spread_km"]),
+                _f(r["kv_mean"]), _f(r["kv_max"]),
+                js, _f(r["max_abs_sf"]), bh,
+            ))
+            n_rows += 1
     return n_rows
 
 
