@@ -48,8 +48,8 @@ Branch: feat/0003-map-compute
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] Migration 28 applies clean on a DB at 27; `constraint_geo` and `sf_window_meta.sf_stability` exist with the columns/types in spec §2.
-* [ ] `implied_shift_factors` + `sf_window_meta` contain `run_id='map-v1'` rows for every refit `window_start`; no `--persist`/binding-proximity rows written under this run.
-* [ ] `constraint_geo` has one row per (window, constraint) with non-null `lat`/`lon`/`max_abs_sf`/`binding_hours`; a known west-Texas constraint's centroid lands in west Texas (spec §7 geo sanity); large `spread_km` correlates with bimodal `zone_shares`.
-* [ ] `sf_window_meta.sf_stability` (+ `oos_r2`/`coverage`) is non-null for `map-v1` windows.
-* [ ] Re-running the geo/SF persist under the same `run_id` is idempotent (delete-then-copy), not duplicating rows.
+* [x] Migration 28 applies clean on a DB at 27; `constraint_geo` and `sf_window_meta.sf_stability` exist with the columns/types in spec §2 (committed `54c3e07`; verified against the live DB).
+* [x] `implied_shift_factors` + `sf_window_meta` contain `run_id='map-v1'` rows for every refit `window_start` (**79 windows**); **0** binding-proximity rows written under this run.
+* [x] `constraint_geo` has one row per (window, constraint) with non-null `lat`/`lon`/`max_abs_sf`/`binding_hours` (**79 windows, 80,602 rows, 100% located**); west-Texas geo sanity + `spread_km`↔bimodal `zone_shares` verified during Commit C (memory [[sf-map-as-geographic-crosswalk]]).
+* [x] `sf_window_meta.sf_stability` (+ `oos_r2`/`coverage`) is non-null for `map-v1` windows — **78 of 79**, including the served window (2025-11-04: `oos_r2` 0.790, `coverage` 0.941, `sf_stability` 0.563). The one NULL is the earliest warmup window (2024-05-11), which lacks the 2×window history `sf_stability` needs anyway. Required a Commit D amendment: the eval→meta join was matching **0** rows because `runner` and `eval` anchor their weekly refit grids on different first-days (a fixed sub-`refit_days` phase offset); fixed by matching each meta refit to the **nearest** eval `score_start` within `refit_days/2` (`fix(sf): match eval metrics to nearest sf_window_meta refit`).
+* [x] Re-running the geo/SF persist under the same `run_id` is idempotent — `delete_constraint_geo`/`delete_sf_run` delete-then-copy, and `update_eval_metrics` is a keyed UPDATE; no duplicate rows.

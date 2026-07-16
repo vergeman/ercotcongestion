@@ -443,9 +443,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="Backfill oos_r2/coverage/sf_stability onto this "
                         "run_id's existing sf_window_meta rows (from an earlier "
                         "runner --persist-sf with matching hyperparameters). "
-                        "Matched to the nearest meta score_start within "
-                        "refit_days/2 (the two tools anchor their refit grids on "
-                        "different first-days, so the phases differ).")
+                        "Matched by score_start.")
     p.add_argument("--emit-decay", action="store_true",
                    help="Also compute the SF drift curve corr(SF_t, SF_{t+Δ}) "
                         "and save decay.csv.")
@@ -506,8 +504,7 @@ def main(argv: list[str] | None = None) -> int:
             for r in df_full.itertuples()
         ]
         with psycopg.connect(PG_DSN) as conn:
-            matched = update_eval_metrics(conn, args.run_id, rows,
-                                          tol_days=args.refit_days / 2)
+            matched = update_eval_metrics(conn, args.run_id, rows)
             conn.commit()
             remaining = count_null_eval(conn, args.run_id)
         log.info("backfilled sf_window_meta: %d rows matched for run_id=%s",

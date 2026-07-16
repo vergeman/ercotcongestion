@@ -31,6 +31,13 @@ class Settings:
     min_validation_hour:   int  = int(os.environ.get('MIN_VALIDATION_HOUR', 24))
     max_state_range_hours: int  = int(os.environ.get('MAX_STATE_RANGE_HOURS', 24 * 14))
 
+    # ---- Map (SF explorer) ------------------------------------------------
+    # The SF run the /map/* endpoints serve. None → resolve to the newest
+    # run_id in sf_window_meta at query time; the current refit is always the
+    # max window_start for that run, resolved per request so a re-persist of
+    # the same run_id is picked up without redeploy (plan/0090 0004).
+    map_run_id: str | None = os.environ.get('MAP_RUN_ID') or None
+
     # ---- Runs -------------------------------------------------------------
     # ``served_run_dir`` is the only knob the API reads. It is a symlink
     # managed by ``compute.promote`` — the API is oblivious to which run,
