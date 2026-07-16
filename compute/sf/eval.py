@@ -29,7 +29,7 @@ rather than the individual constraint, and three more columns appear:
                             R3 is judged against
 
 One reusable pass: ``sweep_ibp`` (S1.4) selects on these, and ``--persist-eval``
-(S1.3) writes ``oos_r2``/``coverage`` into ``sf_window_meta``.
+(S1.3) writes ``oos_r2``/``coverage``/``sf_stability`` into ``sf_window_meta``.
 
 The pure metric fns are lifted (not imported) from the frozen harness so this
 kept module carries no dependency on ``experiments/``.
@@ -440,10 +440,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--std-floor", type=float, default=STD_FLOOR)
     p.add_argument("--no-standardize", dest="standardize", action="store_false")
     p.add_argument("--persist-eval", action="store_true",
-                   help="Backfill oos_r2/coverage onto this run_id's existing "
-                        "sf_window_meta rows (from an earlier runner "
-                        "--persist-sf with matching hyperparameters). Matched "
-                        "by score_start.")
+                   help="Backfill oos_r2/coverage/sf_stability onto this "
+                        "run_id's existing sf_window_meta rows (from an earlier "
+                        "runner --persist-sf with matching hyperparameters). "
+                        "Matched by score_start.")
     p.add_argument("--emit-decay", action="store_true",
                    help="Also compute the SF drift curve corr(SF_t, SF_{t+Δ}) "
                         "and save decay.csv.")
@@ -499,7 +499,8 @@ def main(argv: list[str] | None = None) -> int:
         def _clean(v: float):
             return None if v is None or not np.isfinite(v) else float(v)
         rows = [
-            (r.score_start.to_pydatetime(), _clean(r.oos_pooled_r2), _clean(r.coverage))
+            (r.score_start.to_pydatetime(), _clean(r.oos_pooled_r2),
+             _clean(r.coverage), _clean(r.sf_stability))
             for r in df_full.itertuples()
         ]
         with psycopg.connect(PG_DSN) as conn:
