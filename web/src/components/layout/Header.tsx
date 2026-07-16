@@ -19,7 +19,7 @@ export default function Header({
         <span className="header__logo">⚡</span>
         <span className="header__title">ERCOT Stress</span>
         <span className="header__sub label">
-          DC-OPF · 2751 buses · TAMU synthetic
+          settlement points · realized ERCOT
         </span>
       </div>
 
@@ -29,22 +29,16 @@ export default function Header({
             Palette
           </span>
           <button
+            className={viewMode === "congestion" ? "active" : ""}
+            onClick={() => onViewMode("congestion")}
+          >
+            Congestion
+          </button>
+          <button
             className={viewMode === "lmp" ? "active" : ""}
             onClick={() => onViewMode("lmp")}
           >
             LMP
-          </button>
-          <button
-            className={viewMode === "modeled_congestion" ? "active" : ""}
-            onClick={() => onViewMode("modeled_congestion")}
-          >
-            Modeled Congestion
-          </button>
-          <button
-            className={viewMode === "binding_proximity" ? "active" : ""}
-            onClick={() => onViewMode("binding_proximity")}
-          >
-            Binding Proximity
           </button>
         </div>
       </div>

@@ -1,32 +1,13 @@
-import type { SnapshotMeta, BusState } from "../../api/types";
-
-interface HoveredBus {
-  busId: string;
-  props: Record<string, unknown>;
-  busState: BusState | null;
-}
-
-interface HoveredLine {
-  lineId: string;
-  props: Record<string, unknown>;
-}
-
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
   spState: {
     congestion: number | null;
     spp: number | null;
-    bp: number | null;
   } | null;
 }
 
 interface Props {
-  meta: SnapshotMeta | null;
-  hoveredBus: HoveredBus | null;
-  hoveredLine: HoveredLine | null;
-  pinnedBus?: HoveredBus | null;
-  pinnedLine?: HoveredLine | null;
   hoveredSp?: HoveredSp | null;
   pinnedSp?: HoveredSp | null;
   onClose?: () => void;
@@ -34,7 +15,7 @@ interface Props {
 
 function fmt(v: number | null, decimals = 1): string {
   if (v == null) return "—";
-  return v.toLocaleString("en-US", { maximumFractionDigits: decimals }); /*  */
+  return v.toLocaleString("en-US", { maximumFractionDigits: decimals });
 }
 
 function Row({
@@ -52,59 +33,11 @@ function Row({
   );
 }
 
-function BusBody({ bus }: { bus: HoveredBus }) {
-  return (
-    <>
-      <Row label="Load Zone" value={String(bus.props.load_zone ?? "—")} />
-      <Row label="Weather Zone" value={String(bus.props.weather_zone ?? "—")} />
-      <Row
-        label="Voltage"
-        value={bus.props.voltage != null ? `${bus.props.voltage} kV` : null}
-      />
-      {bus.busState && (
-        <>
-          <Row
-            label="Modeled Congestion"
-            value={
-              bus.busState.modeled_congestion != null
-                ? `${bus.busState.modeled_congestion >= 0 ? "+" : "−"}$${fmt(
-                    Math.abs(bus.busState.modeled_congestion),
-                    2
-                  )}/MWh`
-                : null
-            }
-          />
-          <Row
-            label="Binding Proximity"
-            value={
-              bus.busState.binding_proximity != null
-                ? `${fmt(bus.busState.binding_proximity * 100, 1)}%`
-                : null
-            }
-          />
-          <Row
-            label="LMP"
-            value={
-              bus.busState.lmp != null
-                ? `$${fmt(bus.busState.lmp, 2)}/MWh`
-                : null
-            }
-          />
-        </>
-      )}
-    </>
-  );
-}
-
 function SpBody({ sp }: { sp: HoveredSp }) {
-  const clusterId = sp.props.cluster_id;
   return (
     <>
       <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
-      {clusterId != null && (
-        <Row label="Cluster" value={String(clusterId)} />
-      )}
       <Row
         label="Congestion"
         value={
@@ -124,86 +57,16 @@ function SpBody({ sp }: { sp: HoveredSp }) {
             : null
         }
       />
-      {sp.spState?.bp != null && (
-        <Row
-          label="Binding Proximity"
-          value={`${fmt(sp.spState.bp * 100, 1)}%`}
-        />
-      )}
     </>
   );
 }
 
-function LineBody({
-  line,
-  meta,
-}: {
-  line: HoveredLine;
-  meta: SnapshotMeta | null;
-}) {
-  const binding = meta?.binding_lines?.find((bl) => bl.line === line.lineId);
-  const conts = meta?.top_contingencies ?? [];
-  const contIdx = conts.findIndex((c) => c.line === line.lineId);
-  const contingency = contIdx >= 0 ? conts[contIdx] : null;
-  const sNom = line.props.s_nom != null ? Number(line.props.s_nom) : null;
-  const length = line.props.length != null ? Number(line.props.length) : null;
-
-  let statusLabel: string;
-  if (contingency && contIdx < 5) {
-    statusLabel = `⚠ N-1 #${contIdx + 1}`;
-  } else if (binding) {
-    statusLabel = "⚡ binding";
-  } else {
-    statusLabel = "normal";
-  }
-
-  return (
-    <>
-      <Row label="From" value={String(line.props.bus0 ?? "—")} />
-      <Row label="To" value={String(line.props.bus1 ?? "—")} />
-      <Row
-        label="Capacity"
-        value={sNom != null ? `${fmt(sNom, 0)} MVA` : null}
-      />
-      <Row
-        label="Length"
-        value={length != null ? `${fmt(length, 1)} km` : null}
-      />
-      <Row label="Status" value={statusLabel} />
-      {binding && (
-        <Row
-          label="Shadow Price"
-          value={`$${fmt(binding.shadow_price, 2)}/MWh`}
-        />
-      )}
-      {contingency && (
-        <Row label="Trip Stress" value={fmt(contingency.stress, 2)} />
-      )}
-    </>
-  );
-}
-
-export default function DetailCard({
-  meta,
-  hoveredBus,
-  hoveredLine,
-  pinnedBus,
-  pinnedLine,
-  hoveredSp,
-  pinnedSp,
-  onClose,
-}: Props) {
-  // Pinned wins over hover. Bus wins over line if both present.
-  // SP is its own selection stack (ERCOT pane) — independent of bus/line.
+export default function DetailCard({ hoveredSp, pinnedSp, onClose }: Props) {
+  // Pinned wins over hover.
   const sp = pinnedSp ?? hoveredSp;
-  const isPinned = !!(pinnedBus || pinnedLine || pinnedSp);
-  const bus = !sp ? pinnedBus ?? hoveredBus : null;
-  const line = !sp && !bus ? pinnedLine ?? hoveredLine : null;
+  const isPinned = !!pinnedSp;
 
-  if (!sp && !bus && !line) return null;
-
-  const id = sp ? sp.spId : bus ? bus.busId : line!.lineId;
-  const kind = sp ? "SP" : bus ? "BUS" : "LINE";
+  if (!sp) return null;
 
   return (
     <div className={`detail-card ${isPinned ? "detail-card--pinned" : ""}`}>
@@ -211,9 +74,9 @@ export default function DetailCard({
         <div className="detail-card__title">
           <span className="detail-card__kind label">
             {isPinned ? "📌 " : ""}
-            {kind}
+            SP
           </span>
-          <span className="detail-card__id mono">{id}</span>
+          <span className="detail-card__id mono">{sp.spId}</span>
         </div>
         {isPinned && onClose && (
           <button
@@ -227,13 +90,7 @@ export default function DetailCard({
       </div>
 
       <div className="detail-card__body">
-        {sp ? (
-          <SpBody sp={sp} />
-        ) : bus ? (
-          <BusBody bus={bus} />
-        ) : line ? (
-          <LineBody line={line} meta={meta} />
-        ) : null}
+        <SpBody sp={sp} />
       </div>
 
       <style>{`
