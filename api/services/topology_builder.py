@@ -1,19 +1,17 @@
-"""Build static topology GeoJSON from the PyPSA network and CSV reference data.
+"""Build static topology GeoJSON from the geocoded settlement points.
 
 Output shape (cached as JSON to TOPOLOGY_CACHE):
 
   {
-    "buses": { "type": "FeatureCollection", "features": [...] },
-    "lines": { "type": "FeatureCollection", "features": [...] },
-    "zones": null   # placeholder; zone polygons land here when sourced
+    "settlement_points": { "type": "FeatureCollection", "features": [...] }
   }
 
-Bus features carry: bus_id, weather_zone, load_zone, voltage, capacity_mw.
-Line features carry: line_id, bus0, bus1, s_nom, length (if present).
+SP features carry: sp_id, sp_type, load_zone, capacity_mw.
 
-bus_zones.csv (BUS_ZONES_PATH) is produced by scripts/assign_bus_weather_load_zones.py
-and has columns: name, lat, lon, ercot_weather_zone, ercot_load_zone.
-We expose them in the GeoJSON as `weather_zone` and `load_zone` for the frontend.
+settlement_points_geocoded_csv has columns: settlement_point, lat, lon,
+sp_type, matched_capacity_mw. `load_zone` is derived best-effort from the SP
+name prefix (see `_sp_load_zone_from_name`); `capacity_mw` comes from
+`matched_capacity_mw` and is used for node sizing in the UI.
 
 Idempotent: regenerating from the same inputs produces an identical file.
 """
@@ -27,145 +25,15 @@ from typing import Any
 
 import pandas as pd
 
-from config import (
-    BUS_WEATHER_LOAD_ZONES_CSV,
-    GENERATOR_MATCHES_ENRICHED_CSV,
-    NETWORK_NC,
-    TOPOLOGY_CACHE
-)
+from config import TOPOLOGY_CACHE
 from shared.settings import settings
 
 log = logging.getLogger(__name__)
 
 
 def build_topology() -> dict[str, Any]:
-    """Build topology dict from PyPSA network + CSVs. Does not write to disk."""
-    import pypsa  # heavy import; only when actually building
-    log.info("Loading network from %s", NETWORK_NC)
-    n = pypsa.Network(NETWORK_NC)
-
-    bus_zones = pd.read_csv(BUS_WEATHER_LOAD_ZONES_CSV)
-    bus_zones['name'] = bus_zones['name'].astype(str)
-
-    # Required columns: name, ercot_weather_zone, ercot_load_zone
-    # Produced by scripts/assign_bus_weather_load_zones.py
-    required = {'name', 'ercot_weather_zone', 'ercot_load_zone'}
-    missing = required - set(bus_zones.columns)
-    if missing:
-        raise ValueError(
-            f"{BUS_WEATHER_LOAD_ZONES_CSV} missing required columns: {sorted(missing)}. "
-            f"Got: {list(bus_zones.columns)}. "
-            f"Regenerate via scripts/assign_bus_weather_load_zones.py."
-        )
-
-    # Normalize zone names: lowercase, underscores. Keeps the frontend and
-    # downstream code from worrying about 'North Central' vs 'north_central'.
-    for col in ('ercot_weather_zone', 'ercot_load_zone'):
-        bus_zones[col] = (
-            bus_zones[col].astype(str).str.lower().str.replace(' ', '_')
-        )
-
-    weather_lookup = dict(zip(bus_zones['name'], bus_zones['ercot_weather_zone']))
-    load_lookup    = dict(zip(bus_zones['name'], bus_zones['ercot_load_zone']))
-
-    # Generator nameplate per bus (used for sizing in the UI)
-    try:
-        gen = pd.read_csv(GENERATOR_MATCHES_ENRICHED_CSV)
-        gen['bus'] = gen['bus'].astype(str)
-        bus_capacity = gen.groupby('bus')['capacity_mw'].sum().to_dict()
-    except FileNotFoundError:
-        log.warning("gen_enriched not found; bus capacity_mw will be 0")
-        bus_capacity = {}
-
-    bus_cluster = _load_bus_cluster_labels()
-    sp_cluster, sp_corr = _load_sp_cluster_labels(bus_cluster)
-
-    buses_fc = _buses_feature_collection(
-        n, weather_lookup, load_lookup, bus_capacity, bus_cluster,
-    )
-    lines_fc = _lines_feature_collection(n)
-    sps_fc = _settlement_points_feature_collection(sp_cluster, sp_corr)
-    zones_fc = _load_zone_polygons()
-
-    return {
-        'buses': buses_fc,
-        'lines': lines_fc,
-        'settlement_points': sps_fc,
-        'zones': zones_fc,
-        # Stamp the cluster-labels identity so cache invalidation catches
-        # a symlink repoint even if the two targets share an mtime.
-        '_cluster_labels_key': _cluster_labels_key(),
-    }
-
-
-def _load_bus_cluster_labels() -> dict[str, int]:
-    """Return {bus_id: cluster_id} for the served run's clustering cell.
-
-    Reads ``<served_run_dir>/clustering/cluster_labels.npz`` — a symlink
-    ``compute.promote`` points at the per-cell realisation. Soft-fails
-    to {} when the labels file is missing so the frontend renders every
-    bus as unclustered rather than 500ing.
-    """
-    import numpy as np
-
-    labels_path = f"{settings.served_run_dir}/clustering/cluster_labels.npz"
-    if not os.path.exists(labels_path):
-        log.warning("bus cluster labels not found at %s; cluster_id will be null", labels_path)
-        return {}
-    with np.load(labels_path, allow_pickle=False) as z:
-        return {str(b): int(c) for b, c in zip(z['bus_id'], z['cluster_id'])}
-
-
-def _served_run_id() -> str:
-    """Basename of what ``served_run_dir`` resolves to — i.e. the served run_id.
-
-    Works whether ``served_run_dir`` is the top-level ``current`` symlink
-    (typical) or an override pointing directly at a run dir.
-    """
-    return os.path.basename(os.path.realpath(settings.served_run_dir))
-
-
-def _load_sp_cluster_labels(
-    bus_cluster: dict[str, int],
-) -> tuple[dict[str, int], dict[str, float]]:
-    """Return ({sp_id: cluster_id}, {sp_id: best_corr}) via CM.1 mapping.
-
-    Joins `mapping_correlation_<run>.npz` (per-SP best_bus/best_corr) with
-    the model-side bus cluster labels: cluster[sp] = bus_cluster[best_bus[sp]].
-    SPs whose best_bus is absent from the labels dict are skipped. Soft-fails
-    to empty dicts when either input is missing — the frontend then treats
-    those SPs as unclustered.
-    """
-    import numpy as np
-
-    if not bus_cluster:
-        return {}, {}
-
-    # mapping_correlation is per-run, not per-cell, so it carries the run_id
-    # in its filename rather than sitting behind a symlink.
-    run_id = _served_run_id()
-    mapping_path = (
-        f"{settings.served_run_dir}/mapping/mapping_correlation_{run_id}.npz"
-    )
-    if not os.path.exists(mapping_path):
-        log.warning(
-            "SP↔bus correlation mapping not found at %s; sp cluster_id will be null",
-            mapping_path,
-        )
-        return {}, {}
-
-    sp_cluster: dict[str, int] = {}
-    sp_corr: dict[str, float] = {}
-    with np.load(mapping_path, allow_pickle=False) as z:
-        for sp_id, best_bus, best_corr in zip(z['sp_id'], z['best_bus'], z['best_corr']):
-            sp = str(sp_id)
-            bus = str(best_bus)
-            cid = bus_cluster.get(bus)
-            if cid is None:
-                continue
-            sp_cluster[sp] = cid
-            sp_corr[sp] = float(best_corr)
-    return sp_cluster, sp_corr
+    """Build topology dict from the geocoded SPs. Does not write to disk."""
+    return {'settlement_points': _settlement_points_feature_collection()}
 
 
 def _sp_load_zone_from_name(sp_id: str) -> str | None:
@@ -183,10 +51,7 @@ def _sp_load_zone_from_name(sp_id: str) -> str | None:
     return None
 
 
-def _settlement_points_feature_collection(
-    sp_cluster: dict[str, int],
-    sp_corr: dict[str, float],
-) -> dict[str, Any]:
+def _settlement_points_feature_collection() -> dict[str, Any]:
     """Return SP points as GeoJSON. Rows missing lat/lon are dropped."""
     try:
         df = pd.read_csv(settings.settlement_points_geocoded_csv)
@@ -201,6 +66,7 @@ def _settlement_points_feature_collection(
         load_zone = _sp_load_zone_from_name(sp_id)
         if load_zone is not None:
             n_tagged += 1
+        cap = row.get('matched_capacity_mw')
         features.append({
             'type': 'Feature',
             'geometry': {
@@ -211,97 +77,27 @@ def _settlement_points_feature_collection(
                 'sp_id': sp_id,
                 'sp_type': str(row.get('sp_type') or ''),
                 'load_zone': load_zone,
-                'cluster_id': sp_cluster.get(sp_id),
-                'best_corr': sp_corr.get(sp_id),
+                'capacity_mw': float(cap) if pd.notna(cap) else 0.0,
             },
         })
     log.info("SP load_zone tagged %d/%d via name prefix", n_tagged, len(features))
     return {'type': 'FeatureCollection', 'features': features}
 
 
-def _load_zone_polygons() -> dict[str, Any] | None:
-    """Return cluster polygon FeatureCollection, or None if absent.
-
-    File convention mirrors bus cluster labels naming: the polygons live
-    at ``zones_<ref>_<algo>_k<k>.geojson`` inside the run's clustering
-    directory. Cell params (ref, algo, k) come from the served
-    ``scorecard.json``'s ``params`` field so the polygons naturally track
-    whichever cell ``compute.promote`` has promoted.
-
-    A missing file — or a served run with no scorecard yet — yields
-    ``None``; the frontend then keeps its polygon-free rendering path.
-    """
-    scorecard_path = f"{settings.served_run_dir}/mapping/scorecard.json"
-    if not os.path.exists(scorecard_path):
-        log.info(
-            "no served scorecard at %s; cannot derive zone polygon filename",
-            scorecard_path,
-        )
-        return None
-    with open(scorecard_path) as f:
-        params = json.load(f).get("params", {})
-    ref = params.get("ref")
-    algo = params.get("algo")
-    k = params.get("k")
-    if not (ref and algo and k is not None):
-        log.info("scorecard params missing ref/algo/k; topology zones = null")
-        return None
-    polygons_path = (
-        f"{settings.served_run_dir}/clustering/"
-        f"zones_{ref}_{algo}_k{int(k)}.geojson"
-    )
-    if not os.path.exists(polygons_path):
-        log.info("zone polygons not found at %s; topology zones = null", polygons_path)
-        return None
-    with open(polygons_path) as f:
-        return json.load(f)
-
-
-def _cluster_labels_key() -> tuple[str | None, int | None]:
-    """Return ``(readlink_target, target_mtime_ns)`` for cluster_labels.npz.
-
-    ``compute.promote`` repoints the symlink; both fields are stamped in
-    the cache so the invalidation catches a repoint even when the two
-    targets happen to share an mtime.
-    """
-    labels_path = f"{settings.served_run_dir}/clustering/cluster_labels.npz"
-    try:
-        target = os.readlink(labels_path)
-    except (FileNotFoundError, OSError):
-        target = None
-    try:
-        mtime_ns = os.stat(labels_path).st_mtime_ns
-    except FileNotFoundError:
-        mtime_ns = None
-    return (target, mtime_ns)
-
-
 def _cache_is_current(topo: dict[str, Any]) -> bool:
-    """Detect stale caches from older schema revisions or a promote-flip.
+    """Detect stale caches from older schema revisions.
 
-    A cache without `settlement_points` at top level, or bus features without
-    `cluster_id`, was written before 0048's S3.2/S3.4 schema. A cache whose
-    SP features lack `cluster_id` predates 0059. A cache whose SP features
-    lack `load_zone` predates 0057. A cache whose ``_cluster_labels_key``
-    doesn't match the current symlink identity predates the last promote —
-    the bus↔cluster join is baked into the GeoJSON, so a symlink flip
-    invalidates the whole cache. Rebuild instead of silently serving a
-    payload the frontend can't use.
+    A cache carrying `buses`/`lines` at top level is the legacy synthetic-grid
+    schema (pre-0090). A cache whose SP features lack `capacity_mw` predates the
+    0090 SP-only rewrite. Either case rebuilds instead of serving a payload the
+    frontend can't use.
     """
+    if 'buses' in topo or 'lines' in topo:
+        return False
     if 'settlement_points' not in topo:
         return False
-    features = topo.get('buses', {}).get('features', [])
-    if features and 'cluster_id' not in features[0].get('properties', {}):
-        return False
     sp_features = topo.get('settlement_points', {}).get('features', [])
-    if sp_features and 'cluster_id' not in sp_features[0].get('properties', {}):
-        return False
-    if sp_features and 'load_zone' not in sp_features[0].get('properties', {}):
-        return False
-    stamped = topo.get('_cluster_labels_key')
-    if stamped is None:
-        return False
-    if list(stamped) != list(_cluster_labels_key()):
+    if sp_features and 'capacity_mw' not in sp_features[0].get('properties', {}):
         return False
     return True
 
@@ -328,68 +124,8 @@ def get_or_build_topology(force: bool = False) -> dict[str, Any]:
     return topo
 
 
-# ---------------------------------------------------------------------------
-# Feature collection builders
-# ---------------------------------------------------------------------------
-
-def _buses_feature_collection(
-    n,  # pypsa.Network — not annotated to avoid the import
-    weather_lookup: dict[str, str],
-    load_lookup: dict[str, str],
-    bus_capacity: dict[str, float],
-    bus_cluster: dict[str, int],
-) -> dict[str, Any]:
-    features = []
-    for bus_id, row in n.buses.iterrows():
-        x, y = float(row.get('x', 0.0)), float(row.get('y', 0.0))
-        if x == 0.0 and y == 0.0:
-            continue  # buses without coords are useless on a map
-        bus_id_str = str(bus_id)
-        features.append({
-            'type': 'Feature',
-            'geometry': {'type': 'Point', 'coordinates': [x, y]},
-            'properties': {
-                'bus_id': bus_id_str,
-                'weather_zone': weather_lookup.get(bus_id_str),
-                'load_zone':    load_lookup.get(bus_id_str),
-                'voltage': float(row['v_nom']) if 'v_nom' in row and pd.notna(row['v_nom']) else None,
-                'capacity_mw': float(bus_capacity.get(bus_id_str, 0.0)),
-                'cluster_id':  bus_cluster.get(bus_id_str),
-            },
-        })
-    return {'type': 'FeatureCollection', 'features': features}
-
-
-def _lines_feature_collection(n) -> dict[str, Any]:
-    features = []
-    bus_xy = n.buses[['x', 'y']]
-    for line_id, row in n.lines.iterrows():
-        b0, b1 = str(row['bus0']), str(row['bus1'])
-        if b0 not in bus_xy.index or b1 not in bus_xy.index:
-            continue
-        x0, y0 = float(bus_xy.at[b0, 'x']), float(bus_xy.at[b0, 'y'])
-        x1, y1 = float(bus_xy.at[b1, 'x']), float(bus_xy.at[b1, 'y'])
-        if (x0, y0) == (0.0, 0.0) or (x1, y1) == (0.0, 0.0):
-            continue
-        features.append({
-            'type': 'Feature',
-            'geometry': {'type': 'LineString', 'coordinates': [[x0, y0], [x1, y1]]},
-            'properties': {
-                'line_id': str(line_id),
-                'bus0': b0,
-                'bus1': b1,
-                's_nom': float(row['s_nom']) if pd.notna(row.get('s_nom')) else None,
-                'length': float(row['length']) if pd.notna(row.get('length')) else None,
-            },
-        })
-    return {'type': 'FeatureCollection', 'features': features}
-
-
 if __name__ == '__main__':
     """CLI: rebuild and write the topology cache."""
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     topo = get_or_build_topology(force=True)
-    print(
-        f"buses={len(topo['buses']['features'])} "
-        f"lines={len(topo['lines']['features'])}"
-    )
+    print(f"settlement_points={len(topo['settlement_points']['features'])}")

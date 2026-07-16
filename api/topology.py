@@ -1,4 +1,4 @@
-"""GET /api/topology — static GeoJSON of buses, lines, zones."""
+"""GET /api/topology — static GeoJSON of geocoded settlement points."""
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -11,8 +11,8 @@ router = APIRouter()
 
 @router.get(
     '/topology',
-    summary='Static network topology',
-    description='Returns FeatureCollections for buses, lines, and (when available) zone polygons. Cached on disk; rebuild by deleting TOPOLOGY_CACHE.',
+    summary='Static settlement-point topology',
+    description='Returns a FeatureCollection of geocoded ERCOT settlement points (sp_id, sp_type, load_zone, capacity_mw). Cached on disk; rebuild by deleting TOPOLOGY_CACHE.',
 )
 def topology() -> JSONResponse:
     topo = get_or_build_topology()
