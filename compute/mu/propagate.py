@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,24 @@ N_DRAWS = 200
 DRAW_CHUNK = 25          # cap peak memory; percentiles need every draw kept
 RESID_CAP = 500_000      # the pool is sampled from, not enumerated
 QUANTILES = (10, 50, 90)
+
+
+@dataclass
+class NodalPanel:
+    """The per-SP forecast panel `walk()` already computes and discards.
+
+    The node axis is ragged week to week — it is exactly `SF.columns` for the
+    week's fit, never unioned or filled — so a panel is one window's grid, not
+    a dense cross-week array. `point` is the deterministic `E[μ]·SF` (§4), which
+    is NOT the sampling median `p50`; both are stored because they differ.
+    """
+    ts: np.ndarray                  # (H,)   tz-aware UTC hours = `hours`
+    settlement_points: np.ndarray   # (N,)   = SF.columns
+    p10: np.ndarray                 # (H, N) float32
+    p50: np.ndarray                 # (H, N) float32  median of draws
+    p90: np.ndarray                 # (H, N) float32
+    point: np.ndarray               # (H, N) float32  deterministic E[μ]·SF
+    sf_r2: np.ndarray | None        # (N,)   per-SP SF fit R², if available
 
 
 def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
@@ -84,8 +103,16 @@ def _wide(week_preds: pd.DataFrame, col: str, hours: pd.DatetimeIndex,
 def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
                     hours: pd.DatetimeIndex, eps: np.ndarray,
                     n_draws: int = N_DRAWS,
-                    rng: np.random.Generator | None = None) -> np.ndarray:
-    """(draws × hours × nodes) of sampled nodal congestion."""
+                    rng: np.random.Generator | None = None,
+                    *, want_point: bool = False,
+                    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """(draws × hours × nodes) of sampled nodal congestion.
+
+    With `want_point`, also return the deterministic point forecast
+    `point = −(E[μ]·SF)` where `E[μ] = P(bind)·E[μ|bind]` (§4). It reuses the
+    `P`/`MU`/`SFm` arrays already built here — no sampling, no second SF
+    multiply — and is the model's expectation, distinct from the draws' median.
+    """
     rng = rng or np.random.default_rng(0)
     cols = SF.index                                   # only keys the map carries
     P = _wide(week_preds, "p_bind", hours, cols)      # (H, K)
@@ -103,6 +130,10 @@ def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
         mu = np.expm1(log_mu[None] + e) * bind                        # head 2
         np.clip(mu, 0, None, out=mu)          # a shadow price is never negative
         out[lo:lo + d] = -(mu.reshape(d * H, K) @ SFm).reshape(d, H, N)
+    if want_point:
+        E_mu = P * MU                                 # (H, K) E[μ]=P(bind)·E[μ|bind]
+        point = -(E_mu @ SFm).astype(np.float32)      # (H, N) same sign as draws
+        return out, point
     return out
 
 
