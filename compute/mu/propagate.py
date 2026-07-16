@@ -311,7 +311,8 @@ def propagate_window(
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
-         n_draws: int = N_DRAWS, seed: int = 0) -> pd.DataFrame:
+         n_draws: int = N_DRAWS, seed: int = 0,
+         nodal_out: str | None = None) -> pd.DataFrame:
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
     weeks = weeks_from_preds(preds)
@@ -319,6 +320,9 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     log.info("propagating %d weeks × %d draws (week 1 has no residual pool → no "
              "bands)", len(weeks), n_draws)
 
+    # Emitting the panel only tees the arrays already computed — same rng draws,
+    # so the metrics row (and `mu_bands_weekly.csv`) is byte-identical either way.
+    sink = _NodalAccumulator() if nodal_out else None
     by_week = dict(tuple(preds.groupby("week", sort=False)))
     rows: list[dict] = []
     t0 = time.perf_counter()
@@ -333,15 +337,21 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
             continue
 
         end = s + pd.Timedelta(days=REFIT_DAYS)
-        row, _ = propagate_window(s, end, M, C, by_week[s], eps, n_draws, rng)
+        row, panel = propagate_window(s, end, M, C, by_week[s], eps, n_draws, rng,
+                                      want_panel=sink is not None)
         if row is None:
             continue
 
         rows.append(row)
+        if sink is not None:
+            sink.add(panel, s)
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],
                  rows[-1]["pooled_r2"], (el / done) * (len(weeks) - done) / 60)
+    if sink is not None:
+        sink.save(nodal_out)
+        log.info("wrote nodal panel → %s", nodal_out)
     return pd.DataFrame(rows)
 
 
@@ -436,6 +446,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--draws", type=int, default=N_DRAWS)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default=None)
+    p.add_argument("--nodal-out", default=None,
+                   help="stream the per-week nodal P10/P50/P90 + point panel to "
+                        "this flat vocab-coded .npz; omit and nothing changes "
+                        "(no panel, metrics CSV byte-identical)")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -451,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         C = load_congestion_panel(conn, lo, hi)
     log.info("M = %s   C = %s", M.shape, C.shape)
 
-    bands = walk(M, C, preds, args.draws, args.seed)
+    bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out)
     scores = pd.read_csv(args.scores, parse_dates=["week"])
     print(r5(scores, bands))
     if args.out and not bands.empty:
