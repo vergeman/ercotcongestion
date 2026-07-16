@@ -72,6 +72,95 @@ class NodalPanel:
     sf_r2: np.ndarray | None        # (N,)   per-SP SF fit R², if available
 
 
+def _epoch_us(idx) -> np.ndarray:
+    """int64 UTC microseconds, matching `mu_model.save_preds`' timestamp encoding.
+
+    Microseconds (not ns) because pandas 3 makes `us` the default resolution, so
+    an ns round-trip returns a different dtype and silently fails an index
+    compare; the data is hourly, so there is no precision to lose either way.
+    """
+    di = pd.DatetimeIndex(idx)
+    if di.tz is not None:
+        di = di.tz_convert("UTC").tz_localize(None)
+    return di.to_numpy("datetime64[us]").astype("int64")
+
+
+class _NodalAccumulator:
+    """Streams `NodalPanel`s to flat vocab-coded columns one window at a time.
+
+    The node axis is ragged week to week (§9), so weeks are never densified into
+    a common `(T, N, 3)` array: each panel's `(H, N)` grids are raveled to
+    `(H*N,)` rows and its SPs mapped onto one growing `sp_vocab` — the same
+    `key_vocab` + `key_code` idiom `mu_model.save_preds` uses to keep repeated
+    strings out of the file. Peak memory is one week of percentiles (~2 MB), not
+    the 45-week concat.
+    """
+
+    def __init__(self) -> None:
+        self._sp_code: dict[str, int] = {}
+        self._buf: dict[str, list[np.ndarray]] = {
+            k: [] for k in ("ts", "sp_code", "p10", "p50", "p90", "point", "week")}
+
+    def add(self, panel: NodalPanel, week: pd.Timestamp) -> None:
+        H, N = len(panel.ts), len(panel.settlement_points)
+        code = np.fromiter(
+            (self._sp_code.setdefault(str(sp), len(self._sp_code))
+             for sp in panel.settlement_points),
+            dtype=np.int32, count=N)
+        ts_us = _epoch_us(panel.ts)                          # (H,)
+        week_us = int(_epoch_us(pd.DatetimeIndex([week]))[0])
+        # Row r = h*N + n: `ravel` is C-order (hour-major), so `repeat` the hours
+        # and `tile` the SP codes to line the axes up with the percentile grids.
+        b = self._buf
+        b["ts"].append(np.repeat(ts_us, N))
+        b["sp_code"].append(np.tile(code, H))
+        b["p10"].append(panel.p10.ravel())
+        b["p50"].append(panel.p50.ravel())
+        b["p90"].append(panel.p90.ravel())
+        b["point"].append(panel.point.ravel())
+        b["week"].append(np.full(H * N, week_us, dtype=np.int64))
+
+    def save(self, path: str) -> None:
+        cols = {k: (np.concatenate(v) if v else np.empty(0, np.int64))
+                for k, v in self._buf.items()}
+        vocab = np.array(list(self._sp_code), dtype=object).astype("U")
+        save_nodal(path, cols, vocab)
+
+
+def save_nodal(path: str, cols: dict[str, np.ndarray], sp_vocab: np.ndarray) -> None:
+    """Write the flat nodal panel as a compressed .npz.
+
+    Same encoding as `mu_model.save_preds`: int64 UTC-µs `ts`/`week`, an int32
+    `sp_code` against a string `sp_vocab` (never a string per row — at ~7.5M rows
+    that is a gigabyte of repeated SP names), float32 percentiles + `point`.
+    """
+    np.savez_compressed(
+        path,
+        ts=cols["ts"].astype("int64"),
+        sp_code=cols["sp_code"].astype("int32"),
+        sp_vocab=np.asarray(sp_vocab, dtype=object).astype("U"),
+        p10=cols["p10"].astype("float32"),
+        p50=cols["p50"].astype("float32"),
+        p90=cols["p90"].astype("float32"),
+        point=cols["point"].astype("float32"),
+        week=cols["week"].astype("int64"),
+    )
+
+
+def load_nodal(path: str) -> pd.DataFrame:
+    """Inverse of `save_nodal`: tz-aware UTC `ts`/`week`, decoded
+    `settlement_point`, and the p10/p50/p90/point columns. Round-trips exactly —
+    see the test."""
+    z = np.load(path, allow_pickle=False)
+    vocab = z["sp_vocab"]
+    return pd.DataFrame({
+        "ts": pd.to_datetime(z["ts"], unit="us", utc=True),
+        "settlement_point": vocab[z["sp_code"]],
+        "p10": z["p10"], "p50": z["p50"], "p90": z["p90"], "point": z["point"],
+        "week": pd.to_datetime(z["week"], unit="us", utc=True),
+    })
+
+
 def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
                   rng: np.random.Generator | None = None) -> np.ndarray:
     """Head 2's out-of-sample log-space errors on the weeks already behind us.
