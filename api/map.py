@@ -199,6 +199,12 @@ def get_map_exposures(
 def get_map_reach(
     constraint: str = Query(..., description="Constraint key to trace"),
     k: int = Query(15, ge=1, le=500, description="Number of top nodes"),
+    min_frac: float = Query(
+        0.05, ge=0.0, le=1.0,
+        description="Noise floor: drop nodes whose |SF| is below this fraction "
+        "of the constraint's peak |SF|. Without it, top-k pads a weakly-fit "
+        "constraint (few real nodes) with noise-floor entries.",
+    ),
 ) -> ConstraintReach:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, window_start = _resolve(cur)
@@ -211,11 +217,19 @@ def get_map_reach(
         )
         geo = cur.fetchone() or {}
 
+        # Magnitude floor relative to the constraint's own peak |SF|. A weakly
+        # identified constraint has almost no structure past a few nodes, so
+        # top-k alone scrapes the noise floor; drop |SF| < min_frac * peak.
+        # Unlocated constraints (no geo row → peak None) fall back to no floor.
+        peak = geo.get("max_abs_sf")
+        floor = min_frac * peak if peak else 0.0
+
         cur.execute(
             "SELECT settlement_point, sf FROM implied_shift_factors "
             "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
+            "AND abs(sf) >= %s "
             "ORDER BY abs(sf) DESC LIMIT %s",
-            (run_id, window_start, constraint, k),
+            (run_id, window_start, constraint, floor, k),
         )
         coords = _sp_coords()
         sps = []
