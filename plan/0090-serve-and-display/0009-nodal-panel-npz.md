@@ -47,8 +47,8 @@ Branch: feat/0009-nodal-panel-npz
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `python -m compute.mu.propagate --nodal-out out.npz` writes a flat vocab-coded npz; without it, no npz and `mu_bands_weekly.csv` is byte-identical to 0008's baseline.
-* [ ] `load_nodal(out.npz)` returns tz-aware UTC `ts`, decoded `settlement_point`, and `p10/p50/p90/point` matching the in-memory `NodalPanel` for a spot week.
-* [ ] Peak memory during emission is ~one week of percentiles, not the full concat (streamed accumulator, spec §9).
-* [ ] Full-backtest npz row count ≈ weeks × hours × SPs; `point` column present and distinct from `p50`.
-* [ ] `pytest compute/mu/tests/` green; no DB writes, no driver rows.
+* [x] `python -m compute.mu.propagate --nodal-out out.npz` writes a flat vocab-coded npz; without it, no npz and `mu_bands_weekly.csv` is byte-identical to 0008's baseline.
+* [x] `load_nodal(out.npz)` returns tz-aware UTC `ts`, decoded `settlement_point`, and `p10/p50/p90/point` matching the in-memory `NodalPanel` for a spot week.
+* [x] Peak memory during emission is ~one week of percentiles, not the full concat (streamed accumulator, spec §9).
+* [x] Full-backtest npz row count ≈ weeks × hours × SPs; `point` column present and distinct from `p50`.
+* [x] `pytest compute/mu/tests/` green; no DB writes, no driver rows.
