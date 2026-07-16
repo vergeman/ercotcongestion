@@ -27,20 +27,31 @@ const CONSTRAINT_R_MIN = 4;
 const CONSTRAINT_R_MAX = 20;
 
 // Low-confidence styling: a muted slate, distinct from the violet, so a
-// weakly-fit constraint reads as "located but don't trust its geometry". A
-// constraint is low-confidence if it barely cleared the fit's binding-hours
-// floor, or its peak |SF| hit the ±1 clip — a poorly-conditioned ridge blowout,
-// not a measured sensitivity (see docs/ERCOT_constraints.md §4).
+// weakly-fit constraint reads as "located but don't trust its geometry". Low
+// confidence is a *shape* verdict, not an hour count (docs/ERCOT_constraints.md
+// §4): the artifact is the ridge clamp — several nodes co-equal at the ±1 cap,
+// or a lone rail with no graded body beneath it. A single rail atop a real body
+// (a radial resource) or any unclipped graded SF is NOT low-confidence, even if
+// it bound only briefly. binding_hours is a separate "thin support" annotation.
 const CONSTRAINT_FILL_LOW = "rgba(148, 163, 184, 0.35)"; // slate-400 muted
 const CONSTRAINT_STROKE_LOW = "#94a3b8";
-const LOW_BINDING_HOURS = 50;
-const CLIPPED_SF = 0.999;
+const RAIL_MULTI = 2;      // >= this many nodes at the cap = clamp artifact
+const BODY_FLOOR = 0.1;    // a rail with peak_offrail below this has no real body
+const THIN_HOURS = 50;     // annotation threshold, not a verdict
 
 function isLowConfidence(c: ConstraintGeo): boolean {
-  return (
-    (c.binding_hours != null && c.binding_hours < LOW_BINDING_HOURS) ||
-    (c.max_abs_sf != null && c.max_abs_sf >= CLIPPED_SF)
-  );
+  const nRail = c.n_rail ?? 0;
+  if (nRail >= RAIL_MULTI) return true;
+  // A single rail is only suspect when nothing graded sits beneath it (an
+  // isolated spike straight to the noise floor). A rail atop a real body is a
+  // radial resource — trustworthy.
+  return nRail >= 1 && (c.peak_offrail == null || c.peak_offrail < BODY_FLOOR);
+}
+
+// Thin support is a caveat, not a disqualifier — clean-but-brief constraints
+// bind < THIN_HOURS yet have smooth, unclipped SF (docs §4).
+function isThinSupport(c: ConstraintGeo): boolean {
+  return c.binding_hours != null && c.binding_hours < THIN_HOURS;
 }
 
 // Build the overlay FeatureCollection, baking a per-feature radius from
@@ -71,6 +82,7 @@ function buildConstraintFC(
           binding_hours: c.binding_hours,
           zone_label: topZoneLabel(c.zone_shares),
           low_conf: isLowConfidence(c),
+          thin: isThinSupport(c),
         },
       };
     }),
@@ -635,7 +647,9 @@ export default function GridMap({
                 props.binding_hours ?? "—"
               } binding h</div>${
                 props.low_conf
-                  ? `<div class="tip-lowconf">⚠ low confidence — weak fit</div>`
+                  ? `<div class="tip-lowconf">⚠ low confidence — ridge clamp</div>`
+                  : props.thin
+                  ? `<div class="tip-thin">thin support — few binding hours</div>`
                   : ""
               }`
             )
@@ -785,6 +799,7 @@ export default function GridMap({
         .tip-id--constraint { color: #c4b5fd; }
         .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
         .tip-lowconf { color: #94a3b8; font-size: 10px; margin-top: 3px; }
+        .tip-thin { color: #a8a29e; font-size: 10px; margin-top: 3px; }
       `}</style>
     </>
   );
