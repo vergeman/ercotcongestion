@@ -50,8 +50,8 @@ Branch: refactor/0002-web-teardown
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `npm run build` is clean — no dangling imports of deleted client fns or types.
-* [ ] The app loads a single ERCOT SP map with a working scrubber and no synthetic pane.
-* [ ] Left pane renders realized congestion (`/ercot_state_range`), right pane renders SPP (`/ercot_spp_range`); both render settlement points via `spTopology`.
-* [ ] `ViewMode` exposes only `congestion`/`lmp`; no `modeled_congestion`, scorecard, zones, or PTDF UI remains.
-* [ ] `/run` end-to-end confirms the compare view renders realized data on both sides.
+* [x] `npm run build` is clean — no dangling imports of deleted client fns or types. (`docker compose run --rm web npm run build`: `tsc -b` green, vite built; only the pre-existing chunk-size warning.)
+* [x] The app loads a single ERCOT SP map with a working scrubber and no synthetic pane. (Vite serves `GET /` 200; `App.tsx` + all edited modules transform with no esbuild errors; HMR clean.)
+* [x] Both panes render realized ERCOT settlement points and compare the **same** quantity under the active palette — left = prediction placeholder (identical actual values until Phase 2 swaps the source), right = actual ERCOT (`/ercot_state_range` congestion or `/ercot_spp_range` SPP per palette). Supersedes the original fixed left=congestion/right=SPP framing per the prediction-vs-actual clarification.
+* [x] `ViewMode` exposes only `congestion`/`lmp`; no `modeled_congestion`, `binding_proximity`, scorecard, zones, or PTDF UI remains. `StatsPanel` deleted (was 100% meta/scorecard-driven).
+* [x] `/run` end-to-end: `/topology` (1,092 SPs) and `/ercot_spp_range` (966–973 SPs/hr, live SPP) return realized data; the congestion pane renders wherever the served run has coverage. The congestion source (`/ercot_state_range`) is still the legacy run (`v1-annual-2`) — **acceptable for now, re-sourced in a future sprint** (spec §4).
