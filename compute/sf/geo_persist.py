@@ -34,6 +34,9 @@ from compute.sf.persist import copy_constraint_geo_rows, delete_constraint_geo
 
 log = logging.getLogger("compute.sf.geo_persist")
 
+# |SF| at or above this is "railed" — pinned at the ridge clamp (SF_ABS_CAP=1.0).
+RAIL_CAP = 0.999
+
 # Geometry columns constraint_geography always emits; forced present so an
 # all-uncoordinated window (known.empty → columnless frame) still yields NaN
 # rows rather than a KeyError.
@@ -98,7 +101,17 @@ def _window_geo(SF: pd.DataFrame, sp: pd.DataFrame, Mw: pd.DataFrame) -> pd.Data
     geo["kv_mean"] = g["geo_kv_mean"]
     geo["kv_max"] = g["geo_kv_max"]
     geo["zone_shares"] = [_zone_shares(g.loc[k]) for k in SF.index]
-    geo["max_abs_sf"] = SF.abs().max(axis=1).reindex(SF.index)
+
+    # Shape scalars for the low-confidence verdict (docs §4). The clamp cap is
+    # SF_ABS_CAP=1.0; a node pinned at |SF|>=RAIL_CAP is "railed". n_rail counts
+    # them; peak_offrail is the top of the graded body beneath the rail (max |SF|
+    # among non-railed nodes). Several co-equal rails, or a rail with no body,
+    # are the ill-conditioned-ridge signature — not a measured sensitivity.
+    absSF = SF.abs()
+    geo["max_abs_sf"] = absSF.max(axis=1).reindex(SF.index)
+    geo["n_rail"] = (absSF >= RAIL_CAP).sum(axis=1).reindex(SF.index).astype(int)
+    geo["peak_offrail"] = absSF.where(absSF < RAIL_CAP).max(axis=1).reindex(SF.index)
+
     geo["binding_hours"] = binding.reindex(SF.index).fillna(0).astype(int)
     return geo
 
