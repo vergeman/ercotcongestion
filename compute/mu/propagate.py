@@ -161,6 +161,77 @@ def load_nodal(path: str) -> pd.DataFrame:
     })
 
 
+ERCOT_TZ = "America/Chicago"      # delivery_date = operating-day CT date of ts
+FORECAST_LAYER = "ercot"
+
+
+def _delivery_dates(ts: pd.Series) -> pd.Series:
+    """ERCOT operating day (CT-local date) for each tz-aware UTC hour — the
+    `forecast_nodal.delivery_date` and the idempotency scope for a re-run."""
+    return ts.dt.tz_convert(ERCOT_TZ).dt.date
+
+
+def nodal_to_db(npz_path: str, conn, *, run_id: str,
+                delivery_date=None) -> int:
+    """Load a `save_nodal` panel and `COPY` it into `forecast_nodal` for `run_id`.
+
+    Idempotent by delete-then-copy scoped to what is written, so a re-run replaces
+    cleanly (spec §5b, phase2b §6): with `delivery_date` set, only that operating
+    day for the run is cleared and only its rows land (the single-day production
+    path); with it `None`, the whole run is cleared and every day in the npz is
+    (re)written (the backtest bulk path). `delivery_date` is derived per row from
+    the CT-local date of `ts`, so the same PK never both survives and reappears —
+    collisions replace, not duplicate.
+
+    Does NOT commit and does NOT touch the pointer — the caller flips
+    `forecast_current` via `upsert_pointer` AFTER these rows land, so a reader
+    never sees a half-written day. Returns the number of rows written.
+    """
+    target = pd.Timestamp(delivery_date).date() if delivery_date is not None else None
+    df = load_nodal(npz_path)
+    df = df.assign(delivery_date=_delivery_dates(df["ts"]))
+    if target is not None:
+        df = df[df["delivery_date"] == target]
+
+    with conn.cursor() as cur:
+        if target is not None:
+            cur.execute(
+                "DELETE FROM forecast_nodal WHERE run_id = %s "
+                "AND delivery_date = %s", (run_id, target))
+        else:
+            cur.execute("DELETE FROM forecast_nodal WHERE run_id = %s", (run_id,))
+
+    ts_iso = df["ts"].astype(str).to_numpy()          # ISO w/ +00:00 offset
+    dd_iso = df["delivery_date"].astype(str).to_numpy()
+    sp = df["settlement_point"].to_numpy()
+    p10, p50, p90 = (df[c].to_numpy(np.float64) for c in ("p10", "p50", "p90"))
+    point = df["point"].to_numpy(np.float64)
+
+    def _f(v) -> float | None:                        # NaN percentile -> NULL
+        return v if np.isfinite(v) else None
+
+    sql = ("COPY forecast_nodal (run_id, delivery_date, ts, settlement_point, "
+           "p10, p50, p90, point) FROM STDIN")
+    n = len(df)
+    with conn.cursor() as cur, cur.copy(sql) as cp:
+        for i in range(n):
+            cp.write_row((run_id, dd_iso[i], ts_iso[i], sp[i],
+                          _f(p10[i]), _f(p50[i]), _f(p90[i]), _f(point[i])))
+    return n
+
+
+def upsert_pointer(conn, layer: str, run_id: str) -> None:
+    """Flip `forecast_current[layer] = run_id`. Call ONLY after the rows land —
+    this feature's own pointer, mirroring `set_current_pointer` for the IBP map,
+    never the legacy `implied_binding_proximity_current`."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forecast_current (layer, run_id) VALUES (%s, %s) "
+            "ON CONFLICT (layer) DO UPDATE "
+            "SET run_id = EXCLUDED.run_id, promoted_at = now()",
+            (layer, run_id))
+
+
 def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
                   rng: np.random.Generator | None = None) -> np.ndarray:
     """Head 2's out-of-sample log-space errors on the weeks already behind us.
