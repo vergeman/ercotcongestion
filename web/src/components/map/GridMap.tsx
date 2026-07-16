@@ -411,6 +411,14 @@ export default function GridMap({
   // color mapping on both panes, so prediction and actual are comparable by
   // eye. With no rows loaded, clear the color feature-state so the circles
   // fall back to the base fill.
+  //
+  // Clearing always uses setFeatureState(..., null), never removeFeatureState:
+  // a keyed delete on a feature with no committed state crashes maplibre's
+  // coalesceChanges (this.state[sourceLayer][id] is undefined), and the
+  // overlay/corridor addSource calls trigger that coalesce mid-batch — which
+  // would blank the whole map. `reachIdsRef` tracks the nodes reach touched so
+  // exiting reach un-fades exactly those.
+  const reachIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("sps") || !points) return;
@@ -430,12 +438,12 @@ export default function GridMap({
         bySp.set(s.settlement_point, s.sf);
         maxAbs = Math.max(maxAbs, Math.abs(s.sf));
       }
+      const touched = new Set<string>();
       for (const feat of fc.features) {
         const id = feat.properties.sp_id;
         const sf = bySp.get(id);
         if (sf === undefined) {
-          map.removeFeatureState({ source: "sps", id }, "color");
-          map.setFeatureState({ source: "sps", id }, { faded: true });
+          map.setFeatureState({ source: "sps", id }, { color: null, faded: true });
         } else {
           const norm = Math.max(-1, Math.min(1, sf / maxAbs));
           map.setFeatureState(
@@ -443,20 +451,25 @@ export default function GridMap({
             { color: modeledCongestionColor(norm), faded: false }
           );
         }
+        touched.add(id);
       }
+      reachIdsRef.current = touched;
       return;
     }
 
-    // Normal mode: clear any reach fade, then paint the active palette.
-    for (const feat of fc.features) {
-      map.removeFeatureState({ source: "sps", id: feat.properties.sp_id }, "faded");
+    // Leaving reach mode: un-fade exactly the nodes reach touched.
+    if (reachIdsRef.current.size) {
+      for (const id of reachIdsRef.current) {
+        map.setFeatureState({ source: "sps", id }, { faded: false });
+      }
+      reachIdsRef.current = new Set();
     }
 
     if (!rows.length) {
       for (const feat of fc.features) {
-        map.removeFeatureState(
+        map.setFeatureState(
           { source: "sps", id: feat.properties.sp_id },
-          "color"
+          { color: null }
         );
       }
       return;
