@@ -15,13 +15,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
-import state, topology, validation, ptdf, ercot_state, ercot_spp, ibp, meta
+import topology, ercot_state, ercot_spp, meta
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
 app = FastAPI(
     title='Power Grid Snapshot API',
-    description='Serves topology, state, and state_range endpoints.',
+    description='Serves settlement-point topology and realized ERCOT congestion/SPP ranges.',
     version='0.1.0',
     lifespan=lifespan,
 )
@@ -36,14 +36,10 @@ app.add_middleware(
 )
 
 # Routers mounted at root. URLs:
-#   /topology  /state  /state_range  /validation  /ptdf
-app.include_router(state.router,       tags=['state'])
+#   /topology  /ercot_state_range  /ercot_spp_range  /meta
 app.include_router(topology.router,    tags=['topology'])
-app.include_router(validation.router,  tags=['validation'])
-app.include_router(ptdf.router,        tags=['ptdf'])
 app.include_router(ercot_state.router, tags=['ercot_state'])
 app.include_router(ercot_spp.router,   tags=['ercot_spp'])
-app.include_router(ibp.router,         tags=['ibp'])
 app.include_router(meta.router,        tags=['meta'])
 
 
