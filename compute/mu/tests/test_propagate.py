@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 
 from compute.mu.propagate import (
-    NodalPanel, band_metrics, draw_congestion, existence_test, gate,
-    propagate_window, residual_pool,
+    NodalPanel, _NodalAccumulator, band_metrics, draw_congestion, existence_test,
+    gate, load_nodal, propagate_window, residual_pool, walk,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 
@@ -198,6 +198,108 @@ def test_propagate_window_skips_when_the_fit_window_is_empty():
                                   M, C, wp, np.zeros(4, np.float32), 8,
                                   np.random.default_rng(0))
     assert row is None and panel is None
+
+
+# -------------------------------------------------------- the nodal npz sink
+
+def test_nodal_npz_round_trips_the_panel(tmp_path):
+    """`save_nodal → load_nodal` recovers a window's `ts`/SP/percentiles/`point`
+    exactly, and the node axis for the week is `SF.columns` in order — the flat
+    vocab coding is lossless (spec §2)."""
+    s, end, M, C, wp, _ = _window_frames()
+    _, panel = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
+                                32, np.random.default_rng(0), want_panel=True)
+    sink = _NodalAccumulator()
+    sink.add(panel, s)
+    path = str(tmp_path / "nodal.npz")
+    sink.save(path)
+    df = load_nodal(path)
+
+    N = len(panel.settlement_points)
+    assert len(df) == len(panel.ts) * N            # H×N flat rows, never densified
+    assert str(df["ts"].dt.tz) == "UTC" and str(df["week"].dt.tz) == "UTC"
+    # first hour's block is the node axis == SF.columns, in order
+    wk0 = df[df["ts"] == df["ts"].min()]
+    assert list(wk0["settlement_point"]) == list(panel.settlement_points)
+    assert (df["week"] == pd.Timestamp(s).tz_convert("UTC")).all()
+    assert (df["ts"].iloc[:N] == pd.to_datetime(panel.ts[0], utc=True)).all()
+    # values line up with the (H,N) C-order ravel, and point ≠ p50
+    np.testing.assert_allclose(df["p10"].to_numpy(), panel.p10.ravel(), rtol=1e-6)
+    np.testing.assert_allclose(df["p50"].to_numpy(), panel.p50.ravel(), rtol=1e-6)
+    np.testing.assert_allclose(df["p90"].to_numpy(), panel.p90.ravel(), rtol=1e-6)
+    np.testing.assert_allclose(df["point"].to_numpy(), panel.point.ravel(),
+                               rtol=1e-6)
+    assert not np.array_equal(df["point"].to_numpy(), df["p50"].to_numpy())
+
+
+def test_accumulator_keeps_ragged_node_axes_per_week(tmp_path):
+    """The node set is ragged week to week (spec §9): each week keeps its own SP
+    axis, never a union-and-fill, and a shared SP is coded once in `sp_vocab`."""
+    def _panel(ts, sps, val):
+        arr = np.full((len(ts), len(sps)), val, np.float32)
+        return NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps),
+                          p10=arr, p50=arr + 1, p90=arr + 2, point=arr + 3,
+                          sf_r2=None)
+    w1 = pd.Timestamp("2025-10-01", tz="UTC")
+    w2 = pd.Timestamp("2025-10-08", tz="UTC")
+    h1, h2 = _hours(3), pd.date_range(w2, periods=3, freq="h")
+    sink = _NodalAccumulator()
+    sink.add(_panel(h1, ["A", "B"], 1.0), w1)
+    sink.add(_panel(h2, ["B", "C", "D"], 2.0), w2)   # different, ragged axis
+    path = str(tmp_path / "ragged.npz")
+    sink.save(path)
+
+    df = load_nodal(path)
+    g1, g2 = df[df["week"] == w1], df[df["week"] == w2]
+    assert set(g1["settlement_point"]) == {"A", "B"} and len(g1) == 3 * 2
+    assert set(g2["settlement_point"]) == {"B", "C", "D"} and len(g2) == 3 * 3
+    vocab = np.load(path)["sp_vocab"]
+    assert list(vocab) == ["A", "B", "C", "D"]       # shared 'B' coded once
+
+
+def _walk_frames(seed=7, n_keys=4, n_sp=6):
+    """Two scored weeks so week 2 has a residual pool — a runnable `walk()`."""
+    rng = np.random.default_rng(seed)
+    w1 = pd.Timestamp("2025-06-01", tz="UTC")
+    w2 = w1 + pd.Timedelta(days=REFIT_DAYS)
+    idx = pd.date_range(w1 - pd.Timedelta(days=WINDOW_DAYS),
+                        w2 + pd.Timedelta(days=REFIT_DAYS), freq="h",
+                        inclusive="left")
+    keys = [f"K{i}|Z" for i in range(n_keys)]
+    sps = [f"N{i}" for i in range(n_sp)]
+    true_sf = rng.normal(0, 0.3, (n_keys, n_sp))
+    mu = np.where(rng.random((len(idx), n_keys)) < 0.5, 0.0,
+                  rng.uniform(20, 200, (len(idx), n_keys)))
+    M = pd.DataFrame(mu, index=idx, columns=keys)
+    C = pd.DataFrame(-(mu @ true_sf), index=idx, columns=sps)
+
+    frames = []
+    for w in (w1, w2):
+        shours = idx[(idx >= w) & (idx < w + pd.Timedelta(days=REFIT_DAYS))]
+        for k in keys:
+            p = M.loc[shours, k].to_numpy()
+            frames.append(pd.DataFrame({
+                "interval_ts": shours, "key": k, "week": w,
+                "p_bind": np.where(p > 0, 0.8, 0.1), "mu_gbm": np.clip(p, 1, None),
+                "y_bind": (p > 0).astype(int),
+                "y_mu": np.where(p > 0, p, np.nan)}))
+    return M, C, pd.concat(frames, ignore_index=True)
+
+
+def test_walk_metrics_are_byte_identical_with_and_without_nodal_out(tmp_path):
+    """`--nodal-out` only tees arrays already computed: same seed, same draws, so
+    the returned weekly-metrics frame (→ `mu_bands_weekly.csv`) must be identical
+    whether or not the panel is emitted (spec §7 no-flag invariance)."""
+    M, C, preds = _walk_frames()
+    b0 = walk(M, C, preds, n_draws=32, seed=1)
+    path = str(tmp_path / "n.npz")
+    b1 = walk(M, C, preds, n_draws=32, seed=1, nodal_out=path)
+
+    pd.testing.assert_frame_equal(b0, b1)
+    assert not b0.empty                              # week 2 scored (has a pool)
+    # the flag produced a panel whose node axis matches the scored SPs
+    df = load_nodal(path)
+    assert set(df["settlement_point"]) == set(C.columns)
 
 
 # --------------------------------------------------------------- the bands

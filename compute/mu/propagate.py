@@ -344,12 +344,13 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
         rows.append(row)
         if sink is not None:
+            assert panel is not None      # want_panel=True ⟹ panel built when row is
             sink.add(panel, s)
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],
                  rows[-1]["pooled_r2"], (el / done) * (len(weeks) - done) / 60)
-    if sink is not None:
+    if sink is not None and nodal_out is not None:
         sink.save(nodal_out)
         log.info("wrote nodal panel → %s", nodal_out)
     return pd.DataFrame(rows)
