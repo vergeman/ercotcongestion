@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,24 @@ N_DRAWS = 200
 DRAW_CHUNK = 25          # cap peak memory; percentiles need every draw kept
 RESID_CAP = 500_000      # the pool is sampled from, not enumerated
 QUANTILES = (10, 50, 90)
+
+
+@dataclass
+class NodalPanel:
+    """The per-SP forecast panel `walk()` already computes and discards.
+
+    The node axis is ragged week to week — it is exactly `SF.columns` for the
+    week's fit, never unioned or filled — so a panel is one window's grid, not
+    a dense cross-week array. `point` is the deterministic `E[μ]·SF` (§4), which
+    is NOT the sampling median `p50`; both are stored because they differ.
+    """
+    ts: np.ndarray                  # (H,)   tz-aware UTC hours = `hours`
+    settlement_points: np.ndarray   # (N,)   = SF.columns
+    p10: np.ndarray                 # (H, N) float32
+    p50: np.ndarray                 # (H, N) float32  median of draws
+    p90: np.ndarray                 # (H, N) float32
+    point: np.ndarray               # (H, N) float32  deterministic E[μ]·SF
+    sf_r2: np.ndarray | None        # (N,)   per-SP SF fit R², if available
 
 
 def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
@@ -84,8 +103,16 @@ def _wide(week_preds: pd.DataFrame, col: str, hours: pd.DatetimeIndex,
 def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
                     hours: pd.DatetimeIndex, eps: np.ndarray,
                     n_draws: int = N_DRAWS,
-                    rng: np.random.Generator | None = None) -> np.ndarray:
-    """(draws × hours × nodes) of sampled nodal congestion."""
+                    rng: np.random.Generator | None = None,
+                    *, want_point: bool = False,
+                    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """(draws × hours × nodes) of sampled nodal congestion.
+
+    With `want_point`, also return the deterministic point forecast
+    `point = −(E[μ]·SF)` where `E[μ] = P(bind)·E[μ|bind]` (§4). It reuses the
+    `P`/`MU`/`SFm` arrays already built here — no sampling, no second SF
+    multiply — and is the model's expectation, distinct from the draws' median.
+    """
     rng = rng or np.random.default_rng(0)
     cols = SF.index                                   # only keys the map carries
     P = _wide(week_preds, "p_bind", hours, cols)      # (H, K)
@@ -103,13 +130,21 @@ def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
         mu = np.expm1(log_mu[None] + e) * bind                        # head 2
         np.clip(mu, 0, None, out=mu)          # a shadow price is never negative
         out[lo:lo + d] = -(mu.reshape(d * H, K) @ SFm).reshape(d, H, N)
+    if want_point:
+        E_mu = P * MU                                 # (H, K) E[μ]=P(bind)·E[μ|bind]
+        point = -(E_mu @ SFm).astype(np.float32)      # (H, N) same sign as draws
+        return out, point
     return out
 
 
-def band_metrics(Y: np.ndarray, draws: np.ndarray) -> dict:
+def band_metrics(Y: np.ndarray, p10: np.ndarray, p50: np.ndarray,
+                 p90: np.ndarray) -> dict:
     """Coverage FIRST, then skill. A band that misses is not a narrower band, it
-    is a wrong one, and P50 skill next to broken coverage is a sales pitch."""
-    p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+    is a wrong one, and P50 skill next to broken coverage is a sales pitch.
+
+    Percentiles are computed once by the caller (`np.percentile(draws,
+    QUANTILES, axis=0)`) and passed in, so the scored p50 and the served p50
+    can never diverge — both read the same array."""
     inside = (Y >= p10) & (Y <= p90)
     m = {
         "coverage80": float(np.nanmean(inside)),      # target 0.80
@@ -124,6 +159,66 @@ def band_metrics(Y: np.ndarray, draws: np.ndarray) -> dict:
 def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
     d = y - q
     return float(np.nanmean(np.maximum(tau * d, (tau - 1) * d)))
+
+
+def propagate_window(
+    s: pd.Timestamp, end: pd.Timestamp,
+    M: pd.DataFrame, C: pd.DataFrame, wp: pd.DataFrame,
+    eps: np.ndarray, n_draws: int, rng: np.random.Generator,
+    *, want_panel: bool = False,
+) -> tuple[dict | None, NodalPanel | None]:
+    """One window, shared by the backtest and (later) `forecast_day`.
+
+    Fit SF on ``[s−WINDOW_DAYS, s)``, score/draw over ``[s, end)``, and build the
+    weekly-metrics row exactly as `walk()` did. Returns ``(row, None)`` normally;
+    with ``want_panel`` also returns the `NodalPanel` teed from the same draws and
+    the same `np.percentile` call the metrics use. ``(None, None)`` on any skip
+    (empty fit window, empty SF, no scored hours) — the caller's `continue`.
+    """
+    lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
+    M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
+    C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
+    if M_fit.empty:
+        return None, None
+    SF = implied_shift_factors(M_fit, C_fit, lam=LAM, min_hours=MIN_HOURS,
+                               standardize=True, std_floor=STD_FLOOR)
+    if SF.empty:
+        return None, None
+
+    M_score = M.loc[(M.index >= s) & (M.index < end)]
+    C_score = C.loc[(C.index >= s) & (C.index < end)]
+    hours = M_score.index.intersection(C_score.index)
+    if not len(hours):
+        return None, None
+
+    wp = wp[wp["key"].isin(SF.index)]
+    Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
+
+    mass_all = float(M_score.abs().to_numpy(float).sum())
+    cov_cols = M_score.columns.intersection(SF.index)
+    sf_coverage = (float(M_score[cov_cols].abs().to_numpy(float).sum())
+                   / mass_all if mass_all > 0 else np.nan)
+
+    panel = None
+    if want_panel:
+        draws, point = draw_congestion(wp, SF, hours, eps, n_draws, rng,
+                                       want_point=True)
+        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+        panel = NodalPanel(
+            ts=hours.to_numpy(),
+            settlement_points=SF.columns.to_numpy(),
+            p10=p10.astype(np.float32), p50=p50.astype(np.float32),
+            p90=p90.astype(np.float32), point=point,
+            sf_r2=None,          # implied_shift_factors exposes no per-SP R² (§11)
+        )
+    else:
+        draws = draw_congestion(wp, SF, hours, eps, n_draws, rng)
+        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+
+    row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
+           "n_resid": len(eps), "sf_coverage": sf_coverage,
+           **band_metrics(Y, p10, p50, p90)}
+    return row, panel
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
@@ -148,36 +243,12 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
                      i + 1, len(weeks), s.date())
             continue
 
-        lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
         end = s + pd.Timedelta(days=REFIT_DAYS)
-        M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
-        C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
-        if M_fit.empty:
-            continue
-        SF = implied_shift_factors(M_fit, C_fit, lam=LAM, min_hours=MIN_HOURS,
-                                   standardize=True, std_floor=STD_FLOOR)
-        if SF.empty:
+        row, _ = propagate_window(s, end, M, C, by_week[s], eps, n_draws, rng)
+        if row is None:
             continue
 
-        M_score = M.loc[(M.index >= s) & (M.index < end)]
-        C_score = C.loc[(C.index >= s) & (C.index < end)]
-        hours = M_score.index.intersection(C_score.index)
-        if not len(hours):
-            continue
-
-        wp = by_week[s]
-        wp = wp[wp["key"].isin(SF.index)]
-        draws = draw_congestion(wp, SF, hours, eps, n_draws, rng)
-        Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
-
-        mass_all = float(M_score.abs().to_numpy(float).sum())
-        cov_cols = M_score.columns.intersection(SF.index)
-        sf_coverage = (float(M_score[cov_cols].abs().to_numpy(float).sum())
-                       / mass_all if mass_all > 0 else np.nan)
-
-        rows.append({"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
-                     "n_resid": len(eps), "sf_coverage": sf_coverage,
-                     **band_metrics(Y, draws)})
+        rows.append(row)
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],
