@@ -5,9 +5,6 @@ from shared.settings import settings
 
 # Re-export as module-level constants for any code still using the old style.
 PG_DSN                          = settings.pg_dsn
-NETWORK_NC                      = settings.network_nc
-BUS_WEATHER_LOAD_ZONES_CSV      = settings.bus_weather_load_zones_csv
-GENERATOR_MATCHES_ENRICHED_CSV  = settings.generator_matches_enriched_csv
 
 FRONTEND_ORIGIN                 = settings.frontend_origin
 TOPOLOGY_CACHE                  = settings.topology_cache
