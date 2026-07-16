@@ -140,5 +140,6 @@ export interface ConstraintReach {
   lat: number | null;
   lon: number | null;
   max_abs_sf: number | null;
+  binding_hours: number | null;
   sps: ReachSp[];
 }
