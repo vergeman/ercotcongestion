@@ -8,7 +8,8 @@ import pytest
 
 from compute.mu.propagate import (
     NodalPanel, _NodalAccumulator, band_metrics, draw_congestion, existence_test,
-    gate, load_nodal, propagate_window, residual_pool, walk,
+    gate, load_nodal, nodal_to_db, propagate_window, residual_pool, upsert_pointer,
+    walk,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 
@@ -300,6 +301,179 @@ def test_walk_metrics_are_byte_identical_with_and_without_nodal_out(tmp_path):
     # the flag produced a panel whose node axis matches the scored SPs
     df = load_nodal(path)
     assert set(df["settlement_point"]) == set(C.columns)
+
+
+# ------------------------------------------------------ the forecast_nodal load
+#
+# These exercise the real Postgres semantics the loader depends on — PK-collision
+# replacement and INSERT..ON CONFLICT — which a fake cursor cannot honestly model.
+# They connect to the DB `propagate.main` uses (PG_HOST/... env), skip when it is
+# unreachable so a host-only `pytest` still passes, write under a unique run_id +
+# a dedicated test layer (never the served 'ercot' pointer), and clean up after.
+
+_SCHEMA_DDL = """
+CREATE TABLE IF NOT EXISTS forecast_nodal (
+  run_id text NOT NULL, delivery_date date NOT NULL, ts timestamptz NOT NULL,
+  settlement_point text NOT NULL, p10 real, p50 real, p90 real, point real,
+  PRIMARY KEY (run_id, ts, settlement_point));
+CREATE TABLE IF NOT EXISTS forecast_current (
+  layer text PRIMARY KEY, run_id text NOT NULL,
+  promoted_at timestamptz NOT NULL DEFAULT now());
+"""
+
+
+@pytest.fixture
+def pg():
+    """A connection + a unique (run_id, layer) scratch namespace, torn down after.
+
+    Skips unless a Postgres is reachable from the env `main` reads, so this file
+    stays green on a host with no DB while still testing the real thing in the
+    compute container. Applies the migration-30 DDL idempotently so the test does
+    not depend on a fresh initdb having already run it."""
+    import os
+    import uuid
+
+    psycopg = pytest.importorskip("psycopg")
+    try:
+        dsn = (f"host={os.environ['PG_HOST']} "
+               f"dbname={os.environ.get('PG_DB', 'ercot')} "
+               f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
+    except KeyError:
+        pytest.skip("no PG_* env — DB tests run in the compute container only")
+    try:
+        conn = psycopg.connect(dsn, connect_timeout=5)
+    except psycopg.OperationalError as e:
+        pytest.skip(f"Postgres unreachable: {e}")
+
+    run_id = f"zz-test-{uuid.uuid4().hex[:12]}"
+    layer = f"zz-test-{uuid.uuid4().hex[:8]}"
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute(_SCHEMA_DDL)
+        conn.commit()
+        try:
+            yield conn, run_id, layer
+        finally:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM forecast_nodal WHERE run_id = %s",
+                            (run_id,))
+                cur.execute("DELETE FROM forecast_current WHERE layer = %s",
+                            (layer,))
+            conn.commit()
+
+
+def _panel_npz(tmp_path, name="panel.npz", n_hours=30, seed=0):
+    """A small real panel on disk: 30 UTC hours (spanning >1 CT operating day) ×
+    3 SPs, p50 offset from point so the two columns are provably distinct."""
+    ts = pd.date_range("2025-06-01", periods=n_hours, freq="h", tz="UTC")
+    sps = ["N0", "N1", "N2"]
+    a = np.random.default_rng(seed).normal(0, 5, (n_hours, len(sps))).astype("f4")
+    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps),
+                       p10=a - 1, p50=a, p90=a + 1, point=a + 0.5, sf_r2=None)
+    sink = _NodalAccumulator()
+    sink.add(panel, ts[0])
+    path = str(tmp_path / name)
+    sink.save(path)
+    return path
+
+
+def _count(conn, run_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM forecast_nodal WHERE run_id = %s",
+                    (run_id,))
+        return int(cur.fetchone()[0])
+
+
+def test_nodal_to_db_round_trips_and_is_idempotent(pg, tmp_path):
+    """A re-run for the same run_id replaces via delete-then-copy: the row count
+    equals `load_nodal` and does not double, and `point` is stored distinct from
+    the sampling median `p50` (spec §4, acceptance)."""
+    conn, run_id, _ = pg
+    path = _panel_npz(tmp_path)
+    expect = len(load_nodal(path))
+
+    n1 = nodal_to_db(path, conn, run_id=run_id)
+    conn.commit()
+    n2 = nodal_to_db(path, conn, run_id=run_id)      # PK collisions replace
+    conn.commit()
+    assert n1 == n2 == expect == _count(conn, run_id)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM forecast_nodal "
+                    "WHERE run_id = %s AND (p50 IS NULL OR point IS NULL)",
+                    (run_id,))
+        assert cur.fetchone()[0] == 0                 # both populated
+        cur.execute("SELECT count(*) FROM forecast_nodal "
+                    "WHERE run_id = %s AND p50 <> point", (run_id,))
+        assert int(cur.fetchone()[0]) == expect       # every row distinct
+
+
+def test_re_run_overwrites_prior_values_not_appends(pg, tmp_path):
+    """Idempotency must be replacement, not accumulation: a second load with
+    different values leaves the new p50 in place at the same PK, not two rows."""
+    conn, run_id, _ = pg
+    a = _panel_npz(tmp_path, "a.npz", seed=1)
+    b = _panel_npz(tmp_path, "b.npz", seed=2)         # same axes, different values
+    nodal_to_db(a, conn, run_id=run_id); conn.commit()
+    nodal_to_db(b, conn, run_id=run_id); conn.commit()
+
+    got = (load_nodal(b).sort_values(["ts", "settlement_point"])
+           .reset_index(drop=True))
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM forecast_nodal WHERE run_id = %s",
+                    (run_id,))
+        assert int(cur.fetchone()[0]) == len(got)     # not len(a)+len(b)
+        cur.execute("SELECT p50 FROM forecast_nodal WHERE run_id = %s "
+                    "ORDER BY ts, settlement_point LIMIT 1", (run_id,))
+        assert cur.fetchone()[0] == pytest.approx(float(got["p50"].iloc[0]),
+                                                  rel=1e-5)
+
+
+def test_delivery_date_scope_replaces_only_that_day(pg, tmp_path):
+    """With `delivery_date` set, only that operating day is cleared and written —
+    the single-day production path — leaving other days for the run untouched."""
+    conn, run_id, _ = pg
+    path = _panel_npz(tmp_path)
+    df = load_nodal(path)
+    days = sorted(set(df["ts"].dt.tz_convert("America/Chicago").dt.date))
+    assert len(days) >= 2                             # the panel spans >1 CT day
+
+    nodal_to_db(path, conn, run_id=run_id); conn.commit()   # all days
+    before = _count(conn, run_id)
+    n = nodal_to_db(path, conn, run_id=run_id,
+                    delivery_date=str(days[0]))       # rewrite just day 0
+    conn.commit()
+    day0 = int((df["ts"].dt.tz_convert("America/Chicago").dt.date == days[0]).sum())
+    assert n == day0 < before
+    assert _count(conn, run_id) == before             # other days survived
+
+
+def test_pointer_flips_after_rows_and_stays_one_row(pg, tmp_path):
+    """`upsert_pointer` writes exactly one row per layer and updates in place —
+    the atomic flip the reader resolves through. It is called only after rows land
+    (contract in `nodal_to_db`/main), so the run it names always has rows."""
+    conn, run_id, layer = pg
+    path = _panel_npz(tmp_path)
+    nodal_to_db(path, conn, run_id=run_id)
+    upsert_pointer(conn, layer, run_id)               # after rows, before commit
+    conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT run_id FROM forecast_current WHERE layer = %s",
+                    (layer,))
+        assert cur.fetchone()[0] == run_id
+        # the pointed-at run has rows — never a half-written / empty day
+        cur.execute("SELECT count(*) FROM forecast_nodal WHERE run_id = %s",
+                    (run_id,))
+        assert int(cur.fetchone()[0]) > 0
+
+    upsert_pointer(conn, layer, run_id + "-v2")        # re-promote same layer
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT run_id, count(*) OVER () FROM forecast_current "
+                    "WHERE layer = %s", (layer,))
+        row = cur.fetchone()
+    assert row[0] == run_id + "-v2" and row[1] == 1    # updated, still one row
 
 
 # --------------------------------------------------------------- the bands
