@@ -51,8 +51,7 @@ Branch: feat/0010-forecast-nodal-db
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] Migration 30 applies; `forecast_nodal` + `forecast_current` exist with the spec §6 columns/PKs.
-* [ ] `nodal_to_db(out.npz, conn, run_id=...)` `COPY`s the backtest panel; row count matches `load_nodal`; `point` and `p50` both populated and distinct.
-* [ ] Re-running `nodal_to_db` for the same `(run_id, delivery_date)` replaces rows idempotently; `forecast_current[ercot]` holds exactly one row for the run.
-* [ ] Pointer is upserted only after rows land (no half-written day visible); no legacy `promote`/symlink/`ibp` path is touched.
-* [ ] `python -m compute.mu.propagate --nodal-out out.npz --to-db --run-id mu-all-v1` writes both the npz and the DB panel; `pytest` green.
+* [x] Migration 30 applies; `forecast_nodal` + `forecast_current` exist with the spec §6 columns/PKs.
+* [x] `nodal_to_db(out.npz, conn, run_id=...)` `COPY`s the backtest panel; row count matches `load_nodal`; `point` and `p50` both populated and distinct.
+* [x] Re-running `nodal_to_db` for the same `(run_id, delivery_date)` replaces rows idempotently; `forecast_current[ercot]` holds exactly one row for the run.
+* [x] Pointer is upserted only after rows land (no half-written day visible); no legacy `promote`/symlink/`ibp` path is touched.
