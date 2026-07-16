@@ -1,9 +1,9 @@
 """Commit 5 — sample the heads, push them through the map, read the bands. Then
 the R5 verdict, against the bar as written.
 
-The point forecast (commit 4) answers "how close is the number". This answers the
-question a trader actually asks — *how sure are you* — by turning the two heads
-back into the distribution they were always implicitly describing:
+The point forecast (commit 4) answers "how sure are you of the number" by
+turning the two heads back into the distribution they were always implicitly
+describing:
 
     for each draw d:
         bind[k,h] ~ Bernoulli(p_bind[k,h])              # head 1
@@ -30,6 +30,7 @@ not assumed away.
 
     docker compose run --rm compute python -m compute.mu.propagate \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_bands_weekly.csv
+
 """
 from __future__ import annotations
 
@@ -220,6 +221,69 @@ def load_sf_mu(src) -> SfMuArtifact:
                           index=pd.to_datetime(z["ts"], unit="us", utc=True),
                           columns=keys),
     )
+
+
+DRIVERS_K = 10                    # read-time top-k; a LIMIT, free to change (§11)
+DRIVERS_MAX_DAYS = 14             # curated debug set only, never full history (§2.4)
+
+
+def node_drivers(art: SfMuArtifact, sp: str, ts, k: int = DRIVERS_K) -> pd.DataFrame:
+    """The `/forecast/drivers` read-time slice (§4a): the top-k constraints
+    driving node `sp` at `ts`. `contrib[k] = −E_mu[ts,k]·SF[k,sp]`, sorted by
+    |contrib|, signed so the sign tells whether a constraint *raises or lowers*
+    that node's congestion. `exposure` is the stable unsigned headline
+    `max_c|SF[:,sp]|` the explorer leads with — a single constraint's SF can
+    flip sign between refits inside a co-binding block, so the signed list is
+    the caveated detail (§4a).
+    """
+    contrib = -(art.E_mu.loc[pd.Timestamp(ts)] * art.SF[sp])
+    contrib = contrib[contrib != 0.0]         # only constraints the map ties to sp
+    top = contrib.reindex(contrib.abs().sort_values(ascending=False).index).head(k)
+    return pd.DataFrame({
+        "ts": pd.Timestamp(ts), "settlement_point": sp,
+        "constraint": top.index.to_numpy(),
+        "contrib": top.to_numpy(dtype=float),
+        "abs_contrib": top.abs().to_numpy(dtype=float),
+        "exposure": float(art.SF[sp].abs().max()),
+    })
+
+
+def materialize_drivers(art: SfMuArtifact, k: int = DRIVERS_K,
+                        sps=None) -> pd.DataFrame:
+    """Offline/debug top-k driver rows for one day's artifact — curated days ONLY.
+
+    This is the ~240k-row/day expansion `/forecast/drivers` avoids by slicing on
+    read (§0); across the full backtest it would be ~75M rows, which is exactly why
+    the `--drivers` CLI guards to an explicit curated day set (`parse_curated_days`)
+    and never runs full history. Loops `node_drivers` over every (ts, sp)."""
+    sps = list(art.SF.columns) if sps is None else list(sps)
+    frames = [node_drivers(art, sp, ts, k) for ts in art.E_mu.index for sp in sps]
+    return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["ts", "settlement_point", "constraint", "contrib",
+                 "abs_contrib", "exposure"]))
+
+
+def parse_curated_days(spec: str | None) -> list[pd.Timestamp]:
+    """Parse `--drivers` into an explicit, bounded set of curated delivery days.
+
+    Accepts a comma-separated list of ISO dates (`2025-06-01,2025-07-15`) — an
+    explicit enumeration only. A range/span (`a:b`), an empty spec, or more than
+    `DRIVERS_MAX_DAYS` days all raise: driver materialization is curated debug
+    output, never the full-history walk (§2.4, §5a)."""
+    if spec is None or not spec.strip():
+        raise ValueError("--drivers needs an explicit comma-separated day list, "
+                         "e.g. 2025-06-01,2025-07-15 (curated debug only)")
+    if ":" in spec:
+        raise ValueError("--drivers takes explicit days, not a span 'a:b' — driver "
+                         "rows are curated debug output, never a full-history run")
+    days = [pd.Timestamp(t.strip()) for t in spec.split(",") if t.strip()]
+    if not days:
+        raise ValueError("--drivers day list is empty")
+    if len(days) > DRIVERS_MAX_DAYS:
+        raise ValueError(
+            f"--drivers is for curated days (<= {DRIVERS_MAX_DAYS}), got "
+            f"{len(days)} — that is not a curated set (§2.4, §5a)")
+    return days
 
 
 ERCOT_TZ = "America/Chicago"      # delivery_date = operating-day CT date of ts
@@ -421,31 +485,33 @@ def propagate_window(
     s: pd.Timestamp, end: pd.Timestamp,
     M: pd.DataFrame, C: pd.DataFrame, wp: pd.DataFrame,
     eps: np.ndarray, n_draws: int, rng: np.random.Generator,
-    *, want_panel: bool = False,
-) -> tuple[dict | None, NodalPanel | None]:
+    *, want_panel: bool = False, want_sf_mu: bool = False,
+) -> tuple[dict | None, NodalPanel | None, pd.DataFrame | None, pd.DataFrame | None]:
     """One window, shared by the backtest and (later) `forecast_day`.
 
     Fit SF on ``[s−WINDOW_DAYS, s)``, score/draw over ``[s, end)``, and build the
-    weekly-metrics row exactly as `walk()` did. Returns ``(row, None)`` normally;
-    with ``want_panel`` also returns the `NodalPanel` teed from the same draws and
-    the same `np.percentile` call the metrics use. ``(None, None)`` on any skip
-    (empty fit window, empty SF, no scored hours) — the caller's `continue`.
+    weekly-metrics row exactly as `walk()` did. Returns ``(row, None, None,
+    None)`` normally; with ``want_panel`` also the `NodalPanel` teed from the same
+    draws and the same `np.percentile` call the metrics use; with ``want_sf_mu``
+    also the window's fitted ``SF`` (K×N) and ``E_mu`` (H×K on ``SF.index``) for the
+    SF+μ artifact (§4a). ``(None, None, None, None)`` on any skip (empty fit window,
+    empty SF, no scored hours) — the caller's `continue`.
     """
     lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
     M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
     C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
     if M_fit.empty:
-        return None, None
+        return None, None, None, None
     SF = implied_shift_factors(M_fit, C_fit, lam=LAM, min_hours=MIN_HOURS,
                                standardize=True, std_floor=STD_FLOOR)
     if SF.empty:
-        return None, None
+        return None, None, None, None
 
     M_score = M.loc[(M.index >= s) & (M.index < end)]
     C_score = C.loc[(C.index >= s) & (C.index < end)]
     hours = M_score.index.intersection(C_score.index)
     if not len(hours):
-        return None, None
+        return None, None, None, None
 
     wp = wp[wp["key"].isin(SF.index)]
     Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
@@ -471,15 +537,24 @@ def propagate_window(
         draws = draw_congestion(wp, SF, hours, eps, n_draws, rng)
         p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
 
+    E_mu = None
+    if want_sf_mu:
+        # E[μ]=P(bind)·E[μ|bind] on SF.index — the same arrays draw_congestion builds
+        # (§4a), rebuilt here (two cheap pivots) so the return needs no draws.
+        P = _wide(wp, "p_bind", hours, SF.index)
+        MU = _wide(wp, "mu_gbm", hours, SF.index)
+        E_mu = pd.DataFrame(P * MU, index=hours, columns=SF.index)
+
     row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
            "n_resid": len(eps), "sf_coverage": sf_coverage,
            **band_metrics(Y, p10, p50, p90)}
-    return row, panel
+    return row, panel, (SF if want_sf_mu else None), E_mu
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          n_draws: int = N_DRAWS, seed: int = 0,
-         nodal_out: str | None = None) -> pd.DataFrame:
+         nodal_out: str | None = None,
+         curated: dict | None = None) -> pd.DataFrame:
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
     weeks = weeks_from_preds(preds)
@@ -490,6 +565,10 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     # Emitting the panel only tees the arrays already computed — same rng draws,
     # so the metrics row (and `mu_bands_weekly.csv`) is byte-identical either way.
     sink = _NodalAccumulator() if nodal_out else None
+    # `curated` is {delivery_date: None} for the --drivers days; the walk fills the
+    # ones whose operating day falls inside a scored window with that day's SF+μ
+    # artifact (§4a). None ⟹ no artifact requested (the common path, no extra work).
+    want_sf_mu = bool(curated)
     by_week = dict(tuple(preds.groupby("week", sort=False)))
     rows: list[dict] = []
     t0 = time.perf_counter()
@@ -504,8 +583,9 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
             continue
 
         end = s + pd.Timedelta(days=REFIT_DAYS)
-        row, panel = propagate_window(s, end, M, C, by_week[s], eps, n_draws, rng,
-                                      want_panel=sink is not None)
+        row, panel, SF, E_mu = propagate_window(
+            s, end, M, C, by_week[s], eps, n_draws, rng,
+            want_panel=sink is not None, want_sf_mu=want_sf_mu)
         if row is None:
             continue
 
@@ -513,6 +593,14 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
         if sink is not None:
             assert panel is not None      # want_panel=True ⟹ panel built when row is
             sink.add(panel, s)
+        if want_sf_mu and E_mu is not None:
+            # Slice the week's E_mu to each requested operating day and pair it with
+            # this window's SF — the per-day artifact forecast_day would emit.
+            dd = _delivery_dates(pd.Series(E_mu.index, index=E_mu.index))
+            for day in list(curated):
+                mask = (dd == day).to_numpy()
+                if mask.any():
+                    curated[day] = SfMuArtifact(SF=SF, E_mu=E_mu.loc[mask])
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],
@@ -625,10 +713,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", default=None,
                    help="model-version tag for the forecast_nodal rows + pointer "
                         "(e.g. mu-all-v1); required with --to-db")
+    p.add_argument("--drivers", default=None,
+                   help="offline/debug: materialize top-k driver rows for an "
+                        "EXPLICIT comma-separated list of curated delivery days "
+                        "(e.g. 2025-06-01,2025-07-15). Curated only — refuses a "
+                        "span and >%d days (full history is ~75M rows)"
+                        % DRIVERS_MAX_DAYS)
+    p.add_argument("--drivers-out", default=None,
+                   help="CSV path for --drivers rows (default: drivers_<k>.csv)")
+    p.add_argument("--drivers-k", type=int, default=DRIVERS_K,
+                   help="top-k constraints per (ts, sp) for --drivers")
     args = p.parse_args(argv)
     if args.to_db and not (args.nodal_out and args.run_id):
         p.error("--to-db requires --nodal-out (the panel is loaded from it) "
                 "and --run-id")
+    curated = None
+    if args.drivers is not None:
+        try:
+            curated = {d.date(): None for d in parse_curated_days(args.drivers)}
+        except ValueError as e:
+            p.error(str(e))
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -643,12 +747,42 @@ def main(argv: list[str] | None = None) -> int:
         C = load_congestion_panel(conn, lo, hi)
     log.info("M = %s   C = %s", M.shape, C.shape)
 
-    bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out)
+    bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out,
+                 curated=curated)
     scores = pd.read_csv(args.scores, parse_dates=["week"])
     print(r5(scores, bands))
     if args.out and not bands.empty:
         bands.to_csv(args.out, index=False)
         print(f"wrote {args.out}")
+
+    if curated is not None:
+        # Curated-day debug: the walk filled `curated` with each requested day's
+        # SF+μ artifact; materialize its top-k driver rows to CSV. If --run-id is
+        # set, also land the artifact in forecast_sf_artifact (the object the
+        # endpoints read; §4a) so a curated day is inspectable end to end.
+        missing = [d for d, a in curated.items() if a is None]
+        if missing:
+            log.warning("--drivers: %d requested day(s) not covered by the walk "
+                        "window — skipped: %s", len(missing), missing)
+        conn = psycopg.connect(dsn) if args.run_id else None
+        frames = []
+        for day, art in curated.items():
+            if art is None:
+                continue
+            frames.append(materialize_drivers(art, args.drivers_k).assign(
+                delivery_date=day))
+            if conn is not None:
+                persist_sf_mu_artifact(conn, art.SF, art.E_mu,
+                                       run_id=args.run_id, delivery_date=day)
+        if conn is not None:
+            conn.commit()
+            conn.close()
+        drivers = (pd.concat(frames, ignore_index=True) if frames
+                   else pd.DataFrame())
+        out = args.drivers_out or f"drivers_{args.drivers_k}.csv"
+        drivers.to_csv(out, index=False)
+        log.info("--drivers: %d rows across %d curated day(s) -> %s",
+                 len(drivers), len(frames), out)
 
     if args.to_db:
         # Load the panel just written to disk, then flip the pointer LAST — one

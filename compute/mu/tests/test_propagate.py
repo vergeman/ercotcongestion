@@ -156,8 +156,8 @@ def test_panel_reduces_to_the_same_metrics_as_the_row():
     """The panel and the scored row read one `np.percentile` call, so the served
     p10/p90 re-reduced must reproduce the row's coverage80/band_width."""
     s, end, M, C, wp, shours = _window_frames()
-    row, panel = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
-                                  64, np.random.default_rng(0), want_panel=True)
+    row, panel, _, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
+                                        64, np.random.default_rng(0), want_panel=True)
     assert isinstance(panel, NodalPanel)
     assert list(panel.settlement_points) == list(C.columns)   # == SF.columns
     assert len(panel.ts) == len(shours) == row["n_hours"]
@@ -173,8 +173,8 @@ def test_want_panel_does_not_perturb_the_metrics_row():
     """Emission is a tee, not a fork: the row must be identical whether or not the
     panel is built (same seed, same draws, same percentiles)."""
     args = (*_window_frames()[:5], np.zeros(4, np.float32), 64)
-    r0, p0 = propagate_window(*args, np.random.default_rng(5))
-    r1, p1 = propagate_window(*args, np.random.default_rng(5), want_panel=True)
+    r0, p0, _, _ = propagate_window(*args, np.random.default_rng(5))
+    r1, p1, _, _ = propagate_window(*args, np.random.default_rng(5), want_panel=True)
     assert p0 is None and isinstance(p1, NodalPanel)
     assert r0 is not None and r0.keys() == r1.keys()
     for k in r0:                                    # nan_ok: some metrics are nan
@@ -195,9 +195,9 @@ def test_panel_is_bit_for_bit_deterministic_under_fixed_seed():
 def test_propagate_window_skips_when_the_fit_window_is_empty():
     _, _, M, C, wp, _ = _window_frames()
     s2 = M.index.max() + pd.Timedelta(days=365)     # fit window lands past all data
-    row, panel = propagate_window(s2, s2 + pd.Timedelta(days=REFIT_DAYS),
-                                  M, C, wp, np.zeros(4, np.float32), 8,
-                                  np.random.default_rng(0))
+    row, panel, _, _ = propagate_window(s2, s2 + pd.Timedelta(days=REFIT_DAYS),
+                                        M, C, wp, np.zeros(4, np.float32), 8,
+                                        np.random.default_rng(0))
     assert row is None and panel is None
 
 
@@ -208,8 +208,8 @@ def test_nodal_npz_round_trips_the_panel(tmp_path):
     exactly, and the node axis for the week is `SF.columns` in order — the flat
     vocab coding is lossless (spec §2)."""
     s, end, M, C, wp, _ = _window_frames()
-    _, panel = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
-                                32, np.random.default_rng(0), want_panel=True)
+    _, panel, _, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
+                                      32, np.random.default_rng(0), want_panel=True)
     sink = _NodalAccumulator()
     sink.add(panel, s)
     path = str(tmp_path / "nodal.npz")
