@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
-import topology, ercot_state, ercot_spp, meta
+import topology, ercot_state, ercot_spp, meta, map
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -37,10 +37,12 @@ app.add_middleware(
 
 # Routers mounted at root. URLs:
 #   /topology  /ercot_state_range  /ercot_spp_range  /meta
+#   /map/meta  /map/constraints  /map/exposures  /map/reach
 app.include_router(topology.router,    tags=['topology'])
 app.include_router(ercot_state.router, tags=['ercot_state'])
 app.include_router(ercot_spp.router,   tags=['ercot_spp'])
 app.include_router(meta.router,        tags=['meta'])
+app.include_router(map.router,         tags=['map'])
 
 
 @app.get('/healthz', tags=['meta'])

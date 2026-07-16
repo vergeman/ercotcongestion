@@ -11,3 +11,5 @@ TOPOLOGY_CACHE                  = settings.topology_cache
 
 MIN_VALIDATION_HOURS = 24       # warn below this
 MAX_STATE_RANGE_HOURS           = settings.max_state_range_hours
+
+MAP_RUN_ID                      = settings.map_run_id
