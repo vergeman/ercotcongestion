@@ -1,37 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { BusState, SnapshotMeta, ViewMode } from "../../api/types";
-import { fetchPtdf } from "../../api/client";
+import type { SpRow, ViewMode } from "../../api/types";
 import {
   lmpColor,
   normalizeLmpFromStats,
   modeledCongestionColor,
   normalizeModeledCongestion,
-  bindingProximityColor,
-  normalizeProximity,
-  clusterColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
-
-// Track which bus IDs currently have a halo applied. Module-scoped so it
-// survives across the effect's lifetimes — the map instance is too.
-const activeHaloBusIds: Set<string> = new Set();
-
-// Apply halo opacities + sign to a list of buses with their PTDF values.
-// The strongest |PTDF| in the set scales to full opacity (~0.7); weaker
-// ones fade proportionally (sub-linear so mid-range responders stay visible).
-//
-// Sign drives color via the bus-halos layer: positive PTDF → ice,
-// negative PTDF → vibrant orange. This aligns with the diverging
-// modeled_congestion palette (positive/import → warm; negative/export → cool),
-// so hover-a-line reads in the same visual language as the underlying map.
-// Operationally:
-//   +PTDF: bus is "upstream" of the line. Reducing injection at this bus
-//          (curtail gen, charge a battery) relieves the line.
-//   −PTDF: bus is "downstream." Reducing load (DR) relieves the line.
-const HALO_PEAK_OPACITY = 0.7;
 
 // Major ERCOT-region cities, for map orientation only. Rendered as a faint
 // symbol layer beneath the data layers — no basemap, keeps the dark canvas.
@@ -60,141 +38,55 @@ const CITY_LABELS: GeoJSON.FeatureCollection<GeoJSON.Point> = {
   })),
 };
 
-function applyHalos(
-  map: maplibregl.Map,
-  buses: Array<{ bus_id: string; ptdf: number }>
-): void {
-  if (!map.getSource("buses")) return;
-  // Find peak |PTDF| for normalization.
-  let peak = 0;
-  for (const b of buses) {
-    const a = Math.abs(b.ptdf);
-    if (a > peak) peak = a;
-  }
-  if (peak <= 0) return;
-
-  for (const b of buses) {
-    const norm = Math.sqrt(Math.abs(b.ptdf) / peak); // sub-linear
-    const opacity = HALO_PEAK_OPACITY * Math.min(1, norm);
-    map.setFeatureState(
-      { source: "buses", id: b.bus_id },
-      { halo_opacity: opacity, halo_sign: b.ptdf >= 0 ? 1 : -1 }
-    );
-    activeHaloBusIds.add(b.bus_id);
-  }
-}
-
-function clearHalos(map: maplibregl.Map): void {
-  if (!map.getSource("buses")) return;
-  for (const id of activeHaloBusIds) {
-    map.setFeatureState(
-      { source: "buses", id },
-      { halo_opacity: 0, halo_sign: 0 }
-    );
-  }
-  activeHaloBusIds.clear();
-}
-
 interface Props {
-  topology: unknown | null;
-  buses: BusState[];
-  meta: SnapshotMeta | null;
+  // settlement_points FeatureCollection from /topology. Features carry
+  // `sp_id` (the promoteId) plus sp_type / load_zone / capacity_mw.
+  points: unknown | null;
+  rows: SpRow[];
   viewMode: ViewMode;
   lmpStats: LmpStats | null;
   mcStats: ModeledCongestionStats | null;
-  onBusHover: (
-    busId: string | null,
+  onSpHover: (
+    spId: string | null,
     props: Record<string, unknown> | null
   ) => void;
-  onLineHover: (
-    lineId: string | null,
-    props: Record<string, unknown> | null
-  ) => void;
-  onBusClick: (busId: string, props: Record<string, unknown>) => void;
-  onLineClick: (lineId: string, props: Record<string, unknown>) => void;
+  onSpClick: (spId: string, props: Record<string, unknown>) => void;
   onMapClick: () => void;
-  selectedBusId: string | null;
-  selectedLineId: string | null;
-  // S3.2 — Zones layer. When on, bus circle-color is the cluster tag
-  // (tight clusters get palette hues; anything else falls to gray). When a
-  // cluster is selected, non-members dim.
-  showZones: boolean;
-  tightClusterIds: Set<number>;
-  selectedClusterId: number | null;
-  // `side` names the pane so App/CompareMap can namespace per-side state.
-  // `onMapReady` exposes the maplibre instance so App can wire camera
-  // mirroring between the two panes.
-  side?: "model" | "ercot";
+  selectedSpId: string | null;
+  // `side` names the pane so App can namespace per-side state; `onMapReady`
+  // exposes the maplibre instance so App can mirror the camera across panes.
+  side?: "prediction" | "actual";
   onMapReady?: (map: maplibregl.Map) => void;
 }
 
 export default function GridMap({
-  topology,
-  buses,
-  meta,
+  points,
+  rows,
   viewMode,
   lmpStats,
   mcStats,
-  onBusHover,
-  onLineHover,
-  onBusClick,
-  onLineClick,
+  onSpHover,
+  onSpClick,
   onMapClick,
-  selectedBusId,
-  selectedLineId,
-  showZones,
-  tightClusterIds,
-  selectedClusterId,
+  selectedSpId,
   onMapReady,
 }: Props) {
-  const prevBindingRef = useRef<Set<string>>(new Set());
-  const prevContingencyRef = useRef<Set<string>>(new Set());
-  const prevSelectedBusRef = useRef<string | null>(null);
-  const prevSelectedLineRef = useRef<string | null>(null);
+  const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const metaRef = useRef<SnapshotMeta | null>(null);
-  // Flipped inside the topology effect's onLoad handler after the `buses`
-  // and `lines` sources are added. Coloring / feature-state effects gate on
-  // this so a remount (e.g. split→single→split) doesn't paint into a map
-  // whose sources aren't ready yet — and, more importantly, re-fires the
-  // paint the moment the sources land.
+  // Flipped inside the topology effect's onLoad handler after the `sps` source
+  // is added. Coloring / selection effects gate on this so a remount doesn't
+  // paint into a map whose source isn't ready yet — and re-fire the paint the
+  // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // Track tooltip overlay
   const tooltipRef = useRef<maplibregl.Popup | null>(null);
-  // PTDF halo state. We track the hovered line ID to avoid re-fetching on
-  // mousemove repeats. The set of buses currently haloed lives at module
-  // scope (see activeHaloBusIds above) so the helpers can clear surgically.
-  const haloLineRef = useRef<string | null>(null);
-  const haloDebounceRef = useRef<number | null>(null);
 
-  // Stash the latest callback props in a ref so the map setup effect can
-  // bind handlers once on mount and still call the latest version of each
-  // callback. Without this, the effect would either need to re-run (and
-  // re-create the map) every render, or it would silently call stale
-  // callbacks. ESLint's exhaustive-deps rule was previously warning about
-  // exactly this hazard.
-  const callbacksRef = useRef({
-    onBusHover,
-    onLineHover,
-    onBusClick,
-    onLineClick,
-    onMapClick,
-  });
+  // Stash the latest callback props in a ref so the map setup effect can bind
+  // handlers once on mount and still call the latest version of each callback.
+  const callbacksRef = useRef({ onSpHover, onSpClick, onMapClick });
   useEffect(() => {
-    callbacksRef.current = {
-      onBusHover,
-      onLineHover,
-      onBusClick,
-      onLineClick,
-      onMapClick,
-    };
-  }, [onBusHover, onLineHover, onBusClick, onLineClick, onMapClick]);
-
-  useEffect(() => {
-    metaRef.current = meta;
-  }, [meta]);
+    callbacksRef.current = { onSpHover, onSpClick, onMapClick };
+  }, [onSpHover, onSpClick, onMapClick]);
 
   // Initialize map once
   useEffect(() => {
@@ -236,31 +128,23 @@ export default function GridMap({
     };
   }, []);
 
-  // Load topology as sources + base layers
+  // Load settlement points as a source + base layers
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !topology) return;
+    if (!map || !points) return;
 
-    const topo = topology as { buses: object; lines: object };
+    const fc = points as GeoJSON.FeatureCollection;
 
     const onLoad = () => {
-      if (!map.getSource("buses")) {
-        map.addSource("buses", {
+      if (!map.getSource("sps")) {
+        map.addSource("sps", {
           type: "geojson",
-          data: topo.buses as GeoJSON.FeatureCollection,
-          promoteId: "bus_id",
-        });
-      }
-      if (!map.getSource("lines")) {
-        map.addSource("lines", {
-          type: "geojson",
-          data: topo.lines as GeoJSON.FeatureCollection,
-          promoteId: "line_id",
+          data: fc,
+          promoteId: "sp_id",
         });
       }
 
-      // City orientation labels — added first so the data layers below draw
-      // on top and labels never obscure a bus.
+      // City orientation labels — added first so the SP circles draw on top.
       if (!map.getSource("cities")) {
         map.addSource("cities", { type: "geojson", data: CITY_LABELS });
       }
@@ -287,137 +171,12 @@ export default function GridMap({
         });
       }
 
-      // Lines layer
-      if (!map.getLayer("lines")) {
+      // SP circles, colored per viewMode via feature-state.
+      if (!map.getLayer("sps")) {
         map.addLayer({
-          id: "lines",
-          type: "line",
-          source: "lines",
-          paint: {
-            "line-color": [
-              "case",
-              ["boolean", ["feature-state", "selected"], false],
-              "#38bdf8",
-              ["boolean", ["feature-state", "binding"], false],
-              "#ec4899",
-              ["boolean", ["feature-state", "contingency"], false],
-              "#cbd5e1",
-              "#1e2d3e",
-            ],
-            "line-width": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              [
-                "case",
-                ["boolean", ["feature-state", "selected"], false],
-                2.5,
-                ["boolean", ["feature-state", "binding"], false],
-                2.0,
-                ["boolean", ["feature-state", "contingency"], false],
-                1.5,
-                0.6,
-              ],
-              8,
-              [
-                "case",
-                ["boolean", ["feature-state", "selected"], false],
-                4.5,
-                ["boolean", ["feature-state", "binding"], false],
-                3.8,
-                ["boolean", ["feature-state", "contingency"], false],
-                2.8,
-                1.2,
-              ],
-              12,
-              [
-                "case",
-                ["boolean", ["feature-state", "selected"], false],
-                6.5,
-                ["boolean", ["feature-state", "binding"], false],
-                6.0,
-                ["boolean", ["feature-state", "contingency"], false],
-                4.5,
-                2.0,
-              ],
-            ],
-            "line-dasharray": [
-              "case",
-              ["boolean", ["feature-state", "contingency"], false],
-              ["literal", [2, 1.5]],
-              ["literal", [1, 0]],
-            ],
-            "line-opacity": [
-              "case",
-              ["boolean", ["feature-state", "binding"], false],
-              1.0,
-              ["boolean", ["feature-state", "contingency"], false],
-              0.85,
-              0.5,
-            ],
-          },
-        });
-      }
-
-      // Invisible thick layer for hover detection
-      if (!map.getLayer("lines-hit")) {
-        map.addLayer({
-          id: "lines-hit",
-          type: "line",
-          source: "lines",
-          paint: {
-            "line-color": "#000",
-            "line-opacity": 0, // invisible
-            "line-width": 8, // wide hit area
-          },
-        });
-      }
-
-      // PTDF halo layer — rendered behind the bus circles. Opacity is set
-      // via feature-state when a line is hovered, fading proportionally to
-      // |PTDF|.
-      if (!map.getLayer("bus-halos")) {
-        map.addLayer({
-          id: "bus-halos",
+          id: "sps",
           type: "circle",
-          source: "buses",
-          paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              6,
-              8,
-              10,
-              12,
-              16,
-            ],
-            "circle-color": [
-              "case",
-              ["==", ["feature-state", "halo_sign"], -1],
-              "#fb923c", // vibrant orange for -PTDF
-              "#22d3ee", // ice for +PTDF
-            ],
-            "circle-opacity": [
-              "case",
-              ["!=", ["feature-state", "halo_opacity"], null],
-              ["feature-state", "halo_opacity"],
-              0,
-            ],
-            "circle-stroke-width": 0,
-            "circle-blur": 0.5,
-          },
-        });
-      }
-
-      // Buses layer (circles, colored per viewMode via feature-state)
-      if (!map.getLayer("buses")) {
-        map.addLayer({
-          id: "buses",
-          type: "circle",
-          source: "buses",
+          source: "sps",
           paint: {
             "circle-color": [
               "case",
@@ -425,193 +184,62 @@ export default function GridMap({
               ["feature-state", "color"],
               "#1a4731",
             ],
-            "circle-opacity": [
-              "case",
-              ["boolean", ["feature-state", "dim"], false],
-              0.1,
-              0.9,
-            ],
+            "circle-opacity": 0.9,
             "circle-radius": [
               "interpolate",
               ["linear"],
               ["zoom"],
               4,
-              [
-                "case",
-                ["boolean", ["feature-state", "cluster_member"], false],
-                3.5,
-                2,
-              ],
+              2,
               8,
-              [
-                "case",
-                ["boolean", ["feature-state", "cluster_member"], false],
-                6,
-                4,
-              ],
+              4,
               12,
-              [
-                "case",
-                ["boolean", ["feature-state", "cluster_member"], false],
-                10,
-                7,
-              ],
+              7,
             ],
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
               3,
-              ["boolean", ["feature-state", "cluster_member"], false],
-              2,
               ["boolean", ["feature-state", "hovered"], false],
               2,
               0,
             ],
-            "circle-stroke-color": [
-              "case",
-              ["boolean", ["feature-state", "selected"], false],
-              "#38bdf8",
-              ["boolean", ["feature-state", "cluster_member"], false],
-              "#ffffff",
-              "#ffffff",
-            ],
+            "circle-stroke-color": "#38bdf8",
           },
         });
       }
 
       // Hover interactions
-      map.on("mousemove", "buses", (e) => {
+      map.on("mousemove", "sps", (e) => {
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "crosshair";
-        const feat = e.features[0];
-        const props = feat.properties as Record<string, unknown>;
-        callbacksRef.current.onBusHover(props.bus_id as string, props);
-
+        const props = e.features[0].properties as Record<string, unknown>;
+        callbacksRef.current.onSpHover(props.sp_id as string, props);
         tooltipRef.current
           ?.setLngLat(e.lngLat)
           .setHTML(
-            `<div class="tip-id">${props.bus_id}</div>
+            `<div class="tip-id">${props.sp_id}</div>
              <div class="tip-zone">${props.load_zone ?? "—"}</div>`
           )
           .addTo(map);
       });
 
-      map.on("mouseleave", "buses", () => {
+      map.on("mouseleave", "sps", () => {
         map.getCanvas().style.cursor = "";
-        callbacksRef.current.onBusHover(null, null);
+        callbacksRef.current.onSpHover(null, null);
         tooltipRef.current?.remove();
       });
 
-      // Sources are live — coloring/dim/halo effects can now paint.
+      map.on("click", "sps", (e) => {
+        if (!e.features?.length) return;
+        e.preventDefault?.();
+        const props = e.features[0].properties as Record<string, unknown>;
+        callbacksRef.current.onSpClick(props.sp_id as string, props);
+      });
+
+      // Sources are live — coloring/selection effects can now paint.
       setSourcesReady(true);
     };
-
-    // Line hover
-    map.on("mousemove", "lines-hit", (e) => {
-      if (!e.features?.length) return;
-
-      // If a bus is currently hovered, let bus tooltip win
-      const busesAtPoint = map.queryRenderedFeatures(e.point, {
-        layers: ["buses"],
-      });
-      if (busesAtPoint.length > 0) return;
-
-      map.getCanvas().style.cursor = "crosshair";
-      const feat = e.features[0];
-      const props = feat.properties as Record<string, unknown>;
-      const lineId = props.line_id as string;
-
-      // Status precedence: contingency > binding > normal
-      const conts = metaRef.current?.top_contingencies ?? [];
-      const contIdx = conts.findIndex((c) => c.line === lineId);
-      // Look up binding status from meta
-      const binding = metaRef.current?.binding_lines?.find(
-        (bl) => bl.line === lineId
-      );
-
-      let statusHtml: string;
-      if (contIdx >= 0 && contIdx < 5) {
-        const c = conts[contIdx];
-        statusHtml = `<div class="tip-contingency">⚠ N-1 #${
-          contIdx + 1
-        } · stress ${c.stress.toFixed(2)}</div>`;
-      } else if (binding) {
-        statusHtml = `<div class="tip-binding">⚡ BINDING · $${binding.shadow_price.toFixed(
-          1
-        )}/MWh</div>`;
-      } else {
-        statusHtml = `<div class="tip-zone">normal</div>`;
-      }
-
-      callbacksRef.current.onLineHover(lineId, props);
-
-      // PTDF halo: when the hovered line changes, debounce-fetch its column
-      // and apply opacity to the responding buses. Cached client-side, so
-      // re-hovering a line is instant.
-      if (haloLineRef.current !== lineId) {
-        if (haloDebounceRef.current !== null) {
-          window.clearTimeout(haloDebounceRef.current);
-        }
-        // Clear previous halos immediately so we don't show stale ones while
-        // the new fetch is in flight.
-        clearHalos(map);
-        haloLineRef.current = lineId;
-        haloDebounceRef.current = window.setTimeout(() => {
-          // Race guard — user may have moved off this line by now.
-          if (haloLineRef.current !== lineId) return;
-          fetchPtdf(lineId)
-            .then((resp) => {
-              if (haloLineRef.current !== lineId) return; // moved off
-              applyHalos(map, resp.buses);
-            })
-            .catch(() => {
-              // swallow — halos are non-critical, no UI for the error
-            });
-        }, 150);
-      }
-
-      tooltipRef.current
-        ?.setLngLat(e.lngLat)
-        .setHTML(
-          `<div class="tip-id">${lineId}</div>
-       ${statusHtml}`
-        )
-        .addTo(map);
-    });
-
-    map.on("mouseleave", "lines-hit", () => {
-      map.getCanvas().style.cursor = "";
-      callbacksRef.current.onLineHover(null, null);
-      tooltipRef.current?.remove();
-      // Clear halo state when leaving any line
-      if (haloDebounceRef.current !== null) {
-        window.clearTimeout(haloDebounceRef.current);
-        haloDebounceRef.current = null;
-      }
-      haloLineRef.current = null;
-      clearHalos(map);
-    });
-
-    // Click on a bus
-    map.on("click", "buses", (e) => {
-      if (!e.features?.length) return;
-      e.preventDefault?.();
-      const props = e.features[0].properties as Record<string, unknown>;
-      callbacksRef.current.onBusClick(props.bus_id as string, props);
-    });
-
-    // Click on a line (use the invisible hit layer for fat clicks)
-    map.on("click", "lines-hit", (e) => {
-      if (!e.features?.length) return;
-      // If a bus is here too, let it win
-      const busesAtPoint = map.queryRenderedFeatures(e.point, {
-        layers: ["buses"],
-      });
-      if (busesAtPoint.length > 0) return;
-      e.preventDefault?.();
-      const props = e.features[0].properties as Record<string, unknown>;
-      callbacksRef.current.onLineClick(props.line_id as string, props);
-    });
 
     // Click on empty map → clear pinned
     map.on("click", (e) => {
@@ -624,220 +252,70 @@ export default function GridMap({
     } else {
       map.once("load", onLoad);
     }
-    // The map setup runs once on mount. Callbacks are accessed via
-    // callbacksRef so they don't need to be in the deps; topology is the
-    // only meaningful trigger for re-running this effect.
-  }, [topology]);
+  }, [points]);
 
-  // Update binding-line highlights when meta changes
+  // Color SPs when rows/viewMode/stats change. Same $/MWh quantity → same
+  // color mapping on both panes, so prediction and actual are comparable by
+  // eye. With no rows loaded, clear the color feature-state so the circles
+  // fall back to the base fill.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getSource("lines")) return;
+    if (!map || !map.getSource("sps")) return;
 
-    const nextBinding = new Set(
-      meta?.binding_lines?.map((bl) => bl.line) ?? []
-    );
-
-    // Clear previously-binding lines that aren't in the new set
-    for (const lineId of prevBindingRef.current) {
-      if (!nextBinding.has(lineId)) {
-        map.setFeatureState(
-          { source: "lines", id: lineId },
-          { binding: false }
-        );
-      }
-    }
-    // Mark current binding lines
-    for (const lineId of nextBinding) {
-      map.setFeatureState({ source: "lines", id: lineId }, { binding: true });
-    }
-    prevBindingRef.current = nextBinding;
-  }, [meta, sourcesReady]);
-
-  // Outage
-  // Update contingency-line highlights (top 5) when meta changes
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.getSource("lines")) return;
-
-    const nextCont = new Set(
-      (meta?.top_contingencies ?? []).slice(0, 5).map((c) => c.line)
-    );
-
-    for (const lineId of prevContingencyRef.current) {
-      if (!nextCont.has(lineId)) {
-        map.setFeatureState(
-          { source: "lines", id: lineId },
-          { contingency: false }
-        );
-      }
-    }
-    for (const lineId of nextCont) {
-      map.setFeatureState(
-        { source: "lines", id: lineId },
-        { contingency: true }
-      );
-    }
-    prevContingencyRef.current = nextCont;
-  }, [meta, sourcesReady]);
-
-  // Update bus colors when buses/viewMode changes.
-  // Skipped when Zones is active — it overrides coloring in its own effect.
-  //
-  // Same coloring path serves both the model pane and the ERCOT pane. When
-  // App renders this component for the ERCOT side, it reshapes SP data into
-  // BusState-shaped rows (`bus_id` = sp_id) and hands over the MC or LMP
-  // scalar in the field the palette reads. Same $/MWh quantity → same
-  // color mapping, so the two panes are directly comparable by eye.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.getSource("buses")) return;
-    if (showZones) return;
-
-    // No snapshot loaded yet: fall back to topology so a Zones-off toggle
-    // still clears the cluster-color feature state the Zones effect painted.
-    if (!buses.length) {
-      if (!topology) return;
-      const topo = topology as {
-        buses: GeoJSON.FeatureCollection<
-          GeoJSON.Point,
-          { bus_id: string }
-        >;
-      };
-      for (const feat of topo.buses.features) {
+    if (!rows.length) {
+      if (!points) return;
+      const fc = points as GeoJSON.FeatureCollection<
+        GeoJSON.Point,
+        { sp_id: string }
+      >;
+      for (const feat of fc.features) {
         map.removeFeatureState(
-          { source: "buses", id: feat.properties.bus_id },
+          { source: "sps", id: feat.properties.sp_id },
           "color"
         );
       }
       return;
     }
 
-    for (const bus of buses) {
+    for (const row of rows) {
       let color: string;
-      if (viewMode === "modeled_congestion") {
-        if (mcStats) {
-          color = modeledCongestionColor(
-            normalizeModeledCongestion(bus.modeled_congestion, mcStats)
-          );
-        } else {
-          color = modeledCongestionColor(0);
-        }
-      } else if (viewMode === "lmp") {
-        if (lmpStats) {
-          color = lmpColor(normalizeLmpFromStats(bus.lmp, lmpStats));
-        } else {
-          color = lmpColor(0.5);
-        }
+      if (viewMode === "congestion") {
+        color = mcStats
+          ? modeledCongestionColor(
+              normalizeModeledCongestion(row.congestion, mcStats)
+            )
+          : modeledCongestionColor(0);
       } else {
-        // binding_proximity
-        color = bindingProximityColor(normalizeProximity(bus.binding_proximity));
+        color = lmpStats
+          ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats))
+          : lmpColor(0.5);
       }
-      map.setFeatureState({ source: "buses", id: bus.bus_id }, { color });
+      map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [buses, viewMode, lmpStats, mcStats, showZones, topology, sourcesReady]);
+  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady]);
 
-  // Zones layer coloring — runs off `topology`, independent of the
-  // per-timestamp `buses` snapshot so the tags render before any window is
-  // loaded. Turning the layer off restores whatever the congestion effect
-  // last painted.
+  // Selected SP
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !topology || !map.getSource("buses")) return;
-    const topo = topology as {
-      buses: GeoJSON.FeatureCollection<
-        GeoJSON.Point,
-        { bus_id: string; cluster_id?: number | null }
-      >;
-    };
-    if (!showZones) return;
-    for (const feat of topo.buses.features) {
-      const busId = feat.properties.bus_id;
-      const clusterId = feat.properties.cluster_id ?? null;
-      const color = clusterColor(clusterId, tightClusterIds);
-      map.setFeatureState({ source: "buses", id: busId }, { color });
-    }
-  }, [topology, showZones, tightClusterIds, sourcesReady]);
-
-  // Selection dim — non-members of the selected cluster fade to 0.2 while a
-  // selection is active. Cleared entirely when nothing is selected. Only
-  // meaningful with the Zones layer on, but harmless to run regardless.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !topology || !map.getSource("buses")) return;
-    const topo = topology as {
-      buses: GeoJSON.FeatureCollection<
-        GeoJSON.Point,
-        { bus_id: string; cluster_id?: number | null }
-      >;
-    };
-    if (selectedClusterId == null) {
-      for (const feat of topo.buses.features) {
-        map.setFeatureState(
-          { source: "buses", id: feat.properties.bus_id },
-          { dim: false, cluster_member: false }
-        );
-      }
-      return;
-    }
-    for (const feat of topo.buses.features) {
-      const busId = feat.properties.bus_id;
-      const isMember = feat.properties.cluster_id === selectedClusterId;
+    if (!map || !map.getSource("sps")) return;
+    if (prevSelectedRef.current && prevSelectedRef.current !== selectedSpId) {
       map.setFeatureState(
-        { source: "buses", id: busId },
-        { dim: !isMember, cluster_member: isMember }
-      );
-    }
-  }, [selectedClusterId, topology, sourcesReady]);
-
-  // Selected bus
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.getSource("buses")) return;
-    if (
-      prevSelectedBusRef.current &&
-      prevSelectedBusRef.current !== selectedBusId
-    ) {
-      map.setFeatureState(
-        { source: "buses", id: prevSelectedBusRef.current },
+        { source: "sps", id: prevSelectedRef.current },
         { selected: false }
       );
     }
-    if (selectedBusId) {
+    if (selectedSpId) {
       map.setFeatureState(
-        { source: "buses", id: selectedBusId },
+        { source: "sps", id: selectedSpId },
         { selected: true }
       );
     }
-    prevSelectedBusRef.current = selectedBusId;
-  }, [selectedBusId, sourcesReady]);
-
-  // Selected line
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.getSource("lines")) return;
-    if (
-      prevSelectedLineRef.current &&
-      prevSelectedLineRef.current !== selectedLineId
-    ) {
-      map.setFeatureState(
-        { source: "lines", id: prevSelectedLineRef.current },
-        { selected: false }
-      );
-    }
-    if (selectedLineId) {
-      map.setFeatureState(
-        { source: "lines", id: selectedLineId },
-        { selected: true }
-      );
-    }
-    prevSelectedLineRef.current = selectedLineId;
-  }, [selectedLineId, sourcesReady]);
+    prevSelectedRef.current = selectedSpId;
+  }, [selectedSpId, sourcesReady]);
 
   return (
     <>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-      <canvas ref={canvasRef} style={{ display: "none" }} />
       <style>{`
         .maplibregl-ctrl-group {
           background: #0f1217 !important;
@@ -865,8 +343,6 @@ export default function GridMap({
         .grid-tooltip .maplibregl-popup-tip { display: none; }
         .tip-id { color: #38bdf8; font-size: 11px; }
         .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
-        .tip-binding { color: #ec4899; font-size: 10px; margin-top: 2px; font-weight: 600; }
-        .tip-contingency { color: #cbd5e1; font-size: 10px; margin-top: 2px; }
       `}</style>
     </>
   );

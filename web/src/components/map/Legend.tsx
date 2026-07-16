@@ -1,31 +1,23 @@
 import { useMemo } from "react";
-import type { BusState, ViewMode } from "../../api/types";
+import type { SpRow, ViewMode } from "../../api/types";
 import {
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
   normalizeLmpFromStats,
-  BINDING_PROXIMITY_ANCHORS,
-  clusterColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
 
 interface Props {
   viewMode: ViewMode;
-  buses: BusState[];
+  rows: SpRow[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
   mcStats: ModeledCongestionStats | null;
-  // Zones layer state (S3.2). Swatches render here as a color key when
-  // Zones is on; the toggle control lives in the StatsPanel sidebar.
-  showZones: boolean;
-  tightClusterIds: Set<number>;
-  // "full" (default): palette + histogram + zones swatches + line-status
-  // key. "palette-only": palette + ticks/labels/sub only — used on the
-  // ERCOT pane in split mode where the model-only keys don't apply.
+  // "full" (default): palette + histogram/ticks. "palette-only": palette +
+  // ticks/labels/sub only — used on the placeholder (prediction) pane.
   variant?: "full" | "palette-only";
-  // Optional caption under the palette; used to distinguish MODEL vs ERCOT
-  // legends when both are on screen.
+  // Optional caption under the palette; distinguishes the two panes.
   paneLabel?: string;
 }
 
@@ -39,27 +31,24 @@ function formatDollar(v: number): string {
 
 export default function Legend({
   viewMode,
-  buses,
+  rows,
   lmpStats,
   mcStats,
-  showZones,
-  tightClusterIds,
   variant = "full",
   paneLabel,
 }: Props) {
-  const isModeledCongestion = viewMode === "modeled_congestion";
+  const isCongestion = viewMode === "congestion";
   const isLmp = viewMode === "lmp";
-  const isProximity = viewMode === "binding_proximity";
   const isPaletteOnly = variant === "palette-only";
 
-  // LMP histogram for the *current snapshot*, binned in color-space so each
+  // SPP histogram for the *current snapshot*, binned in color-space so each
   // bar aligns directly above the gradient color it falls in.
   const lmpHist = useMemo(() => {
-    if (!isLmp || buses.length === 0 || !lmpStats) return null;
+    if (!isLmp || rows.length === 0 || !lmpStats) return null;
     const counts = new Array(HIST_BINS).fill(0);
-    for (const b of buses) {
-      if (b.lmp == null) continue;
-      const norm = normalizeLmpFromStats(b.lmp, lmpStats); // 0..1
+    for (const r of rows) {
+      if (r.spp == null) continue;
+      const norm = normalizeLmpFromStats(r.spp, lmpStats); // 0..1
       let idx = Math.floor(norm * HIST_BINS);
       if (idx >= HIST_BINS) idx = HIST_BINS - 1;
       if (idx < 0) idx = 0;
@@ -67,9 +56,9 @@ export default function Legend({
     }
     const peak = Math.max(...counts);
     return { counts, peak };
-  }, [buses, isLmp, lmpStats]);
+  }, [rows, isLmp, lmpStats]);
 
-  // LMP tick marks: p_low (left), median (center), p_high (right).
+  // SPP tick marks: p_low (left), median (center), p_high (right).
   const lmpTicks = useMemo(() => {
     if (!isLmp || !lmpStats) return [];
     return [
@@ -79,39 +68,32 @@ export default function Legend({
     ];
   }, [isLmp, lmpStats]);
 
-  // Current-snapshot LMP min/mean/max, distinct from the window-wide
-  // percentile range above — derived from this pane's own bus array so
-  // model and ERCOT panes each show their own snapshot range.
+  // Current-snapshot SPP min/mean/max, distinct from the window-wide
+  // percentile range above.
   const lmpSnapshot = useMemo(() => {
     if (!isLmp) return null;
     let min = Infinity;
     let max = -Infinity;
     let sum = 0;
     let n = 0;
-    for (const b of buses) {
-      if (b.lmp == null) continue;
-      if (b.lmp < min) min = b.lmp;
-      if (b.lmp > max) max = b.lmp;
-      sum += b.lmp;
+    for (const r of rows) {
+      if (r.spp == null) continue;
+      if (r.spp < min) min = r.spp;
+      if (r.spp > max) max = r.spp;
+      sum += r.spp;
       n += 1;
     }
     if (n === 0) return null;
     return { min, mean: sum / n, max };
-  }, [buses, isLmp]);
+  }, [rows, isLmp]);
 
-  // Bar gradient depends on view mode.
-  const barGradient = isModeledCongestion
+  const barGradient = isCongestion
     ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
-    : isLmp
-    ? "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)"
-    : "linear-gradient(to right, rgb(30,41,59), rgb(234,179,8), rgb(239,68,68))";
+    : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)";
 
-  // Title shows the pair, since the palette drives both panes.
-  const title = isModeledCongestion
-    ? "Modeled Congestion vs ERCOT ($/MWh)"
-    : isLmp
-    ? "LMP vs ERCOT SPP ($/MWh)"
-    : "Binding Proximity";
+  const title = isCongestion
+    ? "Congestion · SPP − λ ($/MWh)"
+    : "DAM SPP / LMP ($/MWh)";
 
   return (
     <div className="legend">
@@ -132,28 +114,17 @@ export default function Legend({
 
       <div className="legend__bar" style={{ background: barGradient }} />
 
-      {/* Diverging MC family: signed, center = 0, edges = ±p_high. Shared
-          between modeled congestion (Σ PTDF·μ) and ERCOT congestion
-          (SPP − system_λ) so the two view modes render identically. */}
-      {isModeledCongestion && mcStats && (
+      {/* Diverging congestion family: signed, center = 0, edges = ±p_high. */}
+      {isCongestion && mcStats && (
         <>
           <div className="legend__ticks">
-            <span
-              className="label mono legend__tick"
-              style={{ left: "0%" }}
-            >
+            <span className="label mono legend__tick" style={{ left: "0%" }}>
               −{formatDollar(mcStats.p_high)}
             </span>
-            <span
-              className="label mono legend__tick"
-              style={{ left: "50%" }}
-            >
+            <span className="label mono legend__tick" style={{ left: "50%" }}>
               0
             </span>
-            <span
-              className="label mono legend__tick"
-              style={{ left: "100%" }}
-            >
+            <span className="label mono legend__tick" style={{ left: "100%" }}>
               +{formatDollar(mcStats.p_high)}
             </span>
           </div>
@@ -167,7 +138,7 @@ export default function Legend({
         </>
       )}
 
-      {isModeledCongestion && !mcStats && (
+      {isCongestion && !mcStats && (
         <div className="legend__labels">
           <span className="label mono">—</span>
           <span className="label mono">—</span>
@@ -205,59 +176,6 @@ export default function Legend({
         <div className="legend__labels">
           <span className="label mono">—</span>
           <span className="label mono">—</span>
-        </div>
-      )}
-
-      {isProximity && (
-        <>
-          <div className="legend__ticks">
-            {BINDING_PROXIMITY_ANCHORS.ticks.map((v) => (
-              <span
-                key={v}
-                className="label mono legend__tick"
-                style={{ left: `${v * 100}%` }}
-              >
-                {v.toFixed(v < 1 ? 1 : 0)}
-              </span>
-            ))}
-          </div>
-          <div className="legend__sub label">0 slack, 1 binding</div>
-        </>
-      )}
-
-      {showZones && tightClusterIds.size > 0 && !isPaletteOnly && (
-        <div className="legend__zones-swatches">
-          {Array.from(tightClusterIds)
-            .sort((a, b) => a - b)
-            .map((cid) => (
-              <span key={cid} className="legend__zone-swatch">
-                <span
-                  className="legend__zone-dot"
-                  style={{ background: clusterColor(cid, tightClusterIds) }}
-                />
-                <span className="label mono">Z{cid}</span>
-              </span>
-            ))}
-        </div>
-      )}
-
-      {!isPaletteOnly && (
-        <div className="legend__lines">
-          <div className="legend__line-row">
-            <span className="legend__swatch legend__swatch--binding" />
-            <span className="label">binding</span>
-          </div>
-          <div className="legend__line-row">
-            <span className="legend__swatch legend__swatch--contingency" />
-            <span className="label">N-1 top 5</span>
-          </div>
-          <div className="legend__line-row">
-            <span className="legend__halo-pair">
-              <span className="legend__halo legend__halo--pos" />
-              <span className="legend__halo legend__halo--neg" />
-            </span>
-            <span className="label">PTDF ± (line hover)</span>
-          </div>
         </div>
       )}
 
@@ -325,67 +243,6 @@ export default function Legend({
           font-size: 9px;
           opacity: 0.55;
           line-height: 1.3;
-        }
-        .legend__lines {
-          margin-top: 8px;
-          padding-top: 6px;
-          border-top: 1px solid var(--border);
-          display: flex;
-          flex-direction: column;
-          gap: 3px;
-        }
-        .legend__line-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .legend__swatch {
-          width: 18px;
-          height: 2px;
-          flex-shrink: 0;
-        }
-        .legend__swatch--binding { background: #ec4899; }
-        .legend__swatch--contingency {
-          background: repeating-linear-gradient(
-            to right, #cbd5e1 0, #cbd5e1 4px, transparent 4px, transparent 7px);
-        }
-        .legend__halo-pair {
-          display: inline-flex;
-          gap: 2px;
-          width: 18px;
-          flex-shrink: 0;
-          align-items: center;
-          justify-content: center;
-        }
-        .legend__halo {
-          display: inline-block;
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-          opacity: 0.7;
-          filter: blur(0.5px);
-        }
-        .legend__halo--pos { background: #22d3ee; }
-        .legend__halo--neg { background: #fb923c; }
-
-        .legend__zones-swatches {
-          margin-top: 8px;
-          padding-top: 6px;
-          border-top: 1px solid var(--border);
-          display: flex;
-          flex-wrap: wrap;
-          gap: 3px 8px;
-        }
-        .legend__zone-swatch {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-        }
-        .legend__zone-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          display: inline-block;
         }
         .legend__pane-label {
           margin-top: 6px;
