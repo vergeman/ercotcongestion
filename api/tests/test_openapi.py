@@ -36,3 +36,13 @@ def test_openapi_keeps_realized_and_meta_schemas(client):
 
     for name in ('ErcotStateRangeResponse', 'ErcotSppRangeResponse', 'MetaResponse'):
         assert name in schemas, f'{name} should be present'
+
+
+def test_openapi_includes_map_schemas(client):
+    r = client.get('/openapi.json')
+    assert r.status_code == 200
+    schemas = r.json()['components']['schemas']
+
+    for name in ('MapMeta', 'ConstraintGeo', 'SpExposure', 'ExposuresResponse',
+                 'ConstraintReach', 'ReachSp'):
+        assert name in schemas, f'{name} should be present'
