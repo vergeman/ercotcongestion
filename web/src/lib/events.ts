@@ -34,7 +34,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2025-04-16T06:00:00Z",
     window_end: "2025-04-17T06:00:00Z",
     cursor_ts: "2025-04-16T20:00:00Z",
-    suggested_view: "modeled_congestion",
+    suggested_view: "congestion",
   },
   {
     id: "wind_oversupply_2025_jan05",
@@ -58,7 +58,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2025-01-15T00:00:00Z",
     window_end: "2025-01-16T00:00:00Z",
     cursor_ts: "2025-01-15T13:00:00Z",
-    suggested_view: "modeled_congestion",
+    suggested_view: "congestion",
   },
   {
     id: "rabbit_hill_2025_feb19",
@@ -70,7 +70,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2025-02-19T00:00:00Z",
     window_end: "2025-02-20T00:00:00Z",
     cursor_ts: "2025-02-19T15:00:00Z",
-    suggested_view: "modeled_congestion",
+    suggested_view: "congestion",
   },
   {
     id: "summer_stability_2025_may23",
@@ -82,7 +82,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     window_start: "2025-05-23T12:00:00Z",
     window_end: "2025-05-24T06:00:00Z",
     cursor_ts: "2025-05-23T21:00:00Z",
-    suggested_view: "modeled_congestion",
+    suggested_view: "congestion",
   },
 ];
 
