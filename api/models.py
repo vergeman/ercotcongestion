@@ -175,4 +175,5 @@ class ConstraintReach(BaseModel):
     lat: float | None = None
     lon: float | None = None
     max_abs_sf: float | None = None
+    binding_hours: int | None = None
     sps: list[ReachSp]

@@ -211,7 +211,7 @@ def get_map_reach(
         meta = _meta_row(cur, run_id, window_start)
 
         cur.execute(
-            "SELECT lat, lon, max_abs_sf FROM constraint_geo "
+            "SELECT lat, lon, max_abs_sf, binding_hours FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s AND constraint_key = %s",
             (run_id, window_start, constraint),
         )
@@ -249,5 +249,6 @@ def get_map_reach(
         lat=geo.get("lat"),
         lon=geo.get("lon"),
         max_abs_sf=geo.get("max_abs_sf"),
+        binding_hours=geo.get("binding_hours"),
         sps=sps,
     )
