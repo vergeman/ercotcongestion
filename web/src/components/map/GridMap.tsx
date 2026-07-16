@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { SpRow, ViewMode, ConstraintGeo } from "../../api/types";
+import type {
+  SpRow,
+  ViewMode,
+  ConstraintGeo,
+  ConstraintReach,
+} from "../../api/types";
 import {
   lmpColor,
   normalizeLmpFromStats,
@@ -71,6 +76,57 @@ function topZoneLabel(
   return `${bestZone} ${Math.round(bestShare * 100)}%`;
 }
 
+// The reach dipole's axis: an arc from the export end (negative-SF nodes) to
+// the import end (positive-SF nodes), each end the |SF|-weighted centroid of
+// its sign. Null when the reach is one-sided (no dipole to draw).
+function buildCorridorArc(
+  reach: ConstraintReach
+): GeoJSON.Feature<GeoJSON.LineString> | null {
+  let posW = 0;
+  let posLon = 0;
+  let posLat = 0;
+  let negW = 0;
+  let negLon = 0;
+  let negLat = 0;
+  for (const s of reach.sps) {
+    if (s.lat == null || s.lon == null) continue;
+    const w = Math.abs(s.sf);
+    if (s.sf >= 0) {
+      posW += w;
+      posLon += w * s.lon;
+      posLat += w * s.lat;
+    } else {
+      negW += w;
+      negLon += w * s.lon;
+      negLat += w * s.lat;
+    }
+  }
+  if (posW <= 0 || negW <= 0) return null;
+  const a: [number, number] = [negLon / negW, negLat / negW];
+  const b: [number, number] = [posLon / posW, posLat / posW];
+
+  // Quadratic bézier with a perpendicular bulge, so the axis reads as a corridor
+  // rather than a straight chord through the marker clutter.
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const bulge = 0.18;
+  const cx = mx - dy * bulge;
+  const cy = my + dx * bulge;
+  const n = 32;
+  const coords: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const u = 1 - t;
+    coords.push([
+      u * u * a[0] + 2 * u * t * cx + t * t * b[0],
+      u * u * a[1] + 2 * u * t * cy + t * t * b[1],
+    ]);
+  }
+  return { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} };
+}
+
 // Major ERCOT-region cities, for map orientation only. Rendered as a faint
 // symbol layer beneath the data layers — no basemap, keeps the dark canvas.
 const CITY_LABELS: GeoJSON.FeatureCollection<GeoJSON.Point> = {
@@ -122,6 +178,10 @@ interface Props {
   highlightedConstraints?: Set<string>;
   onConstraintHover?: (props: Record<string, unknown> | null) => void;
   onConstraintClick?: (constraintKey: string) => void;
+  // Constraint-reach mode. When set, the SP layer recolors: nodes the
+  // constraint drives glow by *signed* SF (the export/import dipole), the rest
+  // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
+  reach?: ConstraintReach | null;
   // `side` names the pane so App can namespace per-side state; `onMapReady`
   // exposes the maplibre instance so App can mirror the camera across panes.
   side?: "prediction" | "actual";
@@ -143,6 +203,7 @@ export default function GridMap({
   highlightedConstraints,
   onConstraintHover,
   onConstraintClick,
+  reach,
   onMapReady,
 }: Props) {
   const prevSelectedRef = useRef<string | null>(null);
@@ -270,7 +331,13 @@ export default function GridMap({
               ["feature-state", "color"],
               "#1a4731",
             ],
-            "circle-opacity": 0.9,
+            // Faded feature-state dims nodes outside a constraint's reach.
+            "circle-opacity": [
+              "case",
+              ["boolean", ["feature-state", "faded"], false],
+              0.08,
+              0.9,
+            ],
             "circle-radius": [
               "interpolate",
               ["linear"],
@@ -346,14 +413,46 @@ export default function GridMap({
   // fall back to the base fill.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getSource("sps")) return;
+    if (!map || !map.getSource("sps") || !points) return;
+    const fc = points as GeoJSON.FeatureCollection<
+      GeoJSON.Point,
+      { sp_id: string }
+    >;
+
+    // Reach mode: the clicked constraint's driven nodes glow by *signed* SF
+    // (blue export end ↔ cream ↔ red import end, normalized to the reach's own
+    // max |SF|); every other node fades. This is SF *structure*, deliberately
+    // overriding the realized-congestion palette while a constraint is pinned.
+    if (reach && reach.sps.length > 0) {
+      const bySp = new Map<string, number>();
+      let maxAbs = 1e-9;
+      for (const s of reach.sps) {
+        bySp.set(s.settlement_point, s.sf);
+        maxAbs = Math.max(maxAbs, Math.abs(s.sf));
+      }
+      for (const feat of fc.features) {
+        const id = feat.properties.sp_id;
+        const sf = bySp.get(id);
+        if (sf === undefined) {
+          map.removeFeatureState({ source: "sps", id }, "color");
+          map.setFeatureState({ source: "sps", id }, { faded: true });
+        } else {
+          const norm = Math.max(-1, Math.min(1, sf / maxAbs));
+          map.setFeatureState(
+            { source: "sps", id },
+            { color: modeledCongestionColor(norm), faded: false }
+          );
+        }
+      }
+      return;
+    }
+
+    // Normal mode: clear any reach fade, then paint the active palette.
+    for (const feat of fc.features) {
+      map.removeFeatureState({ source: "sps", id: feat.properties.sp_id }, "faded");
+    }
 
     if (!rows.length) {
-      if (!points) return;
-      const fc = points as GeoJSON.FeatureCollection<
-        GeoJSON.Point,
-        { sp_id: string }
-      >;
       for (const feat of fc.features) {
         map.removeFeatureState(
           { source: "sps", id: feat.properties.sp_id },
@@ -378,7 +477,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady]);
+  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady, reach]);
 
   // Selected SP
   useEffect(() => {
@@ -546,6 +645,55 @@ export default function GridMap({
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
   }, [constraints, showConstraints, highlightedConstraints, sourcesReady]);
+
+  // Reach corridor arc: the dipole axis between the constraint's export- and
+  // import-end centroids. Drawn beneath the SP circles so it reads as ground,
+  // not a marker. Absent reach (or a one-sided reach) tears the arc down.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourcesReady) return;
+
+    const apply = () => {
+      const arc = reach ? buildCorridorArc(reach) : null;
+
+      if (!arc) {
+        if (map.getLayer("reach-corridor")) map.removeLayer("reach-corridor");
+        if (map.getSource("reach-corridor")) map.removeSource("reach-corridor");
+        return;
+      }
+
+      const src = map.getSource("reach-corridor") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (src) {
+        src.setData(arc);
+      } else {
+        map.addSource("reach-corridor", { type: "geojson", data: arc });
+      }
+
+      if (!map.getLayer("reach-corridor")) {
+        // Beneath the SP circles (insert before "sps") so nodes stay on top.
+        map.addLayer(
+          {
+            id: "reach-corridor",
+            type: "line",
+            source: "reach-corridor",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": CONSTRAINT_STROKE,
+              "line-width": 1.6,
+              "line-opacity": 0.5,
+              "line-dasharray": [2, 2],
+            },
+          },
+          map.getLayer("sps") ? "sps" : undefined
+        );
+      }
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [reach, sourcesReady]);
 
   return (
     <>
