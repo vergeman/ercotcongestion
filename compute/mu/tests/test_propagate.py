@@ -7,8 +7,10 @@ import pandas as pd
 import pytest
 
 from compute.mu.propagate import (
-    band_metrics, draw_congestion, existence_test, gate, residual_pool,
+    NodalPanel, band_metrics, draw_congestion, existence_test, gate,
+    propagate_window, residual_pool,
 )
+from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 
 RNG = np.random.default_rng(11)
 KEYS = [f"C{i}|X" for i in range(5)]
@@ -97,6 +99,105 @@ def test_a_shadow_price_is_never_drawn_negative():
     assert np.isfinite(draws).all()
     # reconstruct: with SF fixed and μ≥0, no draw may exceed the μ=0 bound in sign
     assert not np.isnan(draws).any()
+
+
+# --------------------------------------------------- the deterministic point
+
+def test_want_point_is_the_expectation_not_the_median():
+    """`point = −(E[μ]·SF)` with `E[μ]=P(bind)·E[μ|bind]` — a no-sampling branch
+    off the same P/MU/SFm. It must equal an independent recompute, and it is the
+    model's expectation, distinct from the noisy median of the draws."""
+    h, SF = _hours(24), _sf()
+    p_bind, mu = 0.3, 50.0
+    preds = _preds(h, p_bind=p_bind, mu=mu)
+    draws, point = draw_congestion(preds, SF, h, np.zeros(1, np.float32),
+                                   n_draws=8, want_point=True)
+    E_mu = np.full((24, len(KEYS)), p_bind * mu, np.float32)
+    expect = -(E_mu @ SF.to_numpy(np.float32))
+    np.testing.assert_allclose(point, expect, rtol=1e-5)
+    assert point.shape == (24, len(NODES)) == draws.shape[1:]
+    # default path is unchanged — a bare array, no point
+    assert isinstance(draw_congestion(preds, SF, h, np.zeros(1, np.float32),
+                                      n_draws=8), np.ndarray)
+
+
+# --------------------------------------------------------- the window seam
+
+def _window_frames(n_keys=4, n_sp=6, seed=7):
+    """DB-shaped M/C/wp for one fit+score window, C built from the SF identity."""
+    rng = np.random.default_rng(seed)
+    s = pd.Timestamp("2025-06-01", tz="UTC")
+    idx = pd.date_range(s - pd.Timedelta(days=WINDOW_DAYS),
+                        s + pd.Timedelta(days=REFIT_DAYS), freq="h",
+                        inclusive="left")
+    keys = [f"K{i}|Z" for i in range(n_keys)]
+    sps = [f"N{i}" for i in range(n_sp)]
+    true_sf = rng.normal(0, 0.3, (n_keys, n_sp))
+    mu = np.where(rng.random((len(idx), n_keys)) < 0.5, 0.0,
+                  rng.uniform(20, 200, (len(idx), n_keys)))
+    M = pd.DataFrame(mu, index=idx, columns=keys)
+    C = pd.DataFrame(-(mu @ true_sf), index=idx, columns=sps)
+
+    shours = idx[(idx >= s) & (idx < s + pd.Timedelta(days=REFIT_DAYS))]
+    frames = []
+    for k in keys:
+        p = M.loc[shours, k].to_numpy()
+        frames.append(pd.DataFrame({
+            "interval_ts": shours, "key": k, "week": s,
+            "p_bind": np.where(p > 0, 0.8, 0.1), "mu_gbm": np.clip(p, 1, None),
+            "y_bind": (p > 0).astype(int),
+            "y_mu": np.where(p > 0, p, np.nan)}))
+    wp = pd.concat(frames, ignore_index=True)
+    return s, s + pd.Timedelta(days=REFIT_DAYS), M, C, wp, shours
+
+
+def test_panel_reduces_to_the_same_metrics_as_the_row():
+    """The panel and the scored row read one `np.percentile` call, so the served
+    p10/p90 re-reduced must reproduce the row's coverage80/band_width."""
+    s, end, M, C, wp, shours = _window_frames()
+    row, panel = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
+                                  64, np.random.default_rng(0), want_panel=True)
+    assert isinstance(panel, NodalPanel)
+    assert list(panel.settlement_points) == list(C.columns)   # == SF.columns
+    assert len(panel.ts) == len(shours) == row["n_hours"]
+
+    Y = C.loc[shours, list(panel.settlement_points)].to_numpy(np.float32)
+    inside = (Y >= panel.p10) & (Y <= panel.p90)
+    assert np.nanmean(inside) == pytest.approx(row["coverage80"], abs=1e-3)
+    assert np.nanmean(panel.p90 - panel.p10) == pytest.approx(row["band_width"],
+                                                              rel=1e-3)
+
+
+def test_want_panel_does_not_perturb_the_metrics_row():
+    """Emission is a tee, not a fork: the row must be identical whether or not the
+    panel is built (same seed, same draws, same percentiles)."""
+    args = (*_window_frames()[:5], np.zeros(4, np.float32), 64)
+    r0, p0 = propagate_window(*args, np.random.default_rng(5))
+    r1, p1 = propagate_window(*args, np.random.default_rng(5), want_panel=True)
+    assert p0 is None and isinstance(p1, NodalPanel)
+    assert r0 is not None and r0.keys() == r1.keys()
+    for k in r0:                                    # nan_ok: some metrics are nan
+        assert r0[k] == pytest.approx(r1[k], nan_ok=True) if isinstance(
+            r0[k], float) else r0[k] == r1[k]
+
+
+def test_panel_is_bit_for_bit_deterministic_under_fixed_seed():
+    s, end, M, C, wp, _ = _window_frames()
+    a = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 64,
+                         np.random.default_rng(3), want_panel=True)[1]
+    b = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 64,
+                         np.random.default_rng(3), want_panel=True)[1]
+    for q in ("p10", "p50", "p90", "point"):
+        np.testing.assert_array_equal(getattr(a, q), getattr(b, q))
+
+
+def test_propagate_window_skips_when_the_fit_window_is_empty():
+    _, _, M, C, wp, _ = _window_frames()
+    s2 = M.index.max() + pd.Timedelta(days=365)     # fit window lands past all data
+    row, panel = propagate_window(s2, s2 + pd.Timedelta(days=REFIT_DAYS),
+                                  M, C, wp, np.zeros(4, np.float32), 8,
+                                  np.random.default_rng(0))
+    assert row is None and panel is None
 
 
 # --------------------------------------------------------------- the bands

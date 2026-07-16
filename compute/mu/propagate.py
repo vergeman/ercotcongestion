@@ -161,6 +161,66 @@ def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
     return float(np.nanmean(np.maximum(tau * d, (tau - 1) * d)))
 
 
+def propagate_window(
+    s: pd.Timestamp, end: pd.Timestamp,
+    M: pd.DataFrame, C: pd.DataFrame, wp: pd.DataFrame,
+    eps: np.ndarray, n_draws: int, rng: np.random.Generator,
+    *, want_panel: bool = False,
+) -> tuple[dict | None, NodalPanel | None]:
+    """One window, shared by the backtest and (later) `forecast_day`.
+
+    Fit SF on ``[s−WINDOW_DAYS, s)``, score/draw over ``[s, end)``, and build the
+    weekly-metrics row exactly as `walk()` did. Returns ``(row, None)`` normally;
+    with ``want_panel`` also returns the `NodalPanel` teed from the same draws and
+    the same `np.percentile` call the metrics use. ``(None, None)`` on any skip
+    (empty fit window, empty SF, no scored hours) — the caller's `continue`.
+    """
+    lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
+    M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
+    C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
+    if M_fit.empty:
+        return None, None
+    SF = implied_shift_factors(M_fit, C_fit, lam=LAM, min_hours=MIN_HOURS,
+                               standardize=True, std_floor=STD_FLOOR)
+    if SF.empty:
+        return None, None
+
+    M_score = M.loc[(M.index >= s) & (M.index < end)]
+    C_score = C.loc[(C.index >= s) & (C.index < end)]
+    hours = M_score.index.intersection(C_score.index)
+    if not len(hours):
+        return None, None
+
+    wp = wp[wp["key"].isin(SF.index)]
+    Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
+
+    mass_all = float(M_score.abs().to_numpy(float).sum())
+    cov_cols = M_score.columns.intersection(SF.index)
+    sf_coverage = (float(M_score[cov_cols].abs().to_numpy(float).sum())
+                   / mass_all if mass_all > 0 else np.nan)
+
+    panel = None
+    if want_panel:
+        draws, point = draw_congestion(wp, SF, hours, eps, n_draws, rng,
+                                       want_point=True)
+        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+        panel = NodalPanel(
+            ts=hours.to_numpy(),
+            settlement_points=SF.columns.to_numpy(),
+            p10=p10.astype(np.float32), p50=p50.astype(np.float32),
+            p90=p90.astype(np.float32), point=point,
+            sf_r2=None,          # implied_shift_factors exposes no per-SP R² (§11)
+        )
+    else:
+        draws = draw_congestion(wp, SF, hours, eps, n_draws, rng)
+        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+
+    row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
+           "n_resid": len(eps), "sf_coverage": sf_coverage,
+           **band_metrics(Y, p10, p50, p90)}
+    return row, panel
+
+
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          n_draws: int = N_DRAWS, seed: int = 0) -> pd.DataFrame:
     if isinstance(preds.index, pd.MultiIndex):
@@ -183,37 +243,12 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
                      i + 1, len(weeks), s.date())
             continue
 
-        lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
         end = s + pd.Timedelta(days=REFIT_DAYS)
-        M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
-        C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
-        if M_fit.empty:
-            continue
-        SF = implied_shift_factors(M_fit, C_fit, lam=LAM, min_hours=MIN_HOURS,
-                                   standardize=True, std_floor=STD_FLOOR)
-        if SF.empty:
+        row, _ = propagate_window(s, end, M, C, by_week[s], eps, n_draws, rng)
+        if row is None:
             continue
 
-        M_score = M.loc[(M.index >= s) & (M.index < end)]
-        C_score = C.loc[(C.index >= s) & (C.index < end)]
-        hours = M_score.index.intersection(C_score.index)
-        if not len(hours):
-            continue
-
-        wp = by_week[s]
-        wp = wp[wp["key"].isin(SF.index)]
-        draws = draw_congestion(wp, SF, hours, eps, n_draws, rng)
-        Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
-
-        mass_all = float(M_score.abs().to_numpy(float).sum())
-        cov_cols = M_score.columns.intersection(SF.index)
-        sf_coverage = (float(M_score[cov_cols].abs().to_numpy(float).sum())
-                       / mass_all if mass_all > 0 else np.nan)
-
-        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
-        rows.append({"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
-                     "n_resid": len(eps), "sf_coverage": sf_coverage,
-                     **band_metrics(Y, p10, p50, p90)})
+        rows.append(row)
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],
