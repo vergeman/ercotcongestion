@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { SpRow, ViewMode } from "../../api/types";
+import type {
+  SpRow,
+  ViewMode,
+  ConstraintGeo,
+  ConstraintReach,
+} from "../../api/types";
 import {
   lmpColor,
   normalizeLmpFromStats,
@@ -10,6 +15,117 @@ import {
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
+
+// Constraint-overlay identity hue (violet). Distinct from the node palettes
+// (diverging blue/cream/red congestion; blue/orange LMP) so the SF-structure
+// layer never reads as a node value. Marker size — not color — encodes
+// magnitude (max |SF|); a highlighted driver gets the bright ring + full fill.
+const CONSTRAINT_FILL = "rgba(167, 139, 250, 0.55)"; // #a78bfa @ 0.55
+const CONSTRAINT_FILL_HI = "rgba(167, 139, 250, 0.95)";
+const CONSTRAINT_STROKE = "#c4b5fd";
+const CONSTRAINT_R_MIN = 4;
+const CONSTRAINT_R_MAX = 20;
+
+// Build the overlay FeatureCollection, baking a per-feature radius from
+// max_abs_sf. Radius ∝ √value so circle *area* is proportional to magnitude
+// (Steven's-law-honest area encoding), normalized to the window's own max.
+function buildConstraintFC(
+  constraints: ConstraintGeo[]
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  const withGeo = constraints.filter((c) => c.lat != null && c.lon != null);
+  const maxVal = withGeo.reduce(
+    (m, c) => Math.max(m, c.max_abs_sf ?? 0),
+    1e-9
+  );
+  return {
+    type: "FeatureCollection",
+    features: withGeo.map((c) => {
+      const v = Math.max(0, c.max_abs_sf ?? 0);
+      const r =
+        CONSTRAINT_R_MIN +
+        (CONSTRAINT_R_MAX - CONSTRAINT_R_MIN) * Math.sqrt(v / maxVal);
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [c.lon as number, c.lat as number] },
+        properties: {
+          constraint_key: c.constraint_key,
+          r,
+          max_abs_sf: c.max_abs_sf,
+          binding_hours: c.binding_hours,
+          zone_label: topZoneLabel(c.zone_shares),
+        },
+      };
+    }),
+  };
+}
+
+// The dominant zone share, for the hover tooltip ("STH 62%").
+function topZoneLabel(
+  shares: Record<string, number> | null | undefined
+): string {
+  if (!shares) return "—";
+  let bestZone = "";
+  let bestShare = 0;
+  for (const [z, s] of Object.entries(shares)) {
+    if (s > bestShare) {
+      bestShare = s;
+      bestZone = z;
+    }
+  }
+  if (!bestZone) return "—";
+  return `${bestZone} ${Math.round(bestShare * 100)}%`;
+}
+
+// The reach dipole's axis: an arc from the export end (negative-SF nodes) to
+// the import end (positive-SF nodes), each end the |SF|-weighted centroid of
+// its sign. Null when the reach is one-sided (no dipole to draw).
+function buildCorridorArc(
+  reach: ConstraintReach
+): GeoJSON.Feature<GeoJSON.LineString> | null {
+  let posW = 0;
+  let posLon = 0;
+  let posLat = 0;
+  let negW = 0;
+  let negLon = 0;
+  let negLat = 0;
+  for (const s of reach.sps) {
+    if (s.lat == null || s.lon == null) continue;
+    const w = Math.abs(s.sf);
+    if (s.sf >= 0) {
+      posW += w;
+      posLon += w * s.lon;
+      posLat += w * s.lat;
+    } else {
+      negW += w;
+      negLon += w * s.lon;
+      negLat += w * s.lat;
+    }
+  }
+  if (posW <= 0 || negW <= 0) return null;
+  const a: [number, number] = [negLon / negW, negLat / negW];
+  const b: [number, number] = [posLon / posW, posLat / posW];
+
+  // Quadratic bézier with a perpendicular bulge, so the axis reads as a corridor
+  // rather than a straight chord through the marker clutter.
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const bulge = 0.18;
+  const cx = mx - dy * bulge;
+  const cy = my + dx * bulge;
+  const n = 32;
+  const coords: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const u = 1 - t;
+    coords.push([
+      u * u * a[0] + 2 * u * t * cx + t * t * b[0],
+      u * u * a[1] + 2 * u * t * cy + t * t * b[1],
+    ]);
+  }
+  return { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} };
+}
 
 // Major ERCOT-region cities, for map orientation only. Rendered as a faint
 // symbol layer beneath the data layers — no basemap, keeps the dark canvas.
@@ -53,6 +169,19 @@ interface Props {
   onSpClick: (spId: string, props: Record<string, unknown>) => void;
   onMapClick: () => void;
   selectedSpId: string | null;
+  // Constraint overlay (SF structure). `constraints` null → layer absent;
+  // `showConstraints` toggles visibility. Passed only to the pane that owns
+  // the overlay (the left/prediction map). `highlightedConstraints` glows the
+  // drivers of the clicked node; hover/click surface the layer's interactions.
+  constraints?: ConstraintGeo[] | null;
+  showConstraints?: boolean;
+  highlightedConstraints?: Set<string>;
+  onConstraintHover?: (props: Record<string, unknown> | null) => void;
+  onConstraintClick?: (constraintKey: string) => void;
+  // Constraint-reach mode. When set, the SP layer recolors: nodes the
+  // constraint drives glow by *signed* SF (the export/import dipole), the rest
+  // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
+  reach?: ConstraintReach | null;
   // `side` names the pane so App can namespace per-side state; `onMapReady`
   // exposes the maplibre instance so App can mirror the camera across panes.
   side?: "prediction" | "actual";
@@ -69,6 +198,12 @@ export default function GridMap({
   onSpClick,
   onMapClick,
   selectedSpId,
+  constraints,
+  showConstraints = true,
+  highlightedConstraints,
+  onConstraintHover,
+  onConstraintClick,
+  reach,
   onMapReady,
 }: Props) {
   const prevSelectedRef = useRef<string | null>(null);
@@ -83,10 +218,22 @@ export default function GridMap({
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
-  const callbacksRef = useRef({ onSpHover, onSpClick, onMapClick });
+  const callbacksRef = useRef({
+    onSpHover,
+    onSpClick,
+    onMapClick,
+    onConstraintHover,
+    onConstraintClick,
+  });
   useEffect(() => {
-    callbacksRef.current = { onSpHover, onSpClick, onMapClick };
-  }, [onSpHover, onSpClick, onMapClick]);
+    callbacksRef.current = {
+      onSpHover,
+      onSpClick,
+      onMapClick,
+      onConstraintHover,
+      onConstraintClick,
+    };
+  }, [onSpHover, onSpClick, onMapClick, onConstraintHover, onConstraintClick]);
 
   // Initialize map once
   useEffect(() => {
@@ -184,7 +331,13 @@ export default function GridMap({
               ["feature-state", "color"],
               "#1a4731",
             ],
-            "circle-opacity": 0.9,
+            // Faded feature-state dims nodes outside a constraint's reach.
+            "circle-opacity": [
+              "case",
+              ["boolean", ["feature-state", "faded"], false],
+              0.08,
+              0.9,
+            ],
             "circle-radius": [
               "interpolate",
               ["linear"],
@@ -258,20 +411,65 @@ export default function GridMap({
   // color mapping on both panes, so prediction and actual are comparable by
   // eye. With no rows loaded, clear the color feature-state so the circles
   // fall back to the base fill.
+  //
+  // Clearing always uses setFeatureState(..., null), never removeFeatureState:
+  // a keyed delete on a feature with no committed state crashes maplibre's
+  // coalesceChanges (this.state[sourceLayer][id] is undefined), and the
+  // overlay/corridor addSource calls trigger that coalesce mid-batch — which
+  // would blank the whole map. `reachIdsRef` tracks the nodes reach touched so
+  // exiting reach un-fades exactly those.
+  const reachIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getSource("sps")) return;
+    if (!map || !map.getSource("sps") || !points) return;
+    const fc = points as GeoJSON.FeatureCollection<
+      GeoJSON.Point,
+      { sp_id: string }
+    >;
+
+    // Reach mode: the clicked constraint's driven nodes glow by *signed* SF
+    // (blue export end ↔ cream ↔ red import end, normalized to the reach's own
+    // max |SF|); every other node fades. This is SF *structure*, deliberately
+    // overriding the realized-congestion palette while a constraint is pinned.
+    if (reach && reach.sps.length > 0) {
+      const bySp = new Map<string, number>();
+      let maxAbs = 1e-9;
+      for (const s of reach.sps) {
+        bySp.set(s.settlement_point, s.sf);
+        maxAbs = Math.max(maxAbs, Math.abs(s.sf));
+      }
+      const touched = new Set<string>();
+      for (const feat of fc.features) {
+        const id = feat.properties.sp_id;
+        const sf = bySp.get(id);
+        if (sf === undefined) {
+          map.setFeatureState({ source: "sps", id }, { color: null, faded: true });
+        } else {
+          const norm = Math.max(-1, Math.min(1, sf / maxAbs));
+          map.setFeatureState(
+            { source: "sps", id },
+            { color: modeledCongestionColor(norm), faded: false }
+          );
+        }
+        touched.add(id);
+      }
+      reachIdsRef.current = touched;
+      return;
+    }
+
+    // Leaving reach mode: un-fade exactly the nodes reach touched.
+    if (reachIdsRef.current.size) {
+      for (const id of reachIdsRef.current) {
+        map.setFeatureState({ source: "sps", id }, { faded: false });
+      }
+      reachIdsRef.current = new Set();
+    }
 
     if (!rows.length) {
-      if (!points) return;
-      const fc = points as GeoJSON.FeatureCollection<
-        GeoJSON.Point,
-        { sp_id: string }
-      >;
       for (const feat of fc.features) {
-        map.removeFeatureState(
+        map.setFeatureState(
           { source: "sps", id: feat.properties.sp_id },
-          "color"
+          { color: null }
         );
       }
       return;
@@ -292,7 +490,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady]);
+  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady, reach]);
 
   // Selected SP
   useEffect(() => {
@@ -312,6 +510,203 @@ export default function GridMap({
     }
     prevSelectedRef.current = selectedSpId;
   }, [selectedSpId, sourcesReady]);
+
+  // Constraint overlay: markers at each centroid, sized by max |SF|, drawn
+  // above the SP circles. Only mounts when `constraints` is passed (the pane
+  // that owns the overlay); a null/empty list tears the layer back down.
+  const overlayBoundRef = useRef(false);
+  const prevHighlightRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourcesReady) return;
+
+    const apply = () => {
+      const hasData = !!constraints && constraints.length > 0;
+
+      if (!hasData) {
+        if (map.getLayer("constraint-markers"))
+          map.removeLayer("constraint-markers");
+        if (map.getSource("constraints")) map.removeSource("constraints");
+        overlayBoundRef.current = false;
+        return;
+      }
+
+      const fc = buildConstraintFC(constraints as ConstraintGeo[]);
+
+      const src = map.getSource("constraints") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (src) {
+        src.setData(fc);
+      } else {
+        map.addSource("constraints", {
+          type: "geojson",
+          data: fc,
+          promoteId: "constraint_key",
+        });
+      }
+
+      if (!map.getLayer("constraint-markers")) {
+        map.addLayer({
+          id: "constraint-markers",
+          type: "circle",
+          source: "constraints",
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              ["*", ["get", "r"], 0.55],
+              10,
+              ["get", "r"],
+            ],
+            "circle-color": [
+              "case",
+              ["boolean", ["feature-state", "highlighted"], false],
+              CONSTRAINT_FILL_HI,
+              CONSTRAINT_FILL,
+            ],
+            "circle-stroke-color": CONSTRAINT_STROKE,
+            "circle-stroke-width": [
+              "case",
+              ["boolean", ["feature-state", "highlighted"], false],
+              2.5,
+              ["boolean", ["feature-state", "hovered"], false],
+              1.5,
+              0.75,
+            ],
+            "circle-stroke-opacity": 0.9,
+          },
+        });
+      }
+
+      // Bind hover/click once per layer instance.
+      if (!overlayBoundRef.current) {
+        let hoveredId: string | null = null;
+        const setHover = (id: string | null, on: boolean) => {
+          if (id == null) return;
+          map.setFeatureState(
+            { source: "constraints", id },
+            { hovered: on }
+          );
+        };
+        map.on("mousemove", "constraint-markers", (e) => {
+          if (!e.features?.length) return;
+          map.getCanvas().style.cursor = "pointer";
+          const props = e.features[0].properties as Record<string, unknown>;
+          const id = props.constraint_key as string;
+          if (hoveredId !== id) {
+            setHover(hoveredId, false);
+            hoveredId = id;
+            setHover(hoveredId, true);
+          }
+          callbacksRef.current.onConstraintHover?.(props);
+          tooltipRef.current
+            ?.setLngLat(e.lngLat)
+            .setHTML(
+              `<div class="tip-id tip-id--constraint">${props.constraint_key}</div>
+               <div class="tip-zone">${props.zone_label ?? "—"} · ${
+                props.binding_hours ?? "—"
+              } binding h</div>`
+            )
+            .addTo(map);
+        });
+        map.on("mouseleave", "constraint-markers", () => {
+          map.getCanvas().style.cursor = "";
+          setHover(hoveredId, false);
+          hoveredId = null;
+          callbacksRef.current.onConstraintHover?.(null);
+          tooltipRef.current?.remove();
+        });
+        map.on("click", "constraint-markers", (e) => {
+          if (!e.features?.length) return;
+          e.preventDefault?.();
+          const props = e.features[0].properties as Record<string, unknown>;
+          callbacksRef.current.onConstraintClick?.(
+            props.constraint_key as string
+          );
+        });
+        overlayBoundRef.current = true;
+      }
+
+      // Visibility toggle.
+      map.setLayoutProperty(
+        "constraint-markers",
+        "visibility",
+        showConstraints ? "visible" : "none"
+      );
+
+      // Highlight the clicked node's drivers (Commit C wires the source).
+      const next = highlightedConstraints ?? new Set<string>();
+      for (const id of prevHighlightRef.current) {
+        if (!next.has(id))
+          map.setFeatureState(
+            { source: "constraints", id },
+            { highlighted: false }
+          );
+      }
+      for (const id of next) {
+        map.setFeatureState(
+          { source: "constraints", id },
+          { highlighted: true }
+        );
+      }
+      prevHighlightRef.current = next;
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [constraints, showConstraints, highlightedConstraints, sourcesReady]);
+
+  // Reach corridor arc: the dipole axis between the constraint's export- and
+  // import-end centroids. Drawn beneath the SP circles so it reads as ground,
+  // not a marker. Absent reach (or a one-sided reach) tears the arc down.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourcesReady) return;
+
+    const apply = () => {
+      const arc = reach ? buildCorridorArc(reach) : null;
+
+      if (!arc) {
+        if (map.getLayer("reach-corridor")) map.removeLayer("reach-corridor");
+        if (map.getSource("reach-corridor")) map.removeSource("reach-corridor");
+        return;
+      }
+
+      const src = map.getSource("reach-corridor") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (src) {
+        src.setData(arc);
+      } else {
+        map.addSource("reach-corridor", { type: "geojson", data: arc });
+      }
+
+      if (!map.getLayer("reach-corridor")) {
+        // Beneath the SP circles (insert before "sps") so nodes stay on top.
+        map.addLayer(
+          {
+            id: "reach-corridor",
+            type: "line",
+            source: "reach-corridor",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": CONSTRAINT_STROKE,
+              "line-width": 1.6,
+              "line-opacity": 0.5,
+              "line-dasharray": [2, 2],
+            },
+          },
+          map.getLayer("sps") ? "sps" : undefined
+        );
+      }
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [reach, sourcesReady]);
 
   return (
     <>
@@ -342,6 +737,7 @@ export default function GridMap({
         }
         .grid-tooltip .maplibregl-popup-tip { display: none; }
         .tip-id { color: #38bdf8; font-size: 11px; }
+        .tip-id--constraint { color: #c4b5fd; }
         .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
       `}</style>
     </>

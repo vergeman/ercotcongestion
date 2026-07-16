@@ -59,3 +59,86 @@ export interface SPFeatureProperties {
   load_zone: string | null;
   capacity_mw: number;
 }
+
+// =============================================================================
+// /map/* — the implied shift-factor structure (not time-indexed; one refit).
+// Mirrors api/models.py MapMeta / ConstraintGeo / SpExposure / ExposuresResponse
+// / ReachSp / ConstraintReach.
+// =============================================================================
+
+// The refit the map is serving — one sf_window_meta row. `oos_r2` /
+// `sf_stability` are the confidence caveats every signed exposure renders with.
+export interface MapMeta {
+  run_id: string;
+  window_start: string;
+  window_end: string;
+  fit_r2: number | null;
+  oos_r2: number | null;
+  coverage: number | null;
+  sf_stability: number | null;
+  n_kept: number | null;
+}
+
+// One constraint at its |SF|-weighted centroid — the overlay marker. Large
+// `spread_km` is a multimodality caution (centroid can fall between lobes).
+export interface ConstraintGeo {
+  constraint_key: string;
+  lat: number | null;
+  lon: number | null;
+  zone_shares: Record<string, number> | null;
+  kv_mean: number | null;
+  kv_max: number | null;
+  spread_km: number | null;
+  max_abs_sf: number | null;
+  binding_hours: number | null;
+}
+
+// One constraint driving the queried node (a /map/exposures row). `sf` is the
+// signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
+export interface SpExposure {
+  constraint_key: string;
+  sf: number;
+  lat: number | null;
+  lon: number | null;
+  max_abs_sf: number | null;
+  binding_hours: number | null;
+}
+
+// Top-k constraints driving one node. `node_max_abs_sf` = max_c |SF[sp,c]| is
+// the stable unsigned headline (spec §6); the signed `exposures` follow it.
+export interface ExposuresResponse {
+  sp: string;
+  run_id: string;
+  window_start: string;
+  window_end: string;
+  k: number;
+  oos_r2: number | null;
+  sf_stability: number | null;
+  node_max_abs_sf: number | null;
+  exposures: SpExposure[];
+}
+
+// One node a constraint drives (a /map/reach row). Signed `sf` splits the
+// driven nodes into the constraint's import and export ends (the dipole).
+export interface ReachSp {
+  settlement_point: string;
+  sf: number;
+  lat: number | null;
+  lon: number | null;
+}
+
+// Top-k nodes one constraint drives — the constraint click. `lat`/`lon` are the
+// constraint's own centroid; `sps` carries the signed reach for the dipole glow.
+export interface ConstraintReach {
+  constraint_key: string;
+  run_id: string;
+  window_start: string;
+  window_end: string;
+  k: number;
+  oos_r2: number | null;
+  sf_stability: number | null;
+  lat: number | null;
+  lon: number | null;
+  max_abs_sf: number | null;
+  sps: ReachSp[];
+}

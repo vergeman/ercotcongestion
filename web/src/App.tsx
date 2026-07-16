@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type maplibregl from "maplibre-gl";
-import type { SpRow, ViewMode } from "./api/types";
-import { fetchTopology } from "./api/client";
+import type {
+  SpRow,
+  ViewMode,
+  ConstraintGeo,
+  ExposuresResponse,
+  ConstraintReach,
+} from "./api/types";
+import {
+  fetchTopology,
+  fetchMapConstraints,
+  fetchMapExposures,
+  fetchMapReach,
+} from "./api/client";
 import {
   prefetchWindow,
   getErcotCached,
@@ -62,6 +73,16 @@ export default function App() {
   // aligned 1:1 with `timestamps`.
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
+
+  // Constraint overlay (SF structure) — fixed per refit, so fetched once, not
+  // time-indexed. `null` while loading or on 503 (map renders without it).
+  const [constraints, setConstraints] = useState<ConstraintGeo[] | null>(null);
+  const [showConstraints, setShowConstraints] = useState(true);
+  // Node-explorer click: top-k constraints driving the pinned SP.
+  const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
+  const [exposuresLoading, setExposuresLoading] = useState(false);
+  // Constraint click: the reach (signed SP fade + corridor). Wins the map.
+  const [reach, setReach] = useState<ConstraintReach | null>(null);
 
   // settlement_points FeatureCollection, shared by both panes.
   const spPoints = useMemo(() => {
@@ -141,6 +162,14 @@ export default function App() {
         setConnState("ok");
       })
       .catch(() => setConnState("error"));
+  }, []);
+
+  // Constraint overlay load — once, independent of the playback window (the SF
+  // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
+  useEffect(() => {
+    fetchMapConstraints()
+      .then((c) => setConstraints(c))
+      .catch(() => setConstraints(null));
   }, []);
 
   // Merge the congestion + SPP caches into per-SP rows for the current hour.
@@ -282,16 +311,74 @@ export default function App() {
     [spStateFor]
   );
 
+  // Request-id guards so a slow in-flight fetch can't clobber a newer click.
+  const exposureReqRef = useRef(0);
+  const reachReqRef = useRef(0);
+
   const handleSpClick = useCallback(
     (spId: string, props: Record<string, unknown>) => {
+      setReach(null); // a node click leaves constraint-reach mode
+      reachReqRef.current++;
       setPinnedSp({ spId, props, spState: spStateFor(spId) });
+      const token = ++exposureReqRef.current;
+      setExposures(null);
+      setExposuresLoading(true);
+      fetchMapExposures(spId)
+        .then((r) => {
+          if (exposureReqRef.current === token) setExposures(r);
+        })
+        .catch(() => {
+          if (exposureReqRef.current === token) setExposures(null);
+        })
+        .finally(() => {
+          if (exposureReqRef.current === token) setExposuresLoading(false);
+        });
     },
     [spStateFor]
   );
 
   const handleClearPinnedSp = useCallback(() => {
     setPinnedSp(null);
+    setExposures(null);
+    setExposuresLoading(false);
+    exposureReqRef.current++;
   }, []);
+
+  // Constraint click (map marker or a driver row) → trace its reach; leaves the
+  // node-explorer view. handleCloseReach / a background click return to normal.
+  const handleConstraintClick = useCallback((constraintKey: string) => {
+    setPinnedSp(null);
+    setExposures(null);
+    exposureReqRef.current++;
+    const token = ++reachReqRef.current;
+    fetchMapReach(constraintKey)
+      .then((r) => {
+        if (reachReqRef.current === token) setReach(r);
+      })
+      .catch(() => {
+        if (reachReqRef.current === token) setReach(null);
+      });
+  }, []);
+
+  const handleCloseReach = useCallback(() => {
+    setReach(null);
+    reachReqRef.current++;
+  }, []);
+
+  // Background (empty-map) click clears whichever mode is active.
+  const handleMapBackgroundClick = useCallback(() => {
+    handleClearPinnedSp();
+    handleCloseReach();
+  }, [handleClearPinnedSp, handleCloseReach]);
+
+  // Which constraint centroids glow on the overlay: the pinned node's drivers,
+  // or the single constraint being reached.
+  const highlightedConstraints = useMemo(() => {
+    if (reach) return new Set([reach.constraint_key]);
+    if (exposures)
+      return new Set(exposures.exposures.map((e) => e.constraint_key));
+    return new Set<string>();
+  }, [reach, exposures]);
 
   // Keep a pinned SP's readout fresh as playback advances.
   useEffect(() => {
@@ -321,13 +408,22 @@ export default function App() {
     mcStats: congestionStats,
     onSpHover: handleSpHover,
     onSpClick: handleSpClick,
-    onMapClick: handleClearPinnedSp,
+    onMapClick: handleMapBackgroundClick,
     selectedSpId: pinnedSp?.spId ?? null,
   };
 
   const leftPane = (
     <>
-      <GridMap {...paneProps} side="prediction" onMapReady={handleMainReady} />
+      <GridMap
+        {...paneProps}
+        side="prediction"
+        onMapReady={handleMainReady}
+        constraints={constraints}
+        showConstraints={showConstraints}
+        highlightedConstraints={highlightedConstraints}
+        onConstraintClick={handleConstraintClick}
+        reach={reach}
+      />
       <div className="pane-badge">{badgeFor("PREDICTION · placeholder")}</div>
       <Legend
         viewMode={viewMode}
@@ -336,6 +432,7 @@ export default function App() {
         mcStats={congestionStats}
         variant="palette-only"
         paneLabel="PREDICTION · placeholder (= actual)"
+        constraintOverlay={showConstraints && !!constraints?.length}
       />
     </>
   );
@@ -362,6 +459,10 @@ export default function App() {
         onViewMode={setViewMode}
         lastUpdated={lastUpdated}
         connectionState={connState}
+        showConstraints={showConstraints}
+        onToggleConstraints={
+          constraints?.length ? setShowConstraints : undefined
+        }
       />
 
       <div
@@ -379,7 +480,12 @@ export default function App() {
           <DetailCard
             hoveredSp={hoveredSp}
             pinnedSp={pinnedSp}
+            exposures={exposures}
+            exposuresLoading={exposuresLoading}
+            reach={reach}
             onClose={handleClearPinnedSp}
+            onCloseReach={handleCloseReach}
+            onSelectConstraint={handleConstraintClick}
           />
           <style>{`
             .pane-badge {

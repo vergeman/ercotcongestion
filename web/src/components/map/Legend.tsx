@@ -19,6 +19,9 @@ interface Props {
   variant?: "full" | "palette-only";
   // Optional caption under the palette; distinguishes the two panes.
   paneLabel?: string;
+  // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
+  // Shown only on the pane that carries the overlay, and only while it's on.
+  constraintOverlay?: boolean;
 }
 
 const HIST_BINS = 24;
@@ -36,6 +39,7 @@ export default function Legend({
   mcStats,
   variant = "full",
   paneLabel,
+  constraintOverlay = false,
 }: Props) {
   const isCongestion = viewMode === "congestion";
   const isLmp = viewMode === "lmp";
@@ -179,6 +183,15 @@ export default function Legend({
         </div>
       )}
 
+      {constraintOverlay && (
+        <div className="legend__overlay">
+          <span className="legend__overlay-dot" />
+          <span className="label legend__overlay-text">
+            constraints · size ∝ max |SF|
+          </span>
+        </div>
+      )}
+
       {paneLabel && (
         <div className="legend__pane-label label">{paneLabel}</div>
       )}
@@ -243,6 +256,26 @@ export default function Legend({
           font-size: 9px;
           opacity: 0.55;
           line-height: 1.3;
+        }
+        .legend__overlay {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 6px;
+          padding-top: 5px;
+          border-top: 1px solid var(--border);
+        }
+        .legend__overlay-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          background: rgba(167, 139, 250, 0.55);
+          border: 1px solid #c4b5fd;
+          flex-shrink: 0;
+        }
+        .legend__overlay-text {
+          font-size: 9px;
+          opacity: 0.8;
         }
         .legend__pane-label {
           margin-top: 6px;

@@ -5,6 +5,10 @@ interface Props {
   onViewMode: (v: ViewMode) => void;
   lastUpdated: Date | null;
   connectionState: "ok" | "error" | "loading";
+  // Constraint overlay toggle. Absent handler → the control is hidden (e.g.
+  // before the overlay has loaded).
+  showConstraints?: boolean;
+  onToggleConstraints?: (v: boolean) => void;
 }
 
 export default function Header({
@@ -12,6 +16,8 @@ export default function Header({
   onViewMode,
   lastUpdated,
   connectionState,
+  showConstraints,
+  onToggleConstraints,
 }: Props) {
   return (
     <header className="header">
@@ -41,6 +47,20 @@ export default function Header({
             LMP
           </button>
         </div>
+
+        {onToggleConstraints && (
+          <div className="view-toggle">
+            <span className="label" style={{ marginRight: 6 }}>
+              Overlay
+            </span>
+            <button
+              className={showConstraints ? "active" : ""}
+              onClick={() => onToggleConstraints(!showConstraints)}
+            >
+              Constraints
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="header__status">
