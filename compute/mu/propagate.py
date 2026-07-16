@@ -106,10 +106,14 @@ def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
     return out
 
 
-def band_metrics(Y: np.ndarray, draws: np.ndarray) -> dict:
+def band_metrics(Y: np.ndarray, p10: np.ndarray, p50: np.ndarray,
+                 p90: np.ndarray) -> dict:
     """Coverage FIRST, then skill. A band that misses is not a narrower band, it
-    is a wrong one, and P50 skill next to broken coverage is a sales pitch."""
-    p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
+    is a wrong one, and P50 skill next to broken coverage is a sales pitch.
+
+    Percentiles are computed once by the caller (`np.percentile(draws,
+    QUANTILES, axis=0)`) and passed in, so the scored p50 and the served p50
+    can never diverge — both read the same array."""
     inside = (Y >= p10) & (Y <= p90)
     m = {
         "coverage80": float(np.nanmean(inside)),      # target 0.80
@@ -175,9 +179,10 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
         sf_coverage = (float(M_score[cov_cols].abs().to_numpy(float).sum())
                        / mass_all if mass_all > 0 else np.nan)
 
+        p10, p50, p90 = np.percentile(draws, QUANTILES, axis=0)
         rows.append({"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
                      "n_resid": len(eps), "sf_coverage": sf_coverage,
-                     **band_metrics(Y, draws)})
+                     **band_metrics(Y, p10, p50, p90)})
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
                  done, len(weeks), s.date(), rows[-1]["coverage80"],

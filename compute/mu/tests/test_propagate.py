@@ -15,6 +15,12 @@ KEYS = [f"C{i}|X" for i in range(5)]
 NODES = [f"SP{i}" for i in range(30)]
 
 
+def _metrics(Y, draws):
+    """band_metrics now takes the percentiles the caller computes once."""
+    p10, p50, p90 = np.percentile(draws, (10, 50, 90), axis=0)
+    return band_metrics(Y, p10, p50, p90)
+
+
 def _hours(n=48):
     return pd.date_range(pd.Timestamp("2025-10-01", tz="UTC"), periods=n, freq="h")
 
@@ -103,8 +109,8 @@ def test_coverage_is_measured_not_assumed():
     honest = RNG.normal(0, 10, (200, 48, 30))          # right spread
     narrow = RNG.normal(0, 1, (200, 48, 30))           # 10× too confident
 
-    assert band_metrics(Y, honest)["coverage80"] == pytest.approx(0.80, abs=0.03)
-    assert band_metrics(Y, narrow)["coverage80"] < 0.2
+    assert _metrics(Y, honest)["coverage80"] == pytest.approx(0.80, abs=0.03)
+    assert _metrics(Y, narrow)["coverage80"] < 0.2
 
 
 def test_bands_report_coverage_and_skill_together():
@@ -112,7 +118,7 @@ def test_bands_report_coverage_and_skill_together():
     Skill without coverage beside it misattributes that; the metric dict must
     always carry both."""
     Y = RNG.normal(0, 10, (48, 30))
-    m = band_metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
+    m = _metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
     assert {"coverage80", "band_width", "pinball", "pooled_r2",
             "topdecile_hit"} <= set(m)
 
