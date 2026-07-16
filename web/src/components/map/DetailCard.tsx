@@ -42,6 +42,12 @@ function pct2(v: number | null | undefined): string {
   return v.toFixed(2);
 }
 
+// Low-confidence thresholds — mirror GridMap.tsx / docs/ERCOT_constraints.md §4.
+// binding_hours barely above the fit floor, or a peak |SF| pinned at the ±1
+// clip, means the SF is a fit artifact, not a measured sensitivity.
+const LOW_BINDING_HOURS = 50;
+const CLIPPED_SF = 0.999;
+
 function Row({
   label,
   value,
@@ -180,6 +186,10 @@ function ReachBody({
 }) {
   const exportEnd = reach.sps.filter((s) => s.sf < 0).length;
   const importEnd = reach.sps.filter((s) => s.sf >= 0).length;
+  const clipped = reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF;
+  const lowSupport =
+    reach.binding_hours != null && reach.binding_hours < LOW_BINDING_HOURS;
+  const lowConf = clipped || lowSupport;
   return (
     <>
       <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
@@ -187,7 +197,14 @@ function ReachBody({
         <span className="label">constraint |SF| max</span>
         <span className="dc-headline-val mono">
           {reach.max_abs_sf != null ? reach.max_abs_sf.toFixed(3) : "—"}
+          {clipped && <span className="dc-clip"> clipped ±1</span>}
         </span>
+      </div>
+      <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
+        {reach.binding_hours != null
+          ? `${reach.binding_hours} binding h`
+          : "— binding h"}
+        {lowConf && " · ⚠ low confidence"}
       </div>
       <div className="dc-drivers-title label">
         drives {reach.sps.length} nodes · {exportEnd} export / {importEnd} import
@@ -385,6 +402,18 @@ export default function DetailCard({
           color: var(--text-primary);
           font-weight: 600;
         }
+        .dc-clip {
+          font-size: 9px;
+          color: #94a3b8;
+          font-weight: 400;
+          letter-spacing: 0.03em;
+        }
+        .dc-support {
+          font-size: 9px;
+          color: var(--text-secondary);
+          margin: -2px 0 4px;
+        }
+        .dc-support--low { color: #94a3b8; }
         .dc-drivers-title {
           font-size: 9px;
           color: var(--text-secondary);

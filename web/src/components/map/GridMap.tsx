@@ -26,6 +26,23 @@ const CONSTRAINT_STROKE = "#c4b5fd";
 const CONSTRAINT_R_MIN = 4;
 const CONSTRAINT_R_MAX = 20;
 
+// Low-confidence styling: a muted slate, distinct from the violet, so a
+// weakly-fit constraint reads as "located but don't trust its geometry". A
+// constraint is low-confidence if it barely cleared the fit's binding-hours
+// floor, or its peak |SF| hit the ±1 clip — a poorly-conditioned ridge blowout,
+// not a measured sensitivity (see docs/ERCOT_constraints.md §4).
+const CONSTRAINT_FILL_LOW = "rgba(148, 163, 184, 0.35)"; // slate-400 muted
+const CONSTRAINT_STROKE_LOW = "#94a3b8";
+const LOW_BINDING_HOURS = 50;
+const CLIPPED_SF = 0.999;
+
+function isLowConfidence(c: ConstraintGeo): boolean {
+  return (
+    (c.binding_hours != null && c.binding_hours < LOW_BINDING_HOURS) ||
+    (c.max_abs_sf != null && c.max_abs_sf >= CLIPPED_SF)
+  );
+}
+
 // Build the overlay FeatureCollection, baking a per-feature radius from
 // max_abs_sf. Radius ∝ √value so circle *area* is proportional to magnitude
 // (Steven's-law-honest area encoding), normalized to the window's own max.
@@ -53,6 +70,7 @@ function buildConstraintFC(
           max_abs_sf: c.max_abs_sf,
           binding_hours: c.binding_hours,
           zone_label: topZoneLabel(c.zone_shares),
+          low_conf: isLowConfidence(c),
         },
       };
     }),
@@ -565,9 +583,16 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "highlighted"], false],
               CONSTRAINT_FILL_HI,
+              ["boolean", ["get", "low_conf"], false],
+              CONSTRAINT_FILL_LOW,
               CONSTRAINT_FILL,
             ],
-            "circle-stroke-color": CONSTRAINT_STROKE,
+            "circle-stroke-color": [
+              "case",
+              ["boolean", ["get", "low_conf"], false],
+              CONSTRAINT_STROKE_LOW,
+              CONSTRAINT_STROKE,
+            ],
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "highlighted"], false],
@@ -608,7 +633,11 @@ export default function GridMap({
               `<div class="tip-id tip-id--constraint">${props.constraint_key}</div>
                <div class="tip-zone">${props.zone_label ?? "—"} · ${
                 props.binding_hours ?? "—"
-              } binding h</div>`
+              } binding h</div>${
+                props.low_conf
+                  ? `<div class="tip-lowconf">⚠ low confidence — weak fit</div>`
+                  : ""
+              }`
             )
             .addTo(map);
         });
@@ -637,6 +666,22 @@ export default function GridMap({
         showConstraints ? "visible" : "none"
       );
 
+      // While a constraint is pinned (reach mode), fade the overlay hard so its
+      // bubbles stop hiding the nodes lighting up beneath them — otherwise most
+      // clicks land under a marker and the reach is invisible. The layer stays
+      // present (faintly) so you can still hop between constraints.
+      const dimmed = !!reach;
+      map.setPaintProperty(
+        "constraint-markers",
+        "circle-opacity",
+        dimmed ? 0.1 : 1
+      );
+      map.setPaintProperty(
+        "constraint-markers",
+        "circle-stroke-opacity",
+        dimmed ? 0.12 : 0.9
+      );
+
       // Highlight the clicked node's drivers (Commit C wires the source).
       const next = highlightedConstraints ?? new Set<string>();
       for (const id of prevHighlightRef.current) {
@@ -657,7 +702,7 @@ export default function GridMap({
 
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [constraints, showConstraints, highlightedConstraints, sourcesReady]);
+  }, [constraints, showConstraints, highlightedConstraints, reach, sourcesReady]);
 
   // Reach corridor arc: the dipole axis between the constraint's export- and
   // import-end centroids. Drawn beneath the SP circles so it reads as ground,
@@ -739,6 +784,7 @@ export default function GridMap({
         .tip-id { color: #38bdf8; font-size: 11px; }
         .tip-id--constraint { color: #c4b5fd; }
         .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
+        .tip-lowconf { color: #94a3b8; font-size: 10px; margin-top: 3px; }
       `}</style>
     </>
   );
