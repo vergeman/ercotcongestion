@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import time
 from dataclasses import dataclass
 
@@ -290,6 +291,41 @@ def upsert_pointer(conn, layer: str, run_id: str) -> None:
             "ON CONFLICT (layer) DO UPDATE "
             "SET run_id = EXCLUDED.run_id, promoted_at = now()",
             (layer, run_id))
+
+
+def sf_artifact_to_db(conn, *, run_id: str, delivery_date, sf_npz: bytes) -> None:
+    """Upsert the day's SF+μ npz blob into `forecast_sf_artifact` for
+    `(run_id, delivery_date)`. Idempotent replace-in-place, the same discipline as
+    `nodal_to_db` (0010): a re-run overwrites the day's blob, never appends. Does
+    NOT commit — the caller owns the transaction."""
+    dd = pd.Timestamp(delivery_date).date()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forecast_sf_artifact (run_id, delivery_date, sf_npz) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (run_id, delivery_date) DO UPDATE "
+            "SET sf_npz = EXCLUDED.sf_npz",
+            (run_id, dd, sf_npz))
+
+
+def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
+                           run_id: str, delivery_date, npz_dir: str | None = None,
+                           ) -> bytes:
+    """Build the day's SF+μ blob once and land it per `(run_id, delivery_date)`.
+
+    Always upserts the `forecast_sf_artifact` bytea; also drops the identical npz
+    under `npz_dir` when given (§5c — disk and DB hold the same bytes, either is
+    authoritative). Idempotent replace per key; does NOT commit. Returns the blob so
+    the caller can size/inspect it. `forecast_day` (phase2b) is the production
+    caller; `--drivers` (below) is the offline one."""
+    blob = build_sf_mu_artifact(SF, E_mu)
+    if npz_dir is not None:
+        dd = pd.Timestamp(delivery_date).date()
+        with open(os.path.join(npz_dir, f"sf_mu_{run_id}_{dd.isoformat()}.npz"),
+                  "wb") as fh:
+            fh.write(blob)
+    sf_artifact_to_db(conn, run_id=run_id, delivery_date=delivery_date, sf_npz=blob)
+    return blob
 
 
 def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
