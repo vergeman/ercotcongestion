@@ -349,6 +349,63 @@ def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
                          freq=pd.Timedelta(days=refit_days), inclusive="left")
 
 
+def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
+                  arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                  seed: int = 0) -> pd.DataFrame:
+    """One fold: fit both heads on `train`, predict `score`. Predictions only.
+
+    This is the body `walk_forward`'s loop used to inline, lifted out verbatim so
+    the production forward path (`predict_day`) and the validated backtest fit are
+    literally the same code — a re-fit that drifts from the walk is the failure the
+    extraction exists to prevent. Returns one row per scored `(interval_ts, key)`
+    with `p_bind`, `mu_clim`, `mu_gbm`, indexed by `score`'s index. The realized
+    `y_bind`/`y_mu` join stays with the caller that holds the labels.
+
+    `keep` slims the per-fold copy to this arm's features plus the two targets: the
+    ablation panel carries ~90 columns, but a single arm's fold reads only ~50, and
+    per-fold copies are the peak-memory line of the walk — see `apply_encoding`.
+    """
+    feat = feature_cols(train, arms)
+    cols = feat + ["key_bind_rate"]
+    keep = feat + ["y_bind", "y_mu"]
+
+    enc, pooled = target_encoding(train)
+    score_e = apply_encoding(score, enc, pooled, keep)
+
+    # Never materialise the full-width float32 fold copy. On the wide `all` arm
+    # (86 features) that copy is ~1.7 GB and it has to coexist with the ~3.3 GB
+    # float64 bind matrix while the matrix is filled — together, on top of the
+    # ~4 GB panel, that tips the densest late-walk folds over this node's RAM.
+    # `apply_encoding` only *adds* one column (`key_bind_rate`); every other fold
+    # column is a raw panel column already in `train`. So the bind matrix is filled
+    # straight from the panel view plus that one encoded column, and only the small
+    # consumers are encoded in full: the mu head trains on binding rows alone (a few
+    # percent), and the climatology reads four base columns off the view. Each value
+    # is exactly what a full `apply_encoding` then `fold_matrix` produced — same
+    # float32 columns, same float32 `key_bind_rate` upcast to float64, same `cols`
+    # order — so every fitted value is unchanged; `test`/`compare_base` pin it.
+    binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
+    clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()
+    y_bind_tr = train["y_bind"].to_numpy()
+
+    key_rate = enc.reindex(
+        train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
+    x_tr = np.empty((len(train), len(cols)), dtype=np.float64, order="F")
+    for j, c in enumerate(feat):
+        x_tr[:, j] = train[c].to_numpy()
+    x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
+
+    bind = fit_bind_head(x_tr, y_bind_tr, seed)
+    p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
+
+    cells, edges, grand = fit_mu_climatology(clim_e)
+    mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
+    mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
+
+    return pd.DataFrame(
+        {"p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm}, index=score_e.index)
+
+
 def walk_forward(panel: pd.DataFrame,
                  train_days: int = DEFAULT_TRAIN_DAYS,
                  refit_days: int = DEFAULT_REFIT_DAYS,
@@ -372,11 +429,6 @@ def walk_forward(panel: pd.DataFrame,
     """
     feat = feature_cols(panel, arms)
     cols = feat + ["key_bind_rate"]
-    # The only columns a fold consumes: this arm's features (which already include
-    # base `net_load`/`hour` for the climatology) plus the two targets. Slimming the
-    # per-fold copy to these drops the ~40 other-arm columns the ablation panel
-    # carries but this arm never reads — see `apply_encoding`.
-    keep = feat + ["y_bind", "y_mu"]
     ts = panel.index.get_level_values("interval_ts")
     starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
     if not len(starts):
@@ -413,50 +465,16 @@ def walk_forward(panel: pd.DataFrame,
         if train.empty or score.empty or train["y_bind"].sum() < 10:
             continue
 
-        enc, pooled = target_encoding(train)
-        score_e = apply_encoding(score, enc, pooled, keep)
-
-        # Never materialise the full-width float32 fold copy. On the wide `all`
-        # arm (86 features) that copy is ~1.7 GB and it has to coexist with the
-        # ~3.3 GB float64 bind matrix while the matrix is filled — together, on
-        # top of the ~4 GB panel, that tips the densest late-walk folds over this
-        # node's RAM. `apply_encoding` only *adds* one column (`key_bind_rate`);
-        # every other fold column is a raw panel column already in `train`. So the
-        # bind matrix is filled straight from the panel view plus that one encoded
-        # column, and only the small consumers are encoded in full: the mu head
-        # trains on binding rows alone (a few percent), and the climatology reads
-        # four base columns off the view. Each value is exactly what a full
-        # `apply_encoding` then `fold_matrix` produced — same float32 columns, same
-        # float32 `key_bind_rate` upcast to float64, same `cols` order — so every
-        # fitted value is unchanged; `test`/`compare_base` pin the bit-identity.
-        binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
-        clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()
-        y_bind_tr = train["y_bind"].to_numpy()
-
-        key_rate = enc.reindex(
-            train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
-        x_tr = np.empty((len(train), len(cols)), dtype=np.float64, order="F")
-        for j, c in enumerate(feat):
-            x_tr[:, j] = train[c].to_numpy()
-        x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
-
-        bind = fit_bind_head(x_tr, y_bind_tr, seed)
-        p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
-
-        cells, edges, grand = fit_mu_climatology(clim_e)
-        mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
-        mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
-
-        out = pd.DataFrame({
-            "p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm,
-            "y_bind": score_e["y_bind"].to_numpy(),
-            "y_mu": score_e["y_mu"].to_numpy(),
-        }, index=score_e.index)
+        out = _predict_fold(train, score, arms, seed)
+        # The realized targets stay here — `walk_forward` is the caller that holds
+        # the labels; the fold routine produced predictions only.
+        out["y_bind"] = score["y_bind"].to_numpy()
+        out["y_mu"] = score["y_mu"].to_numpy()
         out["week"] = s
         preds.append(out)
 
         row = {"week": s, "n_train": len(train), "n_score": len(score),
-               **bind_metrics(out["y_bind"].to_numpy(), p)}
+               **bind_metrics(out["y_bind"].to_numpy(), out["p_bind"].to_numpy())}
         hit = out[out["y_bind"] == 1]
         if len(hit):
             for name in ("mu_clim", "mu_gbm"):
