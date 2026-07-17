@@ -140,18 +140,33 @@ def forecast_day(
     # M and C end at D (exclusive): the SF fit window and every covariate see only
     # intervals < D. `score_from=D` phase-locks the geo/wx refit grid so D is itself
     # a boundary — the arm SF for D closes at D, matching the propagation SF below.
-    M = load_shadow_prices(conn, read_start, D)
-    C = load_congestion_panel(conn, read_start, D) if "geo" in arms else None
-    panel = build_panel(conn, M, read_start, D + pd.Timedelta(days=1),
-                        C=C, score_from=D,
-                        with_weather="wx" in arms,
-                        with_outage="outage" in arms)
+    try:
+        M = load_shadow_prices(conn, read_start, D)
+        C = load_congestion_panel(conn, read_start, D) if "geo" in arms else None
+        panel = build_panel(conn, M, read_start, D + pd.Timedelta(days=1),
+                            C=C, score_from=D,
+                            with_weather="wx" in arms,
+                            with_outage="outage" in arms)
+    except Exception as e:
+        # Any failure assembling the inputs (a covariate source empty, ingest late)
+        # is fatal — an honest forecast can't be built, so fail and keep the prior
+        # pointer rather than emit a degraded one. Chained, so the root cause shows.
+        raise RuntimeError(
+            f"failed to build the feature panel for {D.date()} — a covariate "
+            f"vintage is missing or ingest is late (spec §8: fail, keep pointer)"
+        ) from e
     if panel.empty:
         raise RuntimeError(f"empty feature panel for {D.date()} — no covariate "
                            f"vintage at DAM close (spec §8: fail, keep pointer)")
     wp = predict_day(panel, D, train_days=train_days, arms=arms, seed=seed)
     novelty = int(wp.attrs.get("novelty", 0))
     novel_keys = list(wp.attrs.get("novel_keys", []))
+    if len(wp) == 0:
+        raise RuntimeError(
+            f"no scorable constraints for {D.date()} — either no covariate vintage "
+            f"for D's hours, or every enforced key is novel with no binding history "
+            f"to fit ({novelty} novel). Refusing to publish an empty forecast "
+            f"(spec §8: novel keys are surfaced, but an all-novel day has no map).")
     log.info("stage 1: panel %s rows, wp %d scored keys, novelty=%d",
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
 
@@ -172,6 +187,15 @@ def forecast_day(
     log.info("stage 2: SF %dx%d, panel %d hours x %d SPs",
              SF.shape[0], SF.shape[1], len(panel_out.ts),
              len(panel_out.settlement_points))
+
+    # Degenerate μ head → an all-zero (flat) panel. The backtest scorer already
+    # declines flat rows; forward, there is nothing downstream to catch it, so
+    # assert non-flat before this becomes a publishable result (spec §8).
+    finite = panel_out.point[np.isfinite(panel_out.point)]
+    if finite.size == 0 or float(np.abs(finite).max()) == 0.0:
+        raise RuntimeError(
+            f"degenerate all-zero forecast for {D.date()} — the mu head produced no "
+            f"non-zero congestion (flat panel). Refusing to publish (spec §8).")
 
     sf_mu = build_sf_mu_artifact(SF, E_mu)
     return ForecastResult(
