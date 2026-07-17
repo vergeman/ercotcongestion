@@ -499,6 +499,57 @@ def walk_forward(panel: pd.DataFrame,
 
 
 # --------------------------------------------------------------------------
+# Forward inference — one fold, prediction block = a single delivery day
+# --------------------------------------------------------------------------
+
+def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
+                *, train_days: int = DEFAULT_TRAIN_DAYS,
+                arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                seed: int = 0) -> pd.DataFrame:
+    """Fit both heads on the trailing window and predict delivery day `D`.
+
+    This is `walk_forward`'s fold (`_predict_fold`) with the prediction block set to
+    D's 24 hours — the same fit path the backtest validated, run forward one day.
+    `train` = `[D − train_days, D)`, `score` = the 24 hours of `[D, D+1d)`. The
+    panel is handed in already built at the DAM-close vintage (0013 builds it); this
+    function reads no live inputs and holds no cutoff logic.
+
+    **Candidate universe = keys present in the trailing window's binding history.**
+    A constraint the fit never saw bind has no target-encoded identity and no μ-head
+    signal, so it gets no row rather than a silently-zero one — the coverage gap is
+    reported (see `predict_day`'s companion novelty count), not buried. The fit
+    itself uses the *full* train (every key's target encoding, every binder), exactly
+    as `walk_forward` does; only the scored rows are narrowed to the universe.
+
+    Returns `wp` = the flat `(interval_ts, key, p_bind, mu_gbm)` frame
+    `propagate_window` consumes — `mu_clim` and the realized labels are dropped from
+    the served shape (propagation reads `p_bind` and `mu_gbm` only).
+    """
+    ts = panel.index.get_level_values("interval_ts")
+    if not ts.is_monotonic_increasing:
+        raise ValueError("panel must be sorted by interval_ts")
+    D = pd.Timestamp(D)
+    D = D.tz_localize(ts.tz) if D.tz is None else D.tz_convert(ts.tz)
+    D = D.normalize()
+
+    lo, hi = D - pd.Timedelta(days=train_days), D + pd.Timedelta(days=1)
+    a, b, c = ts.searchsorted([lo, D, hi], side="left")
+    train, score = panel.iloc[a:b], panel.iloc[b:c]
+    if train.empty or score.empty:
+        return pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
+
+    universe = pd.Index(
+        train.index[train["y_bind"] == 1].get_level_values("key").unique())
+    score = score[score.index.get_level_values("key").isin(universe)]
+    if score.empty:
+        return pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
+
+    fold = _predict_fold(train, score, arms, seed)
+    return (fold[["p_bind", "mu_gbm"]].reset_index()
+            .loc[:, ["interval_ts", "key", "p_bind", "mu_gbm"]])
+
+
+# --------------------------------------------------------------------------
 # Persisting the predictions — the input to commits 4 and 5
 # --------------------------------------------------------------------------
 
