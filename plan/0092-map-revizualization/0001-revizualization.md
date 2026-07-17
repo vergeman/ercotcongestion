@@ -71,21 +71,17 @@ located constraints). Data probes and renders live in `spike/`.
     sf, lat/lon). One indexed slice per constraint; N and K are query params.
   * `/map/reach` already serves the single-constraint top-K signed field for the
     drill-down — reuse it.
-* **Work in:**
-  * `compute/mu/geo.py` — add `constraint_core()` (Weiszfeld `|SF|²` geometric
-    median) and `constraint_type()` (GTC/transmission/radial from contingency +
-    rail signature). Pure derivation, no new fit. **Do NOT touch `fit.py` or the
-    per-window walk-forward derivation** — geography stays honest (per-window SF).
-  * `api/map.py` + `api/models.py` — the bulk overview endpoint (`/map/overview`),
-    computing core + type + top-K per constraint from `implied_shift_factors`.
-  * `web/src/api/types.ts` — the overview response types.
-  * `web/src/components/map/` — the overview render (metaball shadow via an SVG goo
-    filter, MST corridors built client-side from top-K nodes, core markers), the
-    node-membership popover, and hover-isolate. Reuse the diverging palette for the
-    drill-down. **Load the `dataviz` skill before render work.**
-* **Optionally persist** `core_lat/core_lon` and a `type` enum on `constraint_geo`
-  (cheap, one migration) so the overview endpoint is a plain read rather than an
-  aggregate — decide when wiring the endpoint; the render does not require it.
+* **Build order (own docs):**
+  * **`0002-overview-core-and-type.md`** — the compute side: `constraint_core()`
+    (Weiszfeld `|SF|²` geometric median) and `constraint_type()` in
+    `compute/mu/geo.py`, persisted on `constraint_geo`, served by the bulk
+    `/map/overview` endpoint (`api/map.py` + `api/models.py`). Pure derivation, no
+    new fit — **`fit.py` and the per-window walk-forward derivation stay untouched**.
+  * **web render doc (later)** — `web/src/api/types.ts` overview types and the
+    `web/src/components/map/` render: metaball shadow via an SVG goo filter, MST
+    corridors built client-side from top-K nodes, core markers, the node-membership
+    popover, and hover-isolate. Reuse the diverging palette for the drill-down.
+    **Load the `dataviz` skill before render work.**
 * **Positioning stays walk-forward-honest:** the core and type derive from the same
   per-window honest SF as everything else; never a global fit.
 * **Deferred (UI phase, own doc):** the browsable **side panel** — all members of a
