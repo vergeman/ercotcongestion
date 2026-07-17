@@ -60,6 +60,7 @@ def rolling_bp(
     std_floor: float = STD_FLOOR,
     rho_min: float | None = None,
     on_refit_window: Callable[[RefitWindow], None] | None = None,
+    skip_window_starts: frozenset[int] | None = None,
 ) -> pd.DataFrame:
     """Refit every ``refit_days``, score the interval that follows.
 
@@ -85,6 +86,14 @@ def rolling_bp(
         Optional callback receiving a ``RefitWindow`` after each fit. The
         runner uses this to write per-window diagnostics without repeating
         the window-walking bookkeeping here.
+    skip_window_starts
+        Nanosecond epoch values (``pd.Timestamp.value``) of ``window_start``
+        boundaries to skip entirely — no fit, no score, no callback. ``window_start``
+        fully determines the fit (``window_end = window_start + window_days``), so a
+        boundary already persisted by a prior run is byte-identical and need not be
+        recomputed. This is the map runner's incremental-append hook (plan 0092);
+        the scored hours of a skipped window are absent from the returned panel, so
+        the panel covers only the newly-fit boundaries. ``None`` fits every boundary.
     """
     M_all, C_all = _align(M_all, C_all)
     if M_all.empty:
@@ -116,6 +125,12 @@ def rolling_bp(
         # at refit_days=1, matches the prototype's day-inclusive window.
         window_end = score_end
         window_start = window_end - window_dt
+
+        # Incremental map append (plan 0092): a boundary already persisted by a
+        # prior run has a byte-identical fit, so skip the ridge solve and the
+        # scoring for it entirely. Compared on the tz-independent ns instant.
+        if skip_window_starts is not None and window_start.value in skip_window_starts:
+            continue
 
         win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
         M_win = M_all.loc[win_mask]
