@@ -7,9 +7,11 @@ import pandas as pd
 import pytest
 
 from compute.mu.propagate import (
-    NodalPanel, _NodalAccumulator, band_metrics, draw_congestion, existence_test,
-    gate, load_nodal, nodal_to_db, propagate_window, residual_pool, upsert_pointer,
-    walk,
+    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
+    build_sf_mu_artifact, draw_congestion, existence_test, gate, load_nodal,
+    load_sf_mu, materialize_drivers, nodal_to_db, node_drivers, parse_curated_days,
+    persist_sf_mu_artifact, propagate_window, residual_pool, save_sf_mu,
+    sf_artifact_to_db, upsert_pointer, walk,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 
@@ -319,6 +321,9 @@ CREATE TABLE IF NOT EXISTS forecast_nodal (
 CREATE TABLE IF NOT EXISTS forecast_current (
   layer text PRIMARY KEY, run_id text NOT NULL,
   promoted_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS forecast_sf_artifact (
+  run_id text NOT NULL, delivery_date date NOT NULL, sf_npz bytea NOT NULL,
+  PRIMARY KEY (run_id, delivery_date));
 """
 
 
@@ -359,6 +364,8 @@ def pg():
                             (run_id,))
                 cur.execute("DELETE FROM forecast_current WHERE layer = %s",
                             (layer,))
+                cur.execute("DELETE FROM forecast_sf_artifact WHERE run_id = %s",
+                            (run_id,))
             conn.commit()
 
 
@@ -530,3 +537,135 @@ def test_existence_test_needs_all_three_screening_measures():
 
     better = {**pers, "rank_spearman": 0.9, "sign_agree": 0.9, "topdecile_hit": 0.9}
     assert existence_test(better, pers)[0] is True
+
+
+# ------------------------------------------------- the SF+μ artifact (0011)
+#
+# Drivers/what-if carry a per-request parameter no stored panel can enumerate, so
+# the day's SF + E_mu ship instead of ~240k driver rows/day and the endpoint slices
+# `−E_mu·SF` on read. These pin the serialize round-trip, that the slice reproduces
+# an independent top-K, the single-digit-MB/day size, and the --drivers guard.
+
+def _sf_mu(n_keys=8, n_sp=5, n_hours=24, seed=0):
+    """A small SF (K×N) + E_mu (H×K) on one shared constraint-key vocab, with some
+    SF entries zeroed so 'only constraints the map ties to a node' actually bites."""
+    rng = np.random.default_rng(seed)
+    keys = [f"K{i}|Z" for i in range(n_keys)]
+    sps = [f"N{i}" for i in range(n_sp)]
+    hours = pd.date_range("2025-06-01", periods=n_hours, freq="h", tz="UTC")
+    SF = pd.DataFrame(rng.normal(0, 0.3, (n_keys, n_sp)).astype("f4"),
+                      index=keys, columns=sps)
+    SF.iloc[::3, 0] = 0.0                              # node N0 misses some keys
+    E_mu = pd.DataFrame(rng.random((n_hours, n_keys)).astype("f4"),
+                        index=hours, columns=keys)
+    return SF, E_mu
+
+
+def test_sf_mu_artifact_round_trips(tmp_path):
+    """`build_sf_mu_artifact → load_sf_mu` recovers SF/E_mu exactly on their shared
+    key vocab, and `save_sf_mu` writes the identical bytes (§4a). The blob is what
+    the `forecast_sf_artifact` bytea and the on-disk artifact both hold."""
+    SF, E_mu = _sf_mu()
+    blob = build_sf_mu_artifact(SF, E_mu)
+    art = load_sf_mu(blob)
+    assert isinstance(art, SfMuArtifact)
+    assert list(art.SF.index) == list(SF.index)          # constraint-key vocab
+    assert list(art.SF.columns) == list(SF.columns)      # SP vocab
+    assert list(art.E_mu.columns) == list(SF.index)      # E_mu on the SAME keys
+    assert art.E_mu.index.equals(E_mu.index)             # tz-aware UTC hours
+    np.testing.assert_allclose(art.SF.to_numpy(), SF.to_numpy(), rtol=1e-6)
+    np.testing.assert_allclose(art.E_mu.to_numpy(), E_mu.to_numpy(), rtol=1e-6)
+
+    path = str(tmp_path / "sfmu.npz")
+    save_sf_mu(path, SF, E_mu)
+    with open(path, "rb") as fh:
+        assert fh.read() == blob                         # disk == bytea, same bytes
+    assert load_sf_mu(path).SF.equals(art.SF)            # path form loads too
+
+
+def test_drivers_slice_reproduces_an_independent_top_k():
+    """The reconstruction the endpoint does: `contrib[k] = −E_mu[ts,k]·SF[k,sp]`
+    sorted by |contrib| must match an independently computed top-K, and the stable
+    unsigned headline `max_c|SF[:,sp]|` must be recoverable (§4a guardrail)."""
+    SF, E_mu = _sf_mu(seed=3)
+    art = load_sf_mu(build_sf_mu_artifact(SF, E_mu))
+    ts, sp, k = E_mu.index[5], "N0", 4
+
+    ind = -(E_mu.loc[ts] * SF[sp])
+    ind = ind[ind != 0.0]                                # N0 is tied to fewer keys
+    ind = ind.reindex(ind.abs().sort_values(ascending=False).index).head(k)
+    got = node_drivers(art, sp, ts, k)
+    assert list(got["constraint"]) == list(ind.index)   # same keys, same order
+    np.testing.assert_allclose(got["contrib"].to_numpy(), ind.to_numpy(), atol=1e-6)
+    assert (got["abs_contrib"].to_numpy() ==
+            np.abs(got["contrib"].to_numpy())).all()
+    assert got["exposure"].iloc[0] == pytest.approx(float(SF[sp].abs().max()))
+    # signed: a constraint can raise OR lower a node — both signs are representable
+    assert (got["contrib"] < 0).any() or (got["contrib"] > 0).any()
+
+
+def test_materialize_drivers_is_top_k_per_node_hour():
+    """The offline/debug expansion is exactly top-k per (ts, sp) — the ~240k-row/day
+    object `/forecast/drivers` avoids by slicing on read."""
+    SF, E_mu = _sf_mu(n_sp=4, n_hours=6, seed=1)
+    art = load_sf_mu(build_sf_mu_artifact(SF, E_mu))
+    df = materialize_drivers(art, k=3)
+    assert set(df["settlement_point"]) == set(SF.columns)
+    assert set(df["ts"]) == set(E_mu.index)
+    assert (df.groupby(["ts", "settlement_point"]).size() <= 3).all()
+
+
+def test_sf_mu_artifact_is_single_digit_mb_per_day():
+    """A realistic day (~1.5k constraints × ~1k SPs × 24h) serializes to single-digit
+    MB — the size claim that lets drivers cost storage once/day, not once/node-hour
+    (§9). A per-node-hour materialization would be orders of magnitude larger."""
+    SF, E_mu = _sf_mu(n_keys=1500, n_sp=1000, n_hours=24, seed=0)
+    blob = build_sf_mu_artifact(SF, E_mu)
+    assert len(blob) < 10_000_000                        # < 10 MB, single-digit MB
+
+
+def test_parse_curated_days_refuses_full_history_and_spans():
+    """--drivers is curated debug only: an explicit day list parses; a span, an
+    empty spec, or more than DRIVERS_MAX_DAYS days all raise (§2.4, §5a)."""
+    days = parse_curated_days("2025-06-01, 2025-07-15")
+    assert [d.date().isoformat() for d in days] == ["2025-06-01", "2025-07-15"]
+    with pytest.raises(ValueError):
+        parse_curated_days("2025-06-01:2025-08-01")      # a >1-day span
+    for bad in (None, "", "   "):
+        with pytest.raises(ValueError):
+            parse_curated_days(bad)
+    too_many = ",".join(f"2025-06-{d + 1:02d}" for d in range(DRIVERS_MAX_DAYS + 1))
+    with pytest.raises(ValueError):
+        parse_curated_days(too_many)
+
+
+def test_sf_artifact_persist_is_idempotent_per_key(pg):
+    """The bytea upsert replaces per (run_id, delivery_date), same discipline as
+    forecast_nodal: a re-persist with new values leaves one row holding the new blob,
+    and it round-trips back to the SF/E_mu that produced it (acceptance)."""
+    conn, run_id, _ = pg
+    SF, E_mu = _sf_mu(seed=5)
+    day = E_mu.index[0].tz_convert("America/Chicago").date()
+
+    blob = persist_sf_mu_artifact(conn, SF, E_mu, run_id=run_id, delivery_date=day)
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT sf_npz FROM forecast_sf_artifact "
+                    "WHERE run_id = %s AND delivery_date = %s", (run_id, day))
+        stored = bytes(cur.fetchone()[0])
+    assert stored == blob                                # exact bytea round-trip
+    np.testing.assert_allclose(load_sf_mu(stored).SF.to_numpy(), SF.to_numpy(),
+                               rtol=1e-6)
+
+    SF2 = SF * 2.0                                        # new values, same key
+    sf_artifact_to_db(conn, run_id=run_id, delivery_date=day,
+                      sf_npz=build_sf_mu_artifact(SF2, E_mu))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM forecast_sf_artifact WHERE run_id = %s",
+                    (run_id,))
+        assert int(cur.fetchone()[0]) == 1               # replaced, not appended
+        cur.execute("SELECT sf_npz FROM forecast_sf_artifact "
+                    "WHERE run_id = %s AND delivery_date = %s", (run_id, day))
+        got = load_sf_mu(bytes(cur.fetchone()[0]))
+    np.testing.assert_allclose(got.SF.to_numpy(), SF2.to_numpy(), rtol=1e-6)
