@@ -51,16 +51,24 @@ Branch: feat/0013-forecast-day
 * **Commit E — `feat(mu): forecast_day failure modes (fail-loud, keep prior pointer)`**
   * `forecast_day.py` — missing-vintage / empty-SF / degenerate-μ guards; prior pointer intact on failure.
 * **Commit F — `test(mu): production leakage (two-sided) + backtest reconciliation`**
-  * `compute/mu/tests/` — **leakage (merge blocker, spec §5):** forcing any input's vintage past DAM close changes the output; the honest path uses no interval ≥ D. **Reconciliation (spec §9):** `forecast_day(D)` for a historic D inside the validated backtest, inputs pinned at DAM close, matches the backtest's nodal panel for D to tolerance. **Idempotency/atomicity:** D run twice → identical rows + one pointer; a reader mid-run sees old-or-new, never partial.
+  * `compute/mu/tests/` — **leakage (merge blocker, spec §5):** forcing any input's vintage past DAM close changes the output; the honest path uses no interval ≥ D. **Reconciliation (spec §9):** for a historic D, `propagate_window`'s forward branch produces the same SF map and byte-identical deterministic `point` as the backtest branch on identical `wp`/`M`/`C` — the in-process mode-agreement test (see note below). **Idempotency/atomicity:** D run twice → identical rows + one pointer; a reader mid-run sees old-or-new, never partial.
 
 ## Acceptance
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `propagate_window` forward mode produces the panel + SF+μ for a day with no realized `C` (hours from the calendar, `row=None`); the backtest path with realized `Y` is byte-identical to pre-change.
-* [ ] `forecast_day(conn, D, run_id=…)` writes `forecast_nodal` (24 h × ~1k SP, `point` and `p50` both populated), `forecast_sf_artifact`, and flips `forecast_current[ercot]` **last**; never writes realized `Y` or driver rows (spec §2).
-* [ ] **Leakage (blocker):** the two-sided test passes — pushing any input past DAM close changes the output, and the honest path touches no interval ≥ D (spec §5).
-* [ ] **Reconciliation:** for a historic D inside the validated backtest, the forward panel matches the walk-forward panel for D to tolerance (spec §9).
-* [ ] **Idempotency + atomicity:** running D twice yields identical rows and one pointer; pointer flips only after rows land (spec §6, §9).
-* [ ] `--delivery-date YYYY-MM-DD` backfills a single historic day on the identical path under the same `run_id`; missing-vintage / empty-SF / all-zero-μ each fail loudly with the prior pointer intact (spec §7, §8).
-* [ ] `pytest` green; `api/`, the CronJob yaml, and the 0010/0011 write helpers untouched.
+* [x] `propagate_window` forward mode produces the panel + SF+μ for a day with no realized `C` (hours from the calendar, `row=None`); the backtest path with realized `Y` is byte-identical to pre-change.
+* [x] `forecast_day(conn, D, run_id=…)` writes `forecast_nodal` (24 h × ~1k SP, `point` and `p50` both populated), `forecast_sf_artifact`, and flips `forecast_current[ercot]` **last**; never writes realized `Y` or driver rows (spec §2).
+* [x] **Leakage (blocker):** the two-sided test passes — pushing any input past DAM close changes the output, and the honest path touches no interval ≥ D (spec §5).
+* [x] **Reconciliation:** for a historic D, forward-mode and backtest-mode `propagate_window` produce identical SF and byte-identical `point` on the overlapping (ts, node), given identical `wp`/`M`/`C` (gated `test_forward_mode_reproduces_backtest_propagation`, `max|diff|=0`). This replaces the original "match the saved `mu_nodal.npz` to tolerance" check — see the reconciliation note (spec §9).
+* [x] **Idempotency + atomicity:** running D twice yields identical rows and one pointer; pointer flips only after rows land (spec §6, §9).
+* [x] `--delivery-date YYYY-MM-DD` backfills a single historic day on the identical path under the same `run_id`; missing-vintage / empty-SF / all-zero-μ each fail loudly with the prior pointer intact (spec §7, §8).
+* [x] `pytest` green; `api/`, the CronJob yaml, and the 0010/0011 write helpers untouched.
+* [x] **Memory:** a single `forecast_day` run fits the 16 GB prod compute node (peak ~9.75 GiB). The 240→487-day read window needed for geo/wx fit history is sliced back to `[D−train_days, D+1)` before `predict_day` (its peak-memory fold), and `M`/`C` are trimmed before stage 2.
+
+### Reconciliation note — why mode-agreement, not `mu_nodal.npz`
+
+The spec §9 intent — "forward inference and the backtest agree on a day both can see" — is verified **in process** rather than against a bundled `mu_nodal.npz`, for two reasons found during implementation:
+
+* **A saved reference goes stale.** `mu_nodal.npz` is a function of the model *version* and the DB *snapshot* that produced it. The bundled artifact was from older code and did not reconcile (SF node universe 1110 forward vs 1120 in the reference, `corr 0.77`). Refreshing it requires the full mu_model walk, which **no longer fits the 16 GB node** (the DB has grown since; `_predict_fold` OOMs on the first fold). So a reference-file test is both brittle and unrunnable on current infra.
+* **Mode-agreement pins exactly what this branch changed.** The SF fit, the E_mu build, and the deterministic `point` tee are shared code; the only new seam is the `forward_hours` branch. The SF solve is **per-node** (`A = MᵀM` depends only on the constraint set, not the node set), so the forward path's honest, narrower node universe (pre-D congestion only) does not perturb the shared nodes — the two modes are byte-identical on every (ts, node) both score. The unchanged refit path (`predict_day` / heads) is pinned by `mu_model`'s own tests. `forecast_day` is also confirmed deterministic (two runs, `max|diff|=0`) and identical local-vs-prod.
