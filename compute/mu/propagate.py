@@ -486,8 +486,9 @@ def propagate_window(
     M: pd.DataFrame, C: pd.DataFrame, wp: pd.DataFrame,
     eps: np.ndarray, n_draws: int, rng: np.random.Generator,
     *, want_panel: bool = False, want_sf_mu: bool = False,
+    forward_hours: pd.DatetimeIndex | None = None,
 ) -> tuple[dict | None, NodalPanel | None, pd.DataFrame | None, pd.DataFrame | None]:
-    """One window, shared by the backtest and (later) `forecast_day`.
+    """One window, shared by the backtest and `forecast_day`.
 
     Fit SF on ``[s−WINDOW_DAYS, s)``, score/draw over ``[s, end)``, and build the
     weekly-metrics row exactly as `walk()` did. Returns ``(row, None, None,
@@ -496,7 +497,16 @@ def propagate_window(
     also the window's fitted ``SF`` (K×N) and ``E_mu`` (H×K on ``SF.index``) for the
     SF+μ artifact (§4a). ``(None, None, None, None)`` on any skip (empty fit window,
     empty SF, no scored hours) — the caller's `continue`.
+
+    **Forward mode** (`forward_hours` given — `forecast_day` for a delivery day D
+    with no realized congestion yet, §3.2): the scored hours are the caller's
+    delivery-day calendar (D's 24 intervals) rather than ``M_score ∩ C_score``,
+    no realized ``Y`` is read (``C`` is never indexed on the score side, so a
+    ``C`` that is empty/absent for D cannot crash the panel), and ``row`` is
+    ``None`` (no `band_metrics` without an outcome). The fit window, the SF fit,
+    and the `want_panel`/`want_sf_mu` tees are byte-identical to the backtest.
     """
+    forward = forward_hours is not None
     lo, hi = s - pd.Timedelta(days=WINDOW_DAYS), s
     M_fit = M.loc[(M.index >= lo) & (M.index < hi)]
     C_fit = C.loc[(C.index >= lo) & (C.index < hi)]
@@ -508,13 +518,15 @@ def propagate_window(
         return None, None, None, None
 
     M_score = M.loc[(M.index >= s) & (M.index < end)]
-    C_score = C.loc[(C.index >= s) & (C.index < end)]
-    hours = M_score.index.intersection(C_score.index)
+    if forward:
+        hours = forward_hours
+    else:
+        C_score = C.loc[(C.index >= s) & (C.index < end)]
+        hours = M_score.index.intersection(C_score.index)
     if not len(hours):
         return None, None, None, None
 
     wp = wp[wp["key"].isin(SF.index)]
-    Y = C_score.loc[hours, SF.columns].to_numpy(np.float32)
 
     mass_all = float(M_score.abs().to_numpy(float).sum())
     cov_cols = M_score.columns.intersection(SF.index)
@@ -545,9 +557,14 @@ def propagate_window(
         MU = _wide(wp, "mu_gbm", hours, SF.index)
         E_mu = pd.DataFrame(P * MU, index=hours, columns=SF.index)
 
-    row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
-           "n_resid": len(eps), "sf_coverage": sf_coverage,
-           **band_metrics(Y, p10, p50, p90)}
+    row = None
+    if not forward:
+        # hours ⊆ C_score.index ⊆ C.index, so this selects the same rows in the
+        # same order as the pre-forward `C_score.loc[hours]`, byte-identical.
+        Y = C.loc[hours, SF.columns].to_numpy(np.float32)
+        row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
+               "n_resid": len(eps), "sf_coverage": sf_coverage,
+               **band_metrics(Y, p10, p50, p90)}
     return row, panel, (SF if want_sf_mu else None), E_mu
 
 
