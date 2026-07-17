@@ -160,9 +160,9 @@ def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame)
 
     ``geo`` is indexed by ``constraint_key`` with columns ``lat, lon, spread_km,
     kv_mean, kv_max, zone_shares (dict), max_abs_sf, n_rail, peak_offrail,
-    binding_hours``. Non-finite floats become NULL — a constraint whose |SF| mass
-    lands entirely on uncoordinated settlement points is an honest hole, not a
-    fallback.
+    binding_hours, core_lat, core_lon, ctype``. Non-finite floats become NULL — a
+    constraint whose |SF| mass lands entirely on uncoordinated settlement points is
+    an honest hole, not a fallback.
     ``zone_shares`` is serialized to JSON text for the ``jsonb`` column. Returns
     the number of rows written.
     """
@@ -173,7 +173,7 @@ def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame)
         "COPY constraint_geo "
         "(run_id, window_start, constraint_key, lat, lon, spread_km, "
         " kv_mean, kv_max, zone_shares, max_abs_sf, n_rail, peak_offrail, "
-        " binding_hours) FROM STDIN"
+        " binding_hours, core_lat, core_lon, ctype) FROM STDIN"
     )
 
     def _f(v) -> float | None:
@@ -189,11 +189,14 @@ def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame)
             bh = int(bh) if bh is not None and np.isfinite(bh) else None
             nr = r["n_rail"]
             nr = int(nr) if nr is not None and np.isfinite(nr) else None
+            ct = r.get("ctype")
+            ct = str(ct) if ct is not None and not (isinstance(ct, float) and np.isnan(ct)) else None
             cp.write_row((
                 run_id, ws, str(key),
                 _f(r["lat"]), _f(r["lon"]), _f(r["spread_km"]),
                 _f(r["kv_mean"]), _f(r["kv_max"]),
                 js, _f(r["max_abs_sf"]), nr, _f(r["peak_offrail"]), bh,
+                _f(r["core_lat"]), _f(r["core_lon"]), ct,
             ))
             n_rows += 1
     return n_rows
