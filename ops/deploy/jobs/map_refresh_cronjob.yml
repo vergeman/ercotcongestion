@@ -1,0 +1,125 @@
+# Weekly map-v1 refresh: re-run the full SF history at a later --end so the
+# served explorer map advances as new DAM days land. Chains the three steps of
+# plan/0090-serve-and-display/0003 (SF persist → geo persist → stability eval)
+# in one container, in order, over full history under run_id=map-v1.
+#
+# Why a batch re-run and not incremental: the API serves max(window_start) for
+# map-v1, resolved per request (0004) — new rows in ercot_dam_shadow_prices /
+# ercot_dam_spp / dam_system_lambda do nothing until a re-persist. SF structure
+# is fixed per refit and the explorer is not time-indexed, so weekly is enough
+# and intra-week staleness is structurally harmless. Re-persist is picked up
+# with no redeploy.
+#
+# FOOTGUN (plan §Context): step 1's runner calls delete_sf_run(run_id) first —
+# it wipes ALL windows for the run_id, then writes only windows in [start, end).
+# --start MUST stay 2025-01-01 (full history); a narrow --start silently wipes
+# the served history. True incremental append is unsupported; a full re-run is
+# ~30 min / ~67M rows. Do NOT pass --persist / --promote (legacy bp path).
+#
+# END is computed at fire time as tomorrow (exclusive), so today's DAM day (if
+# landed) is included; days not yet ingested contribute nothing and the runner
+# clips --end to available data. --ridge-lambda 1.0 is explicit: the module
+# default is 1e-1, the adopted operating point is 1.0.
+#
+# Hand-run / backfill on the identical path:
+#   cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
+#   envsubst < jobs/map_refresh_cronjob.yml | kubectl apply -f -
+#   kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
+#   kubectl -n ercotstress logs -f job/map-refresh-manual
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ercot-map-refresh
+  namespace: ercotstress
+spec:
+  # Weekly, matching the 7-day refit cadence. Sunday 18:00 UTC: cron runs in the
+  # cluster's local timezone (k3s default: UTC). Offset from the daily forecast
+  # tick (0 17 * * *, activeDeadline 1800s → done by ~17:30) so the two
+  # memory-heavy jobs never share the node at once. Day-of-week is arbitrary; the
+  # served window advances by whatever DAM landed since the last run.
+  schedule: "0 18 * * 0"
+
+  # A full re-run should never overlap itself (or the next weekly slot). Skip the
+  # slot if the previous run is still going.
+  concurrencyPolicy: Forbid
+
+  # Runs late if the cluster was offline; only catches up the most recent missed
+  # run. 5 min grace for a missed schedule.
+  startingDeadlineSeconds: 300
+
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+
+  jobTemplate:
+    spec:
+      # No retry within a scheduled run — the next weekly tick is the retry, and
+      # the run is re-runnable by hand. A partial run leaves the prior served
+      # window intact until step 1 completes its delete-then-write transaction.
+      backoffLimit: 0
+      # Hard cap: the full-history SF fit + geo persist + eval is ~30 min. 1h with
+      # headroom; a hung run fails loud rather than lingering.
+      activeDeadlineSeconds: 3600
+
+      template:
+        metadata:
+          labels:
+            app: ercot-map-refresh
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: map-refresh
+              # Same consolidated image as api / ingest / forecast.
+              image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+              # Chain the three steps in order. END = tomorrow (exclusive). set -e
+              # so a failed step aborts the chain — a stale served window is
+              # preferable to a half-refreshed one. --start pinned to 2025-01-01
+              # (full history) per the delete-then-write footgun above.
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  END="$(date -u -d tomorrow +%F)"
+                  echo "map-v1 refresh: --start 2025-01-01 --end ${END}"
+
+                  python -m compute.sf.runner \
+                    --run-id map-v1 \
+                    --start 2025-01-01 --end "${END}" \
+                    --window-days 240 --refit-days 7 \
+                    --ridge-lambda 1.0 --min-binding-hours 25 \
+                    --persist-sf
+
+                  python -m compute.sf.geo_persist --run-id map-v1
+
+                  python -m compute.sf.eval \
+                    --run-id map-v1 \
+                    --start 2025-01-01 --end "${END}" \
+                    --window-days 240 --refit-days 7 \
+                    --ridge-lambda 1.0 --min-binding-hours 25 \
+                    --persist-eval
+              env:
+                # Keep RSS near the true working set on this shared node — glibc
+                # otherwise fragments the fit's allocations across per-thread
+                # arenas and holds freed pages as RSS. Mirrors forecast_cronjob /
+                # compute_shell_pod.
+                - name: MALLOC_ARENA_MAX
+                  value: "2"
+                - name: MALLOC_TRIM_THRESHOLD_
+                  value: "0"
+              envFrom:
+                - configMapRef:
+                    name: api-config
+                - secretRef:
+                    name: postgres-credentials
+              resources:
+                # The full-history SF persist ran within ~8Gi on compute-shell in
+                # 0003. Request a working floor; cap with headroom so a bad run
+                # fails loud rather than getting OOM-killed mid delete-then-write.
+                requests:
+                  cpu: "2"
+                  memory: "4Gi"
+                limits:
+                  cpu: "6"
+                  memory: "12Gi"
