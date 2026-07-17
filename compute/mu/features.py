@@ -427,9 +427,9 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
                      bind — which drives the positive rate toward zero and makes
                      calibration the only metric that still means anything.
       ``active_28d`` (default) constraints that bound at least once in the
-                     trailing 28 days. This is also what a screening product would
-                     actually put in front of a trader, so the base rate the model
-                     is calibrated against is the base rate it is used at.
+                     trailing 28 days. This is also a screening product, so the
+                     base rate the model is calibrated against is the base rate
+                     it is used at.
 
     The choice moves the positive rate and therefore every headline number, so
     commit 4 must report which policy produced a score. It is never a free
