@@ -1,7 +1,7 @@
 # 0090.pending - map-v1 refresh job
 
 Type: chore
-Branch: chore/0090-map-v1-refresh-job
+Branch: chore/0015-map-v1-refresh-job
 
 ## Goal
 
