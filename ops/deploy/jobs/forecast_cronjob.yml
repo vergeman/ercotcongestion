@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ercot-forecast
+  namespace: ercotstress
+spec:
+  # Daily, after DAM close (10:00 CT) and D-1's DAM ingest. Cron is in the
+  # cluster's local timezone (k3s default: UTC). See Commit B for the full
+  # DST-window rationale.
+  schedule: "0 17 * * *"
+
+  # If a previous run is still going, skip this slot. A refit + fit + propagate
+  # should never overlap itself.
+  concurrencyPolicy: Forbid
+
+  # Runs late if the cluster was offline; only catches up the most recent
+  # missed run. 5 min grace for a missed schedule.
+  startingDeadlineSeconds: 300
+
+  # Keep enough history to debug. Trim to avoid ETCD bloat.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+
+  jobTemplate:
+    spec:
+      # No retry within a scheduled run — the next daily tick is the retry, and
+      # the run is re-runnable by hand. A starved run (missing inputs) fails
+      # loud in 0013 and must NOT thrash into staleness.
+      backoffLimit: 0
+      # Hard timeout: SF refit + fit + propagate. Generous vs the ingest job.
+      activeDeadlineSeconds: 1800
+
+      template:
+        metadata:
+          labels:
+            app: ercot-forecast
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: forecast
+              # Same consolidated image as api / ingest.
+              image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+              # imagePullPolicy: Always
+              command:
+                - python
+                - -m
+                - compute.mu.forecast_day
+                - --delivery-date
+                - tomorrow
+                - --run-id
+                - mu-all-v1
+                - --to-db
+              env:
+                # Keep RSS near the true working set on this shared node. The mu
+                # fit fragments allocations across per-thread arenas and holds
+                # freed build-phase memory as RSS — enough to OOM a job whose
+                # live set is well under the limit. Mirrors compute_shell_pod.
+                - name: MALLOC_ARENA_MAX
+                  value: "2"
+                - name: MALLOC_TRIM_THRESHOLD_
+                  value: "0"
+              envFrom:
+                - configMapRef:
+                    name: api-config
+                - secretRef:
+                    name: postgres-credentials
+              resources:
+                # Memory-heavy: the panel-slice fit peaks ~16Gi on prod (0013).
+                # Request a working floor; cap with headroom above the observed
+                # peak so a bad day fails-loud rather than getting OOM-killed
+                # mid-write.
+                requests:
+                  cpu: "2"
+                  memory: "8Gi"
+                limits:
+                  cpu: "4"
+                  memory: "20Gi"
