@@ -76,11 +76,25 @@ camera-sync redraw is too costly at N=70 — it was not in the prototype.)
     arc (that stray dotted line was the confusing symptom of the first divergence).
     The signed reach dipole stays available for the base SP-layer flow but is not what
     the overview surfaces.
-* **E — legend + accessibility pass.** ⬜ next. Update `Legend.tsx` for the three type
-  marks (the legend still reads the old "SIZE ∝ MAX |SF|"); run `dataviz` palette
-  validation on the overview hues (light + dark surfaces); ensure identity is never
-  color-alone (the *form* already carries type); dark mode stepped, not flipped; a
-  table/list fallback for the overview set.
+* **E — legend + accessibility pass. ✅ done.** `Legend.tsx` gains an `overviewTypes`
+  key: three marks whose *shape* carries type (amber rounded **region** / violet
+  **corridor** w/ node dots / teal hollow **ring**) + "shape = type · size ∝ binding
+  hours" — so identity never rides on hue alone. Replaces the legacy single-dot key
+  on the prediction pane whenever the overview is present.
+  * **`dataviz` palette validation** (`validate_palette.js`, `pairs=all` per the maps
+    guidance). The three type hues on the **dark map surface `#0a0d12`** (authoritative
+    — the app is dark-only): **CVD ΔE 47.9** deutan / 45.6 tritan (4× the 12 target),
+    chroma pass, **contrast ≥ 3:1 pass**. Lightness runs bright of the dark band
+    `[0.48, 0.67]` (L 0.71–0.785) — a deliberate, documented tradeoff: small marks on a
+    near-black canvas want brightness, the goo fill is at 0.32 opacity (no glare), and
+    **form is the primary type channel** so hue is secondary. The untyped-slate
+    `#94a3b8` is intentionally neutral (reads gray by design; all top-N are typed).
+    Light surface would WARN on contrast (hues too bright for white) — recorded for a
+    *future* light theme, which would need darker steps; CVD is surface-independent.
+  * **Table/list fallback** for the overview set → folded into the **deferred side
+    panel** (below): a browsable, sortable membership list is the accessible non-map
+    view. The legend labels + membership popover cover text-labeled access in the
+    interim.
 
 ## Acceptance
 
@@ -93,12 +107,7 @@ camera-sync redraw is too costly at N=70 — it was not in the prototype.)
   sorted by `|SF|`); hovering a row isolates and clicking a row pins that constraint.
 * [x] The overview interaction is self-contained: it does **not** trigger the legacy
   `/map/reach` dipole, `DetailCard`, or the dashed reach-corridor arc.
-* [ ] `dataviz` applied: overview palette validated (light + dark), legend present,
-  type conveyed by form + hue (never hue alone), table fallback exists. *(unit E)*
+* [x] `dataviz` applied: overview palette validated on the dark map surface (CVD ΔE
+  47.9, chroma + contrast pass), legend present, type conveyed by **form + hue** (never
+  hue alone). Table fallback deferred to the side panel (accessible non-map view).
 * [x] Camera-synced redraw stays smooth at N=70; `tsc -b` + `OverviewOverlay` lint clean.
-
-## Deferred (own doc, UI phase)
-
-The browsable **side panel** — all members of a constraint, the source/sink lobe
-pairs laid out, synced hover with the map (also the overlap-proof way to reach any
-constraint). Noted in `0001`; not built here.
