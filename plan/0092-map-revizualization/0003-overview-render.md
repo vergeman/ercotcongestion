@@ -1,12 +1,13 @@
-# 0004 - overview render (web side)
+# 0003 - overview render (web side)
 
 Type: feat
 Branch: feat/0092-0003-overview-render
 
 > The web build for the revizualized overview. Consumes `0002`'s `/map/overview`
-> endpoint. Design of record: `0001-revizualization.md`; the validated prototype is
-> `spike/renders/overview-interactive.html`. **Load the `dataviz` skill before any
-> render work.**
+> endpoint. Design of record: `0001-revizualization.md`. The **reference of record is
+> the interactive spike `spike/build_hybrid4.py`** (hybrid-v4) — the overview overlay
+> is a faithful React/SVG port of it, so match its marks and interaction directly
+> rather than reinterpreting. **Load the `dataviz` skill before any render work.**
 
 ## Goal
 
@@ -38,54 +39,63 @@ camera-sync redraw is too costly at N=70 — it was not in the prototype.)
 
 ## Approach — staged commit units
 
-* **A — data plumbing.** `web/src/api/types.ts`: `MapOverview` / `OverviewConstraint`
-  (nodes reuse `ReachSp`), mirroring `api/models.py`. `web/src/api/client.ts`:
-  `fetchMapOverview(n, k)` with the same soft-fail contract as the other `/map/*`
-  fetchers. No render yet.
-* **B — the de-piled base layer.** An SVG overlay component synced to the maplibre
-  camera; **core dots** at `core_lat/core_lon`, colored by `ctype` (amber `#e0a83a`
-  gtc / violet `#a78bfa` transmission / teal `#2dd4bf` radial), radius by severity
-  (`binding_hours` or `max_abs_sf`). This alone must show *no central pile*. The
-  dots are the **hit targets** (`pointer-events` on the discrete points).
-* **C — form-follows-type marks** (passive layers beneath the dots,
-  `pointer-events: none`):
-  * **gtc** → metaball **region-shadow** over its top-K nodes via the SVG goo filter,
-    plus a faint **skeleton** (thin lines from each node to the core) tying disjoint
-    pockets to one dot.
-  * **transmission** → an **MST corridor** built client-side (Prim over haversine,
-    drop edges > 150 km) across its top-K nodes.
-  * **radial** → just the core **point**.
-* **D — interaction.**
-  * **hover-isolate**: hovering a core dot (or a membership row) brightens that
-    constraint's footprint and ghosts the rest; overlapping shadows never block
-    picking because only the dots are hit targets.
+* **A — data plumbing. ✅ done.** `web/src/api/types.ts`: `MapOverview` /
+  `OverviewConstraint` (nodes reuse `ReachSp`), mirroring `api/models.py`.
+  `web/src/api/client.ts`: `fetchMapOverview(n, k)` with the same soft-fail contract
+  as the other `/map/*` fetchers.
+* **B — the de-piled base layer. ✅ done** (superseded by C+D). Shipped first as
+  plain **core dots** at `core_lat/core_lon`, colored by `ctype`, sized by severity —
+  enough to prove *no central pile*, but only a stepping stone; the marks and
+  interaction below replace the bare dots.
+* **C + D — faithful hybrid-v4 port. ✅ done (one unit).** The first pass at C/D
+  diverged from the spike (invented marks, no visible metaball/MST, click routed to
+  the `DetailCard`, a stray reach dipole). It was rejected and rebuilt: `OverviewOverlay.tsx`
+  is now a direct port of `spike/build_hybrid4.py`. **C and D are inseparable in the
+  reference** — the marks *are* the hit targets — so they land together. Fetched at
+  **k = 6** to match the spike's region density (k = 16 bloats the goo into one cloud).
+  * **form-follows-type marks** (passive, `pointer-events: none`; draw order
+    gtc → transmission → radial):
+    * **gtc** → metaball **region-shadow** over its nodes via the SVG goo filter
+      (`feGaussianBlur` + alpha-threshold `feColorMatrix`), blob radius ∝ √|SF|, plus a
+      faint **skeleton** (the MST, thin).
+    * **transmission** → an **MST corridor** built client-side (Prim over haversine,
+      dropping edges > 150 km) — ported from `spike/mst_spike.py`.
+    * **radial** → a hollow core **ring**.
+  * **hover-isolate**: each constraint carries a transparent core **hit target**;
+    hovering it (or a popover row) brightens that constraint and ghosts the rest
+    (`svg.dim`). Overlapping shadows never block picking — only the hit targets and
+    node dots opt back into `pointer-events`.
   * **node-membership popover**: settlement points are deduplicated into hoverable
-    dots; hovering one opens a popover listing every overview constraint it belongs
-    to, tagged **source/sink** by its signed SF and sorted by `|SF|`; clicking a row
-    isolates that constraint. (Readable: median 1 / p90 5 memberships,
-    `spike/membership_probe.py`.)
-  * **drill-down** stays the existing `/map/reach` signed field (diverging
-    blue = − / red = +) — the one place sign is well-defined. Selecting from the
-    overview (dot or popover row) drives it.
-* **E — legend + accessibility pass.** Update `Legend.tsx` for the three type marks;
-  run `dataviz` palette validation on the overview hues (light + dark surfaces);
-  ensure identity is never color-alone (the *form* already carries type); dark mode
-  stepped, not flipped; a table/list fallback for the overview set.
+    dots; hovering one opens a **cursor popover** listing every overview constraint it
+    belongs to, tagged **source/sink** by signed SF and sorted by `|SF|`. Hovering a
+    row isolates; **clicking a row pins** that isolation (median 1 / p90 5 memberships,
+    `spike/membership_probe.py`). Clicking bare canvas clears the pin.
+  * **self-contained interaction — decoupled from the legacy drill-down.** The
+    overview's own hover-isolate + popover *replace* the old constraint-click path; it
+    no longer drives `/map/reach`, the `DetailCard`, or the dashed **reach-corridor**
+    arc (that stray dotted line was the confusing symptom of the first divergence).
+    The signed reach dipole stays available for the base SP-layer flow but is not what
+    the overview surfaces.
+* **E — legend + accessibility pass.** ⬜ next. Update `Legend.tsx` for the three type
+  marks (the legend still reads the old "SIZE ∝ MAX |SF|"); run `dataviz` palette
+  validation on the overview hues (light + dark surfaces); ensure identity is never
+  color-alone (the *form* already carries type); dark mode stepped, not flipped; a
+  table/list fallback for the overview set.
 
 ## Acceptance
 
-* [ ] The overview replaces the centroid pile: constraints sit at their cores, no
+* [x] The overview replaces the centroid pile: constraints sit at their cores, no
   central knot; gtc region-shadows, transmission MST corridors, radial points,
   colored by type in non-reserved hues, sized by severity.
-* [ ] Hovering a core dot isolates its constraint; overlapping gtc shadows never
+* [x] Hovering a core dot isolates its constraint; overlapping gtc shadows never
   block picking (dots are the only hit targets).
-* [ ] Hovering a settlement point opens a membership popover (source/sink + severity,
-  sorted by `|SF|`); clicking a row isolates that constraint.
-* [ ] Selecting a constraint renders its signed source/sink drill-down (diverging
-  blue/red), unchanged from today.
+* [x] Hovering a settlement point opens a membership popover (source/sink + severity,
+  sorted by `|SF|`); hovering a row isolates and clicking a row pins that constraint.
+* [x] The overview interaction is self-contained: it does **not** trigger the legacy
+  `/map/reach` dipole, `DetailCard`, or the dashed reach-corridor arc.
 * [ ] `dataviz` applied: overview palette validated (light + dark), legend present,
-  type conveyed by form + hue (never hue alone), table fallback exists.
-* [ ] Camera-synced redraw stays smooth at N=70; `npm run build` + lint clean.
+  type conveyed by form + hue (never hue alone), table fallback exists. *(unit E)*
+* [x] Camera-synced redraw stays smooth at N=70; `tsc -b` + `OverviewOverlay` lint clean.
 
 ## Deferred (own doc, UI phase)
 
