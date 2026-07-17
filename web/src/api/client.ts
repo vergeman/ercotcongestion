@@ -5,6 +5,7 @@ import type {
   ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
+  MapOverview,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -93,5 +94,19 @@ export async function fetchMapReach(
   );
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/reach ${r.status}`);
+  return r.json();
+}
+
+// The de-piled overview: top-`n` constraints by binding hours, each at its |SF|²
+// core with its type and signed top-`k` field. One bulk payload for the initial
+// all-constraints presentation (replaces the /map/constraints centroid pile).
+// Null on 503.
+export async function fetchMapOverview(
+  n = 70,
+  k = 16
+): Promise<MapOverview | null> {
+  const r = await fetch(`${BASE}/map/overview?n=${n}&k=${k}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`map/overview ${r.status}`);
   return r.json();
 }

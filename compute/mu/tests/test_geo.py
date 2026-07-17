@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.geo import (constraint_geography, coverage_by_mu_mass, geo_panel,
+from compute.mu.geo import (constraint_core, constraint_geography,
+                            constraint_type, coverage_by_mu_mass, geo_panel,
                             haversine_km, refit_grid, zone_anchors)
 
 
@@ -109,6 +110,87 @@ def test_zone_anchors_are_derived_from_the_data_not_typed(sp):
     a = zone_anchors(sp)
     assert set(a.index) == {"LZ_HOUSTON", "LZ_NORTH", "LZ_SOUTH", "LZ_WEST"}
     assert a.loc["LZ_HOUSTON", "lat"] == pytest.approx(29.76)
+
+
+# -------------------------------------------------- the |SF|² core (plan/0092)
+
+def test_core_of_a_single_node_constraint_is_that_node(sp):
+    """Degenerate case: the geometric median of one point is that point."""
+    SF = pd.DataFrame([[0.0, 0.9, 0.0, 0.0]], index=["A|c"], columns=sp.index)
+    c = constraint_core(SF, sp)
+    assert c.loc["A|c", "geo_core_lat"] == pytest.approx(32.78)
+    assert c.loc["A|c", "geo_core_lon"] == pytest.approx(-96.80)
+
+
+def test_core_lands_on_the_heavier_lobe_not_between_it(sp):
+    """**The whole point of the core.** A bimodal constraint's |SF|-weighted MEAN
+    lands in the empty middle between its lobes; the |SF|²-weighted geometric median
+    snaps onto the denser/stronger lobe instead.
+
+    Two eastern nodes (Houston, Corpus) form one lobe, a lone western node (Midland)
+    the other. The core must sit EAST of the mean centroid — pulled toward the
+    two-node lobe, away from the west — which is exactly the de-piling the overview
+    needs.
+    """
+    SF = pd.DataFrame([[0.8, 0.0, 0.8, 0.7]], index=["A|c"], columns=sp.index)  # HOU,NOR,SOU,WES
+    core = constraint_core(SF, sp).loc["A|c"]
+    mean = constraint_geography(SF, sp).loc["A|c"]
+    assert core["geo_core_lon"] > mean["geo_lon"]        # east of the centroid
+    # and closer to the eastern lobe (Houston) than the centroid is
+    d_core = haversine_km(core["geo_core_lat"], core["geo_core_lon"], 29.76, -95.37)
+    d_mean = haversine_km(mean["geo_lat"], mean["geo_lon"], 29.76, -95.37)
+    assert float(d_core) < float(d_mean)
+
+
+def test_core_of_an_unlocatable_constraint_is_nan(sp):
+    """Parity with `constraint_geography`: a hole stays a hole, no fallback."""
+    SF = pd.DataFrame([[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                      index=["EMPTY|c", "REAL|c"], columns=sp.index)
+    c = constraint_core(SF, sp)
+    assert c.loc["EMPTY|c"].isna().all()
+    assert c.loc["REAL|c"].notna().all()
+
+
+def test_core_ignores_uncoordinated_settlement_points(sp):
+    """SF mass on nodes we can't place contributes nothing — no drag to (0,0)."""
+    SF = pd.DataFrame([[0.5, 0.0, 0.0, 0.0, 9.0]], index=["A|c"],
+                      columns=list(sp.index) + ["MYSTERY_SP"])
+    c = constraint_core(SF, sp)
+    assert c.loc["A|c", "geo_core_lat"] == pytest.approx(29.76)   # pure Houston
+
+
+# ------------------------------------------------ the type classifier (plan/0092)
+
+def test_type_gtc_from_base_case_contingency():
+    """The contingency component `BASE CASE` is a generic/interface constraint —
+    always `gtc`, regardless of rail signature."""
+    geo = pd.DataFrame({"n_rail": [3], "peak_offrail": [0.05]},
+                       index=pd.Index(["X__A|BASE CASE"], name="constraint_key"))
+    assert constraint_type(geo).loc["X__A|BASE CASE"] == "gtc"
+
+
+def test_type_radial_is_a_rail_with_little_body():
+    """A rail (n_rail>=1) with almost no graded body beneath it (peak_offrail<0.25)
+    is a radial pocket/resource — one point."""
+    geo = pd.DataFrame({"n_rail": [1], "peak_offrail": [0.10]},
+                       index=pd.Index(["RES__G|SOME_LINE"], name="constraint_key"))
+    assert constraint_type(geo).loc["RES__G|SOME_LINE"] == "radial"
+
+
+def test_type_transmission_is_the_default():
+    """A real line + real contingency with a graded body is transmission."""
+    geo = pd.DataFrame({"n_rail": [0], "peak_offrail": [0.6]},
+                       index=pd.Index(["LINE__1|OTHER_LINE"], name="constraint_key"))
+    assert constraint_type(geo).loc["LINE__1|OTHER_LINE"] == "transmission"
+
+
+def test_type_rail_with_a_real_body_is_not_radial():
+    """A rail WITH a body beneath it (peak_offrail>=0.25) is a real radial resource
+    on a live line, classified transmission — the radial label is reserved for the
+    bare-pocket signature."""
+    geo = pd.DataFrame({"n_rail": [1], "peak_offrail": [0.40]},
+                       index=pd.Index(["BEL__G|LINE"], name="constraint_key"))
+    assert constraint_type(geo).loc["BEL__G|LINE"] == "transmission"
 
 
 # ------------------------------------------------------------ THE LEAK TRAP

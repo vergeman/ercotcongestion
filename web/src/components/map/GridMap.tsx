@@ -6,7 +6,9 @@ import type {
   ViewMode,
   ConstraintGeo,
   ConstraintReach,
+  MapOverview,
 } from "../../api/types";
+import OverviewOverlay from "./OverviewOverlay";
 import {
   lmpColor,
   normalizeLmpFromStats,
@@ -208,6 +210,10 @@ interface Props {
   highlightedConstraints?: Set<string>;
   onConstraintHover?: (props: Record<string, unknown> | null) => void;
   onConstraintClick?: (constraintKey: string) => void;
+  // The de-piled overview (SF cores + type). When present it REPLACES the flat
+  // centroid overlay: the native constraint-markers layer is torn down and the
+  // SVG OverviewOverlay draws each constraint at its |SF|² core instead.
+  overview?: MapOverview | null;
   // Constraint-reach mode. When set, the SP layer recolors: nodes the
   // constraint drives glow by *signed* SF (the export/import dipole), the rest
   // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
@@ -234,10 +240,14 @@ export default function GridMap({
   onConstraintHover,
   onConstraintClick,
   reach,
+  overview,
   onMapReady,
 }: Props) {
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // The map instance as STATE (not just the ref) so the SVG OverviewOverlay child
+  // mounts and re-projects the moment the map is created.
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
   // Flipped inside the topology effect's onLoad handler after the `sps` source
   // is added. Coloring / selection effects gate on this so a remount doesn't
   // paint into a map whose source isn't ready yet — and re-fire the paint the
@@ -290,6 +300,7 @@ export default function GridMap({
     );
 
     mapRef.current = map;
+    setMapInstance(map);
     onMapReady?.(map);
     tooltipRef.current = new maplibregl.Popup({
       closeButton: false,
@@ -301,6 +312,7 @@ export default function GridMap({
     return () => {
       map.remove();
       mapRef.current = null;
+      setMapInstance(null);
       setSourcesReady(false);
     };
   }, []);
@@ -551,7 +563,9 @@ export default function GridMap({
     if (!map || !sourcesReady) return;
 
     const apply = () => {
-      const hasData = !!constraints && constraints.length > 0;
+      // The overview REPLACES the centroid overlay: when it's present, tear the
+      // native constraint-markers layer down and let OverviewOverlay draw cores.
+      const hasData = !!constraints && constraints.length > 0 && !overview;
 
       if (!hasData) {
         if (map.getLayer("constraint-markers"))
@@ -716,7 +730,7 @@ export default function GridMap({
 
     if (map.isStyleLoaded()) apply();
     else map.once("load", apply);
-  }, [constraints, showConstraints, highlightedConstraints, reach, sourcesReady]);
+  }, [constraints, showConstraints, highlightedConstraints, reach, overview, sourcesReady]);
 
   // Reach corridor arc: the dipole axis between the constraint's export- and
   // import-end centroids. Drawn beneath the SP circles so it reads as ground,
@@ -769,7 +783,12 @@ export default function GridMap({
 
   return (
     <>
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <div
+        ref={containerRef}
+        style={{ width: "100%", height: "100%", position: "relative" }}
+      >
+        <OverviewOverlay map={mapInstance} overview={overview ?? null} />
+      </div>
       <style>{`
         .maplibregl-ctrl-group {
           background: #0f1217 !important;

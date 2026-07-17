@@ -146,6 +146,68 @@ def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch
     assert sps[1]["sf"] == -0.30 and sps[1]["lat"] == 33.0  # opposite sign end
 
 
+# ---- /map/overview -------------------------------------------------------
+
+def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
+                                           monkeypatch):
+    """The bulk overview: each constraint at its core, typed, with its signed
+    top-k node field grouped from the single ANY(keys) node query, and the
+    per-constraint min_frac floor dropping the noise-floor node."""
+    monkeypatch.setattr(map_module, "_SP_COORDS",
+                        {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
+                         "N3": (30.0, -99.0), "N4": (33.0, -97.0)})
+    fake_pool.cursor.queue([{"ws": WS}])            # _resolve
+    fake_pool.cursor.queue([_meta_row()])           # _meta_row
+    fake_pool.cursor.queue([                         # top-n constraint_geo rows
+        {"constraint_key": "AAA|BASE CASE", "ctype": "gtc", "binding_hours": 300,
+         "max_abs_sf": 0.50, "core_lat": 29.7, "core_lon": -95.3,
+         "lat": 31.3, "lon": -99.8},               # core != centroid (de-piled)
+        {"constraint_key": "BBB|LINE", "ctype": "transmission", "binding_hours": 200,
+         "max_abs_sf": 0.40, "core_lat": 32.6, "core_lon": -101.0,
+         "lat": 31.0, "lon": -99.0},
+    ])
+    fake_pool.cursor.queue([                         # ANY(keys) nodes, key then |sf|
+        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N1", "sf": 0.50},
+        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N2", "sf": -0.40},
+        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N3", "sf": 0.02},  # < 0.15*0.50, dropped
+        {"constraint_key": "BBB|LINE", "settlement_point": "N4", "sf": 0.40},
+    ])
+
+    r = client.get("/map/overview", params={"n": 70, "k": 16})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["run_id"] == "map-v1" and body["n"] == 70
+    assert body["oos_r2"] == 0.62 and body["sf_stability"] == 0.47
+
+    a, b = body["constraints"]
+    assert a["constraint_key"] == "AAA|BASE CASE" and a["ctype"] == "gtc"
+    # positioned at the core, not the |SF|-mean centroid
+    assert a["core_lat"] == 29.7 and a["lat"] == 31.3
+    # the noise-floor node (0.02 < 0.15*0.50) is dropped; the two real ones stay
+    assert [n["settlement_point"] for n in a["nodes"]] == ["N1", "N2"]
+    assert a["nodes"][1]["sf"] == -0.40 and a["nodes"][1]["lat"] == 32.6  # opposite end, coord joined
+    assert b["ctype"] == "transmission" and [n["settlement_point"] for n in b["nodes"]] == ["N4"]
+
+
+def test_overview_truncates_to_k_nodes(client, fake_pool, configured_run, monkeypatch):
+    """k caps the per-constraint field even when more nodes clear the floor."""
+    monkeypatch.setattr(map_module, "_SP_COORDS", {})
+    fake_pool.cursor.queue([{"ws": WS}])
+    fake_pool.cursor.queue([_meta_row()])
+    fake_pool.cursor.queue([{
+        "constraint_key": "AAA|c", "ctype": "transmission", "binding_hours": 100,
+        "max_abs_sf": 1.0, "core_lat": 30.0, "core_lon": -99.0,
+        "lat": 30.0, "lon": -99.0,
+    }])
+    fake_pool.cursor.queue([
+        {"constraint_key": "AAA|c", "settlement_point": f"N{i}", "sf": 1.0 - 0.01 * i}
+        for i in range(5)
+    ])
+
+    body = client.get("/map/overview", params={"n": 1, "k": 2}).json()
+    assert [n["settlement_point"] for n in body["constraints"][0]["nodes"]] == ["N0", "N1"]
+
+
 # ---- Integration: transpose + real run resolution ------------------------
 
 @pytest.mark.integration
@@ -179,3 +241,23 @@ def test_exposure_reach_transpose(real_client):
     match = [e for e in exposures if e["constraint_key"] == c]
     assert match, f"{c} missing from /map/exposures?sp={sp}"
     assert match[0]["sf"] == pytest.approx(sf_reach), "transpose sf mismatch"
+
+
+@pytest.mark.integration
+def test_overview_de_piles_and_types(real_client):
+    """The overview positions each constraint at its |SF|² core, typed, with a
+    signed top-k field. The core must actually de-pile — differ from the |SF|-mean
+    centroid for most constraints (the whole reason it exists)."""
+    body = real_client.get("/map/overview", params={"n": 70, "k": 16}).json()
+    cs = body["constraints"]
+    assert len(cs) == 70
+    assert {c["ctype"] for c in cs} <= {"gtc", "transmission", "radial"}
+    assert all(c["core_lat"] is not None for c in cs), "a served constraint has no core"
+    # every node clears the default 0.15*peak floor and carries a signed sf
+    for c in cs:
+        assert c["nodes"], f"{c['constraint_key']} has no nodes"
+        assert all(abs(n["sf"]) >= 0.15 * c["max_abs_sf"] - 1e-9 for n in c["nodes"])
+    # the core sits somewhere other than the centroid for the clear majority
+    moved = sum(1 for c in cs
+                if abs(c["core_lat"] - c["lat"]) + abs(c["core_lon"] - c["lon"]) > 0.1)
+    assert moved > len(cs) // 2, "core is not de-piling off the centroid"

@@ -147,3 +147,33 @@ export interface ConstraintReach {
   binding_hours: number | null;
   sps: ReachSp[];
 }
+
+// One constraint in the de-piled overview (a /map/overview row). Positioned at
+// its |SF|²-core (`core_lat`/`core_lon`) — on its strongest lobe, not averaged to
+// the empty center like `lat`/`lon` (the |SF|-mean centroid). `ctype` picks the
+// mark's form; `nodes` is the signed top-k field the mark draws over (the overview
+// ignores the sign; the drill-down colors it). Core NULL → unlocatable.
+export interface OverviewConstraint {
+  constraint_key: string;
+  ctype: string | null; // 'gtc' | 'transmission' | 'radial'
+  binding_hours: number | null;
+  max_abs_sf: number | null;
+  core_lat: number | null;
+  core_lon: number | null;
+  lat: number | null;
+  lon: number | null;
+  nodes: ReachSp[];
+}
+
+// The whole overview for the current refit — top-`n` constraints by binding hours,
+// each at its core with its type and signed top-`k` field. One bulk payload.
+export interface MapOverview {
+  run_id: string;
+  window_start: string;
+  window_end: string;
+  n: number;
+  k: number;
+  oos_r2: number | null;
+  sf_stability: number | null;
+  constraints: OverviewConstraint[];
+}

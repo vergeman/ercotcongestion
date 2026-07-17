@@ -6,12 +6,14 @@ import type {
   ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
+  MapOverview,
 } from "./api/types";
 import {
   fetchTopology,
   fetchMapConstraints,
   fetchMapExposures,
   fetchMapReach,
+  fetchMapOverview,
 } from "./api/client";
 import {
   prefetchWindow,
@@ -78,6 +80,9 @@ export default function App() {
   // time-indexed. `null` while loading or on 503 (map renders without it).
   const [constraints, setConstraints] = useState<ConstraintGeo[] | null>(null);
   const [showConstraints, setShowConstraints] = useState(true);
+  // The de-piled overview (top-N constraints at their |SF|² cores + type). Fetched
+  // once per refit; when present it replaces the flat centroid overlay on the map.
+  const [overview, setOverview] = useState<MapOverview | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -170,6 +175,9 @@ export default function App() {
     fetchMapConstraints()
       .then((c) => setConstraints(c))
       .catch(() => setConstraints(null));
+    fetchMapOverview(70, 6)
+      .then((o) => setOverview(o))
+      .catch(() => setOverview(null));
   }, []);
 
   // Merge the congestion + SPP caches into per-SP rows for the current hour.
@@ -423,6 +431,7 @@ export default function App() {
         highlightedConstraints={highlightedConstraints}
         onConstraintClick={handleConstraintClick}
         reach={reach}
+        overview={overview}
       />
       <div className="pane-badge">{badgeFor("PREDICTION · placeholder")}</div>
       <Legend
@@ -433,6 +442,7 @@ export default function App() {
         variant="palette-only"
         paneLabel="PREDICTION · placeholder (= actual)"
         constraintOverlay={showConstraints && !!constraints?.length}
+        overviewTypes={!!overview?.constraints.length}
       />
     </>
   );

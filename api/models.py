@@ -181,3 +181,42 @@ class ConstraintReach(BaseModel):
     peak_offrail: float | None = None
     binding_hours: int | None = None
     sps: list[ReachSp]
+
+
+class OverviewConstraint(BaseModel):
+    """One constraint in the de-piled overview (a ``/map/overview`` row).
+
+    Positioned at its ``core_lat``/``core_lon`` — the ``|SF|²``-weighted geometric
+    median, which sits on the constraint's strongest lobe rather than averaging to
+    the empty center the way ``lat``/``lon`` (the ``|SF|``-mean centroid) does.
+    ``ctype`` (``gtc``/``transmission``/``radial``) picks the mark's *form*;
+    ``nodes`` carries the signed top-K field the client draws the mark over and the
+    drill-down colors (the overview itself ignores the sign). ``core_lat``/``lon``
+    are NULL for an unlocatable constraint (holes stay holes).
+    """
+    constraint_key: str
+    ctype: str | None = None
+    binding_hours: int | None = None
+    max_abs_sf: float | None = None
+    core_lat: float | None = None
+    core_lon: float | None = None
+    lat: float | None = None          # |SF|-mean centroid, for reference
+    lon: float | None = None
+    nodes: list[ReachSp]
+
+
+class MapOverview(BaseModel):
+    """The whole overview for the current refit — top-``n`` constraints by binding
+    hours, each at its core with its type and signed top-``k`` node field.
+
+    One bulk payload so the client renders the de-piled map from a single window
+    slice; signed detail is caveated by ``oos_r2``/``sf_stability``.
+    """
+    run_id: str
+    window_start: datetime
+    window_end: datetime
+    n: int
+    k: int
+    oos_r2: float | None = None
+    sf_stability: float | None = None
+    constraints: list[OverviewConstraint]

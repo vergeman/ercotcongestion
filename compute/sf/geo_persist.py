@@ -28,7 +28,13 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.mu.geo import ZONES, constraint_geography, load_sp_geography
+from compute.mu.geo import (
+    ZONES,
+    constraint_core,
+    constraint_geography,
+    constraint_type,
+    load_sp_geography,
+)
 from compute.sf.panels import load_shadow_prices
 from compute.sf.persist import copy_constraint_geo_rows, delete_constraint_geo
 
@@ -113,6 +119,13 @@ def _window_geo(SF: pd.DataFrame, sp: pd.DataFrame, Mw: pd.DataFrame) -> pd.Data
     geo["peak_offrail"] = absSF.where(absSF < RAIL_CAP).max(axis=1).reindex(SF.index)
 
     geo["binding_hours"] = binding.reindex(SF.index).fillna(0).astype(int)
+
+    # Overview primitives (plan/0092-0002): the |SF|²-core the map de-piles to,
+    # and the type that picks its mark. Both summarise this same honest window.
+    core = constraint_core(SF, sp)
+    geo["core_lat"] = core["geo_core_lat"]
+    geo["core_lon"] = core["geo_core_lon"]
+    geo["ctype"] = constraint_type(geo)  # needs n_rail/peak_offrail, set above
     return geo
 
 
