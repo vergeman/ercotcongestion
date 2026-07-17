@@ -442,6 +442,7 @@ export default function App() {
         variant="palette-only"
         paneLabel="PREDICTION · placeholder (= actual)"
         constraintOverlay={showConstraints && !!constraints?.length}
+        overviewTypes={!!overview?.constraints.length}
       />
     </>
   );

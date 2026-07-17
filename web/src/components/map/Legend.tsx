@@ -21,7 +21,51 @@ interface Props {
   paneLabel?: string;
   // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
   // Shown only on the pane that carries the overlay, and only while it's on.
+  // Legacy centroid overlay only — mutually exclusive with `overviewTypes`.
   constraintOverlay?: boolean;
+  // When set, appends the de-piled overview's type key: three marks whose SHAPE
+  // (region / corridor / point) carries the constraint type, so identity never
+  // rides on hue alone (dataviz a11y). Replaces `constraintOverlay` when present.
+  overviewTypes?: boolean;
+}
+
+// The overview's type marks. Hue is validated (CVD ΔE 47+ between the three;
+// see plan/0092-0003) but the *shape* is the primary type channel — a colorblind
+// or monochrome reader still tells region from corridor from point.
+const OVERVIEW_TYPES: {
+  label: string;
+  mark: "region" | "corridor" | "point";
+  color: string;
+}[] = [
+  { label: "GTC / interface — region", mark: "region", color: "#e0a83a" },
+  { label: "Transmission — corridor", mark: "corridor", color: "#a78bfa" },
+  { label: "Radial — point", mark: "point", color: "#2dd4bf" },
+];
+
+function TypeMark({
+  mark,
+  color,
+}: {
+  mark: "region" | "corridor" | "point";
+  color: string;
+}) {
+  return (
+    <svg width="18" height="12" className="legend__type-svg" aria-hidden="true">
+      {mark === "region" && (
+        <rect x="1" y="2" width="16" height="8" rx="4" fill={color} opacity="0.85" />
+      )}
+      {mark === "corridor" && (
+        <>
+          <line x1="2" y1="6" x2="16" y2="6" stroke={color} strokeWidth="2" />
+          <circle cx="2" cy="6" r="2" fill={color} />
+          <circle cx="16" cy="6" r="2" fill={color} />
+        </>
+      )}
+      {mark === "point" && (
+        <circle cx="9" cy="6" r="4" fill="none" stroke={color} strokeWidth="2" />
+      )}
+    </svg>
+  );
 }
 
 const HIST_BINS = 24;
@@ -40,6 +84,7 @@ export default function Legend({
   variant = "full",
   paneLabel,
   constraintOverlay = false,
+  overviewTypes = false,
 }: Props) {
   const isCongestion = viewMode === "congestion";
   const isLmp = viewMode === "lmp";
@@ -183,7 +228,21 @@ export default function Legend({
         </div>
       )}
 
-      {constraintOverlay && (
+      {overviewTypes && (
+        <div className="legend__types">
+          {OVERVIEW_TYPES.map((t) => (
+            <div key={t.mark} className="legend__type-row">
+              <TypeMark mark={t.mark} color={t.color} />
+              <span className="label legend__type-text">{t.label}</span>
+            </div>
+          ))}
+          <div className="legend__sub label">
+            shape = type · size ∝ binding hours · hover a node for its constraints
+          </div>
+        </div>
+      )}
+
+      {constraintOverlay && !overviewTypes && (
         <div className="legend__overlay">
           <span className="legend__overlay-dot" />
           <span className="label legend__overlay-text">
@@ -256,6 +315,24 @@ export default function Legend({
           font-size: 9px;
           opacity: 0.55;
           line-height: 1.3;
+        }
+        .legend__types {
+          margin-top: 6px;
+          padding-top: 5px;
+          border-top: 1px solid var(--border);
+        }
+        .legend__type-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 2px;
+        }
+        .legend__type-svg {
+          flex-shrink: 0;
+        }
+        .legend__type-text {
+          font-size: 9px;
+          opacity: 0.85;
         }
         .legend__overlay {
           display: flex;
