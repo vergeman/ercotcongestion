@@ -38,6 +38,8 @@ from models import (
     ConstraintReach,
     ExposuresResponse,
     MapMeta,
+    MapOverview,
+    OverviewConstraint,
     ReachSp,
     SpExposure,
 )
@@ -255,4 +257,90 @@ def get_map_reach(
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=geo.get("binding_hours"),
         sps=sps,
+    )
+
+
+@router.get(
+    "/overview",
+    response_model=MapOverview,
+    summary="De-piled overview: top-n constraints at their |SF|² cores",
+)
+def get_map_overview(
+    n: int = Query(70, ge=1, le=500,
+                   description="Number of top constraints by binding hours."),
+    k: int = Query(16, ge=1, le=100,
+                   description="Top signed nodes per constraint (the mark's field)."),
+    min_frac: float = Query(
+        0.15, ge=0.0, le=1.0,
+        description="Noise floor: drop a constraint's nodes whose |SF| is below "
+        "this fraction of its peak |SF|, so a weakly-fit constraint's mark is its "
+        "real nodes, not the noise floor. Peak is constraint_geo.max_abs_sf.",
+    ),
+) -> MapOverview:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id, window_start = _resolve(cur)
+        meta = _meta_row(cur, run_id, window_start)
+
+        # The n heaviest constraints this window — the overview set. NULLS LAST so
+        # unlocatable ones don't crowd out located ones at the top.
+        cur.execute(
+            "SELECT constraint_key, ctype, binding_hours, max_abs_sf, "
+            "core_lat, core_lon, lat, lon "
+            "FROM constraint_geo "
+            "WHERE run_id = %s AND window_start = %s "
+            "ORDER BY binding_hours DESC NULLS LAST LIMIT %s",
+            (run_id, window_start, n),
+        )
+        rows = cur.fetchall()
+        keys = [r["constraint_key"] for r in rows]
+
+        # All nodes for those constraints in one indexed slice, ordered so the
+        # per-constraint top-k is a running head in Python. The magnitude floor is
+        # per-constraint (relative to each one's peak), so it's applied here, not
+        # in SQL. ANY(%s) keeps it to a single round-trip regardless of n.
+        by_key: dict[str, list[ReachSp]] = {key: [] for key in keys}
+        if keys:
+            cur.execute(
+                "SELECT constraint_key, settlement_point, sf "
+                "FROM implied_shift_factors "
+                "WHERE run_id = %s AND window_start = %s "
+                "AND constraint_key = ANY(%s) "
+                "ORDER BY constraint_key, abs(sf) DESC",
+                (run_id, window_start, keys),
+            )
+            coords = _sp_coords()
+            floors = {r["constraint_key"]: (min_frac * r["max_abs_sf"])
+                      if r["max_abs_sf"] else 0.0 for r in rows}
+            for r in cur.fetchall():
+                bucket = by_key[r["constraint_key"]]
+                if len(bucket) >= k or abs(r["sf"]) < floors[r["constraint_key"]]:
+                    continue
+                lat, lon = coords.get(r["settlement_point"], (None, None))
+                bucket.append(ReachSp(settlement_point=r["settlement_point"],
+                                      sf=r["sf"], lat=lat, lon=lon))
+
+        constraints = [
+            OverviewConstraint(
+                constraint_key=r["constraint_key"],
+                ctype=r["ctype"],
+                binding_hours=r["binding_hours"],
+                max_abs_sf=r["max_abs_sf"],
+                core_lat=r["core_lat"],
+                core_lon=r["core_lon"],
+                lat=r["lat"],
+                lon=r["lon"],
+                nodes=by_key[r["constraint_key"]],
+            )
+            for r in rows
+        ]
+
+    return MapOverview(
+        run_id=run_id,
+        window_start=meta["window_start"],
+        window_end=meta["window_end"],
+        n=n,
+        k=k,
+        oos_r2=meta["oos_r2"],
+        sf_stability=meta["sf_stability"],
+        constraints=constraints,
     )
