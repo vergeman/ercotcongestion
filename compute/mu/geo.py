@@ -239,6 +239,98 @@ def constraint_geography(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------
+# Overview primitives — the de-piled core and the type of each constraint
+# (plan/0092-0002). Summaries of the SAME honest per-window SF; no new fit.
+# --------------------------------------------------------------------------
+
+def _weiszfeld(lat: np.ndarray, lon: np.ndarray, w: np.ndarray,
+               iters: int = 64, tol: float = 1e-9) -> tuple[float, float]:
+    """Weighted geometric median (Weiszfeld) in a local planar frame — lon scaled
+    by cos of the mean latitude so degrees are near-isotropic — returned as
+    (lat, lon). Seeded at the weighted mean; the ``max(d, 1e-9)`` guards the
+    singularity when the iterate lands exactly on a node."""
+    X = np.column_stack([lat, lon * (kx := np.cos(np.radians(lat.mean())))])
+    m = np.average(X, axis=0, weights=w)
+    for _ in range(iters):
+        d = np.maximum(np.sqrt(((X - m) ** 2).sum(1)), 1e-9)
+        ww = w / d
+        m_new = (X * ww[:, None]).sum(0) / ww.sum()
+        if np.hypot(*(m_new - m)) < tol:
+            m = m_new
+            break
+        m = m_new
+    return float(m[0]), float(m[1] / kx)
+
+
+def constraint_core(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
+    """The constraint's intensity **core** — its `|SF|²`-weighted geometric median.
+
+    `constraint_geography` gives the `|SF|`-weighted *mean* centroid, which a
+    bimodal constraint averages into the empty middle between its two lobes (half
+    of all constraints land within 100 km of the state center). The geometric
+    median instead sits **on** the denser lobe, and squaring the weights pulls it
+    onto the strongest core — so the overview markers de-pile off the center
+    (`plan/0092-0002`, `spike/core_spike.py`).
+
+    Same contract as `constraint_geography`: one row per constraint in `SF`,
+    columns `geo_core_lat`/`geo_core_lon`. A constraint whose `|SF|` mass lands
+    entirely on settlement points we have no coordinates for gets **NaN, not a
+    fallback** — holes stay holes.
+    """
+    core_lat = np.full(len(SF), np.nan)
+    core_lon = np.full(len(SF), np.nan)
+    known = SF.columns.intersection(sp.index)
+    if known.empty:
+        return pd.DataFrame({"geo_core_lat": core_lat, "geo_core_lon": core_lon},
+                            index=SF.index)
+
+    g = sp.loc[known]
+    glat = g["lat"].to_numpy(float)
+    glon = g["lon"].to_numpy(float)
+    # |SF|² weights: magnitude only (where a constraint lives is a question about
+    # magnitude, per constraint_geography), squared to favour the strongest lobe.
+    W = SF[known].abs().to_numpy(float, copy=True)
+    W[~np.isfinite(W)] = 0.0
+    W = W ** 2
+
+    for i in range(len(SF)):
+        w = W[i]
+        m = w > 0
+        if not m.any():
+            continue
+        core_lat[i], core_lon[i] = _weiszfeld(glat[m], glon[m], w[m])
+
+    return pd.DataFrame({"geo_core_lat": core_lat, "geo_core_lon": core_lon},
+                        index=SF.index)
+
+
+def constraint_type(geo: pd.DataFrame) -> pd.Series:
+    """Classify each constraint's *form* from fields already derived per window,
+    so the overview can pick a mark: ``gtc`` / ``transmission`` / ``radial``.
+
+    * **gtc** — the contingency component of the `constraint_key`
+      (``constraint_name|contingency_name``) is ``BASE CASE``: a generic /
+      interface constraint with a large regional footprint (drawn as a region).
+    * **radial** — ``n_rail >= 1 AND peak_offrail < 0.25``: a rail with little
+      graded body beneath it, a pocket/resource (drawn as a point).
+    * **transmission** — everything else: a real line + real contingency,
+      co-located (drawn as an MST corridor).
+
+    Pure classifier over `geo` (indexed by `constraint_key`, with `n_rail` and
+    `peak_offrail` columns) — no coordinates, no new fit. Counts on the live
+    window: gtc 87, transmission 952, radial 5 (`spike/type_sign_probe.py`).
+    """
+    contingency = geo.index.to_series().str.split("|", n=1).str[-1].str.strip().str.upper()
+    nr = geo["n_rail"].fillna(0)
+    po = geo["peak_offrail"].fillna(0.0)
+
+    ctype = pd.Series("transmission", index=geo.index)
+    ctype[(nr >= 1) & (po < 0.25)] = "radial"
+    ctype[contingency == "BASE CASE"] = "gtc"  # last: a BASE CASE is always gtc
+    return ctype
+
+
+# --------------------------------------------------------------------------
 # The honest walk — the only way this module will produce an SF
 # --------------------------------------------------------------------------
 
