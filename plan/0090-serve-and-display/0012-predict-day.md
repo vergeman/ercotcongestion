@@ -49,8 +49,8 @@ Branch: feat/0012-predict-day
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `_predict_fold` extraction leaves `walk_forward`'s `(predictions, weekly)` byte-identical — existing `test`/`compare_base` bit-identity guards pass unchanged.
-* [ ] `predict_day(panel, D)` returns `(interval_ts, key, p_bind, mu_gbm)` for D's 24 h over exactly the keys present in `[D−train_days, D)` binding history; no row for a historyless key.
-* [ ] **Stage-1 reconciliation:** for a historic D inside a validated backtest span, `predict_day`'s `wp` for D equals the `wp` `walk_forward` produces for D (same trailing window) to tolerance — if they disagree, one fit path has drifted (spec §9).
-* [ ] Novelty count = number of keys enforced in D−1 data absent from the fit universe; returned/logged, non-fatal (spec §7).
-* [ ] `pytest` green; `propagate.py`, `features.py`, and the CLI untouched.
+* [x] `_predict_fold` extraction leaves `walk_forward`'s `(predictions, weekly)` byte-identical — existing `test`/`compare_base` bit-identity guards pass unchanged.
+* [x] `predict_day(panel, D)` returns `(interval_ts, key, p_bind, mu_gbm)` for D's 24 h over exactly the keys present in `[D−train_days, D)` binding history; no row for a historyless key.
+* [x] **Stage-1 reconciliation:** for a historic D inside a validated backtest span, `predict_day`'s `wp` for D equals the `wp` `walk_forward` produces for D (same trailing window) to tolerance — if they disagree, one fit path has drifted (spec §9).
+* [x] Novelty count = number of keys enforced in D−1 data absent from the fit universe; returned/logged, non-fatal (spec §7).
+* [x] `pytest` green; `propagate.py`, `features.py`, and the CLI untouched.
