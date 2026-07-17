@@ -517,9 +517,15 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     **Candidate universe = keys present in the trailing window's binding history.**
     A constraint the fit never saw bind has no target-encoded identity and no μ-head
     signal, so it gets no row rather than a silently-zero one — the coverage gap is
-    reported (see `predict_day`'s companion novelty count), not buried. The fit
-    itself uses the *full* train (every key's target encoding, every binder), exactly
-    as `walk_forward` does; only the scored rows are narrowed to the universe.
+    reported (the novelty count below), not buried. The fit itself uses the *full*
+    train (every key's target encoding, every binder), exactly as `walk_forward`
+    does; only the scored rows are narrowed to the universe.
+
+    **Novelty** is surfaced, not fatal: the number of keys *enforced* on D−1 (present
+    in the panel that day, whether or not they bound) that the fit universe never
+    saw bind — a constraint active right now with no history to learn from. It rides
+    on the result as `wp.attrs["novelty"]` / `wp.attrs["novel_keys"]` and is logged,
+    for 0013's run summary to widen bands or flag rather than silently zero them.
 
     Returns `wp` = the flat `(interval_ts, key, p_bind, mu_gbm)` frame
     `propagate_window` consumes — `mu_clim` and the realized labels are dropped from
@@ -532,21 +538,41 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     D = D.tz_localize(ts.tz) if D.tz is None else D.tz_convert(ts.tz)
     D = D.normalize()
 
+    def _empty(novel_keys: list[str]) -> pd.DataFrame:
+        out = pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
+        out.attrs["novelty"] = len(novel_keys)
+        out.attrs["novel_keys"] = novel_keys
+        return out
+
     lo, hi = D - pd.Timedelta(days=train_days), D + pd.Timedelta(days=1)
-    a, b, c = ts.searchsorted([lo, D, hi], side="left")
-    train, score = panel.iloc[a:b], panel.iloc[b:c]
+    p_lo, p_dm1, p_d, p_hi = ts.searchsorted(
+        [lo, D - pd.Timedelta(days=1), D, hi], side="left")
+    train, score = panel.iloc[p_lo:p_d], panel.iloc[p_d:p_hi]
     if train.empty or score.empty:
-        return pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
+        return _empty([])
 
     universe = pd.Index(
         train.index[train["y_bind"] == 1].get_level_values("key").unique())
+
+    # Enforced on D−1 = keys present in that day's rows (candidates ERCOT carried),
+    # bound or not. Those with no binding history in the fit universe are novel — a
+    # live constraint the model has no basis to score. `[p_dm1:p_d)` is D−1's slice.
+    enforced_dm1 = panel.index[p_dm1:p_d].get_level_values("key").unique()
+    novel_keys = sorted(enforced_dm1.difference(universe))
+    if novel_keys:
+        log.info("predict_day %s: %d novel key(s) enforced D−1 with no fit history",
+                 D.date(), len(novel_keys))
+
     score = score[score.index.get_level_values("key").isin(universe)]
     if score.empty:
-        return pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
+        return _empty(novel_keys)
 
     fold = _predict_fold(train, score, arms, seed)
-    return (fold[["p_bind", "mu_gbm"]].reset_index()
-            .loc[:, ["interval_ts", "key", "p_bind", "mu_gbm"]])
+    wp = (fold[["p_bind", "mu_gbm"]].reset_index()
+          .loc[:, ["interval_ts", "key", "p_bind", "mu_gbm"]])
+    wp.attrs["novelty"] = len(novel_keys)
+    wp.attrs["novel_keys"] = novel_keys
+    return wp
 
 
 # --------------------------------------------------------------------------
