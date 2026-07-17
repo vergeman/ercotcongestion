@@ -30,7 +30,12 @@ import numpy as np
 import pandas as pd
 
 from compute.mu.features import build_panel
-from compute.mu.mu_model import DEFAULT_TRAIN_DAYS, load_preds, predict_day
+from compute.mu.mu_model import (
+    DEFAULT_TRAIN_DAYS,
+    arms_for,
+    load_preds,
+    predict_day,
+)
 from compute.mu.propagate import (
     FORECAST_LAYER,
     N_DRAWS,
@@ -82,6 +87,7 @@ class ForecastResult:
     sf_mu: bytes
     novelty: int = 0
     novel_keys: list[str] = field(default_factory=list)
+    n_scored_keys: int = 0        # constraints predicted (in wp) — coverage numerator
 
 
 def _as_utc_day(D) -> pd.Timestamp:
@@ -171,7 +177,8 @@ def forecast_day(
     return ForecastResult(
         run_id=run_id, delivery_date=D.date(), panel=panel_out,
         SF=SF, E_mu=E_mu, sf_mu=sf_mu,
-        novelty=novelty, novel_keys=novel_keys)
+        novelty=novelty, novel_keys=novel_keys,
+        n_scored_keys=int(wp["key"].nunique()) if len(wp) else 0)
 
 
 def _write_nodal_npz(result: ForecastResult, path: str) -> None:
@@ -224,3 +231,79 @@ def persist_forecast(conn, result: ForecastResult, *,
     log.info("published %s nodal rows for %s under run_id=%s; pointer[%s] -> %s",
              f"{n:,}", D, run_id, FORECAST_LAYER, run_id)
     return n
+
+
+# --------------------------------------------------------------------------
+# CLI — the daily tick and single-day backfill on the identical path (spec §7)
+# --------------------------------------------------------------------------
+
+def _resolve_delivery_date(spec: str) -> pd.Timestamp:
+    """`tomorrow` → the next UTC day; else parse `YYYY-MM-DD` as a UTC day. Both go
+    through `_as_utc_day`, so the CLI and the daily cron share one code path."""
+    if spec == "tomorrow":
+        return _as_utc_day(pd.Timestamp.now(tz="UTC").normalize()
+                           + pd.Timedelta(days=1))
+    return _as_utc_day(spec)
+
+
+def _summary(result: ForecastResult) -> str:
+    """The run-log coverage/novelty line (spec §7): what the day covered and what it
+    could not. A sudden coverage drop is an ingest problem surfacing, not silent
+    skill loss — so it is reported every run, not buried."""
+    seen = result.n_scored_keys
+    cov = seen / (seen + result.novelty) if (seen + result.novelty) else float("nan")
+    sample = ", ".join(result.novel_keys[:5])
+    return (f"coverage: {result.SF.shape[0]} SF constraints x "
+            f"{len(result.panel.settlement_points)} SPs over "
+            f"{len(result.panel.ts)} h; scored {seen} keys, "
+            f"{result.novelty} novel (enforced D-1, no fit history; "
+            f"{cov:.1%} scored)"
+            + (f" — e.g. {sample}" if sample else ""))
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    import psycopg
+
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--delivery-date", required=True,
+                   help="'tomorrow' (the daily tick) or 'YYYY-MM-DD' (single-day "
+                        "backfill on the identical path)")
+    p.add_argument("--run-id", required=True,
+                   help="model version, e.g. mu-all-v1 — NOT the day (spec §4)")
+    p.add_argument("--to-db", action="store_true",
+                   help="persist + flip the pointer; omit for a dry run (compute "
+                        "and report only, nothing written)")
+    p.add_argument("--features", default="all",
+                   help="ablation arm set (default 'all' = the shipped lag+geo+wx)")
+    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
+    p.add_argument("--draws", type=int, default=N_DRAWS)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--npz-dir", default=None,
+                   help="also write the nodal + SF+mu npz here (disk of record, "
+                        "spec §5c); DB-only when omitted")
+    args = p.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    D = _resolve_delivery_date(args.delivery_date)
+    arms = arms_for(args.features)
+    dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
+           f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
+
+    with psycopg.connect(dsn) as conn:
+        result = forecast_day(conn, D, run_id=args.run_id,
+                              train_days=args.train_days, arms=arms,
+                              seed=args.seed, n_draws=args.draws)
+        log.info(_summary(result))
+        if args.to_db:
+            persist_forecast(conn, result, npz_dir=args.npz_dir)
+        else:
+            log.info("dry run (--to-db not set): nothing written, pointer unchanged")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
