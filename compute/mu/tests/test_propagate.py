@@ -370,7 +370,7 @@ def pg():
 
 
 def _panel_npz(tmp_path, name="panel.npz", n_hours=30, seed=0):
-    """A small real panel on disk: 30 UTC hours (spanning >1 CT operating day) ×
+    """A small real panel on disk: 30 UTC hours (spanning >1 UTC day) ×
     3 SPs, p50 offset from point so the two columns are provably distinct."""
     ts = pd.date_range("2025-06-01", periods=n_hours, freq="h", tz="UTC")
     sps = ["N0", "N1", "N2"]
@@ -437,20 +437,20 @@ def test_re_run_overwrites_prior_values_not_appends(pg, tmp_path):
 
 
 def test_delivery_date_scope_replaces_only_that_day(pg, tmp_path):
-    """With `delivery_date` set, only that operating day is cleared and written —
+    """With `delivery_date` set, only that UTC day is cleared and written —
     the single-day production path — leaving other days for the run untouched."""
     conn, run_id, _ = pg
     path = _panel_npz(tmp_path)
     df = load_nodal(path)
-    days = sorted(set(df["ts"].dt.tz_convert("America/Chicago").dt.date))
-    assert len(days) >= 2                             # the panel spans >1 CT day
+    days = sorted(set(df["ts"].dt.tz_convert("UTC").dt.date))
+    assert len(days) >= 2                             # the panel spans >1 UTC day
 
     nodal_to_db(path, conn, run_id=run_id); conn.commit()   # all days
     before = _count(conn, run_id)
     n = nodal_to_db(path, conn, run_id=run_id,
                     delivery_date=str(days[0]))       # rewrite just day 0
     conn.commit()
-    day0 = int((df["ts"].dt.tz_convert("America/Chicago").dt.date == days[0]).sum())
+    day0 = int((df["ts"].dt.tz_convert("UTC").dt.date == days[0]).sum())
     assert n == day0 < before
     assert _count(conn, run_id) == before             # other days survived
 
@@ -645,7 +645,7 @@ def test_sf_artifact_persist_is_idempotent_per_key(pg):
     and it round-trips back to the SF/E_mu that produced it (acceptance)."""
     conn, run_id, _ = pg
     SF, E_mu = _sf_mu(seed=5)
-    day = E_mu.index[0].tz_convert("America/Chicago").date()
+    day = E_mu.index[0].tz_convert("UTC").date()
 
     blob = persist_sf_mu_artifact(conn, SF, E_mu, run_id=run_id, delivery_date=day)
     conn.commit()

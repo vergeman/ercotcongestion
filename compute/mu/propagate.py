@@ -286,14 +286,22 @@ def parse_curated_days(spec: str | None) -> list[pd.Timestamp]:
     return days
 
 
-ERCOT_TZ = "America/Chicago"      # delivery_date = operating-day CT date of ts
 FORECAST_LAYER = "ercot"
 
 
 def _delivery_dates(ts: pd.Series) -> pd.Series:
-    """ERCOT operating day (CT-local date) for each tz-aware UTC hour — the
-    `forecast_nodal.delivery_date` and the idempotency scope for a re-run."""
-    return ts.dt.tz_convert(ERCOT_TZ).dt.date
+    """UTC calendar date of each tz-aware UTC hour — the `forecast_nodal`/
+    `forecast_sf_artifact` `delivery_date` and the idempotency scope for a re-run.
+
+    The whole stack below the API speaks UTC instants: every `interval_ts` is a
+    true UTC instant (migration 17 repaired the CT-as-UTC drift), the API coerces
+    to UTC, and the model slices the UTC-normalized index. `delivery_date` is
+    therefore the UTC date, not the ERCOT CT operating day — a UTC day's 24 hours
+    share one `delivery_date`, so a single-day write/scope is clean. (The DAM-close
+    vintage cutoff in `features.py` stays a CT wall-clock event; that pins each
+    covariate's *publication time* per interval and is independent of this label.)
+    """
+    return ts.dt.tz_convert("UTC").dt.date
 
 
 def nodal_to_db(npz_path: str, conn, *, run_id: str,
