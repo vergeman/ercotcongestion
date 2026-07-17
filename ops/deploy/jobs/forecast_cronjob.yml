@@ -1,0 +1,104 @@
+# Daily forecast_day tick: fit the current mu model and publish tomorrow's
+# nodal forecast + SF artifact, flipping forecast_current[ercot] last (spec §7).
+# Consumes what the ingest CronJob fetched (D-1 DAM shadow prices, D forecast
+# vintages); it does not fetch. A missing input is a fail-loud in 0013 — this
+# manifest must not mask it (no degraded path, backoffLimit 0).
+#
+# Hand-run / backfill a single historic day on the identical path:
+#   cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
+#   kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
+#     --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
+#     --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
+#     --env-from-configmap=api-config --env-from-secret=postgres-credentials \
+#     -- python -m compute.mu.forecast_day \
+#          --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
+# Same image + command as the daily tick; only --delivery-date changes (an
+# explicit YYYY-MM-DD instead of `tomorrow`). Drop --to-db for a dry run
+# (compute + report only, pointer untouched).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ercot-forecast
+  namespace: ercotstress
+spec:
+  # Daily at 17:00 UTC. Cron runs in the cluster's local timezone (k3s default:
+  # UTC), which is fixed year-round — so the CT wall-clock this fires at shifts
+  # with DST:
+  #   CDT (summer, UTC-5): 17:00 UTC = 12:00 CDT
+  #   CST (winter, UTC-6): 17:00 UTC = 11:00 CST
+  # Both land >=1h past DAM close (10:00 CT) and past the every-15-min ingest of
+  # D-1's DAM shadow prices, in BOTH DST states. The plan sketched 0 16, but
+  # 16:00 UTC = 10:00 CST in winter — exactly on close, zero margin — so this
+  # pads an hour past instead of sitting on it (spec §7, §10). If D-1 DAM lands
+  # later than observed, push this later; a too-early tick starves the job and
+  # 0013 fails it loud (prior pointer intact), never forecasts stale.
+  schedule: "0 17 * * *"
+
+  # If a previous run is still going, skip this slot. A refit + fit + propagate
+  # should never overlap itself.
+  concurrencyPolicy: Forbid
+
+  # Runs late if the cluster was offline; only catches up the most recent
+  # missed run. 5 min grace for a missed schedule.
+  startingDeadlineSeconds: 300
+
+  # Keep enough history to debug. Trim to avoid ETCD bloat.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+
+  jobTemplate:
+    spec:
+      # No retry within a scheduled run — the next daily tick is the retry, and
+      # the run is re-runnable by hand. A starved run (missing inputs) fails
+      # loud in 0013 and must NOT thrash into staleness.
+      backoffLimit: 0
+      # Hard timeout: SF refit + fit + propagate. Generous vs the ingest job.
+      activeDeadlineSeconds: 1800
+
+      template:
+        metadata:
+          labels:
+            app: ercot-forecast
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: forecast
+              # Same consolidated image as api / ingest.
+              image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+              # imagePullPolicy: Always
+              command:
+                - python
+                - -m
+                - compute.mu.forecast_day
+                - --delivery-date
+                - tomorrow
+                - --run-id
+                - mu-all-v1
+                - --to-db
+              env:
+                # Keep RSS near the true working set on this shared node. The mu
+                # fit fragments allocations across per-thread arenas and holds
+                # freed build-phase memory as RSS — enough to OOM a job whose
+                # live set is well under the limit. Mirrors compute_shell_pod.
+                - name: MALLOC_ARENA_MAX
+                  value: "2"
+                - name: MALLOC_TRIM_THRESHOLD_
+                  value: "0"
+              envFrom:
+                - configMapRef:
+                    name: api-config
+                - secretRef:
+                    name: postgres-credentials
+              resources:
+                # Memory-heavy: the panel-slice fit peaks ~16Gi on prod (0013).
+                # Request a working floor; cap with headroom above the observed
+                # peak so a bad day fails-loud rather than getting OOM-killed
+                # mid-write.
+                requests:
+                  cpu: "2"
+                  memory: "8Gi"
+                limits:
+                  cpu: "6"
+                  memory: "16Gi"
