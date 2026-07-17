@@ -20,6 +20,7 @@ and is independent of this day label (spec §5).
 """
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import tempfile
@@ -48,7 +49,7 @@ from compute.mu.propagate import (
     residual_pool,
     upsert_pointer,
 )
-from compute.mu.score import WINDOW_DAYS
+from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger(__name__)
@@ -127,12 +128,23 @@ def forecast_day(
          out-of-sample errors, strictly before D.
 
     Reads only; writes nothing and does not touch the pointer (the next commit adds
-    persistence). `M`/`C` are loaded over `[D−lookback, D)` **exclusive of D**, so
-    no read ever touches an interval ≥ D (spec §5 — the honest path).
+    persistence). `M`/`C` end at D **exclusive**, so no read ever touches an interval
+    ≥ D (spec §5 — the honest path).
     """
     D = _as_utc_day(D)
-    lookback = max(train_days, WINDOW_DAYS)
-    read_start = D - pd.Timedelta(days=lookback)
+    # Reproducing the validated model means reproducing how it built its TRAIN rows.
+    # The geo/wx arms fit a per-boundary SF/weather-response on
+    # `[boundary − WINDOW_DAYS, boundary)`; the boundary covering the earliest train
+    # day (`D − train_days`) sits up to `REFIT_DAYS` before it, so its fit window
+    # reaches back `train_days + WINDOW_DAYS + REFIT_DAYS`. All of the shadow prices,
+    # congestion, AND the system/weather panel (`build_panel` loads the last from its
+    # `start`) must span that whole depth — anything shallower leaves the early train
+    # margin with NaN geo/weather and short candidate history, the heads fit on
+    # different features, and the forward forecast silently diverges from the model
+    # the backtest validated (the reconciliation test, spec §9, pins this). The
+    # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
+    # rows are built only to give the arms their history and are then sliced off.
+    read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
     log.info("forecast_day %s  run_id=%s  arms=%s  train_days=%d",
              D.date(), run_id, ",".join(arms), train_days)
 
@@ -158,6 +170,16 @@ def forecast_day(
     if panel.empty:
         raise RuntimeError(f"empty feature panel for {D.date()} — no covariate "
                            f"vintage at DAM close (spec §8: fail, keep pointer)")
+    # `build_panel` needed the deep read-margin `[read_start, D − train_days)` only
+    # to give the geo/wx arms their per-boundary fit history; `predict_day` trains on
+    # `[D − train_days, D)` and never reads an earlier row (its `searchsorted` skips
+    # them). But they stay resident in the wide panel — ~2× the rows we use — and
+    # coexist with the ~3.3 GB float64 fold matrix in `_predict_fold`, the walk's
+    # peak-memory step, which tips a 16 GB node over. Drop them now; the fold fit and
+    # `wp` are byte-identical (those rows were already outside every window it reads).
+    keep_from = D - pd.Timedelta(days=train_days)
+    panel = panel.loc[panel.index.get_level_values("interval_ts") >= keep_from]
+    gc.collect()
     wp = predict_day(panel, D, train_days=train_days, arms=arms, seed=seed)
     novelty = int(wp.attrs.get("novelty", 0))
     novel_keys = list(wp.attrs.get("novel_keys", []))
@@ -169,6 +191,21 @@ def forecast_day(
             f"(spec §8: novel keys are surfaced, but an all-novel day has no map).")
     log.info("stage 1: panel %s rows, wp %d scored keys, novelty=%d",
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
+
+    # Stage 2 needs only `wp`, `M`, and `C` — never the feature `panel`. In one
+    # process `forecast_day` fuses two jobs the backtest runs separately (the
+    # mu_model walk that builds this panel, and the propagate walk that holds
+    # M/C), so their peaks would otherwise sum and OOM a 16 GB node. Free the wide
+    # feature panel now, and trim M/C to the only span stage 2 reads —
+    # `[D − WINDOW_DAYS, end)`, exactly what `propagate_window` slices to — so the
+    # earlier read-margin (built only to give the arms their history) is released.
+    # Output is byte-identical; this only drops dead weight before propagation.
+    del panel
+    fit_lo = D - pd.Timedelta(days=WINDOW_DAYS)
+    M = M.loc[M.index >= fit_lo]
+    if C is not None:
+        C = C.loc[C.index >= fit_lo]
+    gc.collect()
 
     # --- stage 2: propagation ------------------------------------------------
     rng = np.random.default_rng(seed)
@@ -215,11 +252,12 @@ def _write_nodal_npz(result: ForecastResult, path: str) -> None:
 
 
 def persist_forecast(conn, result: ForecastResult, *,
-                     npz_dir: str | None = None) -> int:
+                     npz_dir: str | None = None,
+                     layer: str = FORECAST_LAYER) -> int:
     """Land one day's forecast and flip this feature's own pointer **last** (§6).
 
     Order is the contract: `forecast_nodal` rows, then the `forecast_sf_artifact`
-    blob, then `upsert_pointer(forecast_current[ercot])`, then one `commit()`. The
+    blob, then `upsert_pointer(forecast_current[layer])`, then one `commit()`. The
     commit is the atomic publish — under MVCC a reader resolving the pointer sees
     the whole day or none of it, never a half-written panel; and any failure before
     the commit rolls the transaction back, leaving the **prior pointer intact** with
@@ -230,7 +268,9 @@ def persist_forecast(conn, result: ForecastResult, *,
     same `run_id` overwrites D's rows and blob and leaves the pointer where it is.
     `npz_dir` (optional) is the on-disk artifact of record (spec §5c) — the nodal and
     SF+μ npz land there too, byte-identical to the DB; omitted, only the DB is written
-    (a throwaway temp file carries the nodal panel into `COPY`). Returns rows written.
+    (a throwaway temp file carries the nodal panel into `COPY`). `layer` defaults to
+    the served `ercot` pointer; a test overrides it to a scratch layer so it never
+    touches the live one. Returns rows written.
     """
     D = result.delivery_date
     run_id = result.run_id
@@ -247,13 +287,13 @@ def persist_forecast(conn, result: ForecastResult, *,
         n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D)
         persist_sf_mu_artifact(conn, result.SF, result.E_mu,
                                run_id=run_id, delivery_date=D, npz_dir=npz_dir)
-        upsert_pointer(conn, FORECAST_LAYER, run_id)      # pointer LAST, before commit
+        upsert_pointer(conn, layer, run_id)               # pointer LAST, before commit
         conn.commit()                                     # the atomic flip
     finally:
         if tmp is not None:
             tmp.cleanup()
     log.info("published %s nodal rows for %s under run_id=%s; pointer[%s] -> %s",
-             f"{n:,}", D, run_id, FORECAST_LAYER, run_id)
+             f"{n:,}", D, run_id, layer, run_id)
     return n
 
 
