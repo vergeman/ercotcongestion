@@ -56,6 +56,7 @@ import psycopg
 
 from compute.config import PG_DSN
 
+from .config import REFIT_DAYS as DEFAULT_REFIT_DAYS, WINDOW_DAYS as DEFAULT_WINDOW_DAYS
 from .diagnostics import diagnostics_filename, refit_diagnostics
 from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from .panels import load_congestion_panel, load_shadow_prices
@@ -76,10 +77,9 @@ log = logging.getLogger("compute.sf.runner")
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
-# NOTE: the honest OOS re-sweep (plan/0082 S1.5) selects window=240 (with
-# λ=1.0, see fit.RIDGE_LAMBDA). Left at 60 here; adopt at S5 (promote a real run).
-DEFAULT_WINDOW_DAYS = 60
-DEFAULT_REFIT_DAYS = 7
+# Window/refit cadence come from the adopted operating point (`compute.sf.config`,
+# imported above): window=240 / refit=7 with λ=1.0 (fit.RIDGE_LAMBDA), the honest
+# OOS re-sweep's selection (plan/0082 S1.5), single-sourced with the μ forecast.
 DEFAULT_REF_METHOD = "system_lambda"
 DEFAULT_SF_THRESHOLD = 1e-3
 

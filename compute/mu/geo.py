@@ -70,13 +70,12 @@ log = logging.getLogger("compute.mu.geo")
 SP_COORDS = Path("/data/processed/settlement_points_geocoded.csv")
 SP_META = Path("/data/raw/ercot_geocode/Settlement_Points_06112026_122819.csv")
 
-# The SF operating point. Identical to `score.py`'s, and that is the point: the
-# geography a delivery day sees is drawn from the SAME fit the scoring harness will
-# use for the week that day belongs to.
-WINDOW_DAYS = 240
-REFIT_DAYS = 7
-LAM = 1.0
-MIN_HOURS = 25
+# The SF operating point, single-sourced in `compute.sf.config` — the same fit the
+# scoring harness uses for the week a delivery day belongs to. Identical to
+# `score.py`'s import, and that shared source is the point.
+from compute.sf.config import (  # noqa: E402
+    MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, WINDOW_DAYS,
+)
 STD_FLOOR = 100.0
 
 EARTH_R_KM = 6371.0

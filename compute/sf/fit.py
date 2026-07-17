@@ -17,15 +17,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# Defaults tuned via the sweep in `sweep_ibp.py` (see README "Trial
-# findings"). `min=25 / λ=0.1 / std_floor=100` on a 60-day / weekly-refit
-# schedule keeps p95(bp_ercot) around 0.55, mean R² ~0.985, and clip rate
-# below 0.03% of cells over the full 2025 shadow-price range.
-MIN_BINDING_HOURS = 25
-RIDGE_LAMBDA = 1e-1
-# NOTE: the honest OOS re-sweep (plan/0082 S1.5) selects RIDGE_LAMBDA=1.0 on a
+from .config import MIN_HOURS as MIN_BINDING_HOURS, RIDGE_LAMBDA
+
+# The admission floor (`min_hours`) and ridge (`λ`) are the adopted operating
+# point (`compute.sf.config`) — single-sourced so the μ forecast and the SF map
+# cannot drift. The sweep in `sweep_ibp.py` (see README "Trial findings")
+# originally tuned `min=25 / λ=0.1 / std_floor=100` on a 60-day / weekly-refit
+# schedule; the honest OOS re-sweep (plan/0082 S1.5) then selected λ=1.0 on a
 # 240-day window — better OOS R² (0.708→0.734), coverage (0.810→0.861), and
-# refit-horizon drift. Left at 1e-1 here; adopt at S5 (promote a real run).
+# refit-horizon drift — and that is what `config` now carries.
 # Constraints whose in-window shadow-price std is below this get treated
 # like zero-variance columns during standardization. Without the floor, a
 # near-quiet column's `1/scale` rescale inflates its coefficient into the

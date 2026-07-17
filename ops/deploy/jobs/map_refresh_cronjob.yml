@@ -18,8 +18,10 @@
 #
 # END is computed at fire time as tomorrow (exclusive), so today's DAM day (if
 # landed) is included; days not yet ingested contribute nothing and the runner
-# clips --end to available data. --ridge-lambda 1.0 is explicit: the module
-# default is 1e-1, the adopted operating point is 1.0.
+# clips --end to available data. The --window-days 240 / --refit-days 7 /
+# --ridge-lambda 1.0 / --min-binding-hours 25 flags are now belt-and-suspenders:
+# they equal the module defaults (compute.sf.config, the single operating point
+# shared with the forecast). Kept explicit so the served point is legible here.
 #
 # Hand-run / backfill on the identical path:
 #   cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
