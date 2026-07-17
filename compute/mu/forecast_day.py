@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -31,11 +32,16 @@ import pandas as pd
 from compute.mu.features import build_panel
 from compute.mu.mu_model import DEFAULT_TRAIN_DAYS, load_preds, predict_day
 from compute.mu.propagate import (
+    FORECAST_LAYER,
     N_DRAWS,
     NodalPanel,
+    _NodalAccumulator,
     build_sf_mu_artifact,
+    nodal_to_db,
+    persist_sf_mu_artifact,
     propagate_window,
     residual_pool,
+    upsert_pointer,
 )
 from compute.mu.score import WINDOW_DAYS
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
@@ -47,6 +53,14 @@ log = logging.getLogger(__name__)
 PREDS_PATH = os.path.join(os.path.dirname(__file__), "mu_preds.npz")
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
+
+# `run_id` names the MODEL VERSION, not the day (spec §4). Each daily run appends a
+# new `delivery_date` under the same `run_id`; the `forecast_current` pointer only
+# moves when the model *config* changes (arms, retune, RTC+B re-fit). Bump `run_id`
+# on any change that would make two days' forecasts non-comparable — that is what
+# keeps the whole forward track one queryable id and the scoreboard from splicing
+# two different models. A re-run of a day under an unchanged `run_id` is an
+# idempotent replace, and the pointer does not move.
 
 
 @dataclass
@@ -158,3 +172,55 @@ def forecast_day(
         run_id=run_id, delivery_date=D.date(), panel=panel_out,
         SF=SF, E_mu=E_mu, sf_mu=sf_mu,
         novelty=novelty, novel_keys=novel_keys)
+
+
+def _write_nodal_npz(result: ForecastResult, path: str) -> None:
+    """Serialize the in-memory `NodalPanel` to the flat vocab-coded npz `nodal_to_db`
+    reads — the exact format `walk()` streams, so a forward day and a backtest day
+    are byte-compatible on disk. `week` is the delivery day itself (one window)."""
+    sink = _NodalAccumulator()
+    sink.add(result.panel, pd.Timestamp(result.delivery_date, tz="UTC"))
+    sink.save(path)
+
+
+def persist_forecast(conn, result: ForecastResult, *,
+                     npz_dir: str | None = None) -> int:
+    """Land one day's forecast and flip this feature's own pointer **last** (§6).
+
+    Order is the contract: `forecast_nodal` rows, then the `forecast_sf_artifact`
+    blob, then `upsert_pointer(forecast_current[ercot])`, then one `commit()`. The
+    commit is the atomic publish — under MVCC a reader resolving the pointer sees
+    the whole day or none of it, never a half-written panel; and any failure before
+    the commit rolls the transaction back, leaving the **prior pointer intact** with
+    no degraded day written (spec §8).
+
+    Idempotent per `(run_id, delivery_date)`: `nodal_to_db`/`persist_sf_mu_artifact`
+    both replace-in-place scoped to the UTC delivery date, so a re-run of D under the
+    same `run_id` overwrites D's rows and blob and leaves the pointer where it is.
+    `npz_dir` (optional) is the on-disk artifact of record (spec §5c) — the nodal and
+    SF+μ npz land there too, byte-identical to the DB; omitted, only the DB is written
+    (a throwaway temp file carries the nodal panel into `COPY`). Returns rows written.
+    """
+    D = result.delivery_date
+    run_id = result.run_id
+    if npz_dir is None:
+        tmp = tempfile.TemporaryDirectory()
+        out_dir = tmp.name
+    else:
+        tmp = None
+        os.makedirs(npz_dir, exist_ok=True)
+        out_dir = npz_dir
+    try:
+        nodal_path = os.path.join(out_dir, f"nodal_{run_id}_{D.isoformat()}.npz")
+        _write_nodal_npz(result, nodal_path)
+        n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D)
+        persist_sf_mu_artifact(conn, result.SF, result.E_mu,
+                               run_id=run_id, delivery_date=D, npz_dir=npz_dir)
+        upsert_pointer(conn, FORECAST_LAYER, run_id)      # pointer LAST, before commit
+        conn.commit()                                     # the atomic flip
+    finally:
+        if tmp is not None:
+            tmp.cleanup()
+    log.info("published %s nodal rows for %s under run_id=%s; pointer[%s] -> %s",
+             f"{n:,}", D, run_id, FORECAST_LAYER, run_id)
+    return n
