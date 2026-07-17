@@ -50,6 +50,9 @@ import psycopg
 from scipy.stats import rankdata
 
 from compute.config import PG_DSN
+from compute.sf.config import (
+    REFIT_DAYS as DEFAULT_REFIT_DAYS, WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
+)
 from compute.sf.fit import (
     MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR, implied_shift_factors,
 )
@@ -64,8 +67,8 @@ log = logging.getLogger("compute.sf.eval")
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
-DEFAULT_WINDOW_DAYS = 60
-DEFAULT_REFIT_DAYS = 7
+# DEFAULT_WINDOW_DAYS / DEFAULT_REFIT_DAYS: the adopted operating point, imported
+# from `compute.sf.config` above (single-sourced with the μ forecast + map runner).
 SIGN_DEADBAND = 1.0   # $/MWh — ignore congestion-quiet node-hours
 
 

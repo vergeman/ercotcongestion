@@ -52,8 +52,7 @@ log = logging.getLogger("compute.mu.weather")
 # response to weather is exactly as stationary as its shift factors are, so measuring
 # it over a different span would be asserting something about persistence of
 # behaviour that nothing else in the project assumes.
-WINDOW_DAYS = 240
-REFIT_DAYS = 7
+from compute.sf.config import REFIT_DAYS, WINDOW_DAYS  # noqa: E402
 
 # A window this short cannot support a correlation worth having. Constraints in the
 # earliest training margin get NaN instead — a hole, honestly left.

@@ -50,11 +50,11 @@ from compute.sf.fit import implied_shift_factors
 
 log = logging.getLogger("compute.mu.score")
 
-# The adopted operating point (0082 S1.5 / R1). Not re-swept here.
-WINDOW_DAYS = 240
-REFIT_DAYS = 7
-LAM = 1.0
-MIN_HOURS = 25
+# The adopted operating point (0082 S1.5 / R1), single-sourced in
+# `compute.sf.config` so the μ forecast and the SF map cannot drift.
+from compute.sf.config import (  # noqa: E402
+    MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, WINDOW_DAYS,
+)
 STD_FLOOR = 100.0
 
 RTC_B = pd.Timestamp("2025-12-05", tz="UTC")   # the structural break
