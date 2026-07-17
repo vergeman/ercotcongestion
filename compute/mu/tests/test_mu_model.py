@@ -23,9 +23,9 @@ import pytest
 from compute.mu.mu_model import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
                                  fit_mu_climatology, load_preds, mu_head_verdict,
-                                 predict_mu_climatology, refit_boundaries,
-                                 reliability, save_preds, target_encoding,
-                                 walk_forward)
+                                 predict_day, predict_mu_climatology,
+                                 refit_boundaries, reliability, save_preds,
+                                 target_encoding, walk_forward)
 
 
 def _panel(n_days: int = 60, keys=("A|c", "B|c"), seed: int = 0) -> pd.DataFrame:
@@ -372,3 +372,49 @@ def test_mu_head_verdict_defaults_to_climatology_on_a_tie():
     """The plan pre-registered climatology as the backbone; the GBM must EARN it."""
     tie = pd.DataFrame({"mae_mu_clim": [10.0, 10.0], "mae_mu_gbm": [10.0, 10.0]})
     assert mu_head_verdict(tie).startswith("climatology")
+
+
+# --------------------------------------------- forward inference (0012, stage 1)
+
+def test_predict_day_reconciles_with_walk_forward():
+    """The decisive stage-1 test: forward inference must equal walk-forward on a day
+    both can see. `predict_day` is one `walk_forward` fold with the prediction block
+    narrowed to D's 24 h — so for a historic D that IS a refit-grid start, the same
+    trailing window fits the same heads, and the served predictions for D must be
+    bit-identical. If they drift, the extracted fold and the walk have diverged (the
+    single failure this branch exists to prevent).
+    """
+    panel = _panel(n_days=60)
+    D = refit_boundaries(panel, train_days=30, refit_days=7)[0]
+    preds, _ = walk_forward(panel, train_days=30, refit_days=7)
+
+    wp = predict_day(panel, D, train_days=30)
+
+    # The forecast granularity is the hour: 24 tz-aware hourly rows per scored key.
+    assert wp["interval_ts"].nunique() == 24
+    assert wp["interval_ts"].dt.tz is not None
+
+    wf = preds.reset_index()
+    day = wf[(wf["interval_ts"] >= D) & (wf["interval_ts"] < D + pd.Timedelta(days=1))]
+    assert set(wp["key"]).issubset(set(day["key"]))
+    for k in wp["key"].unique():
+        a = wp[wp["key"] == k].set_index("interval_ts").sort_index()
+        b = day[day["key"] == k].set_index("interval_ts").sort_index()
+        np.testing.assert_allclose(a["p_bind"].to_numpy(), b["p_bind"].to_numpy())
+        np.testing.assert_allclose(a["mu_gbm"].to_numpy(), b["mu_gbm"].to_numpy())
+
+
+def test_predict_day_drops_historyless_key_and_counts_novelty():
+    """A constraint with no binding history gets no row, and is counted — not
+    silently zeroed. In the fixture B binds never but is enforced (present) every
+    day, so it is the coverage gap: absent from the scored `wp`, surfaced as novelty.
+    """
+    panel = _panel(n_days=60)
+    D = refit_boundaries(panel, train_days=30, refit_days=7)[0]
+
+    wp = predict_day(panel, D, train_days=30)
+
+    assert "A|c" in set(wp["key"])            # has binding history → scored
+    assert "B|c" not in set(wp["key"])        # no binding history → no row
+    assert wp.attrs["novelty"] == 1
+    assert wp.attrs["novel_keys"] == ["B|c"]
