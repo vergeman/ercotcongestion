@@ -85,13 +85,13 @@ Branch: feat/0092-0002-overview-core-and-type
 
 ## Acceptance
 
-* [ ] `constraint_core` returns the `|SF|²` geometric median; a constraint whose mass
+* [x] `constraint_core` returns the `|SF|²` geometric median; a constraint whose mass
   is all on uncoordinated nodes → NaN (parity with `constraint_geography`). A unit
   case with two lobes lands the core **on the heavier lobe**, not between them.
-* [ ] `constraint_type` labels the live window gtc 87 / transmission 952 / radial 5
+* [x] `constraint_type` labels the live window gtc 87 / transmission 952 / radial 5
   (matches `spike/type_sign_probe.py`).
-* [ ] A map refit persists `core_lat`, `core_lon`, `ctype` on `constraint_geo`;
+* [x] A map refit persists `core_lat`, `core_lon`, `ctype` on `constraint_geo`;
   migration applies clean; older runs read NULL without error.
-* [ ] `GET /map/overview?n=70&k=16` returns each constraint at its core with its
+* [x] `GET /map/overview?n=70&k=16` returns each constraint at its core with its
   type and its top-K signed nodes; unlocated constraints carry NULL core.
-* [ ] Positioning stays walk-forward-honest (per-window SF only); `pytest` green.
+* [x] Positioning stays walk-forward-honest (per-window SF only); `pytest` green.
