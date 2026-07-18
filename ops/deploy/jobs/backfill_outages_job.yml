@@ -45,9 +45,9 @@ spec:
             - python
             - /ercot_ingest/backfill_outages.py
             - --start
-            - "2024-12-11"
+            - "2026-06-15"
             - --end
-            - "2025-01-02"
+            - "2026-07-18"
             - --resume
           envFrom:
             - configMapRef:
