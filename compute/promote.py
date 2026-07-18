@@ -1,26 +1,11 @@
 """compute.promote — one command to flip a run to "live".
 
-Two selection planes serve the frontend today:
+The zonal/clustering frontend is filesystem-served: the scorecard JSON/NPZ
+and cluster labels sit on the shared runs volume, and which run/cell is
+served is decided by symlinks — no envs, no query params. This CLI flips
+those symlinks atomically.
 
-* Filesystem-served state (scorecard JSON/NPZ, cluster labels) sits on
-  the shared runs volume. Which run/cell is served is decided by
-  symlinks — no envs, no query params.
-* DB-served state (implied binding proximity rows) is selected by the
-  ``implied_binding_proximity_current[layer]`` pointer.
-
-Historically these were flipped separately (env-var change + rollout,
-``implied_binding_proximity.ingest --promote``). This CLI collapses both
-into a single op.
-
-For the IBP layer it does the *whole* job: it backfills the run's
-``bp_ercot.npz`` into ``implied_binding_proximity`` (the npz is
-authoritative — rows are re-synced from it) and flips the served pointer
-in one transaction. So a fresh run can be served end-to-end with just
-``--promote`` — no separate ``ingest``/``--ibp-persist`` step. When the npz
-is gone but rows are already persisted, it falls back to a bare pointer
-flip.
-
-Usage (inside the ``compute`` docker service; needs psycopg + db)::
+Usage (inside the ``compute`` docker service)::
 
     python -m compute.promote \
         --run-id v1-annual \
@@ -28,12 +13,8 @@ Usage (inside the ``compute`` docker service; needs psycopg + db)::
         --algo hierarchical_on_beta \
         --k 6
 
-Ordering: the IBP DB step (persist rows + flip pointer) runs first — it is
-the most failure-prone (DB, the system_lambda ref guard, a missing npz), so
-a failure there leaves the filesystem untouched. Then cell-level symlinks
-inside the run dir, then the top-level ``current`` link. Re-running
-converges: symlinks are idempotent, and the IBP rows are re-synced from the
-(unchanged) npz.
+Ordering: cell-level symlinks inside the run dir first, then the top-level
+``current`` link. Re-running converges — symlinks are idempotent.
 """
 from __future__ import annotations
 
@@ -42,12 +23,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-
-from compute.sf.ingest import ingest_run
-from compute.sf.persist import (
-    DEFAULT_LAYER,
-    promote_layer,
-)
 
 log = logging.getLogger("compute.promote")
 
@@ -100,7 +75,6 @@ def promote(
     algo: str,
     k: int,
     runs_root: Path,
-    layer: str = DEFAULT_LAYER,
     dry_run: bool = False,
 ) -> int:
     """Execute the promote steps. Returns process exit code."""
@@ -123,52 +97,6 @@ def promote(
             "compute.mapping.scorecard / compute.clustering.runner"
         )
         return 2
-
-    # IBP DB first — before any symlink flips. This step is the riskiest part
-    # of a promote (DB availability, the system_lambda ref guard, a missing
-    # npz), so doing it first means a failure here leaves the filesystem
-    # untouched rather than half-flipped. The run's bp_ercot.npz is
-    # authoritative: re-sync the served rows from it, then flip the pointer in
-    # the same transaction. This is what lets `--promote` (here and via
-    # run_pipeline) serve a fresh run end-to-end without a separate persist
-    # step. Falls back to a bare pointer flip when the npz is gone but rows are
-    # already persisted.
-    if dry_run:
-        log.info(
-            "DRY-RUN would persist ibp rows + promote layer=%s -> run_id=%s",
-            layer, run_id,
-        )
-        step3_writes = 1
-    else:
-        npz_path = run_dir / "ibp" / "bp_ercot.npz"
-        if npz_path.exists():
-            try:
-                n_rows = ingest_run(
-                    run_id, runs_root=runs_root, promote=True, layer=layer,
-                )
-            except ValueError as e:  # non-distributed-slack ref
-                log.error("%s", e)
-                return 2
-            log.info(
-                "persisted %d ibp rows + promoted DB layer=%s -> run_id=%s",
-                n_rows, layer, run_id,
-            )
-            step3_writes = 1
-        else:
-            # No artifact to backfill from — flip the pointer only if rows are
-            # already persisted (promote_layer raises otherwise).
-            try:
-                step3_writes = 1 if promote_layer(run_id, layer=layer) else 0
-            except ValueError as e:
-                log.error("%s", e)
-                return 2
-            if step3_writes:
-                log.info(
-                    "promoted DB layer=%s -> run_id=%s (npz absent; used "
-                    "existing rows)", layer, run_id,
-                )
-            else:
-                log.info("no change: DB layer=%s already at run_id=%s", layer, run_id)
 
     # Step 1: per-cell symlinks inside the run dir.
     step1_writes = 0
@@ -198,7 +126,7 @@ def promote(
         log.info("no change: %s -> %s", top_link, run_id)
         step2_writes = 0
 
-    total = step1_writes + step2_writes + step3_writes
+    total = step1_writes + step2_writes
     if total == 0:
         log.info("no changes — everything already at run_id=%s cell=%s/%s/k%d",
                  run_id, ref, algo, k)
@@ -216,7 +144,7 @@ def rel_target(link_rel: str, target_name: str) -> str:
 
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Flip a run to serving (symlinks + IBP DB pointer).",
+        description="Flip a run to serving (symlinks).",
     )
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--ref", required=True,
@@ -224,8 +152,6 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--algo", required=True,
                     help="Clustering algorithm (e.g. hierarchical_on_beta).")
     ap.add_argument("--k", type=int, required=True)
-    ap.add_argument("--layer", default=DEFAULT_LAYER,
-                    help=f"IBP DB layer to flip (default {DEFAULT_LAYER}).")
     ap.add_argument("--runs-root", type=Path,
                     default=Path(os.environ.get("COMPUTE_RUNS_DIR", "/compute/runs")),
                     help="Root directory holding <run_id> subdirs and 'current'.")
@@ -246,7 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         algo=args.algo,
         k=args.k,
         runs_root=args.runs_root,
-        layer=args.layer,
         dry_run=args.dry_run,
     )
 

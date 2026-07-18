@@ -5,7 +5,7 @@ prices against SPP congestion (`LMP − system_lambda`) on a rolling window,
 then scores each hour with `bp_ercot[h, sp] = max_c |SF[c, sp]|` over the
 constraints binding at that hour.
 
-Method background: `docs/implied_binding_proximity.md`.
+Method background: `docs/legacy/implied_binding_proximity.md`.
 
 ## Why `system_lambda` and not `zone_local_spp`
 
