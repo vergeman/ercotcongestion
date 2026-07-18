@@ -59,6 +59,7 @@ def rolling_bp(
     std_floor: float = STD_FLOOR,
     rho_min: float | None = None,
     on_refit_window: Callable[[RefitWindow], None] | None = None,
+    skip_window_starts: set[int] | None = None,
 ) -> None:
     """Refit every ``refit_days``, firing ``on_refit_window`` per boundary.
 
@@ -80,6 +81,12 @@ def rolling_bp(
         Callback receiving a ``RefitWindow`` after each fit — where the caller
         persists the SF matrix and per-window diagnostics without repeating the
         window-walking bookkeeping here.
+    skip_window_starts
+        Set of ``window_start`` ns-instants (``pd.Timestamp(ws).value``) to skip
+        entirely — neither fit nor fire the callback. ``window_start`` fully
+        determines a fit, so a boundary already persisted is byte-identical to
+        recompute; the incremental map runner passes the already-persisted
+        boundaries here so a weekly tick only fits the new ones.
     """
     M_all, C_all = _align(M_all, C_all)
     if M_all.empty:
@@ -103,6 +110,7 @@ def rolling_bp(
     if len(refit_starts) == 0:
         refit_starts = pd.DatetimeIndex([first_day])
 
+    skip = skip_window_starts or set()
     for refit_start in refit_starts:
         score_end = min(refit_start + refit_dt, last_day + day_dt)
         # Trailing `window_days` ending at the score-period end. This reflects
@@ -110,6 +118,11 @@ def rolling_bp(
         # at refit_days=1, matches the prototype's day-inclusive window.
         window_end = score_end
         window_start = window_end - window_dt
+
+        # Already-persisted boundary: same window_start → byte-identical fit, so
+        # skip the solve and the callback entirely (incremental map append).
+        if window_start.value in skip:
+            continue
 
         win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
         M_win = M_all.loc[win_mask]

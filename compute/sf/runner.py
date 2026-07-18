@@ -16,14 +16,23 @@ matrix into ``implied_shift_factors`` and one row per refit into
 ``sf_window_meta``, keyed by ``run_id``. Entries below ``--sf-threshold`` are
 dropped. This is what the downstream v3 map surfaces read.
 
+Incremental append (the default under ``--persist-sf``): a run fits and
+persists only the refit boundaries it does not already have — the
+already-persisted ``window_start``s are skipped in the fit loop, and only
+COMPLETE windows (a full ``refit_days`` week on the fixed grid) are written.
+The clamped terminal week is never persisted, so every persisted
+``window_start`` is immutable and the served map is the newest complete week,
+advancing one week per run. Pass ``--rebuild`` for an explicit full wipe +
+refit (the old delete-then-rewrite behavior).
+
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
     docker compose run --rm compute \
       python -m compute.sf.runner \
         --run-id <id> \
-        --start 2025-05-24 --end 2025-07-23 \
-        [--window-days 60] [--refit-days 7] \
-        --persist-sf
+        --start 2025-01-01 --end 2025-07-23 \
+        [--window-days 240] [--refit-days 7] \
+        --persist-sf [--rebuild]
 """
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
@@ -46,6 +56,7 @@ from .persist import (
     check_ref_method,
     copy_sf_rows,
     delete_sf_run,
+    existing_sf_windows,
     write_window_meta,
 )
 from .rolling import RefitWindow, rolling_bp
@@ -141,7 +152,12 @@ def main(argv: list[str] | None = None) -> int:
                         "solve (default: on).")
     p.add_argument("--persist-sf", action="store_true",
                    help="Write the per-refit SF matrix to implied_shift_factors "
-                        "(+ sf_window_meta) under this run_id.")
+                        "(+ sf_window_meta) under this run_id. Incremental by "
+                        "default: only new complete windows are fit + written.")
+    p.add_argument("--rebuild", action="store_true",
+                   help="With --persist-sf, wipe all SF/meta rows for this run_id "
+                        "first, then refit + persist every complete window from "
+                        "scratch. Omit for the default incremental append.")
     p.add_argument("--sf-threshold", type=float, default=DEFAULT_SF_THRESHOLD,
                    help=f"With --persist-sf, drop SF entries with |sf| below "
                         f"this (default {DEFAULT_SF_THRESHOLD}). The matrix is "
@@ -197,14 +213,30 @@ def main(argv: list[str] | None = None) -> int:
     # the on_refit callback that already carries SF.
     sf_conn = None
     sf_stats = {"windows": 0, "rows": 0}
+    # window_start ns-instants already persisted for this run_id — skipped in
+    # the fit loop and never re-COPYed. Empty under --rebuild (everything wiped).
+    existing_ns: set[int] = set()
     if args.persist_sf:
         check_ref_method(args.ref_method)
         sf_conn = psycopg.connect(PG_DSN)
-        n_sf, n_meta = delete_sf_run(sf_conn, args.run_id)
-        log.info(
-            "cleared %d prior SF rows / %d meta rows for run_id=%s",
-            n_sf, n_meta, args.run_id,
-        )
+        if args.rebuild:
+            # Full wipe then refit every complete window. The delete shares the
+            # fit loop's transaction (committed at the end), so the prior served
+            # window survives a crash mid-rebuild.
+            n_sf, n_meta = delete_sf_run(sf_conn, args.run_id)
+            log.info(
+                "--rebuild: cleared %d prior SF rows / %d meta rows for run_id=%s",
+                n_sf, n_meta, args.run_id,
+            )
+        else:
+            existing_ns = {
+                pd.Timestamp(ws).value for ws in existing_sf_windows(sf_conn, args.run_id)
+            }
+            log.info(
+                "incremental: %d window(s) already persisted for run_id=%s; "
+                "fitting only new complete boundaries",
+                len(existing_ns), args.run_id,
+            )
 
     def on_refit(window: RefitWindow) -> None:
         # Skip diagnostic emission for refit boundaries whose score period
@@ -226,21 +258,39 @@ def main(argv: list[str] | None = None) -> int:
             n_kept, n_dropped, n_clipped,
             f"{r2:.3f}" if r2 is not None else "nan",
         )
-        if sf_conn is not None:
-            ws = window.window_start.isoformat()
-            n = copy_sf_rows(sf_conn, args.run_id, ws, window.SF, args.sf_threshold)
-            write_window_meta(sf_conn, args.run_id, {
-                "window_start": ws,
-                "window_end": window.window_end.isoformat(),
-                "score_start": window.score_start.isoformat(),
-                "score_end": window.score_end.isoformat(),
-                "n_kept": n_kept,
-                "n_dropped": n_dropped,
-                "n_sf_clipped": n_clipped,
-                "fit_r2": r2,
-            })
-            sf_stats["windows"] += 1
-            sf_stats["rows"] += n
+        if sf_conn is None:
+            return
+        # Persist COMPLETE windows only. The refit grid is anchored at a fixed
+        # past date and steps forward, so the terminal window's score span is
+        # clamped to available data (< refit_days) → an off-grid window_start
+        # that would shift once more DAM lands. Skipping it makes every persisted
+        # window_start final; the served map is the newest complete week.
+        if (window.score_end - window.score_start) != timedelta(days=args.refit_days):
+            log.info(
+                "skip incomplete tail: window_start=%s score=[%s,%s) < %dd",
+                window.window_start.isoformat(), window.score_start.date(),
+                window.score_end.date(), args.refit_days,
+            )
+            return
+        # Belt-and-suspenders: skip_window_starts already prevents re-fitting an
+        # already-persisted boundary, so this never triggers on the incremental
+        # path — but it guarantees no re-COPY (no PK clash) if it ever did.
+        if pd.Timestamp(window.window_start).value in existing_ns:
+            return
+        ws = window.window_start.isoformat()
+        n = copy_sf_rows(sf_conn, args.run_id, ws, window.SF, args.sf_threshold)
+        write_window_meta(sf_conn, args.run_id, {
+            "window_start": ws,
+            "window_end": window.window_end.isoformat(),
+            "score_start": window.score_start.isoformat(),
+            "score_end": window.score_end.isoformat(),
+            "n_kept": n_kept,
+            "n_dropped": n_dropped,
+            "n_sf_clipped": n_clipped,
+            "fit_r2": r2,
+        })
+        sf_stats["windows"] += 1
+        sf_stats["rows"] += n
 
     rolling_bp(
         M, C,
@@ -251,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
         standardize=args.standardize,
         std_floor=args.std_floor,
         on_refit_window=on_refit,
+        skip_window_starts=existing_ns,
     )
 
     if sf_conn is not None:

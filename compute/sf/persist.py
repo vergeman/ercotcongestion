@@ -51,6 +51,23 @@ def delete_sf_run(conn, run_id: str) -> tuple[int, int]:
     return n_sf, n_meta
 
 
+def existing_sf_windows(conn, run_id: str) -> set:
+    """Return the DISTINCT ``window_start`` values already in ``sf_window_meta``
+    for ``run_id``.
+
+    The incremental map runner passes these (as ns-instants) to
+    ``rolling_bp(skip_window_starts=...)`` so a weekly tick re-fits only the new
+    complete boundaries — each ``window_start`` fully determines its fit, so an
+    already-persisted boundary is byte-identical to recompute.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT window_start FROM sf_window_meta WHERE run_id = %s",
+            (run_id,),
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
 def copy_sf_rows(
     conn,
     run_id: str,
