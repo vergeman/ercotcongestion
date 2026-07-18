@@ -99,7 +99,7 @@ The four knobs the runner and sweep share:
 The map runner (`python -m compute.jobs.weekly_map`) is the per-run CLI. It reads the
 panels for the requested date range, walks the rolling window, and:
 
-* writes `runs/<run_id>/ibp/diagnostics_YYYYMMDD.json` — one file per refit
+* writes `runs/<run_id>/sf/diagnostics_YYYYMMDD.json` — one file per refit
   boundary, with the fit's R² (overall and per-SP), kept/dropped constraint
   lists with binding-hour counts, and `n_sf_clipped` (SF entries the post-fit
   `[-1, 1]` cap caught);
@@ -111,7 +111,7 @@ panels for the requested date range, walks the rolling window, and:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--run-id` | *required* | Row key in `implied_shift_factors` / `sf_window_meta`; also `runs/<run_id>/ibp/` for diagnostics. |
+| `--run-id` | *required* | Row key in `implied_shift_factors` / `sf_window_meta`; also `runs/<run_id>/sf/` for diagnostics. |
 | `--start`, `--end` | from `reference_dates.json` | `[start, end)`; date-only, YYYY-MM-DD. `--start` is just the series origin. |
 | `--window-days` | `240` | Trailing window used for each fit. |
 | `--refit-days` | `7` | Days between successive fits. `1` reproduces the prototype's daily refit. |

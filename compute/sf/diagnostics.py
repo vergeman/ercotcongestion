@@ -1,7 +1,7 @@
 """Per-refit-window fit diagnostics.
 
-Emitted alongside ``bp_ercot.parquet`` so a reviewer can tell at a glance
-whether the fit on any given week is trustworthy: R² on the fit rows,
+Emitted per refit window (under ``runs/<run_id>/sf/``) so a reviewer can tell at
+a glance whether the fit on any given week is trustworthy: R² on the fit rows,
 per-SP R², the kept-constraint list with binding-hour counts, and the
 constraints dropped below ``--min-binding-hours``.
 

@@ -17,7 +17,7 @@ Everything is also split pre/post the RTC+B cutover (2025-12-05): DAM virtual AS
 can move the mu patterns, so a number pooled across it hides a regime change.
 
     docker compose run --rm compute python -m compute.sf.r3_verdict \\
-      --per-week /compute/sf/ibp_sweep_grouping_weekly.csv
+      --per-week /compute/sf/sf_sweep_grouping_weekly.csv
 """
 from __future__ import annotations
 
@@ -107,9 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nR3 = FAIL. Best arm rho_min={best.rho_min}: stability "
               f"{best.stability:.3f} vs control {best.control:.3f} "
               f"= {best.delta:+.3f}, short of +{STABILITY_BAR:.2f}.")
-        print("  Grouping does NOT ship as the fit unit. bp = max|SF| is "
-              "unaffected (a max over a block is already stable);\n  signed "
-              "per-group claims and the node explorer stay blocked.")
+        print("  Grouping does NOT ship as the fit unit; signed per-group "
+              "claims and the node explorer stay blocked.")
     else:
         print(f"\nR3 = PASS at rho_min ∈ {sorted(passed['rho_min'])}.")
     print("=" * 70)

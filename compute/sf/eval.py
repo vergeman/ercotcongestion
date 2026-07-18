@@ -1,7 +1,7 @@
 """Honest out-of-window evaluation of an SF configuration — the production
-home of what ``experiments/ibp_out_of_window`` proved as one-offs.
+home of what ``experiments/sf_out_of_window`` proved as one-offs.
 
-The production fit (``rolling.rolling_bp``) uses ``window_end = score_end``: the
+The production fit (``rolling.rolling_sf``) uses ``window_end = score_end``: the
 fit window CONTAINS the week it scores, giving an in-sample R2 ~0.986. This
 module fits on the trailing window ending STRICTLY BEFORE the scored week
 (``window_end = refit_start``) and scores the next ``refit_days`` from realized
@@ -73,7 +73,7 @@ SIGN_DEADBAND = 1.0   # $/MWh — ignore congestion-quiet node-hours
 
 
 # --------------------------------------------------------------- metric fns
-# Lifted verbatim from experiments/ibp_out_of_window (common.py,
+# Lifted verbatim from experiments/sf_out_of_window (common.py,
 # screening_and_coverage.py) so results stay directly comparable.
 
 def r2(y: np.ndarray, y_hat: np.ndarray) -> float:
@@ -431,7 +431,7 @@ def _parse_date(s: str) -> date:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--run-id", required=True,
-                   help="Labels the output CSV under runs/<run_id>/ibp/eval.csv.")
+                   help="Labels the output CSV under runs/<run_id>/sf/eval.csv.")
     p.add_argument("--start", type=_parse_date, required=True,
                    help="Inclusive first day to score (YYYY-MM-DD).")
     p.add_argument("--end", type=_parse_date, required=True,
@@ -517,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
                         "oos_r2 (score_start/refit misalignment, or out of the "
                         "eval range)", remaining, args.run_id)
 
-    out_dir = RUNS_ROOT / args.run_id / "ibp"
+    out_dir = RUNS_ROOT / args.run_id / "sf"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "eval.csv"
     df.to_csv(out_path, index=False)

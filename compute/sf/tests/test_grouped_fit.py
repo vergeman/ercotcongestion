@@ -15,7 +15,7 @@ import pytest
 
 from compute.sf.eval import evaluate
 from compute.sf.grouping import group_constraints
-from compute.sf.rolling import rolling_bp
+from compute.sf.rolling import rolling_sf
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
            "topdecile_hit", "coverage", "sf_stability", "n_kept"]
@@ -127,7 +127,7 @@ def test_linkage_cache_does_not_change_results(panels):
 def test_refit_window_carries_labels_and_fit_panel(panels):
     M, C = panels
     seen = []
-    rolling_bp(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
+    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
                rho_min=0.8, on_refit_window=seen.append)
     assert seen
     w = seen[0]
@@ -142,7 +142,7 @@ def test_refit_window_carries_labels_and_fit_panel(panels):
 def test_refit_window_ungrouped_fit_panel_is_the_raw_panel(panels):
     M, C = panels
     seen = []
-    rolling_bp(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
+    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
                on_refit_window=seen.append)
     w = seen[0]
     assert w.labels is None
