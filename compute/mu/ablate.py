@@ -267,9 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     out.to_csv(args.out, index=False)
     print(f"\nwrote {args.out}")
     if bands is not None:
-        bp = args.out.replace(".csv", "_bands.csv")
-        bands.to_csv(bp, index=False)
-        print(f"wrote {bp}")
+        bands_path = args.out.replace(".csv", "_bands.csv")
+        bands.to_csv(bands_path, index=False)
+        print(f"wrote {bands_path}")
     log.info("total %.0f min", (time.perf_counter() - t0) / 60)
     return 0
 

@@ -6,7 +6,7 @@ meaningful if every contender is measured the same way, and the numbers we have
 been quoting are **not**:
 
   * the pivot table (oracle 0.746 / climatology 0.235 / persistence 0.173) was
-    measured by the frozen `experiments/ibp_out_of_window` harness at
+    measured by the frozen `experiments/sf_out_of_window` harness at
     `window=60, λ=0.1` over 44 weeks of 2025;
   * the adopted operating point is `window=240, λ=1` (0082 S1.5);
   * the model scored 46 weeks, 2025-08-14 → 2026-06-25.
@@ -66,7 +66,7 @@ SOURCES = ["oracle", "model", "climatology", "persistence", "null"]
 # μ sources — the only thing that varies between rows
 # --------------------------------------------------------------------------
 # `mu_persistence` and `mu_climatology` are lifted verbatim from the frozen
-# `experiments/ibp_out_of_window/common.py`, on the same principle as `sf/eval`'s
+# `experiments/sf_out_of_window/common.py`, on the same principle as `sf/eval`'s
 # metric functions: the definitions must be the ones the pivot doc used, and this
 # module must not import from `experiments/`.
 
