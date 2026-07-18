@@ -36,8 +36,8 @@ Branch: feat/0098-map-basis-dual-view
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] App lands on the single basis view with the SF overlay on.
-* [ ] A toggle switches to dual compare; the SF overlay is off there by default and still toggleable.
-* [ ] Basis coloring equals predicted − market congestion on a diverging palette centered at 0.
-* [ ] `viewMode` and palette are independent — palette off/congestion/lmp behaves correctly in dual, and basis stays congestion-based regardless of palette.
-* [ ] The `DetailCard` shows predicted / market / basis in both views.
+* [x] App lands on the single basis view with the SF overlay on.
+* [x] A toggle switches to dual compare; the SF overlay is off there by default and still toggleable.
+* [x] Basis coloring equals predicted − market congestion on a diverging palette centered at 0.
+* [x] `viewMode` and palette are independent — palette off/congestion/lmp behaves correctly in dual, and basis stays congestion-based regardless of palette.
+* [x] The `DetailCard` shows predicted / market / basis in both views.
