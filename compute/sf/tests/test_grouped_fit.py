@@ -122,28 +122,6 @@ def test_linkage_cache_does_not_change_results(panels):
                                    rtol=1e-12, equal_nan=True)
 
 
-def test_rolling_bp_rho_min_one_is_a_noop(panels):
-    M, C = panels
-    kw = dict(window_days=14, refit_days=7, lam=1.0, min_hours=10)
-    base = rolling_bp(M, C, **kw)
-    same = rolling_bp(M, C, rho_min=1.0, **kw)
-    pd.testing.assert_frame_equal(base, same)
-
-
-def test_rolling_bp_grouped_changes_bp_but_keeps_shape(panels):
-    """bp = max_c |SF| over binding constraints. Grouping changes *which* rows
-    the max runs over, so the value may move — but the panel it produces is the
-    same shape, over the same hours and SPs."""
-    M, C = panels
-    kw = dict(window_days=14, refit_days=7, lam=1.0, min_hours=10)
-    base = rolling_bp(M, C, **kw)
-    grouped = rolling_bp(M, C, rho_min=0.8, **kw)
-    assert grouped.shape == base.shape
-    assert (grouped.index == base.index).all()
-    assert list(grouped.columns) == list(base.columns)
-    assert np.isfinite(grouped.to_numpy()).all()
-
-
 # ------------------------------------------------------------------- callback
 
 def test_refit_window_carries_labels_and_fit_panel(panels):

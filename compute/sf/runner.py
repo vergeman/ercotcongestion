@@ -1,10 +1,9 @@
-"""CLI for the implied-binding-proximity stage.
+"""CLI for the implied shift-factor (SF) stage.
 
 Reads NP4-191-CD shadow prices and DAM SPP congestion for the requested date
-range, fits ``C ≈ −M · SFᵀ`` on a rolling window (refit every
-``--refit-days``), and writes
+range, fits ``C ≈ −M · SFᵀ`` on a rolling window (refit every ``--refit-days``),
+and writes per-refit-window diagnostics to
 
-    runs/<run_id>/ibp/bp_ercot.npz         # bp_ercot[hour, sp]
     runs/<run_id>/ibp/diagnostics_YYYYMMDD.json   # per-refit-window
 
 Reference-price method is fixed at ``system_lambda`` (NP4-523-CD) —
@@ -12,26 +11,10 @@ distributed-slack, comparable to the model-side distributed-slack PTDFs from
 CM.7 / plan 0057. Other refs would need per-hour hub/load state that isn't
 required here.
 
-Output shape choice: npz, keyed off ``run_id`` under ``runs/<run_id>/ibp/``,
-mirrors ``compute.matrix`` and ``compute.clustering.runner``. bp_ercot is a
-function of the fit hyperparameters (window, refit cadence, ridge λ, etc.)
-so persisting to a DB column would either overwrite prior sweeps or need
-every param in the primary key. Per-run on-disk keeps sweep results
-addressable without design lock-in.
-
-DB persistence: pass ``--persist`` to also write the panel into
-``implied_binding_proximity`` (keyed by ``run_id``) so the API can serve it.
-Add ``--promote`` to flip ``implied_binding_proximity_current[layer]`` at
-the same time. Sweeps leave both flags off and stay on-disk-only. To
-backfill an npz already on disk without refitting, use
-``compute.sf.ingest`` — it shares the same
-``persist.py`` helpers.
-
-SF matrix persistence: pass ``--persist-sf`` (independent of ``--persist``)
-to also write the per-refit ``SF`` matrix into ``implied_shift_factors`` and
-one row per refit into ``sf_window_meta``, keyed by ``run_id``. Entries below
-``--sf-threshold`` are dropped. This is what downstream v3 surfaces read;
-``bp_ercot`` (scalar) is unaffected.
+SF matrix persistence: pass ``--persist-sf`` to write the per-refit ``SF``
+matrix into ``implied_shift_factors`` and one row per refit into
+``sf_window_meta``, keyed by ``run_id``. Entries below ``--sf-threshold`` are
+dropped. This is what the downstream v3 map surfaces read.
 
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
@@ -40,7 +23,7 @@ Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
         --run-id <id> \
         --start 2025-05-24 --end 2025-07-23 \
         [--window-days 60] [--refit-days 7] \
-        [--persist [--promote]]
+        --persist-sf
 """
 from __future__ import annotations
 
@@ -51,7 +34,6 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-import numpy as np
 import psycopg
 
 from compute.config import PG_DSN
@@ -61,13 +43,9 @@ from .diagnostics import diagnostics_filename, refit_diagnostics
 from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from .panels import load_congestion_panel, load_shadow_prices
 from .persist import (
-    DEFAULT_LAYER,
     check_ref_method,
-    copy_bp_rows,
     copy_sf_rows,
-    delete_run,
     delete_sf_run,
-    set_current_pointer,
     write_window_meta,
 )
 from .rolling import RefitWindow, rolling_bp
@@ -129,7 +107,9 @@ def _write_diagnostics(out_dir: Path, run_id: str, window: RefitWindow, min_hour
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # allow_abbrev=False so a stale `--persist` (the removed bp flag) errors
+    # rather than silently abbreviating to `--persist-sf`.
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     p.add_argument("--run-id", required=True)
     p.add_argument("--start", type=_parse_date, default=None,
                    help="Inclusive start date (YYYY-MM-DD). Default: min "
@@ -159,20 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-standardize", dest="standardize", action="store_false",
                    help="Skip per-column standardization of M before the ridge "
                         "solve (default: on).")
-    p.add_argument("--persist", action="store_true",
-                   help="Write the panel to implied_binding_proximity under "
-                        "this run_id. Makes the run available in the DB but "
-                        "does NOT change what the API serves.")
-    p.add_argument("--promote", action="store_true",
-                   help="Point implied_binding_proximity_current[--layer] at "
-                        "this run_id so the API starts serving it. Requires "
-                        "--persist (no-op otherwise).")
-    p.add_argument("--layer", default=DEFAULT_LAYER,
-                   help=f"Map layer --promote flips (default {DEFAULT_LAYER}).")
     p.add_argument("--persist-sf", action="store_true",
                    help="Write the per-refit SF matrix to implied_shift_factors "
-                        "(+ sf_window_meta) under this run_id. Independent of "
-                        "--persist; the bp path is unaffected either way.")
+                        "(+ sf_window_meta) under this run_id.")
     p.add_argument("--sf-threshold", type=float, default=DEFAULT_SF_THRESHOLD,
                    help=f"With --persist-sf, drop SF entries with |sf| below "
                         f"this (default {DEFAULT_SF_THRESHOLD}). The matrix is "
@@ -221,7 +190,6 @@ def main(argv: list[str] | None = None) -> int:
     # boundary comparisons so we don't hit naive-vs-aware TypeErrors.
     panel_tz = M.index.tz if hasattr(M.index, "tz") else None
     start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
-    end_ts = datetime.combine(end, datetime.min.time()).replace(tzinfo=panel_tz)
 
     # SF persistence (S0b) streams each refit window to the DB as it's fit,
     # inside one transaction opened before the fit loop and committed after.
@@ -274,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             sf_stats["windows"] += 1
             sf_stats["rows"] += n
 
-    bp = rolling_bp(
+    rolling_bp(
         M, C,
         window_days=args.window_days,
         refit_days=args.refit_days,
@@ -292,63 +260,6 @@ def main(argv: list[str] | None = None) -> int:
             "persisted SF: %d windows, %d rows into implied_shift_factors",
             sf_stats["windows"], sf_stats["rows"],
         )
-
-    # Trim to the requested [start, end) — the read window pulled extra
-    # trailing history to warm up the first refit.
-    if not bp.empty:
-        bp = bp.loc[(bp.index >= start_ts) & (bp.index < end_ts)]
-
-    if bp.empty:
-        log.error("no bp_ercot rows produced in [%s, %s)", start, end)
-        return 4
-
-    out_path = out_dir / "bp_ercot.npz"
-    # savez_compressed auto-appends .npz if missing, which confuses an
-    # atomic .tmp swap; open the tmp file explicitly so it lands where we say.
-    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-    with open(tmp, "wb") as f:
-        np.savez_compressed(
-            f,
-            hours=np.array([ts.isoformat() for ts in bp.index], dtype=str),
-            settlement_points=np.array(bp.columns.astype(str), dtype=str),
-            bp_ercot=bp.to_numpy(dtype=float),
-            params=np.array(json.dumps({
-                "window_days": args.window_days,
-                "refit_days": args.refit_days,
-                "min_binding_hours": args.min_binding_hours,
-                "ridge_lambda": args.ridge_lambda,
-                "std_floor": args.std_floor,
-                "ref_method": args.ref_method,
-                "standardize": bool(args.standardize),
-                "start": start.isoformat(),
-                "end": end.isoformat(),
-            }), dtype=str),
-        )
-    tmp.replace(out_path)
-    log.info(
-        "wrote %s: hours=%d SPs=%d", out_path, bp.shape[0], bp.shape[1],
-    )
-
-    if args.persist:
-        # Fail fast if the ref method won't be DB-compatible, before we open
-        # a connection or wipe prior rows.
-        check_ref_method(args.ref_method)
-        with psycopg.connect(PG_DSN) as conn:
-            n_deleted = delete_run(conn, args.run_id)
-            log.info("cleared %d prior rows for run_id=%s", n_deleted, args.run_id)
-            n_rows = copy_bp_rows(
-                conn, args.run_id,
-                [ts.isoformat() for ts in bp.index],
-                bp.columns.astype(str).tolist(),
-                bp.to_numpy(dtype=float),
-            )
-            log.info("copied %d rows into implied_binding_proximity", n_rows)
-            if args.promote:
-                set_current_pointer(conn, args.layer, args.run_id)
-                log.info("promoted layer=%s -> run_id=%s", args.layer, args.run_id)
-            conn.commit()
-    elif args.promote:
-        log.warning("--promote is a no-op without --persist; ignoring")
 
     return 0
 
