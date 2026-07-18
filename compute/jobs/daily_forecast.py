@@ -30,6 +30,12 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from compute.jobs.backfill_nodal import (
+    FORECAST_LAYER,
+    nodal_to_db,
+    persist_sf_mu_artifact,
+    upsert_pointer,
+)
 from compute.mu.features import build_panel
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
@@ -37,26 +43,28 @@ from compute.mu.mu_model import (
     load_preds,
     predict_day,
 )
-from compute.mu.propagate import (
-    FORECAST_LAYER,
+from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
+from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.project import (
+    MAP_RUN_ID,
+    MAX_SF_AGE_DAYS,
+    MIN_SF_COVERAGE,
     N_DRAWS,
     NodalPanel,
     _NodalAccumulator,
     build_sf_mu_artifact,
-    nodal_to_db,
-    persist_sf_mu_artifact,
+    load_forecast_sf,
     propagate_window,
     residual_pool,
-    upsert_pointer,
 )
-from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger(__name__)
 
 # The validated backtest's out-of-sample residuals, sampled to form the forward
-# error pool (panel spec §7). Module-relative so it resolves regardless of cwd.
-PREDS_PATH = os.path.join(os.path.dirname(__file__), "mu_preds.npz")
+# error pool (panel spec §7). The preds npz lives beside the μ library in
+# `compute/mu/`, so resolve it relative to this runner's parent regardless of cwd.
+PREDS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                          "mu", "mu_preds.npz")
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 
@@ -113,23 +121,30 @@ def forecast_day(
     seed: int = 0,
     n_draws: int = N_DRAWS,
     preds_path: str = PREDS_PATH,
+    map_run_id: str = MAP_RUN_ID,
+    max_sf_age_days: int = MAX_SF_AGE_DAYS,
+    min_sf_coverage: float = MIN_SF_COVERAGE,
 ) -> ForecastResult:
     """Fit the heads on the trailing window and forecast UTC delivery day D.
 
     Two stages (spec §3), reusing the validated fit path and the shared window
-    propagator unchanged:
+    propagator:
 
       1. **μ inference** — `build_panel` at the DAM-close vintage over
          `[D−train_days, D+1)`; `predict_day(panel, D)` fits both heads on the
          trailing window and predicts D's 24 hours (`wp`: `p_bind`, `mu_gbm`).
-      2. **propagation** — fit the SF map on `[D−WINDOW_DAYS, D)` and draw the nodal
-         panel through it via `propagate_window` in forward mode (no realized `Y`,
-         hours from D's UTC calendar). The residual pool is the validated backtest's
-         out-of-sample errors, strictly before D.
+      2. **propagation** — load the weekly map's persisted SF (run `map_run_id`) via
+         `load_forecast_sf` and draw the nodal panel through it with
+         `propagate_window` in forward mode (no realized `Y`, hours from D's UTC
+         calendar). No per-day SF refit (0095-0002): the map fits this SF weekly, it
+         is stationary within the refit interval, and the loader guards freshness /
+         coverage and fails loud (prior pointer intact) on a stale, missing, or
+         low-coverage map. The residual pool is the validated backtest's OOS errors,
+         strictly before D.
 
     Reads only; writes nothing and does not touch the pointer (the next commit adds
-    persistence). `M`/`C` end at D **exclusive**, so no read ever touches an interval
-    ≥ D (spec §5 — the honest path).
+    persistence). Every read — `M`/`C` end at D exclusive, and the SF window is
+    causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
     """
     D = _as_utc_day(D)
     # Reproducing the validated model means reproducing how it built its TRAIN rows.
@@ -192,14 +207,20 @@ def forecast_day(
     log.info("stage 1: panel %s rows, wp %d scored keys, novelty=%d",
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
 
-    # Stage 2 needs only `wp`, `M`, and `C` — never the feature `panel`. In one
-    # process `forecast_day` fuses two jobs the backtest runs separately (the
-    # mu_model walk that builds this panel, and the propagate walk that holds
-    # M/C), so their peaks would otherwise sum and OOM a 16 GB node. Free the wide
-    # feature panel now, and trim M/C to the only span stage 2 reads —
-    # `[D − WINDOW_DAYS, end)`, exactly what `propagate_window` slices to — so the
-    # earlier read-margin (built only to give the arms their history) is released.
-    # Output is byte-identical; this only drops dead weight before propagation.
+    # Load the weekly map's persisted SF instead of refitting it here (0095-0002).
+    # Causal (window_end ≤ D) and guarded: a stale / missing / low-coverage map
+    # raises, and no write has happened yet, so the prior pointer stays intact.
+    SF_map = load_forecast_sf(conn, D, wp, run_id=map_run_id,
+                              max_age_days=max_sf_age_days,
+                              min_coverage=min_sf_coverage)
+
+    # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature `panel`,
+    # and no longer M/C for an SF fit. In one
+    # process `forecast_day` still holds the wide feature panel that built `wp`;
+    # free it before propagation so the peak doesn't sum. With the SF now loaded
+    # (not fit), M/C no longer feed an SF solve — they're kept only so
+    # `propagate_window`'s forward-mode bookkeeping (`M_score`, empty for D) has a
+    # frame — so trim them to the recent tail to bound memory.
     del panel
     fit_lo = D - pd.Timedelta(days=WINDOW_DAYS)
     M = M.loc[M.index >= fit_lo]
@@ -216,11 +237,11 @@ def forecast_day(
     forward_hours = pd.date_range(D, periods=24, freq="h", tz="UTC")
     _, panel_out, SF, E_mu = propagate_window(     # forward mode → no metrics row
         s=D, end=D + pd.Timedelta(days=1), M=M, C=C, wp=wp, eps=eps,
-        n_draws=n_draws, rng=rng,
+        n_draws=n_draws, rng=rng, sf=SF_map,
         want_panel=True, want_sf_mu=True, forward_hours=forward_hours)
     if panel_out is None:
-        raise RuntimeError(f"propagation produced no panel for {D.date()} — empty "
-                           f"SF fit window or empty SF map (spec §8: fail loudly)")
+        raise RuntimeError(f"propagation produced no panel for {D.date()} — the "
+                           f"loaded SF map projected nothing (spec §8: fail loudly)")
     log.info("stage 2: SF %dx%d, panel %d hours x %d SPs",
              SF.shape[0], SF.shape[1], len(panel_out.ts),
              len(panel_out.settlement_points))
@@ -347,6 +368,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--npz-dir", default=None,
                    help="also write the nodal + SF+mu npz here (disk of record, "
                         "spec §5c); DB-only when omitted")
+    p.add_argument("--map-run-id", default=MAP_RUN_ID,
+                   help=f"weekly SF-map run to project through (default "
+                        f"{MAP_RUN_ID!r}); the forecast reads its persisted SF "
+                        f"instead of refitting (0095-0002)")
+    p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS,
+                   help=f"fail loud if the latest map window closes more than this "
+                        f"many days before D (default {MAX_SF_AGE_DAYS})")
+    p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE,
+                   help=f"fail loud if the map locates less than this share of D's "
+                        f"predicted binding mass (default {MIN_SF_COVERAGE})")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -360,7 +391,10 @@ def main(argv: list[str] | None = None) -> int:
     with psycopg.connect(dsn) as conn:
         result = forecast_day(conn, D, run_id=args.run_id,
                               train_days=args.train_days, arms=arms,
-                              seed=args.seed, n_draws=args.draws)
+                              seed=args.seed, n_draws=args.draws,
+                              map_run_id=args.map_run_id,
+                              max_sf_age_days=args.max_sf_age_days,
+                              min_sf_coverage=args.min_sf_coverage)
         log.info(_summary(result))
         if args.to_db:
             persist_forecast(conn, result, npz_dir=args.npz_dir)

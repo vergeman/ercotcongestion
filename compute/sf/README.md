@@ -96,7 +96,7 @@ The four knobs the runner and sweep share:
 
 ## Runner
 
-`runner.py` (`python -m compute.sf.runner`) is the per-run CLI. It reads the
+The map runner (`python -m compute.jobs.weekly_map`) is the per-run CLI. It reads the
 panels for the requested date range, walks the rolling window, and:
 
 * writes `runs/<run_id>/ibp/diagnostics_YYYYMMDD.json` — one file per refit
@@ -158,7 +158,7 @@ The weekly `ops/deploy/jobs/map_refresh_cronjob.yml` chains those three steps.
 
 ```bash
 docker compose run --rm compute \
-  python -m compute.sf.runner \
+  python -m compute.jobs.weekly_map \
     --run-id map-v1 \
     --start 2025-01-01 --end 2026-01-01 \
     --persist-sf

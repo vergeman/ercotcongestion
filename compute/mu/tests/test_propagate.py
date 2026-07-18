@@ -6,14 +6,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.propagate import (
-    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
-    build_sf_mu_artifact, draw_congestion, existence_test, gate, load_nodal,
-    load_sf_mu, materialize_drivers, nodal_to_db, node_drivers, parse_curated_days,
-    persist_sf_mu_artifact, propagate_window, residual_pool, save_sf_mu,
-    sf_artifact_to_db, upsert_pointer, walk,
+from compute.jobs.backfill_nodal import (
+    existence_test, gate, nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db,
+    upsert_pointer, walk,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
+from compute.sf.project import (
+    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
+    build_sf_mu_artifact, draw_congestion, load_nodal, load_sf_mu,
+    materialize_drivers, node_drivers, parse_curated_days, propagate_window,
+    residual_pool, save_sf_mu, sf_mass_coverage,
+)
 
 RNG = np.random.default_rng(11)
 KEYS = [f"C{i}|X" for i in range(5)]
@@ -201,6 +204,86 @@ def test_propagate_window_skips_when_the_fit_window_is_empty():
                                         M, C, wp, np.zeros(4, np.float32), 8,
                                         np.random.default_rng(0))
     assert row is None and panel is None
+
+
+# ------------------------------------------- injected (persisted) SF (0095-0002)
+
+def test_propagate_window_projects_through_injected_sf():
+    """With `sf=` given, the window uses that matrix verbatim (no refit) — the path
+    the forecast/backfill take reading the map's persisted SF. It bypasses the
+    empty-fit-window skip, and the returned SF is the injected object itself."""
+    s, end, M, C, wp, _ = _window_frames()
+    # Injected SF on the SAME node universe as C (the backtest row reads Y from C on
+    # SF.columns), keyed to the wp constraints — a persisted map, not a fresh fit.
+    nodes = list(C.columns[:3])
+    inj = pd.DataFrame(RNG.normal(0, 0.2, (4, len(nodes))),
+                       index=[f"K{i}|Z" for i in range(4)], columns=nodes)
+    _, panel, SF, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 16,
+                                       np.random.default_rng(0), want_panel=True,
+                                       want_sf_mu=True, sf=inj)
+    assert SF is inj                                  # used verbatim, never refit
+    assert list(panel.settlement_points) == list(inj.columns)
+
+    # An empty fit window would make the fitting path skip; the injected path does
+    # not touch M_fit, so it still projects.
+    s2 = M.index.max() + pd.Timedelta(days=365)
+    fh = pd.date_range(s2, periods=24, freq="h", tz="UTC")
+    _, panel2, SF2, _ = propagate_window(
+        s2, s2 + pd.Timedelta(days=REFIT_DAYS), M, C, wp, np.zeros(4, np.float32), 8,
+        np.random.default_rng(0), want_panel=True, want_sf_mu=True, sf=inj,
+        forward_hours=fh)
+    assert panel2 is not None and SF2 is inj
+
+
+def test_sf_mass_coverage_is_binding_mass_weighted():
+    """Coverage weights by predicted binding mass (p_bind·mu_gbm), not key count —
+    a covered key that dominates the mass carries it; a day that predicts no binding
+    is vacuously covered."""
+    wp = pd.DataFrame({"key": ["A", "B"], "p_bind": [1.0, 1.0], "mu_gbm": [90., 10.]})
+    SF = pd.DataFrame([[0.1]], index=["A"], columns=["N0"])
+    assert sf_mass_coverage(SF, wp) == pytest.approx(0.9)   # A holds 90 of 100 mass
+    quiet = pd.DataFrame({"key": ["A"], "p_bind": [0.0], "mu_gbm": [0.0]})
+    assert sf_mass_coverage(SF, quiet) == 1.0
+
+
+def test_load_forecast_sf_fails_loud_on_missing_stale_empty_or_low_coverage(monkeypatch):
+    """The shared-fit guard (0095-0002 acceptance): a missing / stale / empty /
+    low-coverage map raises so the caller keeps the prior pointer; a fresh,
+    covered window returns the SF to project through."""
+    import compute.sf.project as proj
+
+    Dd = pd.Timestamp("2025-09-15", tz="UTC")
+    wp = pd.DataFrame({"key": ["K0|Z", "K1|Z"], "p_bind": [0.8, 0.8],
+                       "mu_gbm": [50., 50.]})
+    SF = pd.DataFrame([[0.3, 0.1], [0.2, 0.4]], index=["K0|Z", "K1|Z"],
+                      columns=["N0", "N1"])
+
+    monkeypatch.setattr(proj, "resolve_sf_window", lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="no persisted SF window"):
+        proj.load_forecast_sf(None, Dd, wp)
+
+    we = Dd - pd.Timedelta(days=30)                    # closes 30d before D → stale
+    monkeypatch.setattr(proj, "resolve_sf_window",
+                        lambda *a, **k: (we - pd.Timedelta(days=240), we))
+    monkeypatch.setattr(proj, "load_window_sf", lambda *a, **k: SF)
+    with pytest.raises(RuntimeError, match="stale SF map"):
+        proj.load_forecast_sf(None, Dd, wp, max_age_days=14)
+
+    we2 = Dd - pd.Timedelta(days=3)                    # fresh from here on
+    monkeypatch.setattr(proj, "resolve_sf_window",
+                        lambda *a, **k: (we2 - pd.Timedelta(days=240), we2))
+    monkeypatch.setattr(proj, "load_window_sf", lambda *a, **k: pd.DataFrame())
+    with pytest.raises(RuntimeError, match="empty SF matrix"):
+        proj.load_forecast_sf(None, Dd, wp)
+
+    off = pd.DataFrame([[0.3]], index=["OTHER|Z"], columns=["N0"])   # covers neither key
+    monkeypatch.setattr(proj, "load_window_sf", lambda *a, **k: off)
+    with pytest.raises(RuntimeError, match="low SF coverage"):
+        proj.load_forecast_sf(None, Dd, wp, min_coverage=0.5)
+
+    monkeypatch.setattr(proj, "load_window_sf", lambda *a, **k: SF)
+    got = proj.load_forecast_sf(None, Dd, wp, max_age_days=14, min_coverage=0.5)
+    assert got is SF
 
 
 # -------------------------------------------------------- the nodal npz sink

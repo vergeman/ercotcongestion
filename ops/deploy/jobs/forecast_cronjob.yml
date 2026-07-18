@@ -10,7 +10,7 @@
 #     --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
 #     --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
 #     --env-from-configmap=api-config --env-from-secret=postgres-credentials \
-#     -- python -m compute.mu.forecast_day \
+#     -- python -m compute.jobs.daily_forecast \
 #          --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
 # Same image + command as the daily tick; only --delivery-date changes (an
 # explicit YYYY-MM-DD instead of `tomorrow`). Drop --to-db for a dry run
@@ -71,7 +71,7 @@ spec:
               command:
                 - python
                 - -m
-                - compute.mu.forecast_day
+                - compute.jobs.daily_forecast
                 - --delivery-date
                 - tomorrow
                 - --run-id
