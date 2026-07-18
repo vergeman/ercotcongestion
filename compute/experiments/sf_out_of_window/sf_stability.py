@@ -13,7 +13,7 @@ gap between the in-sample R2 (0.986) and the out-of-window R2 (0.746) in
 footnote.
 
     docker compose run --rm compute \
-      python -m compute.experiments.ibp_out_of_window.sf_stability
+      python -m compute.experiments.sf_out_of_window.sf_stability
 """
 from __future__ import annotations
 

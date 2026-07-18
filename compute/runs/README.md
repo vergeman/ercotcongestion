@@ -35,9 +35,9 @@ compute/runs/<run_id>/
     summary.json
     cluster_labels_<ref>_<algo>_k<K>.npz        # bus_id → cluster_id (per sweep row)
     zones_<ref>_<algo>_k<K>.geojson             # optional cluster polygons
-  ibp/
-    bp_ercot.npz                                # bp_ercot[hour, sp] + hours/settlement_points/params
+  sf/
     diagnostics_YYYYMMDD.json                   # one per refit boundary: R², kept/dropped constraints, n_sf_clipped
+    eval.csv                                     # honest out-of-window eval (compute.sf.eval)
 ```
 
 ## Sweep run_id naming
@@ -47,7 +47,7 @@ compute/runs/<run_id>/
 self-describing:
 
 ```
-ibp_sweep_w{window}_r{refit}_l{lambda:g}_s{std_floor:g}_h{min_hours}
+sf_sweep_w{window}_r{refit}_l{lambda:g}_s{std_floor:g}_h{min_hours}
               │        │           │             │             └── --min-binding-hours: drop constraints binding fewer hours in the window
               │        │           │             └── --std-floor: lower bound on per-column std used for standardization
               │        │           └── --ridge-lambda: L2 penalty on the standardized ridge solve
@@ -55,19 +55,19 @@ ibp_sweep_w{window}_r{refit}_l{lambda:g}_s{std_floor:g}_h{min_hours}
               └── --window-days: rolling fit window
 ```
 
-Example: `ibp_sweep_w60_r7_l0.001_s50_h100` is a 60-day window, weekly
+Example: `sf_sweep_w60_r7_l0.001_s50_h100` is a 60-day window, weekly
 refit, λ=1e-3, std_floor=50, min_binding_hours=100. Older sweep dirs may
 omit the `_s.._h..` suffix — those predate the std_floor/min_hours grid
 and used the fit.py defaults for those knobs.
 
-**Calibrated production combo:** `ibp_sweep_w60_r7_l0.1_s100_h25`
+**Calibrated production combo:** `sf_sweep_w60_r7_l0.1_s100_h25`
 (window=60, refit=7, λ=1e-1, std_floor=100, min_binding_hours=25). These
 are the values `fit.py` bakes in as defaults and what the runner produces
 when you don't override any knob. Ingest / promote this run_id (or one
 produced with the same knobs under a friendlier `run_id`) when serving to
 the API.
 
-See `compute/implied_binding_proximity/README.md` for what each knob means
+See `docs/legacy/implied_binding_proximity.md` for what each knob means
 and the "Trial findings" table for how these values were chosen.
 
 ## Which run reaches the API / frontend

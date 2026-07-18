@@ -4,7 +4,7 @@ Reads NP4-191-CD shadow prices and DAM SPP congestion for the requested date
 range, fits ``C ≈ −M · SFᵀ`` on a rolling window (refit every ``--refit-days``),
 and writes per-refit-window diagnostics to
 
-    runs/<run_id>/ibp/diagnostics_YYYYMMDD.json   # per-refit-window
+    runs/<run_id>/sf/diagnostics_YYYYMMDD.json   # per-refit-window
 
 Reference-price method is fixed at ``system_lambda`` (NP4-523-CD) —
 distributed-slack, comparable to the model-side distributed-slack PTDFs from
@@ -62,7 +62,7 @@ from compute.sf.persist import (
     existing_sf_windows,
     write_window_meta,
 )
-from compute.sf.rolling import RefitWindow, rolling_bp
+from compute.sf.rolling import RefitWindow, rolling_sf
 
 log = logging.getLogger("compute.jobs.weekly_map")
 
@@ -120,7 +120,7 @@ def _write_diagnostics(out_dir: Path, run_id: str, window: RefitWindow, min_hour
 
 
 def main(argv: list[str] | None = None) -> int:
-    # allow_abbrev=False so a stale `--persist` (the removed bp flag) errors
+    # allow_abbrev=False so a stale `--persist` (a removed legacy flag) errors
     # rather than silently abbreviating to `--persist-sf`.
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     p.add_argument("--run-id", required=True)
@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     run_dir = RUNS_ROOT / args.run_id
-    out_dir = run_dir / "ibp"
+    out_dir = run_dir / "sf"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if args.start is None or args.end is None:
@@ -294,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         sf_stats["windows"] += 1
         sf_stats["rows"] += n
 
-    rolling_bp(
+    rolling_sf(
         M, C,
         window_days=args.window_days,
         refit_days=args.refit_days,

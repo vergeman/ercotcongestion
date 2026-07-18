@@ -48,7 +48,7 @@ def _align(M: pd.DataFrame, C: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     return M.reindex(idx).fillna(0.0), C.reindex(idx)
 
 
-def rolling_bp(
+def rolling_sf(
     M_all: pd.DataFrame,
     C_all: pd.DataFrame,
     window_days: int = 60,

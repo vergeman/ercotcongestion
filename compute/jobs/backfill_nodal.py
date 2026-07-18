@@ -109,9 +109,7 @@ def nodal_to_db(npz_path: str, conn, *, run_id: str,
 
 
 def upsert_pointer(conn, layer: str, run_id: str) -> None:
-    """Flip `forecast_current[layer] = run_id`. Call ONLY after the rows land —
-    this feature's own pointer, mirroring `set_current_pointer` for the IBP map,
-    never the legacy `implied_binding_proximity_current`."""
+    """Flip `forecast_current[layer] = run_id`. Call ONLY after the rows land"""
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO forecast_current (layer, run_id) VALUES (%s, %s) "

@@ -1,4 +1,11 @@
-# Backfill ingest data from ERCOT for 2025-01-01 → 2026-05-07.
+# Backfill ingest data from ERCOT over the window set in `args` below.
+#
+# Runs two drivers in sequence:
+#   backfill.py            — whole-day windows for the public-report endpoints
+#                            (zonal_lmp, outages, loads, wind, solar, dam_spp,
+#                            dam_shadow, dam_lambda, sced_lambda).
+#   backfill_dam_close.py  — the single forecast vintage admissible at DAM close
+#                            (load/wind/solar 7-day forecasts).
 #
 # Usage:
 #   export IMAGE_REPO=12345.dkr.ecr.us-east-1.amazonaws.com
@@ -6,14 +13,12 @@
 #
 #   kubectl -n ercotstress logs -f job/backfill-ingest
 #
-# This script is idempotent. --resume reads ingest_log and skips any
-# (endpoint, day) pairs that already succeeded, so re-running fills only the
-# gaps. Adjust --start / --end below to bound a different window.
+# Both drivers are idempotent. --resume reads ingest_log and skips windows that
+# already succeeded, so re-running fills only the gaps. Adjust the --start /
+# --end in `args` below to bound a different window.
 #
-# Expected runtime: hours. ERCOT API is rate-limited; ~493 days × 10 endpoints
-# in the worst case (zonal_lmp, outages, loads, wind, solar, dam_spp,
-# dam_shadow, dam_lambda, sced_lambda, load_forecast). Resume mode means
-# most calls will be skipped if your DB already has data.
+# Expected runtime: hours on a cold DB. ERCOT API is rate-limited; resume mode
+# means most calls are skipped if your DB already has data.
 #
 # After it finishes:
 #   kubectl -n ercotstress delete job backfill-ingest
@@ -42,17 +47,16 @@ spec:
         - name: backfill
           image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
           imagePullPolicy: Always
-          command:
-            - python
-            #- /ercot_ingest/backfill.py
-            - /ercot_ingest/backfill_dam_close.py
-            - --start
-            - "2024-12-10"
-            - --end
-            - "2025-05-02"
-            - --resume
-            #- --endpoint
-            #- "dam_lambda"
+          command: ["/bin/sh", "-c"]
+          # Two ingest models, one Job. backfill.py pulls whole-day windows for the
+          # public-report endpoints; backfill_dam_close.py pulls the single forecast
+          # vintage admissible at DAM close. Both are idempotent (--resume reads
+          # ingest_log), so a mid-run failure re-runs cheaply. `&&` so the second
+          # stage is skipped if the first errors out hard.
+          args:
+            - |
+              python /ercot_ingest/backfill.py           --start 2026-06-01 --end 2026-07-18 --resume &&
+              python /ercot_ingest/backfill_dam_close.py --start 2026-06-01 --end 2026-07-18 --resume
           envFrom:
             - configMapRef:
                 name: api-config

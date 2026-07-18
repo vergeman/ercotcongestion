@@ -56,7 +56,7 @@ def existing_sf_windows(conn, run_id: str) -> set:
     for ``run_id``.
 
     The incremental map runner passes these (as ns-instants) to
-    ``rolling_bp(skip_window_starts=...)`` so a weekly tick re-fits only the new
+    ``rolling_sf(skip_window_starts=...)`` so a weekly tick re-fits only the new
     complete boundaries — each ``window_start`` fully determines its fit, so an
     already-persisted boundary is byte-identical to recompute.
     """

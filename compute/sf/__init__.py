@@ -1,9 +1,7 @@
-"""ERCOT-side implied binding proximity.
+"""ERCOT-side implied shift factors (SF).
 
 Fits `C ≈ −M · SFᵀ` (ridge) on the shadow-price / congestion panels published
-by NP4-191-CD and NP4-190-CD, then reports per-hour
-`bp_ercot[sp] = max_{c binding} |SF_implied[c, sp]|` for the map's ERCOT
-layer.
-
-See ``docs/legacy/implied_binding_proximity.md`` for the derivation.
+by NP4-191-CD and NP4-190-CD, recovering the per-constraint implied shift
+factors `SF[c, sp]` that map constraint shadow prices to nodal congestion.
+The map surfaces read these from ``implied_shift_factors``.
 """

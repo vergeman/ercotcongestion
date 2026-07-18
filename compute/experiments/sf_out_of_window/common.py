@@ -1,8 +1,8 @@
-"""Shared rig for the out-of-window IBP experiments.
+"""Shared rig for the out-of-window SF experiments.
 
 Every script here imports the production fit unmodified
 (`compute.sf.fit.implied_shift_factors`) and the
-production panels. The *only* departure from `rolling.rolling_bp` is the
+production panels. The *only* departure from `rolling.rolling_sf` is the
 window boundary:
 
     rolling.py:99-100 (production)   window_end = score_end

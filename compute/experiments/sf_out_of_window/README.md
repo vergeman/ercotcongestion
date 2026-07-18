@@ -1,4 +1,4 @@
-# ibp_out_of_window — validating the implied-SF matrix out of sample
+# sf_out_of_window — validating the implied-SF matrix out of sample
 
 The harness behind version 3 pivot; it answers one question the production stage
 cannot answer about itself: **is the SF matrix worth what its diagnostics say it
@@ -51,7 +51,7 @@ Run any of them (~4–8 min each; `sf_stability` is the slowest at 3 fits/week):
 
 ```bash
 docker compose run --rm compute \
-  python -m compute.experiments.ibp_out_of_window.oos_gate
+  python -m compute.experiments.sf_out_of_window.oos_gate
 ```
 
 ## Results
