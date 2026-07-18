@@ -36,9 +36,6 @@
 * `ingest_cronjob.sh`: starts a 15-min `live-updater.py` loop
   * check `ercot_ingest/proxy/worker.js`
 
-* `write_snapshots.sh`
-  * calls `snapshot_job.yml.template`: with params.
-
 
 ## Reset DB To local
 
