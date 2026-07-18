@@ -37,13 +37,13 @@ export interface ErcotSppRangeResponse {
   entries: ErcotSppRangeEntry[];
 }
 
-// The palette drives both panes (prediction left, actual ERCOT right). Each
-// mode picks the ERCOT quantity both panes render:
+// The palette selects the ERCOT quantity a map colors by. Each mode picks the
+// ERCOT quantity the pane renders:
 //   congestion → SPP − system_λ  (diverging palette)
 //   lmp        → raw DAM SPP      (LMP palette)
 //   off        → no SP fill; the map shows the SF overlay alone (overlay-only
 //                focus). The overlay stays independently toggleable.
-export type ViewMode = "congestion" | "lmp" | "off";
+export type Palette = "congestion" | "lmp" | "off";
 
 // Per-SP row for the current hour, merged from the congestion and SPP caches.
 // `sp_id` matches the topology feature's promoteId so the map can key

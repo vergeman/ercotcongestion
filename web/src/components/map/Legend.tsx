@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { SpRow, ViewMode } from "../../api/types";
+import type { SpRow } from "../../api/types";
+import type { Palette } from "../../api/types";
 import {
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
@@ -9,7 +10,7 @@ import {
 } from "../../lib/colors";
 
 interface Props {
-  viewMode: ViewMode;
+  palette: Palette;
   rows: SpRow[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
@@ -77,7 +78,7 @@ function formatDollar(v: number): string {
 }
 
 export default function Legend({
-  viewMode,
+  palette,
   rows,
   lmpStats,
   mcStats,
@@ -86,9 +87,9 @@ export default function Legend({
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
-  const isCongestion = viewMode === "congestion";
-  const isLmp = viewMode === "lmp";
-  const isOff = viewMode === "off";
+  const isCongestion = palette === "congestion";
+  const isLmp = palette === "lmp";
+  const isOff = palette === "off";
   const isPaletteOnly = variant === "palette-only";
 
   // SPP histogram for the *current snapshot*, binned in color-space so each

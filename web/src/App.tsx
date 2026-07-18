@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
-  ViewMode,
+  Palette,
   ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
@@ -58,7 +58,7 @@ export default function App() {
   // Prediction (left) and actual ERCOT (right) both render the quantity this
   // palette selects. Prediction is a placeholder that shows the same realized
   // values until the forecast lands (Phase 2); only the left source changes then.
-  const [viewMode, setViewMode] = useState<ViewMode>("congestion");
+  const [palette, setPalette] = useState<Palette>("congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -343,7 +343,7 @@ export default function App() {
   const handleSelectEvent = useCallback(
     (event: CuratedEvent) => {
       setActiveEventId(event.id);
-      if (event.suggested_view) setViewMode(event.suggested_view);
+      if (event.suggested_view) setPalette(event.suggested_view);
       handleLoadWindow(
         new Date(event.window_start),
         new Date(event.window_end),
@@ -527,7 +527,7 @@ export default function App() {
   const leftLmpStats = sppStats ?? forecastLmpStats;
 
   const litFor = (rows: SpRow[]) =>
-    rows.filter((r) => (viewMode === "lmp" ? r.spp != null : r.congestion != null))
+    rows.filter((r) => (palette === "lmp" ? r.spp != null : r.congestion != null))
       .length;
   const litCount = litFor(spRows);
   const badgeFor = (label: string, lit: number = litCount) =>
@@ -540,7 +540,7 @@ export default function App() {
   const paneProps = {
     points: spPoints,
     rows: spRows,
-    viewMode,
+    palette,
     lmpStats: sppStats,
     mcStats: congestionStats,
     onMapClick: handleMapBackgroundClick,
@@ -576,7 +576,7 @@ export default function App() {
         {badgeFor(predictionLabel, litFor(leftRows))}
       </div>
       <Legend
-        viewMode={viewMode}
+        palette={palette}
         rows={leftRows}
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
@@ -614,7 +614,7 @@ export default function App() {
       />
       <div className="pane-badge">{badgeFor("ERCOT · actual")}</div>
       <Legend
-        viewMode={viewMode}
+        palette={palette}
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
@@ -635,8 +635,8 @@ export default function App() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Header
-        viewMode={viewMode}
-        onViewMode={setViewMode}
+        palette={palette}
+        onPalette={setPalette}
         lastUpdated={lastUpdated}
         connectionState={connState}
         showConstraints={showConstraints}

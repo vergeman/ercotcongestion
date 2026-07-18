@@ -1,8 +1,8 @@
-import type { ViewMode } from "../../api/types";
+import type { Palette } from "../../api/types";
 
 interface Props {
-  viewMode: ViewMode;
-  onViewMode: (v: ViewMode) => void;
+  palette: Palette;
+  onPalette: (v: Palette) => void;
   lastUpdated: Date | null;
   connectionState: "ok" | "error" | "loading";
   // Constraint overlay toggle. Absent handler → the control is hidden (e.g.
@@ -12,8 +12,8 @@ interface Props {
 }
 
 export default function Header({
-  viewMode,
-  onViewMode,
+  palette,
+  onPalette,
   lastUpdated,
   connectionState,
   showConstraints,
@@ -35,20 +35,20 @@ export default function Header({
             Palette
           </span>
           <button
-            className={viewMode === "congestion" ? "active" : ""}
-            onClick={() => onViewMode("congestion")}
+            className={palette === "congestion" ? "active" : ""}
+            onClick={() => onPalette("congestion")}
           >
             Congestion
           </button>
           <button
-            className={viewMode === "lmp" ? "active" : ""}
-            onClick={() => onViewMode("lmp")}
+            className={palette === "lmp" ? "active" : ""}
+            onClick={() => onPalette("lmp")}
           >
             LMP
           </button>
           <button
-            className={viewMode === "off" ? "active" : ""}
-            onClick={() => onViewMode("off")}
+            className={palette === "off" ? "active" : ""}
+            onClick={() => onPalette("off")}
           >
             Off
           </button>
