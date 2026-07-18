@@ -45,6 +45,14 @@ export interface ErcotSppRangeResponse {
 //                focus). The overlay stays independently toggleable.
 export type Palette = "congestion" | "lmp" | "off";
 
+// The view axis, orthogonal to `Palette`. `basis` is the default landing view:
+// a single map colored by predicted − market congestion (the product thesis,
+// "where we disagree with the market"), SF overlay on. `dual` is the prediction
+// | ERCOT side-by-side compare, SF overlay off by default. Because both panes
+// subtract the same system-λ, LMP-basis collapses exactly to congestion-basis —
+// so basis is congestion-based regardless of the palette selection.
+export type ViewMode = "basis" | "dual";
+
 // Per-SP row for the current hour, merged from the congestion and SPP caches.
 // `sp_id` matches the topology feature's promoteId so the map can key
 // feature-state directly off it.

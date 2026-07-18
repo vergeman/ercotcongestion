@@ -3,6 +3,7 @@ import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
   Palette,
+  ViewMode,
   ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
@@ -45,19 +46,24 @@ interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
   // Which pane the node was touched on, so its card renders in that pane and
-  // reads that pane's quantity (prediction → forecast, actual → realized).
+  // (in dual) whether it shows SF drivers. The decomposition itself is
+  // side-independent — every card shows predicted / market / basis.
   side: "prediction" | "actual";
   spState: {
-    congestion: number | null;
-    spp: number | null;
+    predicted: number | null;
+    market: number | null;
+    basis: number | null;
+    marketSpp: number | null;
   } | null;
 }
 
 export default function App() {
   const [topology, setTopology] = useState<unknown | null>(null);
-  // Prediction (left) and actual ERCOT (right) both render the quantity this
-  // palette selects. Prediction is a placeholder that shows the same realized
-  // values until the forecast lands (Phase 2); only the left source changes then.
+  // Two orthogonal axes. `viewMode` picks the layout: `basis` (default landing)
+  // is a single map of predicted − market congestion; `dual` is the prediction |
+  // ERCOT compare. `palette` picks the ERCOT quantity the dual panes color by;
+  // basis is congestion-based regardless of palette.
+  const [viewMode, setViewMode] = useState<ViewMode>("basis");
   const [palette, setPalette] = useState<Palette>("congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -99,6 +105,11 @@ export default function App() {
     useState<ModeledCongestionStats | null>(null);
   const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
   const [forecastRunId, setForecastRunId] = useState<string | null>(null);
+  // Basis (predicted − market congestion) window-wide stats, for the diverging
+  // palette centered at 0 in the basis view. Computed once per window load from
+  // the forecast and realized caches; the per-hour basis rows are derived below.
+  const [basisStats, setBasisStats] =
+    useState<ModeledCongestionStats | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -244,6 +255,21 @@ export default function App() {
     );
   }, [currentIndex, timestamps]);
 
+  // Basis rows for the current hour: predicted − market congestion per SP,
+  // derived client-side from the two series already in state (no new API). An
+  // SP without both a forecast and a realized value rides through with a null
+  // basis. Empty when no forecast covers the hour (basis needs a prediction).
+  const basisRows = useMemo<SpRow[]>(() => {
+    if (!forecastRows.length) return [];
+    const marketById = new Map(spRows.map((r) => [r.sp_id, r.congestion]));
+    return forecastRows.map((f) => {
+      const m = marketById.get(f.sp_id);
+      const basis =
+        f.congestion != null && m != null ? f.congestion - m : null;
+      return { sp_id: f.sp_id, congestion: basis, spp: null };
+    });
+  }, [forecastRows, spRows]);
+
   const handleLoadWindow = useCallback(
     async (start?: Date, end?: Date, cursorTs?: Date) => {
       setLoading(true);
@@ -262,6 +288,10 @@ export default function App() {
           // no realized rows.
           const allFcCong: Array<number | null> = [];
           const allFcLmp: Array<number | null> = [];
+          // Basis side: predicted − market congestion per (SP, hour) where both
+          // are present, so the diverging basis palette is anchored to the basis
+          // magnitude range (not the market's).
+          const allBasis: Array<number | null> = [];
           for (const t of ts) {
             const c = getErcotCached(t);
             if (c) for (const s of c.sps) allCong.push(s.congestion);
@@ -277,6 +307,15 @@ export default function App() {
                     : null
                 );
               }
+            if (c && f) {
+              const marketById = new Map(
+                c.sps.map((cs) => [cs.sp_id, cs.congestion])
+              );
+              for (const sp of f.sps) {
+                const m = marketById.get(sp.sp_id);
+                if (sp.p50 != null && m != null) allBasis.push(sp.p50 - m);
+              }
+            }
           }
           setCongestionStats(
             allCong.length ? computeModeledCongestionStats(allCong) : null
@@ -287,6 +326,9 @@ export default function App() {
           );
           setForecastLmpStats(
             allFcLmp.length ? computeLmpStats(allFcLmp) : null
+          );
+          setBasisStats(
+            allBasis.length ? computeModeledCongestionStats(allBasis) : null
           );
           setForecastRunId(getForecastRunId());
 
@@ -370,15 +412,19 @@ export default function App() {
     handleLoadWindow(undefined, undefined, new Date());
   }, [handleLoadWindow]);
 
-  const spStateForSide = useCallback(
-    (spId: string, side: "prediction" | "actual") => {
-      // Each pane reads its own quantity: the prediction card shows the forecast
-      // rows (falling back to realized when no forecast covers the hour, same as
-      // the left map); the actual card shows the realized rows.
-      const rows =
-        side === "prediction" && forecastRows.length ? forecastRows : spRows;
-      const row = rows.find((r) => r.sp_id === spId);
-      return row ? { congestion: row.congestion, spp: row.spp } : null;
+  // The full predicted / market / basis decomposition for one SP — carried by
+  // every card in every view, so basis-default never hides raw magnitude.
+  // Side-independent: predicted from the forecast rows, market from the realized
+  // rows, basis = predicted − market when both exist.
+  const spDecomp = useCallback(
+    (spId: string) => {
+      const f = forecastRows.find((r) => r.sp_id === spId);
+      const m = spRows.find((r) => r.sp_id === spId);
+      const predicted = f?.congestion ?? null;
+      const market = m?.congestion ?? null;
+      const basis =
+        predicted != null && market != null ? predicted - market : null;
+      return { predicted, market, basis, marketSpp: m?.spp ?? null };
     },
     [forecastRows, spRows]
   );
@@ -393,9 +439,9 @@ export default function App() {
         setHoveredSp(null);
         return;
       }
-      setHoveredSp({ spId, props, side, spState: spStateForSide(spId, side) });
+      setHoveredSp({ spId, props, side, spState: spDecomp(spId) });
     },
-    [spStateForSide]
+    [spDecomp]
   );
   const handleSpHoverMain = useCallback(
     (spId: string | null, props: Record<string, unknown> | null) =>
@@ -422,7 +468,7 @@ export default function App() {
         spId,
         props,
         side: "prediction",
-        spState: spStateForSide(spId, "prediction"),
+        spState: spDecomp(spId),
       });
       const token = ++exposureReqRef.current;
       setExposures(null);
@@ -438,7 +484,7 @@ export default function App() {
           if (exposureReqRef.current === token) setExposuresLoading(false);
         });
     },
-    [spStateForSide]
+    [spDecomp]
   );
 
   // Actual-pane click: pin the node scoped to the realized values only — no SF
@@ -454,10 +500,10 @@ export default function App() {
         spId,
         props,
         side: "actual",
-        spState: spStateForSide(spId, "actual"),
+        spState: spDecomp(spId),
       });
     },
-    [spStateForSide]
+    [spDecomp]
   );
 
   const handleClearPinnedSp = useCallback(() => {
@@ -494,6 +540,14 @@ export default function App() {
     handleCloseReach();
   }, [handleClearPinnedSp, handleCloseReach]);
 
+  // Switch the view axis, applying that view's SF-overlay default: on in basis
+  // (the overlay is the basis mechanism), off in dual (a per-pane explainer).
+  // The manual overlay toggle then persists until the next view switch.
+  const handleViewMode = useCallback((v: ViewMode) => {
+    setViewMode(v);
+    setShowConstraints(v === "basis");
+  }, []);
+
   // Which constraint centroids glow on the overlay: the pinned node's drivers,
   // or the single constraint being reached.
   const highlightedConstraints = useMemo(() => {
@@ -503,13 +557,16 @@ export default function App() {
     return new Set<string>();
   }, [reach, exposures]);
 
-  // Keep a pinned SP's readout fresh as playback advances (its own pane's rows).
+  // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
     if (!pinnedSp) return;
-    const fresh = spStateForSide(pinnedSp.spId, pinnedSp.side);
+    const fresh = spDecomp(pinnedSp.spId);
+    const cur = pinnedSp.spState;
     if (
-      fresh?.congestion !== pinnedSp.spState?.congestion ||
-      fresh?.spp !== pinnedSp.spState?.spp
+      fresh.predicted !== cur?.predicted ||
+      fresh.market !== cur?.market ||
+      fresh.basis !== cur?.basis ||
+      fresh.marketSpp !== cur?.marketSpp
     ) {
       setPinnedSp({ ...pinnedSp, spState: fresh });
     }
@@ -632,9 +689,68 @@ export default function App() {
     </>
   );
 
+  // Basis view: a single full-width map colored by predicted − market congestion
+  // on the diverging palette (forced congestion, its own basis-anchored stats),
+  // SF overlay on. Interactions route through the prediction handlers so the card
+  // carries the decomposition + SF drivers, same as the dual left pane.
+  const basisLit = basisRows.filter((r) => r.congestion != null).length;
+  const basisLabel =
+    hasForecast && forecastRunId
+      ? `BASIS · forecast ${forecastRunId} − ERCOT`
+      : "BASIS · no forecast this window";
+  const basisPane = (
+    <>
+      <GridMap
+        points={spPoints}
+        rows={basisRows}
+        palette="congestion"
+        lmpStats={null}
+        mcStats={basisStats}
+        onMapClick={handleMapBackgroundClick}
+        selectedSpId={pinnedSp?.spId ?? null}
+        side="prediction"
+        onSpHover={handleSpHoverMain}
+        onSpClick={handleSpClickPrediction}
+        onMapReady={handleMainReady}
+        constraints={constraints}
+        showConstraints={showConstraints}
+        highlightedConstraints={highlightedConstraints}
+        onConstraintClick={handleConstraintClick}
+        reach={reach}
+        overview={overview}
+      />
+      <div className="pane-badge">{badgeFor(basisLabel, basisLit)}</div>
+      <Legend
+        palette="congestion"
+        rows={basisRows}
+        lmpStats={null}
+        mcStats={basisStats}
+        variant="full"
+        titleOverride="Basis · predicted − market ($/MWh)"
+        signLabels={{ neg: "pred < market", pos: "pred > market" }}
+        paneLabel={basisLabel}
+        constraintOverlay={showConstraints && !!constraints?.length}
+        overviewTypes={showConstraints && !!overview?.constraints.length}
+      />
+      {/* Basis card: the node's predicted / market / basis + its SF drivers. */}
+      <DetailCard
+        hoveredSp={hoveredSp?.side === "prediction" ? hoveredSp : null}
+        pinnedSp={pinnedSp?.side === "prediction" ? pinnedSp : null}
+        exposures={exposures}
+        exposuresLoading={exposuresLoading}
+        reach={reach}
+        onClose={handleClearPinnedSp}
+        onCloseReach={handleCloseReach}
+        onSelectConstraint={handleConstraintClick}
+      />
+    </>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Header
+        viewMode={viewMode}
+        onViewMode={handleViewMode}
         palette={palette}
         onPalette={setPalette}
         lastUpdated={lastUpdated}
@@ -655,11 +771,20 @@ export default function App() {
           position: "relative",
         }}
       >
-        {/* Paired split: left = prediction placeholder, right = actual ERCOT.
-            Both render the same quantity under the active palette. */}
+        {/* Basis = single map of predicted − market (default landing). Dual =
+            prediction | ERCOT split, both under the active palette. */}
         <div style={{ flex: 1, position: "relative" }}>
-          <CompareMap main={leftPane} right={rightPane} />
+          {viewMode === "basis" ? (
+            <div className="basis-single">{basisPane}</div>
+          ) : (
+            <CompareMap main={leftPane} right={rightPane} />
+          )}
           <style>{`
+            .basis-single {
+              width: 100%;
+              height: 100%;
+              position: relative;
+            }
             .pane-badge {
               position: absolute;
               top: 10px;

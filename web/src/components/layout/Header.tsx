@@ -1,6 +1,11 @@
-import type { Palette } from "../../api/types";
+import type { Palette, ViewMode } from "../../api/types";
 
 interface Props {
+  // The two orthogonal axes: `viewMode` picks basis vs dual compare; `palette`
+  // picks the ERCOT quantity the dual panes color by. The palette control is
+  // shown only in dual — basis is congestion-based regardless of palette.
+  viewMode: ViewMode;
+  onViewMode: (v: ViewMode) => void;
   palette: Palette;
   onPalette: (v: Palette) => void;
   lastUpdated: Date | null;
@@ -12,6 +17,8 @@ interface Props {
 }
 
 export default function Header({
+  viewMode,
+  onViewMode,
   palette,
   onPalette,
   lastUpdated,
@@ -32,27 +39,48 @@ export default function Header({
       <div className="header__controls">
         <div className="view-toggle">
           <span className="label" style={{ marginRight: 6 }}>
-            Palette
+            View
           </span>
           <button
-            className={palette === "congestion" ? "active" : ""}
-            onClick={() => onPalette("congestion")}
+            className={viewMode === "basis" ? "active" : ""}
+            onClick={() => onViewMode("basis")}
           >
-            Congestion
+            Basis
           </button>
           <button
-            className={palette === "lmp" ? "active" : ""}
-            onClick={() => onPalette("lmp")}
+            className={viewMode === "dual" ? "active" : ""}
+            onClick={() => onViewMode("dual")}
           >
-            LMP
-          </button>
-          <button
-            className={palette === "off" ? "active" : ""}
-            onClick={() => onPalette("off")}
-          >
-            Off
+            Dual
           </button>
         </div>
+
+        {/* Palette only bites in dual — basis is congestion-based regardless. */}
+        {viewMode === "dual" && (
+          <div className="view-toggle">
+            <span className="label" style={{ marginRight: 6 }}>
+              Palette
+            </span>
+            <button
+              className={palette === "congestion" ? "active" : ""}
+              onClick={() => onPalette("congestion")}
+            >
+              Congestion
+            </button>
+            <button
+              className={palette === "lmp" ? "active" : ""}
+              onClick={() => onPalette("lmp")}
+            >
+              LMP
+            </button>
+            <button
+              className={palette === "off" ? "active" : ""}
+              onClick={() => onPalette("off")}
+            >
+              Off
+            </button>
+          </div>
+        )}
 
         {onToggleConstraints && (
           <div className="view-toggle">
@@ -108,7 +136,12 @@ export default function Header({
           color: var(--accent);
         }
         .header__sub { color: var(--text-muted); margin-left: 4px; }
-        .header__controls { margin-left: auto; }
+        .header__controls {
+          margin-left: auto;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
         .view-toggle { display: flex; align-items: center; gap: 4px; }
         .header__status {
           display: flex;

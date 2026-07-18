@@ -20,6 +20,11 @@ interface Props {
   variant?: "full" | "palette-only";
   // Optional caption under the palette; distinguishes the two panes.
   paneLabel?: string;
+  // Basis view overrides: a custom palette title, and the diverging end labels
+  // (default "export (−)" / "import (+)" for congestion; basis relabels these to
+  // "pred < market" / "pred > market"). Both apply only to the congestion palette.
+  titleOverride?: string;
+  signLabels?: { neg: string; pos: string };
   // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
   // Shown only on the pane that carries the overlay, and only while it's on.
   // Legacy centroid overlay only — mutually exclusive with `overviewTypes`.
@@ -84,6 +89,8 @@ export default function Legend({
   mcStats,
   variant = "full",
   paneLabel,
+  titleOverride,
+  signLabels,
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
@@ -142,11 +149,15 @@ export default function Legend({
     ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
     : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)";
 
-  const title = isOff
-    ? "Palette off · overlay only"
-    : isCongestion
-    ? "Congestion · SPP − λ ($/MWh)"
-    : "DAM SPP / LMP ($/MWh)";
+  const title =
+    titleOverride ??
+    (isOff
+      ? "Palette off · overlay only"
+      : isCongestion
+      ? "Congestion · SPP − λ ($/MWh)"
+      : "DAM SPP / LMP ($/MWh)");
+  const negLabel = signLabels?.neg ?? "export (−)";
+  const posLabel = signLabels?.pos ?? "import (+)";
 
   return (
     <div className="legend">
@@ -184,8 +195,8 @@ export default function Legend({
             </span>
           </div>
           <div className="legend__labels">
-            <span className="label">export (−)</span>
-            <span className="label">import (+)</span>
+            <span className="label">{negLabel}</span>
+            <span className="label">{posLabel}</span>
           </div>
           <div className="legend__sub label">
             window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
