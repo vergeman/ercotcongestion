@@ -405,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                         "knobs (--refit-grid x --min-hours-grid) and report "
                         "novel-constraint latency, blind mu-mass and coverage "
                         "for each. Needs no ridge fits — the ACCURACY guard on "
-                        "any move comes from sweep_ibp, not from here.")
+                        "any move comes from sweep_sf, not from here.")
     p.add_argument("--refit-grid", default="1,3,7")
     p.add_argument("--min-hours-grid", default="5,10,25")
     p.add_argument("--out", type=str, default=None,
@@ -450,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
               "its first SF column.\nblind_mass_share = mu-mass that bound while "
               "the constraint still had no column.\nCurrent operating point is "
               f"refit=7, min_hours={DEFAULT_MIN_HOURS}. A move needs the OOS "
-              "accuracy guard from sweep_ibp.")
+              "accuracy guard from sweep_sf.")
         if args.out:
             grid.to_csv(args.out, index=False)
             log.info("wrote %s", args.out)

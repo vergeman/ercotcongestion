@@ -1,6 +1,6 @@
 """R3 verdict: does collinear grouping buy refit stability, and at what cost?
 
-Reads the per-week rows emitted by ``sweep_ibp --per-week-out`` and scores each
+Reads the per-week rows emitted by ``sweep_sf --per-week-out`` and scores each
 grouped arm against the **pre-registered bars** in plan/0083 — which were fixed
 before the numbers were seen and are not to be edited after (handoff §10).
 

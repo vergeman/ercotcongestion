@@ -147,7 +147,7 @@ Detail in `plan/version2-pivot-review.md` §7. In short:
 1. **These metrics belong in `diagnostics.py`**, emitted per refit alongside the
    existing in-sample R² — they are the only numbers in the pipeline that mean
    what the pivot needs them to mean.
-2. **`sweep_ibp.py` should select on them.** It currently selects on in-sample
+2. **`sweep_sf.py` should select on them.** It currently selects on in-sample
    `mean_r2` (monotone in `n_kept` — a degrees-of-freedom curve) plus `bp`
    percentiles and clip counts, i.e. on *cosmetics*. The production config was
    never calibrated against anything held out, so **0.746 is likely

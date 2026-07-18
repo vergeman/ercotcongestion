@@ -24,12 +24,12 @@ is measured on identical weeks and panels rather than quoted from another run.
 R3's stability bar is actually judged against.
 
     docker compose run --rm compute \\
-      python -m compute.sf.sweep_ibp \\
+      python -m compute.sf.sweep_sf \\
         --start 2025-01-01 --end 2026-01-01 \\
         [--window-days 60,120,240,365] [--refit-days 7,14] \\
         [--ridge-lambda 0.1,1,10,100,1000] [--rank-by oos_pooled_r2] \\
         [--rho-min none,0.7,0.8,0.9 --control] \\
-        [--out /compute/sf/ibp_sweep_summary.csv]
+        [--out /compute/sf/sf_sweep_summary.csv]
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from compute.config import PG_DSN
 from compute.sf.eval import evaluate, sf_decay
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
-log = logging.getLogger("compute.sf.sweep_ibp")
+log = logging.getLogger("compute.sf.sweep_sf")
 
 # Grids the pivot mandates: window/refit/λ across their effective ranges.
 # λ old default 0.1 vs XᵀX diag ≈1440 — decorative; extend up to where it bites.

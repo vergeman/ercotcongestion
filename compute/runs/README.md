@@ -42,7 +42,7 @@ compute/runs/<run_id>/
 
 ## Sweep run_id naming
 
-`compute.implied_binding_proximity.sweep_ibp` writes each grid point to a
+`compute.sf.sweep_sf` writes each grid point to a
 `run_id` that encodes the fit hyperparameters, so a directory listing is
 self-describing:
 
