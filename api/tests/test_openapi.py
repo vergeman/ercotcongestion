@@ -2,7 +2,7 @@
 
 After the 0090 teardown the OpenAPI surface carries only the kept endpoints'
 schemas. Locks in that the synthetic-grid / scorecard / IBP models are gone and
-the realized-ERCOT + meta models remain.
+the realized-ERCOT models remain.
 """
 from __future__ import annotations
 
@@ -24,17 +24,19 @@ def test_openapi_omits_deleted_schemas(client):
         # unused topology model + IBP set
         'TopologyResponse',
         'IbpErcotPoint', 'IbpErcotResponse', 'IbpErcotRangeEntry', 'IbpErcotRangeResponse',
+        # legacy zonal-map serving snapshot (removed in 0094-0001)
+        'MetaResponse',
     )
     for name in deleted:
         assert name not in schemas, f'{name} should have been removed'
 
 
-def test_openapi_keeps_realized_and_meta_schemas(client):
+def test_openapi_keeps_realized_schemas(client):
     r = client.get('/openapi.json')
     assert r.status_code == 200
     schemas = r.json()['components']['schemas']
 
-    for name in ('ErcotStateRangeResponse', 'ErcotSppRangeResponse', 'MetaResponse'):
+    for name in ('ErcotStateRangeResponse', 'ErcotSppRangeResponse'):
         assert name in schemas, f'{name} should be present'
 
 
