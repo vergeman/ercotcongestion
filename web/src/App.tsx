@@ -242,7 +242,7 @@ export default function App() {
   }, [currentIndex, timestamps]);
 
   const handleLoadWindow = useCallback(
-    async (start: Date, end: Date, cursorTs?: Date) => {
+    async (start?: Date, end?: Date, cursorTs?: Date) => {
       setLoading(true);
       setConnState("loading");
       try {
@@ -358,6 +358,14 @@ export default function App() {
     },
     [handleLoadWindow]
   );
+
+  // Landing view: no explicit window — the forecast's latest operating day
+  // defines the default window (prediction leads; the realized ranges are fetched
+  // to match), with the cursor snapped to now. Runs once; the user can then scrub
+  // or load a custom window. Placed after handleLoadWindow so its dep is in scope.
+  useEffect(() => {
+    handleLoadWindow(undefined, undefined, new Date());
+  }, [handleLoadWindow]);
 
   const spStateFor = useCallback(
     (spId: string) => {

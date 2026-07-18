@@ -1,7 +1,10 @@
 import type {
   ErcotSppRangeEntry,
+  ErcotSppRangeResponse,
   ErcotStateRangeEntry,
+  ErcotStateRangeResponse,
   ForecastRangeEntry,
+  ForecastRangeResponse,
 } from "./types";
 import {
   fetchErcotSppRange,
@@ -58,34 +61,69 @@ export function getForecastRunId(): string | null {
   return forecastRunId;
 }
 
-export async function prefetchWindow(start: Date, end: Date): Promise<void> {
-  const [ercotData, ercotSppData, forecastData] = await Promise.all([
-    fetchErcotStateRange(start, end),
-    fetchErcotSppRange(start, end),
-    fetchForecastRange(start, end),
+function ingestErcot(data: ErcotStateRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = normalizeInterval(entry.interval_ts);
+    // Multiple scenario-labeled hours can collapse to the same wall-clock
+    // interval; first write wins so we don't oscillate between scenarios.
+    const key = cacheKey(ts);
+    if (!ercotCache.has(key)) ercotCache.set(key, entry);
+  }
+}
+
+function ingestErcotSpp(data: ErcotSppRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    ercotSppCache.set(cacheKey(ts), entry);
+  }
+}
+
+function ingestForecast(data: ForecastRangeResponse | null): void {
+  if (!data) return;
+  forecastRunId = data.run_id;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    forecastCache.set(cacheKey(ts), entry);
+  }
+}
+
+// Load a window into the caches. With an explicit [start, end] (a history scrub)
+// all three ranges fetch in parallel. With no window — the default landing view —
+// the forecast leads: fetch the current run's latest operating day first, then
+// the realized ranges for the span its response reports, so the prediction pane
+// defines the day and realized is fetched to match. Returns the resolved window
+// for cursor placement, or null when there's nothing to show (no explicit window
+// and no forecast published).
+export async function prefetchWindow(
+  start?: Date,
+  end?: Date
+): Promise<{ start: Date; end: Date } | null> {
+  if (start && end) {
+    const [ercotData, ercotSppData, forecastData] = await Promise.all([
+      fetchErcotStateRange(start, end),
+      fetchErcotSppRange(start, end),
+      fetchForecastRange(start, end),
+    ]);
+    ingestErcot(ercotData);
+    ingestErcotSpp(ercotSppData);
+    ingestForecast(forecastData);
+    return { start, end };
+  }
+
+  const forecastData = await fetchForecastRange();
+  if (!forecastData) return null;
+  const winStart = new Date(forecastData.start);
+  const winEnd = new Date(forecastData.end);
+  const [ercotData, ercotSppData] = await Promise.all([
+    fetchErcotStateRange(winStart, winEnd),
+    fetchErcotSppRange(winStart, winEnd),
   ]);
-  if (ercotData) {
-    for (const entry of ercotData.entries) {
-      const ts = normalizeInterval(entry.interval_ts);
-      // Multiple scenario-labeled hours can collapse to the same wall-clock
-      // interval; first write wins so we don't oscillate between scenarios.
-      const key = cacheKey(ts);
-      if (!ercotCache.has(key)) ercotCache.set(key, entry);
-    }
-  }
-  if (ercotSppData) {
-    for (const entry of ercotSppData.entries) {
-      const ts = roundToInterval(new Date(entry.interval_ts));
-      ercotSppCache.set(cacheKey(ts), entry);
-    }
-  }
-  if (forecastData) {
-    forecastRunId = forecastData.run_id;
-    for (const entry of forecastData.entries) {
-      const ts = roundToInterval(new Date(entry.interval_ts));
-      forecastCache.set(cacheKey(ts), entry);
-    }
-  }
+  ingestErcot(ercotData);
+  ingestErcotSpp(ercotSppData);
+  ingestForecast(forecastData);
+  return { start: winStart, end: winEnd };
 }
 
 // Timeline axis is the union of the ERCOT and forecast caches' hours — any side

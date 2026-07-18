@@ -64,15 +64,20 @@ export async function fetchMapMeta(): Promise<MapMeta | null> {
 // Per-hour forecast congestion (P10/P50/P90) per SP over the window — the left
 // ("prediction") pane's fill, aligned to the same scrubber as the realized
 // ranges. Each hour carries its system-λ so predicted LMP = p50 + λ resolves on
-// the client. Same soft-fail contract: 503 (no forecast run published / no
-// hours in range) returns null so the pane falls back rather than erroring.
+// the client. Call with no args for the default landing view: the server returns
+// the current run's latest operating day, and the response's start/end define the
+// window the realized ranges are then fetched to match. Same soft-fail contract:
+// 503 (no forecast run published / no hours in range) returns null so the pane
+// falls back rather than erroring.
 export async function fetchForecastRange(
-  start: Date,
-  end: Date
+  start?: Date,
+  end?: Date
 ): Promise<ForecastRangeResponse | null> {
-  const r = await fetch(
-    `${BASE}/forecast_range?start=${start.toISOString()}&end=${end.toISOString()}`
-  );
+  const qs = new URLSearchParams();
+  if (start) qs.set("start", start.toISOString());
+  if (end) qs.set("end", end.toISOString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/forecast_range${suffix}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`forecast_range ${r.status}`);
   return r.json();
