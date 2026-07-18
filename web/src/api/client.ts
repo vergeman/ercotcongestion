@@ -1,6 +1,7 @@
 import type {
   ErcotStateRangeResponse,
   ErcotSppRangeResponse,
+  ForecastRangeResponse,
   MapMeta,
   ConstraintGeo,
   ExposuresResponse,
@@ -57,6 +58,23 @@ export async function fetchMapMeta(): Promise<MapMeta | null> {
   const r = await fetch(`${BASE}/map/meta`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/meta ${r.status}`);
+  return r.json();
+}
+
+// Per-hour forecast congestion (P10/P50/P90) per SP over the window — the left
+// ("prediction") pane's fill, aligned to the same scrubber as the realized
+// ranges. Each hour carries its system-λ so predicted LMP = p50 + λ resolves on
+// the client. Same soft-fail contract: 503 (no forecast run published / no
+// hours in range) returns null so the pane falls back rather than erroring.
+export async function fetchForecastRange(
+  start: Date,
+  end: Date
+): Promise<ForecastRangeResponse | null> {
+  const r = await fetch(
+    `${BASE}/forecast_range?start=${start.toISOString()}&end=${end.toISOString()}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`forecast_range ${r.status}`);
   return r.json();
 }
 

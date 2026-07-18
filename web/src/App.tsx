@@ -19,6 +19,8 @@ import {
   prefetchWindow,
   getErcotCached,
   getErcotSppCached,
+  getForecastCached,
+  getForecastRunId,
   getAvailableTimestamps,
 } from "./api/prefetch";
 import {
@@ -83,6 +85,17 @@ export default function App() {
   // The de-piled overview (top-N constraints at their |SF|² cores + type). Fetched
   // once per refit; when present it replaces the flat centroid overlay on the map.
   const [overview, setOverview] = useState<MapOverview | null>(null);
+  // Forecast side of the split map (left/prediction pane): per-hour P10/P50/P90
+  // congestion for the current forecast run, read hour-for-hour off the same
+  // scrubber as the realized right pane. `forecastRows` is the current hour;
+  // the stats are window-wide (computed once on load) so coloring is stable;
+  // `forecastRunId` labels which refit is serving (null → no forecast covered
+  // the window, pane falls back to the realized rows).
+  const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
+  const [forecastCongestionStats, setForecastCongestionStats] =
+    useState<ModeledCongestionStats | null>(null);
+  const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
+  const [forecastRunId, setForecastRunId] = useState<string | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -204,6 +217,30 @@ export default function App() {
     setSpRows(Array.from(byId.values()));
   }, [currentIndex, timestamps]);
 
+  // Forecast rows for the current hour: P50 → congestion (the fill), P50 + the
+  // hour's system-λ → spp (predicted LMP, the same reference the market side
+  // subtracts). Read from the forecast cache the prefetch filled, aligned to the
+  // same scrubber index as the realized rows above.
+  useEffect(() => {
+    if (!timestamps.length) {
+      setForecastRows([]);
+      return;
+    }
+    const fc = getForecastCached(timestamps[currentIndex]);
+    if (!fc) {
+      setForecastRows([]);
+      return;
+    }
+    const lam = fc.system_lambda;
+    setForecastRows(
+      fc.sps.map((s) => ({
+        sp_id: s.sp_id,
+        congestion: s.p50,
+        spp: s.p50 != null && lam != null ? s.p50 + lam : null,
+      }))
+    );
+  }, [currentIndex, timestamps]);
+
   const handleLoadWindow = useCallback(
     async (start: Date, end: Date, cursorTs?: Date) => {
       setLoading(true);
@@ -217,16 +254,38 @@ export default function App() {
           // label-stripped entries prefetchWindow already stored.
           const allCong: Array<number | null> = [];
           const allSpp: Array<number | null> = [];
+          // Forecast side: P50 (congestion) and P50 + system-λ (predicted LMP),
+          // so the prediction pane can color even on a forecast-only window with
+          // no realized rows.
+          const allFcCong: Array<number | null> = [];
+          const allFcLmp: Array<number | null> = [];
           for (const t of ts) {
             const c = getErcotCached(t);
             if (c) for (const s of c.sps) allCong.push(s.congestion);
             const s = getErcotSppCached(t);
             if (s) for (const sp of s.sps) allSpp.push(sp.spp);
+            const f = getForecastCached(t);
+            if (f)
+              for (const sp of f.sps) {
+                allFcCong.push(sp.p50);
+                allFcLmp.push(
+                  sp.p50 != null && f.system_lambda != null
+                    ? sp.p50 + f.system_lambda
+                    : null
+                );
+              }
           }
           setCongestionStats(
             allCong.length ? computeModeledCongestionStats(allCong) : null
           );
           setSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
+          setForecastCongestionStats(
+            allFcCong.length ? computeModeledCongestionStats(allFcCong) : null
+          );
+          setForecastLmpStats(
+            allFcLmp.length ? computeLmpStats(allFcLmp) : null
+          );
+          setForecastRunId(getForecastRunId());
 
           // Sparkline: one point per timestamp, Σ|congestion| across SPs.
           setSparkSeries(
@@ -400,13 +459,25 @@ export default function App() {
     }
   }, [spRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const litCount = spRows.filter((r) =>
-    viewMode === "lmp" ? r.spp != null : r.congestion != null
-  ).length;
-  const badgeFor = (label: string) =>
+  // The forecast covers this hour when its cache had a row for it. When it does,
+  // the left pane shows the forecast; otherwise it falls back to the realized
+  // rows (a window with no forecast, e.g. a pre-forecast historic day).
+  const hasForecast = forecastRows.length > 0;
+  const leftRows = hasForecast ? forecastRows : spRows;
+  // Color the forecast on the realized scale when both exist, so the two panes
+  // are directly comparable; fall back to the forecast's own scale on a
+  // forecast-only window (tomorrow, no realized rows yet).
+  const leftMcStats = congestionStats ?? forecastCongestionStats;
+  const leftLmpStats = sppStats ?? forecastLmpStats;
+
+  const litFor = (rows: SpRow[]) =>
+    rows.filter((r) => (viewMode === "lmp" ? r.spp != null : r.congestion != null))
+      .length;
+  const litCount = litFor(spRows);
+  const badgeFor = (label: string, lit: number = litCount) =>
     spTopologyEmpty
       ? `${label} · no SPs (rebuild topology cache)`
-      : `${label} · ${featCount} SPs · ${litCount} lit`;
+      : `${label} · ${featCount} SPs · ${lit} lit`;
 
   const paneProps = {
     points: spPoints,
@@ -420,10 +491,20 @@ export default function App() {
     selectedSpId: pinnedSp?.spId ?? null,
   };
 
+  // The forecast pane's label: which refit is serving + the served day (the
+  // cursor hour's date), or the realized fallback.
+  const predictionLabel =
+    hasForecast && forecastRunId
+      ? `PREDICTION · forecast ${forecastRunId}`
+      : "PREDICTION · placeholder";
+
   const leftPane = (
     <>
       <GridMap
         {...paneProps}
+        rows={leftRows}
+        lmpStats={leftLmpStats}
+        mcStats={leftMcStats}
         side="prediction"
         onMapReady={handleMainReady}
         constraints={constraints}
@@ -433,14 +514,20 @@ export default function App() {
         reach={reach}
         overview={overview}
       />
-      <div className="pane-badge">{badgeFor("PREDICTION · placeholder")}</div>
+      <div className="pane-badge">
+        {badgeFor(predictionLabel, litFor(leftRows))}
+      </div>
       <Legend
         viewMode={viewMode}
-        rows={spRows}
-        lmpStats={sppStats}
-        mcStats={congestionStats}
+        rows={leftRows}
+        lmpStats={leftLmpStats}
+        mcStats={leftMcStats}
         variant="palette-only"
-        paneLabel="PREDICTION · placeholder (= actual)"
+        paneLabel={
+          hasForecast && forecastRunId
+            ? `PREDICTION · forecast ${forecastRunId}`
+            : "PREDICTION · placeholder (= actual)"
+        }
         constraintOverlay={showConstraints && !!constraints?.length}
         overviewTypes={!!overview?.constraints.length}
       />
