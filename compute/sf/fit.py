@@ -58,8 +58,7 @@ def implied_shift_factors(
         Ridge regularization strength.
     min_hours : int
         Constraints binding in fewer than this many hours of the window are
-        dropped — the coefficient is not identifiable and would just carry
-        noise through the max in ``binding_proximity``.
+        dropped.
     standardize : bool
         Divide each ``M`` column by its non-zero-hour standard deviation
         before solving, then rescale the recovered coefficients back. Keeps

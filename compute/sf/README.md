@@ -1,9 +1,15 @@
-# implied_binding_proximity
+# Implied shift factors (SF)
 
 Compute stage that fits implied shift factors from NP4-191-CD DAM shadow
 prices against SPP congestion (`LMP − system_lambda`) on a rolling window,
-then scores each hour with `bp_ercot[h, sp] = max_c |SF[c, sp]|` over the
-constraints binding at that hour.
+refit every `--refit-days`. Each refit's `SF` matrix (constraint × settlement
+point) and a per-refit metadata row are persisted to Postgres, where the v3
+explorer map reads them. The served window is always `max(window_start)`.
+
+The adopted operating point (window 240d, refit 7d, ridge-λ 1.0, min-binding-
+hours 25, std-floor 100) lives in `config.py` / `fit.py` and is shared with the
+μ forecast (`compute.mu`) so the two pipelines fit at the same point; see
+`plan/0082-oos-eval-and-resweep.md` for the sweep that selected it.
 
 Method background: `docs/legacy/implied_binding_proximity.md`.
 
@@ -32,12 +38,13 @@ reconstructs the ERCOT LMP decomposition identity
 LMP[sp] − system_lambda = Σ_c SF[c, sp] · μ_c          (− losses)
 ```
 
-and *serves the absolute magnitude* `bp_ercot[h, sp] = max_c |SF[c, sp]|`. For
-that output to mean what the map claims, the left-hand side must **be** the
-true congestion component that `Σ SF·μ` is defined to equal. `system_lambda` is
-already the correct additive reference in that identity, so `LMP −
-system_lambda` is already pure congestion — the zone-mean of *that* quantity is
-the average **real congestion** of the zone, not noise.
+and the map *serves the absolute magnitude* `max_c |SF[c, sp]|` (per-constraint
+`max_abs_sf`, per-node `node_max_abs_sf`). For that output to mean what the map
+claims, the left-hand side must **be** the true congestion component that
+`Σ SF·μ` is defined to equal. `system_lambda` is already the correct additive
+reference in that identity, so `LMP − system_lambda` is already pure congestion
+— the zone-mean of *that* quantity is the average **real congestion** of the
+zone, not noise.
 
 De-meaning by zone therefore corrupts the fit in a way it cannot corrupt the
 correlation:
@@ -51,11 +58,11 @@ unlike correlation you can only de-mean one side — the features `μ_c` are
 system-constraint shadow prices, not zonal quantities — so the ridge is forced
 to explain a de-meaned target with non-de-meaned features and absorbs the
 discrepancy into distorted coefficients. (The `[-1, 1]` SF cap and `std_floor`
-in the Trial-findings table were also calibrated against the `system_lambda`
-target and would not transfer.) On the served map, `max_c |SF|` would then
-answer *"how differently does this SP respond versus its zone-mates?"* — an SP
-strongly but *uniformly* exposed to a binding constraint gets pulled toward
-zero, the opposite of what a binding-proximity map wants.
+were also calibrated against the `system_lambda` target and would not transfer.)
+On the served map, `max_c |SF|` would then answer *"how differently does this SP
+respond versus its zone-mates?"* — an SP strongly but *uniformly* exposed to a
+binding constraint gets pulled toward zero, the opposite of what the SF map
+wants.
 
 | | Congestion-matrix correlation | Implied-SF fit (this stage) |
 | --- | --- | --- |
@@ -67,7 +74,7 @@ zero, the opposite of what a binding-proximity map wants.
 
 ## Fit knobs
 
-The three knobs the runner and sweep share:
+The four knobs the runner and sweep share:
 
 * `--window-days` — how much trailing history each fit sees. Longer
   windows smooth over week-to-week noise but blend across changes in the
@@ -89,57 +96,60 @@ The three knobs the runner and sweep share:
 
 ## Runner
 
-`runner.py` is the per-run CLI. It reads the panels for the requested date
-range, walks the rolling window, and writes results under
-`compute/runs/<run_id>/ibp/`:
+`runner.py` (`python -m compute.sf.runner`) is the per-run CLI. It reads the
+panels for the requested date range, walks the rolling window, and:
 
-* `bp_ercot.npz` — arrays `hours`, `settlement_points`, `bp_ercot`, `params`.
-* `diagnostics_YYYYMMDD.json` — one file per refit boundary, with the fit's
-  R² (overall and per-SP), kept/dropped constraint lists with binding-hour
-  counts, and `n_sf_clipped` (number of SF entries the post-fit
-  `[-1, 1]` cap caught).
+* writes `runs/<run_id>/ibp/diagnostics_YYYYMMDD.json` — one file per refit
+  boundary, with the fit's R² (overall and per-SP), kept/dropped constraint
+  lists with binding-hour counts, and `n_sf_clipped` (SF entries the post-fit
+  `[-1, 1]` cap caught);
+* with `--persist-sf`, writes each refit's `SF` matrix to
+  `implied_shift_factors` and one metadata row to `sf_window_meta`, keyed by
+  `run_id`.
 
 ### Parameters
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--run-id` | *required* | Output directory key (`runs/<run_id>/ibp/`). |
-| `--start`, `--end` | from `reference_dates.json` | `[start, end)`; date-only, YYYY-MM-DD. |
-| `--window-days` | `60` | Trailing window used for each fit. |
+| `--run-id` | *required* | Row key in `implied_shift_factors` / `sf_window_meta`; also `runs/<run_id>/ibp/` for diagnostics. |
+| `--start`, `--end` | from `reference_dates.json` | `[start, end)`; date-only, YYYY-MM-DD. `--start` is just the series origin. |
+| `--window-days` | `240` | Trailing window used for each fit. |
 | `--refit-days` | `7` | Days between successive fits. `1` reproduces the prototype's daily refit. |
 | `--min-binding-hours` | `25` | Drop constraints binding fewer hours in the window. |
-| `--ridge-lambda` | `1e-1` | Ridge regularization strength on the standardized system. |
+| `--ridge-lambda` | `1.0` | Ridge regularization strength on the standardized system. |
 | `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
-| `--persist` | (off) | Write the panel to `implied_binding_proximity` under this `run_id`. Makes the run **available** in the DB. Does not change what the API serves. |
-| `--promote` | (off) | Point `implied_binding_proximity_current[--layer]` at this `run_id`. Makes the run **served** by the API. Requires `--persist` (no-op otherwise). |
-| `--layer` | `ercot` | Map layer `--promote` flips. |
+| `--persist-sf` | (off) | Write the per-refit SF matrix to `implied_shift_factors` (+ `sf_window_meta`). Incremental by default. |
+| `--rebuild` | (off) | With `--persist-sf`, wipe all rows for this `run_id` first, then refit + persist every complete window from scratch. |
+| `--sf-threshold` | `1e-3` | With `--persist-sf`, drop SF entries with `\|sf\| <` this. The matrix is dense but mostly negligible; keeps row counts sane. |
 
-### DB persistence
+### DB persistence (incremental append)
 
-`bp_ercot.npz` is always the primary artifact. `--persist` writes the same
-panel into Postgres (table `implied_binding_proximity`, keyed by `run_id`)
-so the API can serve it without reading npz off disk. `--promote` flips the
-`implied_binding_proximity_current` pointer in the same connection so
-promotion is atomic with ingest.
+`--persist-sf` is the served path. By default it **appends**: a run fits and
+writes only the refit boundaries it does not already have. `window_start` fully
+determines a fit, so already-persisted boundaries are skipped (byte-identical to
+recompute), and only **complete** windows — a full `refit_days` week on the
+fixed grid — are persisted. The clamped terminal week is never written, so every
+persisted `window_start` is immutable and the served map advances one complete
+week per run. Re-running the same `--end` is a DB no-op.
 
-Sweeps (`sweep_ibp.py`) leave both flags off — sweep panels stay on disk
-where they can be inspected without polluting the served table. Once
-you've calibrated and want to promote a fresh run, `runner.py --persist
---promote` does the fit and the DB update in one invocation.
+`--rebuild` restores the old delete-then-rewrite: it wipes every row for the
+`run_id`, then refits and persists every complete window. The wipe shares the
+fit loop's transaction (committed at the end), so a crash mid-rebuild leaves the
+prior served windows intact.
 
-To backfill an npz that's already on disk (e.g. an old run, or a sweep run
-you've decided to promote after the fact), use
-`compute.implied_binding_proximity.ingest` — it shares the same
-`persist.py` helpers so the row shape is identical.
+The map API serves `max(window_start)`; there is no promote pointer. After a
+persist run, `compute.sf.geo_persist` writes the constraint-geo overlay and
+`compute.sf.eval` backfills the per-window OOS metrics onto `sf_window_meta`.
+The weekly `ops/deploy/jobs/map_refresh_cronjob.yml` chains those three steps.
 
 ### Numerical guardrails
 
 * `STD_FLOOR = 100.0` — default lower bound on per-column std used during
   standardization (overridable via `--std-floor`). Floors the scale so
   low-variance constraints don't get their coefficients inflated by the
-  rescale-back step. See "Trial findings" for how this value was chosen.
+  rescale-back step.
 * `SF_ABS_CAP = 1.0` — SFs are unitless in `[-1, 1]`; anything above is a
   numerical artifact and gets clipped. The clipped count is reported per
   refit as `n_sf_clipped`.
@@ -148,111 +158,22 @@ you've decided to promote after the fact), use
 
 ```bash
 docker compose run --rm compute \
-  python -m compute.implied_binding_proximity.runner \
-    --run-id ibp_prod_2025 \
+  python -m compute.sf.runner \
+    --run-id map-v1 \
     --start 2025-01-01 --end 2026-01-01 \
-    --persist --promote
+    --persist-sf
 ```
 
-Every knob defaults to the values in the "Trial findings" table below, so
-this is the recommended production invocation. Drop `--persist --promote`
-for exploratory single-run refits you don't want the API to serve.
+Every knob defaults to the adopted operating point (`config.py`), so this fits
+at window 240 / refit 7 / λ 1.0 without passing them. Add `--rebuild` for a full
+wipe + refit; drop `--persist-sf` for an exploratory diagnostics-only run.
 
 ## Sweep
 
-`sweep_ibp.py` orchestrates a grid over `(window-days, refit-days,
-ridge-lambda)` by spawning the runner for each combination via
-`subprocess.run`, then walks each run's `ibp/` directory to produce a
-per-run summary row: `mean_r2`, `median_n_kept`, `bp_ercot`
-p95/p99/max, and summed `n_sf_clipped`.
-
-Panels are re-loaded per run (no reuse); each invocation is independent.
-
-### Parameters
-
-| Flag | Default | Purpose |
-| --- | --- | --- |
-| `--start`, `--end` | *required* | Passed through to every runner invocation. |
-| `--window-days` | `60` | Comma-separated grid, e.g. `30,60,90`. |
-| `--refit-days` | `7,14` | Comma-separated grid. |
-| `--ridge-lambda` | `1e-2,1e-1,1` | Comma-separated grid; brackets the production default. |
-| `--std-floor` | `50,100,200` | Comma-separated grid; brackets the production default. |
-| `--min-binding-hours` | `10,25,50` | Comma-separated grid. Prunes rarely-binding constraints out of the fit before the ridge solve. |
-| `--out` | *stdout* | If set, write the summary DataFrame to a CSV instead of printing. |
-
-Each combination gets
-`run_id = ibp_sweep_w{W}_r{R}_l{lam:g}_s{floor:g}_h{min_hours}`; that ID
-is grep-able against the produced `runs/<run_id>/ibp/` directory.
-The output table is sorted by `bp_max` descending so outliers surface at
-the top.
-
-### Example
-
-```bash
-docker compose run --rm compute \
-  python -m compute.implied_binding_proximity.sweep_ibp \
-    --start 2025-01-01 --end 2026-01-01 \
-    --out /compute/implied_binding_proximity/ibp_sweep_summary.csv
-```
-
-The default grid is 2 × 3 × 3 × 3 = 54 combinations bracketing the
-production defaults. A single combo over a full year takes ~4 minutes
-inside the container; budget accordingly.
-
-## Trial findings
-
-The defaults above were picked from five trials against the 2025 DAM
-shadow-price panel. All runs used `--window-days 60 --refit-days 7`;
-`min_h` is `--min-binding-hours`, `floor` is `--std-floor`, `clipped` is
-the total SF entries the ±1 cap caught across all refits. The raw
-per-combo rows are in `ibp_sweep_trials.csv`.
-
-| Trial | Range | min_h | floor | ridge λ | mean R² | median n_kept | p95 | p99 | clipped |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| baseline           | 2025 H1 | 10 |   1 | 1e-1 | 0.983 | 683.5 | 1.000 | 1.00 | 260,270 |
-| std-floor grid     | 2025 H1 | 10 |  25 | 1e-1 | 0.990 | 683.5 | 0.898 | 1.00 |   7,320 |
-| floor + min_hours  | 2025 H1 | 25 |  50 | 1e-1 | 0.982 | 423.5 | 0.878 | 1.00 |   4,583 |
-| floor + min_hours  | 2025 H1 | 25 | 100 | 1e-1 | 0.982 | 423.5 | 0.723 | 0.93 |   2,067 |
-| window sweep (w=30)| 2025 H1 | 25 | 100 | 1e-1 | 0.975 | 267.5 | 0.558 | 0.89 |   1,334 |
-| **full year**      | 2025    | 25 | 100 | 1e-1 | **0.985** | 422.5 | **0.559** | **0.895** | 2,538 |
-
-The progression:
-
-1. **Baseline** left the p95/p99/max all pinned at the cap of 1.0. The
-   ±1 clip was catching 260k+ SF entries per run — evidence that the raw
-   ridge solve was producing physically impossible values on a big chunk
-   of low-variance constraints, not just a numerical tail.
-2. **Raising `--std-floor` alone** (1 → 25) knocked ~35× off the clip
-   count and dropped p95 off the cap, but p99 was still saturating.
-3. **Stricter `--min-binding-hours`** (10 → 25) combined with `floor=100`
-   pruned the noisy tail before the ridge saw it. First point where p99
-   dropped below the cap (0.93). `min_h ≥ 50` cost too many constraints
-   without further gains.
-4. **Shorter windows** (30/45 vs 60) tightened the bulk further but shed
-   ~40% of constraints — a tradeoff, not a strict win.
-5. **Full-year run** improved every metric vs the 6-month version at the
-   same settings: mean R² 0.982 → 0.985, p95 0.72 → 0.56, clip rate held
-   at ~0.03% of cells over an 8730 × 1084 output. More history → more
-   stable per-column scales → less inflation.
-
-Net: the defaults now write into `fit.py` as `MIN_BINDING_HOURS = 25`,
-`RIDGE_LAMBDA = 1e-1`, `STD_FLOOR = 100.0` reflect these findings.
-
-### Corresponding sweep run
-
-The calibrated combo lives on disk under
-`compute/runs/ibp_sweep_w60_r7_l0.1_s100_h25/` — that's the sweep run_id
-encoding the values in the "full year" row (window=60, refit=7, λ=1e-1,
-std_floor=100, min_binding_hours=25). A plain `runner.py --run-id <name>`
-with no knob overrides reproduces the same panel under `<name>` since
-these are the module defaults. See
-[`compute/runs/README.md`](../runs/README.md#sweep-run_id-naming) for the
-full naming convention.
-
-To persist this run to the API-served table:
-
-```bash
-docker compose run --rm compute \
-  python -m compute.implied_binding_proximity.ingest \
-    --run-id ibp_sweep_w60_r7_l0.1_s100_h25 --promote
-```
+`sweep_ibp.py` (`python -m compute.sf.sweep_ibp`) orchestrates a grid over
+`(window-days, refit-days, ridge-lambda, std-floor, min-binding-hours)`,
+fitting each combination in-process and ranking on the honest out-of-window
+metrics from `compute.sf.eval` (default `oos_pooled_r2`). Panels are loaded once
+and reused across combos. `--out` / `--per-week-out` write the summary and
+per-week rows to CSV; `r3_verdict.py` scores a grouped-vs-ungrouped per-week CSV
+against the plan/0083 stability bars.

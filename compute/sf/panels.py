@@ -91,7 +91,7 @@ def load_congestion_panel(
     """
     if ref_method != "system_lambda":
         raise ValueError(
-            f"ref_method={ref_method!r} not supported by implied_binding_proximity; "
+            f"ref_method={ref_method!r} "
             "only 'system_lambda' (distributed-slack) is compatible with the "
             "implied-SF fit."
         )
