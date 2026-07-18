@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { SpRow, ViewMode } from "../../api/types";
+import type { SpRow } from "../../api/types";
+import type { Palette } from "../../api/types";
 import {
   LMP_PCT_LOW,
   LMP_PCT_HIGH,
@@ -9,7 +10,7 @@ import {
 } from "../../lib/colors";
 
 interface Props {
-  viewMode: ViewMode;
+  palette: Palette;
   rows: SpRow[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
@@ -19,6 +20,14 @@ interface Props {
   variant?: "full" | "palette-only";
   // Optional caption under the palette; distinguishes the two panes.
   paneLabel?: string;
+  // Basis view overrides: a custom palette title, and the diverging end labels
+  // (default "export (−)" / "import (+)" for congestion; basis relabels these to
+  // "pred < market" / "pred > market"). Both apply only to the congestion palette.
+  titleOverride?: string;
+  signLabels?: { neg: string; pos: string };
+  // Overrides the palette bar's gradient — the basis view passes its
+  // emerald↔magenta ramp so the legend bar matches the map's basis coloring.
+  barGradientOverride?: string;
   // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
   // Shown only on the pane that carries the overlay, and only while it's on.
   // Legacy centroid overlay only — mutually exclusive with `overviewTypes`.
@@ -77,18 +86,21 @@ function formatDollar(v: number): string {
 }
 
 export default function Legend({
-  viewMode,
+  palette,
   rows,
   lmpStats,
   mcStats,
   variant = "full",
   paneLabel,
+  titleOverride,
+  signLabels,
+  barGradientOverride,
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
-  const isCongestion = viewMode === "congestion";
-  const isLmp = viewMode === "lmp";
-  const isOff = viewMode === "off";
+  const isCongestion = palette === "congestion";
+  const isLmp = palette === "lmp";
+  const isOff = palette === "off";
   const isPaletteOnly = variant === "palette-only";
 
   // SPP histogram for the *current snapshot*, binned in color-space so each
@@ -137,15 +149,21 @@ export default function Legend({
     return { min, mean: sum / n, max };
   }, [rows, isLmp]);
 
-  const barGradient = isCongestion
-    ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
-    : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)";
+  const barGradient =
+    barGradientOverride ??
+    (isCongestion
+      ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
+      : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)");
 
-  const title = isOff
-    ? "Palette off · overlay only"
-    : isCongestion
-    ? "Congestion · SPP − λ ($/MWh)"
-    : "DAM SPP / LMP ($/MWh)";
+  const title =
+    titleOverride ??
+    (isOff
+      ? "Palette off · overlay only"
+      : isCongestion
+      ? "Congestion · SPP − λ ($/MWh)"
+      : "DAM SPP / LMP ($/MWh)");
+  const negLabel = signLabels?.neg ?? "export (−)";
+  const posLabel = signLabels?.pos ?? "import (+)";
 
   return (
     <div className="legend">
@@ -183,8 +201,8 @@ export default function Legend({
             </span>
           </div>
           <div className="legend__labels">
-            <span className="label">export (−)</span>
-            <span className="label">import (+)</span>
+            <span className="label">{negLabel}</span>
+            <span className="label">{posLabel}</span>
           </div>
           <div className="legend__sub label">
             window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90

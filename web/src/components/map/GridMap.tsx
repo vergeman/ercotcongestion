@@ -3,7 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   SpRow,
-  ViewMode,
+  Palette,
   ConstraintGeo,
   ConstraintReach,
   MapOverview,
@@ -191,7 +191,7 @@ interface Props {
   // `sp_id` (the promoteId) plus sp_type / load_zone / capacity_mw.
   points: unknown | null;
   rows: SpRow[];
-  viewMode: ViewMode;
+  palette: Palette;
   lmpStats: LmpStats | null;
   mcStats: ModeledCongestionStats | null;
   onSpHover: (
@@ -222,12 +222,17 @@ interface Props {
   // exposes the maplibre instance so App can mirror the camera across panes.
   side?: "prediction" | "actual";
   onMapReady?: (map: maplibregl.Map) => void;
+  // The diverging color ramp for the `congestion` palette. Defaults to the
+  // blue↔red congestion ramp; the basis view passes `basisColor` (emerald↔magenta)
+  // so basis reads on its own hue axis. Only affects node fill — the reach/SF glow
+  // stays on modeledCongestionColor (there the sign is the export/import dipole).
+  congestionColor?: (norm: number) => string;
 }
 
 export default function GridMap({
   points,
   rows,
-  viewMode,
+  palette,
   lmpStats,
   mcStats,
   onSpHover,
@@ -242,6 +247,7 @@ export default function GridMap({
   reach,
   overview,
   onMapReady,
+  congestionColor = modeledCongestionColor,
 }: Props) {
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,7 +366,7 @@ export default function GridMap({
         });
       }
 
-      // SP circles, colored per viewMode via feature-state.
+      // SP circles, colored per palette via feature-state.
       if (!map.getLayer("sps")) {
         map.addLayer({
           id: "sps",
@@ -457,7 +463,7 @@ export default function GridMap({
     }
   }, [points]);
 
-  // Color SPs when rows/viewMode/stats change. Same $/MWh quantity → same
+  // Color SPs when rows/palette/stats change. Same $/MWh quantity → same
   // color mapping on both panes, so prediction and actual are comparable by
   // eye. With no rows loaded, clear the color feature-state so the circles
   // fall back to the base fill.
@@ -517,7 +523,7 @@ export default function GridMap({
 
     // Palette "off": no congestion/LMP fill — clear every node's color so the
     // circles fall back to the base fill and the SF overlay reads alone.
-    if (viewMode === "off") {
+    if (palette === "off") {
       for (const feat of fc.features) {
         map.setFeatureState(
           { source: "sps", id: feat.properties.sp_id },
@@ -539,12 +545,12 @@ export default function GridMap({
 
     for (const row of rows) {
       let color: string;
-      if (viewMode === "congestion") {
+      if (palette === "congestion") {
         color = mcStats
-          ? modeledCongestionColor(
+          ? congestionColor(
               normalizeModeledCongestion(row.congestion, mcStats)
             )
-          : modeledCongestionColor(0);
+          : congestionColor(0);
       } else {
         color = lmpStats
           ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats))
@@ -552,7 +558,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, viewMode, lmpStats, mcStats, points, sourcesReady, reach]);
+  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, congestionColor]);
 
   // Selected SP
   useEffect(() => {

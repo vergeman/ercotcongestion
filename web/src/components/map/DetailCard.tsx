@@ -4,9 +4,14 @@ import { modeledCongestionColor } from "../../lib/colors";
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
+  // The full decomposition for the clicked SP, carried in every view so basis
+  // never hides raw magnitude: predicted / market congestion, their difference
+  // (basis = predicted − market), and the market's raw DAM SPP.
   spState: {
-    congestion: number | null;
-    spp: number | null;
+    predicted: number | null;
+    market: number | null;
+    basis: number | null;
+    marketSpp: number | null;
   } | null;
 }
 
@@ -70,28 +75,26 @@ function Row({
   );
 }
 
+// Signed congestion $/MWh, e.g. "+$3.20/MWh" / "−$1.05/MWh". Null → "—".
+function fmtCong(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
+}
+
 function SpBody({ sp }: { sp: HoveredSp }) {
+  const s = sp.spState;
   return (
     <>
       <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
-      <Row
-        label="Congestion"
-        value={
-          sp.spState && sp.spState.congestion != null
-            ? `${sp.spState.congestion >= 0 ? "+" : "−"}$${fmt(
-                Math.abs(sp.spState.congestion),
-                2
-              )}/MWh`
-            : null
-        }
-      />
+      {/* predicted / market / basis — the decomposition carried in every view. */}
+      <Row label="Predicted" value={fmtCong(s?.predicted)} />
+      <Row label="Market" value={fmtCong(s?.market)} />
+      <Row label="Basis" value={fmtCong(s?.basis)} />
       <Row
         label="DAM SPP"
         value={
-          sp.spState && sp.spState.spp != null
-            ? `$${fmt(sp.spState.spp, 2)}/MWh`
-            : null
+          s && s.marketSpp != null ? `$${fmt(s.marketSpp, 2)}/MWh` : null
         }
       />
     </>
