@@ -23,6 +23,10 @@ interface Props {
   onCloseReach?: () => void;
   // Click a driver row → trace that constraint's reach.
   onSelectConstraint?: (constraintKey: string) => void;
+  // Whether to render the pinned SP's SF-driver section. The actual/ERCOT pane
+  // passes false — its card is scoped to realized values only (drivers are a
+  // prediction-side concern). Defaults to true.
+  showDrivers?: boolean;
 }
 
 function fmt(v: number | null, decimals = 1): string {
@@ -245,6 +249,7 @@ export default function DetailCard({
   onClose,
   onCloseReach,
   onSelectConstraint,
+  showDrivers = true,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
   const inReach = !!reach;
@@ -304,7 +309,7 @@ export default function DetailCard({
         ) : (
           <>
             <SpBody sp={sp!} />
-            {isPinned && (
+            {isPinned && showDrivers && (
               <div className="detail-card__section">
                 <ExposuresBody
                   exposures={exposures ?? null}

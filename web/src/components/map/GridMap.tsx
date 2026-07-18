@@ -391,15 +391,23 @@ export default function GridMap({
               12,
               7,
             ],
+            // Selected = a distinct, persistent white ring (thicker than hover)
+            // so the active click stays visible until another node is selected
+            // or the selection is cleared. Hover keeps the sky-blue ring.
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
-              3,
+              4,
               ["boolean", ["feature-state", "hovered"], false],
               2,
               0,
             ],
-            "circle-stroke-color": "#38bdf8",
+            "circle-stroke-color": [
+              "case",
+              ["boolean", ["feature-state", "selected"], false],
+              "#ffffff",
+              "#38bdf8",
+            ],
           },
         });
       }
@@ -505,6 +513,18 @@ export default function GridMap({
         map.setFeatureState({ source: "sps", id }, { faded: false });
       }
       reachIdsRef.current = new Set();
+    }
+
+    // Palette "off": no congestion/LMP fill — clear every node's color so the
+    // circles fall back to the base fill and the SF overlay reads alone.
+    if (viewMode === "off") {
+      for (const feat of fc.features) {
+        map.setFeatureState(
+          { source: "sps", id: feat.properties.sp_id },
+          { color: null }
+        );
+      }
+      return;
     }
 
     if (!rows.length) {
@@ -787,7 +807,11 @@ export default function GridMap({
         ref={containerRef}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
-        <OverviewOverlay map={mapInstance} overview={overview ?? null} />
+        <OverviewOverlay
+          map={mapInstance}
+          overview={overview ?? null}
+          visible={showConstraints}
+        />
       </div>
       <style>{`
         .maplibregl-ctrl-group {

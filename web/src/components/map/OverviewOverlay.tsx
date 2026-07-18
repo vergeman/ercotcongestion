@@ -117,9 +117,18 @@ interface Prepared {
 interface Props {
   map: maplibregl.Map | null;
   overview: MapOverview | null;
+  // Overlay visibility — driven by the header's constraints toggle. When false
+  // the whole SVG overlay is unmounted, so "off" actually hides the cores/marks
+  // (the overview REPLACES the native marker layer, which `showConstraints`
+  // alone can no longer reach).
+  visible?: boolean;
 }
 
-export default function OverviewOverlay({ map, overview }: Props) {
+export default function OverviewOverlay({
+  map,
+  overview,
+  visible = true,
+}: Props) {
   // Isolation + pin + popover state. `isoKey` dims every other constraint;
   // `pinned` freezes the current isolation (set by clicking a popover row) so
   // moving the mouse away doesn't clear it; `popNi` is the node whose membership
@@ -216,7 +225,7 @@ export default function OverviewOverlay({ map, overview }: Props) {
     return { kmax, prepared, nodes };
   }, [overview]);
 
-  if (!map || !model) return null;
+  if (!map || !model || !visible) return null;
 
   const project = (lat: number, lon: number) => map.project([lon, lat]);
 

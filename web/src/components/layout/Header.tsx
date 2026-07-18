@@ -46,6 +46,12 @@ export default function Header({
           >
             LMP
           </button>
+          <button
+            className={viewMode === "off" ? "active" : ""}
+            onClick={() => onViewMode("off")}
+          >
+            Off
+          </button>
         </div>
 
         {onToggleConstraints && (

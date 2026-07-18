@@ -88,6 +88,7 @@ export default function Legend({
 }: Props) {
   const isCongestion = viewMode === "congestion";
   const isLmp = viewMode === "lmp";
+  const isOff = viewMode === "off";
   const isPaletteOnly = variant === "palette-only";
 
   // SPP histogram for the *current snapshot*, binned in color-space so each
@@ -140,7 +141,9 @@ export default function Legend({
     ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
     : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)";
 
-  const title = isCongestion
+  const title = isOff
+    ? "Palette off · overlay only"
+    : isCongestion
     ? "Congestion · SPP − λ ($/MWh)"
     : "DAM SPP / LMP ($/MWh)";
 
@@ -161,7 +164,9 @@ export default function Legend({
         </div>
       )}
 
-      <div className="legend__bar" style={{ background: barGradient }} />
+      {!isOff && (
+        <div className="legend__bar" style={{ background: barGradient }} />
+      )}
 
       {/* Diverging congestion family: signed, center = 0, edges = ±p_high. */}
       {isCongestion && mcStats && (

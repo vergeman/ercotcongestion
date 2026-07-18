@@ -44,6 +44,9 @@ type ConnectionState = "ok" | "error" | "loading";
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
+  // Which pane the node was touched on, so its card renders in that pane and
+  // reads that pane's quantity (prediction → forecast, actual → realized).
+  side: "prediction" | "actual";
   spState: {
     congestion: number | null;
     spp: number | null;
@@ -367,34 +370,60 @@ export default function App() {
     handleLoadWindow(undefined, undefined, new Date());
   }, [handleLoadWindow]);
 
-  const spStateFor = useCallback(
-    (spId: string) => {
-      const row = spRows.find((r) => r.sp_id === spId);
+  const spStateForSide = useCallback(
+    (spId: string, side: "prediction" | "actual") => {
+      // Each pane reads its own quantity: the prediction card shows the forecast
+      // rows (falling back to realized when no forecast covers the hour, same as
+      // the left map); the actual card shows the realized rows.
+      const rows =
+        side === "prediction" && forecastRows.length ? forecastRows : spRows;
+      const row = rows.find((r) => r.sp_id === spId);
       return row ? { congestion: row.congestion, spp: row.spp } : null;
     },
-    [spRows]
+    [forecastRows, spRows]
   );
 
   const handleSpHover = useCallback(
-    (spId: string | null, props: Record<string, unknown> | null) => {
+    (
+      side: "prediction" | "actual",
+      spId: string | null,
+      props: Record<string, unknown> | null
+    ) => {
       if (!spId || !props) {
         setHoveredSp(null);
         return;
       }
-      setHoveredSp({ spId, props, spState: spStateFor(spId) });
+      setHoveredSp({ spId, props, side, spState: spStateForSide(spId, side) });
     },
-    [spStateFor]
+    [spStateForSide]
+  );
+  const handleSpHoverMain = useCallback(
+    (spId: string | null, props: Record<string, unknown> | null) =>
+      handleSpHover("prediction", spId, props),
+    [handleSpHover]
+  );
+  const handleSpHoverRight = useCallback(
+    (spId: string | null, props: Record<string, unknown> | null) =>
+      handleSpHover("actual", spId, props),
+    [handleSpHover]
   );
 
   // Request-id guards so a slow in-flight fetch can't clobber a newer click.
   const exposureReqRef = useRef(0);
   const reachReqRef = useRef(0);
 
-  const handleSpClick = useCallback(
+  // Prediction-pane click: pin the node and trace its SF drivers (the overview /
+  // reach machinery lives on this pane).
+  const handleSpClickPrediction = useCallback(
     (spId: string, props: Record<string, unknown>) => {
       setReach(null); // a node click leaves constraint-reach mode
       reachReqRef.current++;
-      setPinnedSp({ spId, props, spState: spStateFor(spId) });
+      setPinnedSp({
+        spId,
+        props,
+        side: "prediction",
+        spState: spStateForSide(spId, "prediction"),
+      });
       const token = ++exposureReqRef.current;
       setExposures(null);
       setExposuresLoading(true);
@@ -409,7 +438,26 @@ export default function App() {
           if (exposureReqRef.current === token) setExposuresLoading(false);
         });
     },
-    [spStateFor]
+    [spStateForSide]
+  );
+
+  // Actual-pane click: pin the node scoped to the realized values only — no SF
+  // drivers (those belong to the prediction pane), so drop any in-flight fetch.
+  const handleSpClickActual = useCallback(
+    (spId: string, props: Record<string, unknown>) => {
+      setReach(null);
+      reachReqRef.current++;
+      setExposures(null);
+      setExposuresLoading(false);
+      exposureReqRef.current++;
+      setPinnedSp({
+        spId,
+        props,
+        side: "actual",
+        spState: spStateForSide(spId, "actual"),
+      });
+    },
+    [spStateForSide]
   );
 
   const handleClearPinnedSp = useCallback(() => {
@@ -455,17 +503,17 @@ export default function App() {
     return new Set<string>();
   }, [reach, exposures]);
 
-  // Keep a pinned SP's readout fresh as playback advances.
+  // Keep a pinned SP's readout fresh as playback advances (its own pane's rows).
   useEffect(() => {
     if (!pinnedSp) return;
-    const fresh = spStateFor(pinnedSp.spId);
+    const fresh = spStateForSide(pinnedSp.spId, pinnedSp.side);
     if (
       fresh?.congestion !== pinnedSp.spState?.congestion ||
       fresh?.spp !== pinnedSp.spState?.spp
     ) {
       setPinnedSp({ ...pinnedSp, spState: fresh });
     }
-  }, [spRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [spRows, forecastRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The forecast covers this hour when its cache had a row for it. When it does,
   // the left pane shows the forecast; otherwise it falls back to the realized
@@ -487,14 +535,14 @@ export default function App() {
       ? `${label} · no SPs (rebuild topology cache)`
       : `${label} · ${featCount} SPs · ${lit} lit`;
 
+  // Shared across both panes. Per-side hover/click handlers are passed
+  // separately so each card renders in — and reads — its own pane.
   const paneProps = {
     points: spPoints,
     rows: spRows,
     viewMode,
     lmpStats: sppStats,
     mcStats: congestionStats,
-    onSpHover: handleSpHover,
-    onSpClick: handleSpClick,
     onMapClick: handleMapBackgroundClick,
     selectedSpId: pinnedSp?.spId ?? null,
   };
@@ -514,6 +562,8 @@ export default function App() {
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
         side="prediction"
+        onSpHover={handleSpHoverMain}
+        onSpClick={handleSpClickPrediction}
         onMapReady={handleMainReady}
         constraints={constraints}
         showConstraints={showConstraints}
@@ -537,14 +587,31 @@ export default function App() {
             : "PREDICTION · placeholder (= actual)"
         }
         constraintOverlay={showConstraints && !!constraints?.length}
-        overviewTypes={!!overview?.constraints.length}
+        overviewTypes={showConstraints && !!overview?.constraints.length}
+      />
+      {/* Prediction card: the node's forecast readout + its SF drivers. */}
+      <DetailCard
+        hoveredSp={hoveredSp?.side === "prediction" ? hoveredSp : null}
+        pinnedSp={pinnedSp?.side === "prediction" ? pinnedSp : null}
+        exposures={exposures}
+        exposuresLoading={exposuresLoading}
+        reach={reach}
+        onClose={handleClearPinnedSp}
+        onCloseReach={handleCloseReach}
+        onSelectConstraint={handleConstraintClick}
       />
     </>
   );
 
   const rightPane = (
     <>
-      <GridMap {...paneProps} side="actual" onMapReady={handleRightReady} />
+      <GridMap
+        {...paneProps}
+        side="actual"
+        onSpHover={handleSpHoverRight}
+        onSpClick={handleSpClickActual}
+        onMapReady={handleRightReady}
+      />
       <div className="pane-badge">{badgeFor("ERCOT · actual")}</div>
       <Legend
         viewMode={viewMode}
@@ -553,6 +620,14 @@ export default function App() {
         mcStats={congestionStats}
         variant="full"
         paneLabel="ERCOT · actual"
+      />
+      {/* Actual card: the node's realized readout only — no SF drivers (those
+          are a prediction-side concern). */}
+      <DetailCard
+        hoveredSp={hoveredSp?.side === "actual" ? hoveredSp : null}
+        pinnedSp={pinnedSp?.side === "actual" ? pinnedSp : null}
+        showDrivers={false}
+        onClose={handleClearPinnedSp}
       />
     </>
   );
@@ -566,7 +641,9 @@ export default function App() {
         connectionState={connState}
         showConstraints={showConstraints}
         onToggleConstraints={
-          constraints?.length ? setShowConstraints : undefined
+          constraints?.length || overview?.constraints.length
+            ? setShowConstraints
+            : undefined
         }
       />
 
@@ -582,16 +659,6 @@ export default function App() {
             Both render the same quantity under the active palette. */}
         <div style={{ flex: 1, position: "relative" }}>
           <CompareMap main={leftPane} right={rightPane} />
-          <DetailCard
-            hoveredSp={hoveredSp}
-            pinnedSp={pinnedSp}
-            exposures={exposures}
-            exposuresLoading={exposuresLoading}
-            reach={reach}
-            onClose={handleClearPinnedSp}
-            onCloseReach={handleCloseReach}
-            onSelectConstraint={handleConstraintClick}
-          />
           <style>{`
             .pane-badge {
               position: absolute;
