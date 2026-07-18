@@ -12,7 +12,7 @@ Compares against the number the pipeline actually reports, which is fit on a
 window containing the scored week (see `common.py` docstring).
 
     docker compose run --rm compute \
-      python -m compute.experiments.ibp_out_of_window.oos_gate
+      python -m compute.experiments.sf_out_of_window.oos_gate
 """
 from __future__ import annotations
 

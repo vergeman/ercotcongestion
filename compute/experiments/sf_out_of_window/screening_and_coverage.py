@@ -21,7 +21,7 @@
     number.
 
     docker compose run --rm compute \
-      python -m compute.experiments.ibp_out_of_window.screening_and_coverage
+      python -m compute.experiments.sf_out_of_window.screening_and_coverage
 """
 from __future__ import annotations
 
