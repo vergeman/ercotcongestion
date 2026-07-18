@@ -2,14 +2,13 @@
 
 Every field is derived; nothing is a query param. Tests build a fake
 served run tree (with the top-level ``current`` symlink) so ``run_id``
-resolves via ``realpath``, write a fake scorecard for the cell params,
-and queue an IBP pointer row so ``promoted_at`` populates.
+resolves via ``realpath`` and write a fake scorecard for the cell params.
+``promoted_at`` is retired and always ``None``.
 """
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -40,10 +39,8 @@ def _write_scorecard(run_dir: Path, ref: str, algo: str, k: int) -> None:
     }))
 
 
-def test_meta_returns_full_snapshot(client, fake_pool, served_run_dir):
+def test_meta_returns_full_snapshot(client, served_run_dir):
     _write_scorecard(served_run_dir, 'system_lambda_merit_order', 'hierarchical_on_beta', 6)
-    promoted_at = datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc)
-    fake_pool.cursor.queue([{'promoted_at': promoted_at}])
 
     r = client.get('/meta')
     assert r.status_code == 200, r.text
@@ -53,12 +50,10 @@ def test_meta_returns_full_snapshot(client, fake_pool, served_run_dir):
     assert body['ref'] == 'system_lambda_merit_order'
     assert body['algo'] == 'hierarchical_on_beta'
     assert body['k'] == 6
-    assert body['promoted_at'].startswith('2026-04-01T12:00')
+    assert body['promoted_at'] is None
 
 
-def test_meta_nulls_scorecard_fields_when_no_cell_promoted(client, fake_pool, served_run_dir):
-    fake_pool.cursor.queue([])  # DB pointer unset
-
+def test_meta_nulls_scorecard_fields_when_no_cell_promoted(client, served_run_dir):
     r = client.get('/meta')
     assert r.status_code == 200
     body = r.json()

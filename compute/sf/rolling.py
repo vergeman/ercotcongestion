@@ -1,11 +1,11 @@
-"""Rolling-window refit + score.
+"""Rolling-window refit.
 
 Walk the hours forward one refit period at a time. At each refit boundary,
-fit ``SF`` on the trailing ``window_days``; then score every hour in
-``[refit_start, refit_start + refit_days)`` with that ``SF`` via
-``metric.binding_proximity``.
+fit ``SF`` on the trailing ``window_days`` and hand the fitted window to
+``on_refit_window`` — where the caller persists the SF matrix and its
+per-window diagnostics.
 
-``refit_days=1`` reproduces the prototype's every-day-refit behavior.
+``refit_days=1`` reproduces the prototype's every-day-refit cadence.
 Default ``refit_days=7`` matches the weekly cadence in the doc.
 """
 from __future__ import annotations
@@ -18,7 +18,6 @@ import pandas as pd
 
 from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR, implied_shift_factors
 from .grouping import aggregate_mu, constraint_linkage, cut_groups
-from .metric import binding_proximity
 
 
 @dataclass
@@ -60,8 +59,9 @@ def rolling_bp(
     std_floor: float = STD_FLOOR,
     rho_min: float | None = None,
     on_refit_window: Callable[[RefitWindow], None] | None = None,
-) -> pd.DataFrame:
-    """Refit every ``refit_days``, score the interval that follows.
+    skip_window_starts: set[int] | None = None,
+) -> None:
+    """Refit every ``refit_days``, firing ``on_refit_window`` per boundary.
 
     Parameters
     ----------
@@ -71,28 +71,30 @@ def rolling_bp(
     window_days
         Trailing window used for each fit.
     refit_days
-        Days between successive fits. The most recent fit is used to score
-        every hour in ``[refit_start, refit_start + refit_days)``.
+        Days between successive fits.
     rho_min
         When set, collinear-group the window's μ columns (S2 / plan 0083) and
         fit on the group aggregate: co-binding constraints are not separately
         identifiable, so the group is the unit that can carry a signed claim.
-        The scored hours are aggregated through the same labels — a constraint
-        that appears only in the scored week has no group and no SF column,
-        which is the novel μ-mass `coverage` exists to report. ``None`` (the
-        default) is the ungrouped path, byte-identical to before.
+        ``None`` (the default) is the ungrouped path, byte-identical to before.
     on_refit_window
-        Optional callback receiving a ``RefitWindow`` after each fit. The
-        runner uses this to write per-window diagnostics without repeating
-        the window-walking bookkeeping here.
+        Callback receiving a ``RefitWindow`` after each fit — where the caller
+        persists the SF matrix and per-window diagnostics without repeating the
+        window-walking bookkeeping here.
+    skip_window_starts
+        Set of ``window_start`` ns-instants (``pd.Timestamp(ws).value``) to skip
+        entirely — neither fit nor fire the callback. ``window_start`` fully
+        determines a fit, so a boundary already persisted is byte-identical to
+        recompute; the incremental map runner passes the already-persisted
+        boundaries here so a weekly tick only fits the new ones.
     """
     M_all, C_all = _align(M_all, C_all)
     if M_all.empty:
-        return pd.DataFrame()
+        return
 
     all_days = pd.Index(M_all.index.normalize().unique()).sort_values()
     if len(all_days) == 0:
-        return pd.DataFrame()
+        return
 
     refit_dt = pd.Timedelta(days=refit_days)
     window_dt = pd.Timedelta(days=window_days)
@@ -108,7 +110,7 @@ def rolling_bp(
     if len(refit_starts) == 0:
         refit_starts = pd.DatetimeIndex([first_day])
 
-    out: list[pd.DataFrame] = []
+    skip = skip_window_starts or set()
     for refit_start in refit_starts:
         score_end = min(refit_start + refit_dt, last_day + day_dt)
         # Trailing `window_days` ending at the score-period end. This reflects
@@ -116,6 +118,11 @@ def rolling_bp(
         # at refit_days=1, matches the prototype's day-inclusive window.
         window_end = score_end
         window_start = window_end - window_dt
+
+        # Already-persisted boundary: same window_start → byte-identical fit, so
+        # skip the solve and the callback entirely (incremental map append).
+        if window_start.value in skip:
+            continue
 
         win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
         M_win = M_all.loc[win_mask]
@@ -145,19 +152,3 @@ def rolling_bp(
                 M_fit=M_fit,
                 labels=labels,
             ))
-
-        score_mask = (M_all.index >= refit_start) & (M_all.index < score_end)
-        M_score = M_all.loc[score_mask]
-        if M_score.empty or SF.empty:
-            continue
-        # Score through the fit's own labels: SF's rows are group keys, so the
-        # scored hours must be aggregated the same way before the max-|SF|.
-        if labels is not None:
-            M_score = aggregate_mu(M_score, labels)
-            if M_score.empty:
-                continue
-        out.append(binding_proximity(M_score, SF))
-
-    if not out:
-        return pd.DataFrame()
-    return pd.concat(out).sort_index()

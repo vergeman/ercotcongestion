@@ -58,9 +58,10 @@ class MetaResponse(BaseModel):
     """What the API is currently serving. Read-only surface for debug UI.
 
     ``run_id``, ``ref``, ``algo``, ``k`` are derived from the served
-    scorecard cell; ``promoted_at`` is the IBP DB pointer timestamp.
-    Any field is ``None`` when the underlying artifact isn't in place —
-    e.g. no cell has been promoted yet, or the DB pointer is unset.
+    scorecard cell. ``promoted_at`` is retired and always ``null`` — the
+    binding-proximity DB pointer it reported is gone; the field is kept so
+    the JSON shape stays stable for existing clients. The scorecard fields
+    are ``None`` when no cell has been promoted yet.
     """
     run_id: str | None = None
     ref: str | None = None
