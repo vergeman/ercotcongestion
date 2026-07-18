@@ -52,6 +52,61 @@ class ErcotSppRangeResponse(BaseModel):
     entries: list[ErcotSppRangeEntry]
 
 
+# ---- /forecast_range -----------------------------------------------------
+#
+# Per-hour, per-SP forecast congestion (P10/P50/P90) over a window — the
+# prediction counterpart to ``/ercot_spp_range``, read from ``forecast_nodal``
+# at the current ``forecast_current[ercot]`` run. Same range shape (start / end /
+# count / per-hour ``entries``) so the left ("prediction") map pane aligns to the
+# same scrubber the realized right pane does, hour for hour, instead of both
+# rendering one realized quantity.
+#
+# Expanded for prediction: each SP carries the P10/P50/P90 triple (not a single
+# price), and each hour carries the DAM ``system_lambda`` (NP4-523-CD) at that
+# interval so the client resolves predicted LMP = P50 + system_λ — the same
+# reference the market side subtracts, so the LMP-basis comparison collapses to
+# the congestion-basis one (plan 0096/0098). ``run_id`` labels which refit is
+# serving; the served day is the cursor hour's date.
+
+class ForecastSpState(BaseModel):
+    """One SP's forecast congestion at one hour — a ``forecast_nodal`` row.
+
+    ``p50`` is the sampling-median congestion the prediction pane fills with;
+    ``p10``/``p90`` bracket it. All nullable — a NaN percentile persisted as NULL
+    rides through as ``None`` rather than dropping the SP.
+    """
+    sp_id: str
+    p10: float | None = None
+    p50: float | None = None
+    p90: float | None = None
+
+
+class ForecastRangeEntry(BaseModel):
+    """All SPs' forecast congestion at one interval, plus that hour's system-λ.
+
+    ``system_lambda`` is the DAM system-λ at ``interval_ts``; ``None`` when no λ
+    is published for the hour (LMP then falls back to unset on the prediction
+    side). Add it to each SP's congestion for the predicted LMP palette.
+    """
+    interval_ts: datetime
+    system_lambda: float | None = None
+    sps: list[ForecastSpState]
+
+
+class ForecastRangeResponse(BaseModel):
+    """Per-hour forecast congestion across a window for the current forecast run.
+
+    ``run_id`` (model version) labels which refit is serving; ``entries`` are the
+    forecast hours falling in ``[start, end]`` for that run, so a window covering
+    the served delivery day renders the forecast aligned to the realized ranges.
+    """
+    start: datetime
+    end: datetime
+    run_id: str
+    count: int
+    entries: list[ForecastRangeEntry]
+
+
 # ---- /map/* --------------------------------------------------------------
 #
 # The implied shift-factor map (spec-phase1-serve-map §3). SF *structure* —

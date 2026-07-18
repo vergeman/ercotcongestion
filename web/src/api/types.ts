@@ -61,6 +61,45 @@ export interface SPFeatureProperties {
 }
 
 // =============================================================================
+// /forecast_range — per-hour forecast congestion for the current forecast run,
+// the prediction counterpart to /ercot_spp_range. Feeds the left ("prediction")
+// pane through the same prefetch/scrubber path as the realized ranges, so the
+// two panes align hour for hour. Expanded for prediction: P10/P50/P90 per SP,
+// plus each hour's system-λ. Mirrors api/models.py ForecastSpState /
+// ForecastRangeEntry / ForecastRangeResponse.
+// =============================================================================
+
+// One SP's forecast congestion at one hour. `p50` (sampling median) is the pane
+// fill; `p10`/`p90` bracket it. Nullable — a NULL percentile rides through
+// rather than dropping the SP.
+export interface ForecastSpState {
+  sp_id: string;
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+}
+
+// All SPs' forecast congestion at one interval, plus that hour's system-λ.
+// Predicted LMP = p50 + system_lambda (same reference the market side
+// subtracts). Null λ → LMP unset for the hour.
+export interface ForecastRangeEntry {
+  interval_ts: string;
+  system_lambda: number | null;
+  sps: ForecastSpState[];
+}
+
+// Per-hour forecast congestion across a window. `run_id` labels which refit is
+// serving; the served day is the cursor hour's date. `entries` are the forecast
+// hours in [start, end] for the current run.
+export interface ForecastRangeResponse {
+  start: string;
+  end: string;
+  run_id: string;
+  count: number;
+  entries: ForecastRangeEntry[];
+}
+
+// =============================================================================
 // /map/* — the implied shift-factor structure (not time-indexed; one refit).
 // Mirrors api/models.py MapMeta / ConstraintGeo / SpExposure / ExposuresResponse
 // / ReachSp / ConstraintReach.
