@@ -62,7 +62,15 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
         seen["score_from"] = kw.get("score_from")
         if build_raises:
             raise ValueError("simulated loader failure")
-        return pd.DataFrame() if build_empty else pd.DataFrame({"x": [1, 2, 3]})
+        if build_empty:
+            return pd.DataFrame()
+        # A (key, interval_ts) MultiIndex like the real `build_panel`, so the
+        # `keep_from` slice (`get_level_values("interval_ts")`) has its level. All
+        # rows sit strictly before D (< keep_from is fine — predict_day is faked).
+        hours = pd.date_range(D - pd.Timedelta(days=3), periods=3, freq="D", tz="UTC")
+        idx = pd.MultiIndex.from_product([["K0|c"], hours],
+                                         names=["key", "interval_ts"])
+        return pd.DataFrame({"x": [1, 2, 3]}, index=idx)
 
     def fake_predict_day(panel, D_, *, train_days, arms, seed):
         hours = pd.date_range(D_, periods=24, freq="h", tz="UTC")
@@ -78,6 +86,13 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     def fake_load_preds(path):
         return pd.DataFrame({"week": [D - pd.Timedelta(days=7)],
                              "y_bind": [1], "y_mu": [5.0], "mu_gbm": [4.0]})
+
+    def fake_load_forecast_sf(conn, D_, wp, **kw):
+        # The persisted-SF read (0095-0002) is exercised by its own unit tests; here
+        # it just returns a valid map so `forecast_day`'s orchestration proceeds.
+        seen["sf_D"] = D_
+        seen["map_run_id"] = kw.get("run_id")
+        return pd.DataFrame([[1.0]], index=["K0|c"], columns=["SP0"]).astype("f4")
 
     def fake_propagate(s, end, M, C, wp, eps, n_draws, rng, **kw):
         seen["prop_s"] = s
@@ -98,6 +113,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     monkeypatch.setattr(fd, "build_panel", fake_build_panel)
     monkeypatch.setattr(fd, "predict_day", fake_predict_day)
     monkeypatch.setattr(fd, "load_preds", fake_load_preds)
+    monkeypatch.setattr(fd, "load_forecast_sf", fake_load_forecast_sf)
     monkeypatch.setattr(fd, "propagate_window", fake_propagate)
     return seen
 

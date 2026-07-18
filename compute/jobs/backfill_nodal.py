@@ -25,15 +25,18 @@ from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.sf.project import (
     DRIVERS_K,
     DRIVERS_MAX_DAYS,
+    MAP_RUN_ID,
     N_DRAWS,
     SfMuArtifact,
     _NodalAccumulator,
     build_sf_mu_artifact,
     load_nodal,
+    load_window_sf,
     materialize_drivers,
     parse_curated_days,
     propagate_window,
     residual_pool,
+    resolve_sf_window,
 )
 
 log = logging.getLogger("compute.jobs.backfill_nodal")
@@ -155,13 +158,23 @@ def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          n_draws: int = N_DRAWS, seed: int = 0,
          nodal_out: str | None = None,
-         curated: dict | None = None) -> pd.DataFrame:
+         curated: dict | None = None,
+         sf_loader=None) -> pd.DataFrame:
+    """Walk the scored weeks forward through the SF map.
+
+    ``sf_loader`` (0095-0002) routes the backfill through the same persisted weekly
+    SF the live forecast reads, so a historic day matches live: a callable
+    ``week → SF | None`` (the causal ``max(window_end ≤ week)`` map window). A week
+    with no causal window is skipped. ``sf_loader=None`` keeps the self-contained
+    path — SF is refit per window inside `propagate_window` (the synthetic tests and
+    the ``--fit-sf`` escape hatch)."""
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
     weeks = weeks_from_preds(preds)
     rng = np.random.default_rng(seed)
     log.info("propagating %d weeks × %d draws (week 1 has no residual pool → no "
-             "bands)", len(weeks), n_draws)
+             "bands); SF %s", len(weeks), n_draws,
+             "from persisted map" if sf_loader is not None else "refit per window")
 
     # Emitting the panel only tees the arrays already computed — same rng draws,
     # so the metrics row (and `mu_bands_weekly.csv`) is byte-identical either way.
@@ -183,9 +196,17 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
                      i + 1, len(weeks), s.date())
             continue
 
+        sf = None
+        if sf_loader is not None:
+            sf = sf_loader(s)
+            if sf is None or sf.empty:
+                log.info("  week %2d/%d %s  no causal persisted SF window — skipped",
+                         i + 1, len(weeks), s.date())
+                continue
+
         end = s + pd.Timedelta(days=REFIT_DAYS)
         row, panel, SF, E_mu = propagate_window(
-            s, end, M, C, by_week[s], eps, n_draws, rng,
+            s, end, M, C, by_week[s], eps, n_draws, rng, sf=sf,
             want_panel=sink is not None, want_sf_mu=want_sf_mu)
         if row is None:
             continue
@@ -329,6 +350,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="CSV path for --drivers rows (default: drivers_<k>.csv)")
     p.add_argument("--drivers-k", type=int, default=DRIVERS_K,
                    help="top-k constraints per (ts, sp) for --drivers")
+    p.add_argument("--map-run-id", default=MAP_RUN_ID,
+                   help="weekly SF-map run to read persisted SF from (default %r); "
+                        "the backfill projects through the same SF the live forecast "
+                        "reads, so historic == live (0095-0002)" % MAP_RUN_ID)
+    p.add_argument("--fit-sf", action="store_true",
+                   help="refit SF per window in-process instead of reading the "
+                        "persisted map — the pre-0002 self-contained behavior")
     args = p.parse_args(argv)
     if args.to_db and not (args.nodal_out and args.run_id):
         p.error("--to-db requires --nodal-out (the panel is loaded from it) "
@@ -374,8 +402,25 @@ def main(argv: list[str] | None = None) -> int:
         C = load_congestion_panel(conn, lo, hi)
     log.info("M = %s   C = %s", M.shape, C.shape)
 
-    bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out,
-                 curated=curated)
+    # Route the backfill through the same persisted weekly SF the live forecast
+    # reads (0095-0002), so a historic week matches live: per week s, load the
+    # causal (window_end ≤ s) latest map window. `--fit-sf` restores the pre-0002
+    # in-process refit. The loader keeps its own open connection across the walk.
+    sf_loader = None
+    sf_conn = None
+    if not args.fit_sf:
+        sf_conn = psycopg.connect(dsn)
+
+        def sf_loader(s, _c=sf_conn, _rid=args.map_run_id):
+            win = resolve_sf_window(_c, _rid, as_of=pd.Timestamp(s))
+            return None if win is None else load_window_sf(_c, _rid, win[0])
+
+    try:
+        bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out,
+                     curated=curated, sf_loader=sf_loader)
+    finally:
+        if sf_conn is not None:
+            sf_conn.close()
     scores = pd.read_csv(args.scores, parse_dates=["week"])
     print(r5(scores, bands))
     if args.out and not bands.empty:
