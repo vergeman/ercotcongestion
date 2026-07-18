@@ -39,14 +39,11 @@ class Settings:
     map_run_id: str | None = os.environ.get('MAP_RUN_ID') or None
 
     # ---- Runs -------------------------------------------------------------
-    # ``served_run_dir`` is the only knob the API reads. It is a symlink
-    # managed by ``compute.promote`` — the API is oblivious to which run,
-    # cell, or ref is live. Every artifact is opened at a fixed path
-    # underneath (``mapping/scorecard.json``, ``clustering/cluster_labels.npz``,
-    # ``matrix/congestion_matrices.npz``, ...) and the symlinks decide what
-    # those paths resolve to.
+    # Root of the pipeline artifact tree (one subdir per run_id). The API no
+    # longer reads run artifacts off a served symlink — Congestion/SPP come
+    # from the DB and /map/* resolves the served run per request via
+    # sf_window_meta.
     compute_runs_dir:      str  = os.environ.get('COMPUTE_RUNS_DIR', '/compute/runs')
-    served_run_dir:        str  = os.environ.get('SERVED_RUN_DIR', '/compute/runs/current')
 
     # ---- Data Processed --------- -----------------------------------------
     network_nc                     = f'{processed_dir}/{case_stem}.nc'

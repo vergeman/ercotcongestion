@@ -1,6 +1,6 @@
 # Standalone api-compute pod with the compute-runs PVC mounted at /compute/runs.
-# Use for interactive runs of run_pipeline.py / clustering sweeps that need to
-# read or write compute/runs/<run_id>/{matrix,clustering,congestion}.
+# Use for interactive compute runs that need to read or write the artifact tree
+# under compute/runs/<run_id>/.
 #
 # Prereq: compute-runs PVC exists (ops/deploy/base/compute/runs-pvc.yml).
 # Note: compute-runs is ReadWriteOnce. Only one pod can mount it at a time —
@@ -14,8 +14,7 @@
 #   envsubst < jobs/compute_shell_pod.yml.template | kubectl apply -f -
 #
 #   kubectl -n ercotstress exec -it compute-shell -- bash
-#   # inside the pod:
-#   python /compute/run_pipeline.py --run-id v1-120 ...
+#   # inside the pod: run a compute entrypoint, e.g. the SF/mu jobs.
 #
 #   kubectl -n ercotstress delete pod compute-shell   # when done
 #

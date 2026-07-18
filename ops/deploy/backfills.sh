@@ -43,19 +43,15 @@ case "${1:-all}" in
   ingest)
     run_job backfill_ingest_job.yml backfill-ingest
     ;;
-  snapshots)
-    run_job backfill_snapshots_job.yml backfill-snapshots
-    ;;
   outages)
     run_job backfill_outages_job.yml backfill-outages
     ;;
   all)
     run_job backfill_ingest_job.yml    backfill-ingest
     run_job backfill_outages_job.yml   backfill-outages
-    run_job backfill_snapshots_job.yml backfill-snapshots
     ;;
   *)
-    echo "Usage: $0 [ingest|outages|snapshots|all]"
+    echo "Usage: $0 [ingest|outages|all]"
     exit 1
     ;;
 esac

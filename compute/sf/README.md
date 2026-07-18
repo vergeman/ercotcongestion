@@ -170,7 +170,7 @@ wipe + refit; drop `--persist-sf` for an exploratory diagnostics-only run.
 
 ## Sweep
 
-`sweep_ibp.py` (`python -m compute.sf.sweep_ibp`) orchestrates a grid over
+`sweep_sf.py` (`python -m compute.sf.sweep_sf`) orchestrates a grid over
 `(window-days, refit-days, ridge-lambda, std-floor, min-binding-hours)`,
 fitting each combination in-process and ranking on the honest out-of-window
 metrics from `compute.sf.eval` (default `oos_pooled_r2`). Panels are loaded once

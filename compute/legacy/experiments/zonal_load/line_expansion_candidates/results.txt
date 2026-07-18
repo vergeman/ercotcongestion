@@ -1,2 +1,0 @@
-no further pooled candidate reduces shed
-RESULT: 3 lines, shed 259->211 MW, cost 47.3

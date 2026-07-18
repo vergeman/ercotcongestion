@@ -1,8 +1,7 @@
 """ERCOT weather-zone labels — the eight NP3-561/NP6-345 weather zones.
 
-Extracted from ``ercot.transforms`` (now frozen under ``compute.legacy``) so the
-kept graph (``regimes`` → μ-model covariates) can reference the zone tuple
-without pulling in the OPF/congestion stack that ``transforms`` depends on.
+A standalone tuple so covariate code can reference the zone labels without
+pulling in any OPF/congestion stack.
 """
 from __future__ import annotations
 

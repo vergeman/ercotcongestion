@@ -1,81 +1,35 @@
 """GET /ercot_state_range — per-hour ERCOT SP congestion for a window.
 
-Reads the currently-served run's ``matrix/congestion_matrices.npz`` under
-``settings.served_run_dir``. Keys are namespaced by reference method —
-``<ref>_ercot_C``, ``<ref>_ercot_sp_ids``, ``<ref>_ercot_hours`` — matching
-``compute.mapping.correlation_map``.
+Congestion is ``SPP − system_λ`` computed from the DB at request time: the
+published DAM SPP (``ercot_dam_spp``, NP4-190-CD) minus the day-ahead system
+lambda (``dam_system_lambda``, NP4-523-CD), the distributed-slack reference
+the map + implied-SF fit use. This mirrors
+``compute.sf.panels.load_congestion_panel(ref_method="system_lambda")`` and
+reads the same tables ``/ercot_spp_range`` does — no run artifact, no
+served-run pointer.
 
-The ref itself is not a separate env var: it is read from the served
-``mapping/scorecard.json``'s ``params.ref`` field, with an in-process
-cache invalidated when the JSON's mtime changes. Promoting a scorecard
-cell built against a different ref automatically switches the ERCOT
-column served here. If we ever need to serve a scorecard on one ref and
-ERCOT-state on another, add a per-endpoint override then — not up front.
+Both feeds can carry duplicate ``(interval_ts, …)`` rows (one per DST-flag
+variant); we collapse with ``DISTINCT ON`` keeping the ``dst_flag = FALSE``
+variant first, matching ``/ercot_spp_range`` and the congestion panel.
 
-Missing artifacts return 503 rather than synthesising values.
+An empty window returns 503 rather than synthesising values (the client maps
+503 → null).
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
-import numpy as np
 from fastapi import APIRouter, HTTPException, Query
+from psycopg.rows import dict_row
+
+from db import get_pool
 
 from models import ErcotSpState, ErcotStateRangeEntry, ErcotStateRangeResponse
-from shared.settings import settings
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _matrix_path() -> Path:
-    return Path(settings.served_run_dir) / "matrix" / "congestion_matrices.npz"
-
-
-def _scorecard_json_path() -> Path:
-    return Path(settings.served_run_dir) / "mapping" / "scorecard.json"
-
-
-# In-process cache of the last (mtime_ns, ref) pair. Cleared whenever the
-# scorecard file the symlink resolves to changes mtime — a symlink flip
-# by ``compute.promote`` counts because ``os.stat`` follows the link.
-_REF_CACHE: dict[str, tuple[int, str]] = {}
-
-
-def _read_served_ref() -> str:
-    """Return ``params.ref`` from the served scorecard.json, mtime-cached."""
-    path = _scorecard_json_path()
-    try:
-        mtime = os.stat(path).st_mtime_ns
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"no scorecard is currently served (missing {path}). "
-                f"Promote a run with: python -m compute.promote."
-            ),
-        ) from exc
-
-    key = str(path)
-    cached = _REF_CACHE.get(key)
-    if cached is not None and cached[0] == mtime:
-        return cached[1]
-
-    with open(path) as f:
-        params = json.load(f).get("params", {})
-    ref = params.get("ref")
-    if not ref:
-        raise HTTPException(
-            status_code=503,
-            detail=f"served scorecard {path} has no params.ref",
-        )
-    _REF_CACHE[key] = (mtime, ref)
-    return ref
 
 
 def _coerce_utc(ts: datetime) -> datetime:
@@ -93,65 +47,73 @@ def get_ercot_state_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),
     end: datetime = Query(..., description="ISO-8601 UTC end (inclusive)"),
 ) -> ErcotStateRangeResponse:
-    path = _matrix_path()
-    if not path.exists():
-        raise HTTPException(
-            status_code=503,
-            detail=f"congestion matrices not built for served run; missing {path}",
-        )
-
-    ref = _read_served_ref()
-    with np.load(path, allow_pickle=False) as z:
-        keys = {
-            "C": f"{ref}_ercot_C",
-            "sp_ids": f"{ref}_ercot_sp_ids",
-            "hours": f"{ref}_ercot_hours",
-        }
-        missing = [k for k in keys.values() if k not in z.files]
-        if missing:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"ercot matrix keys missing for ref={ref}: {missing}. "
-                    f"Regenerate with ercot_ref={ref}."
-                ),
-            )
-        C = z[keys["C"]]
-        sp_ids = z[keys["sp_ids"]]
-        hours = z[keys["hours"]]
-
-    if C.size == 0 or hours.size == 0:
-        raise HTTPException(
-            status_code=503,
-            detail=f"ercot matrix empty for ref={ref}",
-        )
-
     start_u = _coerce_utc(start)
     end_u = _coerce_utc(end)
 
-    # Parse each stored hour string once. Store as tz-aware UTC.
-    # The stored form is ``<scenario_label>|<iso8601>`` — split off the
-    # leading label before parsing.
-    def _parse(h: str) -> datetime:
-        iso = h.split("|", 1)[-1]
-        return _coerce_utc(datetime.fromisoformat(iso))
-
-    parsed = np.array([_parse(str(h)) for h in hours.tolist()])
-    mask = np.array([start_u <= t <= end_u for t in parsed])
-    hit_idx = np.where(mask)[0]
-
-    sp_ids_list = [str(s) for s in sp_ids.tolist()]
-    entries: list[ErcotStateRangeEntry] = []
-    for i in hit_idx:
-        col = C[:, i]
-        sps = [
-            ErcotSpState(
-                sp_id=sp_ids_list[j],
-                congestion=None if not np.isfinite(v) else float(v),
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ON (interval_ts) interval_ts, system_lambda
+                FROM dam_system_lambda
+                WHERE interval_ts >= %s AND interval_ts <= %s
+                ORDER BY interval_ts, dst_flag ASC
+                """,
+                (start_u, end_u),
             )
-            for j, v in enumerate(col)
-        ]
-        entries.append(ErcotStateRangeEntry(interval_ts=parsed[i], sps=sps))
+            lam_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT DISTINCT ON (interval_ts, settlement_point)
+                       interval_ts, settlement_point, dam_spp
+                FROM ercot_dam_spp
+                WHERE interval_ts >= %s AND interval_ts <= %s
+                ORDER BY interval_ts, settlement_point, dst_flag ASC
+                """,
+                (start_u, end_u),
+            )
+            spp_rows = cur.fetchall()
+
+    lam_by_ts: dict[datetime, float | None] = {
+        _coerce_utc(r["interval_ts"]): (
+            None if r["system_lambda"] is None else float(r["system_lambda"])
+        )
+        for r in lam_rows
+    }
+
+    # Congestion needs both a price and a reference at the same hour; an hour
+    # with SPP but no system_λ (or vice versa) drops out, exactly as the panel
+    # join does.
+    by_ts: dict[datetime, list[ErcotSpState]] = {}
+    for r in spp_rows:
+        ts = _coerce_utc(r["interval_ts"])
+        lam = lam_by_ts.get(ts)
+        if lam is None:
+            continue
+        spp = r["dam_spp"]
+        congestion = None if spp is None else float(spp) - lam
+        by_ts.setdefault(ts, []).append(
+            ErcotSpState(
+                sp_id=str(r["settlement_point"]),
+                congestion=congestion,
+            )
+        )
+
+    if not by_ts:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"no congestion computable in window {start_u} .. {end_u} "
+                f"(need overlapping ercot_dam_spp and dam_system_lambda rows)."
+            ),
+        )
+
+    entries = [
+        ErcotStateRangeEntry(interval_ts=ts, sps=sps)
+        for ts, sps in sorted(by_ts.items())
+    ]
 
     return ErcotStateRangeResponse(
         start=start_u,

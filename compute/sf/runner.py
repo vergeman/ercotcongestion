@@ -82,8 +82,7 @@ def _dates_from_run(run_dir: Path) -> tuple[date, date]:
     dates_path = run_dir / "reference_dates.json"
     if not dates_path.exists():
         raise SystemExit(
-            f"{dates_path} not found; pass --start and --end explicitly, "
-            f"or run compute.run_pipeline first to seed the run directory."
+            f"{dates_path} not found; pass --start and --end explicitly."
         )
     with open(dates_path) as f:
         raw = json.load(f)

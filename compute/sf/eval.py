@@ -28,7 +28,7 @@ rather than the individual constraint, and three more columns appear:
                             group row-space: the apples-to-apples drift baseline
                             R3 is judged against
 
-One reusable pass: ``sweep_ibp`` (S1.4) selects on these, and ``--persist-eval``
+One reusable pass: ``sweep_sf`` (S1.4) selects on these, and ``--persist-eval``
 (S1.3) writes ``oos_r2``/``coverage``/``sf_stability`` into ``sf_window_meta``.
 
 The pure metric fns are lifted (not imported) from the frozen harness so this
