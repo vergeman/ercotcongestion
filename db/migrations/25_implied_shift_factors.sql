@@ -1,6 +1,6 @@
 -- 25_implied_shift_factors.sql
 --
--- Persist the per-refit implied shift-factor matrix (SF) that rolling_bp
+-- Persist the per-refit implied shift-factor matrix (SF) that rolling_sf
 -- computes and, until now, discarded. metric.binding_proximity reduces SF to
 -- the scalar bp = max_c |SF[c,sp]| (see 22_implied_binding_proximity.sql);
 -- every v3 surface (node explorer, congestion = -Sum SF*mu_hat, coverage
@@ -8,7 +8,7 @@
 --
 -- Like bp, SF is hyperparameter-sensitive: run_id identifies the
 -- (window, refit, ridge, ...) combination that produced these rows. Sweep runs
--- stay on disk under runs/<run_id>/ibp/; only rows written with --persist-sf
+-- stay on disk under runs/<run_id>/sf/; only rows written with --persist-sf
 -- land here. See plan/S0b-persist-sf-matrix.md.
 --
 -- Storage note: dense-per-refit is ~400 constraints x 1,084 SPs x ~52 refits
