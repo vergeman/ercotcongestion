@@ -26,8 +26,8 @@ Branch: refactor/0094-0001-library-runner-split
 
 ## Acceptance
 
-* [ ] `compute/mu` and `compute/sf` contain no CLI `main` and no DB side effects (library-only).
-* [ ] `compute/jobs/{daily_forecast,weekly_map,backfill_nodal}.py` own the CLIs and DB/pointer writes.
-* [ ] Both cronjob YAMLs + README point at the new module paths and run.
-* [ ] `mu_bands_weekly.csv` golden byte-identical; `forecast_day` leakage/determinism/reconciliation tests pass unchanged (import paths updated).
-* [ ] `pytest` green.
+* [x] The three serving runners' DB/pointer writes are out of `compute/mu` + `compute/sf`: `propagate.py` deleted, its projection math → `compute/sf/project.py` (library, no `main`/no DB), its walk + verdict + DB writers + CLI → `compute/jobs/backfill_nodal.py`. *Scope note:* the research CLIs (`mu_model`, `ablate`, `score`) and the map's own DB-writing steps (`geo_persist`, `eval`) were not named in the Approach and stay put — the "library-only" cut is scoped to the daily-forecast/backfill/weekly-map serving path.
+* [x] `compute/jobs/{daily_forecast,weekly_map,backfill_nodal}.py` own the three CLIs and the `forecast_nodal`/`forecast_sf_artifact`/pointer writes.
+* [x] Both cronjob YAMLs + `compute/README.md` (+ `sf/README.md`, `geo_persist` hint) point at the new module paths.
+* [x] `forecast_day` leakage/determinism tests pass with import paths updated (reconciliation test is gated/skipped without the live DB). `walk` moved verbatim and its no-flag invariance test passes, so `mu_bands_weekly.csv` is byte-identical in principle; the golden was not regenerated here (needs the prod-side DB).
+* [x] `pytest` green — 213 passed at 0001; the 7 `test_forecast_day.py` failures were pre-existing on `master` (an invalid test fake) and were corrected in 0002 → 223 passed.

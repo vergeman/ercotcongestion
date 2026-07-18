@@ -27,8 +27,13 @@ Branch: refactor/0094-0002-shared-sf-fit
 
 ## Acceptance
 
-* [ ] The forecast path issues no `implied_shift_factors` call; it reads persisted weekly SF and projects.
-* [ ] A missing / stale (> N days) / low-coverage map SF fails loud with the prior `forecast_current[ercot]` intact.
-* [ ] `forecast_sf_artifact` still written per `(run_id, delivery_date)`.
-* [ ] Nodal output matches the prior daily-refit output on a spot day within a documented tolerance.
-* [ ] `pytest` green.
+* [x] The forecast path issues no `implied_shift_factors` call: `daily_forecast` calls `load_forecast_sf` (reads the latest causal `map-v1` window from `implied_shift_factors`) and passes it into `propagate_window(sf=…)`; the in-forecast fit is gone. `backfill_nodal` reads the same source per week (`--fit-sf` restores the old fit).
+* [x] Missing / stale (`D − window_end > MAX_SF_AGE_DAYS = 14`) / empty / `< MIN_SF_COVERAGE = 0.5` coverage all raise before any write, so the prior `forecast_current[ercot]` stays intact. All four modes unit-tested (`test_load_forecast_sf_fails_loud_on_missing_stale_empty_or_low_coverage`).
+* [x] `forecast_sf_artifact` still written per `(run_id, delivery_date)` — from the loaded SF now (`persist_forecast` unchanged).
+* [ ] Nodal-output-vs-prior-daily-refit spot check on a real day within tolerance — **not run here** (needs the live DB + a built `map-v1`). Code path is unit-tested; the numeric comparison is a prod-side follow-up.
+* [x] `pytest` green — full compute suite 223 passed, 1 skipped.
+
+## Follow-ups / open
+
+* Validate the `MAX_SF_AGE_DAYS=14` / `MIN_SF_COVERAGE=0.5` floors against real `implied_shift_factors` overlap before they gate production (a too-high coverage floor causes false forecast outages). Both are CLI-overridable (`--max-sf-age-days`, `--min-sf-coverage`).
+* Run the spot-day nodal comparison (persisted-SF vs `--fit-sf`) on the prod DB and record the tolerance.
