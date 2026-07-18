@@ -46,7 +46,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.mu.propagate import draw_congestion, residual_pool
+from compute.sf.project import draw_congestion, residual_pool
 from compute.mu.score import (
     LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
     topdecile_hit_defined, weeks_from_preds,

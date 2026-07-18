@@ -25,10 +25,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import compute.mu.forecast_day as fd
-from compute.mu.forecast_day import ForecastResult, forecast_day, persist_forecast
-from compute.mu.propagate import NodalPanel, build_sf_mu_artifact, load_sf_mu
+import compute.jobs.daily_forecast as fd
+from compute.jobs.daily_forecast import ForecastResult, forecast_day, persist_forecast
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
+from compute.sf.project import NodalPanel, build_sf_mu_artifact, load_sf_mu
 
 D = pd.Timestamp("2025-09-15", tz="UTC")      # an arbitrary UTC-midnight delivery day
 
@@ -382,12 +382,11 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     """
     from compute.mu.features import build_panel
     from compute.mu.mu_model import load_preds, predict_day
-    from compute.mu.propagate import N_DRAWS, propagate_window, residual_pool
     from compute.sf.panels import load_congestion_panel, load_shadow_prices
+    from compute.sf.project import N_DRAWS, propagate_window, residual_pool
 
     conn = pg[0]
-    here = os.path.dirname(fd.__file__)
-    preds = load_preds(os.path.join(here, "mu_preds.npz"))
+    preds = load_preds(fd.PREDS_PATH)
 
     # An interior grid boundary: a full 240d of prior history so the SF map fits.
     weeks = pd.DatetimeIndex(sorted(preds["week"].unique()))

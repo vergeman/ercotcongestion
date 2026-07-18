@@ -88,7 +88,7 @@ spec:
                   END="$(date -u -d tomorrow +%F)"
                   echo "map-v1 refresh: --start 2025-01-01 --end ${END}"
 
-                  python -m compute.sf.runner \
+                  python -m compute.jobs.weekly_map \
                     --run-id map-v1 \
                     --start 2025-01-01 --end "${END}" \
                     --window-days 240 --refit-days 7 \

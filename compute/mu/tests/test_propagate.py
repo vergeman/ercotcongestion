@@ -6,14 +6,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.propagate import (
-    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
-    build_sf_mu_artifact, draw_congestion, existence_test, gate, load_nodal,
-    load_sf_mu, materialize_drivers, nodal_to_db, node_drivers, parse_curated_days,
-    persist_sf_mu_artifact, propagate_window, residual_pool, save_sf_mu,
-    sf_artifact_to_db, upsert_pointer, walk,
+from compute.jobs.backfill_nodal import (
+    existence_test, gate, nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db,
+    upsert_pointer, walk,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
+from compute.sf.project import (
+    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
+    build_sf_mu_artifact, draw_congestion, load_nodal, load_sf_mu,
+    materialize_drivers, node_drivers, parse_curated_days, propagate_window,
+    residual_pool, save_sf_mu,
+)
 
 RNG = np.random.default_rng(11)
 KEYS = [f"C{i}|X" for i in range(5)]

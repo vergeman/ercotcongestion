@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu import propagate
+    from compute.jobs import backfill_nodal
     from compute.mu.features import build_panel, net_load_regime, system_panel
     from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(df)
 
         if args.bands:
-            b = propagate.walk(M, C, preds)
+            b = backfill_nodal.walk(M, C, preds)
             b["arm"] = arm
             band_rows.append(b)
 

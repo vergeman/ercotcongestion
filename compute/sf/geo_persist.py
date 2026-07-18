@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         windows = _load_windows(conn, args.run_id)
         if not windows:
             log.error("no sf_window_meta rows for run_id=%s — run "
-                      "compute.sf.runner --persist-sf first", args.run_id)
+                      "compute.jobs.weekly_map --persist-sf first", args.run_id)
             return 3
 
         # binding_hours needs the shadow-price panel over each fit window; load

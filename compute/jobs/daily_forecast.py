@@ -30,6 +30,12 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from compute.jobs.backfill_nodal import (
+    FORECAST_LAYER,
+    nodal_to_db,
+    persist_sf_mu_artifact,
+    upsert_pointer,
+)
 from compute.mu.features import build_panel
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
@@ -37,26 +43,24 @@ from compute.mu.mu_model import (
     load_preds,
     predict_day,
 )
-from compute.mu.propagate import (
-    FORECAST_LAYER,
+from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
+from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.project import (
     N_DRAWS,
     NodalPanel,
     _NodalAccumulator,
     build_sf_mu_artifact,
-    nodal_to_db,
-    persist_sf_mu_artifact,
     propagate_window,
     residual_pool,
-    upsert_pointer,
 )
-from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger(__name__)
 
 # The validated backtest's out-of-sample residuals, sampled to form the forward
-# error pool (panel spec §7). Module-relative so it resolves regardless of cwd.
-PREDS_PATH = os.path.join(os.path.dirname(__file__), "mu_preds.npz")
+# error pool (panel spec §7). The preds npz lives beside the μ library in
+# `compute/mu/`, so resolve it relative to this runner's parent regardless of cwd.
+PREDS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                          "mu", "mu_preds.npz")
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 

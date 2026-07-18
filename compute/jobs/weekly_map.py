@@ -28,7 +28,7 @@ refit (the old delete-then-rewrite behavior).
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
     docker compose run --rm compute \
-      python -m compute.sf.runner \
+      python -m compute.jobs.weekly_map \
         --run-id <id> \
         --start 2025-01-01 --end 2025-07-23 \
         [--window-days 240] [--refit-days 7] \
@@ -48,20 +48,23 @@ import psycopg
 
 from compute.config import PG_DSN
 
-from .config import REFIT_DAYS as DEFAULT_REFIT_DAYS, WINDOW_DAYS as DEFAULT_WINDOW_DAYS
-from .diagnostics import diagnostics_filename, refit_diagnostics
-from .fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
-from .panels import load_congestion_panel, load_shadow_prices
-from .persist import (
+from compute.sf.config import (
+    REFIT_DAYS as DEFAULT_REFIT_DAYS,
+    WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
+)
+from compute.sf.diagnostics import diagnostics_filename, refit_diagnostics
+from compute.sf.fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
+from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.persist import (
     check_ref_method,
     copy_sf_rows,
     delete_sf_run,
     existing_sf_windows,
     write_window_meta,
 )
-from .rolling import RefitWindow, rolling_bp
+from compute.sf.rolling import RefitWindow, rolling_bp
 
-log = logging.getLogger("compute.sf.runner")
+log = logging.getLogger("compute.jobs.weekly_map")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"

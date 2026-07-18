@@ -27,7 +27,7 @@ the daily forecast does **not** depend on the weekly map job.
 |---|---|---|
 | Cadence | daily 17:00 UTC | weekly, Sun 18:00 UTC |
 | Cron | `ops/deploy/jobs/forecast_cronjob.yml` | `ops/deploy/jobs/map_refresh_cronjob.yml` |
-| Entry | `compute.mu.forecast_day` | `compute.sf.runner` → `geo_persist` → `eval` |
+| Entry | `compute.jobs.daily_forecast` | `compute.jobs.weekly_map` → `geo_persist` → `eval` |
 | run_id | `mu-all-v1` | `map-v1` |
 | Writes | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` | `implied_shift_factors`, `sf_window_meta` (incl. `sf_stability`), `constraint_geo` |
 | Migrations | `30_forecast_nodal.sql`, `31_forecast_sf_artifact.sql` | `28`/`29` + the plan-0003 sf_* tables |
@@ -51,11 +51,11 @@ every new day going forward. Re-run only when the model version is bumped. The f
 python -m compute.mu.mu_model --preds-out /compute/mu/mu_preds.npz
 
 # 2. push predictions through the SF map → full-history nodal panel (P10/P50/P90 + point)
-python -m compute.mu.propagate --preds /compute/mu/mu_preds.npz \
+python -m compute.jobs.backfill_nodal --preds /compute/mu/mu_preds.npz \
     --nodal-out /compute/mu/mu_nodal.npz
 
 # 3. bulk-seed the DB from the npz (no re-walk) + flip the pointer
-python -m compute.mu.propagate --load-nodal-npz /compute/mu/mu_nodal.npz \
+python -m compute.jobs.backfill_nodal --load-nodal-npz /compute/mu/mu_nodal.npz \
     --run-id mu-all-v1 --to-db
 ```
 
@@ -73,7 +73,7 @@ missing input fails loud and leaves the prior pointer intact. Deployed as
 `forecast_cronjob.yml`; the daily tick runs:
 
 ```
-python -m compute.mu.forecast_day --delivery-date tomorrow --run-id mu-all-v1 --to-db
+python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 --to-db
 ```
 
 Backfill / gap-fill a single historic day — identical path, only the date changes (drop
@@ -84,7 +84,7 @@ kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
   --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
   --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
   --env-from-configmap=api-config --env-from-secret=postgres-credentials \
-  -- python -m compute.mu.forecast_day --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
+  -- python -m compute.jobs.daily_forecast --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
 ```
 
 ### (C) Weekly SF map refresh — full-history re-run
@@ -96,7 +96,7 @@ is silently deleted. There is no incremental append; a full re-run (~30 min / ~6
 is how the latest window advances. Deployed as `map_refresh_cronjob.yml`.
 
 ```
-python -m compute.sf.runner --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
+python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
     --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-sf
 python -m compute.sf.geo_persist --run-id map-v1
 python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
@@ -133,9 +133,10 @@ Two properties of the current build are deliberate-or-tolerated, not bugs — do
   "what the live job would have emitted that day."
 
 * **SF computed twice across pipelines (by design).** For each window,
-  `implied_shift_factors` runs both inside `propagate`/`forecast_day` (ephemeral — used
-  to project μ → nodal, only the day's matrix is serialized into `forecast_sf_artifact`)
-  **and** inside `sf.runner` (persisted to `implied_shift_factors` for the explorer),
+  `implied_shift_factors` runs both inside `backfill_nodal`/`daily_forecast` (ephemeral —
+  used to project μ → nodal, only the day's matrix is serialized into
+  `forecast_sf_artifact`)
+  **and** inside `weekly_map` (persisted to `implied_shift_factors` for the explorer),
   with the identical `240/7/λ=1.0/25` config. This is intentional decoupling: the daily
   forecast refuses a DB dependency on the weekly map (which would be up to 7 days stale).
   Recomputing one window in RAM is cheap vs the daily head fit.
@@ -149,7 +150,7 @@ Two properties of the current build are deliberate-or-tolerated, not bugs — do
   footgun.
 
 * **λ operating-point drift risk.** The adopted SF ridge is **λ=1.0** (`score.py:LAM`),
-  but `compute.sf.fit.RIDGE_LAMBDA` still defaults to **1e-1**. `forecast_day`/`propagate`
+  but `compute.sf.fit.RIDGE_LAMBDA` still defaults to **1e-1**. `daily_forecast`/`backfill_nodal`
   get 1.0 via `score.py`; the map only gets 1.0 because both cronjobs pass
   `--ridge-lambda 1.0` explicitly. Drop that flag and the map silently fits at 1e-1 —
   the two pipelines would disagree. Keep the flag, or centralize the constant.
