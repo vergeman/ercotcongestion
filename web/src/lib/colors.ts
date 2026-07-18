@@ -289,6 +289,39 @@ export function modeledCongestionColor(norm: number): string {
 }
 
 // =============================================================================
+// Basis (diverging): predicted − market congestion
+// =============================================================================
+//
+// Same diverging math as modeledCongestionColor, but a DIFFERENT hue axis on
+// purpose. Basis is not a temperature or a source/sink quantity, so it must not
+// borrow the blue↔red of congestion / LMP. Emerald ↔ cream ↔ magenta also sits
+// clear of the SF-overlay layers (violet corridors, amber regions, teal radials).
+//   norm > 0 → model over market  (magenta)
+//   norm < 0 → model under market (emerald)
+//   norm ≈ 0 → cream (agreement — shares the neutral with congestion)
+// Reach/SF glow deliberately keeps modeledCongestionColor: there the sign IS the
+// export/import dipole, and blue↔red is the right reading.
+const BASIS_EMERALD = [16, 185, 129]; // model under market (−)
+const BASIS_CREAM = MC_CREAM; // agreement (0)
+const BASIS_MAGENTA = [236, 72, 153]; // model over market (+)
+
+export function basisColor(norm: number): string {
+  const t = Math.max(-1, Math.min(1, norm));
+  if (t === 0) return `rgb(${BASIS_CREAM.join(",")})`;
+  const target = t > 0 ? BASIS_MAGENTA : BASIS_EMERALD;
+  const mag = Math.abs(t);
+  const r = Math.round(BASIS_CREAM[0] + (target[0] - BASIS_CREAM[0]) * mag);
+  const g = Math.round(BASIS_CREAM[1] + (target[1] - BASIS_CREAM[1]) * mag);
+  const b = Math.round(BASIS_CREAM[2] + (target[2] - BASIS_CREAM[2]) * mag);
+  return `rgb(${r},${g},${b})`;
+}
+
+// The basis legend bar, kept in lockstep with basisColor's endpoints.
+export const BASIS_GRADIENT_CSS = `linear-gradient(to right, rgb(${BASIS_EMERALD.join(
+  ","
+)}), rgb(${BASIS_CREAM.join(",")}), rgb(${BASIS_MAGENTA.join(",")}))`;
+
+// =============================================================================
 // Binding proximity (sequential): |flow| / (s_nom · s_max_pu) per bus
 // =============================================================================
 //

@@ -222,6 +222,11 @@ interface Props {
   // exposes the maplibre instance so App can mirror the camera across panes.
   side?: "prediction" | "actual";
   onMapReady?: (map: maplibregl.Map) => void;
+  // The diverging color ramp for the `congestion` palette. Defaults to the
+  // blue↔red congestion ramp; the basis view passes `basisColor` (emerald↔magenta)
+  // so basis reads on its own hue axis. Only affects node fill — the reach/SF glow
+  // stays on modeledCongestionColor (there the sign is the export/import dipole).
+  congestionColor?: (norm: number) => string;
 }
 
 export default function GridMap({
@@ -242,6 +247,7 @@ export default function GridMap({
   reach,
   overview,
   onMapReady,
+  congestionColor = modeledCongestionColor,
 }: Props) {
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -541,10 +547,10 @@ export default function GridMap({
       let color: string;
       if (palette === "congestion") {
         color = mcStats
-          ? modeledCongestionColor(
+          ? congestionColor(
               normalizeModeledCongestion(row.congestion, mcStats)
             )
-          : modeledCongestionColor(0);
+          : congestionColor(0);
       } else {
         color = lmpStats
           ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats))
@@ -552,7 +558,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach]);
+  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, congestionColor]);
 
   // Selected SP
   useEffect(() => {

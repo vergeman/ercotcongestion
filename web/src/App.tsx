@@ -27,6 +27,8 @@ import {
 import {
   computeLmpStats,
   computeModeledCongestionStats,
+  basisColor,
+  BASIS_GRADIENT_CSS,
   type LmpStats,
   type ModeledCongestionStats,
 } from "./lib/colors";
@@ -718,6 +720,7 @@ export default function App() {
         onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
+        congestionColor={basisColor}
       />
       <div className="pane-badge">{badgeFor(basisLabel, basisLit)}</div>
       <Legend
@@ -728,6 +731,7 @@ export default function App() {
         variant="full"
         titleOverride="Basis · predicted − market ($/MWh)"
         signLabels={{ neg: "pred < market", pos: "pred > market" }}
+        barGradientOverride={BASIS_GRADIENT_CSS}
         paneLabel={basisLabel}
         constraintOverlay={showConstraints && !!constraints?.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}

@@ -25,6 +25,9 @@ interface Props {
   // "pred < market" / "pred > market"). Both apply only to the congestion palette.
   titleOverride?: string;
   signLabels?: { neg: string; pos: string };
+  // Overrides the palette bar's gradient — the basis view passes its
+  // emerald↔magenta ramp so the legend bar matches the map's basis coloring.
+  barGradientOverride?: string;
   // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
   // Shown only on the pane that carries the overlay, and only while it's on.
   // Legacy centroid overlay only — mutually exclusive with `overviewTypes`.
@@ -91,6 +94,7 @@ export default function Legend({
   paneLabel,
   titleOverride,
   signLabels,
+  barGradientOverride,
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
@@ -145,9 +149,11 @@ export default function Legend({
     return { min, mean: sum / n, max };
   }, [rows, isLmp]);
 
-  const barGradient = isCongestion
-    ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
-    : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)";
+  const barGradient =
+    barGradientOverride ??
+    (isCongestion
+      ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
+      : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)");
 
   const title =
     titleOverride ??
