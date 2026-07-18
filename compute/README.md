@@ -16,92 +16,41 @@ docker compose run --rm --no-deps compute python -m pytest /compute/sf/tests /co
 docker compose run --rm --no-deps compute python -m pytest /compute/mu/tests/test_forecast_day.py -q
 ```
 
-## Runbook — serving the μ forecast + SF map
+## Runbook — build & deploy the μ forecast
 
-There are **two pipelines** over the shared upstream ERCOT DAM ingest
-(`ercot_dam_shadow_prices`, `ercot_dam_spp`, `dam_system_lambda`, forecast vintages).
-Since 0095-0002 they are **coupled in one direction**: the daily forecast reads the
-weekly map's persisted SF (`implied_shift_factors`, `map-v1`) instead of refitting it,
-so the **map must be built and fresh** for the forecast to run — a stale/missing map
-fails the forecast loud (prior pointer intact), it never serves stale geography.
+Two pipelines run over the shared ERCOT DAM ingest (`ercot_dam_shadow_prices`,
+`ercot_dam_spp`, `dam_system_lambda`, forecast vintages), coupled in one direction: the
+forecast projects its μ prediction through the map's persisted shift factors, so **the
+map must be built and fresh before the forecast runs** — a missing or stale map fails the
+forecast loud and leaves the prior served day intact.
 
-| | Forecast (the μ product) | Map (the SF explorer) |
+| | SF map (`map-v1`) | Forecast (`mu-all-v1`) |
 |---|---|---|
-| Cadence | daily 17:00 UTC | weekly, Sun 18:00 UTC |
-| Cron | `ops/deploy/jobs/forecast_cronjob.yml` | `ops/deploy/jobs/map_refresh_cronjob.yml` |
-| Entry | `compute.jobs.daily_forecast` | `compute.jobs.weekly_map` → `geo_persist` → `eval` |
-| run_id | `mu-all-v1` | `map-v1` |
-| Writes | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` | `implied_shift_factors`, `sf_window_meta` (incl. `sf_stability`), `constraint_geo` |
-| Migrations | `30_forecast_nodal.sql`, `31_forecast_sf_artifact.sql` | `28`/`29` + the plan-0003 sf_* tables |
+| What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: per-SP P10/P50/P90 congestion forecast |
+| Cadence | weekly, Sun 18:00 UTC | daily, 17:00 UTC |
+| Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `ops/deploy/jobs/forecast_cronjob.yml` |
+| Entry | `weekly_map` → `geo_persist` → `eval` | `daily_forecast` |
+| Writes | `implied_shift_factors`, `sf_window_meta`, `constraint_geo` | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
 
-The map runner (`weekly_map`) is the sole SF fitter: it fits EVERY refit window across
-history with `compute.sf.fit.implied_shift_factors` and persists each to
-`implied_shift_factors`. `daily_forecast` reads the latest causal window from there
-(`load_forecast_sf`) rather than refitting — one SF fit, shared. The μ heads (bind + μ)
-are still **refit daily** inside `daily_forecast`; there is no separate weekly μ-model
-refit. The only weekly job is the SF map.
+**μ vs SF — why they are separate.** The two are orthogonal and multiply. μ is the
+*temporal* signal: per constraint, per hour, does it bind and how hard — driven by load,
+weather, and outages, so it is refit **daily**. SF is the *spatial* map: constraint
+shadow price → nodal congestion — grid geography that moves slowly, so it is fit
+**weekly** on a 240-day window. Nodal congestion = SF · μ. The map is the sole SF fitter;
+the forecast reuses its SF rather than refitting, so one weekly fit serves every daily
+forecast.
 
-### (A) One-time historical backfill — build the `*.npz`, seed `forecast_nodal`
+Build and deploy in this order.
 
-This is the backfill. It computes the **past** nodal panel and bulk-loads it so the
-site has history on day one. Run it **once per model version** (`run_id`), NOT on a
-schedule: for a fixed `run_id` a past day never changes, and the daily job (B) appends
-every new day going forward. Re-run only when the model version is bumped. The full
-`mu_model` walk no longer fits a 16 GB node, so step 1 is a **prod-side** operation.
+### Step 1 — SF map (build the geography first)
 
-```
-# 1. walk-forward backtest → per-(hour,key) predictions (p_bind, mu_gbm)
-python -m compute.mu.mu_model --preds-out /compute/mu/mu_preds.npz
-
-# 2. push predictions through the SF map → full-history nodal panel (P10/P50/P90 + point)
-#    Reads the persisted map-v1 SF per week (causal window_end <= week), so a historic
-#    day matches live (0095-0002); needs map-v1 built (step C). Add --fit-sf to refit
-#    SF in-process instead (the pre-0002 self-contained path).
-python -m compute.jobs.backfill_nodal --preds /compute/mu/mu_preds.npz \
-    --nodal-out /compute/mu/mu_nodal.npz
-
-# 3. bulk-seed the DB from the npz (no re-walk) + flip the pointer
-python -m compute.jobs.backfill_nodal --load-nodal-npz /compute/mu/mu_nodal.npz \
-    --run-id mu-all-v1 --to-db
-```
-
-What each `.npz` is: `mu_preds.npz` = the walk-forward booster predictions (already
-out-of-sample honest); `mu_nodal.npz` (~100 MB) = the full-history nodal panel derived
-from it. Neither is a live artifact — they are intermediates of the one-time seed.
-
-### (B) Daily forecast job — appends tomorrow's day
-
-One monolithic process: build panel at DAM-close vintage → `predict_day` (refit both
-heads on the trailing window, predict D's 24 h) → load the weekly map's persisted SF
-(`load_forecast_sf`, causal + freshness/coverage guarded) → forward `propagate_window`
-(project μ through that SF, draw the bands) → write `forecast_nodal` +
-`forecast_sf_artifact` → flip
-`forecast_current[ercot]` **last**. Peak ~16 GiB (= the pod limit, no headroom); a
-missing input fails loud and leaves the prior pointer intact. Deployed as
-`forecast_cronjob.yml`; the daily tick runs:
-
-```
-python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 --to-db
-```
-
-Backfill / gap-fill a single historic day — identical path, only the date changes (drop
-`--to-db` for a dry run):
-
-```
-kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
-  --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
-  --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
-  --env-from-configmap=api-config --env-from-secret=postgres-credentials \
-  -- python -m compute.jobs.daily_forecast --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
-```
-
-### (C) Weekly SF map refresh — full-history re-run
-
-The SF explorer only. Chains three steps in one container over full history under
-`map-v1`. **FOOTGUN:** the runner calls `delete_sf_run(run_id)` first (wipes ALL windows),
-then writes only `[--start, --end)` — `--start` MUST stay `2025-01-01` or served history
-is silently deleted. There is no incremental append; a full re-run (~30 min / ~67M rows)
-is how the latest window advances. Deployed as `map_refresh_cronjob.yml`.
+**Needs:** the DAM ingest populated.
+**Does:** fits SF for each refit-week boundary on a trailing 240-day window (7-day
+cadence), then persists the shift factors, constraint centroids (`geo_persist`), and
+stability metrics (`eval`). Runs incrementally: it fits and writes only the complete
+refit windows not already present, so a later `--end` appends just the new week(s) and a
+repeated `--end` is a no-op. Only complete windows persist (the partial terminal week is
+skipped), so the served map is the newest complete week.
 
 ```
 python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
@@ -111,62 +60,91 @@ python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
     --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval
 ```
 
-Hand-run the deployed cronjob on the identical path:
+* `compute.jobs.weekly_map`: `--start` is the series origin. Add `--rebuild` to
+wipe the run and refit from scratch (~30 min / ~67M rows); omit it for the
+normal cheap append.
 
+Hand-run the deployed cronjob on the identical path:
 ```
 cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
 kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
 ```
 
-### From 0 to live
+### Step 2 — Historical backfill (seed the forecast history)
 
-1. Ingest cronjob already populating the DAM tables (upstream prerequisite).
-2. Apply migrations 30/31 (+ 28/29 + sf_* for the map).
-3. Run (C) once to seed the map tables — **now a prerequisite**, not optional: both
-   the backfill (A, step 2) and the daily forecast (B) project through map-v1's
-   persisted SF (0095-0002). (Use `--fit-sf` on A to seed without the map.)
-4. Run (A) once to seed `forecast_nodal` history.
-5. Deploy both cronjobs — (B) daily and (C) weekly then keep everything current with no redeploy.
+**Needs:** the map from step 1 (or `--fit-sf` to fit SF in-process instead).
+**Does:** walks μ forward over all history, projects it through the map's per-week SF,
+and bulk-loads the resulting nodal panel so the site has history on day one. Run **once
+per model version** (`run_id`) — a past day never changes for a fixed run, and step 3
+appends every new day going forward. Re-run only when the model version is bumped. The
+full μ walk (command 1) is a prod-side operation (~16 GB).
 
-### Cadence seam + known redundancies
+```
+# 1. walk-forward backtest → per-(hour,key) predictions (p_bind, mu_gbm)
+#    --end is a fixed date, not today; pass a recent --end to reach current data.
+python -m compute.mu.mu_model --preds-out /compute/mu/mu_preds.npz --end <YYYY-MM-DD>
 
-Two properties of the current build are deliberate-or-tolerated, not bugs — do not
-"fix" them by accident:
+# 2. project predictions through the map's SF → full-history nodal panel (P10/P50/P90 + point)
+python -m compute.jobs.backfill_nodal --preds /compute/mu/mu_preds.npz \
+    --nodal-out /compute/mu/mu_nodal.npz
 
-* **Historic vs live cadence seam.** The (A) backfill refits on a **7-day grid** and
-  predicts the next 7-day block (`walk_forward`), so every historic day in
-  `forecast_nodal` shares its week's single fit. The (B) daily job refits **every day**
-  (`predict_day` = one-day block). So historic days and going-forward days are *not*
-  constructed identically; there is a methodology seam at the backfill→live boundary.
-  Both are honest (the 0013 reconciliation test pins that the two `propagate_window`
-  modes agree given identical `wp`/`M`/`C`) — but don't read a historic panel row as
-  "what the live job would have emitted that day."
+# 3. bulk-seed forecast_nodal from the panel + flip the pointer (this mode does it itself —
+#    no --to-db, which the CLI rejects here)
+python -m compute.jobs.backfill_nodal --load-nodal-npz /compute/mu/mu_nodal.npz \
+    --run-id mu-all-v1
+```
 
-* **SF fit once, shared across pipelines (0095-0002).** The forecast no longer refits
-  SF on `[D−240, D)` every day. `daily_forecast` (and `backfill_nodal`, unless
-  `--fit-sf`) read the map's persisted weekly SF from `implied_shift_factors`
-  (`load_forecast_sf`, run `map-v1`) and project μ through it — the map fits this SF
-  weekly with the identical `240/7/λ=1.0/25` config, and it is stationary within the
-  7-day refit interval. This introduces a forecast→map dependency, guarded so it fails
-  safe rather than serving stale geography: the loader takes the latest **causal**
-  window (`window_end ≤ D`) and raises (prior pointer intact) if it is missing, stale
-  (`D − window_end > 14d` — a missed weekly refresh), empty, or covers `< 50%` of D's
-  predicted binding mass. Only the day's loaded matrix is still serialized into
-  `forecast_sf_artifact`. The map runner keeps its own fit (it is the source).
+`mu_nodal.npz` (~100 MB) is a throwaway intermediate — nothing reads it after command 3.
+**`mu_preds.npz` is a live dependency**, not a seed artifact: the daily job (step 3)
+loads it every run as the out-of-sample residual pool that draws the P10/P90 bands, and
+it ships **baked into the image** (`Dockerfile: COPY compute/`; untracked in git, no
+volume). It must be present and current at image-build time.
 
-* **Map runner re-fits its whole history weekly (waste, not decoupling).** Each (C) run
-  `delete_sf_run(map-v1)` wipes all windows then refits every window from 2025-01-01,
-  though every window except the newest is bit-identical to last week's. ~67M rows /
-  ~30 min regenerated to add one window. There is no incremental append — the boundary
-  grid is anchored at `--start` and persist is delete-all-then-copy. The real fix is
-  "fit only new boundaries, upsert"; unsupported today, hence weekly + the `--start`
-  footgun.
+> **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `mu_model` and
+> `backfill_nodal` never read the DB max or `now()`. Refreshing the residual pool means
+> re-running command 1 with a recent `--end` (a date, not `tomorrow`) **and rebuilding /
+> redeploying the image** — the daily job reads the baked-in copy, not one on disk. The
+> scored walk begins at `--start + 240d` (the training warm-up), so the first residual
+> week is ~8 months after `--start`.
 
-* **λ operating-point drift risk.** The adopted SF ridge is **λ=1.0** (`score.py:LAM`),
-  but `compute.sf.fit.RIDGE_LAMBDA` still defaults to **1e-1**. `daily_forecast`/`backfill_nodal`
-  get 1.0 via `score.py`; the map only gets 1.0 because both cronjobs pass
-  `--ridge-lambda 1.0` explicitly. Drop that flag and the map silently fits at 1e-1 —
-  the two pipelines would disagree. Keep the flag, or centralize the constant.
+### Step 3 — Daily forecast (append each new day)
+
+**Needs:** a fresh map (step 1) and `mu_preds.npz` in the image (step 2).
+**Does:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
+window and predicts D's 24 h, loads the map's latest causal SF window, projects μ through
+it and draws the bands, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
+`forecast_current[ercot]` **last**. The SF loader is guarded: it takes the latest window
+with `window_end ≤ D` and fails loud (prior pointer intact) if that window is missing,
+stale (`D − window_end > 14d`), or covers `< 50%` of D's predicted binding mass — it
+never serves stale geography. Peak ~16 GiB (the pod limit).
+
+```
+python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 --to-db
+```
+
+Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
+for a dry run):
+```
+kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
+  --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
+  --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
+  --env-from-configmap=api-config --env-from-secret=postgres-credentials \
+  -- python -m compute.jobs.daily_forecast --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
+```
+
+### Step 4 — Deploy
+
+With steps 1–2 seeded, deploy both cronjobs (`map_refresh_cronjob.yml`,
+`forecast_cronjob.yml`). The weekly map append (step 1) and the daily forecast (step 3)
+then keep everything current with no redeploy.
+
+### Good to know
+
+* **Historic vs live cadence seam.** The backfill (step 2) refits on a 7-day grid and
+  predicts the next 7-day block, so every historic day in `forecast_nodal` shares its
+  week's single fit; the daily job (step 3) refits every day. Both are honest (the two
+  `propagate_window` modes reconcile given identical inputs), but a historic panel row is
+  not bit-for-bit "what the live job would have emitted that day."
 
 ---
 
