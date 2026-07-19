@@ -33,6 +33,7 @@ exceptions and no "just for the sweep".
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import numpy as np
@@ -59,6 +60,14 @@ NON_FEATURES = ("y_mu", "y_bind", "delivery_day")
 PRIOR_STRENGTH = 50.0
 
 MU_FLOOR = 1.0   # $/MWh; log1p is taken on mu, so this only guards the tail
+
+# The on-disk bind matrix (see `_alloc_bind_matrix`). One fixed file, reused every
+# fold, so at most one ~3.4 GB matrix is ever on the PVC; the walk unlinks it.
+_BIND_MATRIX_FILE = "bind_matrix.f64"
+
+# The on-disk Arrow copy of the panel's feature block (see `spill_panel_features`),
+# opt-in via MU_SPILL_PANEL. One file, overwritten per run, unlinked when main ends.
+_PANEL_FILE = "panel_features.arrow"
 
 
 # --------------------------------------------------------------------------
@@ -197,6 +206,31 @@ def fold_matrix(frame: pd.DataFrame, cols: list[str]) -> np.ndarray:
     for j, c in enumerate(cols):
         x[:, j] = frame[c].to_numpy()
     return x
+
+
+def _alloc_bind_matrix(shape: tuple[int, int], spill_dir: str | None) -> np.ndarray:
+    """The fold's float64 bind matrix — on the disk PVC when `spill_dir` is given.
+
+    This is the single largest live allocation in the walk: `n_train × (n_feat+1)`
+    float64, ~3.4 GB on the wide `all` arm late in the walk, and it MUST coexist
+    with the ~4.3 GB resident panel while `fit_bind_head` bins it. As two anonymous
+    allocations that is ~8 GB the node can only reclaim by OOM-killing the process —
+    the observed "~10 GB then exit 137".
+
+    Backed by a flushed `np.memmap` on the disk PVC instead, the matrix is *clean
+    file-backed page cache*: under memory pressure the node evicts it rather than
+    killing the fit, so the walk's anonymous working set drops by the full matrix.
+    The caller fills every cell, so values are bit-identical to `np.empty` and
+    `compare_base`/determinism are unaffected. F-order matches HistGBM's binning.
+
+    `spill_dir=None` keeps the in-RAM allocation — the path tests and the small
+    daily `predict_day` fold take, where the matrix is not worth a disk round-trip.
+    """
+    if spill_dir is None:
+        return np.empty(shape, dtype=np.float64, order="F")
+    os.makedirs(spill_dir, exist_ok=True)
+    return np.memmap(os.path.join(spill_dir, _BIND_MATRIX_FILE),
+                     dtype=np.float64, mode="w+", shape=shape, order="F")
 
 
 def fit_bind_head(x: np.ndarray, y: np.ndarray,
@@ -351,8 +385,11 @@ def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
 
 def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
                   arms: tuple[str, ...] = ("lag", "geo", "wx"),
-                  seed: int = 0) -> pd.DataFrame:
+                  seed: int = 0, spill_dir: str | None = None) -> pd.DataFrame:
     """One fold: fit both heads on `train`, predict `score`. Predictions only.
+
+    `spill_dir`, when given, puts the float64 bind matrix on that disk PVC instead
+    of anonymous RAM (see `_alloc_bind_matrix`) — the walk's peak-memory line.
 
     This is the body `walk_forward`'s loop used to inline, lifted out verbatim so
     the production forward path (`predict_day`) and the validated backtest fit are
@@ -390,12 +427,17 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
 
     key_rate = enc.reindex(
         train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
-    x_tr = np.empty((len(train), len(cols)), dtype=np.float64, order="F")
+    x_tr = _alloc_bind_matrix((len(train), len(cols)), spill_dir)
     for j, c in enumerate(feat):
         x_tr[:, j] = train[c].to_numpy()
     x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
+    if isinstance(x_tr, np.memmap):
+        x_tr.flush()  # msync the just-written 3.4 GB: dirty pages count as
+                      # unreclaimable against the node/cgroup, clean ones it can
+                      # evict — the flush is what averts the OOM, not the move alone.
 
     bind = fit_bind_head(x_tr, y_bind_tr, seed)
+    del x_tr, y_bind_tr, key_rate
     p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
 
     cells, edges, grand = fit_mu_climatology(clim_e)
@@ -413,6 +455,7 @@ def walk_forward(panel: pd.DataFrame,
                  anchor: pd.Timestamp | None = None,
                  seed: int = 0,
                  arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                 spill_dir: str | None = None,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fit both heads on each trailing window; predict the next `refit_days`.
 
@@ -465,7 +508,7 @@ def walk_forward(panel: pd.DataFrame,
         if train.empty or score.empty or train["y_bind"].sum() < 10:
             continue
 
-        out = _predict_fold(train, score, arms, seed)
+        out = _predict_fold(train, score, arms, seed, spill_dir)
         # The realized targets stay here — `walk_forward` is the caller that holds
         # the labels; the fold routine produced predictions only.
         out["y_bind"] = score["y_bind"].to_numpy()
@@ -493,6 +536,14 @@ def walk_forward(panel: pd.DataFrame,
         log.info("  week %2d/%d %s  %.0fs  (train %s, score %s)  eta %.0fm",
                  done, len(starts), s.date(), dt, f"{len(train):,}", f"{len(score):,}",
                  (elapsed / done) * (len(starts) - done) / 60)
+
+    # The walk is done reading the on-disk bind matrix; drop it so the PVC is not
+    # left holding a stale ~3.4 GB file between runs.
+    if spill_dir is not None:
+        try:
+            os.remove(os.path.join(spill_dir, _BIND_MATRIX_FILE))
+        except OSError:
+            pass
 
     return (pd.concat(preds) if preds else pd.DataFrame(),
             pd.DataFrame(weeks))
@@ -642,9 +693,68 @@ def _fmt_reliability(rel: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def spill_panel_features(panel: pd.DataFrame, spill_dir: str) -> pd.DataFrame:
+    """Rewrite the panel's float32 feature block as a memory-mapped Arrow file.
+
+    The covariate columns are ~3.9 GB and resident for the whole walk. Held as a
+    numpy block they are anonymous RAM the node can only reclaim by OOM-killing the
+    process; written to an Arrow IPC file on the disk PVC and reopened via
+    `pa.memory_map` + `ArrowDtype`, they become CLEAN file-backed page cache the node
+    evicts under pressure and re-faults on demand — the reclaimability the bind
+    matrix gets from `_alloc_bind_matrix`, applied to the resident panel itself.
+
+    Zero-copy and value-preserving, both verified on this stack: HistGBM (both
+    heads), the raw `to_numpy` reads that fill the bind matrix, `np.digitize` /
+    `np.quantile` in the climatology, and the target-encoding groupby all consume
+    `ArrowDtype` columns with results bit-identical to the numpy panel — NaN
+    covariate holes included, so HistGBM's native-missing handling is unchanged.
+    Only the feature columns move; the NaN-bearing `y_mu` target and the `y_bind`
+    label stay numpy exactly as the walk and the leak audit expect them.
+
+    Guarded: the one-time `from_pandas` copy briefly coexists with the numpy panel
+    (~8 GB, below `build_panel`'s own peak, so a run that built the panel can spill
+    it). And if the Arrow wrap does not stay file-backed — a future pandas/pyarrow
+    could materialise it into anonymous RAM — the spill has bought nothing, so we
+    log and hand back the in-RAM panel rather than pay disk I/O for no benefit.
+    """
+    import pyarrow as pa
+
+    feat = [c for c in panel.columns
+            if c not in NON_FEATURES and not c.startswith("vintage_")]
+    if not feat:
+        return panel
+    os.makedirs(spill_dir, exist_ok=True)
+    path = os.path.join(spill_dir, _PANEL_FILE)
+
+    # One record batch => single-chunk columns, so later `iloc` slices never pay to
+    # combine chunks. `preserve_index=False`: the MultiIndex is reattached below.
+    table = pa.Table.from_pandas(panel[feat], preserve_index=False)
+    with pa.ipc.new_file(path, table.schema) as w:
+        w.write_table(table, max_chunksize=len(panel) or 1)
+    del table
+
+    base = pa.total_allocated_bytes()
+    mapped = pa.ipc.open_file(pa.memory_map(path, "r")).read_all()
+    adf = mapped.to_pandas(types_mapper=pd.ArrowDtype)
+    adf.index = panel.index
+    for c in panel.columns:
+        if c not in feat:            # y_mu / y_bind / delivery_day stay numpy
+            adf[c] = panel[c].to_numpy()
+    adf = adf[list(panel.columns)]   # restore original column order
+
+    grew_gb = (pa.total_allocated_bytes() - base) / 1e9
+    if grew_gb > 0.1:
+        log.warning("panel spill did not stay file-backed (+%.2f GB anonymous); "
+                    "keeping the in-RAM panel", grew_gb)
+        return panel
+
+    log.info("panel features spilled to %s — %d cols now Arrow-mmap file-backed",
+             path, len(feat))
+    return adf
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
-    import os
 
     import psycopg
 
@@ -699,11 +809,35 @@ def main(argv: list[str] | None = None) -> int:
              panel.memory_usage(deep=False).sum() / 1e9, args.features,
              len(feature_cols(panel, arms)) + 1)
 
+    # Resolve the disk spill directory once — both spills share it: the disk-backed
+    # --preds-out PVC by default, MU_SPILL_DIR overrides.
+    spill_dir = os.environ.get("MU_SPILL_DIR")
+    if spill_dir is None and args.preds_out:
+        spill_dir = os.path.join(
+            os.path.dirname(os.path.abspath(args.preds_out)) or ".", "spill")
+
+    # The per-fold bind matrix always spills when a dir is available (the ~3.4 GB
+    # float64 train matrix — see _alloc_bind_matrix). The resident panel is a larger,
+    # opt-in spill (pyarrow): enabled by MU_SPILL_PANEL for nodes whose headroom can
+    # dip mid-run, off by default so the common path keeps the fast in-RAM panel.
+    if spill_dir:
+        log.info("bind matrix spills to disk at %s", spill_dir)
+        if os.environ.get("MU_SPILL_PANEL"):
+            panel = spill_panel_features(panel, spill_dir)
+
     # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
     # with sf/eval's — see refit_boundaries.
     preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
                                  score_from_ts, anchor=M.index[0].normalize(),
-                                 arms=arms)
+                                 arms=arms, spill_dir=spill_dir)
+
+    # Unlink the on-disk panel copy; the mmap stays valid until this process exits.
+    if spill_dir:
+        try:
+            os.remove(os.path.join(spill_dir, _PANEL_FILE))
+        except OSError:
+            pass
+
     if weekly.empty:
         print("no scorable weeks")
         return 1
