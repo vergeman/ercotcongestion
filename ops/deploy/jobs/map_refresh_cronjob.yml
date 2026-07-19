@@ -112,6 +112,8 @@ spec:
                   value: "2"
                 - name: MALLOC_TRIM_THRESHOLD_
                   value: "0"
+                - name: MU_SPILL_PANEL
+                  value: "1"
               envFrom:
                 - configMapRef:
                     name: api-config
@@ -127,4 +129,4 @@ spec:
                   memory: "4Gi"
                 limits:
                   cpu: "6"
-                  memory: "12Gi"
+                  memory: "16Gi"
