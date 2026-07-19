@@ -31,6 +31,7 @@ RUN pip install --no-cache-dir \
         numpy \
         scipy \
         scikit-learn \
+        pyarrow \
         folium \
         psycopg[binary,pool] \
         matpowercaseframes \
