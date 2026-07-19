@@ -575,10 +575,11 @@ export default function App() {
   }, [spRows, forecastRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The forecast covers this hour when its cache had a row for it. When it does,
-  // the left pane shows the forecast; otherwise it falls back to the realized
-  // rows (a window with no forecast, e.g. a pre-forecast historic day).
+  // the left pane shows the forecast; otherwise it renders empty — we do NOT fall
+  // back to the realized rows (duplicating the ERCOT pane hid the fact that there
+  // was no prediction). `forecastRows` is already [] without a forecast.
   const hasForecast = forecastRows.length > 0;
-  const leftRows = hasForecast ? forecastRows : spRows;
+  const leftRows = forecastRows;
   // Color the forecast on the realized scale when both exist, so the two panes
   // are directly comparable; fall back to the forecast's own scale on a
   // forecast-only window (tomorrow, no realized rows yet).
@@ -611,7 +612,7 @@ export default function App() {
   const predictionLabel =
     hasForecast && forecastRunId
       ? `PREDICTION · forecast ${forecastRunId}`
-      : "PREDICTION · placeholder";
+      : "PREDICTION · no forecast this window";
 
   const leftPane = (
     <>
@@ -643,7 +644,7 @@ export default function App() {
         paneLabel={
           hasForecast && forecastRunId
             ? `PREDICTION · forecast ${forecastRunId}`
-            : "PREDICTION · placeholder (= actual)"
+            : "PREDICTION · no forecast this window"
         }
         constraintOverlay={showConstraints && !!constraints?.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
