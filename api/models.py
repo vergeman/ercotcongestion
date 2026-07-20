@@ -1,6 +1,6 @@
 """Response schemas for the API."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -258,3 +258,59 @@ class MapOverview(BaseModel):
     oos_r2: float | None = None
     sf_stability: float | None = None
     constraints: list[OverviewConstraint]
+
+
+# ---- /scoreboard/headline ------------------------------------------------
+#
+# The backtest scoreboard's rolling headline (plan/0102 §0001, spec-phase3
+# §3/§6). Rolling 30/90-day tiles read from ``scoreboard_weekly`` — the thin
+# panel view, not the full board (that is 0002). The one non-negotiable: a
+# model figure never ships alone. Every currency carries its ``persistence``
+# delta and the ``oracle`` ceiling (and ``climatology`` for context), so the
+# client cannot render a lone model number (§6 integrity rule).
+
+
+class HeadlineCurrency(BaseModel):
+    """One pre-registered currency in one rolling window, model + its comparators.
+
+    ``model`` never travels without ``persistence``/``climatology``/``oracle`` —
+    the integrity rule (spec §6). ``persistence_delta = model - persistence`` is
+    the raw delta; read its sign against ``higher_is_better`` (all current
+    currencies are higher-is-better, so a positive delta means the model beats
+    persistence). ``oracle`` is the ceiling the model is measured against. Any
+    value can be ``None`` when a source had no scored week in the window.
+    """
+    currency: str            # topdecile_hit | rank_spearman | sign_agree | pooled_r2
+    higher_is_better: bool
+    model: float | None = None
+    persistence: float | None = None
+    climatology: float | None = None
+    oracle: float | None = None
+    persistence_delta: float | None = None   # model - persistence (raw, sign per flag)
+
+
+class HeadlineWindow(BaseModel):
+    """One rolling window (30d / 90d) — every currency pooled over the trailing
+    weeks. ``weeks`` is how many weekly rows fed the pool; ``week_start``/
+    ``week_end`` bound them. The pool is an ``n_hours``-weighted mean of the weekly
+    cells — an approximation of the fully pooled stat, which lives on the full
+    board (0002); the headline never redefines a gate, it summarizes served cells.
+    """
+    window_days: int         # 30 | 90
+    weeks: int
+    week_start: date
+    week_end: date
+    currencies: list[HeadlineCurrency]
+
+
+class ScoreboardHeadline(BaseModel):
+    """The rolling headline for one board (``run_id``) and ``regime``.
+
+    ``run_id`` is the model version whose backtest this is; ``as_of_week`` is the
+    latest week on the board (the anchor the rolling windows trail from). The
+    served ``regime`` echoes the request (default ``all``).
+    """
+    run_id: str
+    regime: str
+    as_of_week: date
+    windows: list[HeadlineWindow]
