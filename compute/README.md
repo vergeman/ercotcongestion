@@ -145,15 +145,17 @@ mkdir -p "${ART_DIR}"
 python -m compute.mu.mu_model \
     --start 2024-05-06 --score-from 2025-01-01 \
     --preds-out "${ART_DIR}/mu_preds.npz" --end <YYYY-MM-DD>
-
-# The daily job reads this fixed, image-baked path. Copy before the image build.
-cp "${ART_DIR}/mu_preds.npz" /compute/mu/mu_preds.npz
 ```
 
 **`mu_preds.npz` is a live dependency**, not merely a seed artifact: the daily job
 loads it every run as the out-of-sample residual pool that draws the P10/P90 bands.
-It ships **baked into the image** (`Dockerfile: COPY compute/`; no volume), so rebuild
-and redeploy the image after refreshing it.
+It lives on the **`compute-runs` PVC** (`ops/deploy/base/compute/runs-pvc.yml`,
+mounted at `/compute/runs`), and the daily job resolves it **by run ID** —
+`runs/<run-id>/mu/mu_preds.npz`, exactly the `${ART_DIR}` above. Writing it to
+`${ART_DIR}` on that PVC is all that is needed; **refreshing the pool is a file
+drop, not an image rebuild** (override the path with `daily_forecast --preds` if
+ever needed). Any pod that runs `daily_forecast` must mount the PVC — the daily
+cronjob does (`forecast_cronjob.yml`); hand-runs must too (see Step 5).
 
 > **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `mu_model` and
 > `backfill_nodal` never read the DB max or `now()`. With `--score-from` set (above),
@@ -167,10 +169,13 @@ and redeploy the image after refreshing it.
 SF window, writes the P10/P50/P90/point panel for `mu-all-v1`, then promotes that same
 run only after the bulk write succeeds. This is the historical price backfill.
 
+`--preds` now defaults to `runs/<run-id>/mu/mu_preds.npz` on the runs PVC, so with
+`--run-id ${RUN_ID}` it resolves to `${ART_DIR}/mu_preds.npz` automatically — pass
+`--preds` only to point at a pool elsewhere.
+
 ```
 python -m compute.jobs.backfill_nodal \
     --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
-    --preds "${ART_DIR}/mu_preds.npz" \
     --nodal-out "${ART_DIR}/mu_nodal.npz" \
     --out "${ART_DIR}/mu_bands_weekly.csv" --to-db
 
@@ -214,7 +219,8 @@ when it names a persistent mounted directory; it is not required for the DB arti
 
 ### Step 5 — Daily forecast (append each new day)
 
-**Needs:** a fresh map (step 1) and `mu_preds.npz` in the image (step 2).
+**Needs:** a fresh map (step 1) and `mu_preds.npz` on the `compute-runs` PVC at
+`runs/<run-id>/mu/` (step 2), with the PVC mounted at `/compute/runs`.
 **Does:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
 window and predicts D's 24 h, loads the map's latest causal SF window, projects μ through
 it and draws the bands, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
@@ -229,22 +235,41 @@ python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v
 ```
 
 Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
-for a dry run):
+for a dry run). The pod **must mount the `compute-runs` PVC** at `/compute/runs` so the
+job can read the residual pool; because the override supplies `volumes`, it also has to
+specify the container fully (image, command, env), so the top-level `--image` /
+`--env-from-*` flags no longer drive it:
 ```
 kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
   --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
-  --overrides='{"spec":{"imagePullSecrets":[{"name":"regcred"}]}}' \
-  --env-from-configmap=api-config --env-from-secret=postgres-credentials \
-  -- python -m compute.jobs.daily_forecast --delivery-date 2026-05-01 --run-id mu-all-v1 \
-  --map-run-id map-v1 --to-db
+  --overrides='{
+    "spec":{
+      "imagePullSecrets":[{"name":"regcred"}],
+      "volumes":[{"name":"runs","persistentVolumeClaim":{"claimName":"compute-runs"}}],
+      "containers":[{
+        "name":"forecast-backfill",
+        "image":"'"${IMAGE_REPO}"'/ercotstress/api-compute:'"${IMAGE_TAG}"'",
+        "envFrom":[{"configMapRef":{"name":"api-config"}},{"secretRef":{"name":"postgres-credentials"}}],
+        "volumeMounts":[{"name":"runs","mountPath":"/compute/runs","readOnly":true}],
+        "command":["python","-m","compute.jobs.daily_forecast",
+                   "--delivery-date","2026-05-01","--run-id","mu-all-v1",
+                   "--map-run-id","map-v1","--to-db"]
+      }]
+    }
+  }'
 ```
+Simpler alternative: `exec` into the `compute-shell` pod (`ops/deploy/compute_shell.sh`),
+which already mounts the PVC, and run the `python -m compute.jobs.daily_forecast …`
+command there.
 
 ### Step 6 — Build and deploy
 
-After step 2 has copied `compute/mu/mu_preds.npz`, build and deploy the image, then
-deploy both cronjobs (`map_refresh_cronjob.yml`, `forecast_cronjob.yml`). The weekly map
-append (step 1) and daily forecast (step 5) then keep everything current. A refreshed
-residual pool requires another image build/deploy; normal daily appends do not.
+Build and deploy the image, then deploy both cronjobs (`map_refresh_cronjob.yml`,
+`forecast_cronjob.yml`) and the `compute-runs` PVC (`ops/deploy/base/compute/runs-pvc.yml`)
+if not already applied. The weekly map append (step 1) and daily forecast (step 5) then
+keep everything current. The residual pool now lives on the PVC (step 2), so refreshing
+it is a file drop on `/compute/runs` — **no image rebuild required**; only a code or
+dependency change needs a new image.
 
 Hand-run the deployed cronjob on the identical path:
 ```
