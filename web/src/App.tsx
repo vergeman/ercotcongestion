@@ -8,6 +8,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  ScoreboardHeadline,
 } from "./api/types";
 import {
   fetchTopology,
@@ -15,6 +16,7 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
+  fetchScoreboardHeadline,
 } from "./api/client";
 import {
   prefetchWindow,
@@ -40,6 +42,9 @@ import Legend from "./components/map/Legend";
 import CompareMap from "./components/map/CompareMap";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
+import SidePanel, {
+  type NetworkStats,
+} from "./components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 
 type ConnectionState = "ok" | "error" | "loading";
@@ -113,6 +118,10 @@ export default function App() {
   // derived below.
   const [errorStats, setErrorStats] =
     useState<ModeledCongestionStats | null>(null);
+  // The rolling backtest scorecard for the side panel. Fetched once (the board
+  // is static), independent of the forecast/playback window. `null` on 503 (no
+  // board loaded) — the panel then shows network stats alone.
+  const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -210,6 +219,14 @@ export default function App() {
       .catch(() => setOverview(null));
   }, []);
 
+  // Scorecard headline — once; the backtest board is static and independent of
+  // the forecast/playback window. Soft-fails to null (scorecard hidden) on 503.
+  useEffect(() => {
+    fetchScoreboardHeadline()
+      .then((h) => setHeadline(h))
+      .catch(() => setHeadline(null));
+  }, []);
+
   // Merge the congestion + SPP caches into per-SP rows for the current hour.
   // An SP present in only one cache still shows up, colored by whichever field
   // the active palette reads.
@@ -272,6 +289,34 @@ export default function App() {
       return { sp_id: f.sp_id, congestion: error, spp: null };
     });
   }, [forecastRows, spRows]);
+
+  // Network stats for the side panel, from state already in hand: the cursor
+  // hour, that hour's realized rows, and the forecast rows. `systemLambda` is the
+  // forecast entry's DAM system-λ at the cursor; `congestionAbsTotal` is Σ|C|
+  // over the realized rows this hour. `modelNodes`/`ercotNodes` are the SP counts
+  // on each side — the model forecasts its full nodal universe, ERCOT lights only
+  // priced nodes, so model ≥ ercot. (Window / hours / cursor live on the scrubber.)
+  const networkStats = useMemo<NetworkStats>(() => {
+    const cur = timestamps[currentIndex] ?? null;
+    const fc = cur ? getForecastCached(cur) : null;
+    let absTotal: number | null = null;
+    let ercot = 0;
+    for (const r of spRows) {
+      if (r.congestion != null) {
+        ercot++;
+        absTotal = (absTotal ?? 0) + Math.abs(r.congestion);
+      }
+    }
+    let model = 0;
+    for (const r of forecastRows) if (r.congestion != null) model++;
+    return {
+      forecastRunId,
+      systemLambda: fc?.system_lambda ?? null,
+      congestionAbsTotal: absTotal,
+      modelNodes: model,
+      ercotNodes: ercot,
+    };
+  }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
 
   const handleLoadWindow = useCallback(
     async (start?: Date, end?: Date, cursorTs?: Date) => {
@@ -810,6 +855,9 @@ export default function App() {
             }
           `}</style>
         </div>
+
+        {/* Right side panel: network stats + the rolling backtest scorecard. */}
+        <SidePanel network={networkStats} headline={headline} />
       </div>
 
       {/* Bottom scrubber */}
