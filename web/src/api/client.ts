@@ -8,6 +8,7 @@ import type {
   ConstraintReach,
   MapOverview,
   ScoreboardHeadline,
+  ScoreboardWeekly,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -147,5 +148,20 @@ export async function fetchScoreboardHeadline(
   );
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`scoreboard/headline ${r.status}`);
+  return r.json();
+}
+
+// The full weekly backtest series + pooled pre/post-RTC+B summary for the
+// scoreboard page. All sources ride along regardless of `source` (the page's
+// foregrounded series). Same soft-fail contract: 503 (no board / regime empty)
+// returns null. Reads the backtest board — independent of the forecast run.
+export async function fetchScoreboardWeekly(
+  source = "model",
+  regime = "all"
+): Promise<ScoreboardWeekly | null> {
+  const qs = new URLSearchParams({ source, regime });
+  const r = await fetch(`${BASE}/scoreboard/weekly?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`scoreboard/weekly ${r.status}`);
   return r.json();
 }

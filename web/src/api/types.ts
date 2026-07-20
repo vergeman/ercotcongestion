@@ -268,3 +268,58 @@ export interface ScoreboardHeadline {
   as_of_week: string;
   windows: HeadlineWindow[];
 }
+
+// =============================================================================
+// /scoreboard/weekly — the full weekly backtest series + pooled pre/post-RTC+B
+// summary (the scoreboard page's data). Mirrors api/models.py WeeklyPoint /
+// SourcePooled / WeeklySplit / ScoreboardWeekly. Every response carries all
+// sources so a lone model figure can't be charted (§6).
+// =============================================================================
+
+// One (week, source) row for the chart. Screening currencies lead; magnitude
+// (pooled_r2 / mae) files under a toggle. Band columns are model/all only.
+export interface WeeklyPoint {
+  week: string;
+  source: string;
+  pooled_r2: number | null;
+  mae: number | null;
+  rank_spearman: number | null;
+  sign_agree: number | null;
+  topdecile_hit: number | null;
+  coverage80: number | null;
+  band_width: number | null;
+  pinball: number | null;
+  sf_coverage: number | null;
+  model_coverage: number | null;
+  n_hours: number | null;
+  n_nodes: number | null;
+}
+
+// One source's pooled currencies over a split — the week-mean of each metric.
+export interface SourcePooled {
+  source: string;
+  pooled_r2: number | null;
+  mae: number | null;
+  rank_spearman: number | null;
+  sign_agree: number | null;
+  topdecile_hit: number | null;
+}
+
+// A pooled slice (all / pre_rtc_b / post_rtc_b). `gate` is the pre-registered
+// verdict on the model's pooled means; `beats_persistence` the existence test.
+export interface WeeklySplit {
+  label: string; // all | pre_rtc_b | post_rtc_b
+  n_weeks: number;
+  sources: SourcePooled[];
+  gate: string | null;
+  beats_persistence: boolean | null;
+}
+
+export interface ScoreboardWeekly {
+  run_id: string;
+  regime: string;
+  primary_source: string;
+  rtc_b_cutover: string;
+  points: WeeklyPoint[];
+  splits: WeeklySplit[];
+}
