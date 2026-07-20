@@ -8,6 +8,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  RankedConstraints,
   ScoreboardHeadline,
 } from "./api/types";
 import {
@@ -16,8 +17,10 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
+  fetchMapConstraintsRanked,
   fetchScoreboardHeadline,
 } from "./api/client";
+import { formatCT } from "./lib/time";
 import {
   prefetchWindow,
   getErcotCached,
@@ -122,6 +125,36 @@ export default function App() {
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
+  // The per-day ranked constraint list for the side panel's `Constraints` tab
+  // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
+  // keyed to the cursor's CT delivery day so the realized toggle can reach a past
+  // day's published DAM prices. `null` on 503 (no artifact for the day) — the tab
+  // then shows its empty state.
+  const [ranked, setRanked] = useState<RankedConstraints | null>(null);
+  const [rankedLoading, setRankedLoading] = useState(false);
+  const [constraintBasis, setConstraintBasis] =
+    useState<"predicted" | "realized">("predicted");
+  // Synced hover (plan/0103 Group 4): the constraint isolated across BOTH the
+  // Constraints panel and the map overview. A panel-row hover and a map-mark hover
+  // both write here, and both read it, so hovering either isolates that constraint
+  // everywhere — the panel row lights and every other overview mark dims.
+  const [hoveredConstraintId, setHoveredConstraintId] =
+    useState<string | null>(null);
+  // Focus-reach view (plan/0103): the src/sink dipole SP-coloring for the
+  // hovered/locked constraint — its constituent nodes glow signed, every other node
+  // fades to the no-data fill (the forecast-error palette is hidden while focused).
+  // Separate from `reach` (the node-explorer click that opens the DetailCard) so a
+  // hover just recolors nodes. `focusLockedRef` freezes it on click so panning/
+  // zooming doesn't clear it; a map-background click or a fresh hover resets. Cached
+  // per constraint so sweeping the list doesn't spam /map/reach.
+  const [focusReach, setFocusReach] = useState<ConstraintReach | null>(null);
+  const focusLockedRef = useRef(false);
+  const focusIdRef = useRef<string | null>(null);
+  const focusReqRef = useRef(0);
+  const focusReachCache = useRef<Map<string, ConstraintReach>>(new Map());
+  // The SP a constituent row in the panel's expanded list is hovering — rings that
+  // node white on the map so the row and the node point at each other.
+  const [hoveredMemberSp, setHoveredMemberSp] = useState<string | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -226,6 +259,34 @@ export default function App() {
       .then((h) => setHeadline(h))
       .catch(() => setHeadline(null));
   }, []);
+
+  // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
+  // from the current frame's Central date (ERCOT operates on Central), so the
+  // ranking follows the map's day. Undefined before a window loads → the server
+  // defaults to the forecast run's latest built day.
+  const deliveryDay = useMemo<string | undefined>(() => {
+    const ts = timestamps[currentIndex];
+    return ts ? formatCT(ts, "yyyy-MM-dd") : undefined;
+  }, [timestamps, currentIndex]);
+
+  // Ranked constraints for the panel — refetched only when the ranked DAY or the
+  // basis changes (not every hour: the ranking is per delivery day). A request-id
+  // guard drops a stale in-flight response. Soft-fails to null (empty state) on 503.
+  const rankedReqRef = useRef(0);
+  useEffect(() => {
+    const token = ++rankedReqRef.current;
+    setRankedLoading(true);
+    fetchMapConstraintsRanked(constraintBasis, deliveryDay)
+      .then((r) => {
+        if (rankedReqRef.current === token) setRanked(r);
+      })
+      .catch(() => {
+        if (rankedReqRef.current === token) setRanked(null);
+      })
+      .finally(() => {
+        if (rankedReqRef.current === token) setRankedLoading(false);
+      });
+  }, [deliveryDay, constraintBasis]);
 
   // Merge the congestion + SPP caches into per-SP rows for the current hour.
   // An SP present in only one cache still shows up, colored by whichever field
@@ -582,11 +643,74 @@ export default function App() {
     reachReqRef.current++;
   }, []);
 
+  // ── Constraint focus (plan/0103): hover isolates + recolors, click locks ─────
+  // Load a constraint's reach (cached) into the focus-reach view.
+  const loadFocusReach = useCallback((id: string) => {
+    const cached = focusReachCache.current.get(id);
+    if (cached) {
+      setFocusReach(cached);
+      return;
+    }
+    const token = ++focusReqRef.current;
+    fetchMapReach(id)
+      .then((r) => {
+        if (r) focusReachCache.current.set(id, r);
+        if (focusReqRef.current === token) setFocusReach(r);
+      })
+      .catch(() => {
+        if (focusReqRef.current === token) setFocusReach(null);
+      });
+  }, []);
+
+  // Hover a constraint (panel row or overview mark): isolate it and recolor its
+  // nodes. Leaving (id === null) resets — unless a click has locked the view, so it
+  // survives while the user pans/zooms.
+  const handleConstraintHover = useCallback(
+    (id: string | null) => {
+      if (id == null) {
+        if (focusLockedRef.current) return;
+        focusIdRef.current = null;
+        setHoveredConstraintId(null);
+        setFocusReach(null);
+        focusReqRef.current++;
+        return;
+      }
+      // Re-hovering the currently locked constraint (e.g. its own core while
+      // panning) must not unlock it.
+      if (focusLockedRef.current && id === focusIdRef.current) return;
+      focusLockedRef.current = false;
+      focusIdRef.current = id;
+      setHoveredConstraintId(id);
+      loadFocusReach(id);
+    },
+    [loadFocusReach]
+  );
+
+  // Click a constraint: lock the focus so mouse-out won't clear it.
+  const handleConstraintLock = useCallback(
+    (id: string) => {
+      focusLockedRef.current = true;
+      focusIdRef.current = id;
+      setHoveredConstraintId(id);
+      loadFocusReach(id);
+    },
+    [loadFocusReach]
+  );
+
+  const clearFocus = useCallback(() => {
+    focusLockedRef.current = false;
+    focusIdRef.current = null;
+    focusReqRef.current++;
+    setHoveredConstraintId(null);
+    setFocusReach(null);
+  }, []);
+
   // Background (empty-map) click clears whichever mode is active.
   const handleMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp();
     handleCloseReach();
-  }, [handleClearPinnedSp, handleCloseReach]);
+    clearFocus();
+  }, [handleClearPinnedSp, handleCloseReach, clearFocus]);
 
   // Switch the view axis, applying that view's SF-overlay default: on in the
   // forecast-error view (the overlay is that view's mechanism), off in dual (a
@@ -678,6 +802,11 @@ export default function App() {
         onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
+        isolatedConstraint={hoveredConstraintId}
+        onIsolateConstraint={handleConstraintHover}
+        onIsolateLock={handleConstraintLock}
+        focusReach={focusReach}
+        ringedSpId={hoveredMemberSp}
       />
       <div className="pane-badge">
         {badgeFor(predictionLabel, litFor(leftRows))}
@@ -769,6 +898,11 @@ export default function App() {
         onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
+        isolatedConstraint={hoveredConstraintId}
+        onIsolateConstraint={handleConstraintHover}
+        onIsolateLock={handleConstraintLock}
+        focusReach={focusReach}
+        ringedSpId={hoveredMemberSp}
         congestionColor={forecastErrorColor}
       />
       <div className="pane-badge">{badgeFor(errorLabel, errorLit)}</div>
@@ -856,8 +990,22 @@ export default function App() {
           `}</style>
         </div>
 
-        {/* Right side panel: network stats + the rolling backtest scorecard. */}
-        <SidePanel network={networkStats} headline={headline} />
+        {/* Right side panel: [Stats] (network + scorecard) | [Constraints] (the
+            per-day ranked list) in one tabbed region. Row click traces the
+            constraint on the map via /map/reach (same as a marker click); the
+            synced hover is wired in the next group. */}
+        <SidePanel
+          network={networkStats}
+          headline={headline}
+          ranked={ranked}
+          rankedLoading={rankedLoading}
+          constraintBasis={constraintBasis}
+          onConstraintBasis={setConstraintBasis}
+          onSelectConstraint={handleConstraintLock}
+          highlightedConstraintId={hoveredConstraintId}
+          onHoverConstraint={handleConstraintHover}
+          onMemberHover={setHoveredMemberSp}
+        />
       </div>
 
       {/* Bottom scrubber */}

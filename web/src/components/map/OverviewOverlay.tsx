@@ -122,12 +122,25 @@ interface Props {
   // (the overview REPLACES the native marker layer, which `showConstraints`
   // alone can no longer reach).
   visible?: boolean;
+  // Synced isolation (plan/0103 Group 4). `externalIso` is a constraint the
+  // side-panel is hovering — when set it drives the isolation regardless of the
+  // map's own hover, so hovering a panel row dims every other mark here.
+  // `onIsoChange` reports the map's own hover back so the panel row highlights in
+  // step (the "and vice versa" of the synced hover).
+  externalIso?: string | null;
+  onIsoChange?: (id: string | null) => void;
+  // Clicking a mark locks the current focus (App keeps the isolation + reach view
+  // so the user can pan/zoom without it clearing on mouse-out).
+  onIsoLock?: (id: string) => void;
 }
 
 export default function OverviewOverlay({
   map,
   overview,
   visible = true,
+  externalIso = null,
+  onIsoChange,
+  onIsoLock,
 }: Props) {
   // Isolation + pin + popover state. `isoKey` dims every other constraint;
   // `pinned` freezes the current isolation (set by clicking a popover row) so
@@ -143,6 +156,17 @@ export default function OverviewOverlay({
   useEffect(() => {
     pinnedRef.current = pinned;
   }, [pinned]);
+  // `onIsoChange` behind a ref so the once-bound map listeners call the current
+  // callback, not a stale closure. `setIso` sets the internal hover AND reports
+  // it out, so map-driven isolation and panel-driven isolation stay in step.
+  const onIsoRef = useRef(onIsoChange);
+  useEffect(() => {
+    onIsoRef.current = onIsoChange;
+  }, [onIsoChange]);
+  const setIso = (key: string | null) => {
+    setIsoKey(key);
+    onIsoRef.current?.(key);
+  };
 
   useEffect(() => {
     if (!map) return;
@@ -155,6 +179,7 @@ export default function OverviewOverlay({
     const clearPin = () => {
       setPinned(false);
       setIsoKey(null);
+      onIsoRef.current?.(null);
       setPopNi(null);
     };
     map.on("click", clearPin);
@@ -163,6 +188,7 @@ export default function OverviewOverlay({
     const onLeave = () => {
       if (pinnedRef.current) return;
       setIsoKey(null);
+      onIsoRef.current?.(null);
       setPopNi(null);
     };
     cont.addEventListener("mouseleave", onLeave);
@@ -227,6 +253,10 @@ export default function OverviewOverlay({
 
   if (!map || !model || !visible) return null;
 
+  // The panel's hover (externalIso) overrides the map's own hover, so a row hover
+  // dims every other mark exactly as a map hover does.
+  const effIso = externalIso ?? isoKey;
+
   const project = (lat: number, lon: number) => map.project([lon, lat]);
 
   // --- structure marks (metaball / corridor / point) + hit targets -----------
@@ -235,7 +265,7 @@ export default function OverviewOverlay({
     const t = Math.sqrt((c.binding_hours ?? 0) / model.kmax); // severity 0..1
     const pts = nodes.map((n) => project(n.lat as number, n.lon as number));
     const core = project(c.core_lat as number, c.core_lon as number);
-    const iso = c.constraint_key === isoKey;
+    const iso = c.constraint_key === effIso;
 
     const inner: ReactNode[] = [];
     if (c.ctype === "gtc") {
@@ -347,7 +377,17 @@ export default function OverviewOverlay({
           fill="#000"
           fillOpacity={0}
           onMouseEnter={() => {
-            if (!pinned) setIsoKey(c.constraint_key);
+            if (!pinned) setIso(c.constraint_key);
+          }}
+          onMouseLeave={() => {
+            // Toggle the transient hover off as the mouse moves away, so isolation
+            // follows the cursor instead of sticking. A locked focus survives —
+            // App's hover handler no-ops on null while locked.
+            if (!pinned) setIso(null);
+          }}
+          onClick={(e) => {
+            e.stopPropagation(); // don't let the map's background-click clear it
+            onIsoLock?.(c.constraint_key);
           }}
         />
       </g>
@@ -395,10 +435,10 @@ export default function OverviewOverlay({
             <div
               key={m.key}
               className="ov-row"
-              onMouseEnter={() => setIsoKey(m.key)}
+              onMouseEnter={() => setIso(m.key)}
               onClick={() => {
                 setPinned(true);
-                setIsoKey(m.key);
+                setIso(m.key);
               }}
             >
               <span
@@ -423,7 +463,7 @@ export default function OverviewOverlay({
   return (
     <>
       <svg
-        className={`overview-overlay${isoKey ? " ov-dim" : ""}`}
+        className={`overview-overlay${effIso ? " ov-dim" : ""}`}
         style={{
           position: "absolute",
           inset: 0,
@@ -456,8 +496,13 @@ export default function OverviewOverlay({
         .overview-overlay .ov-node { fill: #c9d3df; fill-opacity: .5; stroke: #0a0d12; stroke-width: .5; cursor: pointer; }
         .overview-overlay .ov-node:hover { fill: #fff; fill-opacity: 1; stroke: #38bdf8; stroke-width: 1.4; }
         .overview-overlay .ov-con { transition: opacity .12s; }
-        .overview-overlay.ov-dim .ov-con:not(.ov-iso) { opacity: .06; }
-        .overview-overlay.ov-dim .ov-node { fill-opacity: .15; }
+        /* Isolation: hide every OTHER constraint (and the shared node dots) so only
+           the hovered one remains on the map — the map echo of the panel's focus. */
+        .overview-overlay.ov-dim .ov-con:not(.ov-iso) { opacity: 0; pointer-events: none; }
+        .overview-overlay.ov-dim .ov-con:not(.ov-iso) .ov-hit { pointer-events: none; }
+        /* Hide the overview's own node dots while isolating — the SP circle layer
+           beneath carries the isolated constraint's src/sink node colors instead. */
+        .overview-overlay.ov-dim .ov-node { opacity: 0; pointer-events: none; }
         .overview-overlay .ov-iso .ov-shadow { opacity: .72; }
         .overview-overlay .ov-iso .ov-skel line { stroke-opacity: .9; stroke-width: 1.6; }
         .overview-overlay .ov-iso .ov-core { stroke: #fff; stroke-width: 1.6; }

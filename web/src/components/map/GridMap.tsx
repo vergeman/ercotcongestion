@@ -214,6 +214,20 @@ interface Props {
   // centroid overlay: the native constraint-markers layer is torn down and the
   // SVG OverviewOverlay draws each constraint at its |SF|² core instead.
   overview?: MapOverview | null;
+  // Synced isolation (plan/0103 Group 4). `isolatedConstraint` is a constraint the
+  // side-panel is hovering — it isolates that mark on the overview. `onIsolateConstraint`
+  // reports the overview's OWN hover back so the panel row highlights in step.
+  isolatedConstraint?: string | null;
+  onIsolateConstraint?: (id: string | null) => void;
+  // Focus reach (plan/0103): the dipole SP-coloring for a hovered/locked constraint
+  // — its constituent nodes glow signed src/sink, every other node fades to the
+  // no-data fill. Distinct from `reach` (the click/DetailCard node-explorer) so a
+  // hover doesn't open that card; it just recolors the SP layer.
+  focusReach?: ConstraintReach | null;
+  onIsolateLock?: (id: string) => void;
+  // A settlement point to ring white — the member node hovered in the panel's
+  // constituent list, so the panel row and the map node point at each other.
+  ringedSpId?: string | null;
   // Constraint-reach mode. When set, the SP layer recolors: nodes the
   // constraint drives glow by *signed* SF (the export/import dipole), the rest
   // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
@@ -247,6 +261,11 @@ export default function GridMap({
   onConstraintClick,
   reach,
   overview,
+  isolatedConstraint = null,
+  onIsolateConstraint,
+  focusReach = null,
+  onIsolateLock,
+  ringedSpId = null,
   onMapReady,
   congestionColor = modeledCongestionColor,
 }: Props) {
@@ -405,6 +424,9 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "selected"], false],
               4,
+              // `ringed` = a member node hovered in the panel's constituent list.
+              ["boolean", ["feature-state", "ringed"], false],
+              3,
               ["boolean", ["feature-state", "hovered"], false],
               2,
               0,
@@ -413,8 +435,12 @@ export default function GridMap({
               "case",
               ["boolean", ["feature-state", "selected"], false],
               "#ffffff",
+              ["boolean", ["feature-state", "ringed"], false],
+              "#ffffff",
               "#38bdf8",
             ],
+            // The ring must read even over a faded (non-member) node.
+            "circle-stroke-opacity": 1,
           },
         });
       }
@@ -484,14 +510,17 @@ export default function GridMap({
       { sp_id: string }
     >;
 
-    // Reach mode: the clicked constraint's driven nodes glow by *signed* SF
-    // (blue export end ↔ cream ↔ red import end, normalized to the reach's own
-    // max |SF|); every other node fades. This is SF *structure*, deliberately
-    // overriding the realized-congestion palette while a constraint is pinned.
-    if (reach && reach.sps.length > 0) {
+    // Reach mode: a focused constraint's driven nodes glow by *signed* SF (blue
+    // export end ↔ cream ↔ red import end, normalized to the reach's own max |SF|);
+    // every other node fades to the no-data fill. This is SF *structure*,
+    // deliberately overriding the realized/forecast-error palette while a
+    // constraint is focused — whether pinned via the node-explorer (`reach`) or
+    // hovered/locked from the panel or overview (`focusReach`).
+    const rch = reach ?? focusReach;
+    if (rch && rch.sps.length > 0) {
       const bySp = new Map<string, number>();
       let maxAbs = 1e-9;
-      for (const s of reach.sps) {
+      for (const s of rch.sps) {
         bySp.set(s.settlement_point, s.sf);
         maxAbs = Math.max(maxAbs, Math.abs(s.sf));
       }
@@ -559,7 +588,7 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, congestionColor]);
+  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, focusReach, congestionColor]);
 
   // Selected SP
   useEffect(() => {
@@ -579,6 +608,24 @@ export default function GridMap({
     }
     prevSelectedRef.current = selectedSpId;
   }, [selectedSpId, sourcesReady]);
+
+  // Ringed SP — the member node hovered in the panel's constituent list. A white
+  // ring on the corresponding map node, cleared when the hover moves off.
+  const prevRingedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getSource("sps")) return;
+    if (prevRingedRef.current && prevRingedRef.current !== ringedSpId) {
+      map.setFeatureState(
+        { source: "sps", id: prevRingedRef.current },
+        { ringed: false }
+      );
+    }
+    if (ringedSpId) {
+      map.setFeatureState({ source: "sps", id: ringedSpId }, { ringed: true });
+    }
+    prevRingedRef.current = ringedSpId ?? null;
+  }, [ringedSpId, sourcesReady]);
 
   // Constraint overlay: markers at each centroid, sized by max |SF|, drawn
   // above the SP circles. Only mounts when `constraints` is passed (the pane
@@ -818,6 +865,9 @@ export default function GridMap({
           map={mapInstance}
           overview={overview ?? null}
           visible={showConstraints}
+          externalIso={isolatedConstraint}
+          onIsoChange={onIsolateConstraint}
+          onIsoLock={onIsolateLock}
         />
       </div>
       <style>{`
