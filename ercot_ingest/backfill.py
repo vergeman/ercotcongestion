@@ -50,12 +50,18 @@ ENDPOINTS = {
         "to_param": "operatingDayTo",
         "param_format": "date",  # yyyy-MM-dd
     },
+    # wind/solar are a rolling actual+forecast report republished ~hourly, so a
+    # whole-day deliveryDate query returns day D's 24 hours from every one of the
+    # ~215 vintages whose window overlapped D (~5,180 rows) — of which the loader
+    # keeps only the newest per hour. `posting_window: True` tells callers to
+    # narrow the fetch to a single settled vintage (see settled_posting_window).
     "wind": {
         "path": "/np4-742-cd/wpp_hrly_actual_fcast_geo",
         "loader": load_wind_hourly,
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+        "posting_window": True,
     },
     "solar": {
         "path": "/np4-745-cd/spp_hrly_actual_fcast_geo",
@@ -63,6 +69,7 @@ ENDPOINTS = {
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+        "posting_window": True,
     },
     "dam_spp": {
         "path": "/np4-190-cd/dam_stlmnt_pnt_prices",
@@ -127,6 +134,29 @@ def log_completion(conn, endpoint: str, start: datetime, end: datetime,
         )
 
 
+def settled_posting_window(delivery_day: date) -> tuple[str, str]:
+    """CT posting window for the morning after `delivery_day`.
+
+    For the rolling wind/solar actual+forecast reports (NP4-742/745). Any vintage
+    published that morning already carries all of day D's realized hours in its
+    ~2-day look-back (measured median posted−interval lag +48.9h), settled and
+    complete — verified against the live API on a normal day and both DST
+    transitions, where a 2h slice returns the identical interval set as the
+    full-day query (23 hours on spring-forward, 25 with the DSTFlag duplicate on
+    fall-back).
+
+    The window is widened to 04:00–10:00 CT (~6 hourly postings) purely for
+    resilience: any single posting suffices, so spanning six of them means a
+    missed publication or two never leaves a day empty. Still one 1000-row page
+    (~6 vintages × 24h ≈ 145 rows) and the loaders' keep="last" dedup collapses it
+    to one vintage anyway — so this cuts the daily fetch from ~5,180 rows to ~145
+    without the fragility of a two-hour slot. ERCOT reads naive datetime filters
+    as CT, so no tz suffix.
+    """
+    nxt = delivery_day + timedelta(days=1)
+    return (nxt.strftime("%Y-%m-%dT04:00:00"), nxt.strftime("%Y-%m-%dT10:00:00"))
+
+
 def daily_windows(start_date: date, end_date: date):
     """Yield (start_dt, end_dt) UTC datetimes for each day [start_date, end_date]."""
     d = start_date
@@ -138,7 +168,8 @@ def daily_windows(start_date: date, end_date: date):
 
 
 def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
-                        start: datetime, end: datetime, resume: bool) -> None:
+                        start: datetime, end: datetime, resume: bool,
+                        posting_window: tuple[str, str] | None = None) -> None:
     cfg = ENDPOINTS[endpoint_key]
 
     if resume and is_completed(conn, endpoint_key, start, end):
@@ -156,11 +187,19 @@ def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
         from_value = start.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         to_value = end.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 
-    df = client.get(cfg["path"], **{
+    params = {
         cfg["from_param"]: from_value,
         cfg["to_param"]: to_value,
-        **cfg.get("extra_params", {})
-    })
+        **cfg.get("extra_params", {}),
+    }
+    # Narrow the vintaged wind/solar reports to a single posting (see the
+    # `posting_window` note on those ENDPOINTS entries). The (interval_ts,
+    # dst_flag) upsert and the loaders' keep="last" dedup both stay correct with
+    # one vintage; the ingest_log window key is unchanged, so --resume is unaffected.
+    if posting_window is not None:
+        params["postedDatetimeFrom"], params["postedDatetimeTo"] = posting_window
+
+    df = client.get(cfg["path"], **params)
 
     rows_fetched = len(df)
     rows_inserted = cfg["loader"](conn, df)
@@ -197,7 +236,10 @@ def main():
         for start, end in daily_windows(start_date, end_date):
             for key in keys:
                 try:
-                    backfill_one_window(client, conn, key, start, end, args.resume)
+                    pw = (settled_posting_window(start.date())
+                          if ENDPOINTS[key].get("posting_window") else None)
+                    backfill_one_window(client, conn, key, start, end,
+                                        args.resume, posting_window=pw)
                 except Exception as e:
                     print(f"  [{key}] {start.date()} — FAILED: {e}")
                     traceback.print_exc(limit=2)

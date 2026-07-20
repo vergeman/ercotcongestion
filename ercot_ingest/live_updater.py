@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 from ErcotClient import ErcotClient, PG_DSN
 from backfill import ENDPOINTS, backfill_one_window
+from loaders import ERCOT_TZ
 from backfill_dam_close import update_recent as update_forecasts
 from backfill_outages import update_recent as update_outages
 
@@ -27,7 +28,16 @@ def update_recent_window(client, conn, hours_back: int = 2):
     log(f"cycle start, window {start.isoformat()} → {end.isoformat()}")
     for key in ENDPOINTS:
         try:
-            backfill_one_window(client, conn, key, start, end, resume=False)
+            # The vintaged wind/solar reports otherwise re-pull *every* posting
+            # made so far today each cycle. Narrow them to the last `hours_back`
+            # of postings — the freshest vintage, whose ~2-day look-back already
+            # carries today's settled hours, matching the prefer-recency upsert.
+            pw = None
+            if ENDPOINTS[key].get("posting_window"):
+                pw = (start.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S"),
+                      end.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S"))
+            backfill_one_window(client, conn, key, start, end, resume=False,
+                                posting_window=pw)
         except Exception as e:
             log(f"  [{key}] FAILED: {e}")
             conn.rollback()
