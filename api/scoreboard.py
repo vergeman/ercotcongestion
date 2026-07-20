@@ -27,7 +27,15 @@ from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
-from models import HeadlineCurrency, HeadlineWindow, ScoreboardHeadline
+from models import (
+    HeadlineCurrency,
+    HeadlineWindow,
+    ScoreboardHeadline,
+    ScoreboardWeekly,
+    SourcePooled,
+    WeeklyPoint,
+    WeeklySplit,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +44,15 @@ router = APIRouter()
 # The comparators that ride with every model figure (spec §6). Ordered model-first
 # so the client reads model → its delta → the ceiling.
 _SOURCES = ("model", "persistence", "climatology", "oracle")
+
+# The RTC+B structural break (compute.mu.score.RTC_B) — pooled stats are split on
+# it so the post-cutover number can't be laundered into the pooled figure (§5).
+RTC_B_CUTOVER = date(2025, 12, 5)
+
+# The currencies pooled into each split summary, and the reduction used: a plain
+# week-mean, matching compute.jobs.backfill_nodal.r5()/cell() so the served pooled
+# figures and the gate verdict equal the pre-registered readout (§7).
+_POOL_METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
 
 # The headline currencies and their orientation. Screening currencies lead
 # (top-decile / rank / sign); pooled_r2 rides along as the magnitude diagnostic.
@@ -114,6 +131,24 @@ def _build_windows(rows: list[dict], as_of: date) -> list[HeadlineWindow]:
     return windows
 
 
+def _resolve_run_id(cur, run_id: str | None) -> str:
+    """An explicit ?run_id= wins; otherwise the most recent board (max week).
+    Raises 503 when scoreboard_weekly is empty (no board loaded), matching the
+    realized ranges' soft-fail contract."""
+    if run_id is not None:
+        return run_id
+    cur.execute(
+        "SELECT run_id FROM scoreboard_weekly ORDER BY week DESC, run_id LIMIT 1"
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=503,
+            detail="no scoreboard board is loaded (scoreboard_weekly is empty).",
+        )
+    return row["run_id"]
+
+
 @router.get(
     "/scoreboard/headline",
     response_model=ScoreboardHeadline,
@@ -134,24 +169,7 @@ def get_scoreboard_headline(
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            # Resolve the board: an explicit ?run_id= wins; otherwise the most
-            # recent board (max week). 503 when the table is empty (no board
-            # loaded), so the client renders the panel without the scorecard.
-            if run_id is None:
-                cur.execute(
-                    "SELECT run_id FROM scoreboard_weekly "
-                    "ORDER BY week DESC, run_id LIMIT 1"
-                )
-                row = cur.fetchone()
-                if row is None:
-                    raise HTTPException(
-                        status_code=503,
-                        detail="no scoreboard board is loaded "
-                        "(scoreboard_weekly is empty).",
-                    )
-                run_id = row["run_id"]
-            assert run_id is not None  # resolved from param or table above
-
+            run_id = _resolve_run_id(cur, run_id)
             cur.execute(
                 """
                 SELECT week, source, n_hours,
@@ -179,4 +197,130 @@ def get_scoreboard_headline(
         regime=regime,
         as_of_week=as_of,
         windows=_build_windows(rows, as_of),
+    )
+
+
+def _mean(rows: list[dict], key: str) -> float | None:
+    """Plain week-mean over non-NULL cells — the reduction r5()/cell() uses, so a
+    served pooled figure equals the pre-registered readout. None if no scored week
+    (a currency the source never scored, e.g. the null source's declined topdec)."""
+    vals = [r[key] for r in rows if r[key] is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
+    src_rows = [r for r in rows if r["source"] == source]
+    return SourcePooled(
+        source=source,
+        **{k: _mean(src_rows, k) for k in _POOL_METRICS},
+    )
+
+
+def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
+    """The pooled all / pre-RTC+B / post-RTC+B slices (§5). Each carries every
+    comparator source (§6); the model slice also gets the pre-registered gate
+    verdict and the existence test vs persistence — both from the canonical
+    transcription in backfill_nodal, never redefined here."""
+    # Authoritative, lazily imported so the API startup stays light and the
+    # heavy compute import is paid only when this endpoint is first hit.
+    from compute.jobs.backfill_nodal import gate, existence_test
+
+    slices = [
+        ("all", rows),
+        ("pre_rtc_b", [r for r in rows if r["week"] < RTC_B_CUTOVER]),
+        ("post_rtc_b", [r for r in rows if r["week"] >= RTC_B_CUTOVER]),
+    ]
+    splits: list[WeeklySplit] = []
+    for label, slice_rows in slices:
+        pooled = {s: _pooled_source(slice_rows, s) for s in _SOURCES}
+        m = pooled["model"]
+        p = pooled["persistence"]
+
+        verdict: str | None = None
+        beats: bool | None = None
+        if (
+            m.pooled_r2 is not None
+            and m.rank_spearman is not None
+            and m.sign_agree is not None
+            and m.topdecile_hit is not None
+        ):
+            verdict = gate(m.pooled_r2, m.rank_spearman, m.sign_agree, m.topdecile_hit)
+            keys = ("rank_spearman", "sign_agree", "topdecile_hit")
+            if all(getattr(p, k) is not None for k in keys):
+                beats, _ = existence_test(
+                    {k: getattr(m, k) for k in keys},
+                    {k: getattr(p, k) for k in keys},
+                )
+
+        splits.append(
+            WeeklySplit(
+                label=label,
+                n_weeks=len({r["week"] for r in slice_rows}),
+                sources=[pooled[s] for s in _SOURCES],
+                gate=verdict,
+                beats_persistence=beats,
+            )
+        )
+    return splits
+
+
+@router.get(
+    "/scoreboard/weekly",
+    response_model=ScoreboardWeekly,
+    summary="Weekly backtest series (all sources) + pooled pre/post-RTC+B summary "
+    "with the pre-registered gate verdict",
+)
+def get_scoreboard_weekly(
+    source: str = Query(
+        "model",
+        description="The series the page foregrounds. Comparators (persistence / "
+        "climatology / oracle) ride along regardless — never a lone model figure.",
+    ),
+    regime: str = Query(
+        "all",
+        description="Regime slice — `all` or a net-load quintile / named regime.",
+    ),
+    run_id: str | None = Query(
+        None,
+        description="Board (model version) to serve. Omit for the most recent "
+        "board present in scoreboard_weekly.",
+    ),
+) -> ScoreboardWeekly:
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            run_id = _resolve_run_id(cur, run_id)
+            # All sources for the regime — the chart draws model + baselines +
+            # oracle, and the summary pools them. Ordered (week, source) for the
+            # series.
+            cur.execute(
+                """
+                SELECT week, source, pooled_r2, mae, rank_spearman, sign_agree,
+                       topdecile_hit, coverage80, band_width, pinball,
+                       sf_coverage, model_coverage, n_hours, n_nodes
+                FROM scoreboard_weekly
+                WHERE run_id = %s AND regime = %s
+                ORDER BY week, source
+                """,
+                (run_id, regime),
+            )
+            rows = cur.fetchall()
+
+    if not rows:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"no scoreboard_weekly rows for run_id={run_id} regime={regime}. "
+                "Load the board first (compute.jobs.load_scoreboard)."
+            ),
+        )
+
+    points = [WeeklyPoint(**r) for r in rows]
+    return ScoreboardWeekly(
+        run_id=run_id,
+        regime=regime,
+        primary_source=source,
+        rtc_b_cutover=RTC_B_CUTOVER,
+        points=points,
+        splits=_build_splits(rows),
     )
