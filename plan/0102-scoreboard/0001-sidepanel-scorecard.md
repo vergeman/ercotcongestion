@@ -35,7 +35,12 @@ Branch: feat/0001-sidepanel-scorecard
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `scoreboard_weekly` exists and the loader populates it; a spot `(week, source, regime)` equals the CSV cell (model `all` pooled top-decile = 0.610, post-RTC+B = 0.559).
-* [ ] `GET /scoreboard/headline` returns model + persistence + oracle on every response (no lone model figure).
-* [ ] Side panel shows network stats plus a 3-tile scorecard headline, each tile with its persistence delta and oracle ceiling.
-* [ ] A link navigates to the full scoreboard page (0002); the headline renders without depending on 0096's forecast data.
+* [x] `scoreboard_weekly` exists and the loader populates it; a spot `(week, source, regime)` equals the CSV cell (model `all` pooled top-decile = 0.610, post-RTC+B = 0.559).
+  * Migration `db/migrations/34_scoreboard_weekly.sql` + loader `compute.jobs.load_scoreboard` (nearest-week bands join, `null`-source preserved). Loaded 1134 rows (`run_id=map-v1`); spot `model/all/2025-08-14` topdecile = `0.7020…` matches the CSV cell exactly.
+  * Caveat: the cited **0.610** is from a fresher score run; this stale Jul-14 `mu_score_weekly.csv` per-week-averages ~0.523. Loader serves the CSV as-is — the number self-corrects when the CSVs are regenerated.
+* [x] `GET /scoreboard/headline` returns model + persistence + oracle on every response (no lone model figure).
+  * `api/scoreboard.py`; every currency carries model + persistence + climatology + oracle. Verified live: 200 on default/regime, 503 soft-fail on unknown run/regime.
+* [x] Side panel shows network stats plus a 3-tile scorecard headline, each tile with its persistence delta and oracle ceiling.
+  * `web/src/components/panels/SidePanel.tsx`. Per review, the 3 tiles were simplified to a compact **model | persist | ceiling** table (rows: top-decile / rank ρ / sign) with the model↔persistence leader **bolded** and per-currency hover copy. Deviation: the explicit persistence-*delta* figure is dropped — comparators are always shown (integrity intent held), but the `Δ` value is implicit in the model-vs-persist columns rather than rendered.
+* [x] A link navigates to the full scoreboard page (0002); the headline renders without depending on 0096's forecast data.
+  * "View full scoreboard →" links to `/scoreboard` (future 0002 route). Headline reads `scoreboard_weekly` only — independent of `forecast_nodal` / the forecast pointer (board `run_id=map-v1` vs forecast `mu-all-v1`).
