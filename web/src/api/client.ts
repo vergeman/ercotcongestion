@@ -7,6 +7,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  ScoreboardHeadline,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -131,5 +132,20 @@ export async function fetchMapOverview(
   const r = await fetch(`${BASE}/map/overview?n=${n}&k=${k}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/overview ${r.status}`);
+  return r.json();
+}
+
+// The rolling backtest headline (30/90-day tiles) for the side-panel scorecard.
+// Same soft-fail contract: 503 (no board loaded / regime has no rows) returns
+// null so the panel renders its network stats without the scorecard rather than
+// erroring. Reads the backtest board — independent of the forecast run.
+export async function fetchScoreboardHeadline(
+  regime = "all"
+): Promise<ScoreboardHeadline | null> {
+  const r = await fetch(
+    `${BASE}/scoreboard/headline?regime=${encodeURIComponent(regime)}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`scoreboard/headline ${r.status}`);
   return r.json();
 }

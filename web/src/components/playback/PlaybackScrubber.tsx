@@ -125,6 +125,7 @@ export default function PlaybackScrubber({
           <span className="label">
             {timestamps[0] ? formatCT(timestamps[0], "MMM d HH:mm") : ""}
           </span>
+          <span className="label">{timestamps.length} hrs</span>
           <span className="label">
             {timestamps[timestamps.length - 1]
               ? formatCT(timestamps[timestamps.length - 1], "MMM d HH:mm") +
