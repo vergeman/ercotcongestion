@@ -99,12 +99,8 @@ skipped), so the served map is the newest complete week.
 
 ```
 python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
-    --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-sf
-
-python -m compute.sf.geo_persist --run-id map-v1
-
-python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
-    --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval
+    --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-sf \
+    --rebuild
 ```
 
 * `compute.jobs.weekly_map`: `--start` is the series origin. Add `--rebuild` to
@@ -114,11 +110,18 @@ normal cheap append. **Extending the ingest floor backward** — the initial
 case: pass `--rebuild`, since a plain append only fits *forward* boundaries it
 does not already have.
 
-Hand-run the deployed cronjob on the identical path:
+* `--persist-sf`: `implied_shift_factors` stored in db:
+
 ```
-cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
-kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
+python -m compute.sf.geo_persist --run-id map-v1
+
+python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
+    --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval
 ```
+
+* `diagnostics_<yyyymmdd>.json` and `eval.csv` artifacts in
+  `/compute/runs/<run_id>`.
+
 
 ### Step 2 — Build the μ residual pool
 
@@ -135,8 +138,10 @@ MAP_RUN_ID=map-v1
 ART_DIR=/compute/runs/${RUN_ID}/mu
 mkdir -p "${ART_DIR}"
 
-# --start is the ingest floor, --score-from the product origin (2025-01-01), and
+# --start is the data ingest floor, --score-from the product origin (2025-01-01), and
 # --end a fixed recent completed date — see "Dates in the runbook".
+# YYYY-MM-DD: tomorrow
+
 python -m compute.mu.mu_model \
     --start 2024-05-06 --score-from 2025-01-01 \
     --preds-out "${ART_DIR}/mu_preds.npz" --end <YYYY-MM-DD>
@@ -240,6 +245,12 @@ After step 2 has copied `compute/mu/mu_preds.npz`, build and deploy the image, t
 deploy both cronjobs (`map_refresh_cronjob.yml`, `forecast_cronjob.yml`). The weekly map
 append (step 1) and daily forecast (step 5) then keep everything current. A refreshed
 residual pool requires another image build/deploy; normal daily appends do not.
+
+Hand-run the deployed cronjob on the identical path:
+```
+cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
+kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
+```
 
 ### Good to know
 
