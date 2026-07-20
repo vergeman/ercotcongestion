@@ -323,3 +323,40 @@ export interface ScoreboardWeekly {
   points: WeeklyPoint[];
   splits: WeeklySplit[];
 }
+
+// =============================================================================
+// /scoreboard/daily — the LIVE per-delivery-day board (plan/0102 §0003,
+// spec-phase3 §3). Mirrors api/models.py DailyPoint / ScoreboardDaily. The live
+// counterpart to the weekly backtest board: per-day grades of the SERVED
+// forecast, same currency columns as WeeklyPoint so a live number and a backtest
+// number are directly comparable. Every response carries all sources (model +
+// persistence + climatology + oracle + the `null` flat tripwire), so a lone
+// model figure can't be rendered (§6).
+// =============================================================================
+
+// One (delivery_date, source) live grade. Band columns (coverage80 / band_width
+// / pinball) are populated on the model source only; model_coverage is NULL for
+// now (deferred snapshot). All nullable — a declined/flat cell is null.
+export interface DailyPoint {
+  delivery_date: string;
+  source: string;
+  pooled_r2: number | null;
+  mae: number | null;
+  rank_spearman: number | null;
+  sign_agree: number | null;
+  topdecile_hit: number | null;
+  coverage80: number | null;
+  band_width: number | null;
+  pinball: number | null;
+  sf_coverage: number | null;
+  model_coverage: number | null;
+  n_hours: number | null;
+  n_nodes: number | null;
+}
+
+export interface ScoreboardDaily {
+  run_id: string;
+  since: string | null;
+  primary_source: string;
+  points: DailyPoint[];
+}
