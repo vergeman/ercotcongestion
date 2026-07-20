@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -42,6 +43,20 @@ from compute.sf.project import (
 log = logging.getLogger("compute.jobs.backfill_nodal")
 
 FORECAST_LAYER = "ercot"
+
+RUNS_ROOT = Path(__file__).parent.parent / "runs"    # the mounted /compute/runs PVC
+
+
+def preds_path_for(run_id: str) -> str:
+    """The μ predictions/residual-pool npz for `run_id` on the runs PVC.
+
+    Same layout every stage uses — `runs/<run_id>/mu/mu_preds.npz`, where
+    `mu_model --preds-out` writes it (runbook step 2) — so passing `--run-id`
+    is enough and `--preds` need not be spelled out. Mirrors
+    `daily_forecast.preds_path_for` (defined here too rather than imported, to
+    avoid a circular import: daily_forecast imports this module).
+    """
+    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
 
 
 def _delivery_dates(ts: pd.Series) -> pd.Series:
@@ -314,7 +329,10 @@ def main(argv: list[str] | None = None) -> int:
     from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--preds", default="/compute/mu/mu_preds.npz")
+    p.add_argument("--preds", default=None,
+                   help="μ predictions/residual-pool npz; defaults to "
+                        "runs/<run-id>/mu/mu_preds.npz on the runs PVC when "
+                        "--run-id is given")
     p.add_argument("--scores", default="/compute/mu/mu_score_weekly.csv")
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
@@ -392,6 +410,12 @@ def main(argv: list[str] | None = None) -> int:
                  FORECAST_LAYER, args.run_id)
         return 0
 
+    if args.preds is None:
+        # Prefer the run's pool on the PVC; fall back to the legacy bundled path
+        # for the run-id-less metrics-only mode (unchanged behavior).
+        args.preds = (preds_path_for(args.run_id) if args.run_id
+                      else str(RUNS_ROOT.parent / "mu" / "mu_preds.npz"))
+    log.info("loading residual pool from %s", args.preds)
     preds = load_preds(args.preds)
     lo = pd.Timestamp(args.start, tz="America/Chicago")
     hi = pd.Timestamp(args.end, tz="America/Chicago")

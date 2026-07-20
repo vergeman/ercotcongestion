@@ -26,6 +26,7 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -65,11 +66,23 @@ from compute.sf.project import (
 
 log = logging.getLogger(__name__)
 
-# The validated backtest's out-of-sample residuals, sampled to form the forward
-# error pool (panel spec §7). The preds npz lives beside the μ library in
-# `compute/mu/`, so resolve it relative to this runner's parent regardless of cwd.
-PREDS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                          "mu", "mu_preds.npz")
+BASE_DIR = Path(__file__).parent
+RUNS_ROOT = BASE_DIR.parent / "runs"    # the mounted /compute/runs PVC
+
+
+def preds_path_for(run_id: str) -> str:
+    """Resolve the μ residual-pool npz for `run_id` on the runs PVC.
+
+    The validated backtest's out-of-sample residuals, sampled to form the forward
+    error pool (panel spec §7). It is the model-VERSION artifact — produced once per
+    `run_id` (runbook step 2) and reused by every daily run — so it lives with the
+    rest of the run's artifacts under `runs/<run_id>/mu/`, the same path
+    `mu_model --preds-out` and `backfill_nodal --preds` write and read. Loading it
+    from the mounted PVC by `run_id` replaces the old image-baked `compute/mu`
+    copy, so refreshing the pool no longer needs an image rebuild. Pass `--preds`
+    to override (parity with backfill_nodal/score/rerank).
+    """
+    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 
@@ -125,7 +138,7 @@ def forecast_day(
     arms: tuple[str, ...] = DEFAULT_ARMS,
     seed: int = 0,
     n_draws: int = N_DRAWS,
-    preds_path: str = PREDS_PATH,
+    preds_path: str | None = None,
     map_run_id: str = MAP_RUN_ID,
     max_sf_age_days: int = MAX_SF_AGE_DAYS,
     min_sf_coverage: float = MIN_SF_COVERAGE,
@@ -152,6 +165,7 @@ def forecast_day(
     causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
     """
     D = _as_utc_day(D)
+    preds_path = preds_path or preds_path_for(run_id)
     # Reproducing the validated model means reproducing how it built its TRAIN rows.
     # The geo/wx arms fit a per-boundary SF/weather-response on
     # `[boundary − WINDOW_DAYS, boundary)`; the boundary covering the earliest train
@@ -165,8 +179,8 @@ def forecast_day(
     # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
     # rows are built only to give the arms their history and are then sliced off.
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
-    log.info("forecast_day %s  run_id=%s  arms=%s  train_days=%d",
-             D.date(), run_id, ",".join(arms), train_days)
+    log.info("forecast_day %s  run_id=%s  arms=%s  train_days=%d  preds=%s",
+             D.date(), run_id, ",".join(arms), train_days, preds_path)
 
     # --- stage 1: μ inference ------------------------------------------------
     # M and C end at D (exclusive): the SF fit window and every covariate see only
@@ -403,6 +417,10 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"weekly SF-map run to project through (default "
                         f"{MAP_RUN_ID!r}); the forecast reads its persisted SF "
                         f"instead of refitting (0095-0002)")
+    p.add_argument("--preds", default=None,
+                   help="μ residual-pool npz (the OOS error pool for the P10/P90 "
+                        "bands); defaults to runs/<run-id>/mu/mu_preds.npz on the "
+                        "runs PVC")
     p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS,
                    help=f"fail loud if the latest map window closes more than this "
                         f"many days before D (default {MAX_SF_AGE_DAYS})")
@@ -429,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
         result = forecast_day(conn, D, run_id=args.run_id,
                               train_days=args.train_days, arms=arms,
                               seed=args.seed, n_draws=args.draws,
+                              preds_path=args.preds,
                               map_run_id=args.map_run_id,
                               max_sf_age_days=args.max_sf_age_days,
                               min_sf_coverage=args.min_sf_coverage)
