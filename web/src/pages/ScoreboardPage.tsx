@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ScoreboardWeekly,
   ScoreboardHeadline,
+  ScoreboardDaily,
   WeeklyPoint,
+  DailyPoint,
 } from "../api/types";
 import {
   fetchScoreboardWeekly,
   fetchScoreboardHeadline,
+  fetchScoreboardDaily,
 } from "../api/client";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
@@ -73,6 +76,15 @@ const fmtWeek = (w: string): string =>
   new Date(`${w}T00:00:00Z`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
+  });
+
+const fmtDay = (d: string): string =>
+  new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
     timeZone: "UTC",
   });
 
@@ -258,6 +270,100 @@ function SeriesChart({
   );
 }
 
+// ── live per-delivery-day grade panel (plan/0102 §0004, spec-phase3 §5) ──────
+// "How did yesterday's forecast do." Reads /scoreboard/daily (live grades of the
+// SERVED forecast) — the live counterpart to the backtest tiles below. The day is
+// selectable; each metric carries its persistence delta + oracle ceiling so a lone
+// model figure can't be read (§6). Renders server-served values only — no grade is
+// recomputed here. Same tile form + validated colors as HeadlineTiles, so the live
+// half reads as one system with the backtest half.
+
+// The four graded currencies foregrounded per day. All higher-is-better, so a
+// positive model−persistence delta is the model winning (matches HeadlineTiles +
+// the _CURRENCIES orientation the API pools on).
+const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
+  { name: "topdecile_hit", label: "Top-Decile Hit" },
+  { name: "rank_spearman", label: "Rank ρ" },
+  { name: "sign_agree", label: "Sign Agreement" },
+  { name: "pooled_r2", label: "Pooled R²" },
+];
+
+function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
+  // Delivery days present, most-recent first — the selector's options and default.
+  const days = useMemo(
+    () => Array.from(new Set(daily.points.map((p) => p.delivery_date))).sort().reverse(),
+    [daily]
+  );
+  const [day, setDay] = useState<string>(days[0]);
+  // Keep the selection valid when the run's live history changes underneath us.
+  const selected = days.includes(day) ? day : days[0];
+
+  // The selected day's rows, keyed by source, so a tile can read model /
+  // persistence / oracle for one metric.
+  const bySource = useMemo(() => {
+    const m = new Map<string, DailyPoint>();
+    for (const p of daily.points) {
+      if (p.delivery_date === selected) m.set(p.source, p);
+    }
+    return m;
+  }, [daily, selected]);
+
+  const model = bySource.get("model");
+  const persistence = bySource.get("persistence");
+  const oracle = bySource.get("oracle");
+  const val = (row: DailyPoint | undefined, name: keyof DailyPoint): number | null => {
+    const v = row ? (row[name] as number | null) : null;
+    return v == null ? null : v;
+  };
+
+  return (
+    <section className="sb-live">
+      <div className="sb-live__head">
+        <span className="sb-section-h label sb-live__h">Live · per-delivery-day grade</span>
+        <select
+          className="sb-regime sb-live__day"
+          value={selected}
+          onChange={(e) => setDay(e.target.value)}
+          aria-label="Delivery day"
+        >
+          {days.map((d) => (
+            <option key={d} value={d}>{fmtDay(d)}</option>
+          ))}
+        </select>
+        <span className="sb-live__ctx label">
+          {model?.n_nodes != null ? `${model.n_nodes} nodes` : ""}
+          {model?.n_hours != null ? ` · ${model.n_hours} h` : ""}
+        </span>
+      </div>
+
+      <div className="sb-tiles">
+        {LIVE_METRICS.map((mk) => {
+          const m = val(model, mk.name);
+          const p = val(persistence, mk.name);
+          const o = val(oracle, mk.name);
+          const delta = m != null && p != null ? m - p : null;
+          // All LIVE_METRICS are higher-is-better; a non-negative delta wins.
+          const good = delta == null ? null : delta >= 0;
+          return (
+            <div key={mk.name} className="sb-tile">
+              <div className="label">{mk.label}</div>
+              <div className="sb-tile__model mono">{m == null ? "—" : m.toFixed(2)}</div>
+              <div className="sb-tile__cmp">
+                {good != null && (
+                  <span className="sb-delta" data-good={good}>
+                    {good ? "▲" : "▼"} vs persist {p == null ? "—" : p.toFixed(2)}
+                  </span>
+                )}
+                <span className="sb-ceiling mono">ceiling {o == null ? "—" : o.toFixed(2)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // ── headline tiles (reuse the 0001 endpoint — comparators ride along) ───────
 function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
   const win = headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
@@ -334,6 +440,7 @@ export default function ScoreboardPage() {
   const [metric, setMetric] = useState<MetricKey>("topdecile_hit");
   const [weekly, setWeekly] = useState<ScoreboardWeekly | null>(null);
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
+  const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -351,6 +458,17 @@ export default function ScoreboardPage() {
     };
   }, [regime]);
 
+  // The live per-day board is a run-level surface, not sliced by the regime
+  // selector — fetch it once. 503 → null so the panel is gracefully absent
+  // before any live grade exists (the backtest board still renders).
+  useEffect(() => {
+    let live = true;
+    fetchScoreboardDaily("model").then((d) => live && setDaily(d));
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
 
@@ -365,6 +483,10 @@ export default function ScoreboardPage() {
           ))}
         </select>
       </header>
+
+      {/* The live half — rendered independently of the backtest board, and
+          gracefully absent until a served day has been graded (§0004). */}
+      {daily && <LiveGradePanel daily={daily} />}
 
       {loading && <div className="sb-empty label">loading…</div>}
       {!loading && !weekly && (
@@ -442,6 +564,12 @@ export default function ScoreboardPage() {
           padding: 4px 8px; font-size: 12px; font-family: inherit;
         }
         .sb-empty { padding: 40px 16px; text-align: center; }
+
+        .sb-live { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; flex-wrap: wrap; }
+        .sb-live__h { padding: 0; }
+        .sb-live__day { margin-left: 0; }
+        .sb-live__ctx { margin-left: auto; color: var(--text-muted); }
 
         .sb-tiles { display: flex; gap: 12px; padding: 12px 16px 4px; align-items: stretch; flex-wrap: wrap; }
         .sb-tile {
