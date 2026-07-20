@@ -47,7 +47,7 @@ spec:
             - --start
             - "2024-05-01"
             - --end
-            - "2024-12-31"
+            - "2026-07-20"
             - --resume
           envFrom:
             - configMapRef:
