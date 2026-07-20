@@ -68,20 +68,19 @@ in an environment with the production DB credentials.
 
 ### Dates in the runbook — what each flag controls
 
-The stages take dates literally (they never read `now()` or the DB max), and
-`--start` means a **different thing** in each — worth reading before running:
+The stages take dates literally (they never read `now()` or the DB max). `--start`
+now means the **same thing** in all three — the *series origin* — so one date
+(**2025-01-01**, the product origin) drives the whole run:
 
-* **SF map `--start`** (`weekly_map`, `eval`) — the *series origin*: the first day
-  you want SF windows scored for, **not** the data floor. The loader extends the
-  read back a full window on its own (`read_start = start − window_days`), so
-  `--start 2025-01-01` reads from 2024-05-06 and scores from 2025-01-01. Leave it
-  at the product origin.
-* **μ `--start`** (`mu_model`) — the *first day of data read* (the panel floor).
-  The walk warms up 240 days from here, so with no `--score-from` the first scored
-  week is `--start + 240d`. Set it to the ingest floor, **2024-05-06**.
-* **`--score-from`** (`mu_model`) — pins the first scored week explicitly (and the
-  walk's phase onto the SF grid) instead of deriving it from `--start`. Set it to
-  the product origin, **2025-01-01**.
+* **`--start`** (`weekly_map`, `eval`, `mu_model`) — the *series origin*: the first
+  day you want scored, **not** the data floor. Each stage extends the read back on
+  its own (`weekly_map`/`eval`: `read_start = start − window_days`; `mu_model`:
+  `start − train_days − leadin`), so `--start 2025-01-01` scores from 2025-01-01
+  while reading whatever history it needs behind that. Leave it at the product
+  origin; you never hand-compute a data floor.
+* **`--score-from`** (`mu_model`, optional) — overrides *only* the scored-grid phase
+  and defaults to `--start`. Rarely needed — set it only to pin a phase different
+  from the origin (e.g. an ablation on a specific sf week).
 * **`--end`** — a *fixed* completed date, deliberately not "today," so a rebuild is
   reproducible. Use a recent settled date. The map's `--end <tomorrow>` is the one
   exception: it is incremental and exclusive-ended, so it just reads through the
@@ -138,12 +137,13 @@ MAP_RUN_ID=map-v1
 ART_DIR=/compute/runs/${RUN_ID}/mu
 mkdir -p "${ART_DIR}"
 
-# --start is the data ingest floor, --score-from the product origin (2025-01-01), and
-# --end a fixed recent completed date — see "Dates in the runbook".
+# --start is the series origin (product origin, 2025-01-01) — the same date the SF
+# map used; mu_model derives its own read floor (start − train_days − leadin). --end
+# is a fixed recent completed date — see "Dates in the runbook".
 # YYYY-MM-DD: tomorrow
 
 python -m compute.mu.mu_model \
-    --start 2024-05-06 --score-from 2025-01-01 \
+    --start 2025-01-01 \
     --preds-out "${ART_DIR}/mu_preds.npz" --end <YYYY-MM-DD>
 ```
 
