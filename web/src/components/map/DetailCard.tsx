@@ -4,13 +4,14 @@ import { modeledCongestionColor } from "../../lib/colors";
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
-  // The full decomposition for the clicked SP, carried in every view so basis
-  // never hides raw magnitude: predicted / market congestion, their difference
-  // (basis = predicted − market), and the market's raw DAM SPP.
+  // The full decomposition for the clicked SP, carried in every view so the
+  // forecast error never hides raw magnitude: forecast (P50) / realized
+  // congestion, their difference (error = forecast − realized), and the
+  // realized side's raw DAM SPP.
   spState: {
     predicted: number | null;
     market: number | null;
-    basis: number | null;
+    error: number | null;
     marketSpp: number | null;
   } | null;
 }
@@ -87,10 +88,10 @@ function SpBody({ sp }: { sp: HoveredSp }) {
     <>
       <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
-      {/* predicted / market / basis — the decomposition carried in every view. */}
-      <Row label="Predicted" value={fmtCong(s?.predicted)} />
-      <Row label="Market" value={fmtCong(s?.market)} />
-      <Row label="Basis" value={fmtCong(s?.basis)} />
+      {/* forecast / realized / error — the decomposition carried in every view. */}
+      <Row label="Forecast (P50)" value={fmtCong(s?.predicted)} />
+      <Row label="Realized" value={fmtCong(s?.market)} />
+      <Row label="Forecast error" value={fmtCong(s?.error)} />
       <Row
         label="DAM SPP"
         value={

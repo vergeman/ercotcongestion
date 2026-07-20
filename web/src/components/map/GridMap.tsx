@@ -223,9 +223,10 @@ interface Props {
   side?: "prediction" | "actual";
   onMapReady?: (map: maplibregl.Map) => void;
   // The diverging color ramp for the `congestion` palette. Defaults to the
-  // blue↔red congestion ramp; the basis view passes `basisColor` (emerald↔magenta)
-  // so basis reads on its own hue axis. Only affects node fill — the reach/SF glow
-  // stays on modeledCongestionColor (there the sign is the export/import dipole).
+  // blue↔red congestion ramp; the forecast-error view passes `forecastErrorColor`
+  // (emerald↔magenta) so the error reads on its own hue axis. Only affects node
+  // fill — the reach/SF glow stays on modeledCongestionColor (there the sign is the
+  // export/import dipole).
   congestionColor?: (norm: number) => string;
 }
 

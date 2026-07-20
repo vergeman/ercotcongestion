@@ -20,13 +20,14 @@ interface Props {
   variant?: "full" | "palette-only";
   // Optional caption under the palette; distinguishes the two panes.
   paneLabel?: string;
-  // Basis view overrides: a custom palette title, and the diverging end labels
-  // (default "export (−)" / "import (+)" for congestion; basis relabels these to
-  // "pred < market" / "pred > market"). Both apply only to the congestion palette.
+  // Forecast-error view overrides: a custom palette title, and the diverging end
+  // labels (default "export (−)" / "import (+)" for congestion; the error view
+  // relabels these to "under-forecast" / "over-forecast"). Both apply only to the
+  // congestion palette.
   titleOverride?: string;
   signLabels?: { neg: string; pos: string };
-  // Overrides the palette bar's gradient — the basis view passes its
-  // emerald↔magenta ramp so the legend bar matches the map's basis coloring.
+  // Overrides the palette bar's gradient — the forecast-error view passes its
+  // emerald↔magenta ramp so the legend bar matches the map's error coloring.
   barGradientOverride?: string;
   // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
   // Shown only on the pane that carries the overlay, and only while it's on.

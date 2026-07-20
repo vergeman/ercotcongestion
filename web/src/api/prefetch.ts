@@ -100,6 +100,11 @@ export async function prefetchWindow(
   start?: Date,
   end?: Date
 ): Promise<{ start: Date; end: Date } | null> {
+  // Replace, don't accumulate: the caches are module-level and back the union
+  // in getAvailableTimestamps(), so a stale prior window would otherwise linger
+  // on the timeline (and leave the cursor stranded on an old frame). Clear first
+  // on every load — explicit window or default landing.
+  clearCache();
   if (start && end) {
     const [ercotData, ercotSppData, forecastData] = await Promise.all([
       fetchErcotStateRange(start, end),

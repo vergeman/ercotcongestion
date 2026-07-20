@@ -1,9 +1,9 @@
 import type { Palette, ViewMode } from "../../api/types";
 
 interface Props {
-  // The two orthogonal axes: `viewMode` picks basis vs dual compare; `palette`
-  // picks the ERCOT quantity the dual panes color by. The palette control is
-  // shown only in dual — basis is congestion-based regardless of palette.
+  // The two orthogonal axes: `viewMode` picks forecast-error vs dual compare;
+  // `palette` picks the ERCOT quantity the dual panes color by. The palette control
+  // is shown only in dual — forecast error is congestion-based regardless of palette.
   viewMode: ViewMode;
   onViewMode: (v: ViewMode) => void;
   palette: Palette;
@@ -42,10 +42,10 @@ export default function Header({
             View
           </span>
           <button
-            className={viewMode === "basis" ? "active" : ""}
-            onClick={() => onViewMode("basis")}
+            className={viewMode === "forecastError" ? "active" : ""}
+            onClick={() => onViewMode("forecastError")}
           >
-            Basis
+            Forecast Error
           </button>
           <button
             className={viewMode === "dual" ? "active" : ""}
@@ -55,7 +55,7 @@ export default function Header({
           </button>
         </div>
 
-        {/* Palette only bites in dual — basis is congestion-based regardless. */}
+        {/* Palette only bites in dual — forecast error is congestion-based regardless. */}
         {viewMode === "dual" && (
           <div className="view-toggle">
             <span className="label" style={{ marginRight: 6 }}>
