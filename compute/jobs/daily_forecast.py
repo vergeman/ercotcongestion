@@ -36,6 +36,11 @@ from compute.jobs.backfill_nodal import (
     persist_sf_mu_artifact,
     upsert_pointer,
 )
+from compute.jobs.grade_day import (
+    grade_day,
+    persist_grades,
+    resolve_gradeable_date,
+)
 from compute.mu.features import build_panel
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
@@ -346,6 +351,32 @@ def _summary(result: ForecastResult) -> str:
             + (f" — e.g. {sample}" if sample else ""))
 
 
+def _grade_latest(conn, run_id: str) -> None:
+    """Fold the live grade into the daily tick (no separate job): grade the most
+    recent fully-realized, ungraded served day for `run_id`.
+
+    Non-fatal by contract. The forecast has already been published and committed by
+    the time this runs, so a grading failure must NOT fail the publish or move the
+    pointer — it logs and the transaction rolls back. The next tick retries on its
+    own: `grade_day` is idempotent and `resolve_gradeable_date` self-selects the
+    latest still-ungraded day, so a transient miss heals without any retry logic.
+    """
+    try:
+        D = resolve_gradeable_date(conn, run_id)
+        if D is None:
+            log.info("live grade: no ungraded fully-realized served day this tick")
+            return
+        rows = grade_day(conn, D, run_id=run_id)
+        n = persist_grades(conn, run_id, D, rows)
+        conn.commit()
+        log.info("live grade: scoreboard_daily <- %d rows for %s (run_id=%s)",
+                 n, D.date(), run_id)
+    except Exception:
+        conn.rollback()
+        log.exception("live grade step failed (non-fatal; forecast already "
+                      "published for this tick)")
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -378,6 +409,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE,
                    help=f"fail loud if the map locates less than this share of D's "
                         f"predicted binding mass (default {MIN_SF_COVERAGE})")
+    p.add_argument("--no-grade", action="store_true",
+                   help="skip the live grade step that normally follows a --to-db "
+                        "publish. The daily tick grades the most recent fully-"
+                        "realized served day in the same run (no separate job); "
+                        "pass this for a forecast-only backfill of a future/today "
+                        "day whose realized has not published yet")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -398,6 +435,12 @@ def main(argv: list[str] | None = None) -> int:
         log.info(_summary(result))
         if args.to_db:
             persist_forecast(conn, result, npz_dir=args.npz_dir)
+            # Grade the most recent realized served day in the same tick. Free the
+            # fit's working set first so the two peaks don't sum on a 16Gi node.
+            del result
+            gc.collect()
+            if not args.no_grade:
+                _grade_latest(conn, args.run_id)
         else:
             log.info("dry run (--to-db not set): nothing written, pointer unchanged")
     return 0

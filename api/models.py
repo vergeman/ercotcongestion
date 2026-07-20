@@ -390,3 +390,56 @@ class ScoreboardWeekly(BaseModel):
     rtc_b_cutover: date
     points: list[WeeklyPoint]
     splits: list[WeeklySplit]
+
+
+# ---- /scoreboard/daily ---------------------------------------------------
+#
+# The LIVE scoreboard (plan/0102 §0003, spec-phase3 §3) — per-delivery-day grades
+# of the SERVED forecast, scored against realized once DAM publishes, the live
+# counterpart to the weekly backtest board. Same integrity rule (§6): every
+# response carries all sources (model + persistence + climatology + oracle + the
+# ``null`` flat tripwire), so a lone model figure can't be rendered. Same
+# ``score_matrix`` currency as the weekly board, so a live number and a backtest
+# number are directly comparable. (Miss-attribution — /scoreboard/miss — is
+# deferred out of 0003; the per-day grade is the shipped live surface.)
+
+
+class DailyPoint(BaseModel):
+    """One ``scoreboard_daily`` row — one (delivery_date, source) live grade.
+
+    Same currency columns as ``WeeklyPoint``. The band columns (``coverage80`` /
+    ``band_width`` / ``pinball``) are populated on the model source only — measured
+    live from the served p10/p50/p90 vs realized. ``model_coverage`` is NULL for
+    now (it needs the prediction-time key set, the deferred snapshot); ``sf_coverage``
+    rides along so a collapse day reads as a coverage gap, not lost skill. All
+    nullable — a declined/flat cell (e.g. the ``null`` source's screening) is ``None``.
+    """
+    delivery_date: date
+    source: str
+    pooled_r2: float | None = None
+    mae: float | None = None
+    rank_spearman: float | None = None
+    sign_agree: float | None = None
+    topdecile_hit: float | None = None
+    coverage80: float | None = None
+    band_width: float | None = None
+    pinball: float | None = None
+    sf_coverage: float | None = None
+    model_coverage: float | None = None
+    n_hours: int | None = None
+    n_nodes: int | None = None
+
+
+class ScoreboardDaily(BaseModel):
+    """The live per-day grade series for one run since an optional date.
+
+    ``run_id`` is the model version being graded live (the same version the forecast
+    served). ``primary_source`` echoes the requested ``source`` (the series the page
+    foregrounds); every source rides along in ``points`` regardless, so the client
+    can never render a lone model figure. ``since`` echoes the request (``None`` ==
+    the run's full live history).
+    """
+    run_id: str
+    since: date | None = None
+    primary_source: str
+    points: list[DailyPoint]
