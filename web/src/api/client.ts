@@ -7,6 +7,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  RankedConstraints,
   ScoreboardHeadline,
   ScoreboardWeekly,
   ScoreboardDaily,
@@ -134,6 +135,25 @@ export async function fetchMapOverview(
   const r = await fetch(`${BASE}/map/overview?n=${n}&k=${k}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/overview ${r.status}`);
+  return r.json();
+}
+
+// The per-day ranked constraint list — "which constraints drive today's
+// congestion", the list companion to the overview marker pile. `basis` picks the
+// μ series (predicted E_mu vs realized DAM shadow prices); the server owns the
+// order, so the client never re-ranks. Omit `day` for the forecast run's latest
+// built day. Same soft-fail contract: 503 (no forecast run / no artifact) returns
+// null so the panel renders empty rather than erroring.
+export async function fetchMapConstraintsRanked(
+  basis: "predicted" | "realized" = "predicted",
+  day?: string,
+  k = 30
+): Promise<RankedConstraints | null> {
+  const qs = new URLSearchParams({ basis, k: String(k) });
+  if (day) qs.set("day", day);
+  const r = await fetch(`${BASE}/map/constraints/ranked?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`map/constraints/ranked ${r.status}`);
   return r.json();
 }
 

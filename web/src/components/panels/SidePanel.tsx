@@ -1,11 +1,14 @@
 import { useState, Fragment } from "react";
-import type { ScoreboardHeadline } from "../../api/types";
+import type { ScoreboardHeadline, RankedConstraints } from "../../api/types";
+import ConstraintPanel from "./ConstraintPanel";
 
-// The right-hand side panel: a compact network readout on top, the rolling
-// backtest scorecard below (plan/0102 §0001). The scorecard's one rule (spec §6):
-// a model figure never renders alone — each row shows the model, the persistence
-// baseline it must beat, and the oracle ceiling, with the model↔persistence
-// leader bolded so "did we beat the baseline" reads at a glance.
+// The right-hand side panel, hosting two tabs in one region (plan/0103): `Stats`
+// (0102) — a compact network readout over the rolling backtest scorecard — and
+// `Constraints` (0103) — the per-day ranked constraint list. One region, tabbed;
+// never a second panel. The scorecard's one rule (spec §6): a model figure never
+// renders alone — each row shows the model, the persistence baseline it must beat,
+// and the oracle ceiling, with the model↔persistence leader bolded so "did we beat
+// the baseline" reads at a glance.
 
 export interface NetworkStats {
   forecastRunId: string | null;
@@ -20,6 +23,18 @@ interface Props {
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
   headline: ScoreboardHeadline | null;
+  // ── Constraints tab (plan/0103) ──────────────────────────────────────────
+  ranked: RankedConstraints | null;
+  rankedLoading: boolean;
+  constraintBasis: "predicted" | "realized";
+  onConstraintBasis: (b: "predicted" | "realized") => void;
+  // Synced hover (Group 4): the constraint the map is isolating, and the callback
+  // a hovered row fires. Optional so the panel works before the sync is wired.
+  highlightedConstraintId?: string | null;
+  onHoverConstraint?: (id: string | null) => void;
+  onSelectConstraint?: (id: string) => void;
+  // A constituent SP hovered in an expanded row — App rings that node on the map.
+  onMemberHover?: (sp: string | null) => void;
 }
 
 function fmtNum(v: number | null, decimals = 1): string {
@@ -73,8 +88,20 @@ function Stat({ label, value, hint }: { label: string; value: string | number | 
   );
 }
 
-export default function SidePanel({ network, headline }: Props) {
+export default function SidePanel({
+  network,
+  headline,
+  ranked,
+  rankedLoading,
+  constraintBasis,
+  onConstraintBasis,
+  highlightedConstraintId,
+  onHoverConstraint,
+  onSelectConstraint,
+  onMemberHover,
+}: Props) {
   const [windowDays, setWindowDays] = useState<number>(30);
+  const [tab, setTab] = useState<"stats" | "constraints">("stats");
   const win =
     headline?.windows.find((w) => w.window_days === windowDays) ??
     headline?.windows[0] ??
@@ -83,6 +110,34 @@ export default function SidePanel({ network, headline }: Props) {
 
   return (
     <aside className="side-panel">
+      {/* ── Tab bar: one region, two questions (plan/0103) ─────────────── */}
+      <div className="sp-tabs" role="tablist" aria-label="side panel">
+        {(["stats", "constraints"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            className={`sp-tab${tab === t ? " active" : ""}`}
+            onClick={() => setTab(t)}
+          >
+            {t === "stats" ? "Stats" : "Constraints"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "constraints" ? (
+        <ConstraintPanel
+          ranked={ranked}
+          loading={rankedLoading}
+          basis={constraintBasis}
+          onBasis={onConstraintBasis}
+          highlightedId={highlightedConstraintId}
+          onHover={onHoverConstraint}
+          onSelect={onSelectConstraint}
+          onMemberHover={onMemberHover}
+        />
+      ) : (
+        <>
       {/* ── Network readout ───────────────────────────────────────────── */}
       <section className="np-section">
         <div className="np-section__header label">Network</div>
@@ -159,6 +214,8 @@ export default function SidePanel({ network, headline }: Props) {
           </a>
         </section>
       )}
+        </>
+      )}
 
       <style>{`
         .side-panel {
@@ -170,6 +227,30 @@ export default function SidePanel({ network, headline }: Props) {
           border-left: 1px solid var(--border);
           padding: 12px 14px 20px;
         }
+        .sp-tabs {
+          display: flex;
+          gap: 4px;
+          margin-bottom: 14px;
+          border-bottom: 1px solid var(--border);
+        }
+        .sp-tab {
+          padding: 6px 10px;
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          color: var(--text-muted);
+          font-family: 'Barlow Condensed', sans-serif;
+          font-size: 12px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+        .sp-tab:hover { color: var(--text-secondary); }
+        .sp-tab.active {
+          color: var(--text-primary);
+          border-bottom-color: var(--accent);
+        }
+        .sp-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .np-section { margin-bottom: 18px; }
         .np-section__header {
           padding-bottom: 6px;

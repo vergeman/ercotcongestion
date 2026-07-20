@@ -26,7 +26,9 @@ returns an empty result, not an error.
 from __future__ import annotations
 
 import logging
+from datetime import date as date_t
 
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -35,11 +37,14 @@ from config import MAP_RUN_ID
 from db import get_pool
 from models import (
     ConstraintGeo,
+    ConstraintLobe,
     ConstraintReach,
     ExposuresResponse,
     MapMeta,
     MapOverview,
     OverviewConstraint,
+    RankedConstraint,
+    RankedConstraints,
     ReachSp,
     SpExposure,
 )
@@ -343,4 +348,177 @@ def get_map_overview(
         oos_r2=meta["oos_r2"],
         sf_stability=meta["sf_stability"],
         constraints=constraints,
+    )
+
+
+def _lobe(nodes: list[tuple[float, float, float]]) -> ConstraintLobe:
+    """A signed dipole end from ``(sf, lat, lon)`` triples (one lobe's located
+    nodes). Centroid is |SF|-weighted so the strongest node dominates; ``peak_sf``
+    is the signed strongest node. Empty → an unlocated/one-sided lobe."""
+    if not nodes:
+        return ConstraintLobe()
+    w = np.array([abs(sf) for sf, _, _ in nodes])
+    lat = float(np.average([la for _, la, _ in nodes], weights=w))
+    lon = float(np.average([lo for _, _, lo in nodes], weights=w))
+    peak = max(nodes, key=lambda t: abs(t[0]))[0]
+    return ConstraintLobe(lat=lat, lon=lon, peak_sf=float(peak), n_nodes=len(nodes))
+
+
+def _realized_mu_mass(cur, lo, hi) -> dict[str, float]:
+    """Σ |shadow_price| over the delivery day per ``constraint_name|contingency_name``
+    — the realized-basis μ series, keyed the same way the SF panel is (compute.sf
+    .panels), so it aligns to the artifact's constraint index with no name match."""
+    cur.execute(
+        "SELECT trim(constraint_name) || '|' || trim(contingency_name) AS key, "
+        "sum(abs(shadow_price)) AS mass FROM ercot_dam_shadow_prices "
+        "WHERE interval_ts >= %s AND interval_ts <= %s AND shadow_price IS NOT NULL "
+        "GROUP BY key",
+        (lo, hi),
+    )
+    return {r["key"]: float(r["mass"]) for r in cur.fetchall() if r["mass"] is not None}
+
+
+@router.get(
+    "/constraints/ranked",
+    response_model=RankedConstraints,
+    summary="Per-day ranked constraints by congestion contribution",
+)
+def get_map_constraints_ranked(
+    day: date_t | None = Query(
+        None,
+        description="Delivery date to rank. Omit for the forecast run's latest "
+        "day with a built SF+μ artifact.",
+    ),
+    basis: str = Query(
+        "predicted",
+        pattern="^(predicted|realized)$",
+        description="μ series: predicted (the day's fitted E_mu) or realized "
+        "(that day's published DAM shadow prices). SF structure is shared.",
+    ),
+    run_id: str | None = Query(
+        None,
+        description="Forecast model version. Omit for the current promoted run "
+        "(forecast_current[ercot]).",
+    ),
+    k: int = Query(30, ge=1, le=200, description="Top-k constraints to return."),
+    min_frac: float = Query(
+        0.05, ge=0.0, le=1.0,
+        description="Noise floor: a node counts toward a constraint's members / "
+        "lobes only if its |SF| is at least this fraction of the constraint's "
+        "peak |SF| (mirrors /map/reach).",
+    ),
+) -> RankedConstraints:
+    # The day's SF + E_mu artifact decoder — lazy so the map module stays light.
+    from compute.sf.project import load_sf_mu
+
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # Resolve the forecast run (this feature's own pointer, not the SF-map
+        # run) and the delivery day, then load that day's SF+μ blob.
+        if run_id is None:
+            cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="no forecast run is published yet (forecast_current is empty).",
+                )
+            run_id = row["run_id"]
+
+        if day is None:
+            cur.execute(
+                "SELECT max(delivery_date) AS d FROM forecast_sf_artifact WHERE run_id = %s",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if row is None or row["d"] is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"no SF+μ artifact built for run_id={run_id}.",
+                )
+            day = row["d"]
+
+        cur.execute(
+            "SELECT sf_npz FROM forecast_sf_artifact WHERE run_id = %s AND delivery_date = %s",
+            (run_id, day),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=503,
+                detail=f"no SF+μ artifact for run_id={run_id} on {day}.",
+            )
+        assert run_id is not None and day is not None  # resolved-or-503 above
+        art = load_sf_mu(bytes(row["sf_npz"]))
+
+        # μ mass per constraint (Σ_ts |μ|) for the chosen basis, on the artifact's
+        # shared constraint-key index. Predicted reads the fitted E_mu; realized
+        # swaps in the day's DAM shadow prices over the same hours.
+        keys = art.SF.index
+        if basis == "realized":
+            lo, hi = art.E_mu.index.min(), art.E_mu.index.max()
+            realized = _realized_mu_mass(cur, lo.to_pydatetime(), hi.to_pydatetime())
+            mu_mass = pd.Series(realized, dtype=float).reindex(keys).fillna(0.0)
+        else:
+            mu_mass = art.E_mu.abs().sum(axis=0).reindex(keys).fillna(0.0)
+
+        # reach = Σ_sp |SF|; contribution = mu_mass · reach (the day-total of the
+        # −E_mu·SF nodal decomposition), ranked descending.
+        reach = art.SF.abs().sum(axis=1)
+        contribution = (mu_mass * reach).astype(float)
+        ranked = contribution[contribution > 0.0].sort_values(ascending=False)
+        top_keys = list(ranked.index[:k])
+
+        # ctype + de-piled core for the top keys, from the SF-map's constraint_geo
+        # (the same source the overlay marks position from), so a panel row and its
+        # overlay mark share a key and a type. Best-effort: unmatched keys → null.
+        geo: dict[str, dict] = {}
+        if top_keys:
+            m_run, m_ws = _resolve(cur)
+            cur.execute(
+                "SELECT constraint_key, ctype, core_lat, core_lon FROM constraint_geo "
+                "WHERE run_id = %s AND window_start = %s AND constraint_key = ANY(%s)",
+                (m_run, m_ws, top_keys),
+            )
+            geo = {r["constraint_key"]: r for r in cur.fetchall()}
+
+    coords = _sp_coords()
+    out: list[RankedConstraint] = []
+    for i, key in enumerate(top_keys):
+        sf_row = art.SF.loc[key]
+        peak_abs = float(sf_row.abs().max())
+        floor = min_frac * peak_abs if peak_abs else 0.0
+        src: list[tuple[float, float, float]] = []
+        snk: list[tuple[float, float, float]] = []
+        for sp, sf in sf_row.items():
+            sf = float(sf)
+            if abs(sf) < floor or sf == 0.0:
+                continue
+            latlon = coords.get(str(sp))
+            if latlon is None:
+                continue
+            (snk if sf > 0 else src).append((sf, latlon[0], latlon[1]))
+        g = geo.get(key, {})
+        out.append(
+            RankedConstraint(
+                constraint_id=key,
+                rank=i + 1,
+                congestion_contribution=float(ranked.loc[key]),
+                mu_mass=float(mu_mass.loc[key]),
+                reach=float(reach.loc[key]),
+                n_members=len(src) + len(snk),
+                ctype=g.get("ctype"),
+                core_lat=g.get("core_lat"),
+                core_lon=g.get("core_lon"),
+                source_lobe=_lobe(src),
+                sink_lobe=_lobe(snk),
+            )
+        )
+
+    return RankedConstraints(
+        run_id=run_id,
+        delivery_date=day,
+        basis=basis,
+        k=k,
+        n_ranked=int((contribution > 0.0).sum()),
+        constraints=out,
     )

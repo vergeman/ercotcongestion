@@ -228,6 +228,58 @@ export interface MapOverview {
 }
 
 // =============================================================================
+// /map/constraints/ranked — the per-day ranked constraint list (plan/0103). The
+// list-shaped companion to the /map/overview marker pile: "which constraints
+// drive today's congestion", ordered by a day-total contribution the map cannot
+// express. Mirrors api/models.py ConstraintLobe / RankedConstraint /
+// RankedConstraints. `basis` picks the μ series (predicted E_mu vs realized DAM
+// shadow prices); the SF structure — reach, lobes, members — is shared.
+// =============================================================================
+
+// One end of a constraint's congestion dipole — its source (import, SF<0) or sink
+// (export, SF>0) lobe. `lat`/`lon` are the |SF|-weighted centroid of the lobe's
+// nodes; `peak_sf` the signed strongest node; `n_nodes` the located count above
+// the floor. Null/zero for a one-sided or unlocated lobe.
+export interface ConstraintLobe {
+  lat: number | null;
+  lon: number | null;
+  peak_sf: number | null;
+  n_nodes: number;
+}
+
+// One constraint in the per-day ranking. `congestion_contribution = mu_mass ·
+// reach` is the sort key (descending); `rank` its 1-based position. `mu_mass`
+// (Σ_ts |μ|) and `reach` (Σ_sp |SF|) are surfaced so the score is legible.
+// `constraint_id` matches the overview's `constraint_key`, so a row highlights the
+// same overlay mark; `source_lobe`/`sink_lobe` carry the import/export dipole.
+export interface RankedConstraint {
+  constraint_id: string;
+  rank: number;
+  congestion_contribution: number;
+  mu_mass: number;
+  reach: number;
+  n_members: number;
+  ctype: string | null; // 'gtc' | 'transmission' | 'radial'
+  core_lat: number | null;
+  core_lon: number | null;
+  source_lobe: ConstraintLobe;
+  sink_lobe: ConstraintLobe;
+}
+
+// The per-day ranked list for one forecast run and basis. `n_ranked` is how many
+// constraints carried a non-zero contribution (the pool the top-`k` is drawn
+// from); `constraints` is that top-`k`, already ordered — the client never
+// re-ranks (the server owns the order).
+export interface RankedConstraints {
+  run_id: string;
+  delivery_date: string; // ISO date (YYYY-MM-DD)
+  basis: "predicted" | "realized";
+  k: number;
+  n_ranked: number;
+  constraints: RankedConstraint[];
+}
+
+// =============================================================================
 // /scoreboard/headline — the rolling backtest headline (30/90-day tiles). The
 // panel scorecard's data. Mirrors api/models.py HeadlineCurrency /
 // HeadlineWindow / ScoreboardHeadline. The one invariant (spec §6): a model
