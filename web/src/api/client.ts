@@ -9,6 +9,7 @@ import type {
   MapOverview,
   ScoreboardHeadline,
   ScoreboardWeekly,
+  ScoreboardDaily,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -163,5 +164,24 @@ export async function fetchScoreboardWeekly(
   const r = await fetch(`${BASE}/scoreboard/weekly?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`scoreboard/weekly ${r.status}`);
+  return r.json();
+}
+
+// The LIVE per-delivery-day grade series — grades of the SERVED forecast, the
+// live counterpart to the weekly backtest board. All sources ride along
+// regardless of `source` (the page's foregrounded series). Resolves its own
+// run_id (the run with the most recent graded day), independent of the board.
+// Same soft-fail contract: 503 (no live grade has run yet / no rows since the
+// date) returns null so the page renders the backtest board alone rather than
+// erroring.
+export async function fetchScoreboardDaily(
+  source = "model",
+  since?: string
+): Promise<ScoreboardDaily | null> {
+  const qs = new URLSearchParams({ source });
+  if (since) qs.set("since", since);
+  const r = await fetch(`${BASE}/scoreboard/daily?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`scoreboard/daily ${r.status}`);
   return r.json();
 }
