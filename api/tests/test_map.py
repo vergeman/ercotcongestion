@@ -208,6 +208,99 @@ def test_overview_truncates_to_k_nodes(client, fake_pool, configured_run, monkey
     assert [n["settlement_point"] for n in body["constraints"][0]["nodes"]] == ["N0", "N1"]
 
 
+# ---- /map/constraints/ranked ---------------------------------------------
+
+def _ranked_blob():
+    """A two-constraint SF+E_mu artifact for the ranked-endpoint unit tests.
+
+    AAA outranks BBB: AAA has heavier E_mu (mass 20 vs 2) and wider reach
+    (Σ|SF| 1.41 vs 0.70) → contribution 28.2 vs 1.40. AAA's dipole is N1 sink
+    (+0.8) vs N2 source (−0.6); N3 (+0.01) sits below the 0.05·peak floor.
+    """
+    import pandas as pd
+    from compute.sf.project import build_sf_mu_artifact
+
+    SF = pd.DataFrame(
+        {"N1": [0.8, 0.2], "N2": [-0.6, 0.0], "N3": [0.01, 0.5]},
+        index=["AAA|BASE", "BBB|LINE"],
+    )
+    hours = pd.to_datetime(["2026-07-01T06:00Z", "2026-07-01T07:00Z"], utc=True)
+    E_mu = pd.DataFrame(
+        {"AAA|BASE": [10.0, 10.0], "BBB|LINE": [1.0, 1.0]}, index=hours
+    )
+    return build_sf_mu_artifact(SF, E_mu)
+
+
+def test_ranked_predicted_orders_and_dipole(client, fake_pool, configured_run,
+                                            monkeypatch):
+    monkeypatch.setattr(map_module, "_SP_COORDS",
+                        {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
+                         "N3": (30.0, -99.0)})
+    fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
+    fake_pool.cursor.queue([{"ws": WS}])                    # _resolve (geo run)
+    fake_pool.cursor.queue([                                 # constraint_geo join
+        {"constraint_key": "AAA|BASE", "ctype": "gtc",
+         "core_lat": 30.5, "core_lon": -97.0},
+    ])
+
+    r = client.get("/map/constraints/ranked",
+                   params={"run_id": "fc-v1", "day": "2026-07-01"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["run_id"] == "fc-v1" and body["delivery_date"] == "2026-07-01"
+    assert body["basis"] == "predicted" and body["n_ranked"] == 2
+
+    cs = body["constraints"]
+    assert [c["constraint_id"] for c in cs] == ["AAA|BASE", "BBB|LINE"]
+    aaa = cs[0]
+    assert aaa["rank"] == 1
+    assert aaa["mu_mass"] == pytest.approx(20.0)
+    assert aaa["reach"] == pytest.approx(1.41, abs=1e-4)
+    assert aaa["congestion_contribution"] == pytest.approx(28.2, abs=1e-3)
+    # N3 (+0.01 < 0.05*0.8) is below the floor → 2 members, not 3
+    assert aaa["n_members"] == 2
+    assert aaa["ctype"] == "gtc" and aaa["core_lat"] == 30.5
+    # dipole: sink is the +SF end (N1), source the −SF end (N2)
+    assert aaa["sink_lobe"]["peak_sf"] == pytest.approx(0.8)
+    assert aaa["sink_lobe"]["lat"] == pytest.approx(29.7)
+    assert aaa["source_lobe"]["peak_sf"] == pytest.approx(-0.6)
+    assert aaa["source_lobe"]["lat"] == pytest.approx(32.6)
+    # BBB unmatched in constraint_geo → null type, still ranked
+    assert cs[1]["ctype"] is None
+
+
+def test_ranked_realized_swaps_mu_series(client, fake_pool, configured_run,
+                                         monkeypatch):
+    """Realized basis keeps the SF structure but reweights by DAM shadow-price
+    mass — enough to flip the order relative to predicted."""
+    monkeypatch.setattr(map_module, "_SP_COORDS", {"N1": (29.7, -95.3)})
+    fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
+    fake_pool.cursor.queue([                                 # realized mu mass
+        {"key": "AAA|BASE", "mass": 1.0},
+        {"key": "BBB|LINE", "mass": 100.0},
+    ])
+    fake_pool.cursor.queue([{"ws": WS}])                    # _resolve (geo run)
+    fake_pool.cursor.queue([])                               # constraint_geo (none)
+
+    r = client.get("/map/constraints/ranked",
+                   params={"run_id": "fc-v1", "day": "2026-07-01",
+                           "basis": "realized"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["basis"] == "realized"
+    cs = body["constraints"]
+    # BBB now leads: 100*0.70 = 70 > AAA 1*1.41 = 1.41
+    assert [c["constraint_id"] for c in cs] == ["BBB|LINE", "AAA|BASE"]
+    assert cs[0]["mu_mass"] == pytest.approx(100.0)
+
+
+def test_ranked_503_when_no_artifact(client, fake_pool, configured_run):
+    fake_pool.cursor.queue([])  # artifact fetch → None
+    r = client.get("/map/constraints/ranked",
+                   params={"run_id": "fc-v1", "day": "2026-07-01"})
+    assert r.status_code == 503
+
+
 # ---- Integration: transpose + real run resolution ------------------------
 
 @pytest.mark.integration

@@ -260,6 +260,72 @@ class MapOverview(BaseModel):
     constraints: list[OverviewConstraint]
 
 
+# ---- /map/constraints/ranked ---------------------------------------------
+#
+# The per-day ranked constraint list (plan/0103) — "which constraints drive
+# today's congestion", the list-shaped companion to the /map/overview marker
+# pile the panel cannot express. Ranked by a day-total congestion contribution
+# ``mu_mass · reach``, the day-aggregate of the ``−E_mu·SF`` decomposition
+# node_drivers already uses: ``mu_mass = Σ_ts |μ[ts,c]|`` (the constraint's total
+# shadow-price mass over the delivery day) times ``reach = Σ_sp |SF[c,sp]|`` (how
+# far that price propagates into nodal congestion). Two bases share one SF
+# structure, differing only in the μ series: ``predicted`` reads the day's fitted
+# E_mu from ``forecast_sf_artifact``; ``realized`` swaps in that day's published
+# DAM shadow prices (``ercot_dam_shadow_prices``, joined on the same
+# ``constraint_name|contingency_name`` key the SF panel is built from).
+
+
+class ConstraintLobe(BaseModel):
+    """One end of a constraint's congestion dipole — its source (import, SF<0) or
+    sink (export, SF>0) lobe. ``lat``/``lon`` are the |SF|-weighted centroid of the
+    lobe's nodes; ``peak_sf`` is the signed strongest node on that side; ``n_nodes``
+    counts the located nodes above the floor. All null/zero for a one-sided or
+    unlocated constraint (a lobe with no nodes)."""
+    lat: float | None = None
+    lon: float | None = None
+    peak_sf: float | None = None
+    n_nodes: int = 0
+
+
+class RankedConstraint(BaseModel):
+    """One constraint in the per-day ranking (a /map/constraints/ranked row).
+
+    ``congestion_contribution = mu_mass · reach`` is the sort key (descending);
+    ``rank`` is its 1-based position. ``source_lobe``/``sink_lobe`` carry the
+    congestion dipole (import vs export ends); ``n_members`` is the located node
+    count above the floor. ``ctype``/``core_lat``/``core_lon`` mirror the
+    /map/overview marker (same ``constraint_id`` key), so a panel row highlights
+    the same overlay mark. ``mu_mass``/``reach`` are exposed so the contribution
+    is legible, not a black-box score."""
+    constraint_id: str
+    rank: int
+    congestion_contribution: float
+    mu_mass: float
+    reach: float
+    n_members: int
+    ctype: str | None = None
+    core_lat: float | None = None
+    core_lon: float | None = None
+    source_lobe: ConstraintLobe
+    sink_lobe: ConstraintLobe
+
+
+class RankedConstraints(BaseModel):
+    """The per-day ranked constraint list for one forecast run and basis.
+
+    ``run_id`` is the forecast model version whose SF+μ artifact backs the ranking;
+    ``delivery_date`` is the ranked day; ``basis`` echoes the request
+    (``predicted`` | ``realized``). ``n_ranked`` is how many constraints carried a
+    non-zero contribution (the pool the top-``k`` is drawn from); ``constraints`` is
+    the top-``k`` ordered by contribution."""
+    run_id: str
+    delivery_date: date
+    basis: str
+    k: int
+    n_ranked: int
+    constraints: list[RankedConstraint]
+
+
 # ---- /scoreboard/headline ------------------------------------------------
 #
 # The backtest scoreboard's rolling headline (plan/0102 §0001, spec-phase3
