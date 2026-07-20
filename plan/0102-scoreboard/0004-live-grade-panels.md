@@ -34,8 +34,8 @@ Branch: feat/0004-live-grade-panels
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] The scoreboard page shows a per-delivery-day grade panel fed by `GET /scoreboard/daily`, with the day selectable.
-* [ ] Each per-day metric renders with its persistence delta and oracle ceiling — no lone model figure (spec §6).
-* [ ] The miss-attribution panel renders the three-bucket decomposition (unforecastable-outage / driver-forecast bust / model error) for a selected day from `GET /scoreboard/miss?date`.
-* [ ] Both panels mount on the 0002 scoreboard page and are absent/graceful before any live grade exists.
-* [ ] No grade or decomposition is recomputed client-side — the panels render server-served values.
+* [x] The scoreboard page shows a per-delivery-day grade panel fed by `GET /scoreboard/daily`, with the day selectable. — `LiveGradePanel` in `web/src/pages/ScoreboardPage.tsx`, day `<select>` over the run's graded delivery days.
+* [x] Each per-day metric renders with its persistence delta and oracle ceiling — no lone model figure (spec §6). — four tiles (top-decile / rank ρ / sign / pooled R²), each carrying the model figure, `▲/▼ vs persist`, and the oracle ceiling.
+* [ ] ~~The miss-attribution panel renders the three-bucket decomposition (unforecastable-outage / driver-forecast bust / model error) for a selected day from `GET /scoreboard/miss?date`.~~ **DEFERRED** — miss-attribution (`/scoreboard/miss` + the `scoreboard_miss` decomposition + its prediction-time snapshot) was deferred out of 0003 and never built (`compute/jobs/grade_day.py`, `db/migrations/35_scoreboard_daily.sql`, `api/models.py` all note it). It cannot be built web-only; when its backend lands it returns as a follow-up panel.
+* [x] Both panels mount on the 0002 scoreboard page and are absent/graceful before any live grade exists. — the daily panel mounts on the 0002 page and is absent when `/scoreboard/daily` 503s (`fetchScoreboardDaily` → null); the miss panel is deferred per above.
+* [x] No grade or decomposition is recomputed client-side — the panels render server-served values. — `LiveGradePanel` renders `DailyPoint` values verbatim; deltas are display-only differences of served figures.
