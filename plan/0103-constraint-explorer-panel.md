@@ -38,9 +38,18 @@ Branch: feat/0103-constraint-explorer-panel
 
 <!-- How to verify it's done. Testable, binary conditions. -->
 
-* [ ] `GET /map/constraints/ranked` returns per-constraint rows ordered by congestion contribution for the given day, with source/sink lobes and member count.
-* [ ] Default ranking is predicted contribution; the `realized` toggle reorders to that day's actual congestion.
-* [ ] The `Constraints` tab lists the ranked top-K; expanding a row shows full membership; a row drills to its nodes via `/map/reach`.
-* [ ] Hovering a row highlights the constraint on the map overlay and hovering the overlay highlights the row (synced both ways).
-* [ ] The panel is a keyboard-navigable list/table serving as the a11y fallback for the overview.
-* [ ] The panel shares one side-panel region with the 0099 `Stats` tab — no second panel region.
+* [x] `GET /map/constraints/ranked` returns per-constraint rows ordered by congestion contribution for the given day, with source/sink lobes and member count.
+* [x] Default ranking is predicted contribution; the `realized` toggle reorders to that day's actual congestion.
+* [x] The `Constraints` tab lists the ranked top-K; expanding a row shows full membership; a row drills to its nodes via `/map/reach`.
+* [x] Hovering a row highlights the constraint on the map overlay and hovering the overlay highlights the row (synced both ways).
+* [x] The panel is a keyboard-navigable list/table serving as the a11y fallback for the overview.
+* [x] The panel shares one side-panel region with the 0102 `Stats` tab — no second panel region.
+
+## Built (2026-07-20)
+
+<!-- Post-build deltas from the spec above. -->
+
+* Shipped in 4 pause-per-group commits: (1) backend endpoint + schema + tests, (2) client api+types, (3) `ConstraintPanel` + `SidePanel` tabs + `App` wiring, (4) synced hover.
+* Synced hover lifts isolation to `App` (`hoveredConstraintId`), threaded `App→GridMap→OverviewOverlay` (`externalIso`/`onIsoChange`) and `App→SidePanel→ConstraintPanel` (`highlightedId`/`onHover`). Interaction (per user): **hover** a row (or overview mark) → isolate that constraint on the MAP (hide every other mark) and recolor the SP layer to its reach — constituent nodes glow signed src/sink (blue/red), every other node fades to the no-data fill, and the forecast-error palette is hidden. The panel list stays intact so you can scroll freely. **Click** → locks the focus (survives mouse-out) so the user can pan/zoom into it, and expands the row's members in-panel. A map-background click or a fresh hover resets. Implemented as a `focusReach` state distinct from the node-explorer `reach` (so a hover doesn't open the DetailCard), reusing GridMap's reach SP-coloring; reach cached per constraint. Symmetric both ways. Panel day follows the cursor's CT date.
+* UI feedback fixes: aligned column header + plain-language caption; the source/sink lobes render as one compact bicolor dipole gauge (blue source / red sink), not text pills; `/map/reach` (member lookup) cached client-side.
+* `forecast_sf_artifact` gap: the daily forecast job writes it per served day (covered going forward), but the ~314 bulk-seeded history days lack it, so the panel 503s (empty state) when scrubbing into that past. **Decision: leave the gap** — `2026-06-30` backfilled manually for review.
