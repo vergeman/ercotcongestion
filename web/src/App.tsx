@@ -27,8 +27,8 @@ import {
 import {
   computeLmpStats,
   computeModeledCongestionStats,
-  basisColor,
-  BASIS_GRADIENT_CSS,
+  forecastErrorColor,
+  FORECAST_ERROR_GRADIENT_CSS,
   type LmpStats,
   type ModeledCongestionStats,
 } from "./lib/colors";
@@ -49,23 +49,23 @@ interface HoveredSp {
   props: Record<string, unknown>;
   // Which pane the node was touched on, so its card renders in that pane and
   // (in dual) whether it shows SF drivers. The decomposition itself is
-  // side-independent — every card shows predicted / market / basis.
+  // side-independent — every card shows forecast / realized / error.
   side: "prediction" | "actual";
   spState: {
     predicted: number | null;
     market: number | null;
-    basis: number | null;
+    error: number | null;
     marketSpp: number | null;
   } | null;
 }
 
 export default function App() {
   const [topology, setTopology] = useState<unknown | null>(null);
-  // Two orthogonal axes. `viewMode` picks the layout: `basis` (default landing)
-  // is a single map of predicted − market congestion; `dual` is the prediction |
-  // ERCOT compare. `palette` picks the ERCOT quantity the dual panes color by;
-  // basis is congestion-based regardless of palette.
-  const [viewMode, setViewMode] = useState<ViewMode>("basis");
+  // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
+  // landing) is a single map of P50 forecast − realized congestion; `dual` is the
+  // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
+  // color by; forecast error is congestion-based regardless of palette.
+  const [viewMode, setViewMode] = useState<ViewMode>("forecastError");
   const [palette, setPalette] = useState<Palette>("congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -107,10 +107,11 @@ export default function App() {
     useState<ModeledCongestionStats | null>(null);
   const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
   const [forecastRunId, setForecastRunId] = useState<string | null>(null);
-  // Basis (predicted − market congestion) window-wide stats, for the diverging
-  // palette centered at 0 in the basis view. Computed once per window load from
-  // the forecast and realized caches; the per-hour basis rows are derived below.
-  const [basisStats, setBasisStats] =
+  // Forecast-error (P50 forecast − realized congestion) window-wide stats, for the
+  // diverging palette centered at 0 in the forecast-error view. Computed once per
+  // window load from the forecast and realized caches; the per-hour error rows are
+  // derived below.
+  const [errorStats, setErrorStats] =
     useState<ModeledCongestionStats | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
@@ -257,18 +258,18 @@ export default function App() {
     );
   }, [currentIndex, timestamps]);
 
-  // Basis rows for the current hour: predicted − market congestion per SP,
-  // derived client-side from the two series already in state (no new API). An
-  // SP without both a forecast and a realized value rides through with a null
-  // basis. Empty when no forecast covers the hour (basis needs a prediction).
-  const basisRows = useMemo<SpRow[]>(() => {
+  // Forecast-error rows for the current hour: P50 forecast − realized congestion
+  // per SP, derived client-side from the two series already in state (no new API).
+  // An SP without both a forecast and a realized value rides through with a null
+  // error. Empty when no forecast covers the hour (the error needs a prediction).
+  const errorRows = useMemo<SpRow[]>(() => {
     if (!forecastRows.length) return [];
     const marketById = new Map(spRows.map((r) => [r.sp_id, r.congestion]));
     return forecastRows.map((f) => {
       const m = marketById.get(f.sp_id);
-      const basis =
+      const error =
         f.congestion != null && m != null ? f.congestion - m : null;
-      return { sp_id: f.sp_id, congestion: basis, spp: null };
+      return { sp_id: f.sp_id, congestion: error, spp: null };
     });
   }, [forecastRows, spRows]);
 
@@ -290,10 +291,10 @@ export default function App() {
           // no realized rows.
           const allFcCong: Array<number | null> = [];
           const allFcLmp: Array<number | null> = [];
-          // Basis side: predicted − market congestion per (SP, hour) where both
-          // are present, so the diverging basis palette is anchored to the basis
-          // magnitude range (not the market's).
-          const allBasis: Array<number | null> = [];
+          // Forecast-error side: P50 forecast − realized congestion per (SP, hour)
+          // where both are present, so the diverging error palette is anchored to
+          // the error magnitude range (not the market's).
+          const allError: Array<number | null> = [];
           for (const t of ts) {
             const c = getErcotCached(t);
             if (c) for (const s of c.sps) allCong.push(s.congestion);
@@ -315,7 +316,7 @@ export default function App() {
               );
               for (const sp of f.sps) {
                 const m = marketById.get(sp.sp_id);
-                if (sp.p50 != null && m != null) allBasis.push(sp.p50 - m);
+                if (sp.p50 != null && m != null) allError.push(sp.p50 - m);
               }
             }
           }
@@ -329,8 +330,8 @@ export default function App() {
           setForecastLmpStats(
             allFcLmp.length ? computeLmpStats(allFcLmp) : null
           );
-          setBasisStats(
-            allBasis.length ? computeModeledCongestionStats(allBasis) : null
+          setErrorStats(
+            allError.length ? computeModeledCongestionStats(allError) : null
           );
           setForecastRunId(getForecastRunId());
 
@@ -414,19 +415,19 @@ export default function App() {
     handleLoadWindow(undefined, undefined, new Date());
   }, [handleLoadWindow]);
 
-  // The full predicted / market / basis decomposition for one SP — carried by
-  // every card in every view, so basis-default never hides raw magnitude.
+  // The full forecast / realized / error decomposition for one SP — carried by
+  // every card in every view, so the error-default never hides raw magnitude.
   // Side-independent: predicted from the forecast rows, market from the realized
-  // rows, basis = predicted − market when both exist.
+  // rows, error = predicted − market when both exist.
   const spDecomp = useCallback(
     (spId: string) => {
       const f = forecastRows.find((r) => r.sp_id === spId);
       const m = spRows.find((r) => r.sp_id === spId);
       const predicted = f?.congestion ?? null;
       const market = m?.congestion ?? null;
-      const basis =
+      const error =
         predicted != null && market != null ? predicted - market : null;
-      return { predicted, market, basis, marketSpp: m?.spp ?? null };
+      return { predicted, market, error, marketSpp: m?.spp ?? null };
     },
     [forecastRows, spRows]
   );
@@ -542,12 +543,13 @@ export default function App() {
     handleCloseReach();
   }, [handleClearPinnedSp, handleCloseReach]);
 
-  // Switch the view axis, applying that view's SF-overlay default: on in basis
-  // (the overlay is the basis mechanism), off in dual (a per-pane explainer).
-  // The manual overlay toggle then persists until the next view switch.
+  // Switch the view axis, applying that view's SF-overlay default: on in the
+  // forecast-error view (the overlay is that view's mechanism), off in dual (a
+  // per-pane explainer). The manual overlay toggle then persists until the next
+  // view switch.
   const handleViewMode = useCallback((v: ViewMode) => {
     setViewMode(v);
-    setShowConstraints(v === "basis");
+    setShowConstraints(v === "forecastError");
   }, []);
 
   // Which constraint centroids glow on the overlay: the pinned node's drivers,
@@ -567,7 +569,7 @@ export default function App() {
     if (
       fresh.predicted !== cur?.predicted ||
       fresh.market !== cur?.market ||
-      fresh.basis !== cur?.basis ||
+      fresh.error !== cur?.error ||
       fresh.marketSpp !== cur?.marketSpp
     ) {
       setPinnedSp({ ...pinnedSp, spState: fresh });
@@ -692,23 +694,24 @@ export default function App() {
     </>
   );
 
-  // Basis view: a single full-width map colored by predicted − market congestion
-  // on the diverging palette (forced congestion, its own basis-anchored stats),
-  // SF overlay on. Interactions route through the prediction handlers so the card
-  // carries the decomposition + SF drivers, same as the dual left pane.
-  const basisLit = basisRows.filter((r) => r.congestion != null).length;
-  const basisLabel =
+  // Forecast-error view: a single full-width map colored by P50 forecast −
+  // realized congestion on the diverging palette (forced congestion, its own
+  // error-anchored stats), SF overlay on. Interactions route through the
+  // prediction handlers so the card carries the decomposition + SF drivers, same
+  // as the dual left pane.
+  const errorLit = errorRows.filter((r) => r.congestion != null).length;
+  const errorLabel =
     hasForecast && forecastRunId
-      ? `BASIS · forecast ${forecastRunId} − ERCOT`
-      : "BASIS · no forecast this window";
-  const basisPane = (
+      ? `CONGESTION FORECAST ERROR · forecast ${forecastRunId} − ERCOT`
+      : "CONGESTION FORECAST ERROR · no forecast this window";
+  const errorPane = (
     <>
       <GridMap
         points={spPoints}
-        rows={basisRows}
+        rows={errorRows}
         palette="congestion"
         lmpStats={null}
-        mcStats={basisStats}
+        mcStats={errorStats}
         onMapClick={handleMapBackgroundClick}
         selectedSpId={pinnedSp?.spId ?? null}
         side="prediction"
@@ -721,23 +724,23 @@ export default function App() {
         onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
-        congestionColor={basisColor}
+        congestionColor={forecastErrorColor}
       />
-      <div className="pane-badge">{badgeFor(basisLabel, basisLit)}</div>
+      <div className="pane-badge">{badgeFor(errorLabel, errorLit)}</div>
       <Legend
         palette="congestion"
-        rows={basisRows}
+        rows={errorRows}
         lmpStats={null}
-        mcStats={basisStats}
+        mcStats={errorStats}
         variant="full"
-        titleOverride="Basis · predicted − market ($/MWh)"
-        signLabels={{ neg: "pred < market", pos: "pred > market" }}
-        barGradientOverride={BASIS_GRADIENT_CSS}
-        paneLabel={basisLabel}
+        titleOverride="Congestion Forecast Error · P50 forecast − realized ($/MWh)"
+        signLabels={{ neg: "under-forecast", pos: "over-forecast" }}
+        barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
+        paneLabel={errorLabel}
         constraintOverlay={showConstraints && !!constraints?.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
-      {/* Basis card: the node's predicted / market / basis + its SF drivers. */}
+      {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
       <DetailCard
         hoveredSp={hoveredSp?.side === "prediction" ? hoveredSp : null}
         pinnedSp={pinnedSp?.side === "prediction" ? pinnedSp : null}
@@ -776,16 +779,16 @@ export default function App() {
           position: "relative",
         }}
       >
-        {/* Basis = single map of predicted − market (default landing). Dual =
-            prediction | ERCOT split, both under the active palette. */}
+        {/* Forecast error = single map of P50 forecast − realized (default
+            landing). Dual = prediction | ERCOT split, both under the active palette. */}
         <div style={{ flex: 1, position: "relative" }}>
-          {viewMode === "basis" ? (
-            <div className="basis-single">{basisPane}</div>
+          {viewMode === "forecastError" ? (
+            <div className="forecast-error-single">{errorPane}</div>
           ) : (
             <CompareMap main={leftPane} right={rightPane} />
           )}
           <style>{`
-            .basis-single {
+            .forecast-error-single {
               width: 100%;
               height: 100%;
               position: relative;
