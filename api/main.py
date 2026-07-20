@@ -38,7 +38,7 @@ app.add_middleware(
 # Routers mounted at root. URLs:
 #   /topology  /ercot_state_range  /ercot_spp_range  /forecast_range
 #   /map/meta  /map/constraints  /map/exposures  /map/reach
-#   /scoreboard/headline
+#   /scoreboard/headline  /scoreboard/weekly  /scoreboard/daily
 app.include_router(topology.router,    tags=['topology'])
 app.include_router(ercot_state.router, tags=['ercot_state'])
 app.include_router(ercot_spp.router,   tags=['ercot_spp'])

@@ -28,8 +28,10 @@ from psycopg.rows import dict_row
 
 from db import get_pool
 from models import (
+    DailyPoint,
     HeadlineCurrency,
     HeadlineWindow,
+    ScoreboardDaily,
     ScoreboardHeadline,
     ScoreboardWeekly,
     SourcePooled,
@@ -323,4 +325,90 @@ def get_scoreboard_weekly(
         rtc_b_cutover=RTC_B_CUTOVER,
         points=points,
         splits=_build_splits(rows),
+    )
+
+
+# --------------------------------------------------------------------------
+# /scoreboard/daily — the LIVE per-delivery-day board (0003-live-grading)
+# --------------------------------------------------------------------------
+
+def _resolve_daily_run_id(cur, run_id: str | None) -> str:
+    """An explicit ?run_id= wins; otherwise the run with the most recent graded
+    day. Raises 503 when scoreboard_daily is empty (no live grade has run yet),
+    matching the realized ranges' soft-fail contract — the client renders the
+    backtest board / realized pane alone rather than erroring."""
+    if run_id is not None:
+        return run_id
+    cur.execute(
+        "SELECT run_id FROM scoreboard_daily ORDER BY delivery_date DESC, run_id "
+        "LIMIT 1"
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=503,
+            detail="no live grades yet (scoreboard_daily is empty).",
+        )
+    return row["run_id"]
+
+
+@router.get(
+    "/scoreboard/daily",
+    response_model=ScoreboardDaily,
+    summary="Live per-delivery-day grades of the served forecast — model with its "
+    "baselines + oracle (and the null tripwire), since a date",
+)
+def get_scoreboard_daily(
+    since: date | None = Query(
+        None,
+        description="Earliest delivery_date to serve (inclusive). Omit for the "
+        "run's full live history.",
+    ),
+    source: str = Query(
+        "model",
+        description="The series the page foregrounds. Comparators (persistence / "
+        "climatology / oracle / null) ride along regardless — never a lone model "
+        "figure.",
+    ),
+    run_id: str | None = Query(
+        None,
+        description="Model version to serve. Omit for the run with the most recent "
+        "graded day.",
+    ),
+) -> ScoreboardDaily:
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            run_id = _resolve_daily_run_id(cur, run_id)
+            # Every source for the run — the page draws model + baselines + oracle +
+            # the null tripwire; a lone model figure can't be rendered (spec §6).
+            sql = (
+                "SELECT delivery_date, source, pooled_r2, mae, rank_spearman, "
+                "sign_agree, topdecile_hit, coverage80, band_width, pinball, "
+                "sf_coverage, model_coverage, n_hours, n_nodes "
+                "FROM scoreboard_daily WHERE run_id = %s"
+            )
+            params: list[object] = [run_id]
+            if since is not None:
+                sql += " AND delivery_date >= %s"
+                params.append(since)
+            sql += " ORDER BY delivery_date, source"
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+
+    if not rows:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"no scoreboard_daily rows for run_id={run_id}"
+                + (f" since {since}" if since else "")
+                + ". Grade a served day first (compute.jobs.grade_day)."
+            ),
+        )
+
+    return ScoreboardDaily(
+        run_id=run_id,
+        since=since,
+        primary_source=source,
+        points=[DailyPoint(**r) for r in rows],
     )
