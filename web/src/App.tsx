@@ -31,7 +31,7 @@ import {
   computeLmpStats,
   computeModeledCongestionStats,
   forecastErrorColor,
-  FORECAST_ERROR_GRADIENT_CSS,
+  forecastErrorGradientCss,
   type LmpStats,
   type ModeledCongestionStats,
 } from "./lib/colors";
@@ -47,6 +47,7 @@ import SidePanel, {
   type NetworkStats,
 } from "./components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
+import { useTheme } from "./lib/theme";
 
 type ConnectionState = "ok" | "error" | "loading";
 
@@ -66,6 +67,9 @@ interface HoveredSp {
 }
 
 export default function App() {
+  // Re-render on theme flip so the forecast-error legend gradient (built from the
+  // theme-aware palette) stays in sync with the map fills.
+  useTheme();
   const [topology, setTopology] = useState<unknown | null>(null);
   // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
   // landing) is a single map of P50 forecast − realized congestion; `dual` is the
@@ -698,6 +702,39 @@ export default function App() {
     setFocusReach(null);
   }, []);
 
+  // Card driver-row click: load the constraint's member list into the card AND
+  // lock the map isolation, so the isolated view the user saw on hover persists
+  // after the pointer leaves the row — until a background click or another
+  // selection. Mirrors the constraint-panel's click-locks-hover contract, plus
+  // the card's reach body.
+  const handleConstraintSelectFromCard = useCallback(
+    (key: string) => {
+      handleConstraintClick(key);
+      handleConstraintLock(key);
+    },
+    [handleConstraintClick, handleConstraintLock]
+  );
+
+  // Card member-row click: open that node's card (pinning + highlighting it) and
+  // drop the locked constraint isolation, so the click moves the locked focus
+  // from the constraint to the node. The SP lookup mirrors a map marker click so
+  // the card body (sp_type / load_zone) populates the same way.
+  const handleMemberSelect = useCallback(
+    (sp: string) => {
+      setHoveredMemberSp(null);
+      clearFocus();
+      const feat = spPoints?.features.find(
+        (f) => (f.properties?.sp_id as string | undefined) === sp
+      );
+      const props = (feat?.properties ?? { sp_id: sp }) as Record<
+        string,
+        unknown
+      >;
+      handleSpClickPrediction(sp, props);
+    },
+    [spPoints, handleSpClickPrediction, clearFocus]
+  );
+
   // Background (empty-map) click clears whichever mode is active.
   const handleMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp();
@@ -831,8 +868,6 @@ export default function App() {
         rows={leftRows}
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
-        variant="palette-only"
-        paneLabel={predictionLabel}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
@@ -845,7 +880,10 @@ export default function App() {
         reach={reach}
         onClose={handleClearPinnedSp}
         onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintClick}
+        onSelectConstraint={handleConstraintSelectFromCard}
+        onHoverConstraint={handleConstraintHover}
+        onHoverMember={setHoveredMemberSp}
+        onSelectMember={handleMemberSelect}
       />
     </>
   );
@@ -872,8 +910,6 @@ export default function App() {
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
-        variant="full"
-        paneLabel="ERCOT: Day Ahead Market (DAM)"
       />
       {/* Actual card: the node's realized readout only — no SF drivers (those
           are a prediction-side concern). */}
@@ -933,11 +969,9 @@ export default function App() {
         rows={errorRows}
         lmpStats={null}
         mcStats={errorStats}
-        variant="full"
-        titleOverride="Congestion Forecast Error · P50 forecast − realized ($/MWh)"
-        signLabels={{ neg: "Under-forecast", pos: "Over-forecast" }}
-        barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
-        paneLabel={errorLabel}
+        titleOverride="Congestion Forecast Error · Forecast − Realized ($/MWh)"
+        signLabels={{ neg: "Under", pos: "Over" }}
+        barGradientOverride={forecastErrorGradientCss()}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
@@ -950,7 +984,10 @@ export default function App() {
         reach={reach}
         onClose={handleClearPinnedSp}
         onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintClick}
+        onSelectConstraint={handleConstraintSelectFromCard}
+        onHoverConstraint={handleConstraintHover}
+        onHoverMember={setHoveredMemberSp}
+        onSelectMember={handleMemberSelect}
       />
     </>
   );
@@ -1004,7 +1041,7 @@ export default function App() {
               border-radius: 4px;
               display: flex;
               flex-direction: column;
-              gap: 1px;
+              gap: 3px;
               /* Click-through except on the stat chips (which carry tooltips). */
               pointer-events: none;
             }
@@ -1017,7 +1054,7 @@ export default function App() {
             }
             .pane-badge__meta {
               display: flex;
-              gap: 10px;
+              gap: 18px;
               font-family: var(--font-label);
               font-weight: var(--fw-label);
               font-size: var(--fs-body);

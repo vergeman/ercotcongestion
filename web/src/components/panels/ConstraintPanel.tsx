@@ -172,7 +172,9 @@ export default function ConstraintPanel({
     <div className="cp">
       <div className="np-section__header cp-header">
         <span className="label">Constraints</span>
-        <div className="cp-basis-toggle" role="group" aria-label="ranking basis">
+        <div className="cp-header-actions">
+          {loading && <span className="cp-loading label">loading…</span>}
+          <div className="cp-basis-toggle" role="group" aria-label="ranking basis">
           {(["predicted", "realized"] as const).map((b) => (
             <button
               key={b}
@@ -188,6 +190,7 @@ export default function ConstraintPanel({
               {b === "predicted" ? "Predicted" : "Realized"}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -205,7 +208,6 @@ export default function ConstraintPanel({
         row to isolate it on the map; click to expand its source/sink members.
       </div>
 
-      {loading && <div className="cp-mem-msg">loading ranking…</div>}
       {!loading && !ranked && (
         <div className="cp-mem-msg">
           no ranking for this day{basis === "realized" ? " (DAM not published yet)" : ""}
@@ -272,6 +274,10 @@ export default function ConstraintPanel({
 
       <style>{`
         .cp-header { display: flex; justify-content: space-between; align-items: center; }
+        /* Loading sits inline, left of the toggle (which stays right-anchored), so
+           the ranking's arrival never drops the layout vertically. */
+        .cp-header-actions { display: flex; align-items: center; gap: 8px; }
+        .cp-loading { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
         .cp-basis-toggle { display: flex; gap: 4px; }
         .cp-basis-toggle button {
           padding: 2px 8px; font-size: 11px;

@@ -56,13 +56,10 @@ export default function PlaybackScrubber({
     };
   }, [playing, timestamps.length, onIndexChange]);
 
-  if (!timestamps.length)
-    return (
-      <div className="scrubber scrubber--empty">
-        {leftSlot}
-        <span className="label">no data loaded</span>
-      </div>
-    );
+  // Render the full scrubber even before data lands — just unpopulated — so the
+  // first paint reserves its final height and the initial load never drops the
+  // page layout (the "—" timestamp + empty sparkline stand in until data arrives).
+  const hasData = timestamps.length > 0;
 
   return (
     <div className="scrubber">
@@ -75,6 +72,7 @@ export default function PlaybackScrubber({
 
           <button
             className={`playbtn${playing ? " active" : ""}`}
+            disabled={!hasData}
             onClick={() => {
               if (!playing && currentIndex >= timestamps.length - 1) {
                 onIndexChange(0); // rewind
@@ -124,8 +122,9 @@ export default function PlaybackScrubber({
           <input
             type="range"
             min={0}
-            max={timestamps.length - 1}
+            max={Math.max(0, timestamps.length - 1)}
             value={currentIndex}
+            disabled={!hasData}
             onChange={(e) => onIndexChange(Number(e.target.value))}
           />
           <div className="scrubber__range-labels">
@@ -153,10 +152,6 @@ export default function PlaybackScrubber({
           align-items: stretch;
           gap: 16px;
           flex-shrink: 0;
-        }
-        .scrubber--empty {
-          align-items: center;
-          gap: 12px;
         }
         /* Left column: Load Window (top) over the transport buttons (bottom). */
         .scrubber__left {
