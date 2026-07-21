@@ -181,9 +181,9 @@ export default function SidePanel({
 
           <div className="sc-table">
             <span className="sc-h sc-h--cat" />
-            <span className="sc-h">model</span>
-            <span className="sc-h">persist</span>
-            <span className="sc-h">ceiling</span>
+            <span className="sc-h">Model</span>
+            <span className="sc-h">Persist</span>
+            <span className="sc-h">Ceiling</span>
 
             {CURRENCY_ORDER.map((name) => {
               const cur = byCurrency.get(name);
@@ -240,9 +240,9 @@ export default function SidePanel({
           border-bottom: 2px solid transparent;
           color: var(--text-muted);
           font-family: var(--font-label);
-          font-size: 12px;
+          font-weight: var(--fw-label);
+          font-size: 13px;
           letter-spacing: var(--track-label);
-          text-transform: uppercase;
           cursor: pointer;
         }
         .sp-tab:hover { color: var(--text-secondary); }
@@ -263,7 +263,7 @@ export default function SidePanel({
           align-items: baseline;
           padding: 3px 0;
         }
-        .np-stat__val { font-size: 12px; color: var(--text-primary); }
+        .np-stat__val { font-size: 13px; color: var(--text-primary); }
 
         .sc-header {
           display: flex;
@@ -273,7 +273,7 @@ export default function SidePanel({
         .sc-window-toggle { display: flex; gap: 4px; }
         .sc-window-toggle button {
           padding: 2px 7px;
-          font-size: 10px;
+          font-size: 11px;
           font-family: var(--font-label);
           letter-spacing: var(--track-label);
         }
@@ -287,10 +287,10 @@ export default function SidePanel({
           align-items: baseline;
         }
         .sc-h {
-          font-size: 9px;
+          font-size: 10px;
           font-family: var(--font-label);
+          font-weight: var(--fw-label);
           letter-spacing: var(--track-label);
-          text-transform: uppercase;
           color: var(--text-muted);
           text-align: right;
         }
@@ -301,7 +301,7 @@ export default function SidePanel({
           justify-self: start;
         }
         .sc-v {
-          font-size: 13px;
+          font-size: 14px;
           text-align: right;
           color: var(--text-secondary);
           font-weight: 400;
@@ -313,7 +313,7 @@ export default function SidePanel({
         .sc-link {
           display: inline-block;
           margin-top: 12px;
-          font-size: 11px;
+          font-size: 12px;
           color: var(--accent);
           text-decoration: none;
           font-family: var(--font-label);

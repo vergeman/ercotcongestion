@@ -38,7 +38,7 @@ export default function Header({
         <span className="header__logo">⚡</span>
         <span className="header__title">ERCOT Stress</span>
         <span className="header__sub label">
-          settlement points · realized ERCOT
+          Settlement points · Realized ERCOT
         </span>
       </div>
 

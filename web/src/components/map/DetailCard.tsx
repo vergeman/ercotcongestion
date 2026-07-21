@@ -154,7 +154,7 @@ function ExposuresBody({
         sfStability={exposures.sf_stability}
       />
       <div className="dc-headline">
-        <span className="label">max exposure |SF|</span>
+        <span className="label">Max exposure |SF|</span>
         <span className="dc-headline-val mono">
           {exposures.node_max_abs_sf != null
             ? exposures.node_max_abs_sf.toFixed(3)
@@ -165,7 +165,7 @@ function ExposuresBody({
         top drivers · signed (read vs confidence)
       </div>
       {exposures.exposures.length === 0 && (
-        <div className="dc-drivers-empty label">no binding constraints</div>
+        <div className="dc-drivers-empty label">No binding constraints</div>
       )}
       <div className="dc-drivers">
         {exposures.exposures.map((e) => (
@@ -212,7 +212,7 @@ function ReachBody({
     <>
       <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
       <div className="dc-headline">
-        <span className="label">constraint |SF| max</span>
+        <span className="label">Constraint |SF| max</span>
         <span className="dc-headline-val mono">
           {reach.max_abs_sf != null ? reach.max_abs_sf.toFixed(3) : "—"}
           {clipped && <span className="dc-clip"> clipped ±1</span>}
@@ -339,7 +339,7 @@ export default function DetailCard({
           backdrop-filter: blur(6px);
           z-index: 10;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-          font-size: 12px;
+          font-size: 13px;
         }
         .detail-card--pinned {
           border-color: var(--accent);
@@ -361,11 +361,11 @@ export default function DetailCard({
         }
         .detail-card__kind {
           color: ${"var(--accent)"};
-          font-size: 9px;
+          font-size: 10px;
         }
         .detail-card__kind--constraint { color: #c4b5fd; }
         .detail-card__id {
-          font-size: 12px;
+          font-size: 13px;
           color: var(--text-primary);
           overflow: hidden;
           text-overflow: ellipsis;
@@ -375,7 +375,7 @@ export default function DetailCard({
           padding: 0;
           width: 20px;
           height: 20px;
-          font-size: 16px;
+          font-size: 18px;
           line-height: 1;
           background: transparent;
           border: 1px solid var(--border-bright);
@@ -404,11 +404,11 @@ export default function DetailCard({
           padding: 3px 0;
         }
         .dc-val {
-          font-size: 11px;
+          font-size: 12px;
           color: var(--text-primary);
         }
         .dc-conf {
-          font-size: 9px;
+          font-size: 10px;
           color: var(--text-secondary);
           opacity: 0.85;
           margin-bottom: 4px;
@@ -420,30 +420,30 @@ export default function DetailCard({
           padding: 2px 0 4px;
         }
         .dc-headline-val {
-          font-size: 15px;
+          font-size: 16px;
           color: var(--text-primary);
           font-weight: 600;
         }
         .dc-clip {
-          font-size: 9px;
+          font-size: 10px;
           color: #94a3b8;
           font-weight: 400;
           letter-spacing: 0.03em;
         }
         .dc-support {
-          font-size: 9px;
+          font-size: 10px;
           color: var(--text-secondary);
           margin: -2px 0 4px;
         }
         .dc-support--low { color: #94a3b8; }
         .dc-drivers-title {
-          font-size: 9px;
+          font-size: 10px;
           color: var(--text-secondary);
           opacity: 0.7;
           margin-bottom: 3px;
         }
         .dc-drivers-empty {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-muted);
           padding: 2px 0;
         }
@@ -477,18 +477,18 @@ export default function DetailCard({
           flex-shrink: 0;
         }
         .dc-driver-key {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-primary);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .dc-driver-sf {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-secondary);
         }
         .dc-driver-sup {
-          font-size: 9px;
+          font-size: 10px;
           color: var(--text-muted);
           min-width: 30px;
           text-align: right;

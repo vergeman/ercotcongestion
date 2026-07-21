@@ -767,8 +767,8 @@ export default function App() {
   // cursor hour's date), or the realized fallback.
   const predictionLabel =
     hasForecast && forecastRunId
-      ? `PREDICTION · forecast ${forecastRunId}`
-      : "PREDICTION · no forecast this window";
+      ? `Prediction · forecast ${forecastRunId}`
+      : "Prediction · no forecast this window";
 
   const leftPane = (
     <>
@@ -858,8 +858,8 @@ export default function App() {
   const errorLit = errorRows.filter((r) => r.congestion != null).length;
   const errorLabel =
     hasForecast && forecastRunId
-      ? `CONGESTION FORECAST ERROR · forecast ${forecastRunId} − ERCOT`
-      : "CONGESTION FORECAST ERROR · no forecast this window";
+      ? `Congestion forecast error · forecast ${forecastRunId} − ERCOT`
+      : "Congestion forecast error · no forecast this window";
   const errorPane = (
     <>
       <GridMap
@@ -959,9 +959,9 @@ export default function App() {
               border-radius: 3px;
               color: var(--text-secondary);
               font-family: var(--font-label);
+              font-weight: var(--fw-label);
               font-size: var(--fs-label);
               letter-spacing: var(--track-label);
-              text-transform: uppercase;
               pointer-events: none;
             }
           `}</style>

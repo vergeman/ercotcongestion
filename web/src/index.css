@@ -1,10 +1,9 @@
 /* Fonts live in ONE place. Working on the typeface = editing this @import plus
-   the three --font-* tokens below and the .label spec; nothing else in the app
-   names a font family. (The self-hosted Inter/JetBrains vendoring in fonts.css +
-   public/fonts/ is kept for the separate font work, but is intentionally NOT
-   imported here -- this commit is the light/dark theme + token refactor on the
-   original Barlow type.) */
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap');
+   the three --font-* tokens below, the two --track-* tokens, and the .label
+   spec; nothing else in the app names a font family or sets label tracking.
+   The faces are self-hosted (Inter + JetBrains Mono) from fonts.css +
+   public/fonts/ -- no network round-trip to Google. */
+@import './fonts.css';
 
 /* =============================================================================
    Design tokens
@@ -24,9 +23,9 @@
 
 :root {
   /* ---- type ------------------------------------------------------------- */
-  --font-sans: 'Barlow', system-ui, -apple-system, sans-serif;   /* body / values */
-  --font-label: 'Barlow Condensed', var(--font-sans);            /* all-caps labels */
-  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', monospace; /* numbers / ids */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;    /* body / values */
+  --font-label: 'Inter', var(--font-sans);                       /* all-caps labels */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace; /* numbers / ids */
   /* Kept for backwards compatibility with .mono and older component styles. */
   --text-mono: var(--font-mono);
 
@@ -35,23 +34,27 @@
      sizes; the Inter-era "+2px legibility bump" is intentionally NOT applied, so
      this reads exactly as the pre-branch app did. Absolute px, not rem: the app
      is a fixed-viewport console that never reflows to a document scale. */
-  --fs-micro: 9px;    /* tiniest eyebrow / table-head labels        */
-  --fs-label: 10px;   /* standard label, secondary meta, legend ticks */
-  --fs-body: 11px;    /* table rows, panel body                     */
-  --fs-md: 12px;      /* buttons, emphasized rows                   */
-  --fs-lg: 13px;      /* section headings                           */
-  --fs-xl: 16px;      /* header brand                               */
-  --fs-display: 26px; /* headline stat                              */
+  --fs-micro: 10px;   /* tiniest eyebrow / table-head labels        */
+  --fs-label: 11px;   /* standard label, secondary meta, legend ticks */
+  --fs-body: 12px;    /* table rows, panel body                     */
+  --fs-md: 13px;      /* buttons, emphasized rows                   */
+  --fs-lg: 14px;      /* section headings                           */
+  --fs-xl: 18px;      /* header brand                               */
+  --fs-display: 28px; /* headline stat                              */
 
-  /* Label tracking. Every uppercase label references one of these two tokens --
-     no component sets a raw em value -- so the whole app's caps retune from
-     here. Two tiers because small caps need more tracking than large caps to
-     read as chrome: --track-label for small eyebrow/table-head/tab labels,
-     --track-title for the larger brand and section titles. Both values are the
-     app's original Barlow Condensed tracking. Non-label text (values, sentences,
-     mixed-case chrome) carries no tracking. */
-  --track-label: 0.08em; /* small uppercase labels */
-  --track-title: 0.06em; /* brand / section titles  */
+  /* Label tracking. Two tiers, both referenced by token so the app retunes from
+     here. Regular labels (eyebrows, table heads, tabs, legend keys) are now
+     sentence case, not uppercase -- Inter's lowercase reads far better than its
+     caps at these sizes -- so --track-label carries NO tracking (letter-spacing
+     on lowercase text just loosens it into mush). Only the two uppercase HEADERS
+     (brand + page title) are tracked, via --track-title; caps need the air. */
+  --track-label: normal; /* sentence-case labels: no tracking */
+  --track-title: 0.04em; /* uppercase brand / page headers   */
+
+  /* Label weight. The label face is Inter (same family as the body), so a label
+     reads as chrome through weight + color rather than caps. 500 sits a step
+     above the 400 body without shouting; headers set their own heavier weight. */
+  --fw-label: 500;
 
   /* ---- backgrounds ------------------------------------------------------ */
   --bg-base: #0a0c0f;
@@ -111,7 +114,7 @@
   font-family: var(--font-sans);
   /* Inherited base for anything that does not set its own size. The app's
      original value; no rem units are used, so this only affects inheritance. */
-  font-size: 14px;
+  font-size: 15px;
   color-scheme: dark;
 }
 
@@ -266,28 +269,29 @@ input[type='range']::-webkit-slider-thumb {
    means every descendant inherits the dense values automatically -- including
    the shared .label class, which is what most of the legend is built from. */
 .dense-type {
-  --fs-micro: 9px;
-  --fs-label: 9px;
-  --fs-body: 11px;
-  --fs-md: 11px;
+  --fs-micro: 10px;
+  --fs-label: 10px;
+  --fs-body: 12px;
+  --fs-md: 12px;
 }
 
-/* THE label. One definition of what an uppercase eyebrow label looks like;
-   every label in the app is this class (or references --track-label), so the
+/* THE label. One definition of the small eyebrow / table-head / key label;
+   every label in the app is this class (or references its tokens), so the
    treatment can never drift between components again.
 
-   Hard rule: uppercase is a property of the LABEL, never of the content it sits
-   next to. Dynamic values -- run-ids, timestamps, prices -- and full sentences
-   are NEVER given this class; they stay as authored (identifiers in .mono). That
-   is what keeps "forecast mu_all_v1" from rendering as "FORECAST MU_ALL_V1".
-   Barlow Condensed (--font-label) is the label face -- its narrow caps read as
-   UI chrome and pack into tight boxes, which the wide body face cannot. */
+   Casing rule (Inter era): labels are SENTENCE CASE, not uppercase. Inter's
+   caps read as shouty and pack badly at 9-11px, so a label is set in natural
+   case and distinguished from body text by weight + the muted color -- NOT by
+   transforming the case. text-transform is left untouched, so the label shows
+   exactly the case it was authored in (write "Model", "Constraint", "Curated
+   events"); that also keeps symbols and units intact ("SPP - lambda", "P90"),
+   which text-transform: capitalize would corrupt. Full uppercase is reserved
+   for the two HEADERS (brand + page title), which opt in explicitly. */
 .label {
   font-family: var(--font-label);
-  font-weight: 500;
+  font-weight: var(--fw-label);
   font-size: var(--fs-label);
   letter-spacing: var(--track-label);
-  text-transform: uppercase;
   color: var(--text-secondary);
 }
 

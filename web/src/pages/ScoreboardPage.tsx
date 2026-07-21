@@ -25,10 +25,10 @@ import {
 // surface). CVD sits at the permitted first-four floor, so the required
 // secondary encoding ships too: a legend + direct end-labels on every line.
 const SERIES = [
-  { source: "model", label: "model", color: "#3987e5" },
-  { source: "persistence", label: "persistence", color: "#008300" },
-  { source: "climatology", label: "climatology", color: "#d55181" },
-  { source: "oracle", label: "oracle", color: "#c98500" },
+  { source: "model", label: "Model", color: "#3987e5" },
+  { source: "persistence", label: "Persistence", color: "#008300" },
+  { source: "climatology", label: "Climatology", color: "#d55181" },
+  { source: "oracle", label: "Oracle", color: "#c98500" },
 ] as const;
 
 type MetricKey =
@@ -253,14 +253,14 @@ function SeriesChart({
 
       {hover != null && (
         <div className="sb-tip" style={{ left: Math.min(x(hover) + 8, width - 132), top: M.t }}>
-          <div className="sb-tip__wk mono">{fmtWeek(weeks[hover])}</div>
+          <div className="sb-tip__wk">{fmtWeek(weeks[hover])}</div>
           {seriesVals.map((s) => {
             const v = s.vals[hover];
             return (
               <div key={s.source} className="sb-tip__row">
                 <span className="sb-tip__dot" style={{ background: s.color }} />
                 <span className="sb-tip__lbl">{s.label}</span>
-                <span className="sb-tip__val mono">{v == null ? "—" : meta.fmt(v)}</span>
+                <span className="sb-tip__val">{v == null ? "—" : meta.fmt(v)}</span>
               </div>
             );
           })}
@@ -347,14 +347,14 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           return (
             <div key={mk.name} className="sb-tile">
               <div className="label">{mk.label}</div>
-              <div className="sb-tile__model mono">{m == null ? "—" : m.toFixed(2)}</div>
+              <div className="sb-tile__model">{m == null ? "—" : m.toFixed(2)}</div>
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
                     {good ? "▲" : "▼"} vs persist {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
-                <span className="sb-ceiling mono">ceiling {o == null ? "—" : o.toFixed(2)}</span>
+                <span className="sb-ceiling">ceiling {o == null ? "—" : o.toFixed(2)}</span>
               </div>
             </div>
           );
@@ -383,12 +383,12 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
         return (
           <div key={t.name} className="sb-tile">
             <div className="label">{t.label}</div>
-            <div className="sb-tile__model mono">{c.model == null ? "—" : c.model.toFixed(2)}</div>
+            <div className="sb-tile__model">{c.model == null ? "—" : c.model.toFixed(2)}</div>
             <div className="sb-tile__cmp">
               {good != null && (
                 <span className="sb-delta" data-good={good}>{good ? "▲" : "▼"} vs persist {c.persistence == null ? "—" : c.persistence.toFixed(2)}</span>
               )}
-              <span className="sb-ceiling mono">ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}</span>
+              <span className="sb-ceiling">ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}</span>
             </div>
           </div>
         );
@@ -422,10 +422,10 @@ function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: Metr
           return (
             <div key={sp.label} className="sb-split-row" style={{ display: "contents" }}>
               <span className="sb-cat label">{SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w</span>
-              <span className="sb-v mono" data-lead={modelLeads}>{m == null ? "—" : meta.fmt(m)}</span>
-              <span className="sb-v mono" data-lead={persistLeads}>{p == null ? "—" : meta.fmt(p)}</span>
-              <span className="sb-v mono">{(() => { const v = val(sp.label, "climatology"); return v == null ? "—" : meta.fmt(v); })()}</span>
-              <span className="sb-v mono sb-v--ceiling">{(() => { const v = val(sp.label, "oracle"); return v == null ? "—" : meta.fmt(v); })()}</span>
+              <span className="sb-v" data-lead={modelLeads}>{m == null ? "—" : meta.fmt(m)}</span>
+              <span className="sb-v" data-lead={persistLeads}>{p == null ? "—" : meta.fmt(p)}</span>
+              <span className="sb-v">{(() => { const v = val(sp.label, "climatology"); return v == null ? "—" : meta.fmt(v); })()}</span>
+              <span className="sb-v sb-v--ceiling">{(() => { const v = val(sp.label, "oracle"); return v == null ? "—" : meta.fmt(v); })()}</span>
             </div>
           );
         })}
@@ -542,6 +542,9 @@ export default function ScoreboardPage() {
           background: var(--bg-base);
           color: var(--text-primary);
           padding: 0 0 40px;
+          /* One font on this page (Inter). Numbers used to be set in the mono
+             face; tabular-nums keeps them column-aligned without a 2nd family. */
+          font-variant-numeric: tabular-nums;
         }
         .sb-topbar {
           display: flex; align-items: center; gap: 14px;
@@ -551,17 +554,17 @@ export default function ScoreboardPage() {
           border-bottom: 1px solid var(--border);
           position: sticky; top: 0; z-index: 2;
         }
-        .sb-back { color: var(--accent); text-decoration: none; font-size: 13px; }
+        .sb-back { color: var(--accent); text-decoration: none; font-size: 14px; }
         .sb-back:hover { text-decoration: underline; }
         .sb-title {
-          font-family: var(--font-label); font-weight: 600;
-          letter-spacing: var(--track-title); text-transform: uppercase; font-size: 14px;
+          font-family: var(--font-label); font-weight: var(--fw-label);
+          letter-spacing: var(--track-title); text-transform: uppercase; font-size: 15px;
         }
         .sb-regime {
           margin-left: auto;
           background: var(--bg-surface); color: var(--text-primary);
           border: 1px solid var(--border); border-radius: 3px;
-          padding: 4px 8px; font-size: 12px; font-family: inherit;
+          padding: 4px 8px; font-size: 13px; font-family: inherit;
         }
         .sb-empty { padding: 40px 16px; text-align: center; }
 
@@ -577,8 +580,8 @@ export default function ScoreboardPage() {
           background: var(--bg-panel); border: 1px solid var(--border);
           border-radius: 4px; padding: 8px 12px;
         }
-        .sb-tile__model { font-size: 26px; font-weight: 700; line-height: 1.1; margin: 2px 0 4px; }
-        .sb-tile__cmp { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+        .sb-tile__model { font-size: 28px; font-weight: 700; line-height: 1.1; margin: 2px 0 4px; }
+        .sb-tile__cmp { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
         .sb-delta { font-weight: 600; }
         .sb-delta[data-good="true"] { color: var(--ok); }
         .sb-delta[data-good="false"] { color: var(--danger); }
@@ -587,21 +590,21 @@ export default function ScoreboardPage() {
 
         .sb-controls { display: flex; align-items: center; gap: 14px; padding: 10px 16px 6px; flex-wrap: wrap; }
         .sb-metric-group { display: flex; gap: 4px; }
-        .sb-metric-group button, .sb-group-toggle { font-size: 11px; padding: 4px 10px; }
+        .sb-metric-group button, .sb-group-toggle { font-size: 12px; padding: 4px 10px; }
         .sb-group-toggle { color: var(--text-secondary); }
 
         .sb-chart { padding: 0 16px; }
         .sb-chart svg { display: block; width: 100%; }
-        .sb-axis { fill: var(--text-muted); font-size: 9px; font-family: var(--text-mono); }
+        .sb-axis { fill: var(--text-muted); font-size: 10px; font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
         .sb-axis--mark { fill: var(--text-secondary); font-family: var(--font-label); letter-spacing: normal; }
-        .sb-endlabel { font-size: 10px; font-family: var(--font-label); font-weight: 600; }
+        .sb-endlabel { font-size: 11px; font-family: var(--font-label); font-weight: 600; }
 
         .sb-tip {
           position: absolute; pointer-events: none;
           background: rgba(15,18,23,0.94); border: 1px solid var(--border-bright);
-          border-radius: 3px; padding: 5px 8px; font-size: 11px; min-width: 116px;
+          border-radius: 3px; padding: 5px 8px; font-size: 12px; min-width: 116px;
         }
-        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 11px; }
+        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 12px; }
         .sb-tip__row { display: flex; align-items: center; gap: 5px; }
         .sb-tip__dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
         .sb-tip__lbl { color: var(--text-secondary); flex: 1; }
@@ -609,17 +612,17 @@ export default function ScoreboardPage() {
 
         .sb-cov { padding: 0 16px; margin-top: -4px; }
 
-        .sb-legend { display: flex; gap: 14px; padding: 8px 16px 4px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--text-secondary); }
+        .sb-legend { display: flex; gap: 14px; padding: 8px 16px 4px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
         .sb-legend__item { display: flex; align-items: center; gap: 5px; }
         .sb-legend__swatch { width: 12px; height: 3px; border-radius: 1px; display: inline-block; }
-        .sb-legend__note { color: var(--text-muted); font-size: 10px; }
+        .sb-legend__note { color: var(--text-muted); font-size: 11px; }
 
         .sb-section-h { padding: 14px 16px 6px; }
         .sb-splits { padding: 0 16px; overflow-x: auto; }
         .sb-split-grid { display: inline-grid; grid-template-columns: minmax(120px, 160px) repeat(4, 82px); column-gap: 18px; row-gap: 6px; align-items: baseline; padding-right: 24px; }
-        .sb-h { font-size: 9px; font-family: var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--text-muted); text-align: right; }
+        .sb-h { font-size: 10px; font-family: var(--font-label); letter-spacing: var(--track-label); color: var(--text-muted); text-align: right; }
         .sb-cat { text-align: left; }
-        .sb-v { font-size: 13px; text-align: right; color: var(--text-secondary); }
+        .sb-v { font-size: 14px; text-align: right; color: var(--text-secondary); }
         .sb-v[data-lead="true"] { color: var(--text-primary); font-weight: 700; }
         .sb-v--ceiling { color: var(--text-muted); }
       `}</style>

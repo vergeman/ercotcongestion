@@ -185,7 +185,7 @@ export default function ConstraintPanel({
               }
               onClick={() => onBasis(b)}
             >
-              {b === "predicted" ? "predicted" : "realized"}
+              {b === "predicted" ? "Predicted" : "Realized"}
             </button>
           ))}
         </div>
@@ -274,17 +274,17 @@ export default function ConstraintPanel({
         .cp-header { display: flex; justify-content: space-between; align-items: center; }
         .cp-basis-toggle { display: flex; gap: 4px; }
         .cp-basis-toggle button {
-          padding: 2px 8px; font-size: 10px;
+          padding: 2px 8px; font-size: 11px;
           font-family: var(--font-label); letter-spacing: var(--track-label);
         }
         .cp-meta { margin-bottom: 6px; color: var(--text-muted); }
         .cp-caption {
-          font-size: 10.5px; line-height: 1.5; color: var(--text-muted);
+          font-size: 11.5px; line-height: 1.5; color: var(--text-muted);
           margin-bottom: 10px;
         }
         .cp-caption b { color: var(--text-secondary); font-weight: 600; }
         .cp-mem-msg {
-          font-size: 11px; color: var(--text-muted);
+          font-size: 12px; color: var(--text-muted);
           padding: 8px 2px; font-family: var(--font-label);
           letter-spacing: normal;
         }
@@ -296,8 +296,8 @@ export default function ConstraintPanel({
         }
         .cp-colhead {
           padding: 0 2px 4px; border-bottom: 1px solid var(--border);
-          font-family: var(--font-label); font-size: 9px;
-          letter-spacing: var(--track-label); text-transform: uppercase; color: var(--text-muted);
+          font-family: var(--font-label); font-weight: var(--fw-label); font-size: 10px;
+          letter-spacing: var(--track-label); color: var(--text-muted);
         }
         .cp-ch { text-align: left; }
         .cp-ch-r { text-align: right; }
@@ -313,12 +313,12 @@ export default function ConstraintPanel({
         }
         .cp-head:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .cp-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-        .cp-rank { font-size: 10px; color: var(--text-muted); text-align: right; }
+        .cp-rank { font-size: 11px; color: var(--text-muted); text-align: right; }
         .cp-key {
-          font-size: 10.5px; color: var(--text-primary);
+          font-size: 11.5px; color: var(--text-primary);
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .cp-n { font-size: 10.5px; color: var(--text-secondary); text-align: right; }
+        .cp-n { font-size: 11.5px; color: var(--text-secondary); text-align: right; }
         .cp-meter {
           position: relative; height: 13px; width: 100%;
           background: var(--border); border-radius: 3px; overflow: hidden;
@@ -329,7 +329,7 @@ export default function ConstraintPanel({
           background: var(--accent); border-radius: 3px;
         }
         .cp-meter-num {
-          position: relative; font-size: 9px; color: var(--text-primary);
+          position: relative; font-size: 10px; color: var(--text-primary);
           padding-right: 4px;
         }
         .cp-dip {
@@ -344,10 +344,10 @@ export default function ConstraintPanel({
         .cp-mem-row:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
         .cp-dot { width: 7px; height: 7px; border-radius: 2px; flex: 0 0 auto; }
         .cp-mem-sp {
-          flex: 1; font-size: 10px; color: var(--text-secondary);
+          flex: 1; font-size: 11px; color: var(--text-secondary);
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .cp-mem-sf { font-size: 10px; font-weight: 700; white-space: nowrap; }
+        .cp-mem-sf { font-size: 11px; font-weight: 700; white-space: nowrap; }
       `}</style>
     </div>
   );

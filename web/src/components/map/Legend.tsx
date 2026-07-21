@@ -169,8 +169,8 @@ export default function Legend({
       : isCongestion
       ? "Congestion · SPP − λ ($/MWh)"
       : "DAM SPP / LMP ($/MWh)");
-  const negLabel = signLabels?.neg ?? "export (−)";
-  const posLabel = signLabels?.pos ?? "import (+)";
+  const negLabel = signLabels?.neg ?? "Export (−)";
+  const posLabel = signLabels?.pos ?? "Import (+)";
 
   return (
     <div className="legend">
@@ -212,7 +212,7 @@ export default function Legend({
             <span className="label">{posLabel}</span>
           </div>
           <div className="legend__sub label">
-            window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
+            Window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
           </div>
         </>
       )}
@@ -238,12 +238,12 @@ export default function Legend({
             ))}
           </div>
           <div className="legend__sub label">
-            window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
+            Window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
             P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
           </div>
           {lmpSnapshot && (
             <div className="legend__sub label">
-              snapshot {formatDollar(lmpSnapshot.min)} –{" "}
+              Snapshot {formatDollar(lmpSnapshot.min)} –{" "}
               {formatDollar(lmpSnapshot.max)} · avg{" "}
               {formatDollar(lmpSnapshot.mean)}
             </div>
@@ -267,7 +267,7 @@ export default function Legend({
             </div>
           ))}
           <div className="legend__sub label">
-            shape = type · size ∝ binding hours · hover a node for its constraints
+            Shape = type · size ∝ binding hours · hover a node for its constraints
           </div>
         </div>
       )}
@@ -276,7 +276,7 @@ export default function Legend({
         <div className="legend__overlay">
           <span className="legend__overlay-dot" />
           <span className="label legend__overlay-text">
-            constraints · size ∝ max |SF|
+            Constraints · size ∝ max |SF|
           </span>
         </div>
       )}
@@ -335,14 +335,14 @@ export default function Legend({
           position: absolute;
           top: 0;
           transform: translateX(-50%);
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.7;
           white-space: nowrap;
         }
         .legend__sub {
           margin-top: 2px;
           width: ${BAR_W}px;
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.55;
           line-height: 1.3;
         }
@@ -361,7 +361,7 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__type-text {
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.85;
         }
         .legend__overlay {
@@ -381,15 +381,15 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__overlay-text {
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.8;
         }
         .legend__pane-label {
           margin-top: 6px;
           font-family: var(--font-label);
-          font-size: 9px;
+          font-weight: var(--fw-label);
+          font-size: 10px;
           letter-spacing: var(--track-label);
-          text-transform: uppercase;
           color: var(--text-secondary);
           opacity: 0.75;
         }

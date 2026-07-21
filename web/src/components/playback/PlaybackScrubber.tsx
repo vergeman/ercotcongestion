@@ -155,7 +155,7 @@ export default function PlaybackScrubber({
           gap: 8px;
         }
         .scrubber__ts {
-          font-size: 13px;
+          font-size: 14px;
           color: var(--accent);
           margin-left: 8px;
           letter-spacing: normal;
@@ -165,10 +165,9 @@ export default function PlaybackScrubber({
           align-items: center;
           gap: 6px;
           font-family: var(--font-label);
-          font-weight: 500;
-          font-size: 12px;
+          font-weight: var(--fw-label);
+          font-size: 13px;
           letter-spacing: var(--track-label);
-          text-transform: uppercase;
           color: var(--text-secondary);
         }
         .scrubber__event-sep {
