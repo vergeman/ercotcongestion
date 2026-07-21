@@ -40,6 +40,28 @@ shadow price → nodal congestion — grid geography that moves slowly, so it is
 the forecast reuses its SF rather than refitting, so one weekly fit serves every daily
 forecast.
 
+> **Serving from a date `X`? Two shifts.** `X` can only be served once the week before
+> it is built — μ needs that week as a residual seed, and the map needs a persisted SF
+> window ending `≤ X`. So:
+>
+> * **Origin — one week back.** `weekly_map`, `eval`, `mu_model`, and `backfill_nodal`
+>   take `--start = X − 7d` (an unserved pre-roll week). Only `backfill_artifacts`
+>   (per-day) and the live daily job start at `X` itself.
+> * **Data — two weeks past the window.** Ingest every feed to
+>   `origin − (train_days + 14) = origin − 254d` — 14 days (2 weeks) earlier than the
+>   bare 240-day window (7 for μ's panel front-edge drop, 7 of step-3 alignment margin).
+>
+> Worked example, `target X = 2025-01-01`: **origin `2024-12-25`** for **steps
+> 1–3**, for first served output `2025-01-01`, and ingest data floor
+> **`2024-04-15`**. The unshifted commands below pass `X` directly as the
+> origin, which instead serves from `X + 7d`.
+>
+> * Scripts 1-3 are start = target - 7. (2024-12-25)
+> * Script 4 is start = target. (2025-01-01)
+> * Data prior is - (240 + 14). (~ 2024-04-15)
+
+
+
 ## Prediction data — the 240-day window
 
 Both stages fit on a **trailing 240-day window**, single-sourced as `WINDOW_DAYS`
