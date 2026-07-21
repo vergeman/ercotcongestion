@@ -362,7 +362,6 @@ export default function DetailCard({
         .detail-card__kind {
           color: ${"var(--accent)"};
           font-size: 9px;
-          letter-spacing: 0.1em;
         }
         .detail-card__kind--constraint { color: #c4b5fd; }
         .detail-card__id {

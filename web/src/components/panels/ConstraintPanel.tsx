@@ -275,7 +275,7 @@ export default function ConstraintPanel({
         .cp-basis-toggle { display: flex; gap: 4px; }
         .cp-basis-toggle button {
           padding: 2px 8px; font-size: 10px;
-          font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em;
+          font-family: var(--font-label); letter-spacing: var(--track-label);
         }
         .cp-meta { margin-bottom: 6px; color: var(--text-muted); }
         .cp-caption {
@@ -285,8 +285,8 @@ export default function ConstraintPanel({
         .cp-caption b { color: var(--text-secondary); font-weight: 600; }
         .cp-mem-msg {
           font-size: 11px; color: var(--text-muted);
-          padding: 8px 2px; font-family: 'Barlow Condensed', sans-serif;
-          letter-spacing: 0.04em;
+          padding: 8px 2px; font-family: var(--font-label);
+          letter-spacing: normal;
         }
         /* One shared grid so the header labels sit exactly over the row cells. */
         .cp-colhead, .cp-head {
@@ -296,8 +296,8 @@ export default function ConstraintPanel({
         }
         .cp-colhead {
           padding: 0 2px 4px; border-bottom: 1px solid var(--border);
-          font-family: 'Barlow Condensed', sans-serif; font-size: 9px;
-          letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-muted);
+          font-family: var(--font-label); font-size: 9px;
+          letter-spacing: var(--track-label); text-transform: uppercase; color: var(--text-muted);
         }
         .cp-ch { text-align: left; }
         .cp-ch-r { text-align: right; }

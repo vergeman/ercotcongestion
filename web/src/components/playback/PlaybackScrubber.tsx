@@ -158,16 +158,16 @@ export default function PlaybackScrubber({
           font-size: 13px;
           color: var(--accent);
           margin-left: 8px;
-          letter-spacing: 0.04em;
+          letter-spacing: normal;
         }
         .scrubber__event {
           display: flex;
           align-items: center;
           gap: 6px;
-          font-family: 'Barlow Condensed', sans-serif;
+          font-family: var(--font-label);
           font-weight: 500;
           font-size: 12px;
-          letter-spacing: 0.06em;
+          letter-spacing: var(--track-label);
           text-transform: uppercase;
           color: var(--text-secondary);
         }

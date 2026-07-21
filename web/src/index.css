@@ -43,10 +43,15 @@
   --fs-xl: 16px;      /* header brand                               */
   --fs-display: 26px; /* headline stat                              */
 
-  /* THE label tracking. Every uppercase label references this token; retune all
-     labels from this one line. 0.08em is the app's original Barlow Condensed
-     value. Non-label text (buttons, values, sentences) carries no tracking. */
-  --track-label: 0.08em;
+  /* Label tracking. Every uppercase label references one of these two tokens --
+     no component sets a raw em value -- so the whole app's caps retune from
+     here. Two tiers because small caps need more tracking than large caps to
+     read as chrome: --track-label for small eyebrow/table-head/tab labels,
+     --track-title for the larger brand and section titles. Both values are the
+     app's original Barlow Condensed tracking. Non-label text (values, sentences,
+     mixed-case chrome) carries no tracking. */
+  --track-label: 0.08em; /* small uppercase labels */
+  --track-title: 0.06em; /* brand / section titles  */
 
   /* ---- backgrounds ------------------------------------------------------ */
   --bg-base: #0a0c0f;

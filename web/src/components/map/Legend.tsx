@@ -386,8 +386,9 @@ export default function Legend({
         }
         .legend__pane-label {
           margin-top: 6px;
+          font-family: var(--font-label);
           font-size: 9px;
-          letter-spacing: 0.08em;
+          letter-spacing: var(--track-label);
           text-transform: uppercase;
           color: var(--text-secondary);
           opacity: 0.75;

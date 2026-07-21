@@ -554,8 +554,8 @@ export default function ScoreboardPage() {
         .sb-back { color: var(--accent); text-decoration: none; font-size: 13px; }
         .sb-back:hover { text-decoration: underline; }
         .sb-title {
-          font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
-          letter-spacing: 0.06em; text-transform: uppercase; font-size: 14px;
+          font-family: var(--font-label); font-weight: 600;
+          letter-spacing: var(--track-title); text-transform: uppercase; font-size: 14px;
         }
         .sb-regime {
           margin-left: auto;
@@ -593,8 +593,8 @@ export default function ScoreboardPage() {
         .sb-chart { padding: 0 16px; }
         .sb-chart svg { display: block; width: 100%; }
         .sb-axis { fill: var(--text-muted); font-size: 9px; font-family: var(--text-mono); }
-        .sb-axis--mark { fill: var(--text-secondary); font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em; }
-        .sb-endlabel { font-size: 10px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; }
+        .sb-axis--mark { fill: var(--text-secondary); font-family: var(--font-label); letter-spacing: normal; }
+        .sb-endlabel { font-size: 10px; font-family: var(--font-label); font-weight: 600; }
 
         .sb-tip {
           position: absolute; pointer-events: none;
@@ -617,7 +617,7 @@ export default function ScoreboardPage() {
         .sb-section-h { padding: 14px 16px 6px; }
         .sb-splits { padding: 0 16px; overflow-x: auto; }
         .sb-split-grid { display: inline-grid; grid-template-columns: minmax(120px, 160px) repeat(4, 82px); column-gap: 18px; row-gap: 6px; align-items: baseline; padding-right: 24px; }
-        .sb-h { font-size: 9px; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); text-align: right; }
+        .sb-h { font-size: 9px; font-family: var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--text-muted); text-align: right; }
         .sb-cat { text-align: left; }
         .sb-v { font-size: 13px; text-align: right; color: var(--text-secondary); }
         .sb-v[data-lead="true"] { color: var(--text-primary); font-weight: 700; }

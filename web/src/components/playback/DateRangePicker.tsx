@@ -189,10 +189,10 @@ export default function DateRangePicker({
           border-color: var(--accent);
         }
         .drp__event-label {
-          font-family: 'Barlow Condensed', sans-serif;
+          font-family: var(--font-label);
           font-weight: 600;
           font-size: 12px;
-          letter-spacing: 0.04em;
+          letter-spacing: normal;
           color: var(--text-primary);
         }
         .drp__event.active .drp__event-label { color: var(--accent); }
@@ -201,7 +201,7 @@ export default function DateRangePicker({
           color: var(--text-secondary);
           margin-top: 2px;
           font-weight: 400;
-          font-family: 'Barlow', sans-serif;
+          font-family: var(--font-sans);
           letter-spacing: 0;
           text-transform: none;
         }

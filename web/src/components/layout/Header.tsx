@@ -154,7 +154,7 @@ export default function Header({
           font-family: var(--font-label);
           font-weight: 700;
           font-size: var(--fs-xl);
-          letter-spacing: 0.06em;
+          letter-spacing: var(--track-title);
           text-transform: uppercase;
           color: var(--accent);
         }

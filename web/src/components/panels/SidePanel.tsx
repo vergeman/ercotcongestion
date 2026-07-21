@@ -239,9 +239,9 @@ export default function SidePanel({
           border: none;
           border-bottom: 2px solid transparent;
           color: var(--text-muted);
-          font-family: 'Barlow Condensed', sans-serif;
+          font-family: var(--font-label);
           font-size: 12px;
-          letter-spacing: 0.06em;
+          letter-spacing: var(--track-label);
           text-transform: uppercase;
           cursor: pointer;
         }
@@ -274,8 +274,8 @@ export default function SidePanel({
         .sc-window-toggle button {
           padding: 2px 7px;
           font-size: 10px;
-          font-family: 'Barlow Condensed', sans-serif;
-          letter-spacing: 0.06em;
+          font-family: var(--font-label);
+          letter-spacing: var(--track-label);
         }
         .sc-meta { margin-bottom: 8px; color: var(--text-muted); }
 
@@ -288,8 +288,8 @@ export default function SidePanel({
         }
         .sc-h {
           font-size: 9px;
-          font-family: 'Barlow Condensed', sans-serif;
-          letter-spacing: 0.06em;
+          font-family: var(--font-label);
+          letter-spacing: var(--track-label);
           text-transform: uppercase;
           color: var(--text-muted);
           text-align: right;
@@ -316,8 +316,8 @@ export default function SidePanel({
           font-size: 11px;
           color: var(--accent);
           text-decoration: none;
-          font-family: 'Barlow Condensed', sans-serif;
-          letter-spacing: 0.04em;
+          font-family: var(--font-label);
+          letter-spacing: normal;
         }
         .sc-link:hover { text-decoration: underline; }
       `}</style>
