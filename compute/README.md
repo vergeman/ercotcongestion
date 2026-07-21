@@ -56,6 +56,12 @@ reach **2024-05-06** (= 2025-01-01 − 240 days). The first 240 days are consume
 warm-up and are never themselves scored — scoring begins where the first full
 window closes.
 
+> **Ingest `train_days + 14` back, not exactly `train_days`.** μ's covariate
+> panel drops its first day(s) to DAM/tz edges, so aim the ingest floor at
+> `origin − 247d` (`2024-04-25` for a 2025-01-01 origin). And then additional 7
+> for downstream step 3 backfill_nodal alignment to `2024-04-18`. `mu_model`
+> already reads from there; this just ensures the data is actually present.
+
 Build and deploy in this order.
 
 ### Step 0 — Preflight
@@ -112,6 +118,8 @@ does not already have.
 * `--persist-sf`: `implied_shift_factors` stored in db:
 
 ```
+MAP_RUN_ID=map-v1
+
 python -m compute.sf.geo_persist --run-id map-v1
 
 python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
@@ -132,15 +140,15 @@ Use `mu-all-v1` for every forecast artifact and DB write. The SF map deliberatel
 its own run ID, `map-v1`.
 
 ```
-RUN_ID=mu-all-v1
-MAP_RUN_ID=map-v1
-ART_DIR=/compute/runs/${RUN_ID}/mu
-mkdir -p "${ART_DIR}"
 
 # --start is the series origin (product origin, 2025-01-01) — the same date the SF
 # map used; mu_model derives its own read floor (start − train_days − leadin). --end
 # is a fixed recent completed date — see "Dates in the runbook".
 # YYYY-MM-DD: tomorrow
+
+RUN_ID=mu-all-v1
+ART_DIR=/compute/runs/${RUN_ID}/mu
+mkdir -p "${ART_DIR}"
 
 python -m compute.mu.mu_model \
     --start 2025-01-01 \
@@ -177,14 +185,8 @@ run only after the bulk write succeeds. This is the historical price backfill.
 python -m compute.jobs.backfill_nodal \
     --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
     --nodal-out "${ART_DIR}/mu_nodal.npz" \
-    --out "${ART_DIR}/mu_bands_weekly.csv" --to-db
-
-python -m compute.jobs.backfill_nodal \
-    --run-id mu-all-v1 \
-    --map-run-id map-v1 \
-    --preds /compute/runs/map-v1/mu/mu_preds.npz \
-    --nodal-out /compute/runs/map-v1/mu/mu_nodal.npz \
-    --out /compute/runs/map-v1/mu/mu_bands_weekly.csv \
+    --out "${ART_DIR}/mu_bands_weekly.csv" \
+    --end <tomorrow YYYY-MM-DD> \
     --to-db
 ```
 
@@ -202,20 +204,34 @@ This fast historical path writes `forecast_nodal`, but does not write
 
 ### Step 4 — Optional production-equivalent historical artifact backfill
 
-If historical driver/what-if support is required as well as historical prices, invoke
-the daily job once per eligible UTC delivery date. Each run refits the daily μ model,
-replaces that date's nodal rows, and writes its `forecast_sf_artifact`. This is much
-more expensive than step 3 and is intentionally not the default history seed.
+Step 3 fills prices (`forecast_nodal`) but **not** the per-day SF+μ artifact
+(`forecast_sf_artifact`) — the object the constraint-explorer panel reads
+(`/map/constraints/ranked`). So on a fresh backfill that panel 503s for every historical
+date until this step runs; only live days (step 5) have the artifact otherwise.
+
+`backfill_artifacts` loops the daily job's exact path over a date range: for each UTC
+delivery date it refits the daily μ model, **replaces that date's nodal rows** with the
+production-equivalent per-day fit, and writes its `forecast_sf_artifact`. It is much more
+expensive than step 3 (a per-day refit, ~16 GiB each, vs. one weekly fit shared across 7
+days), so it is optional and intentionally not the default history seed.
 
 ```
-python -m compute.jobs.daily_forecast --delivery-date <YYYY-MM-DD> \
-    --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
-    --to-db
+python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
+    --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db
 ```
 
-Run it only for dates with complete DAM-close inputs and a causal map window; it fails
-loud otherwise. Do not mix a different run ID into this loop. Add `--npz-dir` only
-when it names a persistent mounted directory; it is not required for the DB artifacts.
+* **Resumable** — skips dates already in `forecast_sf_artifact` (pass `--no-skip-existing`
+  to rewrite), so an interrupted run continues where it stopped.
+* **Fail-soft** — a date without complete DAM-close inputs or a causal map window is logged
+  and skipped (`--stop-on-error` aborts instead). Early dates with no causal window are the
+  common expected skip, so start `--start` at/after the first served week.
+* **Pointer** — like the daily job, each day flips `forecast_current[ercot]` to `--run-id`;
+  the tool warns loudly at startup if that is not the promoted run. **Do not mix a different
+  run ID into one range.** Add `--npz-dir` only when it names a persistent mounted directory;
+  it is not required for the DB artifacts.
+
+For a single date, `--start`/`--end` may be the same day (equivalent to one
+`daily_forecast --delivery-date` run).
 
 ### Step 5 — Daily forecast (append each new day)
 
