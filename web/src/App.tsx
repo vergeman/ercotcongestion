@@ -1011,7 +1011,7 @@ export default function App() {
             }
             .pane-badge__meta {
               display: flex;
-              gap: 10px;
+              gap: 18px;
               font-family: var(--font-label);
               font-weight: var(--fw-label);
               font-size: var(--fs-body);
