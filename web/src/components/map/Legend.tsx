@@ -290,7 +290,7 @@ export default function Legend({
           position: absolute;
           bottom: 88px;
           left: 12px;
-          background: rgba(15, 18, 23, 0.9);
+          background: var(--bg-glass);
           border: 1px solid var(--border);
           border-radius: 4px;
           padding: 8px 10px;

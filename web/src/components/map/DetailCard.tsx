@@ -332,7 +332,7 @@ export default function DetailCard({
           top: 12px;
           left: 12px;
           width: 250px;
-          background: rgba(15, 18, 23, 0.94);
+          background: var(--bg-glass);
           border: 1px solid var(--border-bright);
           border-radius: 4px;
           padding: 0;
@@ -426,7 +426,7 @@ export default function DetailCard({
         }
         .dc-clip {
           font-size: 10px;
-          color: #94a3b8;
+          color: var(--text-dim);
           font-weight: 400;
           letter-spacing: 0.03em;
         }
@@ -435,7 +435,7 @@ export default function DetailCard({
           color: var(--text-secondary);
           margin: -2px 0 4px;
         }
-        .dc-support--low { color: #94a3b8; }
+        .dc-support--low { color: var(--text-dim); }
         .dc-drivers-title {
           font-size: 10px;
           color: var(--text-secondary);
@@ -467,7 +467,7 @@ export default function DetailCard({
           width: 100%;
           cursor: pointer;
         }
-        .dc-driver:hover { background: rgba(255, 255, 255, 0.05); }
+        .dc-driver:hover { background: var(--bg-hover); }
         .dc-driver--static { cursor: default; }
         .dc-driver--static:hover { background: transparent; }
         .dc-chip {
