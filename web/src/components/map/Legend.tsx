@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { cssVar, useTheme } from "../../lib/theme";
 import type { SpRow } from "../../api/types";
 import type { Palette } from "../../api/types";
 import {
@@ -45,11 +46,13 @@ interface Props {
 const OVERVIEW_TYPES: {
   label: string;
   mark: "region" | "corridor" | "point";
-  color: string;
+  token: string;
 }[] = [
-  { label: "GTC / interface — region", mark: "region", color: "#e0a83a" },
-  { label: "Transmission — corridor", mark: "corridor", color: "#a78bfa" },
-  { label: "Radial — point", mark: "point", color: "#2dd4bf" },
+  // Theme-aware: resolved per theme via cssVar() so the type key stays legible
+  // on a light ground (the --sf-* tokens carry a darkened light-mode set).
+  { label: "GTC / interface — region", mark: "region", token: "--sf-gtc" },
+  { label: "Transmission — corridor", mark: "corridor", token: "--sf-transmission" },
+  { label: "Radial — point", mark: "point", token: "--sf-radial" },
 ];
 
 function TypeMark({
@@ -99,6 +102,9 @@ export default function Legend({
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
+  // Subscribes the legend to theme flips so the cssVar() type-mark lookups below
+  // re-resolve (SVG presentation attributes cannot take var()).
+  useTheme();
   const isCongestion = palette === "congestion";
   const isLmp = palette === "lmp";
   const isOff = palette === "off";
@@ -163,8 +169,8 @@ export default function Legend({
       : isCongestion
       ? "Congestion · SPP − λ ($/MWh)"
       : "DAM SPP / LMP ($/MWh)");
-  const negLabel = signLabels?.neg ?? "export (−)";
-  const posLabel = signLabels?.pos ?? "import (+)";
+  const negLabel = signLabels?.neg ?? "Export (−)";
+  const posLabel = signLabels?.pos ?? "Import (+)";
 
   return (
     <div className="legend">
@@ -206,7 +212,7 @@ export default function Legend({
             <span className="label">{posLabel}</span>
           </div>
           <div className="legend__sub label">
-            window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
+            Window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
           </div>
         </>
       )}
@@ -232,12 +238,12 @@ export default function Legend({
             ))}
           </div>
           <div className="legend__sub label">
-            window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
+            Window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
             P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
           </div>
           {lmpSnapshot && (
             <div className="legend__sub label">
-              snapshot {formatDollar(lmpSnapshot.min)} –{" "}
+              Snapshot {formatDollar(lmpSnapshot.min)} –{" "}
               {formatDollar(lmpSnapshot.max)} · avg{" "}
               {formatDollar(lmpSnapshot.mean)}
             </div>
@@ -256,12 +262,12 @@ export default function Legend({
         <div className="legend__types">
           {OVERVIEW_TYPES.map((t) => (
             <div key={t.mark} className="legend__type-row">
-              <TypeMark mark={t.mark} color={t.color} />
+              <TypeMark mark={t.mark} color={cssVar(t.token)} />
               <span className="label legend__type-text">{t.label}</span>
             </div>
           ))}
           <div className="legend__sub label">
-            shape = type · size ∝ binding hours · hover a node for its constraints
+            Shape = type · size ∝ binding hours · hover a node for its constraints
           </div>
         </div>
       )}
@@ -270,7 +276,7 @@ export default function Legend({
         <div className="legend__overlay">
           <span className="legend__overlay-dot" />
           <span className="label legend__overlay-text">
-            constraints · size ∝ max |SF|
+            Constraints · size ∝ max |SF|
           </span>
         </div>
       )}
@@ -284,7 +290,7 @@ export default function Legend({
           position: absolute;
           bottom: 88px;
           left: 12px;
-          background: rgba(15, 18, 23, 0.9);
+          background: var(--bg-glass);
           border: 1px solid var(--border);
           border-radius: 4px;
           padding: 8px 10px;
@@ -329,14 +335,14 @@ export default function Legend({
           position: absolute;
           top: 0;
           transform: translateX(-50%);
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.7;
           white-space: nowrap;
         }
         .legend__sub {
           margin-top: 2px;
           width: ${BAR_W}px;
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.55;
           line-height: 1.3;
         }
@@ -355,7 +361,7 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__type-text {
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.85;
         }
         .legend__overlay {
@@ -375,14 +381,15 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__overlay-text {
-          font-size: 9px;
+          font-size: 10px;
           opacity: 0.8;
         }
         .legend__pane-label {
           margin-top: 6px;
-          font-size: 9px;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
+          font-family: var(--font-label);
+          font-weight: var(--fw-label);
+          font-size: 10px;
+          letter-spacing: var(--track-label);
           color: var(--text-secondary);
           opacity: 0.75;
         }

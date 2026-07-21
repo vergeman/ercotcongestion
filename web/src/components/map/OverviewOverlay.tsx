@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type maplibregl from "maplibre-gl";
 import type { MapOverview, OverviewConstraint, ReachSp } from "../../api/types";
+import { cssVar, useTheme } from "../../lib/theme";
 
 // The de-piled overview, drawn as an SVG overlay pinned over the maplibre canvas
 // (plan/0092-0003). This is a faithful port of the hybrid-v4 spike
@@ -20,14 +21,32 @@ import type { MapOverview, OverviewConstraint, ReachSp } from "../../api/types";
 //   gtc          amber  — a region (metaball) it holds
 //   transmission violet — a corridor (MST) it runs along
 //   radial       teal   — a single point
-const COL: Record<string, string> = {
-  gtc: "#e0a83a",
-  transmission: "#a78bfa",
-  radial: "#2dd4bf",
+// Resolved from the --sf-* tokens per theme; see useSfColors below.
+const SF_TOKENS: Record<string, string> = {
+  gtc: "--sf-gtc",
+  transmission: "--sf-transmission",
+  radial: "--sf-radial",
 };
-const UNTYPED = "#94a3b8"; // slate: located but no type verdict
+const UNTYPED_TOKEN = "--sf-untyped"; // slate: located but no type verdict
 // Draw order: gtc regions on the bottom, radial points on top.
 const RANK: Record<string, number> = { gtc: 0, transmission: 1, radial: 2 };
+
+// Concrete hex per constraint type for the current theme. These feed SVG
+// presentation attributes, which cannot take var() — see useTheme's note on why
+// the `style` prop is not a safe swap here.
+function useSfColors() {
+  const theme = useTheme();
+  return useMemo(() => {
+    const untyped = cssVar(UNTYPED_TOKEN);
+    const byType: Record<string, string> = {};
+    for (const [k, token] of Object.entries(SF_TOKENS)) {
+      byType[k] = cssVar(token);
+    }
+    return { byType, untyped };
+    // theme is the dependency: the tokens themselves are static, their
+    // resolved values are not.
+  }, [theme]);
+}
 
 // Corridor edges longer than this are dropped — a stylized transmission run
 // shouldn't leap across the whole state between two weakly-related nodes.
@@ -149,6 +168,8 @@ export default function OverviewOverlay({
   const [isoKey, setIsoKey] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [popNi, setPopNi] = useState<number | null>(null);
+  // Constraint-type hues for the active theme; re-resolves on a theme flip.
+  const sf = useSfColors();
   // Bumped on every camera change so projection re-runs in render.
   const [, setTick] = useState(0);
   // Mirror `pinned` into a ref for the once-bound map listeners below.
@@ -261,7 +282,7 @@ export default function OverviewOverlay({
 
   // --- structure marks (metaball / corridor / point) + hit targets -----------
   const groups = model.prepared.map(({ c, nodes, edges, nmax }) => {
-    const col = COL[c.ctype ?? ""] ?? UNTYPED;
+    const col = sf.byType[c.ctype ?? ""] ?? sf.untyped;
     const t = Math.sqrt((c.binding_hours ?? 0) / model.kmax); // severity 0..1
     const pts = nodes.map((n) => project(n.lat as number, n.lon as number));
     const core = project(c.core_lat as number, c.core_lon as number);
@@ -443,7 +464,7 @@ export default function OverviewOverlay({
             >
               <span
                 className="ov-chip"
-                style={{ background: COL[m.type] ?? UNTYPED }}
+                style={{ background: sf.byType[m.type] ?? sf.untyped }}
               />
               <span className="ov-ck">{m.key}</span>
               <span className={`ov-role ${src ? "ov-src" : "ov-snk"}`}>
@@ -491,10 +512,10 @@ export default function OverviewOverlay({
         .overview-overlay .ov-shadow { opacity: .32; }
         .overview-overlay .ov-skel line { stroke-opacity: .2; stroke-width: .8; }
         .overview-overlay .ov-corridor line { stroke-opacity: .65; }
-        .overview-overlay .ov-core { stroke: #0a0d12; stroke-width: 1; pointer-events: none; }
+        .overview-overlay .ov-core { stroke: var(--map-halo); stroke-width: 1; pointer-events: none; }
         .overview-overlay .ov-hit { cursor: pointer; }
-        .overview-overlay .ov-node { fill: #c9d3df; fill-opacity: .5; stroke: #0a0d12; stroke-width: .5; cursor: pointer; }
-        .overview-overlay .ov-node:hover { fill: #fff; fill-opacity: 1; stroke: #38bdf8; stroke-width: 1.4; }
+        .overview-overlay .ov-node { fill: var(--map-node-idle); fill-opacity: .5; stroke: var(--map-halo); stroke-width: .5; cursor: pointer; }
+        .overview-overlay .ov-node:hover { fill: var(--map-node-hover); fill-opacity: 1; stroke: var(--accent); stroke-width: 1.4; }
         .overview-overlay .ov-con { transition: opacity .12s; }
         /* Isolation: hide every OTHER constraint (and the shared node dots) so only
            the hovered one remains on the map — the map echo of the panel's focus. */
@@ -505,24 +526,24 @@ export default function OverviewOverlay({
         .overview-overlay.ov-dim .ov-node { opacity: 0; pointer-events: none; }
         .overview-overlay .ov-iso .ov-shadow { opacity: .72; }
         .overview-overlay .ov-iso .ov-skel line { stroke-opacity: .9; stroke-width: 1.6; }
-        .overview-overlay .ov-iso .ov-core { stroke: #fff; stroke-width: 1.6; }
-        .ov-pop { position: absolute; pointer-events: auto; background: #0f1217f2;
-          border: 1px solid #2b3442; border-radius: 7px; padding: 6px; font-size: 11.5px;
-          min-width: 210px; max-width: 290px; box-shadow: 0 6px 22px #000a; z-index: 5; }
-        .ov-pop-sp { font-family: 'Space Mono', ui-monospace, monospace; font-weight: 600;
-          font-size: 11.5px; padding: 2px 5px 6px; color: #e2e8f0;
-          border-bottom: 1px solid #222b36; margin-bottom: 4px; }
-        .ov-pop-sp small { color: #8899aa; font-weight: 400; }
+        .overview-overlay .ov-iso .ov-core { stroke: var(--map-node-hover); stroke-width: 1.6; }
+        .ov-pop { position: absolute; pointer-events: auto; background: var(--bg-glass);
+          border: 1px solid var(--border); border-radius: 7px; padding: 6px; font-size: var(--fs-body);
+          min-width: 210px; max-width: 290px; box-shadow: var(--shadow-panel); z-index: 5; }
+        .ov-pop-sp { font-family: var(--font-mono); font-weight: 600;
+          font-size: var(--fs-body); padding: 2px 5px 6px; color: var(--text-primary);
+          border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .ov-pop-sp small { color: var(--text-secondary); font-weight: 400; }
         .ov-row { display: flex; align-items: center; gap: 7px; padding: 4px 5px;
           border-radius: 4px; cursor: pointer; }
-        .ov-row:hover { background: #1b2431; }
+        .ov-row:hover { background: var(--bg-hover); }
         .ov-chip { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
         .ov-ck { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-          font-family: 'Space Mono', ui-monospace, monospace; font-size: 10.5px; }
-        .ov-role { font-weight: 700; font-size: 10.5px; }
+          font-family: var(--font-mono); font-size: var(--fs-label); }
+        .ov-role { font-weight: 700; font-size: var(--fs-label); }
         .ov-src { color: #3b82f6; } .ov-snk { color: #ef4444; }
-        .ov-bh { color: #8899aa; font-size: 10px; width: 34px; text-align: right; }
-        .ov-more { color: #8899aa; font-size: 10px; text-align: center; padding: 3px; }
+        .ov-bh { color: var(--text-secondary); font-size: var(--fs-label); width: 34px; text-align: right; }
+        .ov-more { color: var(--text-secondary); font-size: var(--fs-label); text-align: center; padding: 3px; }
       `}</style>
     </>
   );

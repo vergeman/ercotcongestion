@@ -1,4 +1,7 @@
+import { useState } from "react";
 import type { Palette, ViewMode } from "../../api/types";
+import { currentTheme, toggleTheme, type Theme } from "../../lib/theme";
+import HeaderNav from "./HeaderNav";
 
 interface Props {
   // The two orthogonal axes: `viewMode` picks forecast-error vs dual compare;
@@ -26,15 +29,13 @@ export default function Header({
   showConstraints,
   onToggleConstraints,
 }: Props) {
+  // Seeded from the attribute the index.html bootstrap already resolved, so the
+  // button label is correct on first paint.
+  const [theme, setTheme] = useState<Theme>(() => currentTheme());
+
   return (
     <header className="header">
-      <div className="header__brand">
-        <span className="header__logo">⚡</span>
-        <span className="header__title">ERCOT Stress</span>
-        <span className="header__sub label">
-          settlement points · realized ERCOT
-        </span>
-      </div>
+      <HeaderNav active="map" />
 
       <div className="header__controls">
         <div className="view-toggle">
@@ -98,6 +99,23 @@ export default function Header({
       </div>
 
       <div className="header__status">
+        <button
+          className="theme-toggle"
+          onClick={() => setTheme(toggleTheme())}
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+        >
+          {theme === "dark" ? (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path d="M12 2.6v2.8M12 18.6v2.8M2.6 12h2.8M18.6 12h2.8M5.4 5.4l2 2M16.6 16.6l2 2M18.6 5.4l-2 2M7.4 16.6l-2 2" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 14.2A8.2 8.2 0 1 1 9.8 4a6.6 6.6 0 0 0 10.2 10.2z" />
+            </svg>
+          )}
+        </button>
         <div className={`status-dot status-dot--${connectionState}`} />
         <span className="label" style={{ color: "var(--text-secondary)" }}>
           {connectionState === "loading"
@@ -121,21 +139,6 @@ export default function Header({
           gap: 20px;
           flex-shrink: 0;
         }
-        .header__brand {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .header__logo { font-size: 16px; }
-        .header__title {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 700;
-          font-size: 16px;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          color: var(--accent);
-        }
-        .header__sub { color: var(--text-muted); margin-left: 4px; }
         .header__controls {
           margin-left: auto;
           display: flex;
@@ -146,7 +149,26 @@ export default function Header({
         .header__status {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 8px;
+        }
+        .theme-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 26px;
+          height: 26px;
+          padding: 0;
+          color: var(--text-secondary);
+        }
+        .theme-toggle:hover { color: var(--accent); }
+        .theme-toggle svg {
+          width: 15px;
+          height: 15px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.7;
+          stroke-linecap: round;
+          stroke-linejoin: round;
         }
         .status-dot {
           width: 7px;

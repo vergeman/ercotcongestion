@@ -4,7 +4,6 @@ import type {
   SpRow,
   Palette,
   ViewMode,
-  ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
@@ -13,7 +12,6 @@ import type {
 } from "./api/types";
 import {
   fetchTopology,
-  fetchMapConstraints,
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
@@ -97,12 +95,10 @@ export default function App() {
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
-  // Constraint overlay (SF structure) — fixed per refit, so fetched once, not
-  // time-indexed. `null` while loading or on 503 (map renders without it).
-  const [constraints, setConstraints] = useState<ConstraintGeo[] | null>(null);
   const [showConstraints, setShowConstraints] = useState(true);
-  // The de-piled overview (top-N constraints at their |SF|² cores + type). Fetched
-  // once per refit; when present it replaces the flat centroid overlay on the map.
+  // The de-piled overview (top-N constraints at their |SF|² cores + type) — the
+  // sole constraint presentation on the map. Fixed per refit, so fetched once,
+  // not time-indexed. `null` while loading or on 503 (map renders without it).
   const [overview, setOverview] = useState<MapOverview | null>(null);
   // Forecast side of the split map (left/prediction pane): per-hour P10/P50/P90
   // congestion for the current forecast run, read hour-for-hour off the same
@@ -241,12 +237,9 @@ export default function App() {
       .catch(() => setConnState("error"));
   }, []);
 
-  // Constraint overlay load — once, independent of the playback window (the SF
+  // Constraint overview load — once, independent of the playback window (the SF
   // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
   useEffect(() => {
-    fetchMapConstraints()
-      .then((c) => setConstraints(c))
-      .catch(() => setConstraints(null));
     fetchMapOverview(70, 6)
       .then((o) => setOverview(o))
       .catch(() => setOverview(null));
@@ -721,15 +714,6 @@ export default function App() {
     setShowConstraints(v === "forecastError");
   }, []);
 
-  // Which constraint centroids glow on the overlay: the pinned node's drivers,
-  // or the single constraint being reached.
-  const highlightedConstraints = useMemo(() => {
-    if (reach) return new Set([reach.constraint_key]);
-    if (exposures)
-      return new Set(exposures.exposures.map((e) => e.constraint_key));
-    return new Set<string>();
-  }, [reach, exposures]);
-
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
     if (!pinnedSp) return;
@@ -761,10 +745,39 @@ export default function App() {
     rows.filter((r) => (palette === "lmp" ? r.spp != null : r.congestion != null))
       .length;
   const litCount = litFor(spRows);
-  const badgeFor = (label: string, lit: number = litCount) =>
-    spTopologyEmpty
-      ? `${label} · no SPs (rebuild topology cache)`
-      : `${label} · ${featCount} SPs · ${lit} lit`;
+  // The pane subtitle. A bold title line names what the pane shows; the meta row
+  // reports node coverage in words — `litNoun` says what "having a value" means
+  // for this pane (forecast / priced / compared) so the count reads plainly.
+  const badgeFor = (
+    label: string,
+    lit: number = litCount,
+    litNoun = "priced",
+    litHint = "Nodes with a value at this hour (colored on the map); the rest are drawn unlit"
+  ) => (
+    <>
+      <span className="pane-badge__title">{label}</span>
+      <span className="pane-badge__meta">
+        {spTopologyEmpty ? (
+          <span className="pane-badge__stat">no nodes (rebuild topology cache)</span>
+        ) : (
+          <>
+            <span
+              className="pane-badge__stat"
+              title="Settlement points (nodes) drawn on the map"
+            >
+              <span className="pane-badge__key">nodes</span>{" "}
+              <b>{featCount.toLocaleString()}</b>
+            </span>
+            <span className="pane-badge__stat" title={litHint}>
+              <span className="pane-badge__key">{litNoun}</span>{" "}
+              <b>{lit.toLocaleString()}</b>
+            </span>
+          </>
+        )}
+      </span>
+    </>
+  );
+
 
   // Shared across both panes. Per-side hover/click handlers are passed
   // separately so each card renders in — and reads — its own pane.
@@ -782,8 +795,8 @@ export default function App() {
   // cursor hour's date), or the realized fallback.
   const predictionLabel =
     hasForecast && forecastRunId
-      ? `PREDICTION · forecast ${forecastRunId}`
-      : "PREDICTION · no forecast this window";
+      ? `Prediction Model: forecast ${forecastRunId}`
+      : "Prediction Model: no forecast this window";
 
   const leftPane = (
     <>
@@ -796,10 +809,7 @@ export default function App() {
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
         onMapReady={handleMainReady}
-        constraints={constraints}
         showConstraints={showConstraints}
-        highlightedConstraints={highlightedConstraints}
-        onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
         isolatedConstraint={hoveredConstraintId}
@@ -809,7 +819,12 @@ export default function App() {
         ringedSpId={hoveredMemberSp}
       />
       <div className="pane-badge">
-        {badgeFor(predictionLabel, litFor(leftRows))}
+        {badgeFor(
+          predictionLabel,
+          litFor(leftRows),
+          "forecast",
+          "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count."
+        )}
       </div>
       <Legend
         palette={palette}
@@ -817,12 +832,8 @@ export default function App() {
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
         variant="palette-only"
-        paneLabel={
-          hasForecast && forecastRunId
-            ? `PREDICTION · forecast ${forecastRunId}`
-            : "PREDICTION · no forecast this window"
-        }
-        constraintOverlay={showConstraints && !!constraints?.length}
+        paneLabel={predictionLabel}
+        constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
       {/* Prediction card: the node's forecast readout + its SF drivers. */}
@@ -848,14 +859,21 @@ export default function App() {
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
       />
-      <div className="pane-badge">{badgeFor("ERCOT · actual")}</div>
+      <div className="pane-badge">
+        {badgeFor(
+          "ERCOT: Day Ahead Market (DAM)",
+          litCount,
+          "priced",
+          "Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
+        )}
+      </div>
       <Legend
         palette={palette}
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
         variant="full"
-        paneLabel="ERCOT · actual"
+        paneLabel="ERCOT: Day Ahead Market (DAM)"
       />
       {/* Actual card: the node's realized readout only — no SF drivers (those
           are a prediction-side concern). */}
@@ -876,8 +894,8 @@ export default function App() {
   const errorLit = errorRows.filter((r) => r.congestion != null).length;
   const errorLabel =
     hasForecast && forecastRunId
-      ? `CONGESTION FORECAST ERROR · forecast ${forecastRunId} − ERCOT`
-      : "CONGESTION FORECAST ERROR · no forecast this window";
+      ? "Forecast Error: Prediction Model − ERCOT DAM"
+      : "Forecast Error: no forecast this window";
   const errorPane = (
     <>
       <GridMap
@@ -892,10 +910,7 @@ export default function App() {
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
         onMapReady={handleMainReady}
-        constraints={constraints}
         showConstraints={showConstraints}
-        highlightedConstraints={highlightedConstraints}
-        onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
         isolatedConstraint={hoveredConstraintId}
@@ -905,7 +920,14 @@ export default function App() {
         ringedSpId={hoveredMemberSp}
         congestionColor={forecastErrorColor}
       />
-      <div className="pane-badge">{badgeFor(errorLabel, errorLit)}</div>
+      <div className="pane-badge">
+        {badgeFor(
+          errorLabel,
+          errorLit,
+          "compared",
+          "Nodes with both a model forecast and a realized value, so an error is defined"
+        )}
+      </div>
       <Legend
         palette="congestion"
         rows={errorRows}
@@ -913,10 +935,10 @@ export default function App() {
         mcStats={errorStats}
         variant="full"
         titleOverride="Congestion Forecast Error · P50 forecast − realized ($/MWh)"
-        signLabels={{ neg: "under-forecast", pos: "over-forecast" }}
+        signLabels={{ neg: "Under-forecast", pos: "Over-forecast" }}
         barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
         paneLabel={errorLabel}
-        constraintOverlay={showConstraints && !!constraints?.length}
+        constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
       {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
@@ -944,9 +966,7 @@ export default function App() {
         connectionState={connState}
         showConstraints={showConstraints}
         onToggleConstraints={
-          constraints?.length || overview?.constraints.length
-            ? setShowConstraints
-            : undefined
+          overview?.constraints.length ? setShowConstraints : undefined
         }
       />
 
@@ -960,7 +980,9 @@ export default function App() {
       >
         {/* Forecast error = single map of P50 forecast − realized (default
             landing). Dual = prediction | ERCOT split, both under the active palette. */}
-        <div style={{ flex: 1, position: "relative" }}>
+        {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
+            enough that the constraint list/table don't wrap without overshooting. */}
+        <div style={{ flex: 5, position: "relative" }}>
           {viewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (
@@ -976,17 +998,35 @@ export default function App() {
               position: absolute;
               top: 10px;
               left: 10px;
-              padding: 3px 8px;
-              background: rgba(15, 18, 23, 0.85);
+              padding: 5px 10px;
+              background: var(--bg-glass);
               border: 1px solid var(--border);
-              border-radius: 3px;
-              color: var(--text-secondary);
-              font-family: 'Barlow Condensed', sans-serif;
-              font-size: 10px;
-              letter-spacing: 0.08em;
-              text-transform: uppercase;
+              border-radius: 4px;
+              display: flex;
+              flex-direction: column;
+              gap: 1px;
+              /* Click-through except on the stat chips (which carry tooltips). */
               pointer-events: none;
             }
+            .pane-badge__title {
+              font-family: var(--font-label);
+              font-weight: 600;
+              font-size: var(--fs-md);
+              letter-spacing: var(--track-label);
+              color: var(--text-primary);
+            }
+            .pane-badge__meta {
+              display: flex;
+              gap: 10px;
+              font-family: var(--font-label);
+              font-weight: var(--fw-label);
+              font-size: var(--fs-body);
+              letter-spacing: var(--track-label);
+              color: var(--text-secondary);
+            }
+            .pane-badge__stat { pointer-events: auto; cursor: help; }
+            .pane-badge__key { color: var(--text-muted); }
+            .pane-badge__stat b { color: var(--text-primary); font-weight: 600; }
           `}</style>
         </div>
 
@@ -1008,24 +1048,18 @@ export default function App() {
         />
       </div>
 
-      {/* Bottom scrubber */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          background: "var(--bg-panel)",
-          borderTop: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            padding: "0 12px",
-            display: "flex",
-            alignItems: "center",
-            borderRight: "1px solid var(--border)",
-          }}
-        >
+      {/* Bottom scrubber: Load Window picker sits in the scrubber's left column,
+          above the transport controls. */}
+      <PlaybackScrubber
+        timestamps={timestamps}
+        currentIndex={currentIndex}
+        onIndexChange={setCurrentIndex}
+        loading={loading}
+        sparkSeries={sparkSeries}
+        eventLabel={
+          CURATED_EVENTS.find((e) => e.id === activeEventId)?.label ?? null
+        }
+        leftSlot={
           <DateRangePicker
             onLoad={handleCustomLoadWindow}
             onSelectEvent={handleSelectEvent}
@@ -1033,20 +1067,8 @@ export default function App() {
             activeEventId={activeEventId}
             loading={loading}
           />
-        </div>
-        <div style={{ flex: 1 }}>
-          <PlaybackScrubber
-            timestamps={timestamps}
-            currentIndex={currentIndex}
-            onIndexChange={setCurrentIndex}
-            loading={loading}
-            sparkSeries={sparkSeries}
-            eventLabel={
-              CURATED_EVENTS.find((e) => e.id === activeEventId)?.label ?? null
-            }
-          />
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }

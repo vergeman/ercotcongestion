@@ -68,12 +68,7 @@ export default function DateRangePicker({
 
   return (
     <div className="drp">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{ fontFamily: "var(--text-mono)", fontSize: 11 }}
-      >
-        📅 Load Window
-      </button>
+      <button onClick={() => setOpen((o) => !o)}>📅 Load Window</button>
 
       {open && (
         <div className="drp__dropdown">
@@ -175,7 +170,7 @@ export default function DateRangePicker({
           width: 100%;
           text-align: left;
           padding: 6px 8px;
-          font-size: 12px;
+          font-size: 13px;
           line-height: 1.3;
           border: 1px solid transparent;
           background: var(--bg-surface);
@@ -189,19 +184,19 @@ export default function DateRangePicker({
           border-color: var(--accent);
         }
         .drp__event-label {
-          font-family: 'Barlow Condensed', sans-serif;
+          font-family: var(--font-label);
           font-weight: 600;
-          font-size: 12px;
-          letter-spacing: 0.04em;
+          font-size: 13px;
+          letter-spacing: normal;
           color: var(--text-primary);
         }
         .drp__event.active .drp__event-label { color: var(--accent); }
         .drp__event-desc {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-secondary);
           margin-top: 2px;
           font-weight: 400;
-          font-family: 'Barlow', sans-serif;
+          font-family: var(--font-sans);
           letter-spacing: 0;
           text-transform: none;
         }
@@ -222,7 +217,7 @@ export default function DateRangePicker({
           background: var(--bg-surface);
           border: 1px solid var(--border);
           color: var(--text-primary);
-          font-size: 11px;
+          font-size: 12px;
           font-family: var(--text-mono);
           padding: 4px 6px;
           border-radius: 3px;

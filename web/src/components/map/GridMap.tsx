@@ -4,7 +4,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   SpRow,
   Palette,
-  ConstraintGeo,
   ConstraintReach,
   MapOverview,
 } from "../../api/types";
@@ -17,95 +16,25 @@ import {
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
+import { cssVar, onThemeChange } from "../../lib/theme";
 
-// Constraint-overlay identity hue (violet). Distinct from the node palettes
-// (diverging blue/cream/red congestion; blue/orange LMP) so the SF-structure
-// layer never reads as a node value. Marker size — not color — encodes
-// magnitude (max |SF|); a highlighted driver gets the bright ring + full fill.
-const CONSTRAINT_FILL = "rgba(167, 139, 250, 0.55)"; // #a78bfa @ 0.55
-const CONSTRAINT_FILL_HI = "rgba(167, 139, 250, 0.95)";
-const CONSTRAINT_STROKE = "#c4b5fd";
-const CONSTRAINT_R_MIN = 4;
-const CONSTRAINT_R_MAX = 20;
-
-// Low-confidence styling: a muted slate, distinct from the violet, so a
-// weakly-fit constraint reads as "located but don't trust its geometry". Low
-// confidence is a *shape* verdict, not an hour count (docs/ERCOT_constraints.md
-// §4): the artifact is the ridge clamp — several nodes co-equal at the ±1 cap,
-// or a lone rail with no graded body beneath it. A single rail atop a real body
-// (a radial resource) or any unclipped graded SF is NOT low-confidence, even if
-// it bound only briefly. binding_hours is a separate "thin support" annotation.
-const CONSTRAINT_FILL_LOW = "rgba(148, 163, 184, 0.35)"; // slate-400 muted
-const CONSTRAINT_STROKE_LOW = "#94a3b8";
-const RAIL_MULTI = 2;      // >= this many nodes at the cap = clamp artifact
-const BODY_FLOOR = 0.1;    // a rail with peak_offrail below this has no real body
-const THIN_HOURS = 50;     // annotation threshold, not a verdict
-
-function isLowConfidence(c: ConstraintGeo): boolean {
-  const nRail = c.n_rail ?? 0;
-  if (nRail >= RAIL_MULTI) return true;
-  // A single rail is only suspect when nothing graded sits beneath it (an
-  // isolated spike straight to the noise floor). A rail atop a real body is a
-  // radial resource — trustworthy.
-  return nRail >= 1 && (c.peak_offrail == null || c.peak_offrail < BODY_FLOOR);
-}
-
-// Thin support is a caveat, not a disqualifier — clean-but-brief constraints
-// bind < THIN_HOURS yet have smooth, unclipped SF (docs §4).
-function isThinSupport(c: ConstraintGeo): boolean {
-  return c.binding_hours != null && c.binding_hours < THIN_HOURS;
-}
-
-// Build the overlay FeatureCollection, baking a per-feature radius from
-// max_abs_sf. Radius ∝ √value so circle *area* is proportional to magnitude
-// (Steven's-law-honest area encoding), normalized to the window's own max.
-function buildConstraintFC(
-  constraints: ConstraintGeo[]
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  const withGeo = constraints.filter((c) => c.lat != null && c.lon != null);
-  const maxVal = withGeo.reduce(
-    (m, c) => Math.max(m, c.max_abs_sf ?? 0),
-    1e-9
-  );
+// Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
+// paint properties cannot take var(), so the values are read out of the computed
+// root style and re-applied whenever the theme flips (see the effect below).
+function chromeColors() {
   return {
-    type: "FeatureCollection",
-    features: withGeo.map((c) => {
-      const v = Math.max(0, c.max_abs_sf ?? 0);
-      const r =
-        CONSTRAINT_R_MIN +
-        (CONSTRAINT_R_MAX - CONSTRAINT_R_MIN) * Math.sqrt(v / maxVal);
-      return {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [c.lon as number, c.lat as number] },
-        properties: {
-          constraint_key: c.constraint_key,
-          r,
-          max_abs_sf: c.max_abs_sf,
-          binding_hours: c.binding_hours,
-          zone_label: topZoneLabel(c.zone_shares),
-          low_conf: isLowConfidence(c),
-          thin: isThinSupport(c),
-        },
-      };
-    }),
+    label: cssVar("--map-label"),
+    halo: cssVar("--map-halo"),
+    outline: cssVar("--map-outline"),
+    outlineFill: cssVar("--map-outline-fill"),
+    nodeNull: cssVar("--map-node-null"),
+    nodeHover: cssVar("--map-node-hover"),
+    accent: cssVar("--accent"),
+    // Reach-corridor stroke for the dipole arc. The flat centroid "constraint
+    // pile" overlay was retired in favor of OverviewOverlay (MST corridors +
+    // GTC metaballs + radial points); this hue survives only for that arc.
+    constraint: cssVar("--violet"),
   };
-}
-
-// The dominant zone share, for the hover tooltip ("STH 62%").
-function topZoneLabel(
-  shares: Record<string, number> | null | undefined
-): string {
-  if (!shares) return "—";
-  let bestZone = "";
-  let bestShare = 0;
-  for (const [z, s] of Object.entries(shares)) {
-    if (s > bestShare) {
-      bestShare = s;
-      bestZone = z;
-    }
-  }
-  if (!bestZone) return "—";
-  return `${bestZone} ${Math.round(bestShare * 100)}%`;
 }
 
 // The reach dipole's axis: an arc from the export end (negative-SF nodes) to
@@ -201,18 +130,14 @@ interface Props {
   onSpClick: (spId: string, props: Record<string, unknown>) => void;
   onMapClick: () => void;
   selectedSpId: string | null;
-  // Constraint overlay (SF structure). `constraints` null → layer absent;
-  // `showConstraints` toggles visibility. Passed only to the pane that owns
-  // the overlay (the left/prediction map). `highlightedConstraints` glows the
-  // drivers of the clicked node; hover/click surface the layer's interactions.
-  constraints?: ConstraintGeo[] | null;
+  // `showConstraints` toggles the constraint layer's visibility (the header's
+  // constraints toggle). Passed only to the pane that owns the overlay (the
+  // left/prediction map).
   showConstraints?: boolean;
-  highlightedConstraints?: Set<string>;
-  onConstraintHover?: (props: Record<string, unknown> | null) => void;
-  onConstraintClick?: (constraintKey: string) => void;
-  // The de-piled overview (SF cores + type). When present it REPLACES the flat
-  // centroid overlay: the native constraint-markers layer is torn down and the
-  // SVG OverviewOverlay draws each constraint at its |SF|² core instead.
+  // The de-piled overview (SF cores + type) — the sole constraint presentation.
+  // The SVG OverviewOverlay draws each constraint at its |SF|² core (MST
+  // corridors, GTC metaballs, radial points). The old flat centroid marker pile
+  // (/map/constraints) it replaced has been retired.
   overview?: MapOverview | null;
   // Synced isolation (plan/0103 Group 4). `isolatedConstraint` is a constraint the
   // side-panel is hovering — it isolates that mark on the overview. `onIsolateConstraint`
@@ -254,11 +179,7 @@ export default function GridMap({
   onSpClick,
   onMapClick,
   selectedSpId,
-  constraints,
   showConstraints = true,
-  highlightedConstraints,
-  onConstraintHover,
-  onConstraintClick,
   reach,
   overview,
   isolatedConstraint = null,
@@ -288,18 +209,14 @@ export default function GridMap({
     onSpHover,
     onSpClick,
     onMapClick,
-    onConstraintHover,
-    onConstraintClick,
   });
   useEffect(() => {
     callbacksRef.current = {
       onSpHover,
       onSpClick,
       onMapClick,
-      onConstraintHover,
-      onConstraintClick,
     };
-  }, [onSpHover, onSpClick, onMapClick, onConstraintHover, onConstraintClick]);
+  }, [onSpHover, onSpClick, onMapClick]);
 
   // Initialize map once
   useEffect(() => {
@@ -343,6 +260,45 @@ export default function GridMap({
     };
   }, []);
 
+  // Repaint map chrome when the theme flips. CSS custom properties cascade to
+  // stylesheet rules on their own, but maplibre paint properties are baked in at
+  // addLayer() time, so every --map-* dependent value has to be pushed again.
+  // Data colors are untouched: lib/colors.ts anchors are shared across themes.
+  useEffect(() => {
+    return onThemeChange(() => {
+      const map = mapRef.current;
+      if (!map || !map.isStyleLoaded()) return;
+      const c = chromeColors();
+
+      // Layers are added conditionally (constraints overlay, reach arc), so
+      // guard each one rather than assuming the full set exists.
+      const set = (layer: string, prop: string, value: unknown) => {
+        if (map.getLayer(layer)) map.setPaintProperty(layer, prop, value);
+      };
+
+      set("texas-fill", "fill-color", c.outlineFill);
+      set("texas-line", "line-color", c.outline);
+      set("city-labels", "text-color", c.label);
+      set("city-labels", "text-halo-color", c.halo);
+      set("reach-corridor", "line-color", c.constraint);
+      set("sps", "circle-stroke-color", [
+        "case",
+        ["boolean", ["feature-state", "selected"], false],
+        c.nodeHover,
+        ["boolean", ["feature-state", "ringed"], false],
+        c.nodeHover,
+        c.accent,
+      ]);
+      // The null-data fallback is the second branch of the circle-color case.
+      set("sps", "circle-color", [
+        "case",
+        ["!=", ["feature-state", "color"], null],
+        ["feature-state", "color"],
+        c.nodeNull,
+      ]);
+    });
+  }, []);
+
   // Load settlement points as a source + base layers
   useEffect(() => {
     const map = mapRef.current;
@@ -356,6 +312,35 @@ export default function GridMap({
           type: "geojson",
           data: fc,
           promoteId: "sp_id",
+        });
+      }
+
+      const chrome = chromeColors();
+
+      // Texas state boundary. The map has no basemap, so this is the only
+      // geographic reference besides the city labels; it is drawn first and
+      // therefore sits beneath everything else.
+      if (!map.getSource("texas")) {
+        map.addSource("texas", { type: "geojson", data: "/texas.geojson" });
+      }
+      if (!map.getLayer("texas-fill")) {
+        map.addLayer({
+          id: "texas-fill",
+          type: "fill",
+          source: "texas",
+          paint: { "fill-color": chrome.outlineFill },
+        });
+      }
+      if (!map.getLayer("texas-line")) {
+        map.addLayer({
+          id: "texas-line",
+          type: "line",
+          source: "texas",
+          layout: { "line-join": "round" },
+          paint: {
+            "line-color": chrome.outline,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 8, 1.4, 12, 2],
+          },
         });
       }
 
@@ -378,8 +363,8 @@ export default function GridMap({
             "text-transform": "uppercase",
           },
           paint: {
-            "text-color": "#5b6b7f",
-            "text-halo-color": "#0a0d12",
+            "text-color": chrome.label,
+            "text-halo-color": chrome.halo,
             "text-halo-width": 1.2,
             "text-opacity": 0.75,
           },
@@ -397,7 +382,7 @@ export default function GridMap({
               "case",
               ["!=", ["feature-state", "color"], null],
               ["feature-state", "color"],
-              "#1a4731",
+              chrome.nodeNull,
             ],
             // Faded feature-state dims nodes outside a constraint's reach.
             "circle-opacity": [
@@ -417,9 +402,11 @@ export default function GridMap({
               12,
               7,
             ],
-            // Selected = a distinct, persistent white ring (thicker than hover)
-            // so the active click stays visible until another node is selected
-            // or the selection is cleared. Hover keeps the sky-blue ring.
+            // Selected = a distinct, persistent high-contrast ring (thicker than
+            // hover) so the active click stays visible until another node is
+            // selected or the selection is cleared. Hover keeps the sky-blue
+            // ring. The ring color inverts with the theme -- white over the dark
+            // ground, near-black over the light one.
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
@@ -434,10 +421,10 @@ export default function GridMap({
             "circle-stroke-color": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
-              "#ffffff",
+              chrome.nodeHover,
               ["boolean", ["feature-state", "ringed"], false],
-              "#ffffff",
-              "#38bdf8",
+              chrome.nodeHover,
+              chrome.accent,
             ],
             // The ring must read even over a faded (non-member) node.
             "circle-stroke-opacity": 1,
@@ -627,185 +614,6 @@ export default function GridMap({
     prevRingedRef.current = ringedSpId ?? null;
   }, [ringedSpId, sourcesReady]);
 
-  // Constraint overlay: markers at each centroid, sized by max |SF|, drawn
-  // above the SP circles. Only mounts when `constraints` is passed (the pane
-  // that owns the overlay); a null/empty list tears the layer back down.
-  const overlayBoundRef = useRef(false);
-  const prevHighlightRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !sourcesReady) return;
-
-    const apply = () => {
-      // The overview REPLACES the centroid overlay: when it's present, tear the
-      // native constraint-markers layer down and let OverviewOverlay draw cores.
-      const hasData = !!constraints && constraints.length > 0 && !overview;
-
-      if (!hasData) {
-        if (map.getLayer("constraint-markers"))
-          map.removeLayer("constraint-markers");
-        if (map.getSource("constraints")) map.removeSource("constraints");
-        overlayBoundRef.current = false;
-        return;
-      }
-
-      const fc = buildConstraintFC(constraints as ConstraintGeo[]);
-
-      const src = map.getSource("constraints") as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      if (src) {
-        src.setData(fc);
-      } else {
-        map.addSource("constraints", {
-          type: "geojson",
-          data: fc,
-          promoteId: "constraint_key",
-        });
-      }
-
-      if (!map.getLayer("constraint-markers")) {
-        map.addLayer({
-          id: "constraint-markers",
-          type: "circle",
-          source: "constraints",
-          paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              ["*", ["get", "r"], 0.55],
-              10,
-              ["get", "r"],
-            ],
-            "circle-color": [
-              "case",
-              ["boolean", ["feature-state", "highlighted"], false],
-              CONSTRAINT_FILL_HI,
-              ["boolean", ["get", "low_conf"], false],
-              CONSTRAINT_FILL_LOW,
-              CONSTRAINT_FILL,
-            ],
-            "circle-stroke-color": [
-              "case",
-              ["boolean", ["get", "low_conf"], false],
-              CONSTRAINT_STROKE_LOW,
-              CONSTRAINT_STROKE,
-            ],
-            "circle-stroke-width": [
-              "case",
-              ["boolean", ["feature-state", "highlighted"], false],
-              2.5,
-              ["boolean", ["feature-state", "hovered"], false],
-              1.5,
-              0.75,
-            ],
-            "circle-stroke-opacity": 0.9,
-          },
-        });
-      }
-
-      // Bind hover/click once per layer instance.
-      if (!overlayBoundRef.current) {
-        let hoveredId: string | null = null;
-        const setHover = (id: string | null, on: boolean) => {
-          if (id == null) return;
-          map.setFeatureState(
-            { source: "constraints", id },
-            { hovered: on }
-          );
-        };
-        map.on("mousemove", "constraint-markers", (e) => {
-          if (!e.features?.length) return;
-          map.getCanvas().style.cursor = "pointer";
-          const props = e.features[0].properties as Record<string, unknown>;
-          const id = props.constraint_key as string;
-          if (hoveredId !== id) {
-            setHover(hoveredId, false);
-            hoveredId = id;
-            setHover(hoveredId, true);
-          }
-          callbacksRef.current.onConstraintHover?.(props);
-          tooltipRef.current
-            ?.setLngLat(e.lngLat)
-            .setHTML(
-              `<div class="tip-id tip-id--constraint">${props.constraint_key}</div>
-               <div class="tip-zone">${props.zone_label ?? "—"} · ${
-                props.binding_hours ?? "—"
-              } binding h</div>${
-                props.low_conf
-                  ? `<div class="tip-lowconf">⚠ low confidence — ridge clamp</div>`
-                  : props.thin
-                  ? `<div class="tip-thin">thin support — few binding hours</div>`
-                  : ""
-              }`
-            )
-            .addTo(map);
-        });
-        map.on("mouseleave", "constraint-markers", () => {
-          map.getCanvas().style.cursor = "";
-          setHover(hoveredId, false);
-          hoveredId = null;
-          callbacksRef.current.onConstraintHover?.(null);
-          tooltipRef.current?.remove();
-        });
-        map.on("click", "constraint-markers", (e) => {
-          if (!e.features?.length) return;
-          e.preventDefault?.();
-          const props = e.features[0].properties as Record<string, unknown>;
-          callbacksRef.current.onConstraintClick?.(
-            props.constraint_key as string
-          );
-        });
-        overlayBoundRef.current = true;
-      }
-
-      // Visibility toggle.
-      map.setLayoutProperty(
-        "constraint-markers",
-        "visibility",
-        showConstraints ? "visible" : "none"
-      );
-
-      // While a constraint is pinned (reach mode), fade the overlay hard so its
-      // bubbles stop hiding the nodes lighting up beneath them — otherwise most
-      // clicks land under a marker and the reach is invisible. The layer stays
-      // present (faintly) so you can still hop between constraints.
-      const dimmed = !!reach;
-      map.setPaintProperty(
-        "constraint-markers",
-        "circle-opacity",
-        dimmed ? 0.1 : 1
-      );
-      map.setPaintProperty(
-        "constraint-markers",
-        "circle-stroke-opacity",
-        dimmed ? 0.12 : 0.9
-      );
-
-      // Highlight the clicked node's drivers (Commit C wires the source).
-      const next = highlightedConstraints ?? new Set<string>();
-      for (const id of prevHighlightRef.current) {
-        if (!next.has(id))
-          map.setFeatureState(
-            { source: "constraints", id },
-            { highlighted: false }
-          );
-      }
-      for (const id of next) {
-        map.setFeatureState(
-          { source: "constraints", id },
-          { highlighted: true }
-        );
-      }
-      prevHighlightRef.current = next;
-    };
-
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
-  }, [constraints, showConstraints, highlightedConstraints, reach, overview, sourcesReady]);
-
   // Reach corridor arc: the dipole axis between the constraint's export- and
   // import-end centroids. Drawn beneath the SP circles so it reads as ground,
   // not a marker. Absent reach (or a one-sided reach) tears the arc down.
@@ -840,7 +648,7 @@ export default function GridMap({
             source: "reach-corridor",
             layout: { "line-cap": "round" },
             paint: {
-              "line-color": CONSTRAINT_STROKE,
+              "line-color": chromeColors().constraint,
               "line-width": 1.6,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
@@ -872,34 +680,40 @@ export default function GridMap({
       </div>
       <style>{`
         .maplibregl-ctrl-group {
-          background: #0f1217 !important;
-          border: 1px solid #252d3a !important;
+          background: var(--bg-panel) !important;
+          border: 1px solid var(--border) !important;
         }
         .maplibregl-ctrl-group button {
           background: transparent !important;
           border: none !important;
           padding: 0 !important;
         }
+        /* maplibre ships black control glyphs, so the dark theme inverts them.
+           Light must NOT invert, or the icons go white-on-white. */
         .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
         .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: invert(1) opacity(0.6);
         }
+        :root[data-theme='light'] .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+        :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+          filter: opacity(0.65);
+        }
         .grid-tooltip .maplibregl-popup-content {
-          background: #0f1217;
-          border: 1px solid #252d3a;
+          background: var(--bg-panel);
+          border: 1px solid var(--border);
           border-radius: 4px;
           padding: 6px 10px;
-          color: #e2e8f0;
-          font-family: 'Space Mono', monospace;
-          font-size: 11px;
+          color: var(--text-primary);
+          font-family: var(--font-mono);
+          font-size: var(--fs-body);
           pointer-events: none;
         }
         .grid-tooltip .maplibregl-popup-tip { display: none; }
-        .tip-id { color: #38bdf8; font-size: 11px; }
-        .tip-id--constraint { color: #c4b5fd; }
-        .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
-        .tip-lowconf { color: #94a3b8; font-size: 10px; margin-top: 3px; }
-        .tip-thin { color: #a8a29e; font-size: 10px; margin-top: 3px; }
+        .tip-id { color: var(--accent); font-size: var(--fs-body); }
+        .tip-id--constraint { color: var(--violet); }
+        .tip-zone { color: var(--text-secondary); font-size: var(--fs-label); margin-top: 2px; }
+        .tip-lowconf { color: var(--text-dim); font-size: var(--fs-label); margin-top: 3px; }
+        .tip-thin { color: var(--text-faint); font-size: var(--fs-label); margin-top: 3px; }
       `}</style>
     </>
   );

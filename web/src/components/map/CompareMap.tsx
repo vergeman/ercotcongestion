@@ -2,8 +2,7 @@ interface Props {
   // Left pane — model side, colored per the active palette.
   main: React.ReactNode;
   // Right pane — ERCOT counterpart. Content varies by palette (SP-level
-  // ERCOT congestion for MC, SP-level SPP for LMP, empty for binding
-  // proximity since ERCOT has no comparable published quantity).
+  // ERCOT congestion for MC, SP-level SPP for LMP).
   right: React.ReactNode;
 }
 

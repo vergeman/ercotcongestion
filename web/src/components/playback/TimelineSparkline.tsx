@@ -21,8 +21,11 @@ const PAD_BOTTOM = 4; // px space at bottom of viewBox
 // Colors — match the rest of the app (yellow=‖modeled congestion‖, pink=binding).
 const MC_ABS_COLOR = "#eab308";
 const BINDING_COLOR = "#ec4899";
-const CURSOR_COLOR = "#38bdf8";
-const BASELINE_COLOR = "#252d3a";
+// Chrome, not data — routed through the theme tokens. These are applied via the
+// `style` prop rather than the `stroke` attribute, because SVG presentation
+// attributes do not parse var().
+const CURSOR_COLOR = "var(--accent)";
+const BASELINE_COLOR = "var(--border)";
 
 export default function TimelineSparkline({
   series,
@@ -162,7 +165,7 @@ export default function TimelineSparkline({
           y1={100 - PAD_BOTTOM}
           x2={VIEW_W}
           y2={100 - PAD_BOTTOM}
-          stroke={BASELINE_COLOR}
+          style={{ stroke: BASELINE_COLOR }}
           strokeWidth={0.5}
           vectorEffect="non-scaling-stroke"
         />
@@ -192,7 +195,7 @@ export default function TimelineSparkline({
           y1={0}
           x2={cursorX}
           y2={100}
-          stroke={CURSOR_COLOR}
+          style={{ stroke: CURSOR_COLOR }}
           strokeWidth={1}
           strokeDasharray="2 2"
           vectorEffect="non-scaling-stroke"
@@ -212,9 +215,9 @@ export default function TimelineSparkline({
           display: flex;
           justify-content: flex-end;
           gap: 10px;
-          font-size: 9px;
-          color: var(--text-muted, #64748b);
-          font-family: var(--text-mono, monospace);
+          font-size: var(--fs-micro);
+          color: var(--text-muted);
+          font-family: var(--font-mono);
           line-height: 1;
           margin-bottom: 2px;
         }
