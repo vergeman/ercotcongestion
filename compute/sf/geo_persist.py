@@ -167,8 +167,9 @@ def main(argv: list[str] | None = None) -> int:
             geo = _window_geo(SF, sp, Mw)
             n = copy_constraint_geo_rows(conn, args.run_id, window_start, geo)
             total += n
-            log.info("window %s: %d constraints, %d located",
-                     pd.Timestamp(window_start).date(), n,
+            log.info("window=[%s,%s): %d constraints, %d located",
+                     pd.Timestamp(window_start).date(),
+                     pd.Timestamp(window_end).date(), n,
                      int(geo["lat"].notna().sum()))
         conn.commit()
 

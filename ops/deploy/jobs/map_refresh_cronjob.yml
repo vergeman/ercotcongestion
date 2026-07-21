@@ -130,3 +130,15 @@ spec:
                 limits:
                   cpu: "6"
                   memory: "16Gi"
+              # Persist the run's SF/geo/eval artifacts (runs/<run-id>/sf, eval.csv)
+              # to the shared PVC rather than the pod's ephemeral fs. Read-write:
+              # weekly_map/eval write here. The authoritative SF still lands in the
+              # DB; this keeps the on-disk artifacts across runs and co-located with
+              # the mu pool the forecast reads.
+              volumeMounts:
+                - name: runs
+                  mountPath: /compute/runs
+          volumes:
+            - name: runs
+              persistentVolumeClaim:
+                claimName: compute-runs

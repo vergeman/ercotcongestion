@@ -55,8 +55,8 @@ spec:
           # stage is skipped if the first errors out hard.
           args:
             - |
-              python /ercot_ingest/backfill.py           --start 2024-05-01 --end 2026-07-20 --resume &&
-              python /ercot_ingest/backfill_dam_close.py --start 2024-05-01 --end 2026-07-20 --resume
+              python /ercot_ingest/backfill.py           --start 2024-04-15 --end 2024-05-01 --resume &&
+              python /ercot_ingest/backfill_dam_close.py --start 2024-04-15 --end 2024-05-01 --resume
           envFrom:
             - configMapRef:
                 name: api-config

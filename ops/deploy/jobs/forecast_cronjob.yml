@@ -102,3 +102,16 @@ spec:
                 limits:
                   cpu: "6"
                   memory: "16Gi"
+              # The mu residual pool (mu_preds.npz) is read per run_id from this
+              # PVC instead of the image-baked compute/mu copy, so refreshing the
+              # pool no longer needs an image rebuild. Read-only: the daily tick
+              # reads the pool and writes only to the DB (no --npz-dir here). Drop
+              # readOnly if a run ever needs --npz-dir onto this PVC.
+              volumeMounts:
+                - name: runs
+                  mountPath: /compute/runs
+                  readOnly: true
+          volumes:
+            - name: runs
+              persistentVolumeClaim:
+                claimName: compute-runs
