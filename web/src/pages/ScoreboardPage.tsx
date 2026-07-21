@@ -141,7 +141,9 @@ function SeriesChart({
   const allVals = seriesVals.flatMap((s) => s.vals.filter((v): v is number => v != null));
   const [dMin, dMax] = meta.domain(allVals);
 
-  const M = { t: 14, r: 68, b: 22, l: 42 };
+  // Right margin holds the direct end-labels (Persistence / Climatology ≈ 80px
+  // at the 11px label face) — keep it wide enough that they don't clip.
+  const M = { t: 14, r: 116, b: 22, l: 42 };
   const H = 280;
   const plotW = Math.max(1, width - M.l - M.r);
   const plotH = H - M.t - M.b;
@@ -394,7 +396,6 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
           </div>
         );
       })}
-      <div className="sb-tiles__note label">rolling {win.window_days}d · {win.weeks} wk</div>
     </div>
   );
 }
@@ -473,13 +474,37 @@ export default function ScoreboardPage() {
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
 
+  // The rolling window the headline tiles summarize (same pick as HeadlineTiles):
+  // surfaced in the topbar so the tiles aren't captioned by a stray note.
+  const headlineWin =
+    headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
+
   return (
     <div className="sb-page">
       <header className="sb-topbar">
         <HeaderNav active="scoreboard" />
         <div className="sb-meta">
-          <span className="sb-meta__label label">Backtest run</span>
+          <span
+            className="sb-meta__label label"
+            title="The model run whose backtest is scored on this page."
+          >
+            Backtest run
+          </span>
           <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
+          {headlineWin && (
+            <>
+              <span className="sb-meta__sep">·</span>
+              <span
+                className="sb-meta__label label"
+                title="The rolling window the headline tiles average over: the most recent graded weeks of the backtest. The week count changes with the regime filter."
+              >
+                Window
+              </span>
+              <span className="sb-meta__val">
+                rolling {headlineWin.window_days}d · {headlineWin.weeks} wk
+              </span>
+            </>
+          )}
         </div>
         <select className="sb-regime" value={regime} onChange={(e) => setRegime(e.target.value)}>
           {REGIMES.map((r) => (
@@ -564,12 +589,13 @@ export default function ScoreboardPage() {
           align-items: baseline;
           gap: 6px;
         }
-        .sb-meta__label { color: var(--text-muted); }
+        .sb-meta__label { color: var(--text-muted); cursor: help; }
         .sb-meta__val {
           font-family: var(--font-mono);
           font-size: 12px;
           color: var(--text-secondary);
         }
+        .sb-meta__sep { color: var(--border-bright); }
         .sb-regime {
           background: var(--bg-surface); color: var(--text-primary);
           border: 1px solid var(--border); border-radius: 3px;
@@ -595,7 +621,6 @@ export default function ScoreboardPage() {
         .sb-delta[data-good="true"] { color: var(--ok); }
         .sb-delta[data-good="false"] { color: var(--danger); }
         .sb-ceiling { color: var(--text-secondary); }
-        .sb-tiles__note { align-self: flex-end; color: var(--text-muted); padding-bottom: 4px; }
 
         .sb-controls { display: flex; align-items: center; gap: 14px; padding: 10px 16px 6px; flex-wrap: wrap; }
         .sb-metric-group { display: flex; gap: 4px; }
@@ -628,10 +653,10 @@ export default function ScoreboardPage() {
 
         .sb-section-h { padding: 14px 16px 6px; }
         .sb-splits { padding: 0 16px; overflow-x: auto; }
-        .sb-split-grid { display: inline-grid; grid-template-columns: minmax(120px, 160px) repeat(4, 82px); column-gap: 18px; row-gap: 6px; align-items: baseline; padding-right: 24px; }
-        .sb-h { font-size: 10px; font-family: var(--font-label); letter-spacing: var(--track-label); color: var(--text-muted); text-align: right; }
-        .sb-cat { text-align: left; }
-        .sb-v { font-size: 14px; text-align: right; color: var(--text-secondary); }
+        .sb-split-grid { display: inline-grid; grid-template-columns: minmax(180px, 260px) repeat(4, 108px); column-gap: 28px; row-gap: 10px; align-items: baseline; padding-right: 24px; }
+        .sb-h { font-size: 12px; font-family: var(--font-label); letter-spacing: var(--track-label); color: var(--text-muted); text-align: right; }
+        .sb-cat { text-align: left; font-size: 13px; }
+        .sb-v { font-size: 16px; text-align: right; color: var(--text-secondary); }
         .sb-v[data-lead="true"] { color: var(--text-primary); font-weight: 700; }
         .sb-v--ceiling { color: var(--text-muted); }
       `}</style>
