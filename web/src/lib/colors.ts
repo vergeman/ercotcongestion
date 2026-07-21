@@ -1,3 +1,20 @@
+// =============================================================================
+// Data palettes.
+// =============================================================================
+//
+// These do NOT flip with the light/dark theme, by design. Every scale here is
+// diverging, so sign is carried by hue (blue↔red, emerald↔magenta) and only the
+// neutral midpoint sits near the ground; the endpoints stay legible on white and
+// on near-black alike. Keeping one set of anchors also means a screenshot reads
+// the same regardless of which theme took it.
+//
+// Map *chrome* — labels, halos, node strokes, the state boundary — does flip,
+// and lives as --map-* tokens in index.css.
+//
+// (The sequential binding-proximity ramp used to live here and could not survive
+// a ground flip, since a sequential scale encodes magnitude as luminance. It was
+// removed with the IBP pipeline; see plan/0097-compute-pipeline-remove-ibp.md.)
+
 // LMP color anchors ($/MWh) — fixed-scale fallback
 //   - negative: oversupply (rare but informative; renewables curtailment)
 //   - mid: nominal market clearing
@@ -321,52 +338,6 @@ export function forecastErrorColor(norm: number): string {
 export const FORECAST_ERROR_GRADIENT_CSS = `linear-gradient(to right, rgb(${ERROR_EMERALD.join(
   ","
 )}), rgb(${ERROR_CREAM.join(",")}), rgb(${ERROR_MAGENTA.join(",")}))`;
-
-// =============================================================================
-// Binding proximity (sequential): |flow| / (s_nom · s_max_pu) per bus
-// =============================================================================
-//
-// Sequential [0, 1] — 0 slack, 1 binding. Fixed anchors; no window stats
-// because proximity is already bounded and dimensionless. γ > 1 darkens the
-// mid range so only 0.9+ ("on the cusp") reads bright.
-
-const PROX_GAMMA = 1.5;
-
-export const BINDING_PROXIMITY_ANCHORS = {
-  low: 0,
-  high: 1.0,
-  ticks: [0, 0.5, 0.9, 1.0] as const,
-  gamma: PROX_GAMMA,
-};
-
-export function normalizeProximity(v: number | null): number {
-  if (v == null || !isFinite(v)) return 0;
-  const clamped = Math.max(0, Math.min(1, v));
-  return Math.pow(clamped, PROX_GAMMA);
-}
-
-// Sequential palette: dim slate → amber → red. Colorblind-safe (avoids the
-// pure green→red diverge; monotonic in luminance from dim to bright).
-const PROX_LOW = [30, 41, 59]; // slate — slack
-const PROX_MID = [234, 179, 8]; // amber — approaching
-const PROX_HIGH = [239, 68, 68]; // red — binding
-
-export function bindingProximityColor(norm: number): string {
-  const t = Math.max(0, Math.min(1, norm));
-  let r: number, g: number, b: number;
-  if (t < 0.5) {
-    const s = t * 2;
-    r = Math.round(PROX_LOW[0] + (PROX_MID[0] - PROX_LOW[0]) * s);
-    g = Math.round(PROX_LOW[1] + (PROX_MID[1] - PROX_LOW[1]) * s);
-    b = Math.round(PROX_LOW[2] + (PROX_MID[2] - PROX_LOW[2]) * s);
-  } else {
-    const s = (t - 0.5) * 2;
-    r = Math.round(PROX_MID[0] + (PROX_HIGH[0] - PROX_MID[0]) * s);
-    g = Math.round(PROX_MID[1] + (PROX_HIGH[1] - PROX_MID[1]) * s);
-    b = Math.round(PROX_MID[2] + (PROX_HIGH[2] - PROX_MID[2]) * s);
-  }
-  return `rgb(${r},${g},${b})`;
-}
 
 // =============================================================================
 // Cluster tag palette

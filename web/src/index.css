@@ -1,56 +1,176 @@
+/* Fonts live in ONE place. Working on the typeface = editing this @import plus
+   the three --font-* tokens below and the .label spec; nothing else in the app
+   names a font family. (The self-hosted Inter/JetBrains vendoring in fonts.css +
+   public/fonts/ is kept for the separate font work, but is intentionally NOT
+   imported here -- this commit is the light/dark theme + token refactor on the
+   original Barlow type.) */
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap');
 
+/* =============================================================================
+   Design tokens
+   =============================================================================
+   Every color the UI paints comes from here. Component <style> blocks reference
+   tokens only -- a hardcoded hex in a component is a bug, because it will not
+   follow the theme.
+
+   Theme resolution (see lib/theme.ts):
+     :root                             -> dark, the default
+     :root[data-theme="light"]         -> light, set explicitly on <html>
+     :root[data-theme="dark"]          -> dark, set explicitly (pins against OS)
+
+   Dark is the base rather than a media-query branch because the app shipped dark
+   and the map's data palettes are still tuned for a dark ground.
+   ========================================================================== */
+
 :root {
-  /* Background layers */
+  /* ---- type ------------------------------------------------------------- */
+  --font-sans: 'Barlow', system-ui, -apple-system, sans-serif;   /* body / values */
+  --font-label: 'Barlow Condensed', var(--font-sans);            /* all-caps labels */
+  --font-mono: 'Space Mono', ui-monospace, 'SF Mono', monospace; /* numbers / ids */
+  /* Kept for backwards compatibility with .mono and older component styles. */
+  --text-mono: var(--font-mono);
+
+  /* Type scale (the token refactor -- a scale that did not exist before; kept as
+     the beneficial part of this branch). Values are the app's ORIGINAL Barlow
+     sizes; the Inter-era "+2px legibility bump" is intentionally NOT applied, so
+     this reads exactly as the pre-branch app did. Absolute px, not rem: the app
+     is a fixed-viewport console that never reflows to a document scale. */
+  --fs-micro: 9px;    /* tiniest eyebrow / table-head labels        */
+  --fs-label: 10px;   /* standard label, secondary meta, legend ticks */
+  --fs-body: 11px;    /* table rows, panel body                     */
+  --fs-md: 12px;      /* buttons, emphasized rows                   */
+  --fs-lg: 13px;      /* section headings                           */
+  --fs-xl: 16px;      /* header brand                               */
+  --fs-display: 26px; /* headline stat                              */
+
+  /* THE label tracking. Every uppercase label references this token; retune all
+     labels from this one line. 0.08em is the app's original Barlow Condensed
+     value. Non-label text (buttons, values, sentences) carries no tracking. */
+  --track-label: 0.08em;
+
+  /* ---- backgrounds ------------------------------------------------------ */
   --bg-base: #0a0c0f;
   --bg-panel: #0f1217;
   --bg-surface: #161b22;
   --bg-hover: #1c222d;
+  /* Floating panels over the map (DetailCard, Legend, overlay popups). */
+  --bg-glass: rgba(15, 18, 23, 0.94);
+  --shadow-panel: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-accent: 0 4px 20px rgba(56, 189, 248, 0.2);
 
-  /* Borders */
+  /* ---- borders ---------------------------------------------------------- */
   --border: #252d3a;
   --border-bright: #2e3a4e;
 
-  /* Text */
+  /* ---- text ------------------------------------------------------------- */
   --text-primary: #e2e8f0;
   --text-secondary: #8899aa;
   --text-muted: #4a5568;
-  --text-mono: 'Space Mono', monospace;
+  --text-dim: #94a3b8;   /* low-confidence / support annotations */
+  --text-faint: #a8a29e; /* thin-sample warnings */
 
-  /* Modeled congestion (diverging blue ↔ cream ↔ red).
-     Matches MC_BLUE / MC_CREAM / MC_RED in lib/colors.ts. */
-  --mc-neg: #3b82f6;
-  --mc-zero: #e8e2d7;
-  --mc-pos: #ef4444;
-  /* Accent hue used by ValidationPanel — separate name so the panel's
-     "critical" chart accent stays semantically distinct from the map's
-     positive-side hue even though the palette shares the crimson. */
-  --mc-accent: #ef4444;
-
-  /* Binding proximity (sequential slate → red). Matches PROX_LOW / PROX_HIGH
-     in lib/colors.ts. */
-  --prox-low: #1e293b;
-  --prox-high: #ef4444;
-
-  /* Accents */
+  /* ---- accents ---------------------------------------------------------- */
   --accent: #38bdf8;
-  --accent-dim: #0e4a6e;
+  --accent-dim: #0e4a6e; /* active-button ground; must contrast with --accent */
   --warn: #f59e0b;
   --danger: #ef4444;
   --ok: #22c55e;
+  --violet: #c4b5fd;     /* constraint reach corridors */
 
-  /* Layout */
+  /* ---- map chrome ------------------------------------------------------- */
+  /* Not data. These are the labels, halos and strokes drawn over the ground,
+     and they are the part of the map that must flip with the theme. The data
+     palettes in lib/colors.ts deliberately do NOT flip -- see that file. */
+  --map-label: #5b6b7f;
+  --map-halo: #0a0d12;
+  --map-outline: #2b3545;              /* Texas state boundary stroke */
+  --map-outline-fill: rgba(255, 255, 255, 0.022);
+  --map-node-hover: #ffffff;           /* selection ring; must beat the ground */
+  --map-node-null: #1a4731;            /* no data for this node */
+  --map-node-idle: #c9d3df;            /* overlay node at rest */
+
+  /* SF overlay constraint types. Unlike the diverging data palettes these are
+     categorical, so hue alone carries the meaning and the luminance is free to
+     follow the ground. The dark values are tuned to glow on near-black and land
+     at 1.9-2.7:1 on white, so light gets its own darker set at the same hues. */
+  --sf-gtc: #e0a83a;          /* region / metaball */
+  --sf-transmission: #a78bfa; /* corridor / MST */
+  --sf-radial: #2dd4bf;       /* single point */
+  --sf-untyped: #94a3b8;      /* located, no type verdict */
+
+  /* ---- layout ----------------------------------------------------------- */
   --panel-w: 320px;
   --header-h: 48px;
   --scrubber-h: 96px;
 
-  font-family: 'Barlow', sans-serif;
+  font-family: var(--font-sans);
+  /* Inherited base for anything that does not set its own size. The app's
+     original value; no rem units are used, so this only affects inheritance. */
   font-size: 14px;
+  color-scheme: dark;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root[data-theme='light'] {
+  --bg-base: #ffffff;
+  --bg-panel: #f4f7fa;
+  --bg-surface: #e9eef5;
+  --bg-hover: #dde5ef;
+  --bg-glass: rgba(255, 255, 255, 0.95);
+  --shadow-panel: 0 4px 20px rgba(15, 23, 42, 0.14);
+  --shadow-accent: 0 4px 20px rgba(6, 115, 168, 0.22);
 
-html, body, #root {
+  --border: #ccd6e2;
+  --border-bright: #a9bbcd;
+
+  --text-primary: #0d1620;
+  --text-secondary: #4f6377;
+  --text-muted: #8496a8;
+  --text-dim: #64748b;
+  --text-faint: #78716c;
+
+  /* Sky darkened from #38bdf8: the original is 1.8:1 on white and unreadable
+     as text. #0673a8 holds ~4.6:1 while staying the same hue. */
+  --accent: #0673a8;
+  --accent-dim: #d6ecf8;
+  --warn: #b45309;
+  --danger: #d92d20;
+  --ok: #15803d;
+  --violet: #7c3aed;
+
+  --map-label: #64748b;
+  --map-halo: #ffffff;
+  --map-outline: #c0cbd9;
+  --map-outline-fill: rgba(15, 23, 42, 0.028);
+  --map-node-hover: #0f172a;
+  --map-node-null: #c7d9cd;
+  --map-node-idle: #46596e;
+
+  /* Same hues, darkened for a white ground: 4.9 / 7.1 / 5.5 / 4.8 : 1. */
+  --sf-gtc: #a16207;
+  --sf-transmission: #6d28d9;
+  --sf-radial: #0f766e;
+  --sf-untyped: #64748b;
+
+  color-scheme: light;
+}
+
+/* Explicit dark pin. Values match :root; kept as its own block so the toggle can
+   force dark even if a future OS-preference branch is added above it. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -58,25 +178,46 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Digits line up in every table and stat tile in this app. */
+.mono,
+table,
+input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
 button {
   cursor: pointer;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
+  font-weight: 500;
   border: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text-primary);
   border-radius: 3px;
   padding: 4px 10px;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-button:hover { background: var(--bg-hover); border-color: var(--border-bright); }
+button:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
+}
 button.active {
   background: var(--accent-dim);
   border-color: var(--accent);
   color: var(--accent);
 }
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
-input[type=range] {
+input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -85,7 +226,7 @@ input[type=range] {
   border-radius: 2px;
   outline: none;
 }
-input[type=range]::-webkit-slider-thumb {
+input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
@@ -95,9 +236,61 @@ input[type=range]::-webkit-slider-thumb {
   border: 2px solid var(--bg-base);
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-panel); }
-::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: 3px;
+}
 
-.mono { font-family: var(--text-mono); }
-.label { font-family: 'Barlow Condensed', sans-serif; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; color: var(--text-secondary); }
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Dense type tier for overlays that float above the map in a fixed-width box
+   (the legend is pinned to BAR_W = 130px, the pane badge sits in a map corner).
+   They cannot reflow, so they keep the original compact sizing instead of the
+   bumped UI scale.
+
+   Redefining the scale tokens on the container rather than restyling each rule
+   means every descendant inherits the dense values automatically -- including
+   the shared .label class, which is what most of the legend is built from. */
+.dense-type {
+  --fs-micro: 9px;
+  --fs-label: 9px;
+  --fs-body: 11px;
+  --fs-md: 11px;
+}
+
+/* THE label. One definition of what an uppercase eyebrow label looks like;
+   every label in the app is this class (or references --track-label), so the
+   treatment can never drift between components again.
+
+   Hard rule: uppercase is a property of the LABEL, never of the content it sits
+   next to. Dynamic values -- run-ids, timestamps, prices -- and full sentences
+   are NEVER given this class; they stay as authored (identifiers in .mono). That
+   is what keeps "forecast mu_all_v1" from rendering as "FORECAST MU_ALL_V1".
+   Barlow Condensed (--font-label) is the label face -- its narrow caps read as
+   UI chrome and pack into tight boxes, which the wide body face cannot. */
+.label {
+  font-family: var(--font-label);
+  font-weight: 500;
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

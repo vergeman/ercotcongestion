@@ -750,6 +750,7 @@ export default function App() {
       ? `${label} · no SPs (rebuild topology cache)`
       : `${label} · ${featCount} SPs · ${lit} lit`;
 
+
   // Shared across both panes. Per-side hover/click handlers are passed
   // separately so each card renders in — and reads — its own pane.
   const paneProps = {
@@ -891,7 +892,7 @@ export default function App() {
         mcStats={errorStats}
         variant="full"
         titleOverride="Congestion Forecast Error · P50 forecast − realized ($/MWh)"
-        signLabels={{ neg: "under-forecast", pos: "over-forecast" }}
+        signLabels={{ neg: "Under-forecast", pos: "Over-forecast" }}
         barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
         paneLabel={errorLabel}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
@@ -953,13 +954,13 @@ export default function App() {
               top: 10px;
               left: 10px;
               padding: 3px 8px;
-              background: rgba(15, 18, 23, 0.85);
+              background: var(--bg-glass);
               border: 1px solid var(--border);
               border-radius: 3px;
               color: var(--text-secondary);
-              font-family: 'Barlow Condensed', sans-serif;
-              font-size: 10px;
-              letter-spacing: 0.08em;
+              font-family: var(--font-label);
+              font-size: var(--fs-label);
+              letter-spacing: var(--track-label);
               text-transform: uppercase;
               pointer-events: none;
             }

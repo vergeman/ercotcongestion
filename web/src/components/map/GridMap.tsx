@@ -16,11 +16,26 @@ import {
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
+import { cssVar, onThemeChange } from "../../lib/theme";
 
-// Reach-corridor stroke (violet #c4b5fd). The flat centroid "constraint pile"
-// overlay was retired in favor of OverviewOverlay (MST corridors + GTC
-// metaballs + radial points); this hue survives only for the dipole arc.
-const CONSTRAINT_STROKE = "#c4b5fd";
+// Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
+// paint properties cannot take var(), so the values are read out of the computed
+// root style and re-applied whenever the theme flips (see the effect below).
+function chromeColors() {
+  return {
+    label: cssVar("--map-label"),
+    halo: cssVar("--map-halo"),
+    outline: cssVar("--map-outline"),
+    outlineFill: cssVar("--map-outline-fill"),
+    nodeNull: cssVar("--map-node-null"),
+    nodeHover: cssVar("--map-node-hover"),
+    accent: cssVar("--accent"),
+    // Reach-corridor stroke for the dipole arc. The flat centroid "constraint
+    // pile" overlay was retired in favor of OverviewOverlay (MST corridors +
+    // GTC metaballs + radial points); this hue survives only for that arc.
+    constraint: cssVar("--violet"),
+  };
+}
 
 // The reach dipole's axis: an arc from the export end (negative-SF nodes) to
 // the import end (positive-SF nodes), each end the |SF|-weighted centroid of
@@ -245,6 +260,45 @@ export default function GridMap({
     };
   }, []);
 
+  // Repaint map chrome when the theme flips. CSS custom properties cascade to
+  // stylesheet rules on their own, but maplibre paint properties are baked in at
+  // addLayer() time, so every --map-* dependent value has to be pushed again.
+  // Data colors are untouched: lib/colors.ts anchors are shared across themes.
+  useEffect(() => {
+    return onThemeChange(() => {
+      const map = mapRef.current;
+      if (!map || !map.isStyleLoaded()) return;
+      const c = chromeColors();
+
+      // Layers are added conditionally (constraints overlay, reach arc), so
+      // guard each one rather than assuming the full set exists.
+      const set = (layer: string, prop: string, value: unknown) => {
+        if (map.getLayer(layer)) map.setPaintProperty(layer, prop, value);
+      };
+
+      set("texas-fill", "fill-color", c.outlineFill);
+      set("texas-line", "line-color", c.outline);
+      set("city-labels", "text-color", c.label);
+      set("city-labels", "text-halo-color", c.halo);
+      set("reach-corridor", "line-color", c.constraint);
+      set("sps", "circle-stroke-color", [
+        "case",
+        ["boolean", ["feature-state", "selected"], false],
+        c.nodeHover,
+        ["boolean", ["feature-state", "ringed"], false],
+        c.nodeHover,
+        c.accent,
+      ]);
+      // The null-data fallback is the second branch of the circle-color case.
+      set("sps", "circle-color", [
+        "case",
+        ["!=", ["feature-state", "color"], null],
+        ["feature-state", "color"],
+        c.nodeNull,
+      ]);
+    });
+  }, []);
+
   // Load settlement points as a source + base layers
   useEffect(() => {
     const map = mapRef.current;
@@ -258,6 +312,35 @@ export default function GridMap({
           type: "geojson",
           data: fc,
           promoteId: "sp_id",
+        });
+      }
+
+      const chrome = chromeColors();
+
+      // Texas state boundary. The map has no basemap, so this is the only
+      // geographic reference besides the city labels; it is drawn first and
+      // therefore sits beneath everything else.
+      if (!map.getSource("texas")) {
+        map.addSource("texas", { type: "geojson", data: "/texas.geojson" });
+      }
+      if (!map.getLayer("texas-fill")) {
+        map.addLayer({
+          id: "texas-fill",
+          type: "fill",
+          source: "texas",
+          paint: { "fill-color": chrome.outlineFill },
+        });
+      }
+      if (!map.getLayer("texas-line")) {
+        map.addLayer({
+          id: "texas-line",
+          type: "line",
+          source: "texas",
+          layout: { "line-join": "round" },
+          paint: {
+            "line-color": chrome.outline,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 8, 1.4, 12, 2],
+          },
         });
       }
 
@@ -280,8 +363,8 @@ export default function GridMap({
             "text-transform": "uppercase",
           },
           paint: {
-            "text-color": "#5b6b7f",
-            "text-halo-color": "#0a0d12",
+            "text-color": chrome.label,
+            "text-halo-color": chrome.halo,
             "text-halo-width": 1.2,
             "text-opacity": 0.75,
           },
@@ -299,7 +382,7 @@ export default function GridMap({
               "case",
               ["!=", ["feature-state", "color"], null],
               ["feature-state", "color"],
-              "#1a4731",
+              chrome.nodeNull,
             ],
             // Faded feature-state dims nodes outside a constraint's reach.
             "circle-opacity": [
@@ -319,9 +402,11 @@ export default function GridMap({
               12,
               7,
             ],
-            // Selected = a distinct, persistent white ring (thicker than hover)
-            // so the active click stays visible until another node is selected
-            // or the selection is cleared. Hover keeps the sky-blue ring.
+            // Selected = a distinct, persistent high-contrast ring (thicker than
+            // hover) so the active click stays visible until another node is
+            // selected or the selection is cleared. Hover keeps the sky-blue
+            // ring. The ring color inverts with the theme -- white over the dark
+            // ground, near-black over the light one.
             "circle-stroke-width": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
@@ -336,10 +421,10 @@ export default function GridMap({
             "circle-stroke-color": [
               "case",
               ["boolean", ["feature-state", "selected"], false],
-              "#ffffff",
+              chrome.nodeHover,
               ["boolean", ["feature-state", "ringed"], false],
-              "#ffffff",
-              "#38bdf8",
+              chrome.nodeHover,
+              chrome.accent,
             ],
             // The ring must read even over a faded (non-member) node.
             "circle-stroke-opacity": 1,
@@ -563,7 +648,7 @@ export default function GridMap({
             source: "reach-corridor",
             layout: { "line-cap": "round" },
             paint: {
-              "line-color": CONSTRAINT_STROKE,
+              "line-color": chromeColors().constraint,
               "line-width": 1.6,
               "line-opacity": 0.5,
               "line-dasharray": [2, 2],
@@ -595,34 +680,40 @@ export default function GridMap({
       </div>
       <style>{`
         .maplibregl-ctrl-group {
-          background: #0f1217 !important;
-          border: 1px solid #252d3a !important;
+          background: var(--bg-panel) !important;
+          border: 1px solid var(--border) !important;
         }
         .maplibregl-ctrl-group button {
           background: transparent !important;
           border: none !important;
           padding: 0 !important;
         }
+        /* maplibre ships black control glyphs, so the dark theme inverts them.
+           Light must NOT invert, or the icons go white-on-white. */
         .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
         .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: invert(1) opacity(0.6);
         }
+        :root[data-theme='light'] .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+        :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+          filter: opacity(0.65);
+        }
         .grid-tooltip .maplibregl-popup-content {
-          background: #0f1217;
-          border: 1px solid #252d3a;
+          background: var(--bg-panel);
+          border: 1px solid var(--border);
           border-radius: 4px;
           padding: 6px 10px;
-          color: #e2e8f0;
-          font-family: 'Space Mono', monospace;
-          font-size: 11px;
+          color: var(--text-primary);
+          font-family: var(--font-mono);
+          font-size: var(--fs-body);
           pointer-events: none;
         }
         .grid-tooltip .maplibregl-popup-tip { display: none; }
-        .tip-id { color: #38bdf8; font-size: 11px; }
-        .tip-id--constraint { color: #c4b5fd; }
-        .tip-zone { color: #8899aa; font-size: 10px; margin-top: 2px; }
-        .tip-lowconf { color: #94a3b8; font-size: 10px; margin-top: 3px; }
-        .tip-thin { color: #a8a29e; font-size: 10px; margin-top: 3px; }
+        .tip-id { color: var(--accent); font-size: var(--fs-body); }
+        .tip-id--constraint { color: var(--violet); }
+        .tip-zone { color: var(--text-secondary); font-size: var(--fs-label); margin-top: 2px; }
+        .tip-lowconf { color: var(--text-dim); font-size: var(--fs-label); margin-top: 3px; }
+        .tip-thin { color: var(--text-faint); font-size: var(--fs-label); margin-top: 3px; }
       `}</style>
     </>
   );

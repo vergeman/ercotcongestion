@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { cssVar, useTheme } from "../../lib/theme";
 import type { SpRow } from "../../api/types";
 import type { Palette } from "../../api/types";
 import {
@@ -45,11 +46,13 @@ interface Props {
 const OVERVIEW_TYPES: {
   label: string;
   mark: "region" | "corridor" | "point";
-  color: string;
+  token: string;
 }[] = [
-  { label: "GTC / interface — region", mark: "region", color: "#e0a83a" },
-  { label: "Transmission — corridor", mark: "corridor", color: "#a78bfa" },
-  { label: "Radial — point", mark: "point", color: "#2dd4bf" },
+  // Theme-aware: resolved per theme via cssVar() so the type key stays legible
+  // on a light ground (the --sf-* tokens carry a darkened light-mode set).
+  { label: "GTC / interface — region", mark: "region", token: "--sf-gtc" },
+  { label: "Transmission — corridor", mark: "corridor", token: "--sf-transmission" },
+  { label: "Radial — point", mark: "point", token: "--sf-radial" },
 ];
 
 function TypeMark({
@@ -99,6 +102,9 @@ export default function Legend({
   constraintOverlay = false,
   overviewTypes = false,
 }: Props) {
+  // Subscribes the legend to theme flips so the cssVar() type-mark lookups below
+  // re-resolve (SVG presentation attributes cannot take var()).
+  useTheme();
   const isCongestion = palette === "congestion";
   const isLmp = palette === "lmp";
   const isOff = palette === "off";
@@ -256,7 +262,7 @@ export default function Legend({
         <div className="legend__types">
           {OVERVIEW_TYPES.map((t) => (
             <div key={t.mark} className="legend__type-row">
-              <TypeMark mark={t.mark} color={t.color} />
+              <TypeMark mark={t.mark} color={cssVar(t.token)} />
               <span className="label legend__type-text">{t.label}</span>
             </div>
           ))}
