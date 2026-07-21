@@ -60,6 +60,11 @@ Branch: fix/0106-web-legend-detailcard-polish
 * These tokens are *categorical fills* on the map (not body text), so the strict 4.5:1 text-contrast constraint that forced the dark set does not apply — the earlier comment reasons about them as text. Keep them readable against `--map-*` grounds; brightness/chroma is the lever, verify against both the overlay marks and the `Legend` type key.
 * Do NOT touch: the dark `:root` `--sf-*` set, or the diverging data palettes in `lib/colors.ts` (those deliberately do not flip with theme).
 
+### Commit E - `fix(web): remove loading FOUTs on PlaybackScrubber and ConstraintPanel`
+
+* `PlaybackScrubber.tsx`: show empty PlaybackScrubber on load.
+* `ConstraintPanel.tsx`: move loading to left of button to avoid vertical shift.
+
 ## Acceptance
 
 <!-- How to verify it's done. Testable, binary conditions. -->
