@@ -29,6 +29,12 @@ interface Props {
   onCloseReach?: () => void;
   // Click a driver row → trace that constraint's reach.
   onSelectConstraint?: (constraintKey: string) => void;
+  // Hover a driver row → isolate that constraint on the map (null on leave).
+  onHoverConstraint?: (constraintKey: string | null) => void;
+  // Hover a reach member node → ring it on the map (null on leave).
+  onHoverMember?: (sp: string | null) => void;
+  // Click a reach member node → load that node's card (leaves reach mode).
+  onSelectMember?: (sp: string) => void;
   // Whether to render the pinned SP's SF-driver section. The actual/ERCOT pane
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
@@ -135,10 +141,12 @@ function ExposuresBody({
   exposures,
   loading,
   onSelectConstraint,
+  onHoverConstraint,
 }: {
   exposures: ExposuresResponse | null;
   loading?: boolean;
   onSelectConstraint?: (c: string) => void;
+  onHoverConstraint?: (c: string | null) => void;
 }) {
   if (!exposures) {
     return (
@@ -167,12 +175,16 @@ function ExposuresBody({
       {exposures.exposures.length === 0 && (
         <div className="dc-drivers-empty label">No binding constraints</div>
       )}
-      <div className="dc-drivers">
+      <div
+        className="dc-drivers"
+        onMouseLeave={() => onHoverConstraint?.(null)}
+      >
         {exposures.exposures.map((e) => (
           <button
             key={e.constraint_key}
             className="dc-driver"
             onClick={() => onSelectConstraint?.(e.constraint_key)}
+            onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
             title={`${e.constraint_key} — trace reach`}
           >
             <SignChip sf={e.sf} />
@@ -192,8 +204,12 @@ function ExposuresBody({
 // export (−) and import (+) ends.
 function ReachBody({
   reach,
+  onHoverMember,
+  onSelectMember,
 }: {
   reach: ConstraintReach;
+  onHoverMember?: (sp: string | null) => void;
+  onSelectMember?: (sp: string) => void;
 }) {
   const exportEnd = reach.sps.filter((s) => s.sf < 0).length;
   const importEnd = reach.sps.filter((s) => s.sf >= 0).length;
@@ -231,13 +247,22 @@ function ReachBody({
       <div className="dc-drivers-title label">
         drives {reach.sps.length} nodes · {exportEnd} export / {importEnd} import
       </div>
-      <div className="dc-drivers">
+      <div
+        className="dc-drivers"
+        onMouseLeave={() => onHoverMember?.(null)}
+      >
         {reach.sps.map((s) => (
-          <div key={s.settlement_point} className="dc-driver dc-driver--static">
+          <button
+            key={s.settlement_point}
+            className="dc-driver"
+            onClick={() => onSelectMember?.(s.settlement_point)}
+            onMouseEnter={() => onHoverMember?.(s.settlement_point)}
+            title={`${s.settlement_point} — open node`}
+          >
             <SignChip sf={s.sf} />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
             <span className="dc-driver-sf mono">{fmtSf(s.sf)}</span>
-          </div>
+          </button>
         ))}
       </div>
     </>
@@ -253,6 +278,9 @@ export default function DetailCard({
   onClose,
   onCloseReach,
   onSelectConstraint,
+  onHoverConstraint,
+  onHoverMember,
+  onSelectMember,
   showDrivers = true,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
@@ -309,7 +337,11 @@ export default function DetailCard({
 
       <div className="detail-card__body">
         {inReach ? (
-          <ReachBody reach={reach!} />
+          <ReachBody
+            reach={reach!}
+            onHoverMember={onHoverMember}
+            onSelectMember={onSelectMember}
+          />
         ) : (
           <>
             <SpBody sp={sp!} />
@@ -319,6 +351,7 @@ export default function DetailCard({
                   exposures={exposures ?? null}
                   loading={exposuresLoading}
                   onSelectConstraint={onSelectConstraint}
+                  onHoverConstraint={onHoverConstraint}
                 />
               </div>
             )}
@@ -450,7 +483,6 @@ export default function DetailCard({
         .dc-drivers {
           display: flex;
           flex-direction: column;
-          gap: 1px;
           max-height: 220px;
           overflow-y: auto;
         }
@@ -468,8 +500,6 @@ export default function DetailCard({
           cursor: pointer;
         }
         .dc-driver:hover { background: var(--bg-hover); }
-        .dc-driver--static { cursor: default; }
-        .dc-driver--static:hover { background: transparent; }
         .dc-chip {
           width: 9px;
           height: 9px;

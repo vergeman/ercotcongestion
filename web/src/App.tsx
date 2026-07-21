@@ -698,6 +698,39 @@ export default function App() {
     setFocusReach(null);
   }, []);
 
+  // Card driver-row click: load the constraint's member list into the card AND
+  // lock the map isolation, so the isolated view the user saw on hover persists
+  // after the pointer leaves the row — until a background click or another
+  // selection. Mirrors the constraint-panel's click-locks-hover contract, plus
+  // the card's reach body.
+  const handleConstraintSelectFromCard = useCallback(
+    (key: string) => {
+      handleConstraintClick(key);
+      handleConstraintLock(key);
+    },
+    [handleConstraintClick, handleConstraintLock]
+  );
+
+  // Card member-row click: open that node's card (pinning + highlighting it) and
+  // drop the locked constraint isolation, so the click moves the locked focus
+  // from the constraint to the node. The SP lookup mirrors a map marker click so
+  // the card body (sp_type / load_zone) populates the same way.
+  const handleMemberSelect = useCallback(
+    (sp: string) => {
+      setHoveredMemberSp(null);
+      clearFocus();
+      const feat = spPoints?.features.find(
+        (f) => (f.properties?.sp_id as string | undefined) === sp
+      );
+      const props = (feat?.properties ?? { sp_id: sp }) as Record<
+        string,
+        unknown
+      >;
+      handleSpClickPrediction(sp, props);
+    },
+    [spPoints, handleSpClickPrediction, clearFocus]
+  );
+
   // Background (empty-map) click clears whichever mode is active.
   const handleMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp();
@@ -843,7 +876,10 @@ export default function App() {
         reach={reach}
         onClose={handleClearPinnedSp}
         onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintClick}
+        onSelectConstraint={handleConstraintSelectFromCard}
+        onHoverConstraint={handleConstraintHover}
+        onHoverMember={setHoveredMemberSp}
+        onSelectMember={handleMemberSelect}
       />
     </>
   );
@@ -944,7 +980,10 @@ export default function App() {
         reach={reach}
         onClose={handleClearPinnedSp}
         onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintClick}
+        onSelectConstraint={handleConstraintSelectFromCard}
+        onHoverConstraint={handleConstraintHover}
+        onHoverMember={setHoveredMemberSp}
+        onSelectMember={handleMemberSelect}
       />
     </>
   );
