@@ -745,10 +745,38 @@ export default function App() {
     rows.filter((r) => (palette === "lmp" ? r.spp != null : r.congestion != null))
       .length;
   const litCount = litFor(spRows);
-  const badgeFor = (label: string, lit: number = litCount) =>
-    spTopologyEmpty
-      ? `${label} · no SPs (rebuild topology cache)`
-      : `${label} · ${featCount} SPs · ${lit} lit`;
+  // The pane subtitle. A bold title line names what the pane shows; the meta row
+  // reports node coverage in words — `litNoun` says what "having a value" means
+  // for this pane (forecast / priced / compared) so the count reads plainly.
+  const badgeFor = (
+    label: string,
+    lit: number = litCount,
+    litNoun = "priced",
+    litHint = "Nodes with a value at this hour (colored on the map); the rest are drawn unlit"
+  ) => (
+    <>
+      <span className="pane-badge__title">{label}</span>
+      <span className="pane-badge__meta">
+        {spTopologyEmpty ? (
+          <span className="pane-badge__stat">no nodes (rebuild topology cache)</span>
+        ) : (
+          <>
+            <span
+              className="pane-badge__stat"
+              title="Settlement points (nodes) drawn on the map"
+            >
+              <span className="pane-badge__key">nodes</span>{" "}
+              <b>{featCount.toLocaleString()}</b>
+            </span>
+            <span className="pane-badge__stat" title={litHint}>
+              <span className="pane-badge__key">{litNoun}</span>{" "}
+              <b>{lit.toLocaleString()}</b>
+            </span>
+          </>
+        )}
+      </span>
+    </>
+  );
 
 
   // Shared across both panes. Per-side hover/click handlers are passed
@@ -767,8 +795,8 @@ export default function App() {
   // cursor hour's date), or the realized fallback.
   const predictionLabel =
     hasForecast && forecastRunId
-      ? `Prediction · forecast ${forecastRunId}`
-      : "Prediction · no forecast this window";
+      ? `Prediction Model: forecast ${forecastRunId}`
+      : "Prediction Model: no forecast this window";
 
   const leftPane = (
     <>
@@ -791,7 +819,12 @@ export default function App() {
         ringedSpId={hoveredMemberSp}
       />
       <div className="pane-badge">
-        {badgeFor(predictionLabel, litFor(leftRows))}
+        {badgeFor(
+          predictionLabel,
+          litFor(leftRows),
+          "forecast",
+          "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count."
+        )}
       </div>
       <Legend
         palette={palette}
@@ -799,11 +832,7 @@ export default function App() {
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
         variant="palette-only"
-        paneLabel={
-          hasForecast && forecastRunId
-            ? `PREDICTION · forecast ${forecastRunId}`
-            : "PREDICTION · no forecast this window"
-        }
+        paneLabel={predictionLabel}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
@@ -830,14 +859,21 @@ export default function App() {
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
       />
-      <div className="pane-badge">{badgeFor("ERCOT · actual")}</div>
+      <div className="pane-badge">
+        {badgeFor(
+          "ERCOT: Day Ahead Market (DAM)",
+          litCount,
+          "priced",
+          "Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
+        )}
+      </div>
       <Legend
         palette={palette}
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
         variant="full"
-        paneLabel="ERCOT · actual"
+        paneLabel="ERCOT: Day Ahead Market (DAM)"
       />
       {/* Actual card: the node's realized readout only — no SF drivers (those
           are a prediction-side concern). */}
@@ -858,8 +894,8 @@ export default function App() {
   const errorLit = errorRows.filter((r) => r.congestion != null).length;
   const errorLabel =
     hasForecast && forecastRunId
-      ? `Congestion forecast error · forecast ${forecastRunId} − ERCOT`
-      : "Congestion forecast error · no forecast this window";
+      ? "Forecast Error: Prediction Model − ERCOT DAM"
+      : "Forecast Error: no forecast this window";
   const errorPane = (
     <>
       <GridMap
@@ -884,7 +920,14 @@ export default function App() {
         ringedSpId={hoveredMemberSp}
         congestionColor={forecastErrorColor}
       />
-      <div className="pane-badge">{badgeFor(errorLabel, errorLit)}</div>
+      <div className="pane-badge">
+        {badgeFor(
+          errorLabel,
+          errorLit,
+          "compared",
+          "Nodes with both a model forecast and a realized value, so an error is defined"
+        )}
+      </div>
       <Legend
         palette="congestion"
         rows={errorRows}
@@ -953,17 +996,35 @@ export default function App() {
               position: absolute;
               top: 10px;
               left: 10px;
-              padding: 3px 8px;
+              padding: 5px 10px;
               background: var(--bg-glass);
               border: 1px solid var(--border);
-              border-radius: 3px;
-              color: var(--text-secondary);
-              font-family: var(--font-label);
-              font-weight: var(--fw-label);
-              font-size: var(--fs-label);
-              letter-spacing: var(--track-label);
+              border-radius: 4px;
+              display: flex;
+              flex-direction: column;
+              gap: 1px;
+              /* Click-through except on the stat chips (which carry tooltips). */
               pointer-events: none;
             }
+            .pane-badge__title {
+              font-family: var(--font-label);
+              font-weight: 600;
+              font-size: var(--fs-md);
+              letter-spacing: var(--track-label);
+              color: var(--text-primary);
+            }
+            .pane-badge__meta {
+              display: flex;
+              gap: 10px;
+              font-family: var(--font-label);
+              font-weight: var(--fw-label);
+              font-size: var(--fs-body);
+              letter-spacing: var(--track-label);
+              color: var(--text-secondary);
+            }
+            .pane-badge__stat { pointer-events: auto; cursor: help; }
+            .pane-badge__key { color: var(--text-muted); }
+            .pane-badge__stat b { color: var(--text-primary); font-weight: 600; }
           `}</style>
         </div>
 
