@@ -68,12 +68,7 @@ export default function DateRangePicker({
 
   return (
     <div className="drp">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{ fontFamily: "var(--text-mono)", fontSize: 12 }}
-      >
-        📅 Load Window
-      </button>
+      <button onClick={() => setOpen((o) => !o)}>📅 Load Window</button>
 
       {open && (
         <div className="drp__dropdown">

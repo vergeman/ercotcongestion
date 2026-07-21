@@ -1048,24 +1048,18 @@ export default function App() {
         />
       </div>
 
-      {/* Bottom scrubber */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          background: "var(--bg-panel)",
-          borderTop: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            padding: "0 12px",
-            display: "flex",
-            alignItems: "center",
-            borderRight: "1px solid var(--border)",
-          }}
-        >
+      {/* Bottom scrubber: Load Window picker sits in the scrubber's left column,
+          above the transport controls. */}
+      <PlaybackScrubber
+        timestamps={timestamps}
+        currentIndex={currentIndex}
+        onIndexChange={setCurrentIndex}
+        loading={loading}
+        sparkSeries={sparkSeries}
+        eventLabel={
+          CURATED_EVENTS.find((e) => e.id === activeEventId)?.label ?? null
+        }
+        leftSlot={
           <DateRangePicker
             onLoad={handleCustomLoadWindow}
             onSelectEvent={handleSelectEvent}
@@ -1073,20 +1067,8 @@ export default function App() {
             activeEventId={activeEventId}
             loading={loading}
           />
-        </div>
-        <div style={{ flex: 1 }}>
-          <PlaybackScrubber
-            timestamps={timestamps}
-            currentIndex={currentIndex}
-            onIndexChange={setCurrentIndex}
-            loading={loading}
-            sparkSeries={sparkSeries}
-            eventLabel={
-              CURATED_EVENTS.find((e) => e.id === activeEventId)?.label ?? null
-            }
-          />
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }
