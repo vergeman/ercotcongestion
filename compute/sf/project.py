@@ -550,6 +550,19 @@ def propagate_window(
     else:
         C_score = C.loc[(C.index >= s) & (C.index < end)]
         hours = M_score.index.intersection(C_score.index)
+        # The persisted SF was fit on a 240-day window that can include settlement
+        # points retired/renamed before this scored week — they are simply absent
+        # from the congestion panel here. Drop them: a node the SP data no longer
+        # carries can be neither realized (graded) nor honestly projected. (Forward
+        # mode never indexes C on the score side, so it keeps the full map.)
+        absent = SF.columns.difference(C_score.columns)
+        if len(absent):
+            log.info("week %s: dropping %d SP(s) absent from congestion panel "
+                     "(retired/renamed, e.g. %s)", s.date(), len(absent),
+                     ", ".join(map(str, absent[:3])))
+            SF = SF.loc[:, SF.columns.intersection(C_score.columns)]
+            if SF.empty:
+                return None, None, None, None
     if not len(hours):
         return None, None, None, None
 
