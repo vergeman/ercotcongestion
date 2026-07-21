@@ -288,15 +288,17 @@ export default function ConstraintPanel({
           padding: 8px 2px; font-family: var(--font-label);
           letter-spacing: normal;
         }
-        /* One shared grid so the header labels sit exactly over the row cells. */
+        /* One shared grid so the header labels sit exactly over the row cells.
+           Columns are px (not em) because the header and data rows have different
+           font-sizes — em would resolve to different widths and drift apart. */
         .cp-colhead, .cp-head {
           display: grid;
-          grid-template-columns: 1.6em minmax(0,1fr) 2.6em 4.8em 3.4em;
-          align-items: center; column-gap: 8px;
+          grid-template-columns: 22px minmax(0,1fr) 44px 78px 54px;
+          align-items: center; column-gap: 10px;
         }
         .cp-colhead {
-          padding: 0 2px 4px; border-bottom: 1px solid var(--border);
-          font-family: var(--font-label); font-weight: var(--fw-label); font-size: 10px;
+          padding: 0 2px 7px; border-bottom: 1px solid var(--border);
+          font-family: var(--font-label); font-weight: var(--fw-label); font-size: 11px;
           letter-spacing: var(--track-label); color: var(--text-muted);
         }
         .cp-ch { text-align: left; }
@@ -309,18 +311,18 @@ export default function ConstraintPanel({
         .cp-row.cp-expanded { background: color-mix(in srgb, var(--accent) 6%, transparent); }
         .cp-head {
           width: 100%; text-align: left; background: none; border: none;
-          padding: 5px 2px; cursor: pointer; color: inherit;
+          padding: 8px 2px; cursor: pointer; color: inherit;
         }
         .cp-head:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .cp-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-        .cp-rank { font-size: 11px; color: var(--text-muted); text-align: right; }
+        .cp-rank { font-size: 12px; color: var(--text-muted); text-align: right; }
         .cp-key {
-          font-size: 11.5px; color: var(--text-primary);
+          font-size: 12px; color: var(--text-primary);
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .cp-n { font-size: 11.5px; color: var(--text-secondary); text-align: right; }
+        .cp-n { font-size: 12px; color: var(--text-secondary); text-align: right; }
         .cp-meter {
-          position: relative; height: 13px; width: 100%;
+          position: relative; height: 16px; width: 100%;
           background: var(--border); border-radius: 3px; overflow: hidden;
           display: inline-flex; align-items: center; justify-content: flex-end;
         }
@@ -333,7 +335,7 @@ export default function ConstraintPanel({
           padding-right: 4px;
         }
         .cp-dip {
-          display: inline-flex; height: 9px; width: 100%;
+          display: inline-flex; height: 12px; width: 100%;
           border-radius: 2px; overflow: hidden; gap: 1.5px;
           background: var(--bg-panel);
         }

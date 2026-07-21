@@ -980,7 +980,9 @@ export default function App() {
       >
         {/* Forecast error = single map of P50 forecast − realized (default
             landing). Dual = prediction | ERCOT split, both under the active palette. */}
-        <div style={{ flex: 1, position: "relative" }}>
+        {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
+            enough that the constraint list/table don't wrap without overshooting. */}
+        <div style={{ flex: 5, position: "relative" }}>
           {viewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (

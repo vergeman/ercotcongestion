@@ -219,8 +219,10 @@ export default function SidePanel({
 
       <style>{`
         .side-panel {
-          width: var(--panel-w);
-          flex-shrink: 0;
+          /* Map area is flex:5, this panel flex:2 → ~2/7 width (just under a
+             third). --panel-w is a floor so the scorecard stays readable when narrow. */
+          flex: 2 1 0;
+          min-width: var(--panel-w);
           height: 100%;
           overflow-y: auto;
           background: var(--bg-panel);
