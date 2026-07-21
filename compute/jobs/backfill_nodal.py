@@ -116,6 +116,10 @@ def nodal_to_db(npz_path: str, conn, *, run_id: str,
     sql = ("COPY forecast_nodal (run_id, delivery_date, ts, settlement_point, "
            "p10, p50, p90, point) FROM STDIN")
     n = len(df)
+    # Row-by-row streamed COPY — a full-run backfill is millions of rows and emits
+    # nothing until the commit, so announce it (and the wait) before the loop.
+    hint = " — this can take a minute" if n > 1_000_000 else ""
+    log.info("writing %s rows to forecast_nodal for run_id=%s%s", f"{n:,}", run_id, hint)
     with conn.cursor() as cur, cur.copy(sql) as cp:
         for i in range(n):
             cp.write_row((run_id, dd_iso[i], ts_iso[i], sp[i],
