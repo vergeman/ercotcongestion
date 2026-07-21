@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Palette, ViewMode } from "../../api/types";
 import { currentTheme, toggleTheme, type Theme } from "../../lib/theme";
+import HeaderNav from "./HeaderNav";
 
 interface Props {
   // The two orthogonal axes: `viewMode` picks forecast-error vs dual compare;
@@ -34,13 +35,7 @@ export default function Header({
 
   return (
     <header className="header">
-      <div className="header__brand">
-        <span className="header__logo">⚡</span>
-        <span className="header__title">ERCOT Stress</span>
-        <span className="header__sub label">
-          Settlement points · Realized ERCOT
-        </span>
-      </div>
+      <HeaderNav active="map" />
 
       <div className="header__controls">
         <div className="view-toggle">
@@ -144,21 +139,6 @@ export default function Header({
           gap: 20px;
           flex-shrink: 0;
         }
-        .header__brand {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .header__logo { font-size: var(--fs-xl); }
-        .header__title {
-          font-family: var(--font-label);
-          font-weight: 700;
-          font-size: var(--fs-xl);
-          letter-spacing: var(--track-title);
-          text-transform: uppercase;
-          color: var(--accent);
-        }
-        .header__sub { color: var(--text-muted); margin-left: 4px; }
         .header__controls {
           margin-left: auto;
           display: flex;

@@ -11,6 +11,7 @@ import {
   fetchScoreboardHeadline,
   fetchScoreboardDaily,
 } from "../api/client";
+import HeaderNav from "../components/layout/HeaderNav";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
@@ -475,8 +476,11 @@ export default function ScoreboardPage() {
   return (
     <div className="sb-page">
       <header className="sb-topbar">
-        <a className="sb-back" href="/">← Map</a>
-        <span className="sb-title">Scoreboard · Backtest{weekly ? ` · ${weekly.run_id}` : ""}</span>
+        <HeaderNav active="scoreboard" />
+        <div className="sb-meta">
+          <span className="sb-meta__label label">Backtest run</span>
+          <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
+        </div>
         <select className="sb-regime" value={regime} onChange={(e) => setRegime(e.target.value)}>
           {REGIMES.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
@@ -554,14 +558,19 @@ export default function ScoreboardPage() {
           border-bottom: 1px solid var(--border);
           position: sticky; top: 0; z-index: 2;
         }
-        .sb-back { color: var(--accent); text-decoration: none; font-size: 14px; }
-        .sb-back:hover { text-decoration: underline; }
-        .sb-title {
-          font-family: var(--font-label); font-weight: var(--fw-label);
-          letter-spacing: var(--track-title); text-transform: uppercase; font-size: 15px;
+        .sb-meta {
+          margin-left: auto;
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+        }
+        .sb-meta__label { color: var(--text-muted); }
+        .sb-meta__val {
+          font-family: var(--font-mono);
+          font-size: 12px;
+          color: var(--text-secondary);
         }
         .sb-regime {
-          margin-left: auto;
           background: var(--bg-surface); color: var(--text-primary);
           border: 1px solid var(--border); border-radius: 3px;
           padding: 4px 8px; font-size: 13px; font-family: inherit;
