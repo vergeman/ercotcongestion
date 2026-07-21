@@ -51,6 +51,13 @@ log = logging.getLogger("compute.mu.mu_model")
 DEFAULT_TRAIN_DAYS = 240
 DEFAULT_REFIT_DAYS = 7
 
+# build_panel drops its first delivery day(s) to DAM/tz edges — the covariate panel
+# starts a day after the shadow-price read floor. Read this many extra days behind
+# the origin so days[0] lands comfortably before `origin − train_days`. Reading early
+# is free (it only widens the first fold's training history) and never shifts the
+# scored grid, which is pinned by score_from.
+PANEL_LEADIN_DAYS = 7
+
 # Columns that are targets or bookkeeping, never inputs.
 NON_FEATURES = ("y_mu", "y_bind", "delivery_day")
 
@@ -762,10 +769,14 @@ def main(argv: list[str] | None = None) -> int:
     from compute.sf.panels import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--start", default="2024-12-11", help="first day of data read")
+    p.add_argument("--start", default=None,
+                   help="series origin: the first scored week (SAME meaning as "
+                        "weekly_map/eval --start). The data-read floor is derived "
+                        "as start − train_days − leadin; do NOT pass a data floor.")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--score-from", default=None,
-                   help="first scored week (default: first available boundary)")
+                   help="override the scored-grid phase; defaults to --start. Rarely "
+                        "needed — only to pin a phase different from the origin.")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d", choices=["active_28d", "all"])
@@ -780,13 +791,24 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    lo = pd.Timestamp(args.start, tz="America/Chicago")
+    # --start is the SERIES ORIGIN (first scored week), the same meaning it carries
+    # in weekly_map/eval. --score-from overrides only the grid phase, defaulting to
+    # the origin — so a single date drives all three stages.
+    origin = args.score_from or args.start
+    if origin is None:
+        p.error("pass --start (the series origin / first scored week)")
+    score_from_ts = pd.Timestamp(origin, tz="UTC")
+
+    # Derive the data-read floor from the origin: the walk needs train_days of history
+    # behind the first scored week, plus PANEL_LEADIN_DAYS of slack for the panel's
+    # front-edge day-loss. This never shifts the scored grid (pinned by score_from);
+    # it only guarantees the first fold gets its full trailing window.
+    lo = (pd.Timestamp(origin, tz="America/Chicago")
+          - pd.Timedelta(days=args.train_days + PANEL_LEADIN_DAYS))
     hi = pd.Timestamp(args.end, tz="America/Chicago")
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
-    score_from_ts = (pd.Timestamp(args.score_from, tz="UTC")
-                     if args.score_from else None)
     arms = arms_for(args.features)
 
     with psycopg.connect(dsn) as conn:

@@ -402,7 +402,13 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     from compute.sf.project import N_DRAWS, propagate_window, residual_pool
 
     conn = pg[0]
-    preds = load_preds(fd.PREDS_PATH)
+    # Reconciliation fixture: a real walk-derived residual pool with enough weeks.
+    # Production now resolves the pool per run_id off the runs PVC
+    # (fd.preds_path_for); this self-contained test still reads the bundled
+    # compute/mu/mu_preds.npz beside the μ library.
+    bundled_preds = os.path.join(
+        os.path.dirname(os.path.dirname(fd.__file__)), "mu", "mu_preds.npz")
+    preds = load_preds(bundled_preds)
 
     # An interior grid boundary: a full 240d of prior history so the SF map fits.
     weeks = pd.DatetimeIndex(sorted(preds["week"].unique()))
