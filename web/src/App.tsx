@@ -4,7 +4,6 @@ import type {
   SpRow,
   Palette,
   ViewMode,
-  ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
@@ -13,7 +12,6 @@ import type {
 } from "./api/types";
 import {
   fetchTopology,
-  fetchMapConstraints,
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
@@ -97,12 +95,10 @@ export default function App() {
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
-  // Constraint overlay (SF structure) — fixed per refit, so fetched once, not
-  // time-indexed. `null` while loading or on 503 (map renders without it).
-  const [constraints, setConstraints] = useState<ConstraintGeo[] | null>(null);
   const [showConstraints, setShowConstraints] = useState(true);
-  // The de-piled overview (top-N constraints at their |SF|² cores + type). Fetched
-  // once per refit; when present it replaces the flat centroid overlay on the map.
+  // The de-piled overview (top-N constraints at their |SF|² cores + type) — the
+  // sole constraint presentation on the map. Fixed per refit, so fetched once,
+  // not time-indexed. `null` while loading or on 503 (map renders without it).
   const [overview, setOverview] = useState<MapOverview | null>(null);
   // Forecast side of the split map (left/prediction pane): per-hour P10/P50/P90
   // congestion for the current forecast run, read hour-for-hour off the same
@@ -241,12 +237,9 @@ export default function App() {
       .catch(() => setConnState("error"));
   }, []);
 
-  // Constraint overlay load — once, independent of the playback window (the SF
+  // Constraint overview load — once, independent of the playback window (the SF
   // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
   useEffect(() => {
-    fetchMapConstraints()
-      .then((c) => setConstraints(c))
-      .catch(() => setConstraints(null));
     fetchMapOverview(70, 6)
       .then((o) => setOverview(o))
       .catch(() => setOverview(null));
@@ -721,15 +714,6 @@ export default function App() {
     setShowConstraints(v === "forecastError");
   }, []);
 
-  // Which constraint centroids glow on the overlay: the pinned node's drivers,
-  // or the single constraint being reached.
-  const highlightedConstraints = useMemo(() => {
-    if (reach) return new Set([reach.constraint_key]);
-    if (exposures)
-      return new Set(exposures.exposures.map((e) => e.constraint_key));
-    return new Set<string>();
-  }, [reach, exposures]);
-
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
     if (!pinnedSp) return;
@@ -796,10 +780,7 @@ export default function App() {
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
         onMapReady={handleMainReady}
-        constraints={constraints}
         showConstraints={showConstraints}
-        highlightedConstraints={highlightedConstraints}
-        onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
         isolatedConstraint={hoveredConstraintId}
@@ -822,7 +803,7 @@ export default function App() {
             ? `PREDICTION · forecast ${forecastRunId}`
             : "PREDICTION · no forecast this window"
         }
-        constraintOverlay={showConstraints && !!constraints?.length}
+        constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
       {/* Prediction card: the node's forecast readout + its SF drivers. */}
@@ -892,10 +873,7 @@ export default function App() {
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
         onMapReady={handleMainReady}
-        constraints={constraints}
         showConstraints={showConstraints}
-        highlightedConstraints={highlightedConstraints}
-        onConstraintClick={handleConstraintClick}
         reach={reach}
         overview={overview}
         isolatedConstraint={hoveredConstraintId}
@@ -916,7 +894,7 @@ export default function App() {
         signLabels={{ neg: "under-forecast", pos: "over-forecast" }}
         barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
         paneLabel={errorLabel}
-        constraintOverlay={showConstraints && !!constraints?.length}
+        constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
       {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
@@ -944,9 +922,7 @@ export default function App() {
         connectionState={connState}
         showConstraints={showConstraints}
         onToggleConstraints={
-          constraints?.length || overview?.constraints.length
-            ? setShowConstraints
-            : undefined
+          overview?.constraints.length ? setShowConstraints : undefined
         }
       />
 

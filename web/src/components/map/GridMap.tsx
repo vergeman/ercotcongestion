@@ -4,7 +4,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   SpRow,
   Palette,
-  ConstraintGeo,
   ConstraintReach,
   MapOverview,
 } from "../../api/types";
@@ -18,95 +17,10 @@ import {
   type ModeledCongestionStats,
 } from "../../lib/colors";
 
-// Constraint-overlay identity hue (violet). Distinct from the node palettes
-// (diverging blue/cream/red congestion; blue/orange LMP) so the SF-structure
-// layer never reads as a node value. Marker size — not color — encodes
-// magnitude (max |SF|); a highlighted driver gets the bright ring + full fill.
-const CONSTRAINT_FILL = "rgba(167, 139, 250, 0.55)"; // #a78bfa @ 0.55
-const CONSTRAINT_FILL_HI = "rgba(167, 139, 250, 0.95)";
+// Reach-corridor stroke (violet #c4b5fd). The flat centroid "constraint pile"
+// overlay was retired in favor of OverviewOverlay (MST corridors + GTC
+// metaballs + radial points); this hue survives only for the dipole arc.
 const CONSTRAINT_STROKE = "#c4b5fd";
-const CONSTRAINT_R_MIN = 4;
-const CONSTRAINT_R_MAX = 20;
-
-// Low-confidence styling: a muted slate, distinct from the violet, so a
-// weakly-fit constraint reads as "located but don't trust its geometry". Low
-// confidence is a *shape* verdict, not an hour count (docs/ERCOT_constraints.md
-// §4): the artifact is the ridge clamp — several nodes co-equal at the ±1 cap,
-// or a lone rail with no graded body beneath it. A single rail atop a real body
-// (a radial resource) or any unclipped graded SF is NOT low-confidence, even if
-// it bound only briefly. binding_hours is a separate "thin support" annotation.
-const CONSTRAINT_FILL_LOW = "rgba(148, 163, 184, 0.35)"; // slate-400 muted
-const CONSTRAINT_STROKE_LOW = "#94a3b8";
-const RAIL_MULTI = 2;      // >= this many nodes at the cap = clamp artifact
-const BODY_FLOOR = 0.1;    // a rail with peak_offrail below this has no real body
-const THIN_HOURS = 50;     // annotation threshold, not a verdict
-
-function isLowConfidence(c: ConstraintGeo): boolean {
-  const nRail = c.n_rail ?? 0;
-  if (nRail >= RAIL_MULTI) return true;
-  // A single rail is only suspect when nothing graded sits beneath it (an
-  // isolated spike straight to the noise floor). A rail atop a real body is a
-  // radial resource — trustworthy.
-  return nRail >= 1 && (c.peak_offrail == null || c.peak_offrail < BODY_FLOOR);
-}
-
-// Thin support is a caveat, not a disqualifier — clean-but-brief constraints
-// bind < THIN_HOURS yet have smooth, unclipped SF (docs §4).
-function isThinSupport(c: ConstraintGeo): boolean {
-  return c.binding_hours != null && c.binding_hours < THIN_HOURS;
-}
-
-// Build the overlay FeatureCollection, baking a per-feature radius from
-// max_abs_sf. Radius ∝ √value so circle *area* is proportional to magnitude
-// (Steven's-law-honest area encoding), normalized to the window's own max.
-function buildConstraintFC(
-  constraints: ConstraintGeo[]
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  const withGeo = constraints.filter((c) => c.lat != null && c.lon != null);
-  const maxVal = withGeo.reduce(
-    (m, c) => Math.max(m, c.max_abs_sf ?? 0),
-    1e-9
-  );
-  return {
-    type: "FeatureCollection",
-    features: withGeo.map((c) => {
-      const v = Math.max(0, c.max_abs_sf ?? 0);
-      const r =
-        CONSTRAINT_R_MIN +
-        (CONSTRAINT_R_MAX - CONSTRAINT_R_MIN) * Math.sqrt(v / maxVal);
-      return {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [c.lon as number, c.lat as number] },
-        properties: {
-          constraint_key: c.constraint_key,
-          r,
-          max_abs_sf: c.max_abs_sf,
-          binding_hours: c.binding_hours,
-          zone_label: topZoneLabel(c.zone_shares),
-          low_conf: isLowConfidence(c),
-          thin: isThinSupport(c),
-        },
-      };
-    }),
-  };
-}
-
-// The dominant zone share, for the hover tooltip ("STH 62%").
-function topZoneLabel(
-  shares: Record<string, number> | null | undefined
-): string {
-  if (!shares) return "—";
-  let bestZone = "";
-  let bestShare = 0;
-  for (const [z, s] of Object.entries(shares)) {
-    if (s > bestShare) {
-      bestShare = s;
-      bestZone = z;
-    }
-  }
-  if (!bestZone) return "—";
-  return `${bestZone} ${Math.round(bestShare * 100)}%`;
-}
 
 // The reach dipole's axis: an arc from the export end (negative-SF nodes) to
 // the import end (positive-SF nodes), each end the |SF|-weighted centroid of
@@ -201,18 +115,14 @@ interface Props {
   onSpClick: (spId: string, props: Record<string, unknown>) => void;
   onMapClick: () => void;
   selectedSpId: string | null;
-  // Constraint overlay (SF structure). `constraints` null → layer absent;
-  // `showConstraints` toggles visibility. Passed only to the pane that owns
-  // the overlay (the left/prediction map). `highlightedConstraints` glows the
-  // drivers of the clicked node; hover/click surface the layer's interactions.
-  constraints?: ConstraintGeo[] | null;
+  // `showConstraints` toggles the constraint layer's visibility (the header's
+  // constraints toggle). Passed only to the pane that owns the overlay (the
+  // left/prediction map).
   showConstraints?: boolean;
-  highlightedConstraints?: Set<string>;
-  onConstraintHover?: (props: Record<string, unknown> | null) => void;
-  onConstraintClick?: (constraintKey: string) => void;
-  // The de-piled overview (SF cores + type). When present it REPLACES the flat
-  // centroid overlay: the native constraint-markers layer is torn down and the
-  // SVG OverviewOverlay draws each constraint at its |SF|² core instead.
+  // The de-piled overview (SF cores + type) — the sole constraint presentation.
+  // The SVG OverviewOverlay draws each constraint at its |SF|² core (MST
+  // corridors, GTC metaballs, radial points). The old flat centroid marker pile
+  // (/map/constraints) it replaced has been retired.
   overview?: MapOverview | null;
   // Synced isolation (plan/0103 Group 4). `isolatedConstraint` is a constraint the
   // side-panel is hovering — it isolates that mark on the overview. `onIsolateConstraint`
@@ -254,11 +164,7 @@ export default function GridMap({
   onSpClick,
   onMapClick,
   selectedSpId,
-  constraints,
   showConstraints = true,
-  highlightedConstraints,
-  onConstraintHover,
-  onConstraintClick,
   reach,
   overview,
   isolatedConstraint = null,
@@ -288,18 +194,14 @@ export default function GridMap({
     onSpHover,
     onSpClick,
     onMapClick,
-    onConstraintHover,
-    onConstraintClick,
   });
   useEffect(() => {
     callbacksRef.current = {
       onSpHover,
       onSpClick,
       onMapClick,
-      onConstraintHover,
-      onConstraintClick,
     };
-  }, [onSpHover, onSpClick, onMapClick, onConstraintHover, onConstraintClick]);
+  }, [onSpHover, onSpClick, onMapClick]);
 
   // Initialize map once
   useEffect(() => {
@@ -626,185 +528,6 @@ export default function GridMap({
     }
     prevRingedRef.current = ringedSpId ?? null;
   }, [ringedSpId, sourcesReady]);
-
-  // Constraint overlay: markers at each centroid, sized by max |SF|, drawn
-  // above the SP circles. Only mounts when `constraints` is passed (the pane
-  // that owns the overlay); a null/empty list tears the layer back down.
-  const overlayBoundRef = useRef(false);
-  const prevHighlightRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !sourcesReady) return;
-
-    const apply = () => {
-      // The overview REPLACES the centroid overlay: when it's present, tear the
-      // native constraint-markers layer down and let OverviewOverlay draw cores.
-      const hasData = !!constraints && constraints.length > 0 && !overview;
-
-      if (!hasData) {
-        if (map.getLayer("constraint-markers"))
-          map.removeLayer("constraint-markers");
-        if (map.getSource("constraints")) map.removeSource("constraints");
-        overlayBoundRef.current = false;
-        return;
-      }
-
-      const fc = buildConstraintFC(constraints as ConstraintGeo[]);
-
-      const src = map.getSource("constraints") as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      if (src) {
-        src.setData(fc);
-      } else {
-        map.addSource("constraints", {
-          type: "geojson",
-          data: fc,
-          promoteId: "constraint_key",
-        });
-      }
-
-      if (!map.getLayer("constraint-markers")) {
-        map.addLayer({
-          id: "constraint-markers",
-          type: "circle",
-          source: "constraints",
-          paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              ["*", ["get", "r"], 0.55],
-              10,
-              ["get", "r"],
-            ],
-            "circle-color": [
-              "case",
-              ["boolean", ["feature-state", "highlighted"], false],
-              CONSTRAINT_FILL_HI,
-              ["boolean", ["get", "low_conf"], false],
-              CONSTRAINT_FILL_LOW,
-              CONSTRAINT_FILL,
-            ],
-            "circle-stroke-color": [
-              "case",
-              ["boolean", ["get", "low_conf"], false],
-              CONSTRAINT_STROKE_LOW,
-              CONSTRAINT_STROKE,
-            ],
-            "circle-stroke-width": [
-              "case",
-              ["boolean", ["feature-state", "highlighted"], false],
-              2.5,
-              ["boolean", ["feature-state", "hovered"], false],
-              1.5,
-              0.75,
-            ],
-            "circle-stroke-opacity": 0.9,
-          },
-        });
-      }
-
-      // Bind hover/click once per layer instance.
-      if (!overlayBoundRef.current) {
-        let hoveredId: string | null = null;
-        const setHover = (id: string | null, on: boolean) => {
-          if (id == null) return;
-          map.setFeatureState(
-            { source: "constraints", id },
-            { hovered: on }
-          );
-        };
-        map.on("mousemove", "constraint-markers", (e) => {
-          if (!e.features?.length) return;
-          map.getCanvas().style.cursor = "pointer";
-          const props = e.features[0].properties as Record<string, unknown>;
-          const id = props.constraint_key as string;
-          if (hoveredId !== id) {
-            setHover(hoveredId, false);
-            hoveredId = id;
-            setHover(hoveredId, true);
-          }
-          callbacksRef.current.onConstraintHover?.(props);
-          tooltipRef.current
-            ?.setLngLat(e.lngLat)
-            .setHTML(
-              `<div class="tip-id tip-id--constraint">${props.constraint_key}</div>
-               <div class="tip-zone">${props.zone_label ?? "—"} · ${
-                props.binding_hours ?? "—"
-              } binding h</div>${
-                props.low_conf
-                  ? `<div class="tip-lowconf">⚠ low confidence — ridge clamp</div>`
-                  : props.thin
-                  ? `<div class="tip-thin">thin support — few binding hours</div>`
-                  : ""
-              }`
-            )
-            .addTo(map);
-        });
-        map.on("mouseleave", "constraint-markers", () => {
-          map.getCanvas().style.cursor = "";
-          setHover(hoveredId, false);
-          hoveredId = null;
-          callbacksRef.current.onConstraintHover?.(null);
-          tooltipRef.current?.remove();
-        });
-        map.on("click", "constraint-markers", (e) => {
-          if (!e.features?.length) return;
-          e.preventDefault?.();
-          const props = e.features[0].properties as Record<string, unknown>;
-          callbacksRef.current.onConstraintClick?.(
-            props.constraint_key as string
-          );
-        });
-        overlayBoundRef.current = true;
-      }
-
-      // Visibility toggle.
-      map.setLayoutProperty(
-        "constraint-markers",
-        "visibility",
-        showConstraints ? "visible" : "none"
-      );
-
-      // While a constraint is pinned (reach mode), fade the overlay hard so its
-      // bubbles stop hiding the nodes lighting up beneath them — otherwise most
-      // clicks land under a marker and the reach is invisible. The layer stays
-      // present (faintly) so you can still hop between constraints.
-      const dimmed = !!reach;
-      map.setPaintProperty(
-        "constraint-markers",
-        "circle-opacity",
-        dimmed ? 0.1 : 1
-      );
-      map.setPaintProperty(
-        "constraint-markers",
-        "circle-stroke-opacity",
-        dimmed ? 0.12 : 0.9
-      );
-
-      // Highlight the clicked node's drivers (Commit C wires the source).
-      const next = highlightedConstraints ?? new Set<string>();
-      for (const id of prevHighlightRef.current) {
-        if (!next.has(id))
-          map.setFeatureState(
-            { source: "constraints", id },
-            { highlighted: false }
-          );
-      }
-      for (const id of next) {
-        map.setFeatureState(
-          { source: "constraints", id },
-          { highlighted: true }
-        );
-      }
-      prevHighlightRef.current = next;
-    };
-
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
-  }, [constraints, showConstraints, highlightedConstraints, reach, overview, sourcesReady]);
 
   // Reach corridor arc: the dipole axis between the constraint's export- and
   // import-end centroids. Drawn beneath the SP circles so it reads as ground,
