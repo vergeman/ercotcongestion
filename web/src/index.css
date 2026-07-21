@@ -153,10 +153,15 @@
   --map-node-null: #c7d9cd;
   --map-node-idle: #46596e;
 
-  /* Same hues, darkened for a white ground: 4.9 / 7.1 / 5.5 / 4.8 : 1. */
-  --sf-gtc: #a16207;
-  --sf-transmission: #6d28d9;
-  --sf-radial: #0f766e;
+  /* Same hues as the dark set, but tuned as vivid *fills* on the white map
+     ground, not as body text — so chroma/lightness lead (the 4.5:1 text rule
+     doesn't apply to a categorical map fill). The earlier darkened set (mustard
+     #a16207 / deep-purple #6d28d9 / deep-teal #0f766e) read muddy against the
+     light ground; these jewel tones pop like the dark set while keeping the
+     three hues CVD-distinct (gold ↔ violet ↔ teal). */
+  --sf-gtc: #ca8a04;
+  --sf-transmission: #7c3aed;
+  --sf-radial: #0d9488;
   --sf-untyped: #64748b;
 
   color-scheme: light;

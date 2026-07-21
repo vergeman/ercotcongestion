@@ -2,18 +2,36 @@
 // Data palettes.
 // =============================================================================
 //
-// These do NOT flip with the light/dark theme, by design. Every scale here is
-// diverging, so sign is carried by hue (blue↔red, emerald↔magenta) and only the
-// neutral midpoint sits near the ground; the endpoints stay legible on white and
-// on near-black alike. Keeping one set of anchors also means a screenshot reads
-// the same regardless of which theme took it.
+// Sign is carried by hue (blue↔red, emerald↔magenta); the endpoints stay legible
+// on white and near-black alike. What DOES flip with the theme is the diverging
+// *center* + endpoint depth: on the dark ground the near-white cream center glows,
+// but on the white light-map ground that cream vanishes — the low/mid-congestion
+// majority reads as nothing — so light gets a visible cool-grey center and
+// deepened endpoints. The theme is read via currentTheme(); GridMap re-runs its
+// node-color effect on a theme flip so the map repaints.
 //
-// Map *chrome* — labels, halos, node strokes, the state boundary — does flip,
-// and lives as --map-* tokens in index.css.
+// Map *chrome* — labels, halos, node strokes, the state boundary — flips via the
+// --map-* tokens in index.css.
 //
 // (The sequential binding-proximity ramp used to live here and could not survive
 // a ground flip, since a sequential scale encodes magnitude as luminance. It was
 // removed with the IBP pipeline; see plan/0097-compute-pipeline-remove-ibp.md.)
+
+import { currentTheme, type Theme } from "./theme";
+
+// Diverging endpoint/center triples. `_LIGHT` variants swap the pale cream for a
+// cool grey that separates from the white map ground and deepen the hue ends.
+const rgb = (c: readonly number[]) => `rgb(${c[0]},${c[1]},${c[2]})`;
+function rgbMix(from: readonly number[], to: readonly number[], m: number): string {
+  const k = Math.max(0, Math.min(1, m));
+  return rgb([
+    Math.round(from[0] + (to[0] - from[0]) * k),
+    Math.round(from[1] + (to[1] - from[1]) * k),
+    Math.round(from[2] + (to[2] - from[2]) * k),
+  ]);
+}
+// Shared cool-grey neutral for every light-mode diverging center.
+const NEUTRAL_LIGHT = [184, 188, 196];
 
 // LMP color anchors ($/MWh) — fixed-scale fallback
 //   - negative: oversupply (rare but informative; renewables curtailment)
@@ -173,21 +191,20 @@ export function normalizeLmpFromStats(
 }
 
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
-export function lmpColor(norm: number): string {
+// blue (oversupply) ↔ neutral (nominal) ↔ orange (scarcity).
+const LMP_BLUE = [59, 130, 246];
+const LMP_CREAM = [226, 232, 200];
+const LMP_ORANGE = [249, 115, 22];
+const LMP_BLUE_LIGHT = [47, 111, 214];
+const LMP_ORANGE_LIGHT = [217, 102, 15];
+
+export function lmpColor(norm: number, theme: Theme = currentTheme()): string {
+  const light = theme === "light";
+  const cold = light ? LMP_BLUE_LIGHT : LMP_BLUE;
+  const mid = light ? NEUTRAL_LIGHT : LMP_CREAM;
+  const warm = light ? LMP_ORANGE_LIGHT : LMP_ORANGE;
   const t = Math.max(0, Math.min(1, norm));
-  if (t < 0.5) {
-    const s = t * 2;
-    const r = Math.round(59 + (226 - 59) * s);
-    const g = Math.round(130 + (232 - 130) * s);
-    const b = Math.round(246 + (200 - 246) * s);
-    return `rgb(${r},${g},${b})`;
-  } else {
-    const s = (t - 0.5) * 2;
-    const r = Math.round(226 + (249 - 226) * s);
-    const g = Math.round(232 + (115 - 232) * s);
-    const b = Math.round(200 + (22 - 200) * s);
-    return `rgb(${r},${g},${b})`;
-  }
+  return t < 0.5 ? rgbMix(cold, mid, t * 2) : rgbMix(mid, warm, (t - 0.5) * 2);
 }
 
 // =============================================================================
@@ -293,16 +310,19 @@ export function normalizeModeledCongestion(
 const MC_BLUE = [59, 130, 246];
 const MC_CREAM = [232, 226, 215];
 const MC_RED = [239, 68, 68];
+const MC_BLUE_LIGHT = [47, 111, 214];
+const MC_RED_LIGHT = [214, 59, 59];
 
-export function modeledCongestionColor(norm: number): string {
+export function modeledCongestionColor(
+  norm: number,
+  theme: Theme = currentTheme()
+): string {
+  const light = theme === "light";
+  const neg = light ? MC_BLUE_LIGHT : MC_BLUE;
+  const mid = light ? NEUTRAL_LIGHT : MC_CREAM;
+  const pos = light ? MC_RED_LIGHT : MC_RED;
   const t = Math.max(-1, Math.min(1, norm));
-  if (t === 0) return `rgb(${MC_CREAM.join(",")})`;
-  const target = t > 0 ? MC_RED : MC_BLUE;
-  const mag = Math.abs(t);
-  const r = Math.round(MC_CREAM[0] + (target[0] - MC_CREAM[0]) * mag);
-  const g = Math.round(MC_CREAM[1] + (target[1] - MC_CREAM[1]) * mag);
-  const b = Math.round(MC_CREAM[2] + (target[2] - MC_CREAM[2]) * mag);
-  return `rgb(${r},${g},${b})`;
+  return rgbMix(mid, t > 0 ? pos : neg, Math.abs(t));
 }
 
 // =============================================================================
@@ -322,22 +342,33 @@ export function modeledCongestionColor(norm: number): string {
 const ERROR_EMERALD = [16, 185, 129]; // under-forecast (−)
 const ERROR_CREAM = MC_CREAM; // on target (0)
 const ERROR_MAGENTA = [236, 72, 153]; // over-forecast (+)
+const ERROR_EMERALD_LIGHT = [5, 150, 105]; // deeper emerald for the white ground
+const ERROR_MAGENTA_LIGHT = [219, 39, 119]; // deeper magenta for the white ground
 
-export function forecastErrorColor(norm: number): string {
-  const t = Math.max(-1, Math.min(1, norm));
-  if (t === 0) return `rgb(${ERROR_CREAM.join(",")})`;
-  const target = t > 0 ? ERROR_MAGENTA : ERROR_EMERALD;
-  const mag = Math.abs(t);
-  const r = Math.round(ERROR_CREAM[0] + (target[0] - ERROR_CREAM[0]) * mag);
-  const g = Math.round(ERROR_CREAM[1] + (target[1] - ERROR_CREAM[1]) * mag);
-  const b = Math.round(ERROR_CREAM[2] + (target[2] - ERROR_CREAM[2]) * mag);
-  return `rgb(${r},${g},${b})`;
+function errorAnchors(theme: Theme) {
+  const light = theme === "light";
+  return {
+    neg: light ? ERROR_EMERALD_LIGHT : ERROR_EMERALD,
+    mid: light ? NEUTRAL_LIGHT : ERROR_CREAM,
+    pos: light ? ERROR_MAGENTA_LIGHT : ERROR_MAGENTA,
+  };
 }
 
-// The forecast-error legend bar, kept in lockstep with forecastErrorColor's endpoints.
-export const FORECAST_ERROR_GRADIENT_CSS = `linear-gradient(to right, rgb(${ERROR_EMERALD.join(
-  ","
-)}), rgb(${ERROR_CREAM.join(",")}), rgb(${ERROR_MAGENTA.join(",")}))`;
+export function forecastErrorColor(
+  norm: number,
+  theme: Theme = currentTheme()
+): string {
+  const { neg, mid, pos } = errorAnchors(theme);
+  const t = Math.max(-1, Math.min(1, norm));
+  return rgbMix(mid, t > 0 ? pos : neg, Math.abs(t));
+}
+
+// The forecast-error legend bar, kept in lockstep with forecastErrorColor's
+// endpoints — theme-aware so the light bar matches the light map fills.
+export function forecastErrorGradientCss(theme: Theme = currentTheme()): string {
+  const { neg, mid, pos } = errorAnchors(theme);
+  return `linear-gradient(to right, ${rgb(neg)}, ${rgb(mid)}, ${rgb(pos)})`;
+}
 
 // =============================================================================
 // Cluster tag palette

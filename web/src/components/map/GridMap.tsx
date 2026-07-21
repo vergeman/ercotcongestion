@@ -16,7 +16,7 @@ import {
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
-import { cssVar, onThemeChange } from "../../lib/theme";
+import { cssVar, onThemeChange, useTheme } from "../../lib/theme";
 
 // Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
 // paint properties cannot take var(), so the values are read out of the computed
@@ -190,6 +190,9 @@ export default function GridMap({
   onMapReady,
   congestionColor = modeledCongestionColor,
 }: Props) {
+  // Node fill colors flip with the theme (light gets a visible grey center — see
+  // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
+  const theme = useTheme();
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // The map instance as STATE (not just the ref) so the SVG OverviewOverlay child
@@ -521,7 +524,7 @@ export default function GridMap({
           const norm = Math.max(-1, Math.min(1, sf / maxAbs));
           map.setFeatureState(
             { source: "sps", id },
-            { color: modeledCongestionColor(norm), faded: false }
+            { color: modeledCongestionColor(norm, theme), faded: false }
           );
         }
         touched.add(id);
@@ -565,17 +568,18 @@ export default function GridMap({
       if (palette === "congestion") {
         color = mcStats
           ? congestionColor(
-              normalizeModeledCongestion(row.congestion, mcStats)
+              normalizeModeledCongestion(row.congestion, mcStats),
+              theme
             )
-          : congestionColor(0);
+          : congestionColor(0, theme);
       } else {
         color = lmpStats
-          ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats))
-          : lmpColor(0.5);
+          ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats), theme)
+          : lmpColor(0.5, theme);
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, focusReach, congestionColor]);
+  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, focusReach, congestionColor, theme]);
 
   // Selected SP
   useEffect(() => {

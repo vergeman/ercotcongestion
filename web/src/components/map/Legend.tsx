@@ -5,6 +5,8 @@ import type { Palette } from "../../api/types";
 import {
   normalizeLmpFromStats,
   normalizeModeledCongestion,
+  modeledCongestionColor,
+  lmpColor,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -151,11 +153,17 @@ export default function Legend({
     ];
   }, [isLmp, lmpStats]);
 
+  // Built from the palette functions so the bar tracks the theme (light gets the
+  // grey center + deepened ends); useTheme() above re-renders on a flip.
   const barGradient =
     barGradientOverride ??
     (isCongestion
-      ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
-      : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)");
+      ? `linear-gradient(to right, ${modeledCongestionColor(
+          -1
+        )}, ${modeledCongestionColor(0)}, ${modeledCongestionColor(1)})`
+      : `linear-gradient(to right, ${lmpColor(0)}, ${lmpColor(0.5)}, ${lmpColor(
+          1
+        )})`);
 
   // Title splits into a name (own line) and the quantity/equation (own line,
   // smaller). Built-ins carry both explicitly; an override is split on " · ".

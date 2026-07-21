@@ -31,7 +31,7 @@ import {
   computeLmpStats,
   computeModeledCongestionStats,
   forecastErrorColor,
-  FORECAST_ERROR_GRADIENT_CSS,
+  forecastErrorGradientCss,
   type LmpStats,
   type ModeledCongestionStats,
 } from "./lib/colors";
@@ -47,6 +47,7 @@ import SidePanel, {
   type NetworkStats,
 } from "./components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
+import { useTheme } from "./lib/theme";
 
 type ConnectionState = "ok" | "error" | "loading";
 
@@ -66,6 +67,9 @@ interface HoveredSp {
 }
 
 export default function App() {
+  // Re-render on theme flip so the forecast-error legend gradient (built from the
+  // theme-aware palette) stays in sync with the map fills.
+  useTheme();
   const [topology, setTopology] = useState<unknown | null>(null);
   // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
   // landing) is a single map of P50 forecast − realized congestion; `dual` is the
@@ -967,7 +971,7 @@ export default function App() {
         mcStats={errorStats}
         titleOverride="Congestion Forecast Error · Forecast − Realized ($/MWh)"
         signLabels={{ neg: "Under", pos: "Over" }}
-        barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
+        barGradientOverride={forecastErrorGradientCss()}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
