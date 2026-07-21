@@ -831,8 +831,6 @@ export default function App() {
         rows={leftRows}
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
-        variant="palette-only"
-        paneLabel={predictionLabel}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
@@ -872,8 +870,6 @@ export default function App() {
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
-        variant="full"
-        paneLabel="ERCOT: Day Ahead Market (DAM)"
       />
       {/* Actual card: the node's realized readout only — no SF drivers (those
           are a prediction-side concern). */}
@@ -933,11 +929,9 @@ export default function App() {
         rows={errorRows}
         lmpStats={null}
         mcStats={errorStats}
-        variant="full"
-        titleOverride="Congestion Forecast Error · P50 forecast − realized ($/MWh)"
-        signLabels={{ neg: "Under-forecast", pos: "Over-forecast" }}
+        titleOverride="Congestion Forecast Error · Forecast − Realized ($/MWh)"
+        signLabels={{ neg: "Under", pos: "Over" }}
         barGradientOverride={FORECAST_ERROR_GRADIENT_CSS}
-        paneLabel={errorLabel}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
       />
@@ -1004,7 +998,7 @@ export default function App() {
               border-radius: 4px;
               display: flex;
               flex-direction: column;
-              gap: 1px;
+              gap: 3px;
               /* Click-through except on the stat chips (which carry tooltips). */
               pointer-events: none;
             }

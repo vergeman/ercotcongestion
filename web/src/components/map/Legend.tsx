@@ -3,9 +3,8 @@ import { cssVar, useTheme } from "../../lib/theme";
 import type { SpRow } from "../../api/types";
 import type { Palette } from "../../api/types";
 import {
-  LMP_PCT_LOW,
-  LMP_PCT_HIGH,
   normalizeLmpFromStats,
+  normalizeModeledCongestion,
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
@@ -16,11 +15,6 @@ interface Props {
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
   mcStats: ModeledCongestionStats | null;
-  // "full" (default): palette + histogram/ticks. "palette-only": palette +
-  // ticks/labels/sub only — used on the placeholder (prediction) pane.
-  variant?: "full" | "palette-only";
-  // Optional caption under the palette; distinguishes the two panes.
-  paneLabel?: string;
   // Forecast-error view overrides: a custom palette title, and the diverging end
   // labels (default "export (−)" / "import (+)" for congestion; the error view
   // relabels these to "under-forecast" / "over-forecast"). Both apply only to the
@@ -82,7 +76,10 @@ function TypeMark({
 }
 
 const HIST_BINS = 24;
-const BAR_W = 130;
+// Widened from 130 so the palette title fits on one line and the diverging
+// labels/sub uncramp. Inner elements size to the padded content box (width:100%)
+// rather than this fixed value, so the gradient never overruns the container.
+const BAR_W = 176;
 
 function formatDollar(v: number): string {
   if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
@@ -94,8 +91,6 @@ export default function Legend({
   rows,
   lmpStats,
   mcStats,
-  variant = "full",
-  paneLabel,
   titleOverride,
   signLabels,
   barGradientOverride,
@@ -108,24 +103,43 @@ export default function Legend({
   const isCongestion = palette === "congestion";
   const isLmp = palette === "lmp";
   const isOff = palette === "off";
-  const isPaletteOnly = variant === "palette-only";
 
-  // SPP histogram for the *current snapshot*, binned in color-space so each
-  // bar aligns directly above the gradient color it falls in.
-  const lmpHist = useMemo(() => {
-    if (!isLmp || rows.length === 0 || !lmpStats) return null;
+  // Snapshot distribution, binned in color-space so each bar sits directly above
+  // the gradient color its values fall in. Computed for BOTH palettes (LMP off
+  // spp, congestion off the signed value mapped through the same diverging
+  // normalization the map uses) so every legend carries the distribution.
+  const hist = useMemo(() => {
+    if (rows.length === 0) return null;
     const counts = new Array(HIST_BINS).fill(0);
-    for (const r of rows) {
-      if (r.spp == null) continue;
-      const norm = normalizeLmpFromStats(r.spp, lmpStats); // 0..1
-      let idx = Math.floor(norm * HIST_BINS);
-      if (idx >= HIST_BINS) idx = HIST_BINS - 1;
-      if (idx < 0) idx = 0;
-      counts[idx] += 1;
+    let n = 0;
+    if (isLmp && lmpStats) {
+      for (const r of rows) {
+        if (r.spp == null) continue;
+        const norm = normalizeLmpFromStats(r.spp, lmpStats); // 0..1
+        let idx = Math.floor(norm * HIST_BINS);
+        if (idx >= HIST_BINS) idx = HIST_BINS - 1;
+        if (idx < 0) idx = 0;
+        counts[idx] += 1;
+        n += 1;
+      }
+    } else if (isCongestion && mcStats) {
+      for (const r of rows) {
+        if (r.congestion == null) continue;
+        const norm = normalizeModeledCongestion(r.congestion, mcStats); // −1..1
+        const t = (norm + 1) / 2; // 0..1, center = 0
+        let idx = Math.floor(t * HIST_BINS);
+        if (idx >= HIST_BINS) idx = HIST_BINS - 1;
+        if (idx < 0) idx = 0;
+        counts[idx] += 1;
+        n += 1;
+      }
+    } else {
+      return null;
     }
+    if (n === 0) return null;
     const peak = Math.max(...counts);
     return { counts, peak };
-  }, [rows, isLmp, lmpStats]);
+  }, [rows, isLmp, isCongestion, lmpStats, mcStats]);
 
   // SPP tick marks: p_low (left), median (center), p_high (right).
   const lmpTicks = useMemo(() => {
@@ -137,53 +151,46 @@ export default function Legend({
     ];
   }, [isLmp, lmpStats]);
 
-  // Current-snapshot SPP min/mean/max, distinct from the window-wide
-  // percentile range above.
-  const lmpSnapshot = useMemo(() => {
-    if (!isLmp) return null;
-    let min = Infinity;
-    let max = -Infinity;
-    let sum = 0;
-    let n = 0;
-    for (const r of rows) {
-      if (r.spp == null) continue;
-      if (r.spp < min) min = r.spp;
-      if (r.spp > max) max = r.spp;
-      sum += r.spp;
-      n += 1;
-    }
-    if (n === 0) return null;
-    return { min, mean: sum / n, max };
-  }, [rows, isLmp]);
-
   const barGradient =
     barGradientOverride ??
     (isCongestion
       ? "linear-gradient(to right, rgb(59,130,246), rgb(232,226,215), rgb(239,68,68))"
       : "linear-gradient(to right, #3b82f6, #e2e8d0, #f97316)");
 
-  const title =
-    titleOverride ??
-    (isOff
-      ? "Palette off · overlay only"
-      : isCongestion
-      ? "Congestion · SPP − λ ($/MWh)"
-      : "DAM SPP / LMP ($/MWh)");
+  // Title splits into a name (own line) and the quantity/equation (own line,
+  // smaller). Built-ins carry both explicitly; an override is split on " · ".
+  let titleName: string;
+  let titleEq: string;
+  if (titleOverride) {
+    const dot = titleOverride.indexOf(" · ");
+    titleName = dot >= 0 ? titleOverride.slice(0, dot) : titleOverride;
+    titleEq = dot >= 0 ? titleOverride.slice(dot + 3) : "";
+  } else if (isOff) {
+    titleName = "Palette off";
+    titleEq = "overlay only";
+  } else if (isCongestion) {
+    titleName = "Congestion";
+    titleEq = "SPP − λ ($/MWh)";
+  } else {
+    titleName = "DAM SPP / LMP";
+    titleEq = "($/MWh)";
+  }
   const negLabel = signLabels?.neg ?? "Export (−)";
   const posLabel = signLabels?.pos ?? "Import (+)";
 
   return (
     <div className="legend">
-      <div className="legend__title label">{title}</div>
+      <div className="legend__title label">{titleName}</div>
+      {titleEq && <div className="legend__eq label">{titleEq}</div>}
 
-      {/* LMP: snapshot histogram against window-wide bin range */}
-      {isLmp && lmpHist && !isPaletteOnly && (
+      {/* Snapshot distribution over the window-wide bin range, on every legend. */}
+      {!isOff && hist && (
         <div className="legend__hist">
-          {lmpHist.counts.map((c, i) => (
+          {hist.counts.map((c, i) => (
             <div
               key={i}
               className="legend__hist-bar"
-              style={{ height: `${(c / lmpHist.peak) * 100}%` }}
+              style={{ height: `${(c / hist.peak) * 100}%` }}
             />
           ))}
         </div>
@@ -211,9 +218,6 @@ export default function Legend({
             <span className="label">{negLabel}</span>
             <span className="label">{posLabel}</span>
           </div>
-          <div className="legend__sub label">
-            Window |max| {formatDollar(mcStats.max_abs)} · anchor = |value| P90
-          </div>
         </>
       )}
 
@@ -225,30 +229,17 @@ export default function Legend({
       )}
 
       {isLmp && lmpStats && (
-        <>
-          <div className="legend__ticks">
-            {lmpTicks.map((t, i) => (
-              <span
-                key={i}
-                className="label mono legend__tick"
-                style={{ left: `${t.pct}%` }}
-              >
-                {t.label}
-              </span>
-            ))}
-          </div>
-          <div className="legend__sub label">
-            Window {formatDollar(lmpStats.min)} – {formatDollar(lmpStats.max)} ·{" "}
-            P{Math.round(LMP_PCT_LOW * 100)}–P{Math.round(LMP_PCT_HIGH * 100)}
-          </div>
-          {lmpSnapshot && (
-            <div className="legend__sub label">
-              Snapshot {formatDollar(lmpSnapshot.min)} –{" "}
-              {formatDollar(lmpSnapshot.max)} · avg{" "}
-              {formatDollar(lmpSnapshot.mean)}
-            </div>
-          )}
-        </>
+        <div className="legend__ticks">
+          {lmpTicks.map((t, i) => (
+            <span
+              key={i}
+              className="label mono legend__tick"
+              style={{ left: `${t.pct}%` }}
+            >
+              {t.label}
+            </span>
+          ))}
+        </div>
       )}
 
       {isLmp && !lmpStats && (
@@ -266,9 +257,6 @@ export default function Legend({
               <span className="label legend__type-text">{t.label}</span>
             </div>
           ))}
-          <div className="legend__sub label">
-            Shape = type · size ∝ binding hours · hover a node for its constraints
-          </div>
         </div>
       )}
 
@@ -279,10 +267,6 @@ export default function Legend({
             Constraints · size ∝ max |SF|
           </span>
         </div>
-      )}
-
-      {paneLabel && (
-        <div className="legend__pane-label label">{paneLabel}</div>
       )}
 
       <style>{`
@@ -298,12 +282,21 @@ export default function Legend({
           backdrop-filter: blur(4px);
         }
         .legend__title {
-          margin-bottom: 5px;
-          color: var(--text-secondary);
+          font-size: var(--fs-md);
+          font-weight: 600;
+          color: var(--text-primary);
+          line-height: 1.25;
+        }
+        .legend__eq {
+          margin-top: 3px;
+          margin-bottom: 7px;
+          font-size: var(--fs-label);
+          color: var(--text-muted);
+          line-height: 1.25;
         }
         .legend__hist {
-          height: 22px;
-          width: ${BAR_W}px;
+          height: 26px;
+          width: 100%;
           display: flex;
           align-items: flex-end;
           gap: 1px;
@@ -317,38 +310,34 @@ export default function Legend({
         }
         .legend__bar {
           height: 8px;
-          width: ${BAR_W}px;
+          width: 100%;
           border-radius: 4px;
           margin-bottom: 3px;
         }
         .legend__labels {
           display: flex;
           justify-content: space-between;
-          width: ${BAR_W}px;
+          width: 100%;
+        }
+        .legend__labels .label {
+          font-size: var(--fs-body);
         }
         .legend__ticks {
           position: relative;
-          width: ${BAR_W}px;
+          width: 100%;
           height: 12px;
         }
         .legend__tick {
           position: absolute;
           top: 0;
           transform: translateX(-50%);
-          font-size: 10px;
-          opacity: 0.7;
+          font-size: var(--fs-label);
+          opacity: 0.8;
           white-space: nowrap;
         }
-        .legend__sub {
-          margin-top: 2px;
-          width: ${BAR_W}px;
-          font-size: 10px;
-          opacity: 0.55;
-          line-height: 1.3;
-        }
         .legend__types {
-          margin-top: 6px;
-          padding-top: 5px;
+          margin-top: 9px;
+          padding-top: 9px;
           border-top: 1px solid var(--border);
         }
         .legend__type-row {
@@ -361,7 +350,7 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__type-text {
-          font-size: 10px;
+          font-size: var(--fs-label);
           opacity: 0.85;
         }
         .legend__overlay {
@@ -381,17 +370,8 @@ export default function Legend({
           flex-shrink: 0;
         }
         .legend__overlay-text {
-          font-size: 10px;
+          font-size: var(--fs-label);
           opacity: 0.8;
-        }
-        .legend__pane-label {
-          margin-top: 6px;
-          font-family: var(--font-label);
-          font-weight: var(--fw-label);
-          font-size: 10px;
-          letter-spacing: var(--track-label);
-          color: var(--text-secondary);
-          opacity: 0.75;
         }
       `}</style>
     </div>
