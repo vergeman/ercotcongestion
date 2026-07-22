@@ -85,7 +85,7 @@ const METRICS: Record<
     higher: false,
   },
 };
-const SCREENING: MetricKey[] = ["topdecile_hit", "rank_spearman", "sign_agree"];
+const SCREENING: MetricKey[] = ["rank_spearman", "sign_agree", "topdecile_hit"];
 const MAGNITUDE: MetricKey[] = ["pooled_r2", "mae"];
 
 const REGIMES: { value: string; label: string }[] = [
@@ -415,9 +415,9 @@ function SeriesChart({
 // positive model−persistence delta is the model winning (matches HeadlineTiles +
 // the _CURRENCIES orientation the API pools on).
 const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
-  { name: "topdecile_hit", label: "Top-Decile Hit" },
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
+  { name: "topdecile_hit", label: "Top-Decile Hit" },
   { name: "pooled_r2", label: "Pooled R²" },
 ];
 
@@ -520,9 +520,9 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
   const pick = (name: string) =>
     win.currencies.find((c) => c.currency === name);
   const tiles = [
-    { name: "topdecile_hit", label: "Top-Decile Hit" },
     { name: "rank_spearman", label: "Rank ρ" },
     { name: "sign_agree", label: "Sign Agreement" },
+    { name: "topdecile_hit", label: "Top-Decile Hit" },
   ];
   return (
     <div className="sb-tiles">
@@ -629,7 +629,13 @@ function SplitTable({
 // Inline defined-term with a styled hover/focus tooltip (testing the popover
 // pattern on this page). The popover opens below the term so it stays clear of
 // the rail's top scroll edge; keyboard-reachable via tabIndex + :focus-visible.
-function Term({ children, def }: { children: React.ReactNode; def: string }) {
+function Term({
+  children,
+  def,
+}: {
+  children: React.ReactNode;
+  def: React.ReactNode;
+}) {
   return (
     <span className="sb-term" tabIndex={0}>
       {children}
@@ -793,7 +799,7 @@ function Glossary() {
 export default function ScoreboardPage() {
   const [regime, setRegime] = useState("all");
   const [group, setGroup] = useState<"screening" | "magnitude">("screening");
-  const [metric, setMetric] = useState<MetricKey>("topdecile_hit");
+  const [metric, setMetric] = useState<MetricKey>("rank_spearman");
   const [weekly, setWeekly] = useState<ScoreboardWeekly | null>(null);
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
   const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
@@ -840,40 +846,83 @@ export default function ScoreboardPage() {
     <div className="sb-page">
       <header className="sb-topbar">
         <HeaderNav active="scoreboard" />
+        {/* Right-aligned meta cluster: Backtest run · Window · Hours (+ select).
+            Only the first group carries the margin-left:auto that right-aligns
+            the whole cluster. */}
         <div className="sb-meta">
-          <span
-            className="sb-meta__label label"
-            title="The model run whose backtest is scored on this page."
-          >
-            Backtest run
+          <span className="sb-meta__label label">
+            <Term def="The model run whose backtest is scored on this page.">
+              Backtest run
+            </Term>
           </span>
           <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
-          {headlineWin && (
-            <>
-              <span className="sb-meta__sep">·</span>
-              <span
-                className="sb-meta__label label"
-                title="The rolling window the headline tiles average over: the most recent graded weeks of the backtest. The week count changes with the regime filter."
-              >
-                Window
-              </span>
-              <span className="sb-meta__val">
-                rolling {headlineWin.window_days}d · {headlineWin.weeks} wk
-              </span>
-            </>
-          )}
         </div>
-        <select
-          className="sb-regime"
-          value={regime}
-          onChange={(e) => setRegime(e.target.value)}
-        >
-          {REGIMES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
+        {headlineWin && (
+          <span className="sb-meta sb-meta--sub">
+            <span className="sb-meta__label label">
+              <Term def="The rolling look-back the headline tiles average over — the length of backtest history scored on this page.">
+                Window
+              </Term>
+            </span>
+            <span className="sb-meta__val">{headlineWin.window_days} days</span>
+          </span>
+        )}
+        <span className="sb-meta sb-meta--sub">
+          <span className="sb-meta__label label">
+            <Term
+              def={
+                <>
+                  <span className="sb-pop-p">
+                    Filters the whole board to a slice of hours by{" "}
+                    <b>net load</b> — the demand that dispatchable (thermal +
+                    battery) units must actually serve, and the main driver of
+                    congestion.
+                  </span>
+                  <span className="sb-pop-p">
+                    Hours are split into five equal buckets (quintiles) by net
+                    load:
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Net load</b> = demand − wind − solar.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q1</b> — lowest net load; a slack, low-risk grid.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q2–Q4</b> — the middle range.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q5</b> — peak net load; the tightest, highest-risk hours.
+                  </span>
+                  <span className="sb-pop-p">
+                    <b>All hours</b> pools every hour together.
+                  </span>
+                </>
+              }
+            >
+              Hours
+            </Term>
+          </span>
+          {headlineWin && (
+            <span
+              className="sb-meta__val"
+              title="Graded weeks in the current selection — changes with the Hours filter."
+            >
+              {headlineWin.weeks} wk
+            </span>
+          )}
+          <select
+            className="sb-regime"
+            value={regime}
+            onChange={(e) => setRegime(e.target.value)}
+          >
+            {REGIMES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </span>
       </header>
 
       <div className="sb-body">
@@ -913,7 +962,7 @@ export default function ScoreboardPage() {
                       group === "screening" ? "magnitude" : "screening";
                     setGroup(next);
                     setMetric(
-                      next === "screening" ? "topdecile_hit" : "pooled_r2"
+                      next === "screening" ? "rank_spearman" : "pooled_r2"
                     );
                   }}
                 >
@@ -940,9 +989,6 @@ export default function ScoreboardPage() {
                     {s.label}
                   </span>
                 ))}
-                <span className="sb-legend__note">
-                  screening currency leads; magnitude is diagnostic (§6)
-                </span>
               </div>
 
               <div className="sb-section-h label">
@@ -1056,8 +1102,8 @@ export default function ScoreboardPage() {
         }
         .sb-term__pop {
           position: absolute; top: calc(100% + 6px); left: 0;
-          width: max-content; max-width: 220px;
-          padding: 6px 8px; border-radius: 4px;
+          width: max-content; max-width: 260px;
+          padding: 8px 10px; border-radius: 4px;
           background: var(--bg-glass); color: var(--text-secondary);
           border: 1px solid var(--border-bright); box-shadow: var(--shadow-panel);
           font-size: 14px; line-height: 1.45; font-weight: 400;
@@ -1070,6 +1116,28 @@ export default function ScoreboardPage() {
         .sb-term:hover .sb-term__pop,
         .sb-term:focus-visible .sb-term__pop {
           opacity: 1; visibility: visible; transform: translateY(0);
+        }
+        /* Header terms sit at the right edge — anchor their popover's right side
+           to the term so it opens leftward and stays on-screen. */
+        .sb-topbar .sb-term__pop { left: auto; right: 0; }
+        /* Only the first .sb-meta carries margin-left:auto; the Window / Hours
+           groups sit alongside it, spaced by the topbar's own gap. */
+        .sb-meta--sub { margin-left: 0; align-items: center; }
+        .sb-meta--sub .sb-regime { margin-left: 6px; }
+
+        /* rich popover content: paragraphs + a bulleted list */
+        .sb-term__pop b { color: var(--text-primary); font-weight: 600; }
+        .sb-pop-p { display: block; }
+        .sb-pop-p + .sb-pop-p,
+        .sb-pop-p + .sb-pop-li,
+        .sb-pop-li + .sb-pop-p { margin-top: 7px; }
+        .sb-pop-li {
+          display: block; position: relative;
+          padding-left: 13px; margin-top: 3px;
+        }
+        .sb-pop-li::before {
+          content: "•"; position: absolute; left: 2px;
+          color: var(--text-muted);
         }
         @media (max-width: 900px) {
           /* Stacked: independent-pane scrolling no longer applies — let the
