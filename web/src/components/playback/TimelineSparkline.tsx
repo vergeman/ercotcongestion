@@ -113,7 +113,7 @@ export default function TimelineSparkline({
             style={{
               background: CONGESTION_COLOR,
               opacity: 0.6,
-              height: 6,
+              height: 8,
             }}
           />
           congestion
@@ -176,17 +176,17 @@ export default function TimelineSparkline({
           display: flex;
           justify-content: flex-end;
           gap: 10px;
-          font-size: var(--fs-micro);
+          font-size: var(--fs-body);
           color: var(--text-muted);
-          font-family: var(--font-mono);
+          font-family: var(--font-sans);
           line-height: 1;
           margin-bottom: 2px;
         }
         .sparkline__sw {
           display: inline-block;
-          width: 8px;
+          width: 12px;
           vertical-align: middle;
-          margin-right: 3px;
+          margin-right: 4px;
         }
       `}</style>
     </div>
