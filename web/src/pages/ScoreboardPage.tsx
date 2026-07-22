@@ -627,9 +627,12 @@ function SplitTable({
   );
 }
 
-// Inline defined-term with a styled hover/focus tooltip (testing the popover
-// pattern on this page). The popover opens below the term so it stays clear of
-// the rail's top scroll edge; keyboard-reachable via tabIndex + :focus-visible.
+// Inline defined-term: a dotted-underlined word whose definition rides the
+// shared app-wide Tooltip (components/ui/Tooltip). `.sb-term` supplies only the
+// underline affordance now; the popover surface, positioning, portal, and
+// hover/focus behavior all come from Tooltip — so a defined term reads as the
+// same tooltip system as every other hint. Opens below (placement="bottom"), as
+// it always did, to stay clear of the rail's top scroll edge.
 function Term({
   children,
   def,
@@ -638,12 +641,9 @@ function Term({
   def: React.ReactNode;
 }) {
   return (
-    <span className="sb-term" tabIndex={0}>
+    <Tooltip as="span" className="sb-term" placement="bottom" tip={def}>
       {children}
-      <span className="sb-term__pop" role="tooltip">
-        {def}
-      </span>
-    </span>
+    </Tooltip>
   );
 }
 
@@ -1095,39 +1095,19 @@ export default function ScoreboardPage() {
           border-left: 2px solid var(--border-bright);
         }
 
-        /* inline defined term + styled hover/focus popover (below the term). */
+        /* Inline defined term: just the underline affordance — the popover
+           surface + behavior come from the shared Tooltip (.tt in index.css). */
         .sb-term {
-          position: relative;
           text-decoration: underline dotted; text-underline-offset: 2px;
           cursor: help; outline: none;
         }
-        .sb-term__pop {
-          position: absolute; top: calc(100% + 6px); left: 0;
-          width: max-content; max-width: 260px;
-          padding: 8px 10px; border-radius: 4px;
-          background: var(--bg-glass); color: var(--text-secondary);
-          border: 1px solid var(--border-bright); box-shadow: var(--shadow-panel);
-          font-size: 14px; line-height: 1.45; font-weight: 400;
-          text-decoration: none; letter-spacing: normal; text-transform: none;
-          white-space: normal; text-align: left;
-          opacity: 0; visibility: hidden; transform: translateY(2px);
-          transition: opacity .12s ease, transform .12s ease;
-          pointer-events: none; z-index: 6;
-        }
-        .sb-term:hover .sb-term__pop,
-        .sb-term:focus-visible .sb-term__pop {
-          opacity: 1; visibility: visible; transform: translateY(0);
-        }
-        /* Header terms sit at the right edge — anchor their popover's right side
-           to the term so it opens leftward and stays on-screen. */
-        .sb-topbar .sb-term__pop { left: auto; right: 0; }
         /* Only the first .sb-meta carries margin-left:auto; the Window / Hours
            groups sit alongside it, spaced by the topbar's own gap. */
         .sb-meta--sub { margin-left: 0; align-items: center; }
         .sb-meta--sub .sb-regime { margin-left: 6px; }
 
-        /* rich popover content: paragraphs + a bulleted list */
-        .sb-term__pop b { color: var(--text-primary); font-weight: 600; }
+        /* Rich tooltip content (rendered inside .tt): paragraphs + a bulleted
+           list. Unscoped so it styles the Net-load def portaled onto <body>. */
         .sb-pop-p { display: block; }
         .sb-pop-p + .sb-pop-p,
         .sb-pop-p + .sb-pop-li,

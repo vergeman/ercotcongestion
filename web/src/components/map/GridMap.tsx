@@ -706,11 +706,15 @@ export default function GridMap({
         :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: opacity(0.65);
         }
+        /* Chrome matched to the shared .tt tooltip (index.css): glass surface,
+           bright border, panel shadow — so the map's feature-hover popup reads as
+           the same tooltip system, even though maplibre owns its positioning. */
         .grid-tooltip .maplibregl-popup-content {
-          background: var(--bg-panel);
-          border: 1px solid var(--border);
+          background: var(--bg-glass);
+          border: 1px solid var(--border-bright);
+          box-shadow: var(--shadow-panel);
           border-radius: 4px;
-          padding: 6px 10px;
+          padding: 8px 10px;
           color: var(--text-primary);
           font-family: var(--font-mono);
           font-size: var(--fs-body);
