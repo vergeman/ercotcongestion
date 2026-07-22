@@ -5,6 +5,7 @@ import type {
   ConstraintLobe,
 } from "../../api/types";
 import { fetchMapReach } from "../../api/client";
+import Tooltip from "../ui/Tooltip";
 
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
 // driving congestion — the list-shaped companion to the map's marker pile, which
@@ -131,13 +132,13 @@ function Dipole({ imp, exp }: { imp: ConstraintLobe; exp: ConstraintLobe }) {
   const pk = (l: ConstraintLobe) =>
     l.peak_sf != null ? Math.abs(l.peak_sf).toFixed(2) : "—";
   return (
-    <span
+    <Tooltip
       className="cp-dip"
-      title={`import (SF<0) ${s} nodes · peak ${pk(imp)}   ↔   export (SF>0) ${k} nodes · peak ${pk(exp)}`}
+      tip={`import (SF<0) ${s} nodes · peak ${pk(imp)}   ↔   export (SF>0) ${k} nodes · peak ${pk(exp)}`}
     >
       <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: IMPORT }} />
       <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: EXPORT }} />
-    </span>
+    </Tooltip>
   );
 }
 
@@ -177,11 +178,13 @@ export default function ConstraintPanel({
           {loading && <span className="cp-loading label">loading…</span>}
           <div className="cp-basis-toggle" role="group" aria-label="ranking basis">
           {(["predicted", "realized"] as const).map((b) => (
-            <button
+            <Tooltip
               key={b}
+              as="button"
+              placement="bottom"
               className={basis === b ? "active" : ""}
               aria-pressed={basis === b}
-              title={
+              tip={
                 b === "predicted"
                   ? "Rank constraints by the model's forecast — what it expected to bind before the day."
                   : "Rank constraints by ERCOT's actual published results for the day — what really bound."
@@ -189,7 +192,7 @@ export default function ConstraintPanel({
               onClick={() => onBasis(b)}
             >
               {b === "predicted" ? "Predicted" : "Realized"}
-            </button>
+            </Tooltip>
           ))}
           </div>
         </div>
@@ -227,11 +230,11 @@ export default function ConstraintPanel({
 
       {rows.length > 0 && (
         <div className="cp-colhead" aria-hidden="true">
-          <span className="cp-ch cp-ch-r" title="Rank by contribution">#</span>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Rank by contribution">#</Tooltip>
           <span className="cp-ch">Constraint</span>
-          <span className="cp-ch cp-ch-r" title="Member nodes above the |SF| floor">Nodes</span>
-          <span className="cp-ch cp-ch-r" title="Congestion contribution (shadow-price mass × SF reach)">Contrib</span>
-          <span className="cp-ch" title="Import (SF<0, red) ↔ export (SF>0, blue) split by node share">Dipole</span>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, red) ↔ export (SF>0, blue) split by node share">Dipole</Tooltip>
         </div>
       )}
 
@@ -257,16 +260,16 @@ export default function ConstraintPanel({
                 }}
               >
                 <span className="cp-rank mono">{c.rank}</span>
-                <span className="cp-key mono" title={c.constraint_id}>
+                <Tooltip className="cp-key mono" tabIndex={-1} tip={c.constraint_id}>
                   {c.constraint_id}
-                </span>
+                </Tooltip>
                 <span className="cp-n mono">{c.n_members}</span>
-                <span className="cp-meter" title="congestion contribution">
+                <Tooltip className="cp-meter" tabIndex={-1} tip="congestion contribution">
                   <span className="cp-meter-fill" style={{ width: `${w}%` }} />
                   <span className="cp-meter-num mono">
                     {fmtMag(c.congestion_contribution)}
                   </span>
-                </span>
+                </Tooltip>
                 <Dipole imp={c.source_lobe} exp={c.sink_lobe} />
               </button>
               {expanded && (

@@ -2,6 +2,8 @@
 // topbars so the two pages read as one product. `active` bolds the current
 // section; `Analysis` is a placeholder for a not-yet-built page (disabled).
 
+import Tooltip from "../ui/Tooltip";
+
 type NavKey = "map" | "scoreboard" | "analysis";
 
 const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean }[] = [
@@ -29,14 +31,15 @@ export default function HeaderNav({ active }: { active: NavKey }) {
               {n.label}
             </a>
           ) : (
-            <span
+            <Tooltip
               key={n.key}
+              placement="bottom"
               className="brand-nav__link brand-nav__link--disabled"
-              title="Coming soon"
               aria-disabled="true"
+              tip="Coming soon"
             >
               {n.label}
-            </span>
+            </Tooltip>
           )
         )}
       </nav>

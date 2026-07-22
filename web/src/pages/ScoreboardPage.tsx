@@ -12,6 +12,7 @@ import {
   fetchScoreboardDaily,
 } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
+import Tooltip from "../components/ui/Tooltip";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
@@ -904,12 +905,12 @@ export default function ScoreboardPage() {
             </Term>
           </span>
           {headlineWin && (
-            <span
+            <Tooltip
               className="sb-meta__val"
-              title="Graded weeks in the current selection — changes with the Hours filter."
+              tip="Graded weeks in the current selection — changes with the Hours filter."
             >
               {headlineWin.weeks} wk
-            </span>
+            </Tooltip>
           )}
           <select
             className="sb-regime"
