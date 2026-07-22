@@ -49,11 +49,41 @@ const METRICS: Record<
     higher: boolean;
   }
 > = {
-  topdecile_hit: { label: "Top-Decile Hit", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  rank_spearman: { label: "Rank ρ", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  sign_agree: { label: "Sign Agreement", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  pooled_r2: { label: "Pooled R²", group: "magnitude", fmt: (v) => v.toFixed(2), domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)], higher: true },
-  mae: { label: "MAE ($/MWh)", group: "magnitude", fmt: (v) => `$${v.toFixed(1)}`, domain: (vals) => [0, Math.max(1, ...vals) * 1.05], higher: false },
+  topdecile_hit: {
+    label: "Top-Decile Hit",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  rank_spearman: {
+    label: "Rank ρ",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  sign_agree: {
+    label: "Sign Agreement",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  pooled_r2: {
+    label: "Pooled R²",
+    group: "magnitude",
+    fmt: (v) => v.toFixed(2),
+    domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)],
+    higher: true,
+  },
+  mae: {
+    label: "MAE ($/MWh)",
+    group: "magnitude",
+    fmt: (v) => `$${v.toFixed(1)}`,
+    domain: (vals) => [0, Math.max(1, ...vals) * 1.05],
+    higher: false,
+  },
 };
 const SCREENING: MetricKey[] = ["topdecile_hit", "rank_spearman", "sign_agree"];
 const MAGNITUDE: MetricKey[] = ["pooled_r2", "mae"];
@@ -138,7 +168,9 @@ function SeriesChart({
     [weeks, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const allVals = seriesVals.flatMap((s) => s.vals.filter((v): v is number => v != null));
+  const allVals = seriesVals.flatMap((s) =>
+    s.vals.filter((v): v is number => v != null)
+  );
   const [dMin, dMax] = meta.domain(allVals);
 
   // Right margin holds the direct end-labels (Persistence / Climatology ≈ 80px
@@ -151,7 +183,8 @@ function SeriesChart({
 
   const x = (i: number) => M.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) =>
-    M.t + (dMax === dMin ? plotH / 2 : (1 - (v - dMin) / (dMax - dMin)) * plotH);
+    M.t +
+    (dMax === dMin ? plotH / 2 : (1 - (v - dMin) / (dMax - dMin)) * plotH);
 
   const linePath = (vals: (number | null)[]): string => {
     let d = "";
@@ -182,7 +215,8 @@ function SeriesChart({
   }
   endLabels.sort((a, b) => a.y - b.y);
   for (let i = 1; i < endLabels.length; i++) {
-    if (endLabels[i].y - endLabels[i - 1].y < 12) endLabels[i].y = endLabels[i - 1].y + 12;
+    if (endLabels[i].y - endLabels[i - 1].y < 12)
+      endLabels[i].y = endLabels[i - 1].y + 12;
   }
 
   // RTC+B cutover → nearest week index.
@@ -190,7 +224,16 @@ function SeriesChart({
   const zeroInDomain = dMin < 0 && dMax > 0;
 
   // x tick indices: a handful across the span.
-  const tickIdx = n <= 1 ? [0] : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor((3 * n) / 4), n - 1];
+  const tickIdx =
+    n <= 1
+      ? [0]
+      : [
+          0,
+          Math.floor(n / 4),
+          Math.floor(n / 2),
+          Math.floor((3 * n) / 4),
+          n - 1,
+        ];
 
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -201,61 +244,146 @@ function SeriesChart({
 
   return (
     <div ref={wrapRef} className="sb-chart" style={{ position: "relative" }}>
-      <svg width={width} height={H} role="img" aria-label={`${meta.label} by week`}>
+      <svg
+        width={width}
+        height={H}
+        role="img"
+        aria-label={`${meta.label} by week`}
+      >
         {/* y gridlines + labels */}
         {[dMin, (dMin + dMax) / 2, dMax].map((v, k) => (
           <g key={k}>
-            <line x1={M.l} x2={M.l + plotW} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
-            <text x={M.l - 6} y={y(v) + 3} textAnchor="end" className="sb-axis">{meta.fmt(v)}</text>
+            <line
+              x1={M.l}
+              x2={M.l + plotW}
+              y1={y(v)}
+              y2={y(v)}
+              stroke="var(--border)"
+              strokeWidth={1}
+            />
+            <text x={M.l - 6} y={y(v) + 3} textAnchor="end" className="sb-axis">
+              {meta.fmt(v)}
+            </text>
           </g>
         ))}
         {zeroInDomain && (
-          <line x1={M.l} x2={M.l + plotW} y1={y(0)} y2={y(0)} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="2 2" />
+          <line
+            x1={M.l}
+            x2={M.l + plotW}
+            y1={y(0)}
+            y2={y(0)}
+            stroke="var(--text-muted)"
+            strokeWidth={1}
+            strokeDasharray="2 2"
+          />
         )}
 
         {/* x ticks */}
         {tickIdx.map((i) => (
-          <text key={i} x={x(i)} y={H - 6} textAnchor="middle" className="sb-axis">{fmtWeek(weeks[i])}</text>
+          <text
+            key={i}
+            x={x(i)}
+            y={H - 6}
+            textAnchor="middle"
+            className="sb-axis"
+          >
+            {fmtWeek(weeks[i])}
+          </text>
         ))}
 
         {/* RTC+B cutover marker */}
         {cutIdx > 0 && (
           <g>
-            <line x1={x(cutIdx)} x2={x(cutIdx)} y1={M.t} y2={M.t + plotH} stroke="var(--text-secondary)" strokeWidth={1} strokeDasharray="3 3" />
-            <text x={x(cutIdx) + 3} y={M.t + 9} className="sb-axis sb-axis--mark">RTC+B</text>
+            <line
+              x1={x(cutIdx)}
+              x2={x(cutIdx)}
+              y1={M.t}
+              y2={M.t + plotH}
+              stroke="var(--text-secondary)"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+            <text
+              x={x(cutIdx) + 3}
+              y={M.t + 9}
+              className="sb-axis sb-axis--mark"
+            >
+              RTC+B
+            </text>
           </g>
         )}
 
         {/* series lines */}
         {seriesVals.map((s) => (
-          <path key={s.source} d={linePath(s.vals)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <path
+            key={s.source}
+            d={linePath(s.vals)}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
         ))}
 
         {/* direct end-labels (secondary encoding for the CVD floor) */}
         {endLabels.map((e, k) => (
-          <text key={k} x={M.l + plotW + 5} y={e.y + 3} className="sb-endlabel" fill={e.color}>{e.label}</text>
+          <text
+            key={k}
+            x={M.l + plotW + 5}
+            y={e.y + 3}
+            className="sb-endlabel"
+            fill={e.color}
+          >
+            {e.label}
+          </text>
         ))}
 
         {/* hover guide + markers */}
         {hover != null && (
           <g>
-            <line x1={x(hover)} x2={x(hover)} y1={M.t} y2={M.t + plotH} stroke="var(--border-bright)" strokeWidth={1} />
+            <line
+              x1={x(hover)}
+              x2={x(hover)}
+              y1={M.t}
+              y2={M.t + plotH}
+              stroke="var(--border-bright)"
+              strokeWidth={1}
+            />
             {seriesVals.map((s) => {
               const v = s.vals[hover];
               return v == null ? null : (
-                <circle key={s.source} cx={x(hover)} cy={y(v)} r={3.5} fill={s.color} stroke="var(--bg-panel)" strokeWidth={1.5} />
+                <circle
+                  key={s.source}
+                  cx={x(hover)}
+                  cy={y(v)}
+                  r={3.5}
+                  fill={s.color}
+                  stroke="var(--bg-panel)"
+                  strokeWidth={1.5}
+                />
               );
             })}
           </g>
         )}
 
         {/* hover capture */}
-        <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="transparent"
-          onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+        <rect
+          x={M.l}
+          y={M.t}
+          width={plotW}
+          height={plotH}
+          fill="transparent"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        />
       </svg>
 
       {hover != null && (
-        <div className="sb-tip" style={{ left: Math.min(x(hover) + 8, width - 132), top: M.t }}>
+        <div
+          className="sb-tip"
+          style={{ left: Math.min(x(hover) + 8, width - 132), top: M.t }}
+        >
           <div className="sb-tip__wk">{fmtWeek(weeks[hover])}</div>
           {seriesVals.map((s) => {
             const v = s.vals[hover];
@@ -263,7 +391,9 @@ function SeriesChart({
               <div key={s.source} className="sb-tip__row">
                 <span className="sb-tip__dot" style={{ background: s.color }} />
                 <span className="sb-tip__lbl">{s.label}</span>
-                <span className="sb-tip__val">{v == null ? "—" : meta.fmt(v)}</span>
+                <span className="sb-tip__val">
+                  {v == null ? "—" : meta.fmt(v)}
+                </span>
               </div>
             );
           })}
@@ -294,7 +424,10 @@ const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
 function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   // Delivery days present, most-recent first — the selector's options and default.
   const days = useMemo(
-    () => Array.from(new Set(daily.points.map((p) => p.delivery_date))).sort().reverse(),
+    () =>
+      Array.from(new Set(daily.points.map((p) => p.delivery_date)))
+        .sort()
+        .reverse(),
     [daily]
   );
   const [day, setDay] = useState<string>(days[0]);
@@ -314,7 +447,10 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   const model = bySource.get("model");
   const persistence = bySource.get("persistence");
   const oracle = bySource.get("oracle");
-  const val = (row: DailyPoint | undefined, name: keyof DailyPoint): number | null => {
+  const val = (
+    row: DailyPoint | undefined,
+    name: keyof DailyPoint
+  ): number | null => {
     const v = row ? (row[name] as number | null) : null;
     return v == null ? null : v;
   };
@@ -322,7 +458,9 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   return (
     <section className="sb-live">
       <div className="sb-live__head">
-        <span className="sb-section-h label sb-live__h">Live · per-delivery-day grade</span>
+        <span className="sb-section-h label sb-live__h">
+          Live · per-delivery-day grade
+        </span>
         <select
           className="sb-regime sb-live__day"
           value={selected}
@@ -330,7 +468,9 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           aria-label="Delivery day"
         >
           {days.map((d) => (
-            <option key={d} value={d}>{fmtDay(d)}</option>
+            <option key={d} value={d}>
+              {fmtDay(d)}
+            </option>
           ))}
         </select>
         <span className="sb-live__ctx label">
@@ -350,14 +490,19 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           return (
             <div key={mk.name} className="sb-tile">
               <div className="label">{mk.label}</div>
-              <div className="sb-tile__model">{m == null ? "—" : m.toFixed(2)}</div>
+              <div className="sb-tile__model">
+                {m == null ? "—" : m.toFixed(2)}
+              </div>
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs persist {p == null ? "—" : p.toFixed(2)}
+                    {good ? "▲" : "▼"} vs persist{" "}
+                    {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
-                <span className="sb-ceiling">ceiling {o == null ? "—" : o.toFixed(2)}</span>
+                <span className="sb-ceiling">
+                  ceiling {o == null ? "—" : o.toFixed(2)}
+                </span>
               </div>
             </div>
           );
@@ -369,9 +514,11 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
 
 // ── headline tiles (reuse the 0001 endpoint — comparators ride along) ───────
 function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
-  const win = headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
+  const win =
+    headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
   if (!win) return null;
-  const pick = (name: string) => win.currencies.find((c) => c.currency === name);
+  const pick = (name: string) =>
+    win.currencies.find((c) => c.currency === name);
   const tiles = [
     { name: "topdecile_hit", label: "Top-Decile Hit" },
     { name: "rank_spearman", label: "Rank ρ" },
@@ -382,16 +529,28 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
       {tiles.map((t) => {
         const c = pick(t.name);
         if (!c) return null;
-        const good = c.persistence_delta == null ? null : c.higher_is_better ? c.persistence_delta >= 0 : c.persistence_delta <= 0;
+        const good =
+          c.persistence_delta == null
+            ? null
+            : c.higher_is_better
+            ? c.persistence_delta >= 0
+            : c.persistence_delta <= 0;
         return (
           <div key={t.name} className="sb-tile">
             <div className="label">{t.label}</div>
-            <div className="sb-tile__model">{c.model == null ? "—" : c.model.toFixed(2)}</div>
+            <div className="sb-tile__model">
+              {c.model == null ? "—" : c.model.toFixed(2)}
+            </div>
             <div className="sb-tile__cmp">
               {good != null && (
-                <span className="sb-delta" data-good={good}>{good ? "▲" : "▼"} vs persist {c.persistence == null ? "—" : c.persistence.toFixed(2)}</span>
+                <span className="sb-delta" data-good={good}>
+                  {good ? "▲" : "▼"} vs persist{" "}
+                  {c.persistence == null ? "—" : c.persistence.toFixed(2)}
+                </span>
               )}
-              <span className="sb-ceiling">ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}</span>
+              <span className="sb-ceiling">
+                ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+              </span>
             </div>
           </div>
         );
@@ -401,10 +560,18 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
 }
 
 // ── pooled pre/post-RTC+B split table ───────────────────────────────────────
-function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: MetricKey }) {
+function SplitTable({
+  weekly,
+  metric,
+}: {
+  weekly: ScoreboardWeekly;
+  metric: MetricKey;
+}) {
   const meta = METRICS[metric];
   const val = (label: string, source: string): number | null => {
-    const sp = weekly.splits.find((s) => s.label === label)?.sources.find((x) => x.source === source);
+    const sp = weekly.splits
+      .find((s) => s.label === label)
+      ?.sources.find((x) => x.source === source);
     const v = sp ? (sp[metric] as number | null) : null;
     return v == null ? null : v;
   };
@@ -413,26 +580,163 @@ function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: Metr
       <div className="sb-split-grid">
         <span className="sb-h" />
         {SERIES.map((s) => (
-          <span key={s.source} className="sb-h" style={{ color: s.color }}>{s.label}</span>
+          <span key={s.source} className="sb-h" style={{ color: s.color }}>
+            {s.label}
+          </span>
         ))}
 
         {weekly.splits.map((sp) => {
           const m = val(sp.label, "model");
           const p = val(sp.label, "persistence");
-          const modelLeads = m != null && p != null && m !== p && (meta.higher ? m > p : m < p);
+          const modelLeads =
+            m != null && p != null && m !== p && (meta.higher ? m > p : m < p);
           const persistLeads = m != null && p != null && m !== p && !modelLeads;
           return (
-            <div key={sp.label} className="sb-split-row" style={{ display: "contents" }}>
-              <span className="sb-cat label">{SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w</span>
-              <span className="sb-v" data-lead={modelLeads}>{m == null ? "—" : meta.fmt(m)}</span>
-              <span className="sb-v" data-lead={persistLeads}>{p == null ? "—" : meta.fmt(p)}</span>
-              <span className="sb-v">{(() => { const v = val(sp.label, "climatology"); return v == null ? "—" : meta.fmt(v); })()}</span>
-              <span className="sb-v sb-v--ceiling">{(() => { const v = val(sp.label, "oracle"); return v == null ? "—" : meta.fmt(v); })()}</span>
+            <div
+              key={sp.label}
+              className="sb-split-row"
+              style={{ display: "contents" }}
+            >
+              <span className="sb-cat label">
+                {SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w
+              </span>
+              <span className="sb-v" data-lead={modelLeads}>
+                {m == null ? "—" : meta.fmt(m)}
+              </span>
+              <span className="sb-v" data-lead={persistLeads}>
+                {p == null ? "—" : meta.fmt(p)}
+              </span>
+              <span className="sb-v">
+                {(() => {
+                  const v = val(sp.label, "climatology");
+                  return v == null ? "—" : meta.fmt(v);
+                })()}
+              </span>
+              <span className="sb-v sb-v--ceiling">
+                {(() => {
+                  const v = val(sp.label, "oracle");
+                  return v == null ? "—" : meta.fmt(v);
+                })()}
+              </span>
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ── right-rail glossary: plain-language notes on the sources and metrics ─────
+// Laymen's read of what each line and each column means. Sits beside the board
+// so a figure never has to be decoded from memory.
+function Glossary() {
+  return (
+    <aside className="sb-guide">
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">What the model predicts</div>
+        <p className="sb-guide__p">
+          A node's congestion price is the sum of every binding constraint's
+          shadow price, weighted by how much that node feels it:
+        </p>
+        <p className="sb-guide__eq">congestion = −Σ SF · μ</p>
+        <p className="sb-guide__p">
+          <b>μ</b> is a constraint's shadow price (≥ 0, its cost when binding);
+          <b> SF</b> is the shift factor, the node's sensitivity to that
+          constraint. SF is known, so the model's job is to forecast <b>μ</b>.
+        </p>
+        <p className="sb-guide__p">
+          Binding is rare (~3% of hours), so μ is predicted with two heads,
+          multiplied:
+        </p>
+        <p className="sb-guide__eq">E[μ] = P(bind) · E[μ | bind]</p>
+        <dl className="sb-guide__dl">
+          <dt>Head 1 — P(bind)</dt>
+          <dd>The chance the constraint is binding this hour.</dd>
+          <dt>Head 2 — E[μ | bind]</dt>
+          <dd>How severe the shadow price is when it does bind.</dd>
+        </dl>
+        <p className="sb-guide__p">
+          Splitting them matters: one regressor over all hours would just learn
+          to say “about zero” — right on average, useless when it counts.
+        </p>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">The line graph</div>
+        <dl className="sb-guide__dl">
+          <dt>Model</dt>
+          <dd>Our forecast. Predicts congestion.</dd>
+          <dt>Persistence</dt>
+          <dd>
+            Naïve baseline: tomorrow repeats yesterday. Each node's congestion
+            is set to its actual value at the same hour on the prior day.
+          </dd>
+          <dt>Climatology</dt>
+          <dd>
+            Historical-average baseline, computed per hour-of-day: how often a
+            node has congested at this hour × its typical severity when it does.
+            No day-to-day signal — just the long-run norm.
+          </dd>
+          <dt>Oracle</dt>
+          <dd>
+            Best score the inputs allow; the ideal best case ceiling to measure
+            against.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">Pre / Post-RTC+B</div>
+        <p className="sb-guide__p">
+          RTC+B was ERCOT's real-time co-optimization + batteries market change
+          on 2025-12-11. We split the weeks there to check if the model's edge
+          held through the redesign.
+        </p>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">
+          Scoring: does it rank the right nodes?
+        </div>
+        <dl className="sb-guide__dl">
+          <dt>Top-Decile Hit</dt>
+          <dd>
+            Of the nodes flagged as most stressed (top 10%), the share that
+            truly landed there. 1 = perfect, ~0.1 = chance.
+          </dd>
+          <dt>Rank ρ (Spearman)</dt>
+          <dd>
+            How well the predicted ordering of nodes matches the actual order. 1
+            = identical, 0 = unrelated.
+          </dd>
+          <dt>Sign Agreement</dt>
+          <dd>
+            How often the direction is right (import vs export). 0.5 = coin
+            flip.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">
+          Magnitude: how close are the numbers to ERCOT historic?
+        </div>
+        <dl className="sb-guide__dl">
+          <dt>Pooled R²</dt>
+          <dd>
+            Share of the real variation the forecast explains. “Pooled” =
+            scored over every node-and-hour together in one bucket, not
+            averaged per node. 1 = perfect, 0 = no better than the average,
+            below 0 = worse.
+          </dd>
+          <dt>MAE (mean absolute error)</dt>
+          <dd>
+            The average gap between forecast and actual, in $/MWh. Typical miss;
+            lower is better.
+          </dd>
+        </dl>
+      </div>
+    </aside>
   );
 }
 
@@ -448,7 +752,10 @@ export default function ScoreboardPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    Promise.all([fetchScoreboardWeekly("model", regime), fetchScoreboardHeadline(regime)])
+    Promise.all([
+      fetchScoreboardWeekly("model", regime),
+      fetchScoreboardHeadline(regime),
+    ])
       .then(([w, h]) => {
         if (!live) return;
         setWeekly(w);
@@ -506,71 +813,108 @@ export default function ScoreboardPage() {
             </>
           )}
         </div>
-        <select className="sb-regime" value={regime} onChange={(e) => setRegime(e.target.value)}>
+        <select
+          className="sb-regime"
+          value={regime}
+          onChange={(e) => setRegime(e.target.value)}
+        >
           {REGIMES.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
           ))}
         </select>
       </header>
 
-      {/* The live half — rendered independently of the backtest board, and
+      <div className="sb-body">
+        <main className="sb-main">
+          {/* The live half — rendered independently of the backtest board, and
           gracefully absent until a served day has been graded (§0004). */}
-      {daily && <LiveGradePanel daily={daily} />}
+          {daily && <LiveGradePanel daily={daily} />}
 
-      {loading && <div className="sb-empty label">loading…</div>}
-      {!loading && !weekly && (
-        <div className="sb-empty label">no board loaded for “{regime}”.</div>
-      )}
-
-      {weekly && (
-        <>
-          <HeadlineTiles headline={headline} />
-
-          {/* metric controls: screening leads, magnitude behind a toggle */}
-          <div className="sb-controls">
-            <div className="sb-metric-group">
-              {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
-                <button key={mk} className={metric === mk ? "active" : ""} onClick={() => setMetric(mk)}>
-                  {METRICS[mk].label}
-                </button>
-              ))}
+          {loading && <div className="sb-empty label">loading…</div>}
+          {!loading && !weekly && (
+            <div className="sb-empty label">
+              no board loaded for “{regime}”.
             </div>
-            <button
-              className="sb-group-toggle"
-              onClick={() => {
-                const next = group === "screening" ? "magnitude" : "screening";
-                setGroup(next);
-                setMetric(next === "screening" ? "topdecile_hit" : "pooled_r2");
-              }}
-            >
-              {group === "screening" ? "Show magnitude (R²/MAE) →" : "← Back to screening"}
-            </button>
-          </div>
+          )}
 
-          <SeriesChart points={weekly.points} metric={metric} cutover={weekly.rtc_b_cutover} />
+          {weekly && (
+            <>
+              <HeadlineTiles headline={headline} />
 
-          {/* legend — identity for ≥2 series, alongside the direct end-labels */}
-          <div className="sb-legend">
-            {SERIES.map((s) => (
-              <span key={s.source} className="sb-legend__item">
-                <i className="sb-legend__swatch" style={{ background: s.color }} /> {s.label}
-              </span>
-            ))}
-            <span className="sb-legend__note">screening currency leads; magnitude is diagnostic (§6)</span>
-          </div>
+              {/* metric controls: screening leads, magnitude behind a toggle */}
+              <div className="sb-controls">
+                <div className="sb-metric-group">
+                  {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
+                    <button
+                      key={mk}
+                      className={metric === mk ? "active" : ""}
+                      onClick={() => setMetric(mk)}
+                    >
+                      {METRICS[mk].label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="sb-group-toggle"
+                  onClick={() => {
+                    const next =
+                      group === "screening" ? "magnitude" : "screening";
+                    setGroup(next);
+                    setMetric(
+                      next === "screening" ? "topdecile_hit" : "pooled_r2"
+                    );
+                  }}
+                >
+                  {group === "screening"
+                    ? "Show magnitude (R²/MAE) →"
+                    : "← Back to screening"}
+                </button>
+              </div>
 
-          <div className="sb-section-h label">Pooled · pre/post-RTC+B ({METRICS[metric].label})</div>
-          <SplitTable weekly={weekly} metric={metric} />
-        </>
-      )}
+              <SeriesChart
+                points={weekly.points}
+                metric={metric}
+                cutover={weekly.rtc_b_cutover}
+              />
+
+              {/* legend — identity for ≥2 series, alongside the direct end-labels */}
+              <div className="sb-legend">
+                {SERIES.map((s) => (
+                  <span key={s.source} className="sb-legend__item">
+                    <i
+                      className="sb-legend__swatch"
+                      style={{ background: s.color }}
+                    />{" "}
+                    {s.label}
+                  </span>
+                ))}
+                <span className="sb-legend__note">
+                  screening currency leads; magnitude is diagnostic (§6)
+                </span>
+              </div>
+
+              <div className="sb-section-h label">
+                Pooled · pre/post-RTC+B ({METRICS[metric].label})
+              </div>
+              <SplitTable weekly={weekly} metric={metric} />
+            </>
+          )}
+        </main>
+        <Glossary />
+      </div>
 
       <style>{`
         .sb-page {
           height: 100%;
-          overflow-y: auto;
+          /* Flex column: sticky-ish header on top, the two-pane body owns the
+             rest and each pane scrolls on its own (graph static, notes scroll). */
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           background: var(--bg-base);
           color: var(--text-primary);
-          padding: 0 0 40px;
           /* One font on this page (Inter). Numbers used to be set in the mono
              face; tabular-nums keeps them column-aligned without a 2nd family. */
           font-variant-numeric: tabular-nums;
@@ -602,6 +946,55 @@ export default function ScoreboardPage() {
           padding: 4px 8px; font-size: 13px; font-family: inherit;
         }
         .sb-empty { padding: 40px 16px; text-align: center; }
+
+        /* board (left) + glossary rail (right). Same proportional split as the
+           map: content flex:5, rail flex:2 → rail is ~2/7 of the width, floored
+           at --panel-w so it never collapses too narrow. */
+        .sb-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 0; }
+        /* Each pane scrolls independently, so the graph stays put while the
+           explanation is scrolled (and vice versa). */
+        .sb-main { flex: 5 1 0; min-width: 0; overflow-y: auto; padding-bottom: 40px; }
+        .sb-guide {
+          flex: 2 1 0; min-width: var(--panel-w);
+          overflow-y: auto;
+          border-left: 1px solid var(--border);
+          padding: 14px 16px 24px;
+        }
+        /* Blocks read as sections now: a rule + spacing separates each. */
+        .sb-guide__block + .sb-guide__block {
+          margin-top: 18px; padding-top: 18px;
+          border-top: 1px solid var(--border);
+        }
+        .sb-guide__h {
+          display: block; margin: 0 0 10px;
+          font-size: 15px; font-weight: 600; line-height: 1.25;
+          letter-spacing: normal; text-transform: none;
+          color: var(--text-primary);
+        }
+        .sb-guide__p { font-size: 12px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
+        .sb-guide__p + .sb-guide__p, .sb-guide__dl + .sb-guide__p { margin-top: 8px; }
+        .sb-guide__eq {
+          font-family: var(--font-mono);
+          font-size: 13px; color: var(--text-primary);
+          text-align: center; margin: 8px 0;
+          padding: 6px 8px; background: var(--bg-surface);
+          border: 1px solid var(--border); border-radius: 3px;
+        }
+        .sb-guide__dl { margin: 0; }
+        .sb-guide__dl dt { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+        .sb-guide__dl dt:first-child { margin-top: 0; }
+        .sb-guide__dl dd { margin: 1px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+        @media (max-width: 900px) {
+          /* Stacked: independent-pane scrolling no longer applies — let the
+             whole page scroll as one column again. */
+          .sb-page { overflow-y: auto; }
+          .sb-body { flex-direction: column; min-height: 0; }
+          .sb-main { overflow: visible; padding-bottom: 0; }
+          .sb-guide {
+            flex-basis: auto; width: 100%; min-width: 0; overflow: visible;
+            border-left: none; border-top: 1px solid var(--border);
+          }
+        }
 
         .sb-live { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
         .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; flex-wrap: wrap; }
