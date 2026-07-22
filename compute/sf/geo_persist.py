@@ -122,6 +122,11 @@ def _window_geo(SF: pd.DataFrame, sp: pd.DataFrame, Mw: pd.DataFrame) -> pd.Data
 
     # Overview primitives (plan/0092-0002): the |SF|²-core the map de-piles to,
     # and the type that picks its mark. Both summarise this same honest window.
+    # TODO: core_lat/core_lon are now only rendered for RADIAL constraints (the
+    # hollow-ring mark) — the GTC/transmission center dots were dropped as
+    # misleading phantom nodes (OverviewOverlay.tsx). If radial marks are ever
+    # reworked to not need this point, drop the core columns here, in
+    # constraint_core (compute/mu/geo.py:265), and from the api/map.py select.
     core = constraint_core(SF, sp)
     geo["core_lat"] = core["geo_core_lat"]
     geo["core_lon"] = core["geo_core_lon"]

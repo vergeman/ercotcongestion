@@ -317,16 +317,9 @@ export default function OverviewOverlay({
           ))}
         </g>
       );
-      inner.push(
-        <circle
-          key="core"
-          className="ov-core"
-          cx={core.x}
-          cy={core.y}
-          r={3.5 + 3.5 * t}
-          fill={col}
-        />
-      );
+      // No center core dot: the metaball + skeleton already show the region, and
+      // a filled dot at the |SF|²-median reads as a phantom settlement point. The
+      // invisible hit target below still lives at `core`, so hover/isolate works.
     } else if (c.ctype === "radial") {
       // A single point — hollow ring, no body.
       inner.push(
@@ -372,16 +365,9 @@ export default function OverviewOverlay({
             ))}
         </g>
       );
-      inner.push(
-        <circle
-          key="core"
-          className="ov-core"
-          cx={core.x}
-          cy={core.y}
-          r={3 + 2.5 * t}
-          fill={col}
-        />
-      );
+      // No center core dot: the corridor run already shows where it lives, and a
+      // filled dot at the |SF|²-median reads as a phantom node. Hit target (below)
+      // still anchors at `core`, so hover/isolate is unaffected.
     }
 
     return (

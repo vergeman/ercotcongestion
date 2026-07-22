@@ -265,6 +265,14 @@ def _weiszfeld(lat: np.ndarray, lon: np.ndarray, w: np.ndarray,
 def constraint_core(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
     """The constraint's intensity **core** — its `|SF|²`-weighted geometric median.
 
+    TODO: this point is now only rendered for RADIAL constraints (the hollow-ring
+    mark in OverviewOverlay.tsx); the GTC/transmission center dots were removed as
+    misleading phantom nodes. If the radial mark is ever reworked to not need a
+    single anchor point, this whole function can be deleted along with the
+    core_lat/core_lon persistence (compute/sf/geo_persist.py:126) and the
+    api/map.py select.
+
+
     `constraint_geography` gives the `|SF|`-weighted *mean* centroid, which a
     bimodal constraint averages into the empty middle between its two lobes (half
     of all constraints land within 100 km of the state center). The geometric
