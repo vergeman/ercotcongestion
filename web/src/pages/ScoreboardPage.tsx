@@ -703,10 +703,10 @@ function Glossary() {
         </p>
         <p className="sb-guide__eg">
           <b>Example.</b> At 5pm the model sees a 10% chance a line binds —
-          P(bind) = 0.10, Head&nbsp;1 — and a $200 shadow price if it does —
-          E[μ | bind] = $200, Head&nbsp;2. Multiply: E[μ] = 0.10 × $200 = $20. A
-          node with SF = −0.3 to that line then carries −SF · μ = −(−0.3) × $20 =
-          +$6 of congestion.
+          P(bind) = 0.10, Head&nbsp;1 — and a $200 shadow price if it does — E[μ
+          | bind] = $200, Head&nbsp;2. Multiply: E[μ] = 0.10 × $200 = $20. A
+          node with SF = −0.3 to that line then carries −SF · μ = −(−0.3) × $20
+          = +$6 of congestion.
         </p>
       </div>
 
@@ -900,7 +900,7 @@ export default function ScoreboardPage() {
                 </>
               }
             >
-              Hours
+              Net-load Bucket
             </Term>
           </span>
           {headlineWin && (
