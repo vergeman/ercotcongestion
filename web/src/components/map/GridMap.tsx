@@ -37,9 +37,9 @@ function chromeColors() {
   };
 }
 
-// The reach dipole's axis: an arc from the export end (negative-SF nodes) to
-// the import end (positive-SF nodes), each end the |SF|-weighted centroid of
-// its sign. Null when the reach is one-sided (no dipole to draw).
+// The reach dipole's axis: an arc between the import end (negative-SF nodes) and
+// the export end (positive-SF nodes), each end the |SF|-weighted centroid of
+// its sign (docs/SF.md). Null when the reach is one-sided (no dipole to draw).
 function buildCorridorArc(
   reach: ConstraintReach
 ): GeoJSON.Feature<GeoJSON.LineString> | null {
@@ -145,7 +145,7 @@ interface Props {
   isolatedConstraint?: string | null;
   onIsolateConstraint?: (id: string | null) => void;
   // Focus reach (plan/0103): the dipole SP-coloring for a hovered/locked constraint
-  // — its constituent nodes glow signed src/sink, every other node fades to the
+  // — its constituent nodes glow signed import/export, every other node fades to the
   // no-data fill. Distinct from `reach` (the click/DetailCard node-explorer) so a
   // hover doesn't open that card; it just recolors the SP layer.
   focusReach?: ConstraintReach | null;
@@ -500,9 +500,11 @@ export default function GridMap({
       { sp_id: string }
     >;
 
-    // Reach mode: a focused constraint's driven nodes glow by *signed* SF (blue
-    // export end ↔ cream ↔ red import end, normalized to the reach's own max |SF|);
-    // every other node fades to the no-data fill. This is SF *structure*,
+    // Reach mode: a focused constraint's driven nodes glow by *signed* SF (red
+    // import end SF<0 ↔ cream ↔ blue export end SF>0, normalized to the reach's own
+    // max |SF|; docs/SF.md). Colored by congestion sign (−SF), so the glow agrees
+    // with the congestion fill: import is red, export is blue.
+    // Every other node fades to the no-data fill. This is SF *structure*,
     // deliberately overriding the realized/forecast-error palette while a
     // constraint is focused — whether pinned via the node-explorer (`reach`) or
     // hovered/locked from the panel or overview (`focusReach`).
@@ -521,7 +523,9 @@ export default function GridMap({
         if (sf === undefined) {
           map.setFeatureState({ source: "sps", id }, { color: null, faded: true });
         } else {
-          const norm = Math.max(-1, Math.min(1, sf / maxAbs));
+          // Color by congestion sign (−SF): import (SF<0) → +norm → red, export
+          // (SF>0) → −norm → blue, so the glow agrees with the congestion fill.
+          const norm = Math.max(-1, Math.min(1, -sf / maxAbs));
           map.setFeatureState(
             { source: "sps", id },
             { color: modeledCongestionColor(norm, theme), faded: false }

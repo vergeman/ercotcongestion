@@ -9,17 +9,17 @@ import { fetchMapReach } from "../../api/client";
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
 // driving congestion — the list-shaped companion to the map's marker pile, which
 // piles up and can't rank. Each row shows its congestion-contribution magnitude
-// (a gauge), its member count, and its source↔sink dipole; hovering a row isolates
+// (a gauge), its member count, and its import↔export dipole; hovering a row isolates
 // that constraint — here (dim every other row, reveal its members) AND on the map
 // overlay (via `onHover`), the same way the map itself is navigated. The server
 // owns the order — this component never re-ranks.
 //
-// Colour: source/sink is a diverging polarity, and blue↔red is the app's reserved
-// dipole pair (OverviewOverlay .ov-src/.ov-snk) — source (import, SF<0) blue, sink
-// (export, SF>0) red, reused verbatim so a lobe reads the same on panel and map.
+// Colour: import/export is a diverging polarity (docs/SF.md). Import (SF<0, the
+// receiving/expensive end) is red; export (SF>0, the trapped/cheap end) is blue —
+// matching the map's congestion fill so a lobe reads the same on panel and map.
 
-const SRC = "#3b82f6"; // source / import lobe (SF<0) — app-reserved
-const SNK = "#ef4444"; // sink / export lobe (SF>0) — app-reserved
+const IMPORT = "#ef4444"; // import lobe (SF<0) — congestion price ↑, red
+const EXPORT = "#3b82f6"; // export lobe (SF>0) — congestion price ↓, blue
 
 // One /map/reach lookup per constraint is stable for the session (same map run),
 // so cache it module-side: hovering down the list is then instant and never spams
@@ -53,8 +53,8 @@ function fmtMag(v: number): string {
   return v.toFixed(0);
 }
 
-// One constraint's expanded membership — the signed reach, source ends (SF<0) then
-// sink ends (SF>0), each coloured by its pole. Reads the module cache first, so a
+// One constraint's expanded membership — the signed reach, import ends (SF<0) then
+// export ends (SF>0), each coloured by its pole. Reads the module cache first, so a
 // re-hover paints instantly; only a cache miss hits /map/reach.
 function Membership({
   id,
@@ -101,17 +101,17 @@ function Membership({
       onMouseLeave={() => onMemberHover?.(null)}
     >
       {reach.sps.map((s) => {
-        const src = s.sf < 0;
+        const imp = s.sf < 0;
         return (
           <li
             key={s.settlement_point}
             className="cp-mem-row"
             onMouseEnter={() => onMemberHover?.(s.settlement_point)}
           >
-            <span className="cp-dot" style={{ background: src ? SRC : SNK }} />
+            <span className="cp-dot" style={{ background: imp ? IMPORT : EXPORT }} />
             <span className="cp-mem-sp mono">{s.settlement_point}</span>
-            <span className="cp-mem-sf mono" style={{ color: src ? SRC : SNK }}>
-              {src ? "src" : "snk"} {s.sf.toFixed(2)}
+            <span className="cp-mem-sf mono" style={{ color: imp ? IMPORT : EXPORT }}>
+              {imp ? "import" : "export"} {s.sf.toFixed(2)}
             </span>
           </li>
         );
@@ -120,22 +120,23 @@ function Membership({
   );
 }
 
-// The source↔sink dipole as a compact bicolor gauge: blue (source, import) vs red
-// (sink, export), split by located-node share, so the row shows at a glance which
-// way the constraint pushes congestion. Peaks + counts ride the tooltip.
-function Dipole({ src, snk }: { src: ConstraintLobe; snk: ConstraintLobe }) {
-  const s = src.n_nodes;
-  const k = snk.n_nodes;
+// The import↔export dipole as a compact bicolor gauge: red (import, SF<0) vs blue
+// (export, SF>0), split by located-node share, so the row shows at a glance which
+// way the constraint pushes congestion. Peaks + counts ride the tooltip. (`imp` is
+// the server's source_lobe — the SF<0 nodes; `exp` its sink_lobe — the SF>0 nodes.)
+function Dipole({ imp, exp }: { imp: ConstraintLobe; exp: ConstraintLobe }) {
+  const s = imp.n_nodes;
+  const k = exp.n_nodes;
   const tot = s + k || 1;
   const pk = (l: ConstraintLobe) =>
     l.peak_sf != null ? Math.abs(l.peak_sf).toFixed(2) : "—";
   return (
     <span
       className="cp-dip"
-      title={`source (import) ${s} nodes · peak ${pk(src)}   ↔   sink (export) ${k} nodes · peak ${pk(snk)}`}
+      title={`import (SF<0) ${s} nodes · peak ${pk(imp)}   ↔   export (SF>0) ${k} nodes · peak ${pk(exp)}`}
     >
-      <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: SRC }} />
-      <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: SNK }} />
+      <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: IMPORT }} />
+      <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: EXPORT }} />
     </span>
   );
 }
@@ -182,8 +183,8 @@ export default function ConstraintPanel({
               aria-pressed={basis === b}
               title={
                 b === "predicted"
-                  ? "Predicted: the model's forecast shadow price (E[μ]) projected through the SF map."
-                  : "Realized: ERCOT's published DAM shadow prices for the day — the actual market outcome."
+                  ? "Rank constraints by the model's forecast — what it expected to bind before the day."
+                  : "Rank constraints by ERCOT's actual published results for the day — what really bound."
               }
               onClick={() => onBasis(b)}
             >
@@ -203,9 +204,16 @@ export default function ConstraintPanel({
       <div className="cp-caption">
         Ranked by <b>contribution</b> = shadow-price mass × SF reach (how much a
         constraint drives the day's congestion). The bar is its share of the top
-        constraint. <span style={{ color: SRC }}>Source</span>/
-        <span style={{ color: SNK }}>sink</span> = the import/export ends. Hover a
-        row to isolate it on the map; click to expand its source/sink members.
+        constraint. Hover a row to isolate it on the map; click to expand its
+        member nodes.
+        <span className="cp-key-legend">
+          <span className="cp-key-item">
+            <span className="cp-dot" style={{ background: IMPORT }} /> SF&nbsp;&lt;&nbsp;0 · import (price ↑)
+          </span>
+          <span className="cp-key-item">
+            <span className="cp-dot" style={{ background: EXPORT }} /> SF&nbsp;&gt;&nbsp;0 · export (price ↓)
+          </span>
+        </span>
       </div>
 
       {!loading && !ranked && (
@@ -223,7 +231,7 @@ export default function ConstraintPanel({
           <span className="cp-ch">Constraint</span>
           <span className="cp-ch cp-ch-r" title="Member nodes above the |SF| floor">Nodes</span>
           <span className="cp-ch cp-ch-r" title="Congestion contribution (shadow-price mass × SF reach)">Contrib</span>
-          <span className="cp-ch" title="Source (import, blue) ↔ sink (export, red) split by node share">Dipole</span>
+          <span className="cp-ch" title="Import (SF<0, red) ↔ export (SF>0, blue) split by node share">Dipole</span>
         </div>
       )}
 
@@ -259,7 +267,7 @@ export default function ConstraintPanel({
                     {fmtMag(c.congestion_contribution)}
                   </span>
                 </span>
-                <Dipole src={c.source_lobe} snk={c.sink_lobe} />
+                <Dipole imp={c.source_lobe} exp={c.sink_lobe} />
               </button>
               {expanded && (
                 <Membership
@@ -283,12 +291,16 @@ export default function ConstraintPanel({
           padding: 2px 8px; font-size: 11px;
           font-family: var(--font-label); letter-spacing: var(--track-label);
         }
-        .cp-meta { margin-bottom: 6px; color: var(--text-muted); }
+        .cp-meta { margin-bottom: 6px; color: var(--text-secondary); }
         .cp-caption {
-          font-size: 11.5px; line-height: 1.5; color: var(--text-muted);
+          font-size: 11.5px; line-height: 1.5; color: var(--text-secondary);
           margin-bottom: 10px;
         }
         .cp-caption b { color: var(--text-secondary); font-weight: 600; }
+        /* Compact import/export key — the SF-sign convention (docs/SF.md), inline
+           so it reads next to the ranked list it explains. */
+        .cp-key-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }
+        .cp-key-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
         .cp-mem-msg {
           font-size: 12px; color: var(--text-muted);
           padding: 8px 2px; font-family: var(--font-label);

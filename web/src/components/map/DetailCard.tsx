@@ -124,13 +124,14 @@ function Confidence({
   );
 }
 
-// A signed-SF sign chip (blue export end ↔ red import end) — matches the map's
-// diverging reach palette so the card and the glow agree.
+// A signed-SF sign chip (red import end SF<0 ↔ blue export end SF>0; docs/SF.md) —
+// colored by congestion sign (−SF), so it matches the map's diverging reach glow
+// and congestion fill: import is red, export is blue.
 function SignChip({ sf }: { sf: number }) {
   return (
     <span
       className="dc-chip"
-      style={{ background: modeledCongestionColor(sf >= 0 ? 1 : -1) }}
+      style={{ background: modeledCongestionColor(sf < 0 ? 1 : -1) }}
     />
   );
 }
@@ -201,7 +202,7 @@ function ExposuresBody({
 }
 
 // Constraint-reach body: which nodes this constraint drives, split into the
-// export (−) and import (+) ends.
+// import (SF<0) and export (SF>0) ends (docs/SF.md).
 function ReachBody({
   reach,
   onHoverMember,
@@ -211,8 +212,8 @@ function ReachBody({
   onHoverMember?: (sp: string | null) => void;
   onSelectMember?: (sp: string) => void;
 }) {
-  const exportEnd = reach.sps.filter((s) => s.sf < 0).length;
-  const importEnd = reach.sps.filter((s) => s.sf >= 0).length;
+  const importEnd = reach.sps.filter((s) => s.sf < 0).length;
+  const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
   const nRail = reach.n_rail ?? 0;
   const clipped =
     nRail >= 1 || (reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF);
@@ -245,7 +246,7 @@ function ReachBody({
           : ""}
       </div>
       <div className="dc-drivers-title label">
-        drives {reach.sps.length} nodes · {exportEnd} export / {importEnd} import
+        drives {reach.sps.length} nodes · {importEnd} import / {exportEnd} export
       </div>
       <div
         className="dc-drivers"

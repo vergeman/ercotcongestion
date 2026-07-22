@@ -16,7 +16,7 @@ import { cssVar, useTheme } from "../../lib/theme";
 // The basemap + SP layer stay beneath in WebGL; this overlay projects each
 // lat/lon with map.project() and re-draws on every camera move.
 
-// Type hues. Blue↔red is RESERVED for the signed source/sink drill-down, so the
+// Type hues. Blue↔red is RESERVED for the signed import/export drill-down, so the
 // overview picks non-reserved categorical hues (design-notes/type-coloring-and-sign):
 //   gtc          amber  — a region (metaball) it holds
 //   transmission violet — a corridor (MST) it runs along
@@ -451,7 +451,7 @@ export default function OverviewOverlay({
           </small>
         </div>
         {shown.map((m) => {
-          const src = m.sf < 0;
+          const imp = m.sf < 0;
           return (
             <div
               key={m.key}
@@ -467,8 +467,8 @@ export default function OverviewOverlay({
                 style={{ background: sf.byType[m.type] ?? sf.untyped }}
               />
               <span className="ov-ck">{m.key}</span>
-              <span className={`ov-role ${src ? "ov-src" : "ov-snk"}`}>
-                {src ? "src" : "snk"} {m.sf.toFixed(2)}
+              <span className={`ov-role ${imp ? "ov-import" : "ov-export"}`}>
+                {imp ? "import" : "export"} {m.sf.toFixed(2)}
               </span>
               <span className="ov-bh">{m.bh ?? "—"}h</span>
             </div>
@@ -522,7 +522,7 @@ export default function OverviewOverlay({
         .overview-overlay.ov-dim .ov-con:not(.ov-iso) { opacity: 0; pointer-events: none; }
         .overview-overlay.ov-dim .ov-con:not(.ov-iso) .ov-hit { pointer-events: none; }
         /* Hide the overview's own node dots while isolating — the SP circle layer
-           beneath carries the isolated constraint's src/sink node colors instead. */
+           beneath carries the isolated constraint's import/export node colors instead. */
         .overview-overlay.ov-dim .ov-node { opacity: 0; pointer-events: none; }
         .overview-overlay .ov-iso .ov-shadow { opacity: .72; }
         .overview-overlay .ov-iso .ov-skel line { stroke-opacity: .9; stroke-width: 1.6; }
@@ -541,7 +541,7 @@ export default function OverviewOverlay({
         .ov-ck { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           font-family: var(--font-mono); font-size: var(--fs-label); }
         .ov-role { font-weight: 700; font-size: var(--fs-label); }
-        .ov-src { color: #3b82f6; } .ov-snk { color: #ef4444; }
+        .ov-import { color: #ef4444; } .ov-export { color: #3b82f6; }
         .ov-bh { color: var(--text-secondary); font-size: var(--fs-label); width: 34px; text-align: right; }
         .ov-more { color: var(--text-secondary); font-size: var(--fs-label); text-align: center; padding: 3px; }
       `}</style>

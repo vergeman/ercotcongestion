@@ -72,6 +72,14 @@ export default function DateRangePicker({
 
       {open && (
         <div className="drp__dropdown">
+          <button
+            className="drp__close"
+            onClick={() => setOpen(false)}
+            aria-label="Close"
+            title="Close"
+          >
+            ✕
+          </button>
           {events && events.length > 0 && (
             <div className="drp__events">
               <div className="label drp__section-label">Curated events</div>
@@ -150,8 +158,30 @@ export default function DateRangePicker({
           width: 280px;
           z-index: 100;
           box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-          max-height: 70vh;
+          max-height: 90vh;
           overflow-y: auto;
+        }
+        .drp__close {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          width: 20px;
+          height: 20px;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: none;
+          border: none;
+          border-radius: 3px;
+          color: var(--text-muted);
+          font-size: 12px;
+          line-height: 1;
+          cursor: pointer;
+        }
+        .drp__close:hover {
+          color: var(--text-primary);
+          background: var(--bg-hover);
         }
         .drp__section-label {
           color: var(--text-muted);

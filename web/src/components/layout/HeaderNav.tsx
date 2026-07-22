@@ -4,9 +4,9 @@
 
 type NavKey = "map" | "scoreboard" | "analysis";
 
-const NAV: { key: NavKey; label: string; href?: string }[] = [
+const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean }[] = [
   { key: "map", label: "Map", href: "/" },
-  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard" },
+  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", newTab: true },
   { key: "analysis", label: "Analysis" }, // not yet built — disabled
 ];
 
@@ -21,6 +21,8 @@ export default function HeaderNav({ active }: { active: NavKey }) {
             <a
               key={n.key}
               href={n.href}
+              target={n.newTab ? "_blank" : undefined}
+              rel={n.newTab ? "noopener noreferrer" : undefined}
               className={`brand-nav__link${active === n.key ? " active" : ""}`}
               aria-current={active === n.key ? "page" : undefined}
             >
