@@ -4,11 +4,14 @@ __pycache__/
 .env
 .env.dev
 
+*.gz
+
 # Data
 data/raw/TIGER/*
 !data/raw/TIGER/README.md
 data/raw/ercot_load_zones/*
 !data/raw/ercot_load_zones/README.md
+!data/raw/ercot_geocode/gridstatus-nodes.json.gz
 api/static/*
 compute/experiments/zonal_clustering/runs/*
 compute/runs/*
@@ -17,7 +20,6 @@ compute/runs/*
 # books / docs
 *.pdf
 *.odt
-*.gz
 *.png
 !docs/v1/*.png
 .image-tag

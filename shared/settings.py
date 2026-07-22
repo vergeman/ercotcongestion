@@ -67,6 +67,9 @@ class Settings:
     ercot_geocode_dir   = f'{data_dir}/ercot_geocode'
     ercot_geocode_review_queue_csv = f'{data_dir}/ercot_geocode/review_queue.csv'
     ercot_geocode_manual_overrides_csv = f'{data_dir}/ercot_geocode/manual_overrides.csv'
+    # gridstatus.io node export: authoritative SPP -> encoded coordinate map.
+    # Used as a corrective override layer in geocode_ercot_layer.py.
+    ercot_geocode_nodes_json = f'{data_dir}/ercot_geocode/gridstatus-nodes.json.gz'
 
     # ---- Composite ------- -------------------------------------------------
     pg_dsn: str = (
