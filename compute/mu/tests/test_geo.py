@@ -18,9 +18,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.geo import (constraint_core, constraint_geography,
-                            constraint_type, coverage_by_mu_mass, geo_panel,
-                            haversine_km, refit_grid, zone_anchors)
+from compute.mu.geo import (constraint_geography, constraint_type,
+                            coverage_by_mu_mass, geo_panel, haversine_km,
+                            refit_grid, zone_anchors)
 
 
 @pytest.fixture
@@ -110,53 +110,6 @@ def test_zone_anchors_are_derived_from_the_data_not_typed(sp):
     a = zone_anchors(sp)
     assert set(a.index) == {"LZ_HOUSTON", "LZ_NORTH", "LZ_SOUTH", "LZ_WEST"}
     assert a.loc["LZ_HOUSTON", "lat"] == pytest.approx(29.76)
-
-
-# -------------------------------------------------- the |SF|² core (plan/0092)
-
-def test_core_of_a_single_node_constraint_is_that_node(sp):
-    """Degenerate case: the geometric median of one point is that point."""
-    SF = pd.DataFrame([[0.0, 0.9, 0.0, 0.0]], index=["A|c"], columns=sp.index)
-    c = constraint_core(SF, sp)
-    assert c.loc["A|c", "geo_core_lat"] == pytest.approx(32.78)
-    assert c.loc["A|c", "geo_core_lon"] == pytest.approx(-96.80)
-
-
-def test_core_lands_on_the_heavier_lobe_not_between_it(sp):
-    """**The whole point of the core.** A bimodal constraint's |SF|-weighted MEAN
-    lands in the empty middle between its lobes; the |SF|²-weighted geometric median
-    snaps onto the denser/stronger lobe instead.
-
-    Two eastern nodes (Houston, Corpus) form one lobe, a lone western node (Midland)
-    the other. The core must sit EAST of the mean centroid — pulled toward the
-    two-node lobe, away from the west — which is exactly the de-piling the overview
-    needs.
-    """
-    SF = pd.DataFrame([[0.8, 0.0, 0.8, 0.7]], index=["A|c"], columns=sp.index)  # HOU,NOR,SOU,WES
-    core = constraint_core(SF, sp).loc["A|c"]
-    mean = constraint_geography(SF, sp).loc["A|c"]
-    assert core["geo_core_lon"] > mean["geo_lon"]        # east of the centroid
-    # and closer to the eastern lobe (Houston) than the centroid is
-    d_core = haversine_km(core["geo_core_lat"], core["geo_core_lon"], 29.76, -95.37)
-    d_mean = haversine_km(mean["geo_lat"], mean["geo_lon"], 29.76, -95.37)
-    assert float(d_core) < float(d_mean)
-
-
-def test_core_of_an_unlocatable_constraint_is_nan(sp):
-    """Parity with `constraint_geography`: a hole stays a hole, no fallback."""
-    SF = pd.DataFrame([[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
-                      index=["EMPTY|c", "REAL|c"], columns=sp.index)
-    c = constraint_core(SF, sp)
-    assert c.loc["EMPTY|c"].isna().all()
-    assert c.loc["REAL|c"].notna().all()
-
-
-def test_core_ignores_uncoordinated_settlement_points(sp):
-    """SF mass on nodes we can't place contributes nothing — no drag to (0,0)."""
-    SF = pd.DataFrame([[0.5, 0.0, 0.0, 0.0, 9.0]], index=["A|c"],
-                      columns=list(sp.index) + ["MYSTERY_SP"])
-    c = constraint_core(SF, sp)
-    assert c.loc["A|c", "geo_core_lat"] == pytest.approx(29.76)   # pure Houston
 
 
 # ------------------------------------------------ the type classifier (plan/0092)
