@@ -245,24 +245,16 @@ class MapOverview(BaseModel):
 # ``constraint_name|contingency_name`` key the SF panel is built from).
 
 
-class ConstraintLobe(BaseModel):
-    """One end of a constraint's congestion dipole — its source (import, SF<0) or
-    sink (export, SF>0) lobe. ``n_nodes`` counts the located nodes above the floor
-    on that side; the panel's dipole gauge is split by the two sides' counts. Zero
-    for a one-sided or unlocated constraint (a lobe with no nodes)."""
-    n_nodes: int = 0
-
-
 class RankedConstraint(BaseModel):
     """One constraint in the per-day ranking (a /map/constraints/ranked row).
 
     ``congestion_contribution = mu_mass · reach`` is the sort key (descending);
-    ``rank`` is its 1-based position. ``source_lobe``/``sink_lobe`` carry the
-    congestion dipole (import vs export node counts); ``n_members`` is the located
-    node count above the floor. ``ctype`` mirrors the /map/overview marker (same
-    ``constraint_id`` key), so a panel row highlights the same overlay mark.
-    ``mu_mass``/``reach`` are exposed so the contribution is legible, not a
-    black-box score."""
+    ``rank`` is its 1-based position. ``n_import``/``n_export`` carry the congestion
+    dipole — located nodes above the floor on the import (SF<0) and export (SF>0)
+    sides, which the panel's dipole gauge is split by; ``n_members`` is their total.
+    ``ctype`` mirrors the /map/overview marker (same ``constraint_id`` key), so a
+    panel row highlights the same overlay mark. ``mu_mass``/``reach`` are exposed so
+    the contribution is legible, not a black-box score."""
     constraint_id: str
     rank: int
     congestion_contribution: float
@@ -270,8 +262,8 @@ class RankedConstraint(BaseModel):
     reach: float
     n_members: int
     ctype: str | None = None
-    source_lobe: ConstraintLobe
-    sink_lobe: ConstraintLobe
+    n_import: int = 0
+    n_export: int = 0
 
 
 class RankedConstraints(BaseModel):

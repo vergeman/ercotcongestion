@@ -233,9 +233,9 @@ def test_ranked_predicted_orders_and_dipole(client, fake_pool, configured_run,
     # N3 (+0.01 < 0.05*0.8) is below the floor → 2 members, not 3
     assert aaa["n_members"] == 2
     assert aaa["ctype"] == "gtc"
-    # dipole: one +SF node (N1) on the sink side, one −SF node (N2) on the source
-    assert aaa["sink_lobe"]["n_nodes"] == 1
-    assert aaa["source_lobe"]["n_nodes"] == 1
+    # dipole: one +SF node (N1) on the export side, one −SF node (N2) on the import
+    assert aaa["n_export"] == 1
+    assert aaa["n_import"] == 1
     # BBB unmatched in constraint_geo → null type, still ranked
     assert cs[1]["ctype"] is None
 
