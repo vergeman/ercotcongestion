@@ -1,6 +1,5 @@
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { modeledCongestionColor } from "../../lib/colors";
-import Tooltip from "../ui/Tooltip";
 
 interface HoveredSp {
   spId: string;
@@ -182,13 +181,11 @@ function ExposuresBody({
         onMouseLeave={() => onHoverConstraint?.(null)}
       >
         {exposures.exposures.map((e) => (
-          <Tooltip
+          <button
             key={e.constraint_key}
-            as="button"
             className="dc-driver"
             onClick={() => onSelectConstraint?.(e.constraint_key)}
             onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
-            tip={`${e.constraint_key} — trace reach`}
           >
             <SignChip sf={e.sf} />
             <span className="dc-driver-key mono">{e.constraint_key}</span>
@@ -196,7 +193,7 @@ function ExposuresBody({
             <span className="dc-driver-sup label">
               {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
             </span>
-          </Tooltip>
+          </button>
         ))}
       </div>
     </>
@@ -255,18 +252,16 @@ function ReachBody({
         onMouseLeave={() => onHoverMember?.(null)}
       >
         {reach.sps.map((s) => (
-          <Tooltip
+          <button
             key={s.settlement_point}
-            as="button"
             className="dc-driver"
             onClick={() => onSelectMember?.(s.settlement_point)}
             onMouseEnter={() => onHoverMember?.(s.settlement_point)}
-            tip={`${s.settlement_point} — open node`}
           >
             <SignChip sf={s.sf} />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
             <span className="dc-driver-sf mono">{fmtSf(s.sf)}</span>
-          </Tooltip>
+          </button>
         ))}
       </div>
     </>

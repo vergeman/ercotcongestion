@@ -123,22 +123,17 @@ function Membership({
 
 // The import↔export dipole as a compact bicolor gauge: red (import, SF<0) vs blue
 // (export, SF>0), split by located-node share, so the row shows at a glance which
-// way the constraint pushes congestion. Peaks + counts ride the tooltip. (`imp` is
-// the server's source_lobe — the SF<0 nodes; `exp` its sink_lobe — the SF>0 nodes.)
+// way the constraint pushes congestion. (`imp` is the server's source_lobe — the
+// SF<0 nodes; `exp` its sink_lobe — the SF>0 nodes.)
 function Dipole({ imp, exp }: { imp: ConstraintLobe; exp: ConstraintLobe }) {
   const s = imp.n_nodes;
   const k = exp.n_nodes;
   const tot = s + k || 1;
-  const pk = (l: ConstraintLobe) =>
-    l.peak_sf != null ? Math.abs(l.peak_sf).toFixed(2) : "—";
   return (
-    <Tooltip
-      className="cp-dip"
-      tip={`import (SF<0) ${s} nodes · peak ${pk(imp)}   ↔   export (SF>0) ${k} nodes · peak ${pk(exp)}`}
-    >
+    <span className="cp-dip">
       <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: IMPORT }} />
       <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: EXPORT }} />
-    </Tooltip>
+    </span>
   );
 }
 
@@ -231,7 +226,7 @@ export default function ConstraintPanel({
       {rows.length > 0 && (
         <div className="cp-colhead" aria-hidden="true">
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Rank by contribution">#</Tooltip>
-          <span className="cp-ch">Constraint</span>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="ERCOT's identifier for the transmission constraint (line/element and contingency)">Constraint</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
           <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, red) ↔ export (SF>0, blue) split by node share">Dipole</Tooltip>
@@ -260,16 +255,14 @@ export default function ConstraintPanel({
                 }}
               >
                 <span className="cp-rank mono">{c.rank}</span>
-                <Tooltip className="cp-key mono" tabIndex={-1} tip={c.constraint_id}>
-                  {c.constraint_id}
-                </Tooltip>
+                <span className="cp-key mono">{c.constraint_id}</span>
                 <span className="cp-n mono">{c.n_members}</span>
-                <Tooltip className="cp-meter" tabIndex={-1} tip="congestion contribution">
+                <span className="cp-meter">
                   <span className="cp-meter-fill" style={{ width: `${w}%` }} />
                   <span className="cp-meter-num mono">
                     {fmtMag(c.congestion_contribution)}
                   </span>
-                </Tooltip>
+                </span>
                 <Dipole imp={c.source_lobe} exp={c.sink_lobe} />
               </button>
               {expanded && (
