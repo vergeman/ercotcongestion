@@ -45,6 +45,6 @@ def test_openapi_includes_map_schemas(client):
     assert r.status_code == 200
     schemas = r.json()['components']['schemas']
 
-    for name in ('MapMeta', 'ConstraintGeo', 'SpExposure', 'ExposuresResponse',
+    for name in ('MapMeta', 'SpExposure', 'ExposuresResponse',
                  'ConstraintReach', 'ReachSp'):
         assert name in schemas, f'{name} should be present'

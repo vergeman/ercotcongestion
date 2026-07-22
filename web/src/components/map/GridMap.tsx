@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
@@ -7,7 +7,12 @@ import type {
   ConstraintReach,
   MapOverview,
 } from "../../api/types";
-import OverviewOverlay from "./OverviewOverlay";
+import OverviewPopover from "./OverviewPopover";
+import {
+  buildOverviewSources,
+  buildSpMembers,
+  type OvMember,
+} from "./overviewSources";
 import {
   lmpColor,
   normalizeLmpFromStats,
@@ -31,8 +36,8 @@ function chromeColors() {
     nodeHover: cssVar("--map-node-hover"),
     accent: cssVar("--accent"),
     // Reach-corridor stroke for the dipole arc. The flat centroid "constraint
-    // pile" overlay was retired in favor of OverviewOverlay (MST corridors +
-    // GTC metaballs + radial points); this hue survives only for that arc.
+    // pile" overlay was retired in favor of the native overview mark layers (MST
+    // corridors + GTC circle clouds + radial rings); this hue survives for the arc.
     constraint: cssVar("--violet"),
   };
 }
@@ -134,14 +139,17 @@ interface Props {
   // constraints toggle). Passed only to the pane that owns the overlay (the
   // left/prediction map).
   showConstraints?: boolean;
-  // The de-piled overview (SF cores + type) — the sole constraint presentation.
-  // The SVG OverviewOverlay draws each constraint at its |SF|² core (MST
-  // corridors, GTC metaballs, radial points). The old flat centroid marker pile
+  // The de-piled overview (typed marks) — the sole constraint presentation, drawn
+  // as native maplibre layers here (GTC circle clouds, MST corridor lines, radial
+  // rings) beneath the `sps` layer. The old flat centroid marker pile
   // (/map/constraints) it replaced has been retired.
   overview?: MapOverview | null;
   // Synced isolation (plan/0103 Group 4). `isolatedConstraint` is a constraint the
   // side-panel is hovering — it isolates that mark on the overview. `onIsolateConstraint`
   // reports the overview's OWN hover back so the panel row highlights in step.
+  // `isolatedConstraint` filters the overview mark layers to a single constraint
+  // (the side-panel row being hovered). `onIsolateConstraint` reports/loads a
+  // constraint's focus — driven by the multi-constraint popover rows here.
   isolatedConstraint?: string | null;
   onIsolateConstraint?: (id: string | null) => void;
   // Focus reach (plan/0103): the dipole SP-coloring for a hovered/locked constraint
@@ -149,10 +157,14 @@ interface Props {
   // no-data fill. Distinct from `reach` (the click/DetailCard node-explorer) so a
   // hover doesn't open that card; it just recolors the SP layer.
   focusReach?: ConstraintReach | null;
-  onIsolateLock?: (id: string) => void;
   // A settlement point to ring white — the member node hovered in the panel's
   // constituent list, so the panel row and the map node point at each other.
   ringedSpId?: string | null;
+  // Multi-constraint popover rows (plan/0112): hover previews that constraint in
+  // the DetailCard, click pins it. Node hover/click itself rides the base `sps`
+  // layer (onSpHover/onSpClick) — the overview no longer intercepts it.
+  onConstraintPreview?: (key: string | null) => void;
+  onConstraintSelect?: (key: string) => void;
   // Constraint-reach mode. When set, the SP layer recolors: nodes the
   // constraint drives glow by *signed* SF (the export/import dipole), the rest
   // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
@@ -185,8 +197,9 @@ export default function GridMap({
   isolatedConstraint = null,
   onIsolateConstraint,
   focusReach = null,
-  onIsolateLock,
   ringedSpId = null,
+  onConstraintPreview,
+  onConstraintSelect,
   onMapReady,
   congestionColor = modeledCongestionColor,
 }: Props) {
@@ -195,9 +208,6 @@ export default function GridMap({
   const theme = useTheme();
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // The map instance as STATE (not just the ref) so the SVG OverviewOverlay child
-  // mounts and re-projects the moment the map is created.
-  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
   // Flipped inside the topology effect's onLoad handler after the `sps` source
   // is added. Coloring / selection effects gate on this so a remount doesn't
   // paint into a map whose source isn't ready yet — and re-fire the paint the
@@ -220,6 +230,26 @@ export default function GridMap({
       onMapClick,
     };
   }, [onSpHover, onSpClick, onMapClick]);
+
+  // Multi-constraint hover box (plan/0112). `spMembers` maps sp_id → the overview
+  // constraints it belongs to; the base `sps` hover opens the box for a 2+ node,
+  // anchored at the node's pixel. Kept in a ref too so the once-bound `sps`
+  // handler reads the latest map without rebinding.
+  const [popover, setPopover] = useState<{
+    sp: string;
+    members: OvMember[];
+    x: number;
+    y: number;
+  } | null>(null);
+  const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);
+  const spMembersRef = useRef(spMembers);
+  useEffect(() => {
+    spMembersRef.current = spMembers;
+  }, [spMembers]);
+  // The overlay is unmounted when the constraint layer is off, so drop any box.
+  useEffect(() => {
+    if (!showConstraints) setPopover(null);
+  }, [showConstraints]);
 
   // Initialize map once
   useEffect(() => {
@@ -246,7 +276,6 @@ export default function GridMap({
     );
 
     mapRef.current = map;
-    setMapInstance(map);
     onMapReady?.(map);
     tooltipRef.current = new maplibregl.Popup({
       closeButton: false,
@@ -258,7 +287,6 @@ export default function GridMap({
     return () => {
       map.remove();
       mapRef.current = null;
-      setMapInstance(null);
       setSourcesReady(false);
     };
   }, []);
@@ -399,11 +427,11 @@ export default function GridMap({
               ["linear"],
               ["zoom"],
               4,
-              2,
+              3,
               8,
-              4,
+              5.5,
               12,
-              7,
+              9,
             ],
             // Selected = a distinct, persistent high-contrast ring (thicker than
             // hover) so the active click stays visible until another node is
@@ -440,7 +468,8 @@ export default function GridMap({
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "crosshair";
         const props = e.features[0].properties as Record<string, unknown>;
-        callbacksRef.current.onSpHover(props.sp_id as string, props);
+        const sp = props.sp_id as string;
+        callbacksRef.current.onSpHover(sp, props);
         tooltipRef.current
           ?.setLngLat(e.lngLat)
           .setHTML(
@@ -448,6 +477,17 @@ export default function GridMap({
              <div class="tip-zone">${props.load_zone ?? "—"}</div>`
           )
           .addTo(map);
+
+        // Multi-constraint node → open the constraint box, anchored at the node's
+        // pixel (not the cursor, so it stays put). A 0-1 node closes any open box.
+        const mem = spMembersRef.current.get(sp);
+        if (mem && mem.length >= 2) {
+          const geom = e.features[0].geometry as GeoJSON.Point;
+          const pt = map.project(geom.coordinates as [number, number]);
+          setPopover({ sp, members: mem, x: pt.x, y: pt.y });
+        } else {
+          setPopover(null);
+        }
       });
 
       map.on("mouseleave", "sps", () => {
@@ -467,9 +507,10 @@ export default function GridMap({
       setSourcesReady(true);
     };
 
-    // Click on empty map → clear pinned
+    // Click on empty map → clear pinned + close the constraint box
     map.on("click", (e) => {
       if (e.defaultPrevented) return;
+      setPopover(null);
       callbacksRef.current.onMapClick();
     });
 
@@ -506,9 +547,11 @@ export default function GridMap({
     // with the congestion fill: import is red, export is blue.
     // Every other node fades to the no-data fill. This is SF *structure*,
     // deliberately overriding the realized/forecast-error palette while a
-    // constraint is focused — whether pinned via the node-explorer (`reach`) or
-    // hovered/locked from the panel or overview (`focusReach`).
-    const rch = reach ?? focusReach;
+    // constraint is focused. `focusReach` (the effective hovered/locked constraint)
+    // wins over the DetailCard's own `reach`, so the node glow always tracks the
+    // SAME constraint the marks isolate — hovering a panel row lights ITS nodes,
+    // not whichever one the card happens to have pinned (plan/0112).
+    const rch = focusReach ?? reach;
     if (rch && rch.sps.length > 0) {
       const bySp = new Map<string, number>();
       let maxAbs = 1e-9;
@@ -671,20 +714,174 @@ export default function GridMap({
     else map.once("load", apply);
   }, [reach, sourcesReady]);
 
+  // Overview mark layers (plan/0112): the de-piled constraint overview, NATIVE.
+  // GTC regions are a soft blended circle cloud (translucent + blurred, so
+  // overlaps merge into a region — no goo filter, no shape math), transmission is
+  // MST corridor lines, radials are rings. All drawn beneath `sps` so node clicks
+  // stay on the base layer. Empty sources when the layer is off; `isolatedConstraint`
+  // filters every mark to a single constraint (the panel/popover focus).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourcesReady) return;
+
+    const apply = () => {
+      const src = buildOverviewSources(showConstraints ? overview ?? null : null);
+      const sf = {
+        gtc: cssVar("--sf-gtc"),
+        transmission: cssVar("--sf-transmission"),
+        radial: cssVar("--sf-radial"),
+      };
+      const setData = (id: string, data: GeoJSON.FeatureCollection) => {
+        const s = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+        if (s) s.setData(data);
+        else map.addSource(id, { type: "geojson", data });
+      };
+      setData("ov-gtc", src.gtc);
+      setData("ov-corridor", src.corridor);
+      setData("ov-radial", src.radial);
+
+      // GTC/transmission line color keyed off the feature's ctype.
+      const lineColor = [
+        "match",
+        ["get", "ctype"],
+        "gtc",
+        sf.gtc,
+        sf.transmission,
+      ] as maplibregl.ExpressionSpecification;
+
+      const before = map.getLayer("sps") ? "sps" : undefined;
+      // Glow halo: a larger, heavily-blurred, translucent pass UNDER the region
+      // core so GTCs read as a soft light bloom, not a flat fill. Same source.
+      if (!map.getLayer("ov-gtc-glow")) {
+        map.addLayer(
+          {
+            id: "ov-gtc-glow",
+            type: "circle",
+            source: "ov-gtc",
+            paint: {
+              "circle-color": sf.gtc,
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 14, 8, 30, 12, 50],
+              "circle-blur": 1,
+              "circle-opacity": 0.22,
+            },
+          },
+          before
+        );
+      }
+      if (!map.getLayer("ov-gtc")) {
+        map.addLayer(
+          {
+            id: "ov-gtc",
+            type: "circle",
+            source: "ov-gtc",
+            paint: {
+              "circle-color": sf.gtc,
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 9, 8, 20, 12, 34],
+              // Sharper, brighter core over the glow so the region has a solid
+              // heart (closer to the old metaball) with a luminous edge.
+              "circle-blur": 0.35,
+              "circle-opacity": 0.5,
+            },
+          },
+          before
+        );
+      }
+      if (!map.getLayer("ov-corridor")) {
+        map.addLayer(
+          {
+            id: "ov-corridor",
+            type: "line",
+            source: "ov-corridor",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": lineColor, "line-width": 1.8, "line-opacity": 0.75 },
+          },
+          before
+        );
+      }
+      if (!map.getLayer("ov-radial")) {
+        map.addLayer(
+          {
+            id: "ov-radial",
+            type: "circle",
+            source: "ov-radial",
+            paint: {
+              "circle-color": "rgba(0,0,0,0)",
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4, 8, 6, 12, 9],
+              "circle-stroke-color": sf.radial,
+              "circle-stroke-width": 2,
+            },
+          },
+          before
+        );
+      }
+
+      // Theme refresh + isolation filter, applied every pass. Use an explicit
+      // all-pass filter (`["all"]`) rather than clearing with null — clearing to
+      // null was intermittently leaving every mark hidden when un-isolating.
+      map.setPaintProperty("ov-gtc-glow", "circle-color", sf.gtc);
+      map.setPaintProperty("ov-gtc", "circle-color", sf.gtc);
+      map.setPaintProperty("ov-corridor", "line-color", lineColor);
+      map.setPaintProperty("ov-radial", "circle-stroke-color", sf.radial);
+      const filt = (
+        isolatedConstraint
+          ? ["==", ["get", "constraint_key"], isolatedConstraint]
+          : ["all"]
+      ) as maplibregl.FilterSpecification;
+      for (const id of ["ov-gtc-glow", "ov-gtc", "ov-corridor", "ov-radial"])
+        map.setFilter(id, filt);
+    };
+
+    // `sourcesReady` already implies the style is loaded (it flips inside the
+    // topology onLoad), so apply directly — deferring to a `once("load")` that has
+    // already fired would strand the update and leave marks in a stale state.
+    apply();
+    // `selectedSpId`/`reach`/`focusReach` are here so the marks re-assert (setData
+    // + re-add any missing layer + re-filter) after any node/constraint interaction
+    // — they can never be left stranded by another effect touching the style.
+  }, [
+    overview,
+    showConstraints,
+    isolatedConstraint,
+    sourcesReady,
+    theme,
+    selectedSpId,
+    reach,
+    focusReach,
+  ]);
+
+  const containerWidth = containerRef.current?.clientWidth ?? 0;
+
   return (
     <>
       <div
         ref={containerRef}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
-        <OverviewOverlay
-          map={mapInstance}
-          overview={overview ?? null}
-          visible={showConstraints}
-          externalIso={isolatedConstraint}
-          onIsoChange={onIsolateConstraint}
-          onIsoLock={onIsolateLock}
-        />
+        {popover && (
+          <OverviewPopover
+            sp={popover.sp}
+            members={popover.members}
+            x={popover.x}
+            y={popover.y}
+            containerWidth={containerWidth}
+            onRowHover={(key) => {
+              onIsolateConstraint?.(key);
+              onConstraintPreview?.(key);
+            }}
+            onRowClick={(key) => {
+              // Commit + dismiss the box. Leaving it open lets the mouse graze
+              // other rows on the way out, and a row-hover unlocks the focus we
+              // just locked — so close it here and the lock holds.
+              onConstraintSelect?.(key);
+              setPopover(null);
+            }}
+            onLeave={() => {
+              onIsolateConstraint?.(null);
+              onConstraintPreview?.(null);
+              setPopover(null);
+            }}
+          />
+        )}
       </div>
       <style>{`
         .maplibregl-ctrl-group {

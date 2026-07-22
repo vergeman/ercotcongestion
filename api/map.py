@@ -2,9 +2,10 @@
 
 Serves the SF *structure* on top of Phase 0's realized-congestion node
 coloring: which constraints drive which nodes (``/map/exposures``), which
-nodes a constraint drives (``/map/reach``), and where each constraint lives
-(``/map/constraints``, the |SF|-weighted centroid overlay). ``/map/meta``
-names the refit being served.
+nodes a constraint drives (``/map/reach``), and the de-piled all-constraint
+view (``/map/overview``, each constraint drawn as a typed mark over its top
+nodes). ``/map/meta`` names the refit being served. (The old
+``/map/constraints`` centroid overlay was removed in 0112.)
 
 Run + window resolution (no legacy pointer). The served run is
 ``settings.map_run_id``, defaulting to the newest run_id in
@@ -28,7 +29,6 @@ from __future__ import annotations
 import logging
 from datetime import date as date_t
 
-import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -36,7 +36,6 @@ from psycopg.rows import dict_row
 from config import MAP_RUN_ID
 from db import get_pool
 from models import (
-    ConstraintGeo,
     ConstraintLobe,
     ConstraintReach,
     ExposuresResponse,
@@ -133,25 +132,6 @@ def get_map_meta() -> MapMeta:
 
 
 @router.get(
-    "/constraints",
-    response_model=list[ConstraintGeo],
-    summary="Constraint overlay for the current refit",
-)
-def get_map_constraints() -> list[ConstraintGeo]:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id, window_start = _resolve(cur)
-        cur.execute(
-            "SELECT constraint_key, lat, lon, zone_shares, kv_mean, kv_max, "
-            "spread_km, max_abs_sf, n_rail, peak_offrail, binding_hours "
-            "FROM constraint_geo "
-            "WHERE run_id = %s AND window_start = %s "
-            "ORDER BY max_abs_sf DESC NULLS LAST",
-            (run_id, window_start),
-        )
-        return [ConstraintGeo(**r) for r in cur.fetchall()]
-
-
-@router.get(
     "/exposures",
     response_model=ExposuresResponse,
     summary="Top-k constraints driving a node (node-explorer click)",
@@ -174,7 +154,7 @@ def get_map_exposures(
         node_max = cur.fetchone()["m"]
 
         cur.execute(
-            "SELECT i.constraint_key, i.sf, g.lat, g.lon, g.max_abs_sf, "
+            "SELECT i.constraint_key, i.sf, g.max_abs_sf, "
             "g.binding_hours FROM implied_shift_factors i "
             "LEFT JOIN constraint_geo g ON g.run_id = i.run_id "
             "AND g.window_start = i.window_start "
@@ -219,7 +199,7 @@ def get_map_reach(
         meta = _meta_row(cur, run_id, window_start)
 
         cur.execute(
-            "SELECT lat, lon, max_abs_sf, n_rail, peak_offrail, binding_hours "
+            "SELECT max_abs_sf, n_rail, peak_offrail, binding_hours "
             "FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s AND constraint_key = %s",
             (run_id, window_start, constraint),
@@ -255,8 +235,6 @@ def get_map_reach(
         k=k,
         oos_r2=meta["oos_r2"],
         sf_stability=meta["sf_stability"],
-        lat=geo.get("lat"),
-        lon=geo.get("lon"),
         max_abs_sf=geo.get("max_abs_sf"),
         n_rail=geo.get("n_rail"),
         peak_offrail=geo.get("peak_offrail"),
@@ -289,8 +267,7 @@ def get_map_overview(
         # The n heaviest constraints this window — the overview set. NULLS LAST so
         # unlocatable ones don't crowd out located ones at the top.
         cur.execute(
-            "SELECT constraint_key, ctype, binding_hours, max_abs_sf, "
-            "core_lat, core_lon, lat, lon "
+            "SELECT constraint_key, ctype, binding_hours, max_abs_sf "
             "FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s "
             "ORDER BY binding_hours DESC NULLS LAST LIMIT %s",
@@ -330,10 +307,6 @@ def get_map_overview(
                 ctype=r["ctype"],
                 binding_hours=r["binding_hours"],
                 max_abs_sf=r["max_abs_sf"],
-                core_lat=r["core_lat"],
-                core_lon=r["core_lon"],
-                lat=r["lat"],
-                lon=r["lon"],
                 nodes=by_key[r["constraint_key"]],
             )
             for r in rows
@@ -353,15 +326,9 @@ def get_map_overview(
 
 def _lobe(nodes: list[tuple[float, float, float]]) -> ConstraintLobe:
     """A signed dipole end from ``(sf, lat, lon)`` triples (one lobe's located
-    nodes). Centroid is |SF|-weighted so the strongest node dominates; ``peak_sf``
-    is the signed strongest node. Empty → an unlocated/one-sided lobe."""
-    if not nodes:
-        return ConstraintLobe()
-    w = np.array([abs(sf) for sf, _, _ in nodes])
-    lat = float(np.average([la for _, la, _ in nodes], weights=w))
-    lon = float(np.average([lo for _, _, lo in nodes], weights=w))
-    peak = max(nodes, key=lambda t: abs(t[0]))[0]
-    return ConstraintLobe(lat=lat, lon=lon, peak_sf=float(peak), n_nodes=len(nodes))
+    nodes) — now just their count, which is all the panel's dipole gauge needs.
+    Empty → an unlocated/one-sided lobe."""
+    return ConstraintLobe(n_nodes=len(nodes))
 
 
 def _realized_mu_mass(cur, lo, hi) -> dict[str, float]:
@@ -468,14 +435,14 @@ def get_map_constraints_ranked(
         ranked = contribution[contribution > 0.0].sort_values(ascending=False)
         top_keys = list(ranked.index[:k])
 
-        # ctype + de-piled core for the top keys, from the SF-map's constraint_geo
-        # (the same source the overlay marks position from), so a panel row and its
-        # overlay mark share a key and a type. Best-effort: unmatched keys → null.
+        # ctype for the top keys, from the SF-map's constraint_geo (the same source
+        # the overlay marks take their type from), so a panel row and its overlay
+        # mark share a key and a type. Best-effort: unmatched keys → null.
         geo: dict[str, dict] = {}
         if top_keys:
             m_run, m_ws = _resolve(cur)
             cur.execute(
-                "SELECT constraint_key, ctype, core_lat, core_lon FROM constraint_geo "
+                "SELECT constraint_key, ctype FROM constraint_geo "
                 "WHERE run_id = %s AND window_start = %s AND constraint_key = ANY(%s)",
                 (m_run, m_ws, top_keys),
             )
@@ -507,8 +474,6 @@ def get_map_constraints_ranked(
                 reach=float(reach.loc[key]),
                 n_members=len(src) + len(snk),
                 ctype=g.get("ctype"),
-                core_lat=g.get("core_lat"),
-                core_lon=g.get("core_lon"),
                 source_lobe=_lobe(src),
                 sink_lobe=_lobe(snk),
             )

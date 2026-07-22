@@ -139,18 +139,23 @@ export default function App() {
   // Constraints panel and the map overview. A panel-row hover and a map-mark hover
   // both write here, and both read it, so hovering either isolates that constraint
   // everywhere — the panel row lights and every other overview mark dims.
+  // Constraint focus follows an effective = hovered ?? locked model (plan/0112).
+  // A click LOCKS a constraint (`lockedConstraintId`, persists until another click
+  // or a background click); a hover transiently overlays a different one
+  // (`hoveredConstraintId`); un-hovering reverts to the lock — hover NEVER clears
+  // the lock. `effectiveConstraintId` is what the map isolates and the focus-reach
+  // recolors, so both the panel and the overview honor the same rule.
   const [hoveredConstraintId, setHoveredConstraintId] =
     useState<string | null>(null);
-  // Focus-reach view (plan/0103): the src/sink dipole SP-coloring for the
-  // hovered/locked constraint — its constituent nodes glow signed, every other node
-  // fades to the no-data fill (the forecast-error palette is hidden while focused).
-  // Separate from `reach` (the node-explorer click that opens the DetailCard) so a
-  // hover just recolors nodes. `focusLockedRef` freezes it on click so panning/
-  // zooming doesn't clear it; a map-background click or a fresh hover resets. Cached
-  // per constraint so sweeping the list doesn't spam /map/reach.
+  const [lockedConstraintId, setLockedConstraintId] =
+    useState<string | null>(null);
+  const effectiveConstraintId = hoveredConstraintId ?? lockedConstraintId;
+  // Focus-reach view (plan/0103): the src/sink dipole SP-coloring for the effective
+  // constraint — its constituent nodes glow signed, every other node fades to the
+  // no-data fill. Separate from `reach` (the node-explorer click that opens the
+  // DetailCard) so a hover just recolors nodes. Cached per constraint so sweeping
+  // the list doesn't spam /map/reach; kept in sync with the effective id below.
   const [focusReach, setFocusReach] = useState<ConstraintReach | null>(null);
-  const focusLockedRef = useRef(false);
-  const focusIdRef = useRef<string | null>(null);
   const focusReqRef = useRef(0);
   const focusReachCache = useRef<Map<string, ConstraintReach>>(new Map());
   // The SP a constituent row in the panel's expanded list is hovering — rings that
@@ -563,6 +568,10 @@ export default function App() {
   // Request-id guards so a slow in-flight fetch can't clobber a newer click.
   const exposureReqRef = useRef(0);
   const reachReqRef = useRef(0);
+  // True while the card's `reach` is a transient hover preview (an overview
+  // popover row), so leaving the row clears it — but a *clicked* reach is not a
+  // preview and survives (plan/0112).
+  const previewReachRef = useRef(false);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
   // reach machinery lives on this pane).
@@ -570,6 +579,11 @@ export default function App() {
     (spId: string, props: Record<string, unknown>) => {
       setReach(null); // a node click leaves constraint-reach mode
       reachReqRef.current++;
+      // Also drop any locked/previewed constraint focus, so the overview marks
+      // un-isolate instead of staying filtered to the prior constraint (plan/0112).
+      previewReachRef.current = false;
+      setLockedConstraintId(null);
+      setHoveredConstraintId(null);
       setPinnedSp({
         spId,
         props,
@@ -625,6 +639,7 @@ export default function App() {
     setPinnedSp(null);
     setExposures(null);
     exposureReqRef.current++;
+    previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
     fetchMapReach(constraintKey)
       .then((r) => {
@@ -640,9 +655,17 @@ export default function App() {
     reachReqRef.current++;
   }, []);
 
-  // ── Constraint focus (plan/0103): hover isolates + recolors, click locks ─────
-  // Load a constraint's reach (cached) into the focus-reach view.
-  const loadFocusReach = useCallback((id: string) => {
+  // ── Constraint focus (plan/0103, remodeled 0112) ────────────────────────────
+  // Keep the focus-reach (node recolor) in sync with the EFFECTIVE constraint —
+  // hovered when hovering, else the lock. Cached per constraint so sweeping the
+  // panel doesn't spam /map/reach. This is the single source of node recoloring,
+  // so hover previews and reverting to the lock both fall out of one effect.
+  useEffect(() => {
+    const id = effectiveConstraintId;
+    if (!id) {
+      setFocusReach(null);
+      return;
+    }
     const cached = focusReachCache.current.get(id);
     if (cached) {
       setFocusReach(cached);
@@ -657,49 +680,24 @@ export default function App() {
       .catch(() => {
         if (focusReqRef.current === token) setFocusReach(null);
       });
+  }, [effectiveConstraintId]);
+
+  // Hover a constraint (panel row or popover row): the transient overlay. Leaving
+  // (id === null) reverts to whatever is locked — it never clears the lock.
+  const handleConstraintHover = useCallback((id: string | null) => {
+    setHoveredConstraintId(id);
   }, []);
 
-  // Hover a constraint (panel row or overview mark): isolate it and recolor its
-  // nodes. Leaving (id === null) resets — unless a click has locked the view, so it
-  // survives while the user pans/zooms.
-  const handleConstraintHover = useCallback(
-    (id: string | null) => {
-      if (id == null) {
-        if (focusLockedRef.current) return;
-        focusIdRef.current = null;
-        setHoveredConstraintId(null);
-        setFocusReach(null);
-        focusReqRef.current++;
-        return;
-      }
-      // Re-hovering the currently locked constraint (e.g. its own core while
-      // panning) must not unlock it.
-      if (focusLockedRef.current && id === focusIdRef.current) return;
-      focusLockedRef.current = false;
-      focusIdRef.current = id;
-      setHoveredConstraintId(id);
-      loadFocusReach(id);
-    },
-    [loadFocusReach]
-  );
-
-  // Click a constraint: lock the focus so mouse-out won't clear it.
-  const handleConstraintLock = useCallback(
-    (id: string) => {
-      focusLockedRef.current = true;
-      focusIdRef.current = id;
-      setHoveredConstraintId(id);
-      loadFocusReach(id);
-    },
-    [loadFocusReach]
-  );
+  // Click a constraint: lock it. Clear the transient hover so the effective id
+  // resolves to the lock immediately (and moving the mouse off doesn't reset it).
+  const handleConstraintLock = useCallback((id: string) => {
+    setLockedConstraintId(id);
+    setHoveredConstraintId(null);
+  }, []);
 
   const clearFocus = useCallback(() => {
-    focusLockedRef.current = false;
-    focusIdRef.current = null;
-    focusReqRef.current++;
+    setLockedConstraintId(null);
     setHoveredConstraintId(null);
-    setFocusReach(null);
   }, []);
 
   // Card driver-row click: load the constraint's member list into the card AND
@@ -734,6 +732,34 @@ export default function App() {
     },
     [spPoints, handleSpClickPrediction, clearFocus]
   );
+
+  // Overview node → DetailCard flow (plan/0112): a node dot rides the base `sps`
+  // layer, so its hover/click already flow through handleSpHover /
+  // handleSpClickPrediction — no overview-specific node handler needed.
+
+  // Hover an overview popover row → preview that constraint's reach in the card
+  // (transient: leaving the row reverts it). `previewReachRef` distinguishes this
+  // from a clicked reach, which is locked. Cached via the same reach fetch.
+  const handleConstraintPreview = useCallback((key: string | null) => {
+    if (key == null) {
+      if (previewReachRef.current) {
+        previewReachRef.current = false;
+        reachReqRef.current++;
+        setReach(null);
+      }
+      return;
+    }
+    setPinnedSp(null);
+    previewReachRef.current = true;
+    const token = ++reachReqRef.current;
+    fetchMapReach(key)
+      .then((r) => {
+        if (reachReqRef.current === token) setReach(r);
+      })
+      .catch(() => {
+        if (reachReqRef.current === token) setReach(null);
+      });
+  }, []);
 
   // Background (empty-map) click clears whichever mode is active.
   const handleMapBackgroundClick = useCallback(() => {
@@ -849,9 +875,10 @@ export default function App() {
         showConstraints={showConstraints}
         reach={reach}
         overview={overview}
-        isolatedConstraint={hoveredConstraintId}
+        isolatedConstraint={effectiveConstraintId}
         onIsolateConstraint={handleConstraintHover}
-        onIsolateLock={handleConstraintLock}
+        onConstraintPreview={handleConstraintPreview}
+        onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
         ringedSpId={hoveredMemberSp}
       />
@@ -949,9 +976,10 @@ export default function App() {
         showConstraints={showConstraints}
         reach={reach}
         overview={overview}
-        isolatedConstraint={hoveredConstraintId}
+        isolatedConstraint={effectiveConstraintId}
         onIsolateConstraint={handleConstraintHover}
-        onIsolateLock={handleConstraintLock}
+        onConstraintPreview={handleConstraintPreview}
+        onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
         ringedSpId={hoveredMemberSp}
         congestionColor={forecastErrorColor}
@@ -1079,7 +1107,7 @@ export default function App() {
           constraintBasis={constraintBasis}
           onConstraintBasis={setConstraintBasis}
           onSelectConstraint={handleConstraintLock}
-          highlightedConstraintId={hoveredConstraintId}
+          highlightedConstraintId={effectiveConstraintId}
           onHoverConstraint={handleConstraintHover}
           onMemberHover={setHoveredMemberSp}
         />

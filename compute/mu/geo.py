@@ -239,78 +239,11 @@ def constraint_geography(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------
-# Overview primitives — the de-piled core and the type of each constraint
-# (plan/0092-0002). Summaries of the SAME honest per-window SF; no new fit.
+# Overview primitive — the type of each constraint (plan/0092-0002). A summary
+# of the SAME honest per-window SF; no new fit. (The |SF|²-core geometric median
+# that used to live here was removed in 0112 — the overview now anchors the
+# radial mark on its peak-|SF| node, so no persisted medoid is needed.)
 # --------------------------------------------------------------------------
-
-def _weiszfeld(lat: np.ndarray, lon: np.ndarray, w: np.ndarray,
-               iters: int = 64, tol: float = 1e-9) -> tuple[float, float]:
-    """Weighted geometric median (Weiszfeld) in a local planar frame — lon scaled
-    by cos of the mean latitude so degrees are near-isotropic — returned as
-    (lat, lon). Seeded at the weighted mean; the ``max(d, 1e-9)`` guards the
-    singularity when the iterate lands exactly on a node."""
-    X = np.column_stack([lat, lon * (kx := np.cos(np.radians(lat.mean())))])
-    m = np.average(X, axis=0, weights=w)
-    for _ in range(iters):
-        d = np.maximum(np.sqrt(((X - m) ** 2).sum(1)), 1e-9)
-        ww = w / d
-        m_new = (X * ww[:, None]).sum(0) / ww.sum()
-        if np.hypot(*(m_new - m)) < tol:
-            m = m_new
-            break
-        m = m_new
-    return float(m[0]), float(m[1] / kx)
-
-
-def constraint_core(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
-    """The constraint's intensity **core** — its `|SF|²`-weighted geometric median.
-
-    TODO: this point is now only rendered for RADIAL constraints (the hollow-ring
-    mark in OverviewOverlay.tsx); the GTC/transmission center dots were removed as
-    misleading phantom nodes. If the radial mark is ever reworked to not need a
-    single anchor point, this whole function can be deleted along with the
-    core_lat/core_lon persistence (compute/sf/geo_persist.py:126) and the
-    api/map.py select.
-
-
-    `constraint_geography` gives the `|SF|`-weighted *mean* centroid, which a
-    bimodal constraint averages into the empty middle between its two lobes (half
-    of all constraints land within 100 km of the state center). The geometric
-    median instead sits **on** the denser lobe, and squaring the weights pulls it
-    onto the strongest core — so the overview markers de-pile off the center
-    (`plan/0092-0002`, `spike/core_spike.py`).
-
-    Same contract as `constraint_geography`: one row per constraint in `SF`,
-    columns `geo_core_lat`/`geo_core_lon`. A constraint whose `|SF|` mass lands
-    entirely on settlement points we have no coordinates for gets **NaN, not a
-    fallback** — holes stay holes.
-    """
-    core_lat = np.full(len(SF), np.nan)
-    core_lon = np.full(len(SF), np.nan)
-    known = SF.columns.intersection(sp.index)
-    if known.empty:
-        return pd.DataFrame({"geo_core_lat": core_lat, "geo_core_lon": core_lon},
-                            index=SF.index)
-
-    g = sp.loc[known]
-    glat = g["lat"].to_numpy(float)
-    glon = g["lon"].to_numpy(float)
-    # |SF|² weights: magnitude only (where a constraint lives is a question about
-    # magnitude, per constraint_geography), squared to favour the strongest lobe.
-    W = SF[known].abs().to_numpy(float, copy=True)
-    W[~np.isfinite(W)] = 0.0
-    W = W ** 2
-
-    for i in range(len(SF)):
-        w = W[i]
-        m = w > 0
-        if not m.any():
-            continue
-        core_lat[i], core_lon[i] = _weiszfeld(glat[m], glon[m], w[m])
-
-    return pd.DataFrame({"geo_core_lat": core_lat, "geo_core_lon": core_lon},
-                        index=SF.index)
-
 
 def constraint_type(geo: pd.DataFrame) -> pd.Series:
     """Classify each constraint's *form* from fields already derived per window,
