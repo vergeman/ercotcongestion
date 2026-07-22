@@ -245,7 +245,12 @@ export default function SidePanel({
                 })}
               </div>
 
-              <a className="sc-link" href="/scoreboard">
+              <a
+                className="sc-link"
+                href="/scoreboard"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 View full scoreboard →
               </a>
             </section>
