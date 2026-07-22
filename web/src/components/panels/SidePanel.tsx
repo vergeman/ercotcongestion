@@ -301,6 +301,10 @@ export default function SidePanel({
           align-items: baseline;
           padding: 3px 0;
         }
+        /* Bump the row labels above the global 11px --fs-label: the readout
+           and scorecard row keys ("Forecast Run", "Top-Decile") read too small
+           against their value cells. Scoped to this panel only. */
+        .np-stat .label { font-size: 12.5px; }
         .np-stat__val { font-size: 13px; color: var(--text-primary); }
 
         .sc-header {
@@ -325,7 +329,7 @@ export default function SidePanel({
           align-items: baseline;
         }
         .sc-h {
-          font-size: 10px;
+          font-size: 12px;
           font-family: var(--font-label);
           font-weight: var(--fw-label);
           letter-spacing: var(--track-label);
@@ -337,6 +341,7 @@ export default function SidePanel({
           cursor: help;
           border-bottom: 1px dotted var(--text-muted);
           justify-self: start;
+          font-size: 12.5px;
         }
         .sc-v {
           font-size: 14px;
