@@ -111,8 +111,8 @@ export interface ForecastRangeResponse {
 
 // =============================================================================
 // /map/* — the implied shift-factor structure (not time-indexed; one refit).
-// Mirrors api/models.py MapMeta / ConstraintGeo / SpExposure / ExposuresResponse
-// / ReachSp / ConstraintReach.
+// Mirrors api/models.py MapMeta / SpExposure / ExposuresResponse / ReachSp /
+// ConstraintReach.
 // =============================================================================
 
 // The refit the map is serving — one sf_window_meta row. `oos_r2` /
@@ -128,29 +128,11 @@ export interface MapMeta {
   n_kept: number | null;
 }
 
-// One constraint at its |SF|-weighted centroid — the overlay marker. Large
-// `spread_km` is a multimodality caution (centroid can fall between lobes).
-export interface ConstraintGeo {
-  constraint_key: string;
-  lat: number | null;
-  lon: number | null;
-  zone_shares: Record<string, number> | null;
-  kv_mean: number | null;
-  kv_max: number | null;
-  spread_km: number | null;
-  max_abs_sf: number | null;
-  n_rail: number | null;
-  peak_offrail: number | null;
-  binding_hours: number | null;
-}
-
 // One constraint driving the queried node (a /map/exposures row). `sf` is the
 // signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
 export interface SpExposure {
   constraint_key: string;
   sf: number;
-  lat: number | null;
-  lon: number | null;
   max_abs_sf: number | null;
   binding_hours: number | null;
 }
@@ -178,8 +160,8 @@ export interface ReachSp {
   lon: number | null;
 }
 
-// Top-k nodes one constraint drives — the constraint click. `lat`/`lon` are the
-// constraint's own centroid; `sps` carries the signed reach for the dipole glow.
+// Top-k nodes one constraint drives — the constraint click. `sps` carries the
+// signed reach for the dipole glow, each node placed from its own coords.
 export interface ConstraintReach {
   constraint_key: string;
   run_id: string;
@@ -188,8 +170,6 @@ export interface ConstraintReach {
   k: number;
   oos_r2: number | null;
   sf_stability: number | null;
-  lat: number | null;
-  lon: number | null;
   max_abs_sf: number | null;
   n_rail: number | null;
   peak_offrail: number | null;
@@ -197,20 +177,16 @@ export interface ConstraintReach {
   sps: ReachSp[];
 }
 
-// One constraint in the de-piled overview (a /map/overview row). Positioned at
-// its |SF|²-core (`core_lat`/`core_lon`) — on its strongest lobe, not averaged to
-// the empty center like `lat`/`lon` (the |SF|-mean centroid). `ctype` picks the
-// mark's form; `nodes` is the signed top-k field the mark draws over (the overview
-// ignores the sign; the drill-down colors it). Core NULL → unlocatable.
+// One constraint in the de-piled overview (a /map/overview row). `ctype` picks the
+// mark's form; `nodes` is the signed top-k field the mark draws over AND anchors on
+// (the client positions the mark from these coords — the radial ring on the peak-|SF|
+// node — so there is no persisted centroid). The overview ignores the sign; the
+// drill-down colors it.
 export interface OverviewConstraint {
   constraint_key: string;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
   binding_hours: number | null;
   max_abs_sf: number | null;
-  core_lat: number | null;
-  core_lon: number | null;
-  lat: number | null;
-  lon: number | null;
   nodes: ReachSp[];
 }
 
@@ -237,13 +213,10 @@ export interface MapOverview {
 // =============================================================================
 
 // One end of a constraint's congestion dipole — its source (import, SF<0) or sink
-// (export, SF>0) lobe. `lat`/`lon` are the |SF|-weighted centroid of the lobe's
-// nodes; `peak_sf` the signed strongest node; `n_nodes` the located count above
-// the floor. Null/zero for a one-sided or unlocated lobe.
+// (export, SF>0) lobe. `n_nodes` is the located count above the floor on that side;
+// the panel's dipole gauge is split by the two sides' counts. Zero for a one-sided
+// or unlocated lobe.
 export interface ConstraintLobe {
-  lat: number | null;
-  lon: number | null;
-  peak_sf: number | null;
   n_nodes: number;
 }
 
@@ -260,8 +233,6 @@ export interface RankedConstraint {
   reach: number;
   n_members: number;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
-  core_lat: number | null;
-  core_lon: number | null;
   source_lobe: ConstraintLobe;
   sink_lobe: ConstraintLobe;
 }

@@ -3,7 +3,6 @@ import type {
   ErcotSppRangeResponse,
   ForecastRangeResponse,
   MapMeta,
-  ConstraintGeo,
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
@@ -84,15 +83,6 @@ export async function fetchForecastRange(
   const r = await fetch(`${BASE}/forecast_range${suffix}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`forecast_range ${r.status}`);
-  return r.json();
-}
-
-// Every constraint's centroid for the current refit — the overlay layer.
-// Null on 503.
-export async function fetchMapConstraints(): Promise<ConstraintGeo[] | null> {
-  const r = await fetch(`${BASE}/map/constraints`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`map/constraints ${r.status}`);
   return r.json();
 }
 
