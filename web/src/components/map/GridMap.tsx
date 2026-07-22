@@ -750,6 +750,24 @@ export default function GridMap({
       ] as maplibregl.ExpressionSpecification;
 
       const before = map.getLayer("sps") ? "sps" : undefined;
+      // Glow halo: a larger, heavily-blurred, translucent pass UNDER the region
+      // core so GTCs read as a soft light bloom, not a flat fill. Same source.
+      if (!map.getLayer("ov-gtc-glow")) {
+        map.addLayer(
+          {
+            id: "ov-gtc-glow",
+            type: "circle",
+            source: "ov-gtc",
+            paint: {
+              "circle-color": sf.gtc,
+              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 14, 8, 30, 12, 50],
+              "circle-blur": 1,
+              "circle-opacity": 0.22,
+            },
+          },
+          before
+        );
+      }
       if (!map.getLayer("ov-gtc")) {
         map.addLayer(
           {
@@ -759,10 +777,10 @@ export default function GridMap({
             paint: {
               "circle-color": sf.gtc,
               "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 9, 8, 20, 12, 34],
-              // Low blur + higher opacity so overlapping circles read as a solid
-              // region (closer to the old metaball), not a diffuse cloud.
-              "circle-blur": 0.3,
-              "circle-opacity": 0.45,
+              // Sharper, brighter core over the glow so the region has a solid
+              // heart (closer to the old metaball) with a luminous edge.
+              "circle-blur": 0.35,
+              "circle-opacity": 0.5,
             },
           },
           before
@@ -800,6 +818,7 @@ export default function GridMap({
       // Theme refresh + isolation filter, applied every pass. Use an explicit
       // all-pass filter (`["all"]`) rather than clearing with null — clearing to
       // null was intermittently leaving every mark hidden when un-isolating.
+      map.setPaintProperty("ov-gtc-glow", "circle-color", sf.gtc);
       map.setPaintProperty("ov-gtc", "circle-color", sf.gtc);
       map.setPaintProperty("ov-corridor", "line-color", lineColor);
       map.setPaintProperty("ov-radial", "circle-stroke-color", sf.radial);
@@ -808,7 +827,8 @@ export default function GridMap({
           ? ["==", ["get", "constraint_key"], isolatedConstraint]
           : ["all"]
       ) as maplibregl.FilterSpecification;
-      for (const id of ["ov-gtc", "ov-corridor", "ov-radial"]) map.setFilter(id, filt);
+      for (const id of ["ov-gtc-glow", "ov-gtc", "ov-corridor", "ov-radial"])
+        map.setFilter(id, filt);
     };
 
     // `sourcesReady` already implies the style is loaded (it flips inside the

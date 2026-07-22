@@ -339,14 +339,28 @@ export function modeledCongestionColor(
 //   norm ≈ 0 → cream (on target — shares the neutral with congestion)
 // Reach/SF glow deliberately keeps modeledCongestionColor: there the sign IS the
 // export/import dipole, and blue↔red is the right reading.
-const ERROR_EMERALD = [16, 185, 129]; // under-forecast (−)
+const ERROR_EMERALD = [52, 211, 153]; // under-forecast (−) — brighter emerald-400
 const ERROR_CREAM = MC_CREAM; // on target (0)
-const ERROR_MAGENTA = [236, 72, 153]; // over-forecast (+)
-const ERROR_EMERALD_LIGHT = [5, 150, 105]; // deeper emerald for the white ground
-const ERROR_MAGENTA_LIGHT = [219, 39, 119]; // deeper magenta for the white ground
+const ERROR_MAGENTA = [244, 114, 182]; // over-forecast (+) — brighter pink-400
+const ERROR_EMERALD_LIGHT = [16, 185, 129]; // vivid emerald-500 on the white ground
+const ERROR_MAGENTA_LIGHT = [236, 72, 153]; // vivid pink-500 on the white ground
+
+// TRIAL (plan/0112): reuse the congestion blue↔red ramp for forecast error, so it
+// reads on the same familiar axis (blue = under-forecast, red = over-forecast).
+// The focus/SF glow already owns blue↔red, but the fade carries the mode cue there
+// exactly as it does in the congestion view. Flip to false to go back to the
+// distinct emerald↔magenta set (ERROR_* anchors) if this reads worse.
+const ERROR_USE_CONGESTION: boolean = true;
 
 function errorAnchors(theme: Theme) {
   const light = theme === "light";
+  if (ERROR_USE_CONGESTION) {
+    return {
+      neg: light ? MC_BLUE_LIGHT : MC_BLUE, // under-forecast (−) → blue
+      mid: light ? NEUTRAL_LIGHT : MC_CREAM,
+      pos: light ? MC_RED_LIGHT : MC_RED, // over-forecast (+) → red
+    };
+  }
   return {
     neg: light ? ERROR_EMERALD_LIGHT : ERROR_EMERALD,
     mid: light ? NEUTRAL_LIGHT : ERROR_CREAM,
