@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type {
   RankedConstraints,
   ConstraintReach,
-  ConstraintLobe,
 } from "../../api/types";
 import { fetchMapReach } from "../../api/client";
 import Tooltip from "../ui/Tooltip";
@@ -123,11 +122,11 @@ function Membership({
 
 // The import↔export dipole as a compact bicolor gauge: red (import, SF<0) vs blue
 // (export, SF>0), split by located-node share, so the row shows at a glance which
-// way the constraint pushes congestion. (`imp` is the server's source_lobe — the
-// SF<0 nodes; `exp` its sink_lobe — the SF>0 nodes.)
-function Dipole({ imp, exp }: { imp: ConstraintLobe; exp: ConstraintLobe }) {
-  const s = imp.n_nodes;
-  const k = exp.n_nodes;
+// way the constraint pushes congestion. (`imp` is the server's n_import — the
+// SF<0 node count; `exp` its n_export — the SF>0 node count.)
+function Dipole({ imp, exp }: { imp: number; exp: number }) {
+  const s = imp;
+  const k = exp;
   const tot = s + k || 1;
   return (
     <span className="cp-dip">
@@ -263,7 +262,7 @@ export default function ConstraintPanel({
                     {fmtMag(c.congestion_contribution)}
                   </span>
                 </span>
-                <Dipole imp={c.source_lobe} exp={c.sink_lobe} />
+                <Dipole imp={c.n_import} exp={c.n_export} />
               </button>
               {expanded && (
                 <Membership

@@ -207,24 +207,17 @@ export interface MapOverview {
 // /map/constraints/ranked — the per-day ranked constraint list (plan/0103). The
 // list-shaped companion to the /map/overview marker pile: "which constraints
 // drive today's congestion", ordered by a day-total contribution the map cannot
-// express. Mirrors api/models.py ConstraintLobe / RankedConstraint /
-// RankedConstraints. `basis` picks the μ series (predicted E_mu vs realized DAM
-// shadow prices); the SF structure — reach, lobes, members — is shared.
+// express. Mirrors api/models.py RankedConstraint / RankedConstraints. `basis`
+// picks the μ series (predicted E_mu vs realized DAM shadow prices); the SF
+// structure — reach, lobes, members — is shared.
 // =============================================================================
-
-// One end of a constraint's congestion dipole — its source (import, SF<0) or sink
-// (export, SF>0) lobe. `n_nodes` is the located count above the floor on that side;
-// the panel's dipole gauge is split by the two sides' counts. Zero for a one-sided
-// or unlocated lobe.
-export interface ConstraintLobe {
-  n_nodes: number;
-}
 
 // One constraint in the per-day ranking. `congestion_contribution = mu_mass ·
 // reach` is the sort key (descending); `rank` its 1-based position. `mu_mass`
 // (Σ_ts |μ|) and `reach` (Σ_sp |SF|) are surfaced so the score is legible.
 // `constraint_id` matches the overview's `constraint_key`, so a row highlights the
-// same overlay mark; `source_lobe`/`sink_lobe` carry the import/export dipole.
+// same overlay mark; `n_import`/`n_export` (located-node counts on the SF<0/SF>0
+// sides) carry the import/export dipole.
 export interface RankedConstraint {
   constraint_id: string;
   rank: number;
@@ -233,8 +226,8 @@ export interface RankedConstraint {
   reach: number;
   n_members: number;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
-  source_lobe: ConstraintLobe;
-  sink_lobe: ConstraintLobe;
+  n_import: number;
+  n_export: number;
 }
 
 // The per-day ranked list for one forecast run and basis. `n_ranked` is how many
