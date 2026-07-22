@@ -49,13 +49,43 @@ const METRICS: Record<
     higher: boolean;
   }
 > = {
-  topdecile_hit: { label: "Top-Decile Hit", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  rank_spearman: { label: "Rank ρ", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  sign_agree: { label: "Sign Agreement", group: "screening", fmt: (v) => v.toFixed(2), domain: () => [0, 1], higher: true },
-  pooled_r2: { label: "Pooled R²", group: "magnitude", fmt: (v) => v.toFixed(2), domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)], higher: true },
-  mae: { label: "MAE ($/MWh)", group: "magnitude", fmt: (v) => `$${v.toFixed(1)}`, domain: (vals) => [0, Math.max(1, ...vals) * 1.05], higher: false },
+  topdecile_hit: {
+    label: "Top-Decile Hit",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  rank_spearman: {
+    label: "Rank ρ",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  sign_agree: {
+    label: "Sign Agreement",
+    group: "screening",
+    fmt: (v) => v.toFixed(2),
+    domain: () => [0, 1],
+    higher: true,
+  },
+  pooled_r2: {
+    label: "Pooled R²",
+    group: "magnitude",
+    fmt: (v) => v.toFixed(2),
+    domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)],
+    higher: true,
+  },
+  mae: {
+    label: "MAE ($/MWh)",
+    group: "magnitude",
+    fmt: (v) => `$${v.toFixed(1)}`,
+    domain: (vals) => [0, Math.max(1, ...vals) * 1.05],
+    higher: false,
+  },
 };
-const SCREENING: MetricKey[] = ["topdecile_hit", "rank_spearman", "sign_agree"];
+const SCREENING: MetricKey[] = ["rank_spearman", "sign_agree", "topdecile_hit"];
 const MAGNITUDE: MetricKey[] = ["pooled_r2", "mae"];
 
 const REGIMES: { value: string; label: string }[] = [
@@ -138,7 +168,9 @@ function SeriesChart({
     [weeks, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const allVals = seriesVals.flatMap((s) => s.vals.filter((v): v is number => v != null));
+  const allVals = seriesVals.flatMap((s) =>
+    s.vals.filter((v): v is number => v != null)
+  );
   const [dMin, dMax] = meta.domain(allVals);
 
   // Right margin holds the direct end-labels (Persistence / Climatology ≈ 80px
@@ -151,7 +183,8 @@ function SeriesChart({
 
   const x = (i: number) => M.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) =>
-    M.t + (dMax === dMin ? plotH / 2 : (1 - (v - dMin) / (dMax - dMin)) * plotH);
+    M.t +
+    (dMax === dMin ? plotH / 2 : (1 - (v - dMin) / (dMax - dMin)) * plotH);
 
   const linePath = (vals: (number | null)[]): string => {
     let d = "";
@@ -182,7 +215,8 @@ function SeriesChart({
   }
   endLabels.sort((a, b) => a.y - b.y);
   for (let i = 1; i < endLabels.length; i++) {
-    if (endLabels[i].y - endLabels[i - 1].y < 12) endLabels[i].y = endLabels[i - 1].y + 12;
+    if (endLabels[i].y - endLabels[i - 1].y < 12)
+      endLabels[i].y = endLabels[i - 1].y + 12;
   }
 
   // RTC+B cutover → nearest week index.
@@ -190,7 +224,16 @@ function SeriesChart({
   const zeroInDomain = dMin < 0 && dMax > 0;
 
   // x tick indices: a handful across the span.
-  const tickIdx = n <= 1 ? [0] : [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor((3 * n) / 4), n - 1];
+  const tickIdx =
+    n <= 1
+      ? [0]
+      : [
+          0,
+          Math.floor(n / 4),
+          Math.floor(n / 2),
+          Math.floor((3 * n) / 4),
+          n - 1,
+        ];
 
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -201,61 +244,146 @@ function SeriesChart({
 
   return (
     <div ref={wrapRef} className="sb-chart" style={{ position: "relative" }}>
-      <svg width={width} height={H} role="img" aria-label={`${meta.label} by week`}>
+      <svg
+        width={width}
+        height={H}
+        role="img"
+        aria-label={`${meta.label} by week`}
+      >
         {/* y gridlines + labels */}
         {[dMin, (dMin + dMax) / 2, dMax].map((v, k) => (
           <g key={k}>
-            <line x1={M.l} x2={M.l + plotW} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
-            <text x={M.l - 6} y={y(v) + 3} textAnchor="end" className="sb-axis">{meta.fmt(v)}</text>
+            <line
+              x1={M.l}
+              x2={M.l + plotW}
+              y1={y(v)}
+              y2={y(v)}
+              stroke="var(--border)"
+              strokeWidth={1}
+            />
+            <text x={M.l - 6} y={y(v) + 3} textAnchor="end" className="sb-axis">
+              {meta.fmt(v)}
+            </text>
           </g>
         ))}
         {zeroInDomain && (
-          <line x1={M.l} x2={M.l + plotW} y1={y(0)} y2={y(0)} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="2 2" />
+          <line
+            x1={M.l}
+            x2={M.l + plotW}
+            y1={y(0)}
+            y2={y(0)}
+            stroke="var(--text-muted)"
+            strokeWidth={1}
+            strokeDasharray="2 2"
+          />
         )}
 
         {/* x ticks */}
         {tickIdx.map((i) => (
-          <text key={i} x={x(i)} y={H - 6} textAnchor="middle" className="sb-axis">{fmtWeek(weeks[i])}</text>
+          <text
+            key={i}
+            x={x(i)}
+            y={H - 6}
+            textAnchor="middle"
+            className="sb-axis"
+          >
+            {fmtWeek(weeks[i])}
+          </text>
         ))}
 
         {/* RTC+B cutover marker */}
         {cutIdx > 0 && (
           <g>
-            <line x1={x(cutIdx)} x2={x(cutIdx)} y1={M.t} y2={M.t + plotH} stroke="var(--text-secondary)" strokeWidth={1} strokeDasharray="3 3" />
-            <text x={x(cutIdx) + 3} y={M.t + 9} className="sb-axis sb-axis--mark">RTC+B</text>
+            <line
+              x1={x(cutIdx)}
+              x2={x(cutIdx)}
+              y1={M.t}
+              y2={M.t + plotH}
+              stroke="var(--text-secondary)"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+            <text
+              x={x(cutIdx) + 3}
+              y={M.t + 9}
+              className="sb-axis sb-axis--mark"
+            >
+              RTC+B
+            </text>
           </g>
         )}
 
         {/* series lines */}
         {seriesVals.map((s) => (
-          <path key={s.source} d={linePath(s.vals)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <path
+            key={s.source}
+            d={linePath(s.vals)}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
         ))}
 
         {/* direct end-labels (secondary encoding for the CVD floor) */}
         {endLabels.map((e, k) => (
-          <text key={k} x={M.l + plotW + 5} y={e.y + 3} className="sb-endlabel" fill={e.color}>{e.label}</text>
+          <text
+            key={k}
+            x={M.l + plotW + 5}
+            y={e.y + 3}
+            className="sb-endlabel"
+            fill={e.color}
+          >
+            {e.label}
+          </text>
         ))}
 
         {/* hover guide + markers */}
         {hover != null && (
           <g>
-            <line x1={x(hover)} x2={x(hover)} y1={M.t} y2={M.t + plotH} stroke="var(--border-bright)" strokeWidth={1} />
+            <line
+              x1={x(hover)}
+              x2={x(hover)}
+              y1={M.t}
+              y2={M.t + plotH}
+              stroke="var(--border-bright)"
+              strokeWidth={1}
+            />
             {seriesVals.map((s) => {
               const v = s.vals[hover];
               return v == null ? null : (
-                <circle key={s.source} cx={x(hover)} cy={y(v)} r={3.5} fill={s.color} stroke="var(--bg-panel)" strokeWidth={1.5} />
+                <circle
+                  key={s.source}
+                  cx={x(hover)}
+                  cy={y(v)}
+                  r={3.5}
+                  fill={s.color}
+                  stroke="var(--bg-panel)"
+                  strokeWidth={1.5}
+                />
               );
             })}
           </g>
         )}
 
         {/* hover capture */}
-        <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="transparent"
-          onMouseMove={onMove} onMouseLeave={() => setHover(null)} />
+        <rect
+          x={M.l}
+          y={M.t}
+          width={plotW}
+          height={plotH}
+          fill="transparent"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        />
       </svg>
 
       {hover != null && (
-        <div className="sb-tip" style={{ left: Math.min(x(hover) + 8, width - 132), top: M.t }}>
+        <div
+          className="sb-tip"
+          style={{ left: Math.min(x(hover) + 8, width - 140), top: M.t }}
+        >
           <div className="sb-tip__wk">{fmtWeek(weeks[hover])}</div>
           {seriesVals.map((s) => {
             const v = s.vals[hover];
@@ -263,7 +391,9 @@ function SeriesChart({
               <div key={s.source} className="sb-tip__row">
                 <span className="sb-tip__dot" style={{ background: s.color }} />
                 <span className="sb-tip__lbl">{s.label}</span>
-                <span className="sb-tip__val">{v == null ? "—" : meta.fmt(v)}</span>
+                <span className="sb-tip__val">
+                  {v == null ? "—" : meta.fmt(v)}
+                </span>
               </div>
             );
           })}
@@ -285,16 +415,19 @@ function SeriesChart({
 // positive model−persistence delta is the model winning (matches HeadlineTiles +
 // the _CURRENCIES orientation the API pools on).
 const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
-  { name: "topdecile_hit", label: "Top-Decile Hit" },
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
+  { name: "topdecile_hit", label: "Top-Decile Hit" },
   { name: "pooled_r2", label: "Pooled R²" },
 ];
 
 function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   // Delivery days present, most-recent first — the selector's options and default.
   const days = useMemo(
-    () => Array.from(new Set(daily.points.map((p) => p.delivery_date))).sort().reverse(),
+    () =>
+      Array.from(new Set(daily.points.map((p) => p.delivery_date)))
+        .sort()
+        .reverse(),
     [daily]
   );
   const [day, setDay] = useState<string>(days[0]);
@@ -314,7 +447,10 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   const model = bySource.get("model");
   const persistence = bySource.get("persistence");
   const oracle = bySource.get("oracle");
-  const val = (row: DailyPoint | undefined, name: keyof DailyPoint): number | null => {
+  const val = (
+    row: DailyPoint | undefined,
+    name: keyof DailyPoint
+  ): number | null => {
     const v = row ? (row[name] as number | null) : null;
     return v == null ? null : v;
   };
@@ -322,7 +458,9 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
   return (
     <section className="sb-live">
       <div className="sb-live__head">
-        <span className="sb-section-h label sb-live__h">Live · per-delivery-day grade</span>
+        <span className="sb-section-h label sb-live__h">
+          Live · per-delivery-day grade
+        </span>
         <select
           className="sb-regime sb-live__day"
           value={selected}
@@ -330,7 +468,9 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           aria-label="Delivery day"
         >
           {days.map((d) => (
-            <option key={d} value={d}>{fmtDay(d)}</option>
+            <option key={d} value={d}>
+              {fmtDay(d)}
+            </option>
           ))}
         </select>
         <span className="sb-live__ctx label">
@@ -350,14 +490,19 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           return (
             <div key={mk.name} className="sb-tile">
               <div className="label">{mk.label}</div>
-              <div className="sb-tile__model">{m == null ? "—" : m.toFixed(2)}</div>
+              <div className="sb-tile__model">
+                {m == null ? "—" : m.toFixed(2)}
+              </div>
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs persist {p == null ? "—" : p.toFixed(2)}
+                    {good ? "▲" : "▼"} vs persist{" "}
+                    {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
-                <span className="sb-ceiling">ceiling {o == null ? "—" : o.toFixed(2)}</span>
+                <span className="sb-ceiling">
+                  ceiling {o == null ? "—" : o.toFixed(2)}
+                </span>
               </div>
             </div>
           );
@@ -369,29 +514,43 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
 
 // ── headline tiles (reuse the 0001 endpoint — comparators ride along) ───────
 function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
-  const win = headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
+  const win =
+    headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
   if (!win) return null;
-  const pick = (name: string) => win.currencies.find((c) => c.currency === name);
+  const pick = (name: string) =>
+    win.currencies.find((c) => c.currency === name);
   const tiles = [
-    { name: "topdecile_hit", label: "Top-Decile Hit" },
     { name: "rank_spearman", label: "Rank ρ" },
     { name: "sign_agree", label: "Sign Agreement" },
+    { name: "topdecile_hit", label: "Top-Decile Hit" },
   ];
   return (
     <div className="sb-tiles">
       {tiles.map((t) => {
         const c = pick(t.name);
         if (!c) return null;
-        const good = c.persistence_delta == null ? null : c.higher_is_better ? c.persistence_delta >= 0 : c.persistence_delta <= 0;
+        const good =
+          c.persistence_delta == null
+            ? null
+            : c.higher_is_better
+            ? c.persistence_delta >= 0
+            : c.persistence_delta <= 0;
         return (
           <div key={t.name} className="sb-tile">
             <div className="label">{t.label}</div>
-            <div className="sb-tile__model">{c.model == null ? "—" : c.model.toFixed(2)}</div>
+            <div className="sb-tile__model">
+              {c.model == null ? "—" : c.model.toFixed(2)}
+            </div>
             <div className="sb-tile__cmp">
               {good != null && (
-                <span className="sb-delta" data-good={good}>{good ? "▲" : "▼"} vs persist {c.persistence == null ? "—" : c.persistence.toFixed(2)}</span>
+                <span className="sb-delta" data-good={good}>
+                  {good ? "▲" : "▼"} vs persist{" "}
+                  {c.persistence == null ? "—" : c.persistence.toFixed(2)}
+                </span>
               )}
-              <span className="sb-ceiling">ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}</span>
+              <span className="sb-ceiling">
+                ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+              </span>
             </div>
           </div>
         );
@@ -401,10 +560,18 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
 }
 
 // ── pooled pre/post-RTC+B split table ───────────────────────────────────────
-function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: MetricKey }) {
+function SplitTable({
+  weekly,
+  metric,
+}: {
+  weekly: ScoreboardWeekly;
+  metric: MetricKey;
+}) {
   const meta = METRICS[metric];
   const val = (label: string, source: string): number | null => {
-    const sp = weekly.splits.find((s) => s.label === label)?.sources.find((x) => x.source === source);
+    const sp = weekly.splits
+      .find((s) => s.label === label)
+      ?.sources.find((x) => x.source === source);
     const v = sp ? (sp[metric] as number | null) : null;
     return v == null ? null : v;
   };
@@ -413,21 +580,44 @@ function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: Metr
       <div className="sb-split-grid">
         <span className="sb-h" />
         {SERIES.map((s) => (
-          <span key={s.source} className="sb-h" style={{ color: s.color }}>{s.label}</span>
+          <span key={s.source} className="sb-h" style={{ color: s.color }}>
+            {s.label}
+          </span>
         ))}
 
         {weekly.splits.map((sp) => {
           const m = val(sp.label, "model");
           const p = val(sp.label, "persistence");
-          const modelLeads = m != null && p != null && m !== p && (meta.higher ? m > p : m < p);
+          const modelLeads =
+            m != null && p != null && m !== p && (meta.higher ? m > p : m < p);
           const persistLeads = m != null && p != null && m !== p && !modelLeads;
           return (
-            <div key={sp.label} className="sb-split-row" style={{ display: "contents" }}>
-              <span className="sb-cat label">{SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w</span>
-              <span className="sb-v" data-lead={modelLeads}>{m == null ? "—" : meta.fmt(m)}</span>
-              <span className="sb-v" data-lead={persistLeads}>{p == null ? "—" : meta.fmt(p)}</span>
-              <span className="sb-v">{(() => { const v = val(sp.label, "climatology"); return v == null ? "—" : meta.fmt(v); })()}</span>
-              <span className="sb-v sb-v--ceiling">{(() => { const v = val(sp.label, "oracle"); return v == null ? "—" : meta.fmt(v); })()}</span>
+            <div
+              key={sp.label}
+              className="sb-split-row"
+              style={{ display: "contents" }}
+            >
+              <span className="sb-cat label">
+                {SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w
+              </span>
+              <span className="sb-v" data-lead={modelLeads}>
+                {m == null ? "—" : meta.fmt(m)}
+              </span>
+              <span className="sb-v" data-lead={persistLeads}>
+                {p == null ? "—" : meta.fmt(p)}
+              </span>
+              <span className="sb-v">
+                {(() => {
+                  const v = val(sp.label, "climatology");
+                  return v == null ? "—" : meta.fmt(v);
+                })()}
+              </span>
+              <span className="sb-v sb-v--ceiling">
+                {(() => {
+                  const v = val(sp.label, "oracle");
+                  return v == null ? "—" : meta.fmt(v);
+                })()}
+              </span>
             </div>
           );
         })}
@@ -436,10 +626,180 @@ function SplitTable({ weekly, metric }: { weekly: ScoreboardWeekly; metric: Metr
   );
 }
 
+// Inline defined-term with a styled hover/focus tooltip (testing the popover
+// pattern on this page). The popover opens below the term so it stays clear of
+// the rail's top scroll edge; keyboard-reachable via tabIndex + :focus-visible.
+function Term({
+  children,
+  def,
+}: {
+  children: React.ReactNode;
+  def: React.ReactNode;
+}) {
+  return (
+    <span className="sb-term" tabIndex={0}>
+      {children}
+      <span className="sb-term__pop" role="tooltip">
+        {def}
+      </span>
+    </span>
+  );
+}
+
+// ── right-rail glossary: plain-language notes on the sources and metrics ─────
+// Laymen's read of what each line and each column means. Sits beside the board
+// so a figure never has to be decoded from memory.
+function Glossary() {
+  return (
+    <aside className="sb-guide">
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">What the model predicts</div>
+        <p className="sb-guide__p">
+          A node's congestion price is a linear combination of every binding
+          constraint's shadow price, weighted by that node's shift factor to
+          each constraint:
+        </p>
+        <p className="sb-guide__eq">congestion = −Σ SF · μ</p>
+        <p className="sb-guide__where">
+          <b>μ:</b> a constraint's shadow price (≥ 0) — its $/MWh cost when{" "}
+          <Term def="A constraint binds when its transmission line hits a physical limit; at that instant its shadow price μ rises above $0.">
+            binding
+          </Term>
+          .
+        </p>
+        <p className="sb-guide__where">
+          <b>SF:</b> the shift factor — the node's marginal sensitivity to that
+          constraint. Recovered offline by ridge regression on the price
+          identity, then treated as known — so the model only forecasts μ.
+        </p>
+        <p className="sb-guide__p">
+          <Term def="A constraint binds when its transmission line hits a physical limit; at that instant its shadow price μ rises above $0.">
+            Binding
+          </Term>{" "}
+          is rare (~3% of hours), so μ is split into two{" "}
+          <Term def="A 'head' is one sub-model output. The forecast trains two and multiplies them together.">
+            heads
+          </Term>
+          , multiplied:
+        </p>
+        <p className="sb-guide__eq">E[μ] = P(bind) · E[μ | bind]</p>
+        <dl className="sb-guide__dl">
+          <dt>Head 1: P(bind)</dt>
+          <dd>
+            Probability of binding: the chance the constraint binds this hour.
+            Fit with a gradient-boosted classifier.
+          </dd>
+          <dt>Head 2: E[μ | bind]</dt>
+          <dd>
+            Expected shadow price given binding: how severe μ is when it does.
+            Fit with a gradient-boosted regressor on log(μ), over binding hours
+            only.
+          </dd>
+        </dl>
+        <p className="sb-guide__p">
+          Splitting matters: a single head (“regressor”) over all hours would
+          just learn to say “about zero” — right on average, useless when it
+          counts.
+        </p>
+        <p className="sb-guide__eg">
+          <b>Example.</b> At 5pm the model sees a 10% chance a line binds —
+          P(bind) = 0.10, Head&nbsp;1 — and a $200 shadow price if it does — E[μ
+          | bind] = $200, Head&nbsp;2. Multiply: E[μ] = 0.10 × $200 = $20. A
+          node with SF = −0.3 to that line then carries −SF · μ = −(−0.3) × $20
+          = +$6 of congestion.
+        </p>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">Model Comparison Graph</div>
+        <dl className="sb-guide__dl">
+          <dt>Model</dt>
+          <dd>Our forecast. Predicts congestion.</dd>
+          <dt>Persistence</dt>
+          <dd>
+            Naïve baseline: tomorrow repeats yesterday. Each node's congestion
+            is set to its actual value at the same hour on the prior day.
+          </dd>
+          <dt>Climatology</dt>
+          <dd>
+            Historical-average baseline, computed per hour-of-day: how often a
+            node has congested at this hour × its typical severity when it does.
+            No day-to-day signal — just the long-run norm. Example: a node that
+            binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
+            gets an 8pm climatology of 0.06 × $150 ≈ $9.
+          </dd>
+          <dt>Oracle</dt>
+          <dd>
+            If you already knew the answer: the score you'd get ranking nodes by
+            their realized congestion. A ceiling to measure against, not a
+            rival.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">Pre / Post-RTC+B</div>
+        <p className="sb-guide__p">
+          RTC+B was ERCOT's real-time co-optimization + batteries market change
+          on 2025-12-11. We split the weeks there to check if the model's edge
+          held through the redesign.
+        </p>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">
+          Scoring: does it rank the right nodes?
+        </div>
+        <dl className="sb-guide__dl">
+          <dt>Top-Decile Hit</dt>
+          <dd>
+            Of the nodes we predict in the worst 10%, the fraction that were
+            actually in the realized worst 10%. 1 = every flagged node truly
+            belonged there; ~0.1 = chance.
+          </dd>
+          <dt>Rank ρ (Spearman)</dt>
+          <dd>
+            How well the predicted ordering of nodes matches the actual order. 1
+            = identical, 0 = unrelated.
+          </dd>
+          <dt>Sign Agreement</dt>
+          <dd>
+            How often the direction is right (import vs export). 0.5 = coin
+            flip.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="sb-guide__block">
+        <div className="sb-guide__h">
+          Magnitude: how close are the numbers to ERCOT historic?
+        </div>
+        <dl className="sb-guide__dl">
+          <dt>
+            <Term def="Scored over every node×hour cell together in one bucket, not computed per node and averaged.">
+              Pooled
+            </Term>{" "}
+            R²
+          </dt>
+          <dd>
+            Share of the real variation the forecast explains. 1 = perfect, 0 =
+            no better than the average, below 0 = worse.
+          </dd>
+          <dt>MAE (Mean Absolute Error)</dt>
+          <dd>
+            The average gap between forecast and actual, in $/MWh. Typical miss;
+            lower is better.
+          </dd>
+        </dl>
+      </div>
+    </aside>
+  );
+}
+
 export default function ScoreboardPage() {
   const [regime, setRegime] = useState("all");
   const [group, setGroup] = useState<"screening" | "magnitude">("screening");
-  const [metric, setMetric] = useState<MetricKey>("topdecile_hit");
+  const [metric, setMetric] = useState<MetricKey>("rank_spearman");
   const [weekly, setWeekly] = useState<ScoreboardWeekly | null>(null);
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
   const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
@@ -448,7 +808,10 @@ export default function ScoreboardPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
-    Promise.all([fetchScoreboardWeekly("model", regime), fetchScoreboardHeadline(regime)])
+    Promise.all([
+      fetchScoreboardWeekly("model", regime),
+      fetchScoreboardHeadline(regime),
+    ])
       .then(([w, h]) => {
         if (!live) return;
         setWeekly(w);
@@ -483,94 +846,171 @@ export default function ScoreboardPage() {
     <div className="sb-page">
       <header className="sb-topbar">
         <HeaderNav active="scoreboard" />
+        {/* Right-aligned meta cluster: Backtest run · Window · Hours (+ select).
+            Only the first group carries the margin-left:auto that right-aligns
+            the whole cluster. */}
         <div className="sb-meta">
-          <span
-            className="sb-meta__label label"
-            title="The model run whose backtest is scored on this page."
-          >
-            Backtest run
+          <span className="sb-meta__label label">
+            <Term def="The model run whose backtest is scored on this page.">
+              Backtest run
+            </Term>
           </span>
           <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
-          {headlineWin && (
-            <>
-              <span className="sb-meta__sep">·</span>
-              <span
-                className="sb-meta__label label"
-                title="The rolling window the headline tiles average over: the most recent graded weeks of the backtest. The week count changes with the regime filter."
-              >
-                Window
-              </span>
-              <span className="sb-meta__val">
-                rolling {headlineWin.window_days}d · {headlineWin.weeks} wk
-              </span>
-            </>
-          )}
         </div>
-        <select className="sb-regime" value={regime} onChange={(e) => setRegime(e.target.value)}>
-          {REGIMES.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
-          ))}
-        </select>
+        {headlineWin && (
+          <span className="sb-meta sb-meta--sub">
+            <span className="sb-meta__label label">
+              <Term def="The rolling look-back the headline tiles average over — the length of backtest history scored on this page.">
+                Window
+              </Term>
+            </span>
+            <span className="sb-meta__val">{headlineWin.window_days} days</span>
+          </span>
+        )}
+        <span className="sb-meta sb-meta--sub">
+          <span className="sb-meta__label label">
+            <Term
+              def={
+                <>
+                  <span className="sb-pop-p">
+                    Filters the whole board to a slice of hours by{" "}
+                    <b>net load</b> — the demand that dispatchable (thermal +
+                    battery) units must actually serve, and the main driver of
+                    congestion.
+                  </span>
+                  <span className="sb-pop-p">
+                    Hours are split into five equal buckets (quintiles) by net
+                    load:
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Net load</b> = demand − wind − solar.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q1</b> — lowest net load; a slack, low-risk grid.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q2–Q4</b> — the middle range.
+                  </span>
+                  <span className="sb-pop-li">
+                    <b>Q5</b> — peak net load; the tightest, highest-risk hours.
+                  </span>
+                  <span className="sb-pop-p">
+                    <b>All hours</b> pools every hour together.
+                  </span>
+                </>
+              }
+            >
+              Net-load Bucket
+            </Term>
+          </span>
+          {headlineWin && (
+            <span
+              className="sb-meta__val"
+              title="Graded weeks in the current selection — changes with the Hours filter."
+            >
+              {headlineWin.weeks} wk
+            </span>
+          )}
+          <select
+            className="sb-regime"
+            value={regime}
+            onChange={(e) => setRegime(e.target.value)}
+          >
+            {REGIMES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </span>
       </header>
 
-      {/* The live half — rendered independently of the backtest board, and
+      <div className="sb-body">
+        <main className="sb-main">
+          {/* The live half — rendered independently of the backtest board, and
           gracefully absent until a served day has been graded (§0004). */}
-      {daily && <LiveGradePanel daily={daily} />}
+          {daily && <LiveGradePanel daily={daily} />}
 
-      {loading && <div className="sb-empty label">loading…</div>}
-      {!loading && !weekly && (
-        <div className="sb-empty label">no board loaded for “{regime}”.</div>
-      )}
-
-      {weekly && (
-        <>
-          <HeadlineTiles headline={headline} />
-
-          {/* metric controls: screening leads, magnitude behind a toggle */}
-          <div className="sb-controls">
-            <div className="sb-metric-group">
-              {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
-                <button key={mk} className={metric === mk ? "active" : ""} onClick={() => setMetric(mk)}>
-                  {METRICS[mk].label}
-                </button>
-              ))}
+          {loading && <div className="sb-empty label">loading…</div>}
+          {!loading && !weekly && (
+            <div className="sb-empty label">
+              no board loaded for “{regime}”.
             </div>
-            <button
-              className="sb-group-toggle"
-              onClick={() => {
-                const next = group === "screening" ? "magnitude" : "screening";
-                setGroup(next);
-                setMetric(next === "screening" ? "topdecile_hit" : "pooled_r2");
-              }}
-            >
-              {group === "screening" ? "Show magnitude (R²/MAE) →" : "← Back to screening"}
-            </button>
-          </div>
+          )}
 
-          <SeriesChart points={weekly.points} metric={metric} cutover={weekly.rtc_b_cutover} />
+          {weekly && (
+            <>
+              <HeadlineTiles headline={headline} />
 
-          {/* legend — identity for ≥2 series, alongside the direct end-labels */}
-          <div className="sb-legend">
-            {SERIES.map((s) => (
-              <span key={s.source} className="sb-legend__item">
-                <i className="sb-legend__swatch" style={{ background: s.color }} /> {s.label}
-              </span>
-            ))}
-            <span className="sb-legend__note">screening currency leads; magnitude is diagnostic (§6)</span>
-          </div>
+              {/* metric controls: screening leads, magnitude behind a toggle */}
+              <div className="sb-controls">
+                <div className="sb-metric-group">
+                  {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
+                    <button
+                      key={mk}
+                      className={metric === mk ? "active" : ""}
+                      onClick={() => setMetric(mk)}
+                    >
+                      {METRICS[mk].label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="sb-group-toggle"
+                  onClick={() => {
+                    const next =
+                      group === "screening" ? "magnitude" : "screening";
+                    setGroup(next);
+                    setMetric(
+                      next === "screening" ? "rank_spearman" : "pooled_r2"
+                    );
+                  }}
+                >
+                  {group === "screening"
+                    ? "Show magnitude (R²/MAE) →"
+                    : "← Back to screening"}
+                </button>
+              </div>
 
-          <div className="sb-section-h label">Pooled · pre/post-RTC+B ({METRICS[metric].label})</div>
-          <SplitTable weekly={weekly} metric={metric} />
-        </>
-      )}
+              <SeriesChart
+                points={weekly.points}
+                metric={metric}
+                cutover={weekly.rtc_b_cutover}
+              />
+
+              {/* legend — identity for ≥2 series, alongside the direct end-labels */}
+              <div className="sb-legend">
+                {SERIES.map((s) => (
+                  <span key={s.source} className="sb-legend__item">
+                    <i
+                      className="sb-legend__swatch"
+                      style={{ background: s.color }}
+                    />{" "}
+                    {s.label}
+                  </span>
+                ))}
+              </div>
+
+              <div className="sb-section-h label">
+                Pooled · pre/post-RTC+B ({METRICS[metric].label})
+              </div>
+              <SplitTable weekly={weekly} metric={metric} />
+            </>
+          )}
+        </main>
+        <Glossary />
+      </div>
 
       <style>{`
         .sb-page {
           height: 100%;
-          overflow-y: auto;
+          /* Flex column: sticky-ish header on top, the two-pane body owns the
+             rest and each pane scrolls on its own (graph static, notes scroll). */
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           background: var(--bg-base);
           color: var(--text-primary);
-          padding: 0 0 40px;
           /* One font on this page (Inter). Numbers used to be set in the mono
              face; tabular-nums keeps them column-aligned without a 2nd family. */
           font-variant-numeric: tabular-nums;
@@ -602,6 +1042,114 @@ export default function ScoreboardPage() {
           padding: 4px 8px; font-size: 13px; font-family: inherit;
         }
         .sb-empty { padding: 40px 16px; text-align: center; }
+
+        /* board (left) + glossary rail (right). Same proportional split as the
+           map: content flex:5, rail flex:2 → rail is ~2/7 of the width, floored
+           at --panel-w so it never collapses too narrow. */
+        .sb-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 0; }
+        /* Each pane scrolls independently, so the graph stays put while the
+           explanation is scrolled (and vice versa). */
+        .sb-main { flex: 5 1 0; min-width: 0; overflow-y: auto; padding-bottom: 40px; }
+        .sb-guide {
+          flex: 2 1 0; min-width: var(--panel-w);
+          overflow-y: auto;
+          border-left: 1px solid var(--border);
+          padding: 14px 16px 24px;
+        }
+        /* Blocks read as sections now: a rule + spacing separates each. */
+        .sb-guide__block + .sb-guide__block {
+          margin-top: 18px; padding-top: 18px;
+          border-top: 1px solid var(--border);
+        }
+        .sb-guide__h {
+          display: block; margin: 0 0 10px;
+          font-size: 16px; font-weight: 600; line-height: 1.25;
+          letter-spacing: normal; text-transform: none;
+          color: var(--text-primary);
+        }
+        .sb-guide__p { font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
+        .sb-guide__p + .sb-guide__p, .sb-guide__dl + .sb-guide__p { margin-top: 8px; }
+        .sb-guide__eq {
+          font-family: var(--font-mono);
+          font-size: 14px; color: var(--text-primary);
+          text-align: center; margin: 8px 0;
+          padding: 6px 8px; background: var(--bg-surface);
+          border: 1px solid var(--border); border-radius: 3px;
+        }
+        .sb-guide__dl { margin: 0; }
+        .sb-guide__dl dt { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+        .sb-guide__dl dt:first-child { margin-top: 0; }
+        .sb-guide__dl dd { margin: 1px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+
+        /* "where:" lines under the congestion equation — μ: / SF: inline. */
+        .sb-guide__where { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+        .sb-guide__where + .sb-guide__where { margin-top: 4px; }
+        .sb-guide__where b { color: var(--text-primary); font-family: var(--font-mono); }
+
+        /* concrete worked example */
+        .sb-guide__eg {
+          margin-top: 10px; padding: 8px 10px;
+          font-size: 13.5px; line-height: 1.5; color: var(--text-secondary);
+          background: var(--bg-surface); border-radius: 3px;
+          border-left: 2px solid var(--border-bright);
+        }
+
+        /* inline defined term + styled hover/focus popover (below the term). */
+        .sb-term {
+          position: relative;
+          text-decoration: underline dotted; text-underline-offset: 2px;
+          cursor: help; outline: none;
+        }
+        .sb-term__pop {
+          position: absolute; top: calc(100% + 6px); left: 0;
+          width: max-content; max-width: 260px;
+          padding: 8px 10px; border-radius: 4px;
+          background: var(--bg-glass); color: var(--text-secondary);
+          border: 1px solid var(--border-bright); box-shadow: var(--shadow-panel);
+          font-size: 14px; line-height: 1.45; font-weight: 400;
+          text-decoration: none; letter-spacing: normal; text-transform: none;
+          white-space: normal; text-align: left;
+          opacity: 0; visibility: hidden; transform: translateY(2px);
+          transition: opacity .12s ease, transform .12s ease;
+          pointer-events: none; z-index: 6;
+        }
+        .sb-term:hover .sb-term__pop,
+        .sb-term:focus-visible .sb-term__pop {
+          opacity: 1; visibility: visible; transform: translateY(0);
+        }
+        /* Header terms sit at the right edge — anchor their popover's right side
+           to the term so it opens leftward and stays on-screen. */
+        .sb-topbar .sb-term__pop { left: auto; right: 0; }
+        /* Only the first .sb-meta carries margin-left:auto; the Window / Hours
+           groups sit alongside it, spaced by the topbar's own gap. */
+        .sb-meta--sub { margin-left: 0; align-items: center; }
+        .sb-meta--sub .sb-regime { margin-left: 6px; }
+
+        /* rich popover content: paragraphs + a bulleted list */
+        .sb-term__pop b { color: var(--text-primary); font-weight: 600; }
+        .sb-pop-p { display: block; }
+        .sb-pop-p + .sb-pop-p,
+        .sb-pop-p + .sb-pop-li,
+        .sb-pop-li + .sb-pop-p { margin-top: 7px; }
+        .sb-pop-li {
+          display: block; position: relative;
+          padding-left: 13px; margin-top: 3px;
+        }
+        .sb-pop-li::before {
+          content: "•"; position: absolute; left: 2px;
+          color: var(--text-muted);
+        }
+        @media (max-width: 900px) {
+          /* Stacked: independent-pane scrolling no longer applies — let the
+             whole page scroll as one column again. */
+          .sb-page { overflow-y: auto; }
+          .sb-body { flex-direction: column; min-height: 0; }
+          .sb-main { overflow: visible; padding-bottom: 0; }
+          .sb-guide {
+            flex-basis: auto; width: 100%; min-width: 0; overflow: visible;
+            border-left: none; border-top: 1px solid var(--border);
+          }
+        }
 
         .sb-live { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
         .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; flex-wrap: wrap; }
@@ -635,10 +1183,12 @@ export default function ScoreboardPage() {
 
         .sb-tip {
           position: absolute; pointer-events: none;
-          background: rgba(15,18,23,0.94); border: 1px solid var(--border-bright);
-          border-radius: 3px; padding: 5px 8px; font-size: 12px; min-width: 116px;
+          /* Theme-aware surface (was a hardcoded dark rgba that ignored the
+             light-mode toggle). */
+          background: var(--bg-glass); border: 1px solid var(--border-bright);
+          border-radius: 3px; padding: 6px 9px; font-size: 14px; min-width: 124px;
         }
-        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 12px; }
+        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 14px; }
         .sb-tip__row { display: flex; align-items: center; gap: 5px; }
         .sb-tip__dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
         .sb-tip__lbl { color: var(--text-secondary); flex: 1; }
