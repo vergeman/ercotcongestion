@@ -25,10 +25,13 @@ Idempotent.
 """
 from __future__ import annotations
 
+import gzip
+import json
 import re
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz, process
 
@@ -39,6 +42,20 @@ MASTER_EIA860_CSV = Path(settings.master_eia860_csv)
 OUT_CSV = Path(settings.settlement_points_geocoded_csv)
 REVIEW_QUEUE_CSV = Path(settings.ercot_geocode_review_queue_csv)
 MANUAL_OVERRIDES_CSV = Path(settings.ercot_geocode_manual_overrides_csv)
+GRIDSTATUS_NODES_JSON = Path(settings.ercot_geocode_nodes_json)
+
+# gridstatus.io encodes each node coordinate as two 5-char base62 groups of
+# microdegrees: lat = base62(coord[:5]) / 1e6 - 90, lon = base62(coord[5:]) /
+# 1e6 - 180. Verified against exact EIA LMP-designation matches (0.0025 deg /
+# ~275 m RMSE — noise in our own truth, not the encoding). This is an
+# authoritative SPP -> coordinate map, so it wins over the fuzzy-matched
+# result whenever the two disagree by more than the correction radius.
+GRIDSTATUS_B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+GRIDSTATUS_B62_IDX = {c: i for i, c in enumerate(GRIDSTATUS_B62)}
+# Below this separation the existing (matched) coordinate is left untouched;
+# at or above it the gridstatus coordinate replaces it. Chosen so exact
+# matches (which agree to sub-km) are never churned, only real errors move.
+GRIDSTATUS_CORRECTION_KM = 1.0
 
 CDR_GLOB = "cdr.*LMPSROSNODENP6788*.csv"
 CCP_GLOB = "CCP_Resource_Names_*.csv"
@@ -741,7 +758,7 @@ def run_log(matched: pd.DataFrame) -> None:
         .sort_values("matched_capacity_mw", ascending=False)
     top = ranked.head(TOP_RN_TARGET)
     auto = top["match_method"].isin(
-        ["manual", "lmp_node_designation", "station_description",
+        ["manual", "gridstatus", "lmp_node_designation", "station_description",
          "owner_name", "fuzzy_lmp", "fuzzy_name"]
     ).sum()
     sub  = (top["match_method"] == "substring").sum()
@@ -755,6 +772,93 @@ def run_log(matched: pd.DataFrame) -> None:
     print(f"  substring    : {sub}")
     print(f"  review queue : {rev}")
     print(f"  >= 80% auto  : {'PASS' if rate >= 0.80 else 'FAIL'}")
+
+
+def _b62(s: str) -> int:
+    v = 0
+    for c in s:
+        v = v * 62 + GRIDSTATUS_B62_IDX[c]
+    return v
+
+
+def decode_gridstatus_coord(coord: str) -> tuple[float, float]:
+    """Decode a gridstatus 10-char base62 coord into (lat, lon)."""
+    return _b62(coord[:5]) / 1e6 - 90.0, _b62(coord[5:]) / 1e6 - 180.0
+
+
+def load_gridstatus_coords() -> pd.DataFrame:
+    """Read the gridstatus node export and return ERCOT settlement points with
+    decoded lat/lon. HB_/LZ_/DC_ are dropped (hand-geocoded elsewhere), so this
+    aligns with the priced-SP universe. Optional input — empty frame if absent.
+    """
+    if not GRIDSTATUS_NODES_JSON.exists():
+        print(f"[gridstatus] {GRIDSTATUS_NODES_JSON.name} absent — skipping corrections")
+        return pd.DataFrame(columns=["settlement_point", "gs_lat", "gs_lon"])
+    # Stored gzip-compressed (it's a ~2.5 MB export); detect the gzip magic
+    # bytes so a plain-JSON file still loads.
+    raw = GRIDSTATUS_NODES_JSON.read_bytes()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    payload = json.loads(raw)
+    rows = payload["data"][1:]  # first row is the header
+    recs = []
+    for _eid, sp, market, coord in rows:
+        if market != "ERCOT" or sp.startswith(("HB_", "LZ_", "DC_")):
+            continue
+        lat, lon = decode_gridstatus_coord(coord)
+        recs.append((sp.strip(), lat, lon))
+    df = pd.DataFrame(recs, columns=["settlement_point", "gs_lat", "gs_lon"])
+    return df.drop_duplicates("settlement_point")
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    """Vectorized great-circle distance (km). NaN in any input yields NaN."""
+    R = 6371.0088
+    p = np.pi / 180.0
+    dlat = (lat2 - lat1) * p
+    dlon = (lon2 - lon1) * p
+    a = (np.sin(dlat / 2) ** 2
+         + np.cos(lat1 * p) * np.cos(lat2 * p) * np.sin(dlon / 2) ** 2)
+    return 2 * R * np.arcsin(np.sqrt(a))
+
+
+def apply_gridstatus_corrections(out: pd.DataFrame) -> pd.DataFrame:
+    """Overlay the authoritative gridstatus coordinate wherever it disagrees
+    with the current (matched or manual) result by >= GRIDSTATUS_CORRECTION_KM,
+    or wherever we have no coordinate at all. Rows within the radius keep their
+    existing coordinate and match_method untouched — this corrects errors
+    without churning the many nodes both sources already agree on.
+
+    Applied after manual overrides so it supersedes bad hand entries; corrected
+    rows are re-tagged match_method='gridstatus'.
+    """
+    gs = load_gridstatus_coords()
+    if gs.empty:
+        return out
+
+    merged = out.merge(gs, on="settlement_point", how="left")
+    has_gs = merged["gs_lat"].notna()
+    dist = _haversine_km(merged["lat"], merged["lon"],
+                         merged["gs_lat"], merged["gs_lon"])
+    # Correct when gridstatus knows the node AND (we don't have a coord, or the
+    # two disagree beyond the radius). notna() on dist is False when our coord
+    # is missing, so the isna() branch is handled explicitly.
+    fix = has_gs & (merged["lat"].isna() | (dist >= GRIDSTATUS_CORRECTION_KM))
+
+    n_missing = int((fix & merged["lat"].isna()).sum())
+    n_moved = int((fix & merged["lat"].notna()).sum())
+
+    out = out.copy()
+    out.loc[fix.values, "lat"] = merged.loc[fix, "gs_lat"].values
+    out.loc[fix.values, "lon"] = merged.loc[fix, "gs_lon"].values
+    out.loc[fix.values, "match_method"] = "gridstatus"
+    out.loc[fix.values, "match_confidence"] = 1.0
+
+    kept = int((has_gs & ~fix).sum())
+    print(f"[gridstatus] corrected {n_moved} coords (>= {GRIDSTATUS_CORRECTION_KM:g} km off), "
+          f"filled {n_missing} previously unplaced, kept {kept} already-agreeing "
+          f"(within {GRIDSTATUS_CORRECTION_KM:g} km), from {GRIDSTATUS_NODES_JSON.name}")
+    return out
 
 
 def apply_manual_overrides(out: pd.DataFrame) -> pd.DataFrame:
@@ -823,6 +927,9 @@ def main() -> int:
                                        dme, dme_by_prefix)
     out = sps.merge(matched, on="settlement_point", how="left")
     out = apply_manual_overrides(out)
+    # Authoritative SPP->coordinate map: supersedes matched/manual coords that
+    # disagree beyond the correction radius, and fills nodes we couldn't place.
+    out = apply_gridstatus_corrections(out)
     # capacity_ratio = expected / matched. <1 means the SP is one unit of a
     # larger plant; ~1 means the SP covers the whole plant; >1 hints at a
     # cross-plant mismatch worth reviewing.
