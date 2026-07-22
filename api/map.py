@@ -36,7 +36,6 @@ from psycopg.rows import dict_row
 from config import MAP_RUN_ID
 from db import get_pool
 from models import (
-    ConstraintLobe,
     ConstraintReach,
     ExposuresResponse,
     MapMeta,
@@ -324,13 +323,6 @@ def get_map_overview(
     )
 
 
-def _lobe(nodes: list[tuple[float, float, float]]) -> ConstraintLobe:
-    """A signed dipole end from ``(sf, lat, lon)`` triples (one lobe's located
-    nodes) — now just their count, which is all the panel's dipole gauge needs.
-    Empty → an unlocated/one-sided lobe."""
-    return ConstraintLobe(n_nodes=len(nodes))
-
-
 def _realized_mu_mass(cur, lo, hi) -> dict[str, float]:
     """Σ |shadow_price| over the delivery day per ``constraint_name|contingency_name``
     — the realized-basis μ series, keyed the same way the SF panel is (compute.sf
@@ -474,8 +466,8 @@ def get_map_constraints_ranked(
                 reach=float(reach.loc[key]),
                 n_members=len(src) + len(snk),
                 ctype=g.get("ctype"),
-                source_lobe=_lobe(src),
-                sink_lobe=_lobe(snk),
+                n_import=len(src),
+                n_export=len(snk),
             )
         )
 
