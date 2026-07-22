@@ -183,8 +183,8 @@ export default function ConstraintPanel({
               aria-pressed={basis === b}
               title={
                 b === "predicted"
-                  ? "Predicted: the model's forecast shadow price (E[μ]) projected through the SF map."
-                  : "Realized: ERCOT's published DAM shadow prices for the day — the actual market outcome."
+                  ? "Rank constraints by the model's forecast — what it expected to bind before the day."
+                  : "Rank constraints by ERCOT's actual published results for the day — what really bound."
               }
               onClick={() => onBasis(b)}
             >
@@ -291,9 +291,9 @@ export default function ConstraintPanel({
           padding: 2px 8px; font-size: 11px;
           font-family: var(--font-label); letter-spacing: var(--track-label);
         }
-        .cp-meta { margin-bottom: 6px; color: var(--text-muted); }
+        .cp-meta { margin-bottom: 6px; color: var(--text-secondary); }
         .cp-caption {
-          font-size: 11.5px; line-height: 1.5; color: var(--text-muted);
+          font-size: 11.5px; line-height: 1.5; color: var(--text-secondary);
           margin-bottom: 10px;
         }
         .cp-caption b { color: var(--text-secondary); font-weight: 600; }
