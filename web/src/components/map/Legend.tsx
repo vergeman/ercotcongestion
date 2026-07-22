@@ -183,8 +183,8 @@ export default function Legend({
     titleName = "DAM SPP / LMP";
     titleEq = "($/MWh)";
   }
-  const negLabel = signLabels?.neg ?? "Export (−)";
-  const posLabel = signLabels?.pos ?? "Import (+)";
+  const negLabel = signLabels?.neg ?? "Export";
+  const posLabel = signLabels?.pos ?? "Import";
 
   return (
     <div className="legend">
@@ -212,13 +212,13 @@ export default function Legend({
       {isCongestion && mcStats && (
         <>
           <div className="legend__ticks">
-            <span className="label mono legend__tick" style={{ left: "0%" }}>
+            <span className="label mono legend__tick legend__tick--start">
               −{formatDollar(mcStats.p_high)}
             </span>
             <span className="label mono legend__tick" style={{ left: "50%" }}>
               0
             </span>
-            <span className="label mono legend__tick" style={{ left: "100%" }}>
+            <span className="label mono legend__tick legend__tick--end">
               +{formatDollar(mcStats.p_high)}
             </span>
           </div>
@@ -241,8 +241,14 @@ export default function Legend({
           {lmpTicks.map((t, i) => (
             <span
               key={i}
-              className="label mono legend__tick"
-              style={{ left: `${t.pct}%` }}
+              className={`label mono legend__tick${
+                t.pct === 0
+                  ? " legend__tick--start"
+                  : t.pct === 100
+                  ? " legend__tick--end"
+                  : ""
+              }`}
+              style={t.pct === 0 || t.pct === 100 ? undefined : { left: `${t.pct}%` }}
             >
               {t.label}
             </span>
@@ -342,6 +348,17 @@ export default function Legend({
           font-size: var(--fs-label);
           opacity: 0.8;
           white-space: nowrap;
+        }
+        /* End ticks anchor to the bar edges (matching the Export/Import labels)
+           so they don't bleed past the container the way a centered −50% does. */
+        .legend__tick--start {
+          left: 0;
+          transform: none;
+        }
+        .legend__tick--end {
+          left: auto;
+          right: 0;
+          transform: none;
         }
         .legend__types {
           margin-top: 9px;
