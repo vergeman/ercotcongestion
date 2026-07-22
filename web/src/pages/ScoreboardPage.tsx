@@ -382,7 +382,7 @@ function SeriesChart({
       {hover != null && (
         <div
           className="sb-tip"
-          style={{ left: Math.min(x(hover) + 8, width - 132), top: M.t }}
+          style={{ left: Math.min(x(hover) + 8, width - 140), top: M.t }}
         >
           <div className="sb-tip__wk">{fmtWeek(weeks[hover])}</div>
           {seriesVals.map((s) => {
@@ -626,6 +626,20 @@ function SplitTable({
   );
 }
 
+// Inline defined-term with a styled hover/focus tooltip (testing the popover
+// pattern on this page). The popover opens below the term so it stays clear of
+// the rail's top scroll edge; keyboard-reachable via tabIndex + :focus-visible.
+function Term({ children, def }: { children: React.ReactNode; def: string }) {
+  return (
+    <span className="sb-term" tabIndex={0}>
+      {children}
+      <span className="sb-term__pop" role="tooltip">
+        {def}
+      </span>
+    </span>
+  );
+}
+
 // ── right-rail glossary: plain-language notes on the sources and metrics ─────
 // Laymen's read of what each line and each column means. Sits beside the board
 // so a figure never has to be decoded from memory.
@@ -635,34 +649,63 @@ function Glossary() {
       <div className="sb-guide__block">
         <div className="sb-guide__h">What the model predicts</div>
         <p className="sb-guide__p">
-          A node's congestion price is the sum of every binding constraint's
-          shadow price, weighted by how much that node feels it:
+          A node's congestion price is a linear combination of every binding
+          constraint's shadow price, weighted by that node's shift factor to
+          each constraint:
         </p>
         <p className="sb-guide__eq">congestion = −Σ SF · μ</p>
-        <p className="sb-guide__p">
-          <b>μ</b> is a constraint's shadow price (≥ 0, its cost when binding);
-          <b> SF</b> is the shift factor, the node's sensitivity to that
-          constraint. SF is known, so the model's job is to forecast <b>μ</b>.
+        <p className="sb-guide__where">
+          <b>μ:</b> a constraint's shadow price (≥ 0) — its $/MWh cost when{" "}
+          <Term def="A constraint binds when its transmission line hits a physical limit; at that instant its shadow price μ rises above $0.">
+            binding
+          </Term>
+          .
+        </p>
+        <p className="sb-guide__where">
+          <b>SF:</b> the shift factor — the node's marginal sensitivity to that
+          constraint. Recovered offline by ridge regression on the price
+          identity, then treated as known — so the model only forecasts μ.
         </p>
         <p className="sb-guide__p">
-          Binding is rare (~3% of hours), so μ is predicted with two heads,
-          multiplied:
+          <Term def="A constraint binds when its transmission line hits a physical limit; at that instant its shadow price μ rises above $0.">
+            Binding
+          </Term>{" "}
+          is rare (~3% of hours), so μ is split into two{" "}
+          <Term def="A 'head' is one sub-model output. The forecast trains two and multiplies them together.">
+            heads
+          </Term>
+          , multiplied:
         </p>
         <p className="sb-guide__eq">E[μ] = P(bind) · E[μ | bind]</p>
         <dl className="sb-guide__dl">
-          <dt>Head 1 — P(bind)</dt>
-          <dd>The chance the constraint is binding this hour.</dd>
-          <dt>Head 2 — E[μ | bind]</dt>
-          <dd>How severe the shadow price is when it does bind.</dd>
+          <dt>Head 1: P(bind)</dt>
+          <dd>
+            Probability of binding: the chance the constraint binds this hour.
+            Fit with a gradient-boosted classifier.
+          </dd>
+          <dt>Head 2: E[μ | bind]</dt>
+          <dd>
+            Expected shadow price given binding: how severe μ is when it does.
+            Fit with a gradient-boosted regressor on log(μ), over binding hours
+            only.
+          </dd>
         </dl>
         <p className="sb-guide__p">
-          Splitting them matters: one regressor over all hours would just learn
-          to say “about zero” — right on average, useless when it counts.
+          Splitting matters: a single head (“regressor”) over all hours would
+          just learn to say “about zero” — right on average, useless when it
+          counts.
+        </p>
+        <p className="sb-guide__eg">
+          <b>Example.</b> At 5pm the model sees a 10% chance a line binds —
+          P(bind) = 0.10, Head&nbsp;1 — and a $200 shadow price if it does —
+          E[μ | bind] = $200, Head&nbsp;2. Multiply: E[μ] = 0.10 × $200 = $20. A
+          node with SF = −0.3 to that line then carries −SF · μ = −(−0.3) × $20 =
+          +$6 of congestion.
         </p>
       </div>
 
       <div className="sb-guide__block">
-        <div className="sb-guide__h">The line graph</div>
+        <div className="sb-guide__h">Model Comparison Graph</div>
         <dl className="sb-guide__dl">
           <dt>Model</dt>
           <dd>Our forecast. Predicts congestion.</dd>
@@ -675,12 +718,15 @@ function Glossary() {
           <dd>
             Historical-average baseline, computed per hour-of-day: how often a
             node has congested at this hour × its typical severity when it does.
-            No day-to-day signal — just the long-run norm.
+            No day-to-day signal — just the long-run norm. Example: a node that
+            binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
+            gets an 8pm climatology of 0.06 × $150 ≈ $9.
           </dd>
           <dt>Oracle</dt>
           <dd>
-            Best score the inputs allow; the ideal best case ceiling to measure
-            against.
+            If you already knew the answer: the score you'd get ranking nodes by
+            their realized congestion. A ceiling to measure against, not a
+            rival.
           </dd>
         </dl>
       </div>
@@ -701,8 +747,9 @@ function Glossary() {
         <dl className="sb-guide__dl">
           <dt>Top-Decile Hit</dt>
           <dd>
-            Of the nodes flagged as most stressed (top 10%), the share that
-            truly landed there. 1 = perfect, ~0.1 = chance.
+            Of the nodes we predict in the worst 10%, the fraction that were
+            actually in the realized worst 10%. 1 = every flagged node truly
+            belonged there; ~0.1 = chance.
           </dd>
           <dt>Rank ρ (Spearman)</dt>
           <dd>
@@ -722,14 +769,17 @@ function Glossary() {
           Magnitude: how close are the numbers to ERCOT historic?
         </div>
         <dl className="sb-guide__dl">
-          <dt>Pooled R²</dt>
+          <dt>
+            <Term def="Scored over every node×hour cell together in one bucket, not computed per node and averaged.">
+              Pooled
+            </Term>{" "}
+            R²
+          </dt>
           <dd>
-            Share of the real variation the forecast explains. “Pooled” =
-            scored over every node-and-hour together in one bucket, not
-            averaged per node. 1 = perfect, 0 = no better than the average,
-            below 0 = worse.
+            Share of the real variation the forecast explains. 1 = perfect, 0 =
+            no better than the average, below 0 = worse.
           </dd>
-          <dt>MAE (mean absolute error)</dt>
+          <dt>MAE (Mean Absolute Error)</dt>
           <dd>
             The average gap between forecast and actual, in $/MWh. Typical miss;
             lower is better.
@@ -967,23 +1017,60 @@ export default function ScoreboardPage() {
         }
         .sb-guide__h {
           display: block; margin: 0 0 10px;
-          font-size: 15px; font-weight: 600; line-height: 1.25;
+          font-size: 16px; font-weight: 600; line-height: 1.25;
           letter-spacing: normal; text-transform: none;
           color: var(--text-primary);
         }
-        .sb-guide__p { font-size: 12px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
+        .sb-guide__p { font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
         .sb-guide__p + .sb-guide__p, .sb-guide__dl + .sb-guide__p { margin-top: 8px; }
         .sb-guide__eq {
           font-family: var(--font-mono);
-          font-size: 13px; color: var(--text-primary);
+          font-size: 14px; color: var(--text-primary);
           text-align: center; margin: 8px 0;
           padding: 6px 8px; background: var(--bg-surface);
           border: 1px solid var(--border); border-radius: 3px;
         }
         .sb-guide__dl { margin: 0; }
-        .sb-guide__dl dt { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+        .sb-guide__dl dt { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
         .sb-guide__dl dt:first-child { margin-top: 0; }
-        .sb-guide__dl dd { margin: 1px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+        .sb-guide__dl dd { margin: 1px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+
+        /* "where:" lines under the congestion equation — μ: / SF: inline. */
+        .sb-guide__where { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+        .sb-guide__where + .sb-guide__where { margin-top: 4px; }
+        .sb-guide__where b { color: var(--text-primary); font-family: var(--font-mono); }
+
+        /* concrete worked example */
+        .sb-guide__eg {
+          margin-top: 10px; padding: 8px 10px;
+          font-size: 13.5px; line-height: 1.5; color: var(--text-secondary);
+          background: var(--bg-surface); border-radius: 3px;
+          border-left: 2px solid var(--border-bright);
+        }
+
+        /* inline defined term + styled hover/focus popover (below the term). */
+        .sb-term {
+          position: relative;
+          text-decoration: underline dotted; text-underline-offset: 2px;
+          cursor: help; outline: none;
+        }
+        .sb-term__pop {
+          position: absolute; top: calc(100% + 6px); left: 0;
+          width: max-content; max-width: 220px;
+          padding: 6px 8px; border-radius: 4px;
+          background: var(--bg-glass); color: var(--text-secondary);
+          border: 1px solid var(--border-bright); box-shadow: var(--shadow-panel);
+          font-size: 14px; line-height: 1.45; font-weight: 400;
+          text-decoration: none; letter-spacing: normal; text-transform: none;
+          white-space: normal; text-align: left;
+          opacity: 0; visibility: hidden; transform: translateY(2px);
+          transition: opacity .12s ease, transform .12s ease;
+          pointer-events: none; z-index: 6;
+        }
+        .sb-term:hover .sb-term__pop,
+        .sb-term:focus-visible .sb-term__pop {
+          opacity: 1; visibility: visible; transform: translateY(0);
+        }
         @media (max-width: 900px) {
           /* Stacked: independent-pane scrolling no longer applies — let the
              whole page scroll as one column again. */
@@ -1028,10 +1115,12 @@ export default function ScoreboardPage() {
 
         .sb-tip {
           position: absolute; pointer-events: none;
-          background: rgba(15,18,23,0.94); border: 1px solid var(--border-bright);
-          border-radius: 3px; padding: 5px 8px; font-size: 12px; min-width: 116px;
+          /* Theme-aware surface (was a hardcoded dark rgba that ignored the
+             light-mode toggle). */
+          background: var(--bg-glass); border: 1px solid var(--border-bright);
+          border-radius: 3px; padding: 6px 9px; font-size: 14px; min-width: 124px;
         }
-        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 12px; }
+        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 14px; }
         .sb-tip__row { display: flex; align-items: center; gap: 5px; }
         .sb-tip__dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
         .sb-tip__lbl { color: var(--text-secondary); flex: 1; }
