@@ -51,7 +51,11 @@ function fmtNum(v: number | null, decimals = 1): string {
 const fmtScore = (v: number | null): string => (v == null ? "—" : v.toFixed(2));
 
 // The three headline currencies (screening leads; §6) with per-row hover copy.
-const CURRENCY_ORDER = ["topdecile_hit", "rank_spearman", "sign_agree"] as const;
+const CURRENCY_ORDER = [
+  "topdecile_hit",
+  "rank_spearman",
+  "sign_agree",
+] as const;
 const CURRENCY_META: Record<string, { label: string; hint: string }> = {
   topdecile_hit: {
     label: "Top-Decile",
@@ -79,10 +83,20 @@ function leaderOf(
   return modelWins ? "model" : "persist";
 }
 
-function Stat({ label, value, hint }: { label: string; value: string | number | null; hint?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number | null;
+  hint?: string;
+}) {
   return (
     <div className="np-stat">
-      <span className="label" title={hint}>{label}</span>
+      <span className="label" title={hint}>
+        {label}
+      </span>
       <span className="np-stat__val mono">{value ?? "—"}</span>
     </div>
   );
@@ -138,82 +152,104 @@ export default function SidePanel({
         />
       ) : (
         <>
-      {/* ── Network readout ───────────────────────────────────────────── */}
-      <section className="np-section">
-        <div className="np-section__header label">Network</div>
-        <Stat label="Forecast Run" value={network.forecastRunId} />
-        <Stat
-          label="DAM System λ"
-          value={network.systemLambda != null ? `$${fmtNum(network.systemLambda, 2)}/MWh` : null}
-        />
-        <Stat
-          label="‖Congestion‖ (hr)"
-          value={network.congestionAbsTotal != null ? `$${fmtNum(network.congestionAbsTotal, 0)}` : null}
-        />
-        <Stat
-          label="Nodes (model/ercot)"
-          hint="Settlement points with a value at the cursor hour: model forecast vs ERCOT realized. The model forecasts its full nodal universe; ERCOT lights only nodes with a published price that day — so a few resource nodes (RN / CC / PUN) are model-only, and model ≥ ercot."
-          value={network.modelNodes || network.ercotNodes ? `${network.modelNodes} / ${network.ercotNodes}` : null}
-        />
-      </section>
+          {/* ── Network readout ───────────────────────────────────────────── */}
+          <section className="np-section">
+            <div className="np-section__header label">Network</div>
+            <Stat label="Forecast Run" value={network.forecastRunId} />
+            <Stat
+              label="DAM System λ"
+              value={
+                network.systemLambda != null
+                  ? `$${fmtNum(network.systemLambda, 2)}/MWh`
+                  : null
+              }
+            />
+            <Stat
+              label="Congestion Total (hr)"
+              value={
+                network.congestionAbsTotal != null
+                  ? `$${fmtNum(network.congestionAbsTotal, 0)}`
+                  : null
+              }
+            />
+            <Stat
+              label="Nodes (Forecast / ERCOT)"
+              hint="Settlement points with a value at the cursor hour: model forecast vs ERCOT realized. The model forecasts its full nodal universe; ERCOT lights only nodes with a published price that day — so a few resource nodes (RN / CC / PUN) are model-only, and model ≥ ercot."
+              value={
+                network.modelNodes || network.ercotNodes
+                  ? `${network.modelNodes} / ${network.ercotNodes}`
+                  : null
+              }
+            />
+          </section>
 
-      {/* ── Scorecard headline (compact table) ────────────────────────── */}
-      {headline && win && (
-        <section className="np-section">
-          <div className="np-section__header sc-header">
-            <span className="label">Scorecard · Backtest</span>
-            <div className="sc-window-toggle">
-              {[30, 90].map((d) => (
-                <button
-                  key={d}
-                  className={windowDays === d ? "active" : ""}
-                  onClick={() => setWindowDays(d)}
-                >
-                  {d}D
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* ── Scorecard headline (compact table) ────────────────────────── */}
+          {headline && win && (
+            <section className="np-section">
+              <div className="np-section__header sc-header">
+                <span className="label">Scorecard · Backtest</span>
+                <div className="sc-window-toggle">
+                  {[30, 90].map((d) => (
+                    <button
+                      key={d}
+                      className={windowDays === d ? "active" : ""}
+                      onClick={() => setWindowDays(d)}
+                    >
+                      {d}D
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="sc-meta label">
-            {win.weeks} wk · as of {headline.as_of_week} · {headline.regime}
-          </div>
+              <div className="sc-meta label">
+                {win.weeks} wk · as of {headline.as_of_week} · {headline.regime}
+              </div>
 
-          <div className="sc-table">
-            <span className="sc-h sc-h--cat" />
-            <span className="sc-h">Model</span>
-            <span className="sc-h">Persist</span>
-            <span className="sc-h">Ceiling</span>
+              <div className="sc-table">
+                <span className="sc-h sc-h--cat" />
+                <span className="sc-h">Model</span>
+                <span className="sc-h">Persist</span>
+                <span className="sc-h">Ceiling</span>
 
-            {CURRENCY_ORDER.map((name) => {
-              const cur = byCurrency.get(name);
-              const meta = CURRENCY_META[name];
-              if (!cur || !meta) return null;
-              const lead = leaderOf(cur.model, cur.persistence, cur.higher_is_better);
-              return (
-                <Fragment key={name}>
-                  <span className="sc-cat label" title={meta.hint}>
-                    {meta.label}
-                  </span>
-                  <span className="sc-v mono" data-lead={lead === "model"}>
-                    {fmtScore(cur.model)}
-                  </span>
-                  <span className="sc-v mono" data-lead={lead === "persist"}>
-                    {fmtScore(cur.persistence)}
-                  </span>
-                  <span className="sc-v sc-v--ceiling mono" title="Oracle ceiling — the best any forecast could do on these weeks.">
-                    {fmtScore(cur.oracle)}
-                  </span>
-                </Fragment>
-              );
-            })}
-          </div>
+                {CURRENCY_ORDER.map((name) => {
+                  const cur = byCurrency.get(name);
+                  const meta = CURRENCY_META[name];
+                  if (!cur || !meta) return null;
+                  const lead = leaderOf(
+                    cur.model,
+                    cur.persistence,
+                    cur.higher_is_better
+                  );
+                  return (
+                    <Fragment key={name}>
+                      <span className="sc-cat label" title={meta.hint}>
+                        {meta.label}
+                      </span>
+                      <span className="sc-v mono" data-lead={lead === "model"}>
+                        {fmtScore(cur.model)}
+                      </span>
+                      <span
+                        className="sc-v mono"
+                        data-lead={lead === "persist"}
+                      >
+                        {fmtScore(cur.persistence)}
+                      </span>
+                      <span
+                        className="sc-v sc-v--ceiling mono"
+                        title="Oracle ceiling — the best any forecast could do on these weeks."
+                      >
+                        {fmtScore(cur.oracle)}
+                      </span>
+                    </Fragment>
+                  );
+                })}
+              </div>
 
-          <a className="sc-link" href="/scoreboard">
-            View full scoreboard →
-          </a>
-        </section>
-      )}
+              <a className="sc-link" href="/scoreboard">
+                View full scoreboard →
+              </a>
+            </section>
+          )}
         </>
       )}
 
