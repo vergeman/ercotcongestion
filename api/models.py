@@ -134,36 +134,14 @@ class MapMeta(BaseModel):
     n_kept: int | None = None
 
 
-class ConstraintGeo(BaseModel):
-    """One constraint at its |SF|-weighted centroid — the overlay marker.
-
-    ``spread_km`` large is a multimodality caution: a bimodal constraint's
-    centroid can land between its lobes (spec §1.2).
-    """
-    constraint_key: str
-    lat: float | None = None
-    lon: float | None = None
-    zone_shares: dict[str, float] | None = None
-    kv_mean: float | None = None
-    kv_max: float | None = None
-    spread_km: float | None = None
-    max_abs_sf: float | None = None
-    n_rail: int | None = None          # nodes pinned at the ±1 clamp (|SF|>=0.999)
-    peak_offrail: float | None = None  # top of the graded body beneath the rail
-    binding_hours: int | None = None
-
-
 class SpExposure(BaseModel):
     """One constraint driving the queried node (a ``/map/exposures`` row).
 
     ``sf`` is the signed exposure ($/MWh per $ of μ) — caveated, read it
-    against the response's window confidence. ``lat``/``lon`` are the
-    constraint's centroid, for highlighting on the map.
+    against the response's window confidence.
     """
     constraint_key: str
     sf: float
-    lat: float | None = None
-    lon: float | None = None
     max_abs_sf: float | None = None
     binding_hours: int | None = None
 
@@ -201,9 +179,9 @@ class ReachSp(BaseModel):
 class ConstraintReach(BaseModel):
     """Top-k nodes one constraint drives — the constraint click.
 
-    ``lat``/``lon`` are the constraint's own centroid; ``sps`` carries the
-    signed reach so the client can glow the positive- and negative-SF ends
-    opposite (spec §4). Signed detail, caveated by ``oos_r2``/``sf_stability``.
+    ``sps`` carries the signed reach so the client can glow the positive- and
+    negative-SF ends opposite (spec §4), placing each end from the per-node
+    coords. Signed detail, caveated by ``oos_r2``/``sf_stability``.
     """
     constraint_key: str
     run_id: str
@@ -212,8 +190,6 @@ class ConstraintReach(BaseModel):
     k: int
     oos_r2: float | None = None
     sf_stability: float | None = None
-    lat: float | None = None
-    lon: float | None = None
     max_abs_sf: float | None = None
     n_rail: int | None = None
     peak_offrail: float | None = None
@@ -224,22 +200,16 @@ class ConstraintReach(BaseModel):
 class OverviewConstraint(BaseModel):
     """One constraint in the de-piled overview (a ``/map/overview`` row).
 
-    Positioned at its ``core_lat``/``core_lon`` — the ``|SF|²``-weighted geometric
-    median, which sits on the constraint's strongest lobe rather than averaging to
-    the empty center the way ``lat``/``lon`` (the ``|SF|``-mean centroid) does.
     ``ctype`` (``gtc``/``transmission``/``radial``) picks the mark's *form*;
-    ``nodes`` carries the signed top-K field the client draws the mark over and the
-    drill-down colors (the overview itself ignores the sign). ``core_lat``/``lon``
-    are NULL for an unlocatable constraint (holes stay holes).
+    ``nodes`` carries the signed top-K field the client draws the mark over — and
+    anchors it, positioning the radial ring on the peak-|SF| node rather than a
+    persisted centroid. The client also uses ``nodes`` for the drill-down colors
+    (the overview itself ignores the sign).
     """
     constraint_key: str
     ctype: str | None = None
     binding_hours: int | None = None
     max_abs_sf: float | None = None
-    core_lat: float | None = None
-    core_lon: float | None = None
-    lat: float | None = None          # |SF|-mean centroid, for reference
-    lon: float | None = None
     nodes: list[ReachSp]
 
 
@@ -277,13 +247,9 @@ class MapOverview(BaseModel):
 
 class ConstraintLobe(BaseModel):
     """One end of a constraint's congestion dipole — its source (import, SF<0) or
-    sink (export, SF>0) lobe. ``lat``/``lon`` are the |SF|-weighted centroid of the
-    lobe's nodes; ``peak_sf`` is the signed strongest node on that side; ``n_nodes``
-    counts the located nodes above the floor. All null/zero for a one-sided or
-    unlocated constraint (a lobe with no nodes)."""
-    lat: float | None = None
-    lon: float | None = None
-    peak_sf: float | None = None
+    sink (export, SF>0) lobe. ``n_nodes`` counts the located nodes above the floor
+    on that side; the panel's dipole gauge is split by the two sides' counts. Zero
+    for a one-sided or unlocated constraint (a lobe with no nodes)."""
     n_nodes: int = 0
 
 
@@ -292,11 +258,11 @@ class RankedConstraint(BaseModel):
 
     ``congestion_contribution = mu_mass · reach`` is the sort key (descending);
     ``rank`` is its 1-based position. ``source_lobe``/``sink_lobe`` carry the
-    congestion dipole (import vs export ends); ``n_members`` is the located node
-    count above the floor. ``ctype``/``core_lat``/``core_lon`` mirror the
-    /map/overview marker (same ``constraint_id`` key), so a panel row highlights
-    the same overlay mark. ``mu_mass``/``reach`` are exposed so the contribution
-    is legible, not a black-box score."""
+    congestion dipole (import vs export node counts); ``n_members`` is the located
+    node count above the floor. ``ctype`` mirrors the /map/overview marker (same
+    ``constraint_id`` key), so a panel row highlights the same overlay mark.
+    ``mu_mass``/``reach`` are exposed so the contribution is legible, not a
+    black-box score."""
     constraint_id: str
     rank: int
     congestion_contribution: float
@@ -304,8 +270,6 @@ class RankedConstraint(BaseModel):
     reach: float
     n_members: int
     ctype: str | None = None
-    core_lat: float | None = None
-    core_lon: float | None = None
     source_lobe: ConstraintLobe
     sink_lobe: ConstraintLobe
 
