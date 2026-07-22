@@ -3,7 +3,7 @@ import { useMemo, useRef, useCallback } from "react";
 export interface SparkPoint {
   // magnitude, not signed — signed sums cancel visually across strong
   // bidirectional snapshots.
-  modeled_congestion_abs_total: number | null;
+  congestion_abs_total: number | null;
 }
 
 interface Props {
@@ -17,8 +17,8 @@ const VIEW_W = 1000; // viewBox width — gets stretched horizontally
 const PAD_TOP = 4; // px space at top of viewBox
 const PAD_BOTTOM = 4; // px space at bottom of viewBox
 
-// Colors — match the rest of the app (yellow=‖modeled congestion‖).
-const MC_ABS_COLOR = "#eab308";
+// Colors — match the rest of the app (yellow=‖congestion‖).
+const CONGESTION_COLOR = "#eab308";
 // Chrome, not data — routed through the theme tokens. These are applied via the
 // `style` prop rather than the `stroke` attribute, because SVG presentation
 // attributes do not parse var().
@@ -34,26 +34,26 @@ export default function TimelineSparkline({
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Compute the peak and the SVG geometry once per series change. The signal
-  // is normalized to its own peak. ‖modeled congestion‖ renders as a filled area.
+  // is normalized to its own peak. ‖congestion‖ renders as a filled area.
   const geometry = useMemo(() => {
     if (series.length === 0) {
-      return { areaPath: "", peakMc: 0 };
+      return { areaPath: "", peakCongestion: 0 };
     }
 
     const innerH = 100; // viewBox y range; CSS scales to actual px
     const usableH = innerH - PAD_TOP - PAD_BOTTOM;
 
-    let peakMc = 0;
+    let peakCongestion = 0;
     for (const p of series) {
       if (
-        p.modeled_congestion_abs_total != null &&
-        p.modeled_congestion_abs_total > peakMc
+        p.congestion_abs_total != null &&
+        p.congestion_abs_total > peakCongestion
       ) {
-        peakMc = p.modeled_congestion_abs_total;
+        peakCongestion = p.congestion_abs_total;
       }
     }
     // Avoid /0 when a window has no signal at all.
-    const mcNorm = peakMc > 0 ? peakMc : 1;
+    const congestionNorm = peakCongestion > 0 ? peakCongestion : 1;
 
     // x position for index i, centered in its slot.
     const xAt = (i: number) =>
@@ -63,16 +63,16 @@ export default function TimelineSparkline({
     const yFrom = (norm: number) =>
       innerH - PAD_BOTTOM - usableH * Math.max(0, Math.min(1, norm));
 
-    // ‖Modeled Congestion‖ area path
+    // Congestion area path
     let areaPath = `M 0 ${innerH - PAD_BOTTOM} `;
     series.forEach((p, i) => {
       const x = xAt(i);
-      const y = yFrom((p.modeled_congestion_abs_total ?? 0) / mcNorm);
+      const y = yFrom((p.congestion_abs_total ?? 0) / congestionNorm);
       areaPath += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
     });
     areaPath += `L ${VIEW_W} ${innerH - PAD_BOTTOM} Z`;
 
-    return { areaPath, peakMc };
+    return { areaPath, peakCongestion };
   }, [series]);
 
   // Click/drag to seek. We translate the click X to the nearest series index.
@@ -111,12 +111,12 @@ export default function TimelineSparkline({
           <span
             className="sparkline__sw"
             style={{
-              background: MC_ABS_COLOR,
+              background: CONGESTION_COLOR,
               opacity: 0.6,
               height: 6,
             }}
           />
-          ‖modeled congestion‖
+          congestion
         </span>
       </div>
 
@@ -140,12 +140,12 @@ export default function TimelineSparkline({
           vectorEffect="non-scaling-stroke"
         />
 
-        {/* ‖modeled congestion‖ area */}
+        {/* ‖congestion‖ area */}
         <path
           d={geometry.areaPath}
-          fill={MC_ABS_COLOR}
+          fill={CONGESTION_COLOR}
           fillOpacity={0.25}
-          stroke={MC_ABS_COLOR}
+          stroke={CONGESTION_COLOR}
           strokeWidth={1}
           vectorEffect="non-scaling-stroke"
         />

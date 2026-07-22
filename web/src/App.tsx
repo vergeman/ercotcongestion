@@ -450,7 +450,7 @@ export default function App() {
                 }
               }
               return {
-                modeled_congestion_abs_total: absTotal,
+                congestion_abs_total: absTotal,
               };
             })
           );
