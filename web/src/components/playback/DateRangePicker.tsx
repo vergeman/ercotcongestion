@@ -2,6 +2,7 @@ import { useState } from "react";
 import { subDays, subHours } from "date-fns";
 import type { CuratedEvent } from "../../lib/events";
 import { ctInputToUtc, utcToCTInputString } from "../../lib/time";
+import Tooltip from "../ui/Tooltip";
 
 interface Props {
   onLoad: (start: Date, end: Date) => void;
@@ -72,14 +73,16 @@ export default function DateRangePicker({
 
       {open && (
         <div className="drp__dropdown">
-          <button
+          <Tooltip
+            as="button"
+            placement="left"
             className="drp__close"
             onClick={() => setOpen(false)}
             aria-label="Close"
-            title="Close"
+            tip="Close"
           >
             ✕
-          </button>
+          </Tooltip>
           {events && events.length > 0 && (
             <div className="drp__events">
               <div className="label drp__section-label">Curated events</div>

@@ -300,6 +300,48 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--text-secondary);
 }
 
+/* App-wide styled tooltip (see components/ui/Tooltip.tsx) -- the replacement for
+   the browser's native title= bubble. Portal-rendered on <body> at
+   position:fixed (the component sets left/top), so it never clips inside a
+   scrolling panel. Mirrors the scoreboard's .sb-term popover: same glass
+   surface, bright border, panel shadow, all theme tokens. */
+.tt {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-bright);
+  box-shadow: var(--shadow-panel);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  animation: tt-in 0.12s ease;
+}
+.tt b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+@keyframes tt-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

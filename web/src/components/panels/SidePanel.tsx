@@ -1,6 +1,7 @@
 import { useState, Fragment } from "react";
 import type { ScoreboardHeadline, RankedConstraints } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
+import Tooltip from "../ui/Tooltip";
 
 // The right-hand side panel, hosting two tabs in one region (plan/0103): `Stats`
 // (0102) — a compact network readout over the rolling backtest scorecard — and
@@ -94,9 +95,9 @@ function Stat({
 }) {
   return (
     <div className="np-stat">
-      <span className="label" title={hint}>
+      <Tooltip className="label" tip={hint}>
         {label}
-      </span>
+      </Tooltip>
       <span className="np-stat__val mono">{value ?? "—"}</span>
     </div>
   );
@@ -222,9 +223,9 @@ export default function SidePanel({
                   );
                   return (
                     <Fragment key={name}>
-                      <span className="sc-cat label" title={meta.hint}>
+                      <Tooltip className="sc-cat label" tip={meta.hint}>
                         {meta.label}
-                      </span>
+                      </Tooltip>
                       <span className="sc-v mono" data-lead={lead === "model"}>
                         {fmtScore(cur.model)}
                       </span>
@@ -234,12 +235,12 @@ export default function SidePanel({
                       >
                         {fmtScore(cur.persistence)}
                       </span>
-                      <span
+                      <Tooltip
                         className="sc-v sc-v--ceiling mono"
-                        title="Oracle ceiling — the best any forecast could do on these weeks."
+                        tip="Oracle ceiling — the best any forecast could do on these weeks."
                       >
                         {fmtScore(cur.oracle)}
-                      </span>
+                      </Tooltip>
                     </Fragment>
                   );
                 })}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Palette, ViewMode } from "../../api/types";
 import { currentTheme, toggleTheme, type Theme } from "../../lib/theme";
 import HeaderNav from "./HeaderNav";
+import Tooltip from "../ui/Tooltip";
 
 interface Props {
   // The two orthogonal axes: `viewMode` picks forecast-error vs dual compare;
@@ -99,10 +100,12 @@ export default function Header({
       </div>
 
       <div className="header__status">
-        <button
+        <Tooltip
+          as="button"
+          placement="bottom"
           className="theme-toggle"
           onClick={() => setTheme(toggleTheme())}
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          tip={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
         >
           {theme === "dark" ? (
@@ -115,7 +118,7 @@ export default function Header({
               <path d="M20 14.2A8.2 8.2 0 1 1 9.8 4a6.6 6.6 0 0 0 10.2 10.2z" />
             </svg>
           )}
-        </button>
+        </Tooltip>
         <div className={`status-dot status-dot--${connectionState}`} />
         <span className="label" style={{ color: "var(--text-secondary)" }}>
           {connectionState === "loading"

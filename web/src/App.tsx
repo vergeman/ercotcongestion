@@ -43,6 +43,7 @@ import Legend from "./components/map/Legend";
 import CompareMap from "./components/map/CompareMap";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import DetailCard from "./components/map/DetailCard";
+import Tooltip from "./components/ui/Tooltip";
 import SidePanel, {
   type NetworkStats,
 } from "./components/panels/SidePanel";
@@ -797,17 +798,17 @@ export default function App() {
           <span className="pane-badge__stat">no nodes (rebuild topology cache)</span>
         ) : (
           <>
-            <span
+            <Tooltip
               className="pane-badge__stat"
-              title="Settlement points (nodes) drawn on the map"
+              tip="Settlement points (nodes) drawn on the map"
             >
               <span className="pane-badge__key">nodes</span>{" "}
               <b>{featCount.toLocaleString()}</b>
-            </span>
-            <span className="pane-badge__stat" title={litHint}>
+            </Tooltip>
+            <Tooltip className="pane-badge__stat" tip={litHint}>
               <span className="pane-badge__key">{litNoun}</span>{" "}
               <b>{lit.toLocaleString()}</b>
-            </span>
+            </Tooltip>
           </>
         )}
       </span>

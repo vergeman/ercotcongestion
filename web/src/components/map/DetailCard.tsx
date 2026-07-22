@@ -186,7 +186,6 @@ function ExposuresBody({
             className="dc-driver"
             onClick={() => onSelectConstraint?.(e.constraint_key)}
             onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
-            title={`${e.constraint_key} — trace reach`}
           >
             <SignChip sf={e.sf} />
             <span className="dc-driver-key mono">{e.constraint_key}</span>
@@ -258,7 +257,6 @@ function ReachBody({
             className="dc-driver"
             onClick={() => onSelectMember?.(s.settlement_point)}
             onMouseEnter={() => onHoverMember?.(s.settlement_point)}
-            title={`${s.settlement_point} — open node`}
           >
             <SignChip sf={s.sf} />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
