@@ -118,22 +118,22 @@ def delete_constraint_geo(conn, run_id: str) -> int:
 def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame) -> int:
     """Stream one refit window's constraint geography via ``COPY FROM STDIN``.
 
-    ``geo`` is indexed by ``constraint_key`` with columns ``lat, lon, spread_km,
-    kv_mean, kv_max, zone_shares (dict), max_abs_sf, n_rail, peak_offrail,
-    binding_hours, core_lat, core_lon, ctype``. Non-finite floats become NULL — a
-    constraint whose |SF| mass lands entirely on uncoordinated settlement points is
-    an honest hole, not a fallback.
+    ``geo`` is indexed by ``constraint_key`` with columns ``spread_km, kv_mean,
+    kv_max, zone_shares (dict), max_abs_sf, n_rail, peak_offrail, binding_hours,
+    ctype``. Non-finite floats become NULL — a constraint whose |SF| mass lands
+    entirely on uncoordinated settlement points is an honest hole, not a fallback.
     ``zone_shares`` is serialized to JSON text for the ``jsonb`` column. Returns
-    the number of rows written.
+    the number of rows written. (The centroid/medoid coordinate columns were
+    dropped in 0112 — nothing served them; the zone/kV/spread metadata stays.)
     """
     if geo.empty:
         return 0
     ws = str(window_start)
     sql = (
         "COPY constraint_geo "
-        "(run_id, window_start, constraint_key, lat, lon, spread_km, "
+        "(run_id, window_start, constraint_key, spread_km, "
         " kv_mean, kv_max, zone_shares, max_abs_sf, n_rail, peak_offrail, "
-        " binding_hours, core_lat, core_lon, ctype) FROM STDIN"
+        " binding_hours, ctype) FROM STDIN"
     )
 
     def _f(v) -> float | None:
@@ -153,10 +153,10 @@ def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame)
             ct = str(ct) if ct is not None and not (isinstance(ct, float) and np.isnan(ct)) else None
             cp.write_row((
                 run_id, ws, str(key),
-                _f(r["lat"]), _f(r["lon"]), _f(r["spread_km"]),
+                _f(r["spread_km"]),
                 _f(r["kv_mean"]), _f(r["kv_max"]),
                 js, _f(r["max_abs_sf"]), nr, _f(r["peak_offrail"]), bh,
-                _f(r["core_lat"]), _f(r["core_lon"]), ct,
+                ct,
             ))
             n_rows += 1
     return n_rows

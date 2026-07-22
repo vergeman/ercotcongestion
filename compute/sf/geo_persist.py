@@ -30,7 +30,6 @@ import psycopg
 from compute.config import PG_DSN
 from compute.mu.geo import (
     ZONES,
-    constraint_core,
     constraint_geography,
     constraint_type,
     load_sp_geography,
@@ -45,8 +44,10 @@ RAIL_CAP = 0.999
 
 # Geometry columns constraint_geography always emits; forced present so an
 # all-uncoordinated window (known.empty → columnless frame) still yields NaN
-# rows rather than a KeyError.
-_GEO_COLS = ("geo_lat", "geo_lon", "geo_spread_km", "geo_kv_mean", "geo_kv_max")
+# rows rather than a KeyError. geo_lat/geo_lon are computed by
+# constraint_geography (the μ-model needs them) but no longer persisted — 0112
+# dropped the centroid coordinates from constraint_geo.
+_GEO_COLS = ("geo_spread_km", "geo_kv_mean", "geo_kv_max")
 
 
 def _load_windows(conn, run_id: str) -> list[tuple]:
@@ -101,8 +102,6 @@ def _window_geo(SF: pd.DataFrame, sp: pd.DataFrame, Mw: pd.DataFrame) -> pd.Data
     binding = (Mw > 0).sum() if not Mw.empty else pd.Series(dtype=float)
 
     geo = pd.DataFrame(index=SF.index)
-    geo["lat"] = g["geo_lat"]
-    geo["lon"] = g["geo_lon"]
     geo["spread_km"] = g["geo_spread_km"]
     geo["kv_mean"] = g["geo_kv_mean"]
     geo["kv_max"] = g["geo_kv_max"]
@@ -120,16 +119,10 @@ def _window_geo(SF: pd.DataFrame, sp: pd.DataFrame, Mw: pd.DataFrame) -> pd.Data
 
     geo["binding_hours"] = binding.reindex(SF.index).fillna(0).astype(int)
 
-    # Overview primitives (plan/0092-0002): the |SF|²-core the map de-piles to,
-    # and the type that picks its mark. Both summarise this same honest window.
-    # TODO: core_lat/core_lon are now only rendered for RADIAL constraints (the
-    # hollow-ring mark) — the GTC/transmission center dots were dropped as
-    # misleading phantom nodes (OverviewOverlay.tsx). If radial marks are ever
-    # reworked to not need this point, drop the core columns here, in
-    # constraint_core (compute/mu/geo.py:265), and from the api/map.py select.
-    core = constraint_core(SF, sp)
-    geo["core_lat"] = core["geo_core_lat"]
-    geo["core_lon"] = core["geo_core_lon"]
+    # ctype picks the overview mark (gtc region / transmission corridor / radial
+    # point). The |SF|²-core coordinate it used to carry was dropped in 0112 — the
+    # overview now anchors the radial ring on its peak-|SF| node and makes the
+    # marks their own hit targets, so no persisted centroid/medoid is needed.
     geo["ctype"] = constraint_type(geo)  # needs n_rail/peak_offrail, set above
     return geo
 
@@ -172,10 +165,13 @@ def main(argv: list[str] | None = None) -> int:
             geo = _window_geo(SF, sp, Mw)
             n = copy_constraint_geo_rows(conn, args.run_id, window_start, geo)
             total += n
+            # spread_km is NaN exactly when a constraint has no coordinate mass
+            # (constraint_geography blanks every column for an unlocated row), so
+            # it stands in for the dropped lat as the "located" tally.
             log.info("window=[%s,%s): %d constraints, %d located",
                      pd.Timestamp(window_start).date(),
                      pd.Timestamp(window_end).date(), n,
-                     int(geo["lat"].notna().sum()))
+                     int(geo["spread_km"].notna().sum()))
         conn.commit()
 
     log.info("persisted %d constraint_geo rows for run_id=%s", total, args.run_id)
