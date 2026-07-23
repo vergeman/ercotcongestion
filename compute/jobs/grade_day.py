@@ -40,6 +40,7 @@ the live grade above is the shipped deliverable.
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -142,6 +143,8 @@ def grade_day(
     congestion, or a degenerate SF fit — rather than writing a hollow row.
     """
     D = _as_utc_day(D)
+    started = perf_counter()
+    log.info("grade_day start: delivery_date=%s run_id=%s", D.date(), run_id)
 
     # --- the served product (model source) ----------------------------------
     fc = load_served_forecast(conn, run_id, D)
@@ -247,9 +250,10 @@ def grade_day(
 
     m = rows[0]
     p = next(r for r in rows if r["source"] == "persistence")
-    log.info("grade_day %s run_id=%s: %d h × %d nodes | model top-dec %.3f "
-             "(persistence %.3f, Δ%+.3f) | sf_coverage %.3f",
-             D.date(), run_id, len(hours), len(N),
+    log.info("grade_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
+             "%d h × %d nodes | model top-dec %.3f (persistence %.3f, Δ%+.3f) "
+             "| sf_coverage %.3f",
+             D.date(), run_id, perf_counter() - started, len(hours), len(N),
              m["topdecile_hit"] if m["topdecile_hit"] is not None else float("nan"),
              p["topdecile_hit"] if p["topdecile_hit"] is not None else float("nan"),
              (m["topdecile_hit"] - p["topdecile_hit"])
@@ -282,16 +286,16 @@ def persist_grades(conn, run_id: str, D, rows: list[dict]) -> int:
 
 
 def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
-    """The most recent served delivery day that is (a) not yet in scoreboard_daily
-    and (b) fully realized — used to drive the live grade off the daily tick without
-    a separate schedule (`daily_forecast.main`).
+    """Return the newest forecast day that has not been graded and is complete.
 
-    Fully realized is proxied by the day's LAST forecast hour having a published
-    system_λ: DAM clears a whole operating day at once, so if the final hour is in,
-    the day is. This keeps the tick from grading a half-published day and freezing a
-    partial score (scoreboard_daily is write-once per day here). None when nothing is
-    gradeable — a normal state, not an error.
+    A UTC delivery day ends at 23:00, so this checks directly for the system-lambda
+    price at that known hour. If it exists, the day is ready to grade; if not, the
+    selector waits. It deliberately does not search the forecast table for each
+    day's latest timestamp, which became slow as forecast history grew. Returning
+    ``None`` simply means there is nothing ready to grade yet.
     """
+    started = perf_counter()
+    log.info("grade selection start: run_id=%s", run_id)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -304,17 +308,19 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
                       AND sd.delivery_date = c.delivery_date)
               AND EXISTS (
                     SELECT 1 FROM dam_system_lambda l
-                    WHERE l.interval_ts = (
-                        SELECT MAX(ts) FROM forecast_nodal f
-                        WHERE f.run_id = %(run_id)s
-                          AND f.delivery_date = c.delivery_date))
+                    WHERE l.interval_ts =
+                        (c.delivery_date::timestamp AT TIME ZONE 'UTC')
+                        + INTERVAL '23 hours')
             ORDER BY c.delivery_date DESC
             LIMIT 1
             """,
             {"run_id": run_id},
         )
         row = cur.fetchone()
-    return None if row is None else _as_utc_day(row[0])
+    D = None if row is None else _as_utc_day(row[0])
+    log.info("grade selection complete: run_id=%s delivery_date=%s elapsed_s=%.3f",
+             run_id, D.date() if D is not None else None, perf_counter() - started)
+    return D
 
 
 # --------------------------------------------------------------------------
