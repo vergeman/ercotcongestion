@@ -40,6 +40,7 @@ the live grade above is the shipped deliverable.
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -142,6 +143,8 @@ def grade_day(
     congestion, or a degenerate SF fit — rather than writing a hollow row.
     """
     D = _as_utc_day(D)
+    started = perf_counter()
+    log.info("grade_day start: delivery_date=%s run_id=%s", D.date(), run_id)
 
     # --- the served product (model source) ----------------------------------
     fc = load_served_forecast(conn, run_id, D)
@@ -247,9 +250,10 @@ def grade_day(
 
     m = rows[0]
     p = next(r for r in rows if r["source"] == "persistence")
-    log.info("grade_day %s run_id=%s: %d h × %d nodes | model top-dec %.3f "
-             "(persistence %.3f, Δ%+.3f) | sf_coverage %.3f",
-             D.date(), run_id, len(hours), len(N),
+    log.info("grade_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
+             "%d h × %d nodes | model top-dec %.3f (persistence %.3f, Δ%+.3f) "
+             "| sf_coverage %.3f",
+             D.date(), run_id, perf_counter() - started, len(hours), len(N),
              m["topdecile_hit"] if m["topdecile_hit"] is not None else float("nan"),
              p["topdecile_hit"] if p["topdecile_hit"] is not None else float("nan"),
              (m["topdecile_hit"] - p["topdecile_hit"])
@@ -290,6 +294,8 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
     day's latest timestamp, which became slow as forecast history grew. Returning
     ``None`` simply means there is nothing ready to grade yet.
     """
+    started = perf_counter()
+    log.info("grade selection start: run_id=%s", run_id)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -311,7 +317,10 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
             {"run_id": run_id},
         )
         row = cur.fetchone()
-    return None if row is None else _as_utc_day(row[0])
+    D = None if row is None else _as_utc_day(row[0])
+    log.info("grade selection complete: run_id=%s delivery_date=%s elapsed_s=%.3f",
+             run_id, D.date() if D is not None else None, perf_counter() - started)
+    return D
 
 
 # --------------------------------------------------------------------------

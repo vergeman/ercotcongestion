@@ -15,6 +15,8 @@ actually score rather than declining to NaN for want of width.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -65,11 +67,12 @@ def _install(monkeypatch, M, C, SF, fc):
 # Reconciliation: every source row IS score_matrix on the same Y / Yh (spec §7)
 # ---------------------------------------------------------------------------
 
-def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch):
+def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
     M, C, SF, fc, hoursD = _scenario()
     _install(monkeypatch, M, C, SF, fc)
 
-    rows = grade_rows(monkeypatch, M, C, SF, fc)
+    with caplog.at_level(logging.INFO, logger=gd.__name__):
+        rows = grade_rows(monkeypatch, M, C, SF, fc)
     by_src = {r["source"]: r for r in rows}
     assert set(by_src) == {"model", "oracle", "persistence", "climatology", "null"}
 
@@ -97,6 +100,11 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch):
         want = score_matrix(Y, Yh.to_numpy(float))
         for k, v in want.items():
             _eq(by_src[name][k], v)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "grade_day start: delivery_date=2025-09-15 run_id=t" in messages
+    assert any(message.startswith("grade_day complete: delivery_date=2025-09-15 ")
+               and "elapsed_s=" in message for message in messages)
 
 
 def test_model_carries_live_bands_comparators_do_not(monkeypatch):
@@ -197,12 +205,18 @@ class _FakeConn:
         return _FakeCur(self)
 
 
-def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_utc_midnight():
+def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_utc_midnight(caplog):
     import datetime as _dt
     conn = _FakeConn((_dt.date(2025, 9, 15),))
-    D_ = gd.resolve_gradeable_date(conn, "t")
+    with caplog.at_level(logging.INFO, logger=gd.__name__):
+        D_ = gd.resolve_gradeable_date(conn, "t")
     assert D_ == D
     assert conn.params == {"run_id": "t"}
+    messages = [record.getMessage() for record in caplog.records]
+    assert "grade selection start: run_id=t" in messages
+    assert any(message.startswith("grade selection complete: run_id=t ")
+               and "delivery_date=2025-09-15" in message
+               and "elapsed_s=" in message for message in messages)
 
 
 def test_resolve_gradeable_date_none_when_no_served_day_is_gradeable():
