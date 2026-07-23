@@ -171,8 +171,8 @@ def test_raises_when_realized_has_not_published(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class _FakeCur:
-    def __init__(self, row):
-        self._row = row
+    def __init__(self, conn):
+        self._conn = conn
 
     def __enter__(self):
         return self
@@ -181,28 +181,54 @@ class _FakeCur:
         return False
 
     def execute(self, sql, params=None):
-        self.sql, self.params = sql, params
+        self._conn.sql, self._conn.params = sql, params
 
     def fetchone(self):
-        return self._row
+        return self._conn.row
 
 
 class _FakeConn:
     def __init__(self, row):
-        self._row = row
+        self.row = row
+        self.sql = None
+        self.params = None
 
     def cursor(self):
-        return _FakeCur(self._row)
+        return _FakeCur(self)
 
 
-def test_resolve_gradeable_date_normalizes_to_utc_midnight():
+def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_utc_midnight():
     import datetime as _dt
-    D_ = gd.resolve_gradeable_date(_FakeConn((_dt.date(2025, 9, 15),)), "t")
+    conn = _FakeConn((_dt.date(2025, 9, 15),))
+    D_ = gd.resolve_gradeable_date(conn, "t")
     assert D_ == D
+    assert conn.params == {"run_id": "t"}
 
 
-def test_resolve_gradeable_date_none_when_nothing_gradeable():
+def test_resolve_gradeable_date_none_when_no_served_day_is_gradeable():
     assert gd.resolve_gradeable_date(_FakeConn(None), "t") is None
+
+
+def test_resolve_gradeable_date_none_when_candidates_are_only_partially_realized():
+    """The selector's EXISTS clause excludes a candidate without its D + 23h λ."""
+    assert gd.resolve_gradeable_date(_FakeConn(None), "t") is None
+
+
+def test_resolve_gradeable_date_selector_checks_expected_final_hour_not_nodal_max():
+    """The DB returns the newest candidate whose final hour is realized.
+
+    A missing result represents both no served candidates and candidates whose
+    final hour has not published, so either state stays safely ungradeable.
+    """
+    conn = _FakeConn((D.date(),))
+    assert gd.resolve_gradeable_date(conn, "t") == D
+
+    sql = " ".join(conn.sql.split()).lower()
+    assert "select max(ts) from forecast_nodal" not in sql
+    assert "(c.delivery_date::timestamp at time zone 'utc')" in sql
+    assert "interval '23 hours'" in sql
+    assert "order by c.delivery_date desc" in sql
+    assert "limit 1" in sql
 
 
 # ---------------------------------------------------------------------------

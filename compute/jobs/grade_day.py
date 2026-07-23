@@ -282,15 +282,13 @@ def persist_grades(conn, run_id: str, D, rows: list[dict]) -> int:
 
 
 def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
-    """The most recent served delivery day that is (a) not yet in scoreboard_daily
-    and (b) fully realized — used to drive the live grade off the daily tick without
-    a separate schedule (`daily_forecast.main`).
+    """Return the newest forecast day that has not been graded and is complete.
 
-    Fully realized is proxied by the day's LAST forecast hour having a published
-    system_λ: DAM clears a whole operating day at once, so if the final hour is in,
-    the day is. This keeps the tick from grading a half-published day and freezing a
-    partial score (scoreboard_daily is write-once per day here). None when nothing is
-    gradeable — a normal state, not an error.
+    A UTC delivery day ends at 23:00, so this checks directly for the system-lambda
+    price at that known hour. If it exists, the day is ready to grade; if not, the
+    selector waits. It deliberately does not search the forecast table for each
+    day's latest timestamp, which became slow as forecast history grew. Returning
+    ``None`` simply means there is nothing ready to grade yet.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -304,10 +302,9 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
                       AND sd.delivery_date = c.delivery_date)
               AND EXISTS (
                     SELECT 1 FROM dam_system_lambda l
-                    WHERE l.interval_ts = (
-                        SELECT MAX(ts) FROM forecast_nodal f
-                        WHERE f.run_id = %(run_id)s
-                          AND f.delivery_date = c.delivery_date))
+                    WHERE l.interval_ts =
+                        (c.delivery_date::timestamp AT TIME ZONE 'UTC')
+                        + INTERVAL '23 hours')
             ORDER BY c.delivery_date DESC
             LIMIT 1
             """,
