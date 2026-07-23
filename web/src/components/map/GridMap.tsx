@@ -21,7 +21,7 @@ import {
   type LmpStats,
   type ModeledCongestionStats,
 } from "../../lib/colors";
-import { cssVar, onThemeChange, useTheme } from "../../lib/theme";
+import { cssVar, onThemeChange, useTheme, type Theme } from "../../lib/theme";
 
 // Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
 // paint properties cannot take var(), so the values are read out of the computed
@@ -90,7 +90,11 @@ function buildCorridorArc(
       u * u * a[1] + 2 * u * t * cy + t * t * b[1],
     ]);
   }
-  return { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} };
+  return {
+    type: "Feature",
+    geometry: { type: "LineString", coordinates: coords },
+    properties: {},
+  };
 }
 
 // Major ERCOT-region cities, for map orientation only. Rendered as a faint
@@ -178,7 +182,7 @@ interface Props {
   // (emerald↔magenta) so the error reads on its own hue axis. Only affects node
   // fill — the reach/SF glow stays on modeledCongestionColor (there the sign is the
   // export/import dipole).
-  congestionColor?: (norm: number) => string;
+  congestionColor?: (norm: number, theme: Theme) => string;
 }
 
 export default function GridMap({
@@ -370,7 +374,17 @@ export default function GridMap({
           layout: { "line-join": "round" },
           paint: {
             "line-color": chrome.outline,
-            "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.8, 8, 1.4, 12, 2],
+            "line-width": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              4,
+              0.8,
+              8,
+              1.4,
+              12,
+              2,
+            ],
           },
         });
       }
@@ -564,7 +578,10 @@ export default function GridMap({
         const id = feat.properties.sp_id;
         const sf = bySp.get(id);
         if (sf === undefined) {
-          map.setFeatureState({ source: "sps", id }, { color: null, faded: true });
+          map.setFeatureState(
+            { source: "sps", id },
+            { color: null, faded: true }
+          );
         } else {
           // Color by congestion sign (−SF): import (SF<0) → +norm → red, export
           // (SF>0) → −norm → blue, so the glow agrees with the congestion fill.
@@ -626,7 +643,18 @@ export default function GridMap({
       }
       map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
     }
-  }, [rows, palette, lmpStats, mcStats, points, sourcesReady, reach, focusReach, congestionColor, theme]);
+  }, [
+    rows,
+    palette,
+    lmpStats,
+    mcStats,
+    points,
+    sourcesReady,
+    reach,
+    focusReach,
+    congestionColor,
+    theme,
+  ]);
 
   // Selected SP
   useEffect(() => {
@@ -725,7 +753,9 @@ export default function GridMap({
     if (!map || !sourcesReady) return;
 
     const apply = () => {
-      const src = buildOverviewSources(showConstraints ? overview ?? null : null);
+      const src = buildOverviewSources(
+        showConstraints ? overview ?? null : null
+      );
       const sf = {
         gtc: cssVar("--sf-gtc"),
         transmission: cssVar("--sf-transmission"),
@@ -760,7 +790,17 @@ export default function GridMap({
             source: "ov-gtc",
             paint: {
               "circle-color": sf.gtc,
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 14, 8, 30, 12, 50],
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                4,
+                14,
+                8,
+                30,
+                12,
+                50,
+              ],
               "circle-blur": 1,
               "circle-opacity": 0.22,
             },
@@ -776,7 +816,17 @@ export default function GridMap({
             source: "ov-gtc",
             paint: {
               "circle-color": sf.gtc,
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 9, 8, 20, 12, 34],
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                4,
+                9,
+                8,
+                20,
+                12,
+                34,
+              ],
               // Sharper, brighter core over the glow so the region has a solid
               // heart (closer to the old metaball) with a luminous edge.
               "circle-blur": 0.35,
@@ -793,7 +843,11 @@ export default function GridMap({
             type: "line",
             source: "ov-corridor",
             layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": lineColor, "line-width": 1.8, "line-opacity": 0.75 },
+            paint: {
+              "line-color": lineColor,
+              "line-width": 1.8,
+              "line-opacity": 0.75,
+            },
           },
           before
         );
@@ -806,7 +860,17 @@ export default function GridMap({
             source: "ov-radial",
             paint: {
               "circle-color": "rgba(0,0,0,0)",
-              "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4, 8, 6, 12, 9],
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                4,
+                4,
+                8,
+                6,
+                12,
+                9,
+              ],
               "circle-stroke-color": sf.radial,
               "circle-stroke-width": 2,
             },
