@@ -38,7 +38,22 @@ compute/runs/<run_id>/
   sf/
     diagnostics_YYYYMMDD.json                   # one per refit boundary: R², kept/dropped constraints, n_sf_clipped
     eval.csv                                     # honest out-of-window eval (compute.sf.eval)
+  mu/                                           # the μ forecast stage (plan/0113)
+    mu_weekly.csv                               # mu_model --out: walk calibration metrics (brier/ece/mae_mu_*)
+    mu_score_weekly.csv                         # compute.mu.score: score currencies (source/regime/pooled_r2 …)
+    mu_preds.npz                                # mu_model --preds-out: predictions / residual pool
+    spill/                                      # on-disk bind-matrix / panel spill (transient)
+  forecast/                                     # the nodal-projection stage (plan/0113)
+    mu_bands_weekly.csv                         # backfill_nodal --out: P50 band metrics
+    mu_nodal.npz                                # backfill_nodal --nodal-out: nodal P10/P50/P90 + point panel
 ```
+
+> **`mu-all-v1` (forecast) vs `map-v1` (SF).** A forecast run and the SF map it
+> projects through are versioned independently: the `sf/` subdir belongs to the
+> map run (`map-v1`), while `mu/` + `forecast/` belong to the forecast run
+> (`mu-all-v1`). `backfill_nodal --map-run-id` names the dependency. `mu_weekly.csv`
+> and `mu_score_weekly.csv` are two different files with two different schemas — the
+> former is `mu_model`'s calibration, the latter the scoreboard/r5 score input.
 
 ## Sweep run_id naming
 
