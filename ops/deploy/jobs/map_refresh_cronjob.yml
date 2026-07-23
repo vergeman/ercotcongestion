@@ -114,6 +114,8 @@ spec:
                   value: "0"
                 - name: MU_SPILL_PANEL
                   value: "1"
+                - name: MU_SPILL_DIR
+                  value: "/compute/runs/__spill__"
               envFrom:
                 - configMapRef:
                     name: api-config

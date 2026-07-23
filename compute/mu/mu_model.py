@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -75,6 +76,57 @@ _BIND_MATRIX_FILE = "bind_matrix.f64"
 # The on-disk Arrow copy of the panel's feature block (see `spill_panel_features`),
 # opt-in via MU_SPILL_PANEL. One file, overwritten per run, unlinked when main ends.
 _PANEL_FILE = "panel_features.arrow"
+
+# The canonical run-artifact tree (plan/0113). `--run-id` is the namespace every
+# stage shares: the walk writes its weekly metrics and residual pool beneath
+# `runs/<run-id>/mu/`, exactly where `backfill_nodal`/`daily_forecast` read them
+# back. `Path(__file__).parent.parent` is `compute/`, so this resolves to the same
+# mounted `/compute/runs` PVC those jobs use.
+RUNS_ROOT = Path(__file__).parent.parent / "runs"
+
+
+def weekly_path_for(run_id: str) -> str:
+    """The walk's weekly-metrics CSV for `run_id` — `runs/<run-id>/mu/mu_weekly.csv`."""
+    return str(RUNS_ROOT / run_id / "mu" / "mu_weekly.csv")
+
+
+def preds_path_for(run_id: str) -> str:
+    """The walk's per-row predictions / residual-pool npz for `run_id` —
+    `runs/<run-id>/mu/mu_preds.npz`, the path `backfill_nodal`/`daily_forecast`
+    resolve from the same run id (their `preds_path_for` mirrors this)."""
+    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
+
+
+def resolve_output_paths(run_id: str | None, out: str | None, preds_out: str | None,
+                         ) -> tuple[str | None, str | None]:
+    """Derive the weekly + preds paths under `runs/<run-id>/mu/` from a run id.
+
+    Explicit `--out` / `--preds-out` always win; a run id fills in only the paths
+    the caller left unset. With no run id both stay `None` — the legacy
+    explicit-only mode, unchanged.
+    """
+    if run_id:
+        out = out or weekly_path_for(run_id)
+        preds_out = preds_out or preds_path_for(run_id)
+    return out, preds_out
+
+
+def persist_outputs(weekly: pd.DataFrame, preds: pd.DataFrame,
+                    out: str | None, preds_out: str | None) -> None:
+    """Write the walk's weekly metrics and/or predictions, creating parents first.
+
+    Each path is optional. The parent tree — `runs/<run-id>/mu/` under the derived
+    convention — is created before the write, so a first run on a fresh PVC does not
+    fail on a missing directory.
+    """
+    if out:
+        os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+        weekly.to_csv(out, index=False)
+        print(f"\nwrote {out}")
+    if preds_out:
+        os.makedirs(os.path.dirname(os.path.abspath(preds_out)) or ".", exist_ok=True)
+        save_preds(preds_out, preds)
+        print(f"wrote {preds_out}")
 
 
 # --------------------------------------------------------------------------
@@ -799,10 +851,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS),
                    help="ablation arm (plan/0088): which covariate families the "
                         "model may see. The panel is built identically either way.")
-    p.add_argument("--out", default=None, help="write weekly metrics CSV here")
+    p.add_argument("--run-id", default=None,
+                   help="canonical run namespace (plan/0113): derive --out and "
+                        "--preds-out under runs/<run-id>/mu/ (mu_weekly.csv, "
+                        "mu_preds.npz) unless either is passed explicitly")
+    p.add_argument("--out", default=None, help="write weekly metrics CSV here "
+                                               "(overrides the --run-id path)")
     p.add_argument("--preds-out", default=None,
-                   help="write per-row predictions .npz here (commit 4/5 input)")
+                   help="write per-row predictions .npz here (commit 4/5 input); "
+                        "overrides the --run-id path")
     args = p.parse_args(argv)
+
+    # A run id derives both outputs under runs/<run-id>/mu/; explicit flags win.
+    args.out, args.preds_out = resolve_output_paths(
+        args.run_id, args.out, args.preds_out)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -901,12 +963,7 @@ def main(argv: list[str] | None = None) -> int:
               f"weekly R2 {weekly[f'r2_{name}'].mean():+.3f}")
     print(f"\n  VERDICT: {mu_head_verdict(weekly)}")
 
-    if args.out:
-        weekly.to_csv(args.out, index=False)
-        print(f"\nwrote {args.out}")
-    if args.preds_out:
-        save_preds(args.preds_out, preds)
-        print(f"wrote {args.preds_out}")
+    persist_outputs(weekly, preds, args.out, args.preds_out)
     return 0
 
 

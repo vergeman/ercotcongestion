@@ -59,6 +59,54 @@ def preds_path_for(run_id: str) -> str:
     return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
 
 
+def scores_path_for(run_id: str) -> str:
+    """The μ weekly score CSV for `run_id` — `runs/<run_id>/mu/mu_score_weekly.csv`.
+
+    The per-(week × source × regime) currencies `compute.mu.score` writes and `r5`
+    reads. A μ-stage artifact (score schema: source/regime/pooled_r2/…), so it lives
+    under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
+    which is `mu_model`'s calibration output."""
+    return str(RUNS_ROOT / run_id / "mu" / "mu_score_weekly.csv")
+
+
+def bands_path_for(run_id: str) -> str:
+    """The P50 band-metrics CSV for `run_id` — `runs/<run_id>/forecast/mu_bands_weekly.csv`.
+    A forecast-stage output (this job produces it), so it lives under `forecast/`."""
+    return str(RUNS_ROOT / run_id / "forecast" / "mu_bands_weekly.csv")
+
+
+def nodal_path_for(run_id: str) -> str:
+    """The per-week nodal P10/P50/P90 + point panel npz for `run_id` —
+    `runs/<run_id>/forecast/mu_nodal.npz`. The forecast-stage seed/reload artifact."""
+    return str(RUNS_ROOT / run_id / "forecast" / "mu_nodal.npz")
+
+
+def resolve_walk_paths(run_id: str | None, preds: str | None, scores: str | None,
+                       out: str | None, nodal_out: str | None,
+                       *, load_nodal_npz: bool = False,
+                       ) -> tuple[str | None, str | None, str | None, str | None]:
+    """Resolve the walk's inputs/outputs from `--run-id` (canonical `runs/<id>/`
+    tree), falling back to the legacy bundled `compute/mu` paths run-id-less.
+
+    Explicit values always win. Inputs (`preds`, `scores`) always resolve to *a*
+    path so the run-id-less metrics mode keeps reading the legacy bundle; the
+    derived OUTPUT paths (`out`, `nodal_out`) are filled only under a run id, so a
+    run-id-less run keeps them opt-in (None) — its current behavior, unchanged.
+    `--load-nodal-npz` is a standalone seed mode that runs no walk and derives
+    nothing here (its own guard refuses the walk flags)."""
+    if load_nodal_npz:
+        return preds, scores, out, nodal_out
+    legacy = RUNS_ROOT.parent / "mu"
+    preds = preds or (preds_path_for(run_id) if run_id
+                      else str(legacy / "mu_preds.npz"))
+    scores = scores or (scores_path_for(run_id) if run_id
+                        else str(legacy / "mu_score_weekly.csv"))
+    if run_id:
+        out = out or bands_path_for(run_id)
+        nodal_out = nodal_out or nodal_path_for(run_id)
+    return preds, scores, out, nodal_out
+
+
 def _delivery_dates(ts: pd.Series) -> pd.Series:
     """UTC calendar date of each tz-aware UTC hour — the `forecast_nodal`/
     `forecast_sf_artifact` `delivery_date` and the idempotency scope for a re-run.
@@ -337,20 +385,28 @@ def main(argv: list[str] | None = None) -> int:
                    help="μ predictions/residual-pool npz; defaults to "
                         "runs/<run-id>/mu/mu_preds.npz on the runs PVC when "
                         "--run-id is given")
-    p.add_argument("--scores", default="/compute/mu/mu_score_weekly.csv")
+    p.add_argument("--scores", default=None,
+                   help="μ weekly score CSV (r5); defaults to "
+                        "runs/<run-id>/mu/mu_score_weekly.csv with --run-id, else "
+                        "the legacy compute/mu bundle")
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--draws", type=int, default=N_DRAWS)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default=None)
+    p.add_argument("--out", default=None,
+                   help="P50 band-metrics CSV; defaults to "
+                        "runs/<run-id>/forecast/mu_bands_weekly.csv when --run-id "
+                        "is given, else opt-in (nothing written)")
     p.add_argument("--nodal-out", default=None,
                    help="stream the per-week nodal P10/P50/P90 + point panel to "
-                        "this flat vocab-coded .npz; omit and nothing changes "
-                        "(no panel, metrics CSV byte-identical)")
+                        "this flat vocab-coded .npz; defaults to "
+                        "runs/<run-id>/forecast/mu_nodal.npz with --run-id, else "
+                        "opt-in — omit run-id-less and nothing changes (no panel, "
+                        "metrics CSV byte-identical)")
     p.add_argument("--to-db", action="store_true",
-                   help="COPY the --nodal-out panel into forecast_nodal and flip "
-                        "the forecast_current[ercot] pointer (after rows land); "
-                        "requires --nodal-out and --run-id")
+                   help="COPY the nodal panel into forecast_nodal and flip the "
+                        "forecast_current[ercot] pointer (after rows land); requires "
+                        "--run-id (which derives --nodal-out) or an explicit --nodal-out")
     p.add_argument("--run-id", default=None,
                    help="model-version tag for the forecast_nodal rows + pointer "
                         "(e.g. mu-all-v1); required with --to-db / --load-nodal-npz")
@@ -378,9 +434,17 @@ def main(argv: list[str] | None = None) -> int:
                    help="refit SF per window in-process instead of reading the "
                         "persisted map — the pre-0002 self-contained behavior")
     args = p.parse_args(argv)
+
+    # Resolve the walk's inputs/outputs from --run-id before the flag checks below,
+    # so a run id derives --nodal-out (which --to-db then requires). --preds/--scores
+    # always resolve to a path; --out/--nodal-out derive only under a run id.
+    args.preds, args.scores, args.out, args.nodal_out = resolve_walk_paths(
+        args.run_id, args.preds, args.scores, args.out, args.nodal_out,
+        load_nodal_npz=bool(args.load_nodal_npz))
+
     if args.to_db and not (args.nodal_out and args.run_id):
-        p.error("--to-db requires --nodal-out (the panel is loaded from it) "
-                "and --run-id")
+        p.error("--to-db requires --run-id (which derives --nodal-out) or an "
+                "explicit --nodal-out to load the panel from")
     if args.load_nodal_npz:
         if not args.run_id:
             p.error("--load-nodal-npz requires --run-id (the run to seed + promote)")
@@ -414,11 +478,6 @@ def main(argv: list[str] | None = None) -> int:
                  FORECAST_LAYER, args.run_id)
         return 0
 
-    if args.preds is None:
-        # Prefer the run's pool on the PVC; fall back to the legacy bundled path
-        # for the run-id-less metrics-only mode (unchanged behavior).
-        args.preds = (preds_path_for(args.run_id) if args.run_id
-                      else str(RUNS_ROOT.parent / "mu" / "mu_preds.npz"))
     log.info("loading residual pool from %s", args.preds)
     preds = load_preds(args.preds)
     lo = pd.Timestamp(args.start, tz="America/Chicago")
@@ -441,6 +500,11 @@ def main(argv: list[str] | None = None) -> int:
             win = resolve_sf_window(_c, _rid, as_of=pd.Timestamp(s))
             return None if win is None else load_window_sf(_c, _rid, win[0])
 
+    # Create the derived forecast/ tree before the walk streams the nodal npz into
+    # it — a first run on a fresh PVC has no runs/<id>/forecast/ dir yet.
+    if args.nodal_out:
+        os.makedirs(os.path.dirname(os.path.abspath(args.nodal_out)) or ".",
+                    exist_ok=True)
     try:
         bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out,
                      curated=curated, sf_loader=sf_loader)
@@ -450,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
     scores = pd.read_csv(args.scores, parse_dates=["week"])
     print(r5(scores, bands))
     if args.out and not bands.empty:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
         bands.to_csv(args.out, index=False)
         print(f"wrote {args.out}")
 

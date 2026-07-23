@@ -11,18 +11,20 @@ baseline (§6).
 run_id names the model version that produced the board (same semantics as
 forecast_nodal's run_id): a config change starts a fresh, non-spliced track. The
 load is idempotent by delete-then-copy scoped to run_id, so a re-run replaces that
-run's board cleanly and leaves other runs untouched.
+run's board cleanly and leaves other runs untouched. It is also the canonical
+artifact namespace (plan/0113): `--score` / `--bands` default to that run's CSVs
+under `runs/<run-id>/` and need not be spelled out.
 
     docker compose run --rm compute python -m compute.jobs.load_scoreboard \
-        --run-id map-v1 \
-        --score /compute/mu/mu_score_weekly.csv \
-        --bands /compute/mu/mu_bands_weekly.csv
+        --run-id mu-all-v1
 """
 from __future__ import annotations
 
 import logging
 
 import pandas as pd
+
+from compute.jobs.backfill_nodal import bands_path_for, scores_path_for
 
 log = logging.getLogger("compute.jobs.load_scoreboard")
 
@@ -126,6 +128,19 @@ def build_rows(score_csv: str, bands_csv: str, *, run_id: str) -> list[tuple]:
     return rows
 
 
+def resolve_board_paths(run_id: str, score: str | None, bands: str | None,
+                        ) -> tuple[str, str]:
+    """Default the score/bands CSVs to `run_id`'s canonical `runs/<run-id>/` paths.
+
+    The score CSV is a μ-stage artifact (`mu/mu_score_weekly.csv`, the score schema
+    `compute.mu.score` writes — NOT `mu_weekly.csv`, which is `mu_model`'s
+    calibration output); the bands CSV is the forecast-stage output
+    (`forecast/mu_bands_weekly.csv`, `backfill_nodal --out`). Explicit `--score` /
+    `--bands` always win.
+    """
+    return (score or scores_path_for(run_id), bands or bands_path_for(run_id))
+
+
 def load_scoreboard(score_csv: str, bands_csv: str, conn, *, run_id: str) -> int:
     """Delete-then-COPY the board for `run_id`. Does NOT commit — caller owns the
     transaction. Returns the number of rows written."""
@@ -151,11 +166,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--run-id", required=True,
-                   help="model-version tag for this board (e.g. map-v1); the "
-                        "idempotency scope — a re-run replaces this run's rows only")
-    p.add_argument("--score", default="/compute/mu/mu_score_weekly.csv")
-    p.add_argument("--bands", default="/compute/mu/mu_bands_weekly.csv")
+                   help="model-version tag for this board (e.g. mu-all-v1); the "
+                        "idempotency scope AND the artifact namespace — --score / "
+                        "--bands default to this run's CSVs under runs/<run-id>/")
+    p.add_argument("--score", default=None,
+                   help="μ weekly score CSV; defaults to "
+                        "runs/<run-id>/mu/mu_score_weekly.csv")
+    p.add_argument("--bands", default=None,
+                   help="P50 band-metrics CSV; defaults to "
+                        "runs/<run-id>/forecast/mu_bands_weekly.csv")
     args = p.parse_args(argv)
+
+    args.score, args.bands = resolve_board_paths(
+        args.run_id, args.score, args.bands)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
