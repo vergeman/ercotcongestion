@@ -563,7 +563,7 @@ def walk_forward(panel: pd.DataFrame,
 def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
                 *, train_days: int = DEFAULT_TRAIN_DAYS,
                 arms: tuple[str, ...] = ("lag", "geo", "wx"),
-                seed: int = 0) -> pd.DataFrame:
+                seed: int = 0, spill_dir: str | None = None) -> pd.DataFrame:
     """Fit both heads on the trailing window and predict delivery day `D`.
 
     This is `walk_forward`'s fold (`_predict_fold`) with the prediction block set to
@@ -571,6 +571,13 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     `train` = `[D − train_days, D)`, `score` = the 24 hours of `[D, D+1d)`. The
     panel is handed in already built at the DAM-close vintage (0013 builds it); this
     function reads no live inputs and holds no cutoff logic.
+
+    `spill_dir`, when given, puts the fold's ~3.4 GB float64 bind matrix on that
+    disk PVC instead of anonymous RAM (see `_alloc_bind_matrix`). The daily refit
+    trains on the same 240-day window the backtest's late folds do, so its fold is
+    the same peak-memory line — a per-day serving/backfill job that omits this
+    coexists the bind matrix with the resident panel and OOMs exactly as the walk
+    did. `None` keeps the in-RAM allocation for the path tests.
 
     **Candidate universe = keys present in the trailing window's binding history.**
     A constraint the fit never saw bind has no target-encoded identity and no μ-head
@@ -625,7 +632,16 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     if score.empty:
         return _empty(novel_keys)
 
-    fold = _predict_fold(train, score, arms, seed)
+    fold = _predict_fold(train, score, arms, seed, spill_dir)
+    # Drop the on-disk bind matrix so a per-day backfill loop does not leave a stale
+    # ~3.4 GB file on the PVC — the fold has already read it. Mirrors walk_forward's
+    # end-of-walk unlink; the fixed filename is overwritten (mode="w+") each call, so
+    # this never races a concurrent fold in the single-threaded serving path.
+    if spill_dir is not None:
+        try:
+            os.remove(os.path.join(spill_dir, _BIND_MATRIX_FILE))
+        except OSError:
+            pass
     wp = (fold[["p_bind", "mu_gbm"]].reset_index()
           .loc[:, ["interval_ts", "key", "p_bind", "mu_gbm"]])
     wp.attrs["novelty"] = len(novel_keys)
