@@ -48,6 +48,7 @@ from compute.mu.mu_model import (
     arms_for,
     load_preds,
     predict_day,
+    spill_panel_features,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
@@ -214,7 +215,22 @@ def forecast_day(
     keep_from = D - pd.Timedelta(days=train_days)
     panel = panel.loc[panel.index.get_level_values("interval_ts") >= keep_from]
     gc.collect()
-    wp = predict_day(panel, D, train_days=train_days, arms=arms, seed=seed)
+
+    # The daily refit trains on the same 240-day window the backtest's late folds do,
+    # so `_predict_fold`'s ~3.4 GB float64 bind matrix is the same peak-memory line —
+    # in anonymous RAM it coexists with the resident panel and OOMs a 16 GB node (the
+    # exact break the backtest's spill fixed but the serving path never inherited).
+    # Spill it to disk always: MU_SPILL_DIR when set, else the system temp dir, which
+    # is always writable. Values are bit-identical (every cell is filled), so the
+    # forward forecast the reconciliation test pins is unchanged — only where the
+    # matrix lives moves. The larger resident-panel spill stays opt-in (MU_SPILL_PANEL)
+    # since it pays a one-time pyarrow copy; enable it when the bind spill alone leaves
+    # too little headroom.
+    spill_dir = os.environ.get("MU_SPILL_DIR") or tempfile.gettempdir()
+    if os.environ.get("MU_SPILL_PANEL"):
+        panel = spill_panel_features(panel, spill_dir)
+    wp = predict_day(panel, D, train_days=train_days, arms=arms, seed=seed,
+                     spill_dir=spill_dir)
     novelty = int(wp.attrs.get("novelty", 0))
     novel_keys = list(wp.attrs.get("novel_keys", []))
     if len(wp) == 0:

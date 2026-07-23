@@ -72,7 +72,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
                                          names=["key", "interval_ts"])
         return pd.DataFrame({"x": [1, 2, 3]}, index=idx)
 
-    def fake_predict_day(panel, D_, *, train_days, arms, seed):
+    def fake_predict_day(panel, D_, *, train_days, arms, seed, spill_dir=None):
         hours = pd.date_range(D_, periods=24, freq="h", tz="UTC")
         if wp_rows == 0:
             wp = pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])

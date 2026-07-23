@@ -238,6 +238,8 @@ expensive than step 3 (a per-day refit, ~16 GiB each, vs. one weekly fit shared 
 days), so it is optional and intentionally not the default history seed.
 
 ```
+MU_SPILL_DIR=/compute/runs/<run_id>/spill
+
 python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
     --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db
 ```
