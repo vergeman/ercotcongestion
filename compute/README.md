@@ -177,6 +177,7 @@ schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output
 # YYYY-MM-DD: tomorrow
 
 RUN_ID=mu-all-v1
+MU_SPILL_DIR=/compute/runs/__spill___
 
 python -m compute.mu.mu_model --run-id ${RUN_ID} \
     --start 2025-01-01 --end <YYYY-MM-DD>
@@ -265,7 +266,8 @@ expensive than step 3 (a per-day refit, ~16 GiB each, vs. one weekly fit shared 
 days), so it is optional and intentionally not the default history seed.
 
 ```
-MU_SPILL_DIR=/compute/runs/<run_id>/spill
+MU_SPILL_PANEL=1
+MU_SPILL_DIR=/compute/runs/__spill___
 
 python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
     --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db
