@@ -404,6 +404,9 @@ export default function SidePanel({
           letter-spacing: normal;
         }
         .sc-link:hover { text-decoration: underline; }
+        @media (max-width: 767px) {
+          .side-panel { display: none; }
+        }
       `}</style>
     </aside>
   );

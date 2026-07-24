@@ -54,6 +54,24 @@ import { useTheme } from "./lib/theme";
 
 type ConnectionState = "ok" | "error" | "loading";
 
+const MOBILE_BREAKPOINT = "(max-width: 767px)";
+
+function useMediaQuery(query: string): boolean {
+  const getMatches = () =>
+    typeof window !== "undefined" && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const update = () => setMatches(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
+
 interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
@@ -70,6 +88,10 @@ interface HoveredSp {
 }
 
 export default function App() {
+  // Mobile is intentionally a map-first experience. Keep the user's desktop
+  // view choice in state, but never mount the second synchronized map below the
+  // breakpoint; returning to desktop restores their chosen view.
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   // Re-render on theme flip so the forecast-error legend gradient (built from the
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
@@ -79,6 +101,7 @@ export default function App() {
   // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
   // color by; forecast error is congestion-based regardless of palette.
   const [viewMode, setViewMode] = useState<ViewMode>("forecastError");
+  const renderedViewMode = isMobile ? "forecastError" : viewMode;
   const [palette, setPalette] = useState<Palette>("congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -1048,7 +1071,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div className="app-shell">
       <Header
         viewMode={viewMode}
         onViewMode={handleViewMode}
@@ -1062,20 +1085,13 @@ export default function App() {
         }
       />
 
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
+      <div className="app-workspace">
         {/* Forecast error = single map of P50 forecast − realized (default
             landing). Dual = prediction | ERCOT split, both under the active palette. */}
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
             enough that the constraint list/table don't wrap without overshooting. */}
-        <div style={{ flex: 5, position: "relative" }}>
-          {viewMode === "forecastError" ? (
+        <div className="app-map-area">
+          {renderedViewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (
             <CompareMap main={leftPane} right={rightPane} />

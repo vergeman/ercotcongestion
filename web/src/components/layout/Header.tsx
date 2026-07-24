@@ -189,6 +189,17 @@ export default function Header({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
         }
+        @media (max-width: 767px) {
+          .header {
+            height: var(--mobile-header-h);
+            padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+            gap: 10px;
+          }
+          .header__controls { display: none; }
+          .header__status { margin-left: auto; gap: 6px; }
+          .header__status > .label { display: none; }
+          .theme-toggle { width: 30px; height: 30px; }
+        }
       `}</style>
     </header>
   );
