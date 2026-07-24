@@ -18,6 +18,7 @@ import Tooltip from "../ui/Tooltip";
 export interface NetworkStats {
   forecastRunId: string | null;
   systemLambda: number | null; // DAM system-λ at the cursor hour ($/MWh)
+  totalLoadMw: number | null; // ERCOT actual system load at the cursor hour (MW)
   congestionAbsTotal: number | null; // Σ|congestion| at the cursor hour ($)
   modelNodes: number; // SPs the forecast values this hour
   ercotNodes: number; // SPs ERCOT realized values this hour
@@ -170,6 +171,14 @@ export default function SidePanel({
               value={
                 network.systemLambda != null
                   ? `$${fmtNum(network.systemLambda, 2)}/MWh`
+                  : null
+              }
+            />
+            <Stat
+              label="Total Load"
+              value={
+                network.totalLoadMw != null
+                  ? `${fmtNum(network.totalLoadMw, 0)} MW`
                   : null
               }
             />

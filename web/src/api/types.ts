@@ -27,6 +27,7 @@ export interface ErcotSpSpp {
 
 export interface ErcotSppRangeEntry {
   interval_ts: string;
+  total_load_mw: number | null;
   sps: ErcotSpSpp[];
 }
 

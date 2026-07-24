@@ -383,6 +383,7 @@ export default function App() {
   const networkStats = useMemo<NetworkStats>(() => {
     const cur = timestamps[currentIndex] ?? null;
     const fc = cur ? getForecastCached(cur) : null;
+    const spp = cur ? getErcotSppCached(cur) : null;
     let absTotal: number | null = null;
     let ercot = 0;
     for (const r of spRows) {
@@ -396,6 +397,7 @@ export default function App() {
     return {
       forecastRunId,
       systemLambda: fc?.system_lambda ?? null,
+      totalLoadMw: spp?.total_load_mw ?? null,
       congestionAbsTotal: absTotal,
       modelNodes: model,
       ercotNodes: ercot,

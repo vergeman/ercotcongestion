@@ -42,6 +42,7 @@ class ErcotSpSpp(BaseModel):
 
 class ErcotSppRangeEntry(BaseModel):
     interval_ts: datetime
+    total_load_mw: float | None = None
     sps: list[ErcotSpSpp]
 
 
