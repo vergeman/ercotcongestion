@@ -983,10 +983,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS),
                    help="ablation arm (plan/0088): which covariate families the "
                         "model may see. The panel is built identically either way.")
-    p.add_argument("--chunk-weeks", type=int, default=0,
+    p.add_argument("--chunk-weeks", type=int, default=32,
                    help="build and score this many weekly folds at a time, writing "
                         "temporary prediction chunks to bound full-history memory; "
-                        "0 keeps the single-panel walk")
+                        "0 opts into the legacy single-panel walk")
     p.add_argument("--run-id", default=None,
                    help="canonical run namespace (plan/0113): derive --out and "
                         "--preds-out under runs/<run-id>/mu/ (mu_weekly.csv, "
