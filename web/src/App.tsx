@@ -7,6 +7,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  MapMeta,
   RankedConstraints,
   ScoreboardHeadline,
 } from "./api/types";
@@ -15,6 +16,7 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
+  fetchMapMeta,
   fetchMapConstraintsRanked,
   fetchScoreboardHeadline,
 } from "./api/client";
@@ -29,11 +31,11 @@ import {
 } from "./api/prefetch";
 import {
   computeLmpStats,
-  computeModeledCongestionStats,
+  computeCongestionStats,
   forecastErrorColor,
   forecastErrorGradientCss,
   type LmpStats,
-  type ModeledCongestionStats,
+  type CongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
@@ -84,14 +86,22 @@ export default function App() {
   const [connState, setConnState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const [hoveredSp, setHoveredSp] = useState<HoveredSp | null>(null);
-  const [pinnedSp, setPinnedSp] = useState<HoveredSp | null>(null);
+  // Each map owns its own card interaction. In dual view, touching the ERCOT
+  // pane must not replace or close the prediction pane's card (and vice versa).
+  const [hoveredSp, setHoveredSp] = useState<Record<"prediction" | "actual", HoveredSp | null>>({
+    prediction: null,
+    actual: null,
+  });
+  const [pinnedSp, setPinnedSp] = useState<Record<"prediction" | "actual", HoveredSp | null>>({
+    prediction: null,
+    actual: null,
+  });
 
   // Window-wide stats, computed once on window load and reused for every frame
   // so coloring is stable across playback. congestion → diverging palette;
   // spp → LMP palette.
   const [congestionStats, setCongestionStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   const [sppStats, setSppStats] = useState<LmpStats | null>(null);
   // Per-current-hour SP rows, merged from the congestion and SPP caches.
   const [spRows, setSpRows] = useState<SpRow[]>([]);
@@ -113,7 +123,7 @@ export default function App() {
   // the window, pane falls back to the realized rows).
   const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
   const [forecastCongestionStats, setForecastCongestionStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
   const [forecastRunId, setForecastRunId] = useState<string | null>(null);
   // Forecast-error (P50 forecast − realized congestion) window-wide stats, for the
@@ -121,11 +131,15 @@ export default function App() {
   // window load from the forecast and realized caches; the per-hour error rows are
   // derived below.
   const [errorStats, setErrorStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   // The rolling backtest scorecard for the side panel. Fetched once (the board
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
+  // The diagnostics for the active SF refit window. These qualify the entire
+  // map/constraint view, so they belong beside the scorecard rather than inside
+  // a selected node or constraint card.
+  const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
   // The per-day ranked constraint list for the side panel's `Constraints` tab
   // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
   // keyed to the cursor's CT delivery day so the realized toggle can reach a past
@@ -255,6 +269,12 @@ export default function App() {
       .catch(() => setOverview(null));
   }, []);
 
+  useEffect(() => {
+    fetchMapMeta()
+      .then((m) => setMapMeta(m))
+      .catch(() => setMapMeta(null));
+  }, []);
+
   // Scorecard headline — once; the backtest board is static and independent of
   // the forecast/playback window. Soft-fails to null (scorecard hidden) on 503.
   useEffect(() => {
@@ -363,6 +383,7 @@ export default function App() {
   const networkStats = useMemo<NetworkStats>(() => {
     const cur = timestamps[currentIndex] ?? null;
     const fc = cur ? getForecastCached(cur) : null;
+    const spp = cur ? getErcotSppCached(cur) : null;
     let absTotal: number | null = null;
     let ercot = 0;
     for (const r of spRows) {
@@ -376,6 +397,7 @@ export default function App() {
     return {
       forecastRunId,
       systemLambda: fc?.system_lambda ?? null,
+      totalLoadMw: spp?.total_load_mw ?? null,
       congestionAbsTotal: absTotal,
       modelNodes: model,
       ercotNodes: ercot,
@@ -430,17 +452,17 @@ export default function App() {
             }
           }
           setCongestionStats(
-            allCong.length ? computeModeledCongestionStats(allCong) : null
+            allCong.length ? computeCongestionStats(allCong) : null
           );
           setSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
           setForecastCongestionStats(
-            allFcCong.length ? computeModeledCongestionStats(allFcCong) : null
+            allFcCong.length ? computeCongestionStats(allFcCong) : null
           );
           setForecastLmpStats(
             allFcLmp.length ? computeLmpStats(allFcLmp) : null
           );
           setErrorStats(
-            allError.length ? computeModeledCongestionStats(allError) : null
+            allError.length ? computeCongestionStats(allError) : null
           );
           setForecastRunId(getForecastRunId());
 
@@ -546,11 +568,10 @@ export default function App() {
       spId: string | null,
       props: Record<string, unknown> | null
     ) => {
-      if (!spId || !props) {
-        setHoveredSp(null);
-        return;
-      }
-      setHoveredSp({ spId, props, side, spState: spDecomp(spId) });
+      setHoveredSp((current) => ({
+        ...current,
+        [side]: spId && props ? { spId, props, side, spState: spDecomp(spId) } : null,
+      }));
     },
     [spDecomp]
   );
@@ -584,12 +605,10 @@ export default function App() {
       previewReachRef.current = false;
       setLockedConstraintId(null);
       setHoveredConstraintId(null);
-      setPinnedSp({
-        spId,
-        props,
-        side: "prediction",
-        spState: spDecomp(spId),
-      });
+      setPinnedSp((current) => ({
+        ...current,
+        prediction: { spId, props, side: "prediction", spState: spDecomp(spId) },
+      }));
       const token = ++exposureReqRef.current;
       setExposures(null);
       setExposuresLoading(true);
@@ -611,23 +630,17 @@ export default function App() {
   // drivers (those belong to the prediction pane), so drop any in-flight fetch.
   const handleSpClickActual = useCallback(
     (spId: string, props: Record<string, unknown>) => {
-      setReach(null);
-      reachReqRef.current++;
-      setExposures(null);
-      setExposuresLoading(false);
-      exposureReqRef.current++;
-      setPinnedSp({
-        spId,
-        props,
-        side: "actual",
-        spState: spDecomp(spId),
-      });
+      setPinnedSp((current) => ({
+        ...current,
+        actual: { spId, props, side: "actual", spState: spDecomp(spId) },
+      }));
     },
     [spDecomp]
   );
 
-  const handleClearPinnedSp = useCallback(() => {
-    setPinnedSp(null);
+  const handleClearPinnedSp = useCallback((side: "prediction" | "actual") => {
+    setPinnedSp((current) => ({ ...current, [side]: null }));
+    if (side !== "prediction") return;
     setExposures(null);
     setExposuresLoading(false);
     exposureReqRef.current++;
@@ -636,7 +649,7 @@ export default function App() {
   // Constraint click (map marker or a driver row) → trace its reach; leaves the
   // node-explorer view. handleCloseReach / a background click return to normal.
   const handleConstraintClick = useCallback((constraintKey: string) => {
-    setPinnedSp(null);
+    setPinnedSp((current) => ({ ...current, prediction: null }));
     setExposures(null);
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
@@ -663,6 +676,10 @@ export default function App() {
   useEffect(() => {
     const id = effectiveConstraintId;
     if (!id) {
+      // Invalidate any just-started hover request before restoring the normal
+      // node view. Without this increment, a late response can reapply its old
+      // constraint focus after the pointer has already left the row.
+      focusReqRef.current++;
       setFocusReach(null);
       return;
     }
@@ -737,10 +754,11 @@ export default function App() {
   // layer, so its hover/click already flow through handleSpHover /
   // handleSpClickPrediction — no overview-specific node handler needed.
 
-  // Hover an overview popover row → preview that constraint's reach in the card
-  // (transient: leaving the row reverts it). `previewReachRef` distinguishes this
-  // from a clicked reach, which is locked. Cached via the same reach fetch.
+  // Hover previews may recolor/isolate the map, but never replace a clicked card.
+  // A transient reach card is allowed only while neither a node nor a constraint
+  // card is locked; click remains the only action that changes the DetailCard.
   const handleConstraintPreview = useCallback((key: string | null) => {
+    if (pinnedSp.prediction || (reach && !previewReachRef.current)) return;
     if (key == null) {
       if (previewReachRef.current) {
         previewReachRef.current = false;
@@ -749,7 +767,6 @@ export default function App() {
       }
       return;
     }
-    setPinnedSp(null);
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
     fetchMapReach(key)
@@ -759,14 +776,17 @@ export default function App() {
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, []);
+  }, [pinnedSp, reach]);
 
   // Background (empty-map) click clears whichever mode is active.
-  const handleMapBackgroundClick = useCallback(() => {
-    handleClearPinnedSp();
+  const handlePredictionMapBackgroundClick = useCallback(() => {
+    handleClearPinnedSp("prediction");
     handleCloseReach();
     clearFocus();
   }, [handleClearPinnedSp, handleCloseReach, clearFocus]);
+  const handleActualMapBackgroundClick = useCallback(() => {
+    handleClearPinnedSp("actual");
+  }, [handleClearPinnedSp]);
 
   // Switch the view axis, applying that view's SF-overlay default: on in the
   // forecast-error view (the overlay is that view's mechanism), off in dual (a
@@ -779,17 +799,22 @@ export default function App() {
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
-    if (!pinnedSp) return;
-    const fresh = spDecomp(pinnedSp.spId);
-    const cur = pinnedSp.spState;
-    if (
-      fresh.predicted !== cur?.predicted ||
-      fresh.market !== cur?.market ||
-      fresh.error !== cur?.error ||
-      fresh.marketSpp !== cur?.marketSpp
-    ) {
-      setPinnedSp({ ...pinnedSp, spState: fresh });
-    }
+    setPinnedSp((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const side of ["prediction", "actual"] as const) {
+        const card = current[side];
+        if (!card) continue;
+        const fresh = spDecomp(card.spId);
+        const cur = card.spState;
+        if (fresh.predicted !== cur?.predicted || fresh.market !== cur?.market ||
+            fresh.error !== cur?.error || fresh.marketSpp !== cur?.marketSpp) {
+          next[side] = { ...card, spState: fresh };
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
   }, [spRows, forecastRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The forecast covers this hour when its cache had a row for it. When it does,
@@ -850,8 +875,6 @@ export default function App() {
     palette,
     lmpStats: sppStats,
     mcStats: congestionStats,
-    onMapClick: handleMapBackgroundClick,
-    selectedSpId: pinnedSp?.spId ?? null,
   };
 
   // The forecast pane's label: which refit is serving + the served day (the
@@ -868,6 +891,8 @@ export default function App() {
         rows={leftRows}
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
+        onMapClick={handlePredictionMapBackgroundClick}
+        selectedSpId={pinnedSp.prediction?.spId ?? null}
         side="prediction"
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
@@ -900,12 +925,12 @@ export default function App() {
       />
       {/* Prediction card: the node's forecast readout + its SF drivers. */}
       <DetailCard
-        hoveredSp={hoveredSp?.side === "prediction" ? hoveredSp : null}
-        pinnedSp={pinnedSp?.side === "prediction" ? pinnedSp : null}
+        hoveredSp={hoveredSp.prediction}
+        pinnedSp={pinnedSp.prediction}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         reach={reach}
-        onClose={handleClearPinnedSp}
+        onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
         onHoverConstraint={handleConstraintHover}
@@ -920,6 +945,8 @@ export default function App() {
       <GridMap
         {...paneProps}
         side="actual"
+        onMapClick={handleActualMapBackgroundClick}
+        selectedSpId={pinnedSp.actual?.spId ?? null}
         onSpHover={handleSpHoverRight}
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
@@ -941,10 +968,10 @@ export default function App() {
       {/* Actual card: the node's realized readout only — no SF drivers (those
           are a prediction-side concern). */}
       <DetailCard
-        hoveredSp={hoveredSp?.side === "actual" ? hoveredSp : null}
-        pinnedSp={pinnedSp?.side === "actual" ? pinnedSp : null}
+        hoveredSp={hoveredSp.actual}
+        pinnedSp={pinnedSp.actual}
         showDrivers={false}
-        onClose={handleClearPinnedSp}
+        onClose={() => handleClearPinnedSp("actual")}
       />
     </>
   );
@@ -967,8 +994,8 @@ export default function App() {
         palette="congestion"
         lmpStats={null}
         mcStats={errorStats}
-        onMapClick={handleMapBackgroundClick}
-        selectedSpId={pinnedSp?.spId ?? null}
+        onMapClick={handlePredictionMapBackgroundClick}
+        selectedSpId={pinnedSp.prediction?.spId ?? null}
         side="prediction"
         onSpHover={handleSpHoverMain}
         onSpClick={handleSpClickPrediction}
@@ -1005,12 +1032,12 @@ export default function App() {
       />
       {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
       <DetailCard
-        hoveredSp={hoveredSp?.side === "prediction" ? hoveredSp : null}
-        pinnedSp={pinnedSp?.side === "prediction" ? pinnedSp : null}
+        hoveredSp={hoveredSp.prediction}
+        pinnedSp={pinnedSp.prediction}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         reach={reach}
-        onClose={handleClearPinnedSp}
+        onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
         onHoverConstraint={handleConstraintHover}
@@ -1099,9 +1126,10 @@ export default function App() {
             per-day ranked list) in one tabbed region. Row click traces the
             constraint on the map via /map/reach (same as a marker click); the
             synced hover is wired in the next group. */}
-        <SidePanel
-          network={networkStats}
-          headline={headline}
+          <SidePanel
+            network={networkStats}
+            headline={headline}
+            fitMeta={mapMeta}
           ranked={ranked}
           rankedLoading={rankedLoading}
           constraintBasis={constraintBasis}

@@ -1,5 +1,9 @@
 import { useState, Fragment } from "react";
-import type { ScoreboardHeadline, RankedConstraints } from "../../api/types";
+import type {
+  ScoreboardHeadline,
+  RankedConstraints,
+  MapMeta,
+} from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
 
@@ -14,6 +18,7 @@ import Tooltip from "../ui/Tooltip";
 export interface NetworkStats {
   forecastRunId: string | null;
   systemLambda: number | null; // DAM system-λ at the cursor hour ($/MWh)
+  totalLoadMw: number | null; // ERCOT actual system load at the cursor hour (MW)
   congestionAbsTotal: number | null; // Σ|congestion| at the cursor hour ($)
   modelNodes: number; // SPs the forecast values this hour
   ercotNodes: number; // SPs ERCOT realized values this hour
@@ -24,6 +29,9 @@ interface Props {
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
   headline: ScoreboardHeadline | null;
+  // Diagnostics for the active SF refit window, distinct from the rolling
+  // backtest scorecard but shown alongside it as model-level context.
+  fitMeta: MapMeta | null;
   // ── Constraints tab (plan/0103) ──────────────────────────────────────────
   ranked: RankedConstraints | null;
   rankedLoading: boolean;
@@ -53,9 +61,9 @@ const fmtScore = (v: number | null): string => (v == null ? "—" : v.toFixed(2)
 
 // The three headline currencies (screening leads; §6) with per-row hover copy.
 const CURRENCY_ORDER = [
-  "topdecile_hit",
   "rank_spearman",
   "sign_agree",
+  "topdecile_hit",
 ] as const;
 const CURRENCY_META: Record<string, { label: string; hint: string }> = {
   topdecile_hit: {
@@ -67,7 +75,7 @@ const CURRENCY_META: Record<string, { label: string; hint: string }> = {
     hint: "Spatial Spearman rank correlation of the forecast to realized congestion across nodes.",
   },
   sign_agree: {
-    label: "Sign",
+    label: "Sign Agreement",
     hint: "Sign agreement: fraction of nodes whose congestion sign (import vs export) the forecast gets right.",
   },
 };
@@ -106,6 +114,7 @@ function Stat({
 export default function SidePanel({
   network,
   headline,
+  fitMeta,
   ranked,
   rankedLoading,
   constraintBasis,
@@ -156,7 +165,14 @@ export default function SidePanel({
           {/* ── Network readout ───────────────────────────────────────────── */}
           <section className="np-section">
             <div className="np-section__header label">Network</div>
-            <Stat label="Forecast Run" value={network.forecastRunId} />
+            <Stat
+              label="Total Load"
+              value={
+                network.totalLoadMw != null
+                  ? `${fmtNum(network.totalLoadMw, 0)} MW`
+                  : null
+              }
+            />
             <Stat
               label="DAM System λ"
               value={
@@ -202,8 +218,9 @@ export default function SidePanel({
                 </div>
               </div>
 
+              <Stat label="Forecast Run" value={network.forecastRunId} />
               <div className="sc-meta label">
-                {win.weeks} wk · as of {headline.as_of_week} · {headline.regime}
+                30-day rolling aggregation score based on weekly backtests
               </div>
 
               <div className="sc-table">
@@ -245,6 +262,22 @@ export default function SidePanel({
                   );
                 })}
               </div>
+
+              {fitMeta && (
+                <div className="sc-fit">
+                  <div className="sc-fit__header label">Current fit</div>
+                  <Stat
+                    label="Out-of-sample R²"
+                    hint="How well the active fit explains congestion it did not train on. Higher is better."
+                    value={fmtScore(fitMeta.oos_r2)}
+                  />
+                  <Stat
+                    label="SF Stability"
+                    hint="How consistently the model assigns shift factors — each place's sensitivity to a constraint — from one time window to the next. Higher is more repeatable."
+                    value={fmtScore(fitMeta.sf_stability)}
+                  />
+                </div>
+              )}
 
               <a
                 className="sc-link"
@@ -326,6 +359,8 @@ export default function SidePanel({
           letter-spacing: var(--track-label);
         }
         .sc-meta { margin-bottom: 8px; color: var(--text-muted); }
+        .sc-fit { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+        .sc-fit__header { margin-bottom: 3px; color: var(--text-secondary); }
 
         .sc-table {
           display: grid;

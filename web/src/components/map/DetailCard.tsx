@@ -1,5 +1,5 @@
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
-import { modeledCongestionColor } from "../../lib/colors";
+import { congestionColor } from "../../lib/colors";
 
 interface HoveredSp {
   spId: string;
@@ -53,11 +53,6 @@ function fmtSf(v: number | null): string {
   return `${sign}${Math.abs(v).toFixed(3)}`;
 }
 
-function pct2(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return v.toFixed(2);
-}
-
 // Low-confidence is a shape verdict — mirror GridMap.tsx / docs §4. The artifact
 // is the ridge clamp (>= RAIL_MULTI nodes co-equal at the ±1 cap, or a lone rail
 // with no graded body beneath it), NOT a low hour count. binding_hours is a
@@ -65,7 +60,6 @@ function pct2(v: number | null | undefined): string {
 const RAIL_MULTI = 2;
 const BODY_FLOOR = 0.1;
 const THIN_HOURS = 50;
-const CLIPPED_SF = 0.999;
 
 function Row({
   label,
@@ -108,36 +102,51 @@ function SpBody({ sp }: { sp: HoveredSp }) {
   );
 }
 
-// The window confidence that qualifies every signed SF below it (spec §6):
-// a flickering attribution should read as low-confidence, never as fact.
-function Confidence({
-  oosR2,
-  sfStability,
-}: {
-  oosR2: number | null | undefined;
-  sfStability: number | null | undefined;
-}) {
-  return (
-    <div className="dc-conf label">
-      fit R² {pct2(oosR2)} · SF stability {pct2(sfStability)}
-    </div>
-  );
-}
+// The colored block identifies the constraint's structural type. SF already has
+// an explicit signed numeric column, so encoding its sign in the block was
+// redundant and made type harder to scan.
+const TYPE_TOKENS: Record<string, string> = {
+  gtc: "--sf-gtc",
+  transmission: "--sf-transmission",
+  radial: "--sf-radial",
+};
 
-// A signed-SF sign chip (red import end SF<0 ↔ blue export end SF>0; docs/SF.md) —
-// colored by congestion sign (−SF), so it matches the map's diverging reach glow
-// and congestion fill: import is red, export is blue.
-function SignChip({ sf }: { sf: number }) {
+function TypeChip({ ctype }: { ctype?: string | null }) {
   return (
     <span
       className="dc-chip"
-      style={{ background: modeledCongestionColor(sf < 0 ? 1 : -1) }}
+      style={{ background: `var(${TYPE_TOKENS[ctype ?? ""] ?? "--sf-untyped"})` }}
+      aria-hidden="true"
     />
   );
 }
 
-// Node-explorer body: the stable unsigned magnitude leads; the signed
-// per-constraint drivers follow as caveated detail (spec §6).
+// Settlement points use their own nodal identifier, regardless of which
+// constraint is currently being explored.
+function NodeChip() {
+  return (
+    <span
+      className="dc-chip"
+      style={{ background: "var(--violet)" }}
+      aria-hidden="true"
+    />
+  );
+}
+
+// The SF's sign deserves its own fast visual cue. This sits beside the numeric
+// value, leaving the square marker free to identify the constraint or node.
+function SfSign({ sf }: { sf: number }) {
+  const color = congestionColor(sf < 0 ? 1 : -1);
+  return (
+    <>
+      <span className="dc-sf-dot" style={{ background: color }} aria-hidden="true" />
+      <span className="dc-driver-sf mono" style={{ color }}>{fmtSf(sf)}</span>
+    </>
+  );
+}
+
+// Node-explorer body: drivers are ordered by |SF|, so the first row already
+// communicates the largest influence without a redundant headline statistic.
 function ExposuresBody({
   exposures,
   loading,
@@ -158,21 +167,6 @@ function ExposuresBody({
   }
   return (
     <>
-      <Confidence
-        oosR2={exposures.oos_r2}
-        sfStability={exposures.sf_stability}
-      />
-      <div className="dc-headline">
-        <span className="label">Max exposure |SF|</span>
-        <span className="dc-headline-val mono">
-          {exposures.node_max_abs_sf != null
-            ? exposures.node_max_abs_sf.toFixed(3)
-            : "—"}
-        </span>
-      </div>
-      <div className="dc-drivers-title label">
-        top drivers · signed (read vs confidence)
-      </div>
       {exposures.exposures.length === 0 && (
         <div className="dc-drivers-empty label">No binding constraints</div>
       )}
@@ -187,9 +181,9 @@ function ExposuresBody({
             onClick={() => onSelectConstraint?.(e.constraint_key)}
             onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
           >
-            <SignChip sf={e.sf} />
+            <TypeChip ctype={e.ctype} />
             <span className="dc-driver-key mono">{e.constraint_key}</span>
-            <span className="dc-driver-sf mono">{fmtSf(e.sf)}</span>
+            <SfSign sf={e.sf} />
             <span className="dc-driver-sup label">
               {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
             </span>
@@ -214,8 +208,6 @@ function ReachBody({
   const importEnd = reach.sps.filter((s) => s.sf < 0).length;
   const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
   const nRail = reach.n_rail ?? 0;
-  const clipped =
-    nRail >= 1 || (reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF);
   // Ridge-clamp artifact: several nodes at the cap, or a lone rail with no body.
   const railArtifact =
     nRail >= RAIL_MULTI ||
@@ -226,29 +218,19 @@ function ReachBody({
   const lowConf = railArtifact;
   return (
     <>
-      <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
-      <div className="dc-headline">
-        <span className="label">Constraint |SF| max</span>
-        <span className="dc-headline-val mono">
-          {reach.max_abs_sf != null ? reach.max_abs_sf.toFixed(3) : "—"}
-          {clipped && <span className="dc-clip"> clipped ±1</span>}
-        </span>
-      </div>
-      <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
-        {reach.binding_hours != null
-          ? `${reach.binding_hours} binding h`
-          : "— binding h"}
-        {lowConf
-          ? " · ⚠ low confidence — ridge clamp"
-          : thin
-          ? " · thin support"
-          : ""}
-      </div>
-      <div className="dc-drivers-title label">
-        drives {reach.sps.length} nodes · {importEnd} import / {exportEnd} export
-      </div>
+      <Row
+        label="Binding hours"
+        value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
+      />
+      <Row label="Import nodes" value={importEnd} />
+      <Row label="Export nodes" value={exportEnd} />
+      {(lowConf || thin) && (
+        <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
+          {lowConf ? "⚠ low confidence — ridge clamp" : "thin support"}
+        </div>
+      )}
       <div
-        className="dc-drivers"
+        className="dc-drivers dc-drivers--reach"
         onMouseLeave={() => onHoverMember?.(null)}
       >
         {reach.sps.map((s) => (
@@ -258,9 +240,9 @@ function ReachBody({
             onClick={() => onSelectMember?.(s.settlement_point)}
             onMouseEnter={() => onHoverMember?.(s.settlement_point)}
           >
-            <SignChip sf={s.sf} />
+            <NodeChip />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
-            <span className="dc-driver-sf mono">{fmtSf(s.sf)}</span>
+            <SfSign sf={s.sf} />
           </button>
         ))}
       </div>
@@ -295,19 +277,12 @@ export default function DetailCard({
         <div className="detail-card__title">
           {inReach ? (
             <>
-              <span className="detail-card__kind detail-card__kind--constraint label">
-                📌 CONSTRAINT
-              </span>
-              <span className="detail-card__id mono">
-                {reach!.constraint_key}
-              </span>
+              <TypeChip ctype={reach!.ctype} />
+              <span className="detail-card__id mono">{reach!.constraint_key}</span>
             </>
           ) : (
             <>
-              <span className="detail-card__kind label">
-                {isPinned ? "📌 " : ""}
-                SP
-              </span>
+              <NodeChip />
               <span className="detail-card__id mono">{sp!.spId}</span>
             </>
           )}
@@ -363,7 +338,7 @@ export default function DetailCard({
           position: absolute;
           top: 12px;
           left: 12px;
-          width: 250px;
+          width: 270px;
           background: var(--bg-glass);
           border: 1px solid var(--border-bright);
           border-radius: 4px;
@@ -439,41 +414,12 @@ export default function DetailCard({
           font-size: 12px;
           color: var(--text-primary);
         }
-        .dc-conf {
-          font-size: 10px;
-          color: var(--text-secondary);
-          opacity: 0.85;
-          margin-bottom: 4px;
-        }
-        .dc-headline {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          padding: 2px 0 4px;
-        }
-        .dc-headline-val {
-          font-size: 16px;
-          color: var(--text-primary);
-          font-weight: 600;
-        }
-        .dc-clip {
-          font-size: 10px;
-          color: var(--text-dim);
-          font-weight: 400;
-          letter-spacing: 0.03em;
-        }
         .dc-support {
           font-size: 10px;
           color: var(--text-secondary);
           margin: -2px 0 4px;
         }
         .dc-support--low { color: var(--text-dim); }
-        .dc-drivers-title {
-          font-size: 10px;
-          color: var(--text-secondary);
-          opacity: 0.7;
-          margin-bottom: 3px;
-        }
         .dc-drivers-empty {
           font-size: 11px;
           color: var(--text-muted);
@@ -485,12 +431,17 @@ export default function DetailCard({
           max-height: 220px;
           overflow-y: auto;
         }
+        .dc-drivers--reach {
+          margin-top: 6px;
+          padding-top: 6px;
+          border-top: 1px solid var(--border);
+        }
         .dc-driver {
           display: grid;
-          grid-template-columns: 10px 1fr auto auto;
+          grid-template-columns: 10px 1fr 7px auto auto;
           align-items: center;
           gap: 6px;
-          padding: 3px 4px;
+          padding: 3px 0;
           background: transparent;
           border: none;
           border-radius: 3px;
@@ -506,18 +457,18 @@ export default function DetailCard({
           flex-shrink: 0;
         }
         .dc-driver-key {
-          font-size: 11px;
+          font-size: 12px;
           color: var(--text-primary);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .dc-driver-sf {
-          font-size: 11px;
-          color: var(--text-secondary);
+          font-size: 12px;
         }
+        .dc-sf-dot { width: 7px; height: 7px; border-radius: 50%; }
         .dc-driver-sup {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-muted);
           min-width: 30px;
           text-align: right;

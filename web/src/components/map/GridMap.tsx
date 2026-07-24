@@ -16,10 +16,10 @@ import {
 import {
   lmpColor,
   normalizeLmpFromStats,
-  modeledCongestionColor,
-  normalizeModeledCongestion,
+  congestionColor as congestionRampColor,
+  normalizeCongestion,
   type LmpStats,
-  type ModeledCongestionStats,
+  type CongestionStats,
 } from "../../lib/colors";
 import { cssVar, onThemeChange, useTheme, type Theme } from "../../lib/theme";
 
@@ -35,65 +35,6 @@ function chromeColors() {
     nodeNull: cssVar("--map-node-null"),
     nodeHover: cssVar("--map-node-hover"),
     accent: cssVar("--accent"),
-    // Reach-corridor stroke for the dipole arc. The flat centroid "constraint
-    // pile" overlay was retired in favor of the native overview mark layers (MST
-    // corridors + GTC circle clouds + radial rings); this hue survives for the arc.
-    constraint: cssVar("--violet"),
-  };
-}
-
-// The reach dipole's axis: an arc between the import end (negative-SF nodes) and
-// the export end (positive-SF nodes), each end the |SF|-weighted centroid of
-// its sign (docs/SF.md). Null when the reach is one-sided (no dipole to draw).
-function buildCorridorArc(
-  reach: ConstraintReach
-): GeoJSON.Feature<GeoJSON.LineString> | null {
-  let posW = 0;
-  let posLon = 0;
-  let posLat = 0;
-  let negW = 0;
-  let negLon = 0;
-  let negLat = 0;
-  for (const s of reach.sps) {
-    if (s.lat == null || s.lon == null) continue;
-    const w = Math.abs(s.sf);
-    if (s.sf >= 0) {
-      posW += w;
-      posLon += w * s.lon;
-      posLat += w * s.lat;
-    } else {
-      negW += w;
-      negLon += w * s.lon;
-      negLat += w * s.lat;
-    }
-  }
-  if (posW <= 0 || negW <= 0) return null;
-  const a: [number, number] = [negLon / negW, negLat / negW];
-  const b: [number, number] = [posLon / posW, posLat / posW];
-
-  // Quadratic bézier with a perpendicular bulge, so the axis reads as a corridor
-  // rather than a straight chord through the marker clutter.
-  const mx = (a[0] + b[0]) / 2;
-  const my = (a[1] + b[1]) / 2;
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const bulge = 0.18;
-  const cx = mx - dy * bulge;
-  const cy = my + dx * bulge;
-  const n = 32;
-  const coords: [number, number][] = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const u = 1 - t;
-    coords.push([
-      u * u * a[0] + 2 * u * t * cx + t * t * b[0],
-      u * u * a[1] + 2 * u * t * cy + t * t * b[1],
-    ]);
-  }
-  return {
-    type: "Feature",
-    geometry: { type: "LineString", coordinates: coords },
-    properties: {},
   };
 }
 
@@ -131,7 +72,7 @@ interface Props {
   rows: SpRow[];
   palette: Palette;
   lmpStats: LmpStats | null;
-  mcStats: ModeledCongestionStats | null;
+  mcStats: CongestionStats | null;
   onSpHover: (
     spId: string | null,
     props: Record<string, unknown> | null
@@ -144,7 +85,7 @@ interface Props {
   // left/prediction map).
   showConstraints?: boolean;
   // The de-piled overview (typed marks) — the sole constraint presentation, drawn
-  // as native maplibre layers here (GTC circle clouds, MST corridor lines, radial
+  // as native maplibre layers here (GTC interface axes, MST corridor lines, radial
   // rings) beneath the `sps` layer. The old flat centroid marker pile
   // (/map/constraints) it replaced has been retired.
   overview?: MapOverview | null;
@@ -180,7 +121,7 @@ interface Props {
   // The diverging color ramp for the `congestion` palette. Defaults to the
   // blue↔red congestion ramp; the forecast-error view passes `forecastErrorColor`
   // (emerald↔magenta) so the error reads on its own hue axis. Only affects node
-  // fill — the reach/SF glow stays on modeledCongestionColor (there the sign is the
+  // fill — the reach/SF glow stays on congestionColor (there the sign is the
   // export/import dipole).
   congestionColor?: (norm: number, theme: Theme) => string;
 }
@@ -205,7 +146,7 @@ export default function GridMap({
   onConstraintPreview,
   onConstraintSelect,
   onMapReady,
-  congestionColor = modeledCongestionColor,
+  congestionColor = congestionRampColor,
 }: Props) {
   // Node fill colors flip with the theme (light gets a visible grey center — see
   // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
@@ -218,7 +159,6 @@ export default function GridMap({
   // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const tooltipRef = useRef<maplibregl.Popup | null>(null);
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
@@ -235,16 +175,17 @@ export default function GridMap({
     };
   }, [onSpHover, onSpClick, onMapClick]);
 
-  // Multi-constraint hover box (plan/0112). `spMembers` maps sp_id → the overview
-  // constraints it belongs to; the base `sps` hover opens the box for a 2+ node,
-  // anchored at the node's pixel. Kept in a ref too so the once-bound `sps`
-  // handler reads the latest map without rebinding.
+  // One React-owned map hover card. Nodes use it either as a compact header or
+  // as a full member list; GTC gates use the same compact header form.
   const [popover, setPopover] = useState<{
-    sp: string;
-    members: OvMember[];
+    name: string;
+    kind: "node" | "gtc";
+    members?: OvMember[];
+    meta?: string | null;
     x: number;
     y: number;
   } | null>(null);
+  const hoveredNodeHasMembersRef = useRef(false);
   const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);
   const spMembersRef = useRef(spMembers);
   useEffect(() => {
@@ -281,14 +222,15 @@ export default function GridMap({
 
     mapRef.current = map;
     onMapReady?.(map);
-    tooltipRef.current = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      className: "grid-tooltip",
-      offset: 8,
-    });
-
+    // MapLibre measures its container at construction time. Switching from the
+    // full-width forecast-error map to the half-width dual pane does not emit a
+    // window resize, leaving projection coordinates based on the old map width.
+    // Observe the actual pane instead so both map geometry and the React hover
+    // popover (which uses projected pixels) stay in the same coordinate space.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
       setSourcesReady(false);
@@ -315,7 +257,6 @@ export default function GridMap({
       set("texas-line", "line-color", c.outline);
       set("city-labels", "text-color", c.label);
       set("city-labels", "text-halo-color", c.halo);
-      set("reach-corridor", "line-color", c.constraint);
       set("sps", "circle-stroke-color", [
         "case",
         ["boolean", ["feature-state", "selected"], false],
@@ -484,30 +425,26 @@ export default function GridMap({
         const props = e.features[0].properties as Record<string, unknown>;
         const sp = props.sp_id as string;
         callbacksRef.current.onSpHover(sp, props);
-        tooltipRef.current
-          ?.setLngLat(e.lngLat)
-          .setHTML(
-            `<div class="tip-id">${props.sp_id}</div>
-             <div class="tip-zone">${props.load_zone ?? "—"}</div>`
-          )
-          .addTo(map);
-
-        // Multi-constraint node → open the constraint box, anchored at the node's
-        // pixel (not the cursor, so it stays put). A 0-1 node closes any open box.
         const mem = spMembersRef.current.get(sp);
-        if (mem && mem.length >= 2) {
-          const geom = e.features[0].geometry as GeoJSON.Point;
-          const pt = map.project(geom.coordinates as [number, number]);
-          setPopover({ sp, members: mem, x: pt.x, y: pt.y });
-        } else {
-          setPopover(null);
-        }
+        const hasMembers = !!mem && mem.length >= 2;
+        hoveredNodeHasMembersRef.current = hasMembers;
+        setPopover({
+          name: sp,
+          kind: "node",
+          members: hasMembers ? mem : undefined,
+          meta: typeof props.load_zone === "string" ? props.load_zone : null,
+          // Event pixels are already relative to this map's own canvas. Using
+          // them avoids re-projecting against a stale full-width transform while
+          // the dual pane is being laid out.
+          x: e.point.x,
+          y: e.point.y,
+        });
       });
 
       map.on("mouseleave", "sps", () => {
         map.getCanvas().style.cursor = "";
         callbacksRef.current.onSpHover(null, null);
-        tooltipRef.current?.remove();
+        if (!hoveredNodeHasMembersRef.current) setPopover(null);
       });
 
       map.on("click", "sps", (e) => {
@@ -588,7 +525,7 @@ export default function GridMap({
           const norm = Math.max(-1, Math.min(1, -sf / maxAbs));
           map.setFeatureState(
             { source: "sps", id },
-            { color: modeledCongestionColor(norm, theme), faded: false }
+            { color: congestionRampColor(norm, theme), faded: false }
           );
         }
         touched.add(id);
@@ -632,7 +569,7 @@ export default function GridMap({
       if (palette === "congestion") {
         color = mcStats
           ? congestionColor(
-              normalizeModeledCongestion(row.congestion, mcStats),
+              normalizeCongestion(row.congestion, mcStats),
               theme
             )
           : congestionColor(0, theme);
@@ -693,61 +630,19 @@ export default function GridMap({
     prevRingedRef.current = ringedSpId ?? null;
   }, [ringedSpId, sourcesReady]);
 
-  // Reach corridor arc: the dipole axis between the constraint's export- and
-  // import-end centroids. Drawn beneath the SP circles so it reads as ground,
-  // not a marker. Absent reach (or a one-sided reach) tears the arc down.
+  // Retire the former purple reach-corridor arc, including after hot reloads
+  // where the old maplibre layer can otherwise survive the code change.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady) return;
+    if (map.getLayer("reach-corridor")) map.removeLayer("reach-corridor");
+    if (map.getSource("reach-corridor")) map.removeSource("reach-corridor");
+  }, [sourcesReady]);
 
-    const apply = () => {
-      const arc = reach ? buildCorridorArc(reach) : null;
-
-      if (!arc) {
-        if (map.getLayer("reach-corridor")) map.removeLayer("reach-corridor");
-        if (map.getSource("reach-corridor")) map.removeSource("reach-corridor");
-        return;
-      }
-
-      const src = map.getSource("reach-corridor") as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      if (src) {
-        src.setData(arc);
-      } else {
-        map.addSource("reach-corridor", { type: "geojson", data: arc });
-      }
-
-      if (!map.getLayer("reach-corridor")) {
-        // Beneath the SP circles (insert before "sps") so nodes stay on top.
-        map.addLayer(
-          {
-            id: "reach-corridor",
-            type: "line",
-            source: "reach-corridor",
-            layout: { "line-cap": "round" },
-            paint: {
-              "line-color": chromeColors().constraint,
-              "line-width": 1.6,
-              "line-opacity": 0.5,
-              "line-dasharray": [2, 2],
-            },
-          },
-          map.getLayer("sps") ? "sps" : undefined
-        );
-      }
-    };
-
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
-  }, [reach, sourcesReady]);
-
-  // Overview mark layers (plan/0112): the de-piled constraint overview, NATIVE.
-  // GTC regions are a soft blended circle cloud (translucent + blurred, so
-  // overlaps merge into a region — no goo filter, no shape math), transmission is
-  // MST corridor lines, radials are rings. All drawn beneath `sps` so node clicks
-  // stay on the base layer. Empty sources when the layer is off; `isolatedConstraint`
-  // filters every mark to a single constraint (the panel/popover focus).
+  // Overview mark layers: GTCs are signed-axis gate glyphs, transmission is
+  // MST corridors, and radials are rings. All draw beneath `sps` so node clicks
+  // stay on the base layer. Empty sources when off; `isolatedConstraint` filters
+  // every mark to a single constraint.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady) return;
@@ -760,77 +655,66 @@ export default function GridMap({
         gtc: cssVar("--sf-gtc"),
         transmission: cssVar("--sf-transmission"),
         radial: cssVar("--sf-radial"),
+        lineOpacity: Number(cssVar("--sf-line-opacity")),
       };
       const setData = (id: string, data: GeoJSON.FeatureCollection) => {
         const s = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
         if (s) s.setData(data);
         else map.addSource(id, { type: "geojson", data });
       };
-      setData("ov-gtc", src.gtc);
+      setData("ov-gtc-axis", src.gtcAxis);
+      setData("ov-gtc-gate", src.gtcGate);
+      setData("ov-gtc-hit", src.gtcHit);
       setData("ov-corridor", src.corridor);
       setData("ov-radial", src.radial);
 
-      // GTC/transmission line color keyed off the feature's ctype.
-      const lineColor = [
-        "match",
-        ["get", "ctype"],
-        "gtc",
-        sf.gtc,
-        sf.transmission,
-      ] as maplibregl.ExpressionSpecification;
-
       const before = map.getLayer("sps") ? "sps" : undefined;
-      // Glow halo: a larger, heavily-blurred, translucent pass UNDER the region
-      // core so GTCs read as a soft light bloom, not a flat fill. Same source.
-      if (!map.getLayer("ov-gtc-glow")) {
+      if (!map.getLayer("ov-gtc-axis")) {
         map.addLayer(
           {
-            id: "ov-gtc-glow",
-            type: "circle",
-            source: "ov-gtc",
+            id: "ov-gtc-axis",
+            type: "line",
+            source: "ov-gtc-axis",
+            layout: { "line-cap": "round" },
             paint: {
-              "circle-color": sf.gtc,
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                4,
-                14,
-                8,
-                30,
-                12,
-                50,
-              ],
-              "circle-blur": 1,
-              "circle-opacity": 0.22,
+              "line-color": sf.gtc,
+              "line-width": 1.2,
+              "line-opacity": 0.7,
+              "line-dasharray": [2, 2],
             },
           },
           before
         );
       }
-      if (!map.getLayer("ov-gtc")) {
+      if (!map.getLayer("ov-gtc-gate")) {
         map.addLayer(
           {
-            id: "ov-gtc",
+            id: "ov-gtc-gate",
+            type: "line",
+            source: "ov-gtc-gate",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": sf.gtc,
+              "line-width": 2.2,
+              "line-opacity": 0.9,
+            },
+          },
+          before
+        );
+      }
+      // Small, effectively invisible interaction target for a gate's thin bars.
+      // It is intentionally below `sps`, and the event handlers below yield to a
+      // rendered settlement-point feature before responding.
+      if (!map.getLayer("ov-gtc-hit")) {
+        map.addLayer(
+          {
+            id: "ov-gtc-hit",
             type: "circle",
-            source: "ov-gtc",
+            source: "ov-gtc-hit",
             paint: {
               "circle-color": sf.gtc,
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                4,
-                9,
-                8,
-                20,
-                12,
-                34,
-              ],
-              // Sharper, brighter core over the glow so the region has a solid
-              // heart (closer to the old metaball) with a luminous edge.
-              "circle-blur": 0.35,
-              "circle-opacity": 0.5,
+              "circle-radius": 8,
+              "circle-opacity": 0.01,
             },
           },
           before
@@ -844,9 +728,9 @@ export default function GridMap({
             source: "ov-corridor",
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": lineColor,
-              "line-width": 1.8,
-              "line-opacity": 0.75,
+              "line-color": sf.transmission,
+              "line-width": 1.35,
+              "line-opacity": sf.lineOpacity,
             },
           },
           before
@@ -882,17 +766,20 @@ export default function GridMap({
       // Theme refresh + isolation filter, applied every pass. Use an explicit
       // all-pass filter (`["all"]`) rather than clearing with null — clearing to
       // null was intermittently leaving every mark hidden when un-isolating.
-      map.setPaintProperty("ov-gtc-glow", "circle-color", sf.gtc);
-      map.setPaintProperty("ov-gtc", "circle-color", sf.gtc);
-      map.setPaintProperty("ov-corridor", "line-color", lineColor);
+      map.setPaintProperty("ov-gtc-axis", "line-color", sf.gtc);
+      map.setPaintProperty("ov-gtc-gate", "line-color", sf.gtc);
+      map.setPaintProperty("ov-gtc-hit", "circle-color", sf.gtc);
+      map.setPaintProperty("ov-corridor", "line-color", sf.transmission);
+      map.setPaintProperty("ov-corridor", "line-opacity", sf.lineOpacity);
       map.setPaintProperty("ov-radial", "circle-stroke-color", sf.radial);
       const filt = (
         isolatedConstraint
           ? ["==", ["get", "constraint_key"], isolatedConstraint]
           : ["all"]
       ) as maplibregl.FilterSpecification;
-      for (const id of ["ov-gtc-glow", "ov-gtc", "ov-corridor", "ov-radial"])
+      for (const id of ["ov-gtc-axis", "ov-gtc-gate", "ov-gtc-hit", "ov-radial"])
         map.setFilter(id, filt);
+      map.setFilter("ov-corridor", filt);
     };
 
     // `sourcesReady` already implies the style is loaded (it flips inside the
@@ -913,6 +800,62 @@ export default function GridMap({
     focusReach,
   ]);
 
+  // Gate interaction mirrors the constraint panel: hover previews and isolates
+  // that one constraint; click commits it to the DetailCard's constraint view.
+  // This binds after the overview-layer effect above has created the gate layer.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
+
+    const overSettlementPoint = (e: maplibregl.MapLayerMouseEvent) =>
+      map.queryRenderedFeatures(e.point, { layers: ["sps"] }).length > 0;
+    const keyAt = (e: maplibregl.MapLayerMouseEvent) =>
+      e.features?.[0]?.properties?.constraint_key as string | undefined;
+    const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
+      if (overSettlementPoint(e)) return;
+      const key = keyAt(e);
+      if (!key) return;
+      map.getCanvas().style.cursor = "pointer";
+      setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
+      onIsolateConstraint?.(key);
+      onConstraintPreview?.(key);
+    };
+    const onMove = (e: maplibregl.MapLayerMouseEvent) => {
+      if (overSettlementPoint(e)) return;
+      const key = keyAt(e);
+      if (key) setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
+    };
+    const onLeave = () => {
+      map.getCanvas().style.cursor = "";
+      setPopover(null);
+      onIsolateConstraint?.(null);
+      onConstraintPreview?.(null);
+    };
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      if (overSettlementPoint(e)) return;
+      const key = keyAt(e);
+      if (!key) return;
+      e.preventDefault();
+      onConstraintSelect?.(key);
+      setPopover(null);
+    };
+    map.on("mouseenter", "ov-gtc-hit", onEnter);
+    map.on("mousemove", "ov-gtc-hit", onMove);
+    map.on("mouseleave", "ov-gtc-hit", onLeave);
+    map.on("click", "ov-gtc-hit", onClick);
+    return () => {
+      map.off("mouseenter", "ov-gtc-hit", onEnter);
+      map.off("mousemove", "ov-gtc-hit", onMove);
+      map.off("mouseleave", "ov-gtc-hit", onLeave);
+      map.off("click", "ov-gtc-hit", onClick);
+    };
+  }, [
+    sourcesReady,
+    onIsolateConstraint,
+    onConstraintPreview,
+    onConstraintSelect,
+  ]);
+
   const containerWidth = containerRef.current?.clientWidth ?? 0;
 
   return (
@@ -923,8 +866,10 @@ export default function GridMap({
       >
         {popover && (
           <OverviewPopover
-            sp={popover.sp}
+            name={popover.name}
+            kind={popover.kind}
             members={popover.members}
+            meta={popover.meta}
             x={popover.x}
             y={popover.y}
             containerWidth={containerWidth}
@@ -967,26 +912,6 @@ export default function GridMap({
         :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: opacity(0.65);
         }
-        /* Chrome matched to the shared .tt tooltip (index.css): glass surface,
-           bright border, panel shadow — so the map's feature-hover popup reads as
-           the same tooltip system, even though maplibre owns its positioning. */
-        .grid-tooltip .maplibregl-popup-content {
-          background: var(--bg-glass);
-          border: 1px solid var(--border-bright);
-          box-shadow: var(--shadow-panel);
-          border-radius: 4px;
-          padding: 8px 10px;
-          color: var(--text-primary);
-          font-family: var(--font-mono);
-          font-size: var(--fs-body);
-          pointer-events: none;
-        }
-        .grid-tooltip .maplibregl-popup-tip { display: none; }
-        .tip-id { color: var(--accent); font-size: var(--fs-body); }
-        .tip-id--constraint { color: var(--violet); }
-        .tip-zone { color: var(--text-secondary); font-size: var(--fs-label); margin-top: 2px; }
-        .tip-lowconf { color: var(--text-dim); font-size: var(--fs-label); margin-top: 3px; }
-        .tip-thin { color: var(--text-faint); font-size: var(--fs-label); margin-top: 3px; }
       `}</style>
     </>
   );

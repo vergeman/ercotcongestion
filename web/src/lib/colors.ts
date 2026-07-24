@@ -31,7 +31,10 @@ function rgbMix(from: readonly number[], to: readonly number[], m: number): stri
   ]);
 }
 // Shared cool-grey neutral for every light-mode diverging center.
-const NEUTRAL_LIGHT = [184, 188, 196];
+// The old neutral was dark enough that the many near-zero nodes became their
+// own dense visual network on white. This quieter blue-grey preserves a visible
+// midpoint without competing with meaningful forecast-error color.
+const NEUTRAL_LIGHT = [216, 222, 230];
 
 // LMP color anchors ($/MWh) — fixed-scale fallback
 //   - negative: oversupply (rare but informative; renewables curtailment)
@@ -208,7 +211,7 @@ export function lmpColor(norm: number, theme: Theme = currentTheme()): string {
 }
 
 // =============================================================================
-// Modeled congestion (diverging): signed Σ PTDF·μ per bus
+// Congestion (diverging): signed Σ PTDF·μ per bus
 // =============================================================================
 //
 // Diverging blue↔cream↔red centered at 0.
@@ -241,25 +244,25 @@ const MC_CORE_END = 0.9;
 // still meaningful; a heavier floor would wash out the map.
 const MC_FLOOR_FRAC = 0.02;
 
-export interface ModeledCongestionStats {
+export interface CongestionStats {
   p_high: number; // percentile(|mc|, MC_PCT_HIGH); positive
   p_low: number; // −p_high (symmetric)
   max_abs: number; // observed window max |mc| — legend only
   n: number;
 }
 
-export const MODELED_CONGESTION_ANCHORS = {
+export const CONGESTION_ANCHORS = {
   pct_high: MC_PCT_HIGH,
   gamma: MC_GAMMA,
   core_end: MC_CORE_END,
   floor_frac: MC_FLOOR_FRAC,
 };
 
-// Compute window-wide modeled-congestion stats. Pass a flat array of all
-// observed modeled_congestion values across every (bus, snapshot) pair.
-export function computeModeledCongestionStats(
+// Compute window-wide congestion stats. Pass a flat array of all observed
+// congestion values across every (bus, snapshot) pair.
+export function computeCongestionStats(
   values: Array<number | null | undefined>
-): ModeledCongestionStats {
+): CongestionStats {
   const abs_xs: number[] = [];
   for (const v of values) {
     if (v == null || !isFinite(v)) continue;
@@ -278,13 +281,13 @@ export function computeModeledCongestionStats(
   };
 }
 
-// Map a signed modeled_congestion value to [-1, 1] using window stats.
+// Map a signed congestion value to [-1, 1] using window stats.
 //   |v| ≤ floor           → 0 (cream)
 //   floor < |v| ≤ p_high  → sign(v) · γ-damped(|v|) into [0, MC_CORE_END]
 //   |v| > p_high          → sign(v) · rational tail into [MC_CORE_END, 1]
-export function normalizeModeledCongestion(
+export function normalizeCongestion(
   value: number | null,
-  stats: ModeledCongestionStats
+  stats: CongestionStats
 ): number {
   if (value == null || !isFinite(value)) return 0;
   const p = stats.p_high;
@@ -313,7 +316,7 @@ const MC_RED = [239, 68, 68];
 const MC_BLUE_LIGHT = [47, 111, 214];
 const MC_RED_LIGHT = [214, 59, 59];
 
-export function modeledCongestionColor(
+export function congestionColor(
   norm: number,
   theme: Theme = currentTheme()
 ): string {
@@ -329,15 +332,15 @@ export function modeledCongestionColor(
 // Forecast error (diverging): P50 forecast − realized congestion
 // =============================================================================
 //
-// Same diverging math as modeledCongestionColor, but a DIFFERENT hue axis on
+// Same diverging math as congestionColor, but a DIFFERENT hue axis on
 // purpose. Forecast error is not a temperature or a source/sink quantity, so it
 // must not borrow the blue↔red of congestion / LMP. Emerald ↔ cream ↔ magenta
-// also sits clear of the SF-overlay layers (violet corridors, amber regions,
-// teal radials).
+// also sits clear of the quieter SF-overlay annotation family (lavender clouds,
+// violet corridors, teal radials).
 //   norm > 0 → over-forecast  (predicted > realized, magenta)
 //   norm < 0 → under-forecast (predicted < realized, emerald)
 //   norm ≈ 0 → cream (on target — shares the neutral with congestion)
-// Reach/SF glow deliberately keeps modeledCongestionColor: there the sign IS the
+// Reach/SF glow deliberately keeps congestionColor: there the sign IS the
 // export/import dipole, and blue↔red is the right reading.
 const ERROR_EMERALD = [52, 211, 153]; // under-forecast (−) — brighter emerald-400
 const ERROR_CREAM = MC_CREAM; // on target (0)
@@ -416,4 +419,3 @@ export function clusterColor(
     (idx < 0 ? 0 : idx) % CLUSTER_PALETTE.length
   ];
 }
-
