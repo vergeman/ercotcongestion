@@ -153,7 +153,7 @@ def get_map_exposures(
         node_max = cur.fetchone()["m"]
 
         cur.execute(
-            "SELECT i.constraint_key, i.sf, g.max_abs_sf, "
+            "SELECT i.constraint_key, i.sf, g.ctype, g.max_abs_sf, "
             "g.binding_hours FROM implied_shift_factors i "
             "LEFT JOIN constraint_geo g ON g.run_id = i.run_id "
             "AND g.window_start = i.window_start "
@@ -198,7 +198,7 @@ def get_map_reach(
         meta = _meta_row(cur, run_id, window_start)
 
         cur.execute(
-            "SELECT max_abs_sf, n_rail, peak_offrail, binding_hours "
+            "SELECT ctype, max_abs_sf, n_rail, peak_offrail, binding_hours "
             "FROM constraint_geo "
             "WHERE run_id = %s AND window_start = %s AND constraint_key = %s",
             (run_id, window_start, constraint),
@@ -228,6 +228,7 @@ def get_map_reach(
 
     return ConstraintReach(
         constraint_key=constraint,
+        ctype=geo.get("ctype"),
         run_id=run_id,
         window_start=meta["window_start"],
         window_end=meta["window_end"],

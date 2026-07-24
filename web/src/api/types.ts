@@ -132,6 +132,7 @@ export interface MapMeta {
 // signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
 export interface SpExposure {
   constraint_key: string;
+  ctype: string | null;
   sf: number;
   max_abs_sf: number | null;
   binding_hours: number | null;
@@ -164,6 +165,7 @@ export interface ReachSp {
 // signed reach for the dipole glow, each node placed from its own coords.
 export interface ConstraintReach {
   constraint_key: string;
+  ctype: string | null;
   run_id: string;
   window_start: string;
   window_end: string;

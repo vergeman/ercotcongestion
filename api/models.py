@@ -141,6 +141,7 @@ class SpExposure(BaseModel):
     against the response's window confidence.
     """
     constraint_key: str
+    ctype: str | None = None
     sf: float
     max_abs_sf: float | None = None
     binding_hours: int | None = None
@@ -184,6 +185,7 @@ class ConstraintReach(BaseModel):
     coords. Signed detail, caveated by ``oos_r2``/``sf_stability``.
     """
     constraint_key: str
+    ctype: str | None = None
     run_id: str
     window_start: datetime
     window_end: datetime

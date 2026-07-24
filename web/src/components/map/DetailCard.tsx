@@ -1,5 +1,4 @@
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
-import { congestionColor } from "../../lib/colors";
 
 interface HoveredSp {
   spId: string;
@@ -102,14 +101,33 @@ function SpBody({ sp }: { sp: HoveredSp }) {
   );
 }
 
-// A signed-SF sign chip (red import end SF<0 ↔ blue export end SF>0; docs/SF.md) —
-// colored by congestion sign (−SF), so it matches the map's diverging reach glow
-// and congestion fill: import is red, export is blue.
-function SignChip({ sf }: { sf: number }) {
+// The colored block identifies the constraint's structural type. SF already has
+// an explicit signed numeric column, so encoding its sign in the block was
+// redundant and made type harder to scan.
+const TYPE_TOKENS: Record<string, string> = {
+  gtc: "--sf-gtc",
+  transmission: "--sf-transmission",
+  radial: "--sf-radial",
+};
+
+function TypeChip({ ctype }: { ctype?: string | null }) {
   return (
     <span
       className="dc-chip"
-      style={{ background: congestionColor(sf < 0 ? 1 : -1) }}
+      style={{ background: `var(${TYPE_TOKENS[ctype ?? ""] ?? "--sf-untyped"})` }}
+      aria-hidden="true"
+    />
+  );
+}
+
+// Settlement points use their own nodal identifier, regardless of which
+// constraint is currently being explored.
+function NodeChip() {
+  return (
+    <span
+      className="dc-chip"
+      style={{ background: "var(--violet)" }}
+      aria-hidden="true"
     />
   );
 }
@@ -150,7 +168,7 @@ function ExposuresBody({
             onClick={() => onSelectConstraint?.(e.constraint_key)}
             onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
           >
-            <SignChip sf={e.sf} />
+            <TypeChip ctype={e.ctype} />
             <span className="dc-driver-key mono">{e.constraint_key}</span>
             <span className="dc-driver-sf mono">{fmtSf(e.sf)}</span>
             <span className="dc-driver-sup label">
@@ -209,7 +227,7 @@ function ReachBody({
             onClick={() => onSelectMember?.(s.settlement_point)}
             onMouseEnter={() => onHoverMember?.(s.settlement_point)}
           >
-            <SignChip sf={s.sf} />
+            <NodeChip />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
             <span className="dc-driver-sf mono">{fmtSf(s.sf)}</span>
           </button>
@@ -245,9 +263,15 @@ export default function DetailCard({
       <div className="detail-card__header">
         <div className="detail-card__title">
           {inReach ? (
-            <span className="detail-card__id mono">{reach!.constraint_key}</span>
+            <>
+              <TypeChip ctype={reach!.ctype} />
+              <span className="detail-card__id mono">{reach!.constraint_key}</span>
+            </>
           ) : (
-            <span className="detail-card__id mono">{sp!.spId}</span>
+            <>
+              <NodeChip />
+              <span className="detail-card__id mono">{sp!.spId}</span>
+            </>
           )}
         </div>
         {inReach && onCloseReach ? (
