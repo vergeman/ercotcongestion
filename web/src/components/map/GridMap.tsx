@@ -192,10 +192,7 @@ export default function GridMap({
   } | null>(null);
   useEffect(() => {
     tapOnlyRef.current = tapOnly;
-    if (tapOnly) {
-      setPopover(null);
-      mapRef.current?.getCanvas().style.setProperty("cursor", "");
-    }
+    if (tapOnly) mapRef.current?.getCanvas().style.setProperty("cursor", "");
   }, [tapOnly]);
   const hoveredNodeHasMembersRef = useRef(false);
   const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);

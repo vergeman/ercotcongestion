@@ -111,12 +111,6 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // A drawer cannot remain relevant after returning to desktop, where the
-  // information lives in the persistent sidebar again.
-  useEffect(() => {
-    if (!isMobile) setMobileDrawerOpen(false);
-  }, [isMobile]);
-
   // Each map owns its own card interaction. In dual view, touching the ERCOT
   // pane must not replace or close the prediction pane's card (and vice versa).
   const [hoveredSp, setHoveredSp] = useState<Record<"prediction" | "actual", HoveredSp | null>>({
@@ -206,9 +200,6 @@ export default function App() {
   // The SP a constituent row in the panel's expanded list is hovering — rings that
   // node white on the map so the row and the node point at each other.
   const [hoveredMemberSp, setHoveredMemberSp] = useState<string | null>(null);
-  useEffect(() => {
-    if (isMobile) setHoveredMemberSp(null);
-  }, [isMobile]);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);

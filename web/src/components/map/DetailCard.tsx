@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { congestionColor } from "../../lib/colors";
 
@@ -272,12 +272,6 @@ export default function DetailCard({
   const sp = mobile ? pinnedSp : pinnedSp ?? hoveredSp;
   const isPinned = !!pinnedSp;
   const [expanded, setExpanded] = useState(false);
-
-  // A newly selected item should always begin as the compact sheet, rather than
-  // inheriting the previous node or constraint's expanded state.
-  useEffect(() => {
-    setExpanded(false);
-  }, [pinnedSp?.spId, reach?.constraint_key]);
 
   if (!inReach && !sp) return null;
 

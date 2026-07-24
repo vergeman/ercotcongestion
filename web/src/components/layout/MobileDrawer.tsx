@@ -10,7 +10,7 @@ interface Props {
 // mounted only while open: this keeps its focus boundary small and prevents the
 // desktop-only sidebar from being announced twice by screen readers.
 export default function MobileDrawer({ open, onClose, children }: Props) {
-  const panelRef = useRef<HTMLAsideElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) return;
