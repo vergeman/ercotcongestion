@@ -675,6 +675,10 @@ export default function App() {
   useEffect(() => {
     const id = effectiveConstraintId;
     if (!id) {
+      // Invalidate any just-started hover request before restoring the normal
+      // node view. Without this increment, a late response can reapply its old
+      // constraint focus after the pointer has already left the row.
+      focusReqRef.current++;
       setFocusReach(null);
       return;
     }
