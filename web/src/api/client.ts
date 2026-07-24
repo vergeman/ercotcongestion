@@ -10,6 +10,7 @@ import type {
   ScoreboardHeadline,
   ScoreboardWeekly,
   ScoreboardDaily,
+  MatrixFrame,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -17,6 +18,37 @@ const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 export async function fetchTopology(): Promise<unknown> {
   const r = await fetch(`${BASE}/topology`);
   if (!r.ok) throw new Error(`topology ${r.status}`);
+  return r.json();
+}
+
+export interface MatrixFrameRequest {
+  rowLimit?: number;
+  columnLimit?: number;
+  columnSet?: "core";
+  signal?: AbortSignal;
+}
+
+// A Matrix frame is a causal, immutable-artifact-backed rectangle.  Unlike the
+// playback range APIs, an unavailable historical artifact is a successful
+// response with `available: false`; callers can present that distinction
+// directly instead of treating it as a network failure.
+export async function fetchMatrixFrame(
+  intervalTs: Date,
+  {
+    rowLimit = 30,
+    columnLimit = 40,
+    columnSet = "core",
+    signal,
+  }: MatrixFrameRequest = {}
+): Promise<MatrixFrame> {
+  const qs = new URLSearchParams({
+    interval_ts: intervalTs.toISOString(),
+    row_limit: String(rowLimit),
+    column_limit: String(columnLimit),
+    column_set: columnSet,
+  });
+  const r = await fetch(`${BASE}/matrix/frame?${qs.toString()}`, { signal });
+  if (!r.ok) throw new Error(`matrix/frame ${r.status}`);
   return r.json();
 }
 
