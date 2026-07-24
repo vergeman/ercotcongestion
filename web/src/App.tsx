@@ -52,6 +52,8 @@ import SidePanel, {
 } from "./components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 import { useTheme } from "./lib/theme";
+import { useExplorerRoute } from "./lib/explorerRoute";
+import MatrixWorkspace from "./workspaces/MatrixWorkspace";
 
 type ConnectionState = "ok" | "error" | "loading";
 
@@ -89,6 +91,9 @@ interface HoveredSp {
 }
 
 export default function App() {
+  // The shell stays mounted while its workspace changes. Keeping this state here
+  // is what lets Map → Matrix → Map retain the prefetched window and cursor.
+  const { workspace, navigate } = useExplorerRoute();
   // Mobile is intentionally a map-first experience. Keep the user's desktop
   // view choice in state, but never mount the second synchronized map below the
   // breakpoint; returning to desktop restores their chosen view.
@@ -1105,6 +1110,8 @@ export default function App() {
   return (
     <div className="app-shell">
       <Header
+        activeWorkspace={workspace}
+        onNavigate={navigate}
         viewMode={viewMode}
         onViewMode={handleViewMode}
         palette={palette}
@@ -1119,7 +1126,7 @@ export default function App() {
         onToggleMobileDrawer={() => setMobileDrawerOpen((open) => !open)}
       />
 
-      <div className="app-workspace">
+      {workspace === "map" ? <div className="app-workspace">
         {/* Forecast error = single map of P50 forecast − realized (default
             landing). Dual = prediction | ERCOT split, both under the active palette. */}
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
@@ -1177,9 +1184,9 @@ export default function App() {
             constraint on the map via /map/reach (same as a marker click); the
             synced hover is wired in the next group. */}
         <SidePanel {...sidePanelProps} />
-      </div>
+      </div> : <MatrixWorkspace />}
 
-      {isMobile && (
+      {workspace === "map" && isMobile && (
         <MobileDrawer
           open={mobileDrawerOpen}
           onClose={() => setMobileDrawerOpen(false)}
