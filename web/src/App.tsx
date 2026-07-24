@@ -31,11 +31,11 @@ import {
 } from "./api/prefetch";
 import {
   computeLmpStats,
-  computeModeledCongestionStats,
+  computeCongestionStats,
   forecastErrorColor,
   forecastErrorGradientCss,
   type LmpStats,
-  type ModeledCongestionStats,
+  type CongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
 import GridMap from "./components/map/GridMap";
@@ -93,7 +93,7 @@ export default function App() {
   // so coloring is stable across playback. congestion → diverging palette;
   // spp → LMP palette.
   const [congestionStats, setCongestionStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   const [sppStats, setSppStats] = useState<LmpStats | null>(null);
   // Per-current-hour SP rows, merged from the congestion and SPP caches.
   const [spRows, setSpRows] = useState<SpRow[]>([]);
@@ -115,7 +115,7 @@ export default function App() {
   // the window, pane falls back to the realized rows).
   const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
   const [forecastCongestionStats, setForecastCongestionStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
   const [forecastRunId, setForecastRunId] = useState<string | null>(null);
   // Forecast-error (P50 forecast − realized congestion) window-wide stats, for the
@@ -123,7 +123,7 @@ export default function App() {
   // window load from the forecast and realized caches; the per-hour error rows are
   // derived below.
   const [errorStats, setErrorStats] =
-    useState<ModeledCongestionStats | null>(null);
+    useState<CongestionStats | null>(null);
   // The rolling backtest scorecard for the side panel. Fetched once (the board
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
@@ -442,17 +442,17 @@ export default function App() {
             }
           }
           setCongestionStats(
-            allCong.length ? computeModeledCongestionStats(allCong) : null
+            allCong.length ? computeCongestionStats(allCong) : null
           );
           setSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
           setForecastCongestionStats(
-            allFcCong.length ? computeModeledCongestionStats(allFcCong) : null
+            allFcCong.length ? computeCongestionStats(allFcCong) : null
           );
           setForecastLmpStats(
             allFcLmp.length ? computeLmpStats(allFcLmp) : null
           );
           setErrorStats(
-            allError.length ? computeModeledCongestionStats(allError) : null
+            allError.length ? computeCongestionStats(allError) : null
           );
           setForecastRunId(getForecastRunId());
 

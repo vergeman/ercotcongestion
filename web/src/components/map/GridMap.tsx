@@ -16,10 +16,10 @@ import {
 import {
   lmpColor,
   normalizeLmpFromStats,
-  modeledCongestionColor,
-  normalizeModeledCongestion,
+  congestionColor as congestionRampColor,
+  normalizeCongestion,
   type LmpStats,
-  type ModeledCongestionStats,
+  type CongestionStats,
 } from "../../lib/colors";
 import { cssVar, onThemeChange, useTheme, type Theme } from "../../lib/theme";
 
@@ -72,7 +72,7 @@ interface Props {
   rows: SpRow[];
   palette: Palette;
   lmpStats: LmpStats | null;
-  mcStats: ModeledCongestionStats | null;
+  mcStats: CongestionStats | null;
   onSpHover: (
     spId: string | null,
     props: Record<string, unknown> | null
@@ -121,7 +121,7 @@ interface Props {
   // The diverging color ramp for the `congestion` palette. Defaults to the
   // blue↔red congestion ramp; the forecast-error view passes `forecastErrorColor`
   // (emerald↔magenta) so the error reads on its own hue axis. Only affects node
-  // fill — the reach/SF glow stays on modeledCongestionColor (there the sign is the
+  // fill — the reach/SF glow stays on congestionColor (there the sign is the
   // export/import dipole).
   congestionColor?: (norm: number, theme: Theme) => string;
 }
@@ -146,7 +146,7 @@ export default function GridMap({
   onConstraintPreview,
   onConstraintSelect,
   onMapReady,
-  congestionColor = modeledCongestionColor,
+  congestionColor = congestionRampColor,
 }: Props) {
   // Node fill colors flip with the theme (light gets a visible grey center — see
   // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
@@ -516,7 +516,7 @@ export default function GridMap({
           const norm = Math.max(-1, Math.min(1, -sf / maxAbs));
           map.setFeatureState(
             { source: "sps", id },
-            { color: modeledCongestionColor(norm, theme), faded: false }
+            { color: congestionRampColor(norm, theme), faded: false }
           );
         }
         touched.add(id);
@@ -560,7 +560,7 @@ export default function GridMap({
       if (palette === "congestion") {
         color = mcStats
           ? congestionColor(
-              normalizeModeledCongestion(row.congestion, mcStats),
+              normalizeCongestion(row.congestion, mcStats),
               theme
             )
           : congestionColor(0, theme);

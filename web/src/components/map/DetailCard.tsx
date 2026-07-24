@@ -1,5 +1,5 @@
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
-import { modeledCongestionColor } from "../../lib/colors";
+import { congestionColor } from "../../lib/colors";
 
 interface HoveredSp {
   spId: string;
@@ -109,7 +109,7 @@ function SignChip({ sf }: { sf: number }) {
   return (
     <span
       className="dc-chip"
-      style={{ background: modeledCongestionColor(sf < 0 ? 1 : -1) }}
+      style={{ background: congestionColor(sf < 0 ? 1 : -1) }}
     />
   );
 }

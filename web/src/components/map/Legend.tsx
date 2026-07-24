@@ -4,11 +4,11 @@ import type { SpRow } from "../../api/types";
 import type { Palette } from "../../api/types";
 import {
   normalizeLmpFromStats,
-  normalizeModeledCongestion,
-  modeledCongestionColor,
+  normalizeCongestion,
+  congestionColor,
   lmpColor,
   type LmpStats,
-  type ModeledCongestionStats,
+  type CongestionStats,
 } from "../../lib/colors";
 
 interface Props {
@@ -16,7 +16,7 @@ interface Props {
   rows: SpRow[];
   // Window-wide stats. Stable across playback.
   lmpStats: LmpStats | null;
-  mcStats: ModeledCongestionStats | null;
+  mcStats: CongestionStats | null;
   // Forecast-error view overrides: a custom palette title, and the diverging end
   // labels (default "export (−)" / "import (+)" for congestion; the error view
   // relabels these to "under-forecast" / "over-forecast"). Both apply only to the
@@ -127,7 +127,7 @@ export default function Legend({
     } else if (isCongestion && mcStats) {
       for (const r of rows) {
         if (r.congestion == null) continue;
-        const norm = normalizeModeledCongestion(r.congestion, mcStats); // −1..1
+        const norm = normalizeCongestion(r.congestion, mcStats); // −1..1
         const t = (norm + 1) / 2; // 0..1, center = 0
         let idx = Math.floor(t * HIST_BINS);
         if (idx >= HIST_BINS) idx = HIST_BINS - 1;
@@ -158,9 +158,9 @@ export default function Legend({
   const barGradient =
     barGradientOverride ??
     (isCongestion
-      ? `linear-gradient(to right, ${modeledCongestionColor(
+      ? `linear-gradient(to right, ${congestionColor(
           -1
-        )}, ${modeledCongestionColor(0)}, ${modeledCongestionColor(1)})`
+        )}, ${congestionColor(0)}, ${congestionColor(1)})`
       : `linear-gradient(to right, ${lmpColor(0)}, ${lmpColor(0.5)}, ${lmpColor(
           1
         )})`);
