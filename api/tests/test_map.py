@@ -247,8 +247,8 @@ def test_ranked_realized_swaps_mu_series(client, fake_pool, configured_run,
     monkeypatch.setattr(map_module, "_SP_COORDS", {"N1": (29.7, -95.3)})
     fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
     fake_pool.cursor.queue([                                 # realized mu mass
-        {"key": "AAA|BASE", "mass": 1.0},
-        {"key": "BBB|LINE", "mass": 100.0},
+        {"constraint_name": " AAA ", "contingency_name": " BASE ", "mass": 1.0},
+        {"constraint_name": "BBB", "contingency_name": "LINE", "mass": 100.0},
     ])
     fake_pool.cursor.queue([{"ws": WS}])                    # _resolve (geo run)
     fake_pool.cursor.queue([])                               # constraint_geo (none)
