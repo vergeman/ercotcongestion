@@ -65,7 +65,6 @@ function pct2(v: number | null | undefined): string {
 const RAIL_MULTI = 2;
 const BODY_FLOOR = 0.1;
 const THIN_HOURS = 50;
-const CLIPPED_SF = 0.999;
 
 function Row({
   label,
@@ -214,8 +213,6 @@ function ReachBody({
   const importEnd = reach.sps.filter((s) => s.sf < 0).length;
   const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
   const nRail = reach.n_rail ?? 0;
-  const clipped =
-    nRail >= 1 || (reach.max_abs_sf != null && reach.max_abs_sf >= CLIPPED_SF);
   // Ridge-clamp artifact: several nodes at the cap, or a lone rail with no body.
   const railArtifact =
     nRail >= RAIL_MULTI ||
@@ -227,13 +224,6 @@ function ReachBody({
   return (
     <>
       <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
-      <div className="dc-headline">
-        <span className="label">Constraint |SF| max</span>
-        <span className="dc-headline-val mono">
-          {reach.max_abs_sf != null ? reach.max_abs_sf.toFixed(3) : "—"}
-          {clipped && <span className="dc-clip"> clipped ±1</span>}
-        </span>
-      </div>
       <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
         {reach.binding_hours != null
           ? `${reach.binding_hours} binding h`
@@ -294,22 +284,9 @@ export default function DetailCard({
       <div className="detail-card__header">
         <div className="detail-card__title">
           {inReach ? (
-            <>
-              <span className="detail-card__kind detail-card__kind--constraint label">
-                📌 CONSTRAINT
-              </span>
-              <span className="detail-card__id mono">
-                {reach!.constraint_key}
-              </span>
-            </>
+            <span className="detail-card__id mono">{reach!.constraint_key}</span>
           ) : (
-            <>
-              <span className="detail-card__kind label">
-                {isPinned ? "📌 " : ""}
-                SP
-              </span>
-              <span className="detail-card__id mono">{sp!.spId}</span>
-            </>
+            <span className="detail-card__id mono">{sp!.spId}</span>
           )}
         </div>
         {inReach && onCloseReach ? (

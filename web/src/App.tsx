@@ -737,10 +737,11 @@ export default function App() {
   // layer, so its hover/click already flow through handleSpHover /
   // handleSpClickPrediction — no overview-specific node handler needed.
 
-  // Hover an overview popover row → preview that constraint's reach in the card
-  // (transient: leaving the row reverts it). `previewReachRef` distinguishes this
-  // from a clicked reach, which is locked. Cached via the same reach fetch.
+  // Hover previews may recolor/isolate the map, but never replace a clicked card.
+  // A transient reach card is allowed only while neither a node nor a constraint
+  // card is locked; click remains the only action that changes the DetailCard.
   const handleConstraintPreview = useCallback((key: string | null) => {
+    if (pinnedSp || (reach && !previewReachRef.current)) return;
     if (key == null) {
       if (previewReachRef.current) {
         previewReachRef.current = false;
@@ -749,7 +750,6 @@ export default function App() {
       }
       return;
     }
-    setPinnedSp(null);
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
     fetchMapReach(key)
@@ -759,7 +759,7 @@ export default function App() {
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, []);
+  }, [pinnedSp, reach]);
 
   // Background (empty-map) click clears whichever mode is active.
   const handleMapBackgroundClick = useCallback(() => {
