@@ -97,14 +97,18 @@
   --map-node-null: #1a4731;            /* no data for this node */
   --map-node-idle: #c9d3df;            /* overlay node at rest */
 
-  /* SF overlay constraint types. Unlike the diverging data palettes these are
-     categorical, so hue alone carries the meaning and the luminance is free to
-     follow the ground. The dark values are tuned to glow on near-black and land
-     at 1.9-2.7:1 on white, so light gets its own darker set at the same hues. */
-  --sf-gtc: #e0a83a;          /* region — warm gold, glows on near-black */
+  /* SF overlay constraint types. These are categorical annotation colors; form
+     carries the primary type cue, so their luminance can follow the ground. */
+  --sf-gtc: #e0a83a;          /* region — warm gold cloud */
   --sf-transmission: #a78bfa; /* corridor / MST */
   --sf-radial: #2dd4bf;       /* single point */
   --sf-untyped: #94a3b8;      /* located, no type verdict */
+  /* Constraint marks are an annotation plane over the data field. Keep their
+     energy below the node colors: shape (cloud, corridor, ring) does most of
+     the type work, while hue is a secondary cue. */
+  --sf-glow-opacity: 0.14;
+  --sf-core-opacity: 0.26;
+  --sf-line-opacity: 0.5;
 
   /* ---- layout ----------------------------------------------------------- */
   --panel-w: 320px;
@@ -153,15 +157,18 @@
   --map-node-null: #c7d9cd;
   --map-node-idle: #46596e;
 
-  /* Same hues as the dark set, tuned as vivid *fills* on the white map ground
-     (chroma/lightness lead — the 4.5:1 text rule doesn't apply to a categorical
-     map fill). GTC uses a saturated amber here: the dark set's gold washes out on
-     white, and the old mustard read muddy beside the emerald↔magenta error
-     palette. Amber ↔ violet ↔ teal stay CVD-distinct and pop like the dark set. */
-  --sf-gtc: #ea580c;
-  --sf-transmission: #7c3aed;
-  --sf-radial: #0d9488;
+  /* A light-ground companion palette: the yellow GTC cloud separates from
+     blue/red error fills and violet corridors without becoming a second heatmap. */
+  --sf-gtc: rgb(234, 179, 8);
+  --sf-transmission: #6d5aa8;
+  --sf-radial: #16827a;
   --sf-untyped: #64748b;
+  /* White ground makes translucent color look much louder than it does on the
+     dark map. A smaller, quieter annotation layer lets the error field stay
+     primary and prevents the GTC cloud from reading as a second heatmap. */
+  --sf-glow-opacity: 0.1;
+  --sf-core-opacity: 0.22;
+  --sf-line-opacity: 0.38;
 
   color-scheme: light;
 }

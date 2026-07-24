@@ -36,8 +36,8 @@ function chromeColors() {
     nodeHover: cssVar("--map-node-hover"),
     accent: cssVar("--accent"),
     // Reach-corridor stroke for the dipole arc. The flat centroid "constraint
-    // pile" overlay was retired in favor of the native overview mark layers (MST
-    // corridors + GTC circle clouds + radial rings); this hue survives for the arc.
+    // pile" overlay was retired in favor of native overview marks (MST corridors,
+    // GTC interface axes, and radial rings); this hue survives for the arc.
     constraint: cssVar("--violet"),
   };
 }
@@ -144,7 +144,7 @@ interface Props {
   // left/prediction map).
   showConstraints?: boolean;
   // The de-piled overview (typed marks) — the sole constraint presentation, drawn
-  // as native maplibre layers here (GTC circle clouds, MST corridor lines, radial
+  // as native maplibre layers here (GTC interface axes, MST corridor lines, radial
   // rings) beneath the `sps` layer. The old flat centroid marker pile
   // (/map/constraints) it replaced has been retired.
   overview?: MapOverview | null;
@@ -742,12 +742,10 @@ export default function GridMap({
     else map.once("load", apply);
   }, [reach, sourcesReady]);
 
-  // Overview mark layers (plan/0112): the de-piled constraint overview, NATIVE.
-  // GTC regions are a soft blended circle cloud (translucent + blurred, so
-  // overlaps merge into a region — no goo filter, no shape math), transmission is
-  // MST corridor lines, radials are rings. All drawn beneath `sps` so node clicks
-  // stay on the base layer. Empty sources when the layer is off; `isolatedConstraint`
-  // filters every mark to a single constraint (the panel/popover focus).
+  // Overview mark layers: GTCs are signed-axis gate glyphs, transmission is
+  // MST corridors, and radials are rings. All draw beneath `sps` so node clicks
+  // stay on the base layer. Empty sources when off; `isolatedConstraint` filters
+  // every mark to a single constraint.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady) return;
@@ -760,77 +758,47 @@ export default function GridMap({
         gtc: cssVar("--sf-gtc"),
         transmission: cssVar("--sf-transmission"),
         radial: cssVar("--sf-radial"),
+        lineOpacity: Number(cssVar("--sf-line-opacity")),
       };
       const setData = (id: string, data: GeoJSON.FeatureCollection) => {
         const s = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
         if (s) s.setData(data);
         else map.addSource(id, { type: "geojson", data });
       };
-      setData("ov-gtc", src.gtc);
+      setData("ov-gtc-axis", src.gtcAxis);
+      setData("ov-gtc-gate", src.gtcGate);
       setData("ov-corridor", src.corridor);
       setData("ov-radial", src.radial);
 
-      // GTC/transmission line color keyed off the feature's ctype.
-      const lineColor = [
-        "match",
-        ["get", "ctype"],
-        "gtc",
-        sf.gtc,
-        sf.transmission,
-      ] as maplibregl.ExpressionSpecification;
-
       const before = map.getLayer("sps") ? "sps" : undefined;
-      // Glow halo: a larger, heavily-blurred, translucent pass UNDER the region
-      // core so GTCs read as a soft light bloom, not a flat fill. Same source.
-      if (!map.getLayer("ov-gtc-glow")) {
+      if (!map.getLayer("ov-gtc-axis")) {
         map.addLayer(
           {
-            id: "ov-gtc-glow",
-            type: "circle",
-            source: "ov-gtc",
+            id: "ov-gtc-axis",
+            type: "line",
+            source: "ov-gtc-axis",
+            layout: { "line-cap": "round" },
             paint: {
-              "circle-color": sf.gtc,
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                4,
-                14,
-                8,
-                30,
-                12,
-                50,
-              ],
-              "circle-blur": 1,
-              "circle-opacity": 0.22,
+              "line-color": sf.gtc,
+              "line-width": 1.2,
+              "line-opacity": 0.7,
+              "line-dasharray": [2, 2],
             },
           },
           before
         );
       }
-      if (!map.getLayer("ov-gtc")) {
+      if (!map.getLayer("ov-gtc-gate")) {
         map.addLayer(
           {
-            id: "ov-gtc",
-            type: "circle",
-            source: "ov-gtc",
+            id: "ov-gtc-gate",
+            type: "line",
+            source: "ov-gtc-gate",
+            layout: { "line-cap": "round" },
             paint: {
-              "circle-color": sf.gtc,
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                4,
-                9,
-                8,
-                20,
-                12,
-                34,
-              ],
-              // Sharper, brighter core over the glow so the region has a solid
-              // heart (closer to the old metaball) with a luminous edge.
-              "circle-blur": 0.35,
-              "circle-opacity": 0.5,
+              "line-color": sf.gtc,
+              "line-width": 2.2,
+              "line-opacity": 0.9,
             },
           },
           before
@@ -844,9 +812,9 @@ export default function GridMap({
             source: "ov-corridor",
             layout: { "line-cap": "round", "line-join": "round" },
             paint: {
-              "line-color": lineColor,
-              "line-width": 1.8,
-              "line-opacity": 0.75,
+              "line-color": sf.transmission,
+              "line-width": 1.35,
+              "line-opacity": sf.lineOpacity,
             },
           },
           before
@@ -882,17 +850,19 @@ export default function GridMap({
       // Theme refresh + isolation filter, applied every pass. Use an explicit
       // all-pass filter (`["all"]`) rather than clearing with null — clearing to
       // null was intermittently leaving every mark hidden when un-isolating.
-      map.setPaintProperty("ov-gtc-glow", "circle-color", sf.gtc);
-      map.setPaintProperty("ov-gtc", "circle-color", sf.gtc);
-      map.setPaintProperty("ov-corridor", "line-color", lineColor);
+      map.setPaintProperty("ov-gtc-axis", "line-color", sf.gtc);
+      map.setPaintProperty("ov-gtc-gate", "line-color", sf.gtc);
+      map.setPaintProperty("ov-corridor", "line-color", sf.transmission);
+      map.setPaintProperty("ov-corridor", "line-opacity", sf.lineOpacity);
       map.setPaintProperty("ov-radial", "circle-stroke-color", sf.radial);
       const filt = (
         isolatedConstraint
           ? ["==", ["get", "constraint_key"], isolatedConstraint]
           : ["all"]
       ) as maplibregl.FilterSpecification;
-      for (const id of ["ov-gtc-glow", "ov-gtc", "ov-corridor", "ov-radial"])
+      for (const id of ["ov-gtc-axis", "ov-gtc-gate", "ov-radial"])
         map.setFilter(id, filt);
+      map.setFilter("ov-corridor", filt);
     };
 
     // `sourcesReady` already implies the style is loaded (it flips inside the

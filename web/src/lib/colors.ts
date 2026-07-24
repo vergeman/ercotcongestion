@@ -31,7 +31,10 @@ function rgbMix(from: readonly number[], to: readonly number[], m: number): stri
   ]);
 }
 // Shared cool-grey neutral for every light-mode diverging center.
-const NEUTRAL_LIGHT = [184, 188, 196];
+// The old neutral was dark enough that the many near-zero nodes became their
+// own dense visual network on white. This quieter blue-grey preserves a visible
+// midpoint without competing with meaningful forecast-error color.
+const NEUTRAL_LIGHT = [216, 222, 230];
 
 // LMP color anchors ($/MWh) — fixed-scale fallback
 //   - negative: oversupply (rare but informative; renewables curtailment)
@@ -332,8 +335,8 @@ export function modeledCongestionColor(
 // Same diverging math as modeledCongestionColor, but a DIFFERENT hue axis on
 // purpose. Forecast error is not a temperature or a source/sink quantity, so it
 // must not borrow the blue↔red of congestion / LMP. Emerald ↔ cream ↔ magenta
-// also sits clear of the SF-overlay layers (violet corridors, amber regions,
-// teal radials).
+// also sits clear of the quieter SF-overlay annotation family (lavender clouds,
+// violet corridors, teal radials).
 //   norm > 0 → over-forecast  (predicted > realized, magenta)
 //   norm < 0 → under-forecast (predicted < realized, emerald)
 //   norm ≈ 0 → cream (on target — shares the neutral with congestion)
@@ -416,4 +419,3 @@ export function clusterColor(
     (idx < 0 ? 0 : idx) % CLUSTER_PALETTE.length
   ];
 }
-
