@@ -62,14 +62,14 @@ Source: `plan/0118-matrix-feature/sprint-matrix.md`
 
 ## Acceptance
 
-* [ ] `/map` renders the same map modes, cards, constraints, legend, and side panel as before the refactor.
-* [ ] `/matrix` renders a deliberate placeholder inside the same header and playback shell.
-* [ ] Switching Map → Matrix → Map preserves the date window and selected timestamp.
-* [ ] Browser back/forward restores the correct workspace without a document reload.
-* [ ] A direct load of `/map`, `/matrix`, or `/scoreboard` resolves correctly.
-* [ ] Exactly one `PlaybackScrubber` is mounted in either explorer route.
-* [ ] Existing API requests are not duplicated solely because the user switches workspaces.
-* [ ] TypeScript build and the repository's canonical frontend checks pass in a clean, supported Node environment.
+* [x] `/map` renders the same map modes, cards, constraints, legend, and side panel as before the refactor.
+* [x] `/matrix` renders a deliberate placeholder inside the same header and playback shell.
+* [x] Switching Map → Matrix → Map preserves the date window and selected timestamp.
+* [x] Browser back/forward restores the correct workspace without a document reload.
+* [x] A direct load of `/map`, `/matrix`, or `/scoreboard` resolves correctly.
+* [x] Exactly one `PlaybackScrubber` is mounted in either explorer route.
+* [x] Existing API requests are not duplicated solely because the user switches workspaces.
+* [ ] TypeScript build and the repository's canonical frontend checks pass in a clean, supported Node environment. Docker Compose build passes; the canonical lint command still reports pre-existing `setState`-in-effect errors and one hook-dependency warning outside this refactor.
 
 ## Merge boundary
 
