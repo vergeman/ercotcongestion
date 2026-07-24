@@ -18,9 +18,29 @@ import pytest
 
 from compute.mu.features import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
                                  binding_history, calendar_features, dam_close,
-                                 delivery_day_of, history_cutoff, net_load_regime)
+                                 delivery_day_of, history_cutoff, net_load_regime,
+                                 _attach_refit_features)
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
+
+
+def test_refit_features_attach_like_a_left_merge_without_copying_the_panel():
+    days = pd.DatetimeIndex([pd.Timestamp("2025-08-01"), pd.Timestamp("2025-08-02")])
+    panel = pd.DataFrame({
+        "delivery_day": [days[0], days[0], days[1], days[1]],
+        "key": ["A|c", "MISSING|c", "B|c", "A|c"],
+        "base": np.array([1, 2, 3, 4], dtype="float32"),
+    })
+    values = pd.DataFrame(
+        {"geo_x": [1.25, 2.5], "geo_y": [3.75, 5.0]},
+        index=pd.Index(["A|c", "B|c"], name="key"),
+    )
+
+    expected = panel.merge(values.reset_index(), on="key", how="left")
+    expected[["geo_x", "geo_y"]] = expected[["geo_x", "geo_y"]].astype("float32")
+    _attach_refit_features(panel, days, values)
+
+    pd.testing.assert_frame_equal(panel, expected)
 
 
 # ------------------------------------------------------------- the clock

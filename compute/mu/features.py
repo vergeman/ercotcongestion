@@ -463,6 +463,36 @@ def _downcast_join(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _attach_refit_features(panel: pd.DataFrame, days: pd.DatetimeIndex,
+                           values: pd.DataFrame) -> None:
+    """Attach one refit's per-key values directly to the panel's week rows.
+
+    ``geo_panel`` and ``wx_panel`` produce one vector per constraint for a refit
+    week.  Materialising that vector once per delivery day and then merging it
+    copies the already-wide panel at its largest point.  The values are constant
+    within the refit week, so align them to the panel's existing key rows instead.
+
+    This mutates ``panel`` in place.  Missing keys remain NaN, exactly as the old
+    left merge did; numeric values become float32 by the same boundary rule as
+    ``_downcast_join``.
+    """
+    if values.empty or not len(days):
+        return
+    if not values.index.is_unique:
+        raise ValueError("refit feature values must have one row per key")
+
+    positions = np.flatnonzero(panel["delivery_day"].isin(days).to_numpy())
+    if not len(positions):
+        return
+    aligned = values.reindex(panel.iloc[positions]["key"])
+    for col in aligned.columns:
+        if col not in panel:
+            panel[col] = np.full(len(panel), np.nan, dtype=np.float32)
+        panel.iloc[positions, panel.columns.get_loc(col)] = aligned[col].to_numpy(
+            dtype=np.float32, na_value=np.nan
+        )
+
+
 def build_panel(conn, M: pd.DataFrame, start, end,
                 policy: str = "active_28d",
                 C: pd.DataFrame | None = None,
@@ -546,11 +576,11 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     # borrowing another constraint's position.
     if C is not None and not C.empty:
         from compute.mu.geo import geo_panel
-        geo = geo_panel(M, C, days, anchor=score_from)
-        if not geo.empty:
-            panel = panel.merge(_downcast_join(geo.reset_index()),
-                                on=["delivery_day", "key"], how="left")
-            del geo
+        geo_panel(
+            M, C, days, anchor=score_from,
+            on_refit=lambda week_days, values: _attach_refit_features(
+                panel, week_days, values),
+        )
 
     # Weather-response vectors: per (delivery_day, key), correlations over the same
     # trailing window. Needs no `C` and no crosswalk — only M and the forecasts that
@@ -561,11 +591,11 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     # would change the covariate, not just its storage. Only the join copy is slimmed.
     if with_weather:
         from compute.mu.weather import wx_panel
-        wx = wx_panel(M, sys_panel, days, anchor=score_from)
-        if not wx.empty:
-            panel = panel.merge(_downcast_join(wx.reset_index()),
-                                on=["delivery_day", "key"], how="left")
-            del wx
+        wx_panel(
+            M, sys_panel, days, anchor=score_from,
+            on_refit=lambda week_days, values: _attach_refit_features(
+                panel, week_days, values),
+        )
 
     # Generation-outage exposure (plan/0089): per (delivery_day, key), |SF| dotted
     # against the located outage MW of the D-4 vintage. Same construction as `geo`

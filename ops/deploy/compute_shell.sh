@@ -26,7 +26,7 @@ export IMAGE_TAG="$(cat ../../.image-tag)"
 
 export CPU_REQUEST="${CPU_REQUEST:-3}"
 export CPU_LIMIT="${CPU_LIMIT:-6}"
-export MEM_REQUEST="${MEM_REQUEST:-2Gi}"
+export MEM_REQUEST="${MEM_REQUEST:-4Gi}"
 export MEM_LIMIT="${MEM_LIMIT:-16Gi}"
 export MU_SPILL_PANEL="${MU_SPILL_PANEL:-1}"
 export MU_SPILL_DIR="${MU_SPILL_DIR:-/compute/runs/__spill__}"

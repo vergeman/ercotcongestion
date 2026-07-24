@@ -25,12 +25,14 @@ import pytest
 from compute.mu import mu_model
 from compute.mu.mu_model import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
-                                 fit_mu_climatology, load_preds, mu_head_verdict,
+                                 combine_pred_chunks, fit_mu_climatology, load_preds,
+                                 mu_head_verdict,
                                  persist_outputs, predict_day,
                                  predict_mu_climatology, preds_path_for,
-                                 refit_boundaries, reliability,
+                                 refit_boundaries, reliability, score_chunks,
                                  resolve_output_paths, save_preds,
-                                 target_encoding, walk_forward, weekly_path_for)
+                                 target_encoding, walk_forward, walk_forward_chunked,
+                                 weekly_path_for)
 
 
 def _panel(n_days: int = 60, keys=("A|c", "B|c"), seed: int = 0) -> pd.DataFrame:
@@ -371,6 +373,65 @@ def test_preds_round_trip_through_npz(tmp_path):
     pd.testing.assert_series_equal(back["y_mu"].isna(), preds["y_mu"].isna(),
                                    check_names=False)
     assert (back["week"] == preds["week"]).all()
+
+
+def test_prediction_chunks_combine_to_the_standard_npz(tmp_path):
+    panel = _panel(n_days=45)
+    preds, _ = walk_forward(panel, train_days=21, refit_days=7)
+    weeks = sorted(preds["week"].unique())
+    left, right = preds[preds["week"].isin(weeks[:2])], preds[preds["week"].isin(weeks[2:])]
+    a, b, out = (str(tmp_path / "a.npz"), str(tmp_path / "b.npz"),
+                 str(tmp_path / "all.npz"))
+    save_preds(a, left)
+    save_preds(b, right)
+
+    assert combine_pred_chunks([a, b], out) == len(preds)
+    back = load_preds(out)
+    expected = preds[["week", "p_bind", "mu_clim", "mu_gbm", "y_bind", "y_mu"]].astype({
+        "p_bind": "float32", "mu_clim": "float32", "mu_gbm": "float32",
+        "y_bind": "int8", "y_mu": "float32",
+    })
+    pd.testing.assert_frame_equal(back, expected)
+
+
+def test_score_chunks_preserve_the_scored_grid_and_bound_each_group():
+    start = pd.Timestamp("2025-01-01", tz="UTC")
+    end = pd.Timestamp("2025-02-01", tz="UTC")
+    chunks = score_chunks(start, end, refit_days=7, chunk_weeks=2)
+    starts = [s for lo, hi in chunks for s in pd.date_range(lo, hi, freq="7D",
+                                                             inclusive="left")]
+    assert starts == list(pd.date_range(start, end, freq="7D", inclusive="left"))
+    assert all((hi - lo) <= pd.Timedelta(days=14) for lo, hi in chunks)
+
+
+def test_chunked_walk_matches_one_panel_walk(tmp_path):
+    panel = _panel(n_days=60)
+    start = pd.Timestamp("2025-01-22", tz="UTC")
+    end = pd.Timestamp("2025-02-25", tz="UTC")
+    whole_preds, whole_weeks = walk_forward(
+        panel, train_days=21, refit_days=7, score_from=start, score_until=end,
+    )
+
+    ts = panel.index.get_level_values("interval_ts")
+    def build(read_start, chunk_end):
+        return panel[(ts >= read_start) & (ts < chunk_end)].copy()
+
+    weeks, paths = walk_forward_chunked(
+        build, score_from=start, end=end, train_days=21, refit_days=7,
+        chunk_weeks=2, arms=("lag", "geo", "wx"), spill_dir=None,
+        chunk_dir=str(tmp_path / "chunks"),
+    )
+    output = str(tmp_path / "all.npz")
+    combine_pred_chunks(paths, output)
+    chunked_preds = load_preds(output)
+
+    pd.testing.assert_frame_equal(weeks, whole_weeks)
+    pd.testing.assert_frame_equal(chunked_preds, whole_preds[[
+        "week", "p_bind", "mu_clim", "mu_gbm", "y_bind", "y_mu",
+    ]].astype({
+        "p_bind": "float32", "mu_clim": "float32", "mu_gbm": "float32",
+        "y_bind": "int8", "y_mu": "float32",
+    }))
 
 
 def test_mu_head_verdict_defaults_to_climatology_on_a_tie():
