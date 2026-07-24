@@ -28,5 +28,5 @@ Branch: refactor/0115-mu-model-memory-optimization
 
 * [ ] Focused tests prove direct geo/weather attachment matches the current assembled panel exactly, including missing values.
 * [ ] Chunked and unchunked walks produce equivalent weekly metrics and `mu_preds.npz` contents on a fixture.
-* [ ] A full-history run keeps assembly memory bounded per chunk and logs each completed chunk before releasing it.
+* [ ] A full-history `--chunk-weeks 32` run stays below the container memory limit, logs each completed chunk, and releases its panel before the next chunk.
 * [ ] Existing μ tests pass.
