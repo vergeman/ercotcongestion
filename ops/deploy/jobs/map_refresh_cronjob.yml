@@ -86,11 +86,11 @@ spec:
                 - |
                   set -e
                   END="$(date -u -d tomorrow +%F)"
-                  echo "map-v1 refresh: --start 2025-01-01 --end ${END}"
+                  echo "map-v1 refresh: --start 2024-12-25 --end ${END}"
 
                   python -m compute.jobs.weekly_map \
                     --run-id map-v1 \
-                    --start 2025-01-01 --end "${END}" \
+                    --start 2024-12-25 --end "${END}" \
                     --window-days 240 --refit-days 7 \
                     --ridge-lambda 1.0 --min-binding-hours 25 \
                     --persist-sf
@@ -99,7 +99,7 @@ spec:
 
                   python -m compute.sf.eval \
                     --run-id map-v1 \
-                    --start 2025-01-01 --end "${END}" \
+                    --start 2024-12-25 --end "${END}" \
                     --window-days 240 --refit-days 7 \
                     --ridge-lambda 1.0 --min-binding-hours 25 \
                     --persist-eval
