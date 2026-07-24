@@ -83,27 +83,27 @@ Exact Pydantic field names can change during implementation, but these semantics
 
 ## Tests
 
-* [ ] Artifact resolution selects the causal run/day.
-* [ ] UTC timestamps and the Central Time delivery-date boundary are correct.
-* [ ] Forecast `μ` comes from the exact artifact hour.
-* [ ] DAM `μ` matches normalized constraint keys at the exact hour.
-* [ ] Pending and partially matched DAM states retain `null`.
-* [ ] Ordering is deterministic and unchanged across hours.
-* [ ] Excessive row/column requests are rejected.
-* [ ] Dense values align with returned row/column labels.
-* [ ] Missing historical artifacts return the documented unavailable response.
-* [ ] Cache reuse never crosses run/day keys.
-* [ ] Legacy artifacts without provenance remain readable.
+* [x] Artifact resolution selects the causal run/day.
+* [x] UTC timestamps and the Central Time delivery-date boundary are correct.
+* [x] Forecast `μ` comes from the exact artifact hour.
+* [x] DAM `μ` matches normalized constraint keys at the exact hour.
+* [x] Pending and partially matched DAM states retain `null`.
+* [x] Ordering is deterministic and unchanged across hours.
+* [x] Excessive row/column requests are rejected.
+* [x] Dense values align with returned row/column labels.
+* [x] Missing historical artifacts return the documented unavailable response.
+* [x] Cache reuse never crosses run/day keys.
+* [x] Legacy artifacts without provenance remain readable.
 
 ## Acceptance
 
-* [ ] One bounded request supplies every value and metadata field needed for the Matrix MVP at an hour.
-* [ ] The response can reproduce both forecast and ERCOT DAM `-SF × μ`.
-* [ ] No endpoint silently uses a future/latest SF fit for a historical request.
-* [ ] Missing DAM and missing artifact states are distinguishable.
-* [ ] Repeated requests do not repeatedly decode the same immutable NPZ.
-* [ ] API tests cover ordering, arithmetic inputs, availability, timestamp boundaries, and key reconciliation.
-* [ ] Existing map and forecast endpoints remain backward compatible.
+* [x] One bounded request supplies every value and metadata field needed for the Matrix MVP at an hour.
+* [x] The response can reproduce both forecast and ERCOT DAM `-SF × μ`.
+* [x] No endpoint silently uses a future/latest SF fit for a historical request.
+* [x] Missing DAM and missing artifact states are distinguishable.
+* [x] Repeated requests do not repeatedly decode the same immutable NPZ.
+* [x] API tests cover ordering, arithmetic inputs, availability, timestamp boundaries, and key reconciliation.
+* [x] Existing map and forecast endpoints remain backward compatible.
 
 ## Merge boundary
 
