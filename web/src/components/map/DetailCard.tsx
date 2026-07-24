@@ -53,11 +53,6 @@ function fmtSf(v: number | null): string {
   return `${sign}${Math.abs(v).toFixed(3)}`;
 }
 
-function pct2(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return v.toFixed(2);
-}
-
 // Low-confidence is a shape verdict — mirror GridMap.tsx / docs §4. The artifact
 // is the ridge clamp (>= RAIL_MULTI nodes co-equal at the ±1 cap, or a lone rail
 // with no graded body beneath it), NOT a low hour count. binding_hours is a
@@ -107,22 +102,6 @@ function SpBody({ sp }: { sp: HoveredSp }) {
   );
 }
 
-// The window confidence that qualifies every signed SF below it (spec §6):
-// a flickering attribution should read as low-confidence, never as fact.
-function Confidence({
-  oosR2,
-  sfStability,
-}: {
-  oosR2: number | null | undefined;
-  sfStability: number | null | undefined;
-}) {
-  return (
-    <div className="dc-conf label">
-      fit R² {pct2(oosR2)} · SF stability {pct2(sfStability)}
-    </div>
-  );
-}
-
 // A signed-SF sign chip (red import end SF<0 ↔ blue export end SF>0; docs/SF.md) —
 // colored by congestion sign (−SF), so it matches the map's diverging reach glow
 // and congestion fill: import is red, export is blue.
@@ -135,8 +114,8 @@ function SignChip({ sf }: { sf: number }) {
   );
 }
 
-// Node-explorer body: the stable unsigned magnitude leads; the signed
-// per-constraint drivers follow as caveated detail (spec §6).
+// Node-explorer body: drivers are ordered by |SF|, so the first row already
+// communicates the largest influence without a redundant headline statistic.
 function ExposuresBody({
   exposures,
   loading,
@@ -157,21 +136,6 @@ function ExposuresBody({
   }
   return (
     <>
-      <Confidence
-        oosR2={exposures.oos_r2}
-        sfStability={exposures.sf_stability}
-      />
-      <div className="dc-headline">
-        <span className="label">Max exposure |SF|</span>
-        <span className="dc-headline-val mono">
-          {exposures.node_max_abs_sf != null
-            ? exposures.node_max_abs_sf.toFixed(3)
-            : "—"}
-        </span>
-      </div>
-      <div className="dc-drivers-title label">
-        top drivers · signed (read vs confidence)
-      </div>
       {exposures.exposures.length === 0 && (
         <div className="dc-drivers-empty label">No binding constraints</div>
       )}
@@ -223,22 +187,19 @@ function ReachBody({
   const lowConf = railArtifact;
   return (
     <>
-      <Confidence oosR2={reach.oos_r2} sfStability={reach.sf_stability} />
-      <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
-        {reach.binding_hours != null
-          ? `${reach.binding_hours} binding h`
-          : "— binding h"}
-        {lowConf
-          ? " · ⚠ low confidence — ridge clamp"
-          : thin
-          ? " · thin support"
-          : ""}
-      </div>
-      <div className="dc-drivers-title label">
-        drives {reach.sps.length} nodes · {importEnd} import / {exportEnd} export
-      </div>
+      <Row
+        label="Binding hours"
+        value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
+      />
+      <Row label="Import nodes" value={importEnd} />
+      <Row label="Export nodes" value={exportEnd} />
+      {(lowConf || thin) && (
+        <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
+          {lowConf ? "⚠ low confidence — ridge clamp" : "thin support"}
+        </div>
+      )}
       <div
-        className="dc-drivers"
+        className="dc-drivers dc-drivers--reach"
         onMouseLeave={() => onHoverMember?.(null)}
       >
         {reach.sps.map((s) => (
@@ -416,41 +377,12 @@ export default function DetailCard({
           font-size: 12px;
           color: var(--text-primary);
         }
-        .dc-conf {
-          font-size: 10px;
-          color: var(--text-secondary);
-          opacity: 0.85;
-          margin-bottom: 4px;
-        }
-        .dc-headline {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          padding: 2px 0 4px;
-        }
-        .dc-headline-val {
-          font-size: 16px;
-          color: var(--text-primary);
-          font-weight: 600;
-        }
-        .dc-clip {
-          font-size: 10px;
-          color: var(--text-dim);
-          font-weight: 400;
-          letter-spacing: 0.03em;
-        }
         .dc-support {
           font-size: 10px;
           color: var(--text-secondary);
           margin: -2px 0 4px;
         }
         .dc-support--low { color: var(--text-dim); }
-        .dc-drivers-title {
-          font-size: 10px;
-          color: var(--text-secondary);
-          opacity: 0.7;
-          margin-bottom: 3px;
-        }
         .dc-drivers-empty {
           font-size: 11px;
           color: var(--text-muted);
@@ -462,12 +394,17 @@ export default function DetailCard({
           max-height: 220px;
           overflow-y: auto;
         }
+        .dc-drivers--reach {
+          margin-top: 6px;
+          padding-top: 6px;
+          border-top: 1px solid var(--border);
+        }
         .dc-driver {
           display: grid;
           grid-template-columns: 10px 1fr auto auto;
           align-items: center;
           gap: 6px;
-          padding: 3px 4px;
+          padding: 3px 0;
           background: transparent;
           border: none;
           border-radius: 3px;

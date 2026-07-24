@@ -1,5 +1,5 @@
 import { useState, Fragment } from "react";
-import type { ScoreboardHeadline, RankedConstraints } from "../../api/types";
+import type { ScoreboardHeadline, RankedConstraints, MapMeta } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
 
@@ -24,6 +24,9 @@ interface Props {
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
   headline: ScoreboardHeadline | null;
+  // Diagnostics for the active SF refit window, distinct from the rolling
+  // backtest scorecard but shown alongside it as model-level context.
+  fitMeta: MapMeta | null;
   // ── Constraints tab (plan/0103) ──────────────────────────────────────────
   ranked: RankedConstraints | null;
   rankedLoading: boolean;
@@ -106,6 +109,7 @@ function Stat({
 export default function SidePanel({
   network,
   headline,
+  fitMeta,
   ranked,
   rankedLoading,
   constraintBasis,
@@ -246,6 +250,22 @@ export default function SidePanel({
                 })}
               </div>
 
+              {fitMeta && (
+                <div className="sc-fit">
+                  <div className="sc-fit__header label">Current fit</div>
+                  <Stat
+                    label="Out-of-sample R²"
+                    hint="How well the active fit explains congestion it did not train on. Higher is better."
+                    value={fmtScore(fitMeta.oos_r2)}
+                  />
+                  <Stat
+                    label="SF stability"
+                    hint="How consistently the model assigns shift factors — each place's sensitivity to a constraint — from one time window to the next. Higher is more repeatable."
+                    value={fmtScore(fitMeta.sf_stability)}
+                  />
+                </div>
+              )}
+
               <a
                 className="sc-link"
                 href="/scoreboard"
@@ -326,6 +346,8 @@ export default function SidePanel({
           letter-spacing: var(--track-label);
         }
         .sc-meta { margin-bottom: 8px; color: var(--text-muted); }
+        .sc-fit { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+        .sc-fit__header { margin-bottom: 3px; color: var(--text-secondary); }
 
         .sc-table {
           display: grid;

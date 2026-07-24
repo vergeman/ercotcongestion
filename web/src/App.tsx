@@ -7,6 +7,7 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
+  MapMeta,
   RankedConstraints,
   ScoreboardHeadline,
 } from "./api/types";
@@ -15,6 +16,7 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapOverview,
+  fetchMapMeta,
   fetchMapConstraintsRanked,
   fetchScoreboardHeadline,
 } from "./api/client";
@@ -126,6 +128,10 @@ export default function App() {
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
+  // The diagnostics for the active SF refit window. These qualify the entire
+  // map/constraint view, so they belong beside the scorecard rather than inside
+  // a selected node or constraint card.
+  const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
   // The per-day ranked constraint list for the side panel's `Constraints` tab
   // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
   // keyed to the cursor's CT delivery day so the realized toggle can reach a past
@@ -253,6 +259,12 @@ export default function App() {
     fetchMapOverview(70, 6)
       .then((o) => setOverview(o))
       .catch(() => setOverview(null));
+  }, []);
+
+  useEffect(() => {
+    fetchMapMeta()
+      .then((m) => setMapMeta(m))
+      .catch(() => setMapMeta(null));
   }, []);
 
   // Scorecard headline — once; the backtest board is static and independent of
@@ -1099,9 +1111,10 @@ export default function App() {
             per-day ranked list) in one tabbed region. Row click traces the
             constraint on the map via /map/reach (same as a marker click); the
             synced hover is wired in the next group. */}
-        <SidePanel
-          network={networkStats}
-          headline={headline}
+          <SidePanel
+            network={networkStats}
+            headline={headline}
+            fitMeta={mapMeta}
           ranked={ranked}
           rankedLoading={rankedLoading}
           constraintBasis={constraintBasis}
