@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { congestionColor } from "../../lib/colors";
 
@@ -39,6 +40,7 @@ interface Props {
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
   showDrivers?: boolean;
+  mobile?: boolean;
 }
 
 function fmt(v: number | null, decimals = 1): string {
@@ -263,16 +265,22 @@ export default function DetailCard({
   onHoverMember,
   onSelectMember,
   showDrivers = true,
+  mobile = false,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
   const inReach = !!reach;
-  const sp = pinnedSp ?? hoveredSp;
+  const sp = mobile ? pinnedSp : pinnedSp ?? hoveredSp;
   const isPinned = !!pinnedSp;
+  const [expanded, setExpanded] = useState(false);
 
   if (!inReach && !sp) return null;
 
   return (
-    <div className={`detail-card ${inReach || isPinned ? "detail-card--pinned" : ""}`}>
+    <div
+      className={`detail-card ${inReach || isPinned ? "detail-card--pinned" : ""}${
+        mobile ? " detail-card--mobile" : ""
+      }${expanded ? " detail-card--expanded" : ""}`}
+    >
       <div className="detail-card__header">
         <div className="detail-card__title">
           {inReach ? (
@@ -287,6 +295,16 @@ export default function DetailCard({
             </>
           )}
         </div>
+        {mobile && (
+          <button
+            className="detail-card__expand"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse details" : "Expand details"}
+          >
+            {expanded ? "⌄" : "⌃"}
+          </button>
+        )}
         {inReach && onCloseReach ? (
           <button
             className="detail-card__close"
@@ -395,6 +413,7 @@ export default function DetailCard({
           border-color: var(--danger);
           color: white;
         }
+        .detail-card__expand { display: none; }
 
         .detail-card__body {
           padding: 6px 10px 8px;
@@ -472,6 +491,47 @@ export default function DetailCard({
           color: var(--text-muted);
           min-width: 30px;
           text-align: right;
+        }
+        .detail-card--mobile {
+          top: auto;
+          left: 0;
+          bottom: 0;
+          width: 100%;
+          max-height: 46%;
+          display: flex;
+          flex-direction: column;
+          border-radius: 14px 14px 0 0;
+          border-bottom: 0;
+          background: var(--bg-panel);
+          backdrop-filter: none;
+        }
+        .detail-card--mobile.detail-card--expanded { max-height: 86%; }
+        .detail-card--mobile .detail-card__header {
+          min-height: 46px;
+          padding: 8px 14px;
+        }
+        .detail-card--mobile .detail-card__body {
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          padding: 8px 14px max(12px, env(safe-area-inset-bottom));
+        }
+        .detail-card--mobile .detail-card__expand {
+          display: inline-flex;
+          width: 28px;
+          height: 28px;
+          align-items: center;
+          justify-content: center;
+          margin-left: auto;
+          margin-right: 6px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: var(--text-secondary);
+          font-size: 18px;
+        }
+        .detail-card--mobile .detail-card__close {
+          width: 28px;
+          height: 28px;
         }
       `}</style>
     </div>

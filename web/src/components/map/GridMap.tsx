@@ -124,6 +124,9 @@ interface Props {
   // fill — the reach/SF glow stays on congestionColor (there the sign is the
   // export/import dipole).
   congestionColor?: (norm: number, theme: Theme) => string;
+  // Phones have no durable hover state. In tap-only mode selection remains, but
+  // node/constraint hover cards and transient constraint previews are disabled.
+  tapOnly?: boolean;
 }
 
 export default function GridMap({
@@ -147,6 +150,7 @@ export default function GridMap({
   onConstraintSelect,
   onMapReady,
   congestionColor = congestionRampColor,
+  tapOnly = false,
 }: Props) {
   // Node fill colors flip with the theme (light gets a visible grey center — see
   // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
@@ -158,7 +162,13 @@ export default function GridMap({
   // paint into a map whose source isn't ready yet — and re-fire the paint the
   // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const tapOnlyRef = useRef(tapOnly);
+  const onMapReadyRef = useRef(onMapReady);
+  useEffect(() => {
+    onMapReadyRef.current = onMapReady;
+  }, [onMapReady]);
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
@@ -185,17 +195,16 @@ export default function GridMap({
     x: number;
     y: number;
   } | null>(null);
+  useEffect(() => {
+    tapOnlyRef.current = tapOnly;
+    if (tapOnly) mapRef.current?.getCanvas().style.setProperty("cursor", "");
+  }, [tapOnly]);
   const hoveredNodeHasMembersRef = useRef(false);
   const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);
   const spMembersRef = useRef(spMembers);
   useEffect(() => {
     spMembersRef.current = spMembers;
   }, [spMembers]);
-  // The overlay is unmounted when the constraint layer is off, so drop any box.
-  useEffect(() => {
-    if (!showConstraints) setPopover(null);
-  }, [showConstraints]);
-
   // Initialize map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -221,13 +230,16 @@ export default function GridMap({
     );
 
     mapRef.current = map;
-    onMapReady?.(map);
+    onMapReadyRef.current?.(map);
     // MapLibre measures its container at construction time. Switching from the
     // full-width forecast-error map to the half-width dual pane does not emit a
     // window resize, leaving projection coordinates based on the old map width.
     // Observe the actual pane instead so both map geometry and the React hover
     // popover (which uses projected pixels) stay in the same coordinate space.
-    const resizeObserver = new ResizeObserver(() => map.resize());
+    const resizeObserver = new ResizeObserver((entries) => {
+      map.resize();
+      setContainerWidth(entries[0]?.contentRect.width ?? 0);
+    });
     resizeObserver.observe(containerRef.current);
     return () => {
       resizeObserver.disconnect();
@@ -420,6 +432,7 @@ export default function GridMap({
 
       // Hover interactions
       map.on("mousemove", "sps", (e) => {
+        if (tapOnlyRef.current) return;
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "crosshair";
         const props = e.features[0].properties as Record<string, unknown>;
@@ -442,6 +455,7 @@ export default function GridMap({
       });
 
       map.on("mouseleave", "sps", () => {
+        if (tapOnlyRef.current) return;
         map.getCanvas().style.cursor = "";
         callbacksRef.current.onSpHover(null, null);
         if (!hoveredNodeHasMembersRef.current) setPopover(null);
@@ -800,9 +814,9 @@ export default function GridMap({
     focusReach,
   ]);
 
-  // Gate interaction mirrors the constraint panel: hover previews and isolates
-  // that one constraint; click commits it to the DetailCard's constraint view.
-  // This binds after the overview-layer effect above has created the gate layer.
+  // Desktop gate interaction previews/isolates on hover, then commits on click.
+  // Tap-only mode binds only the click path: a constraint is either selected or
+  // not selected, never transiently previewed under a finger.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
@@ -839,14 +853,18 @@ export default function GridMap({
       onConstraintSelect?.(key);
       setPopover(null);
     };
-    map.on("mouseenter", "ov-gtc-hit", onEnter);
-    map.on("mousemove", "ov-gtc-hit", onMove);
-    map.on("mouseleave", "ov-gtc-hit", onLeave);
+    if (!tapOnly) {
+      map.on("mouseenter", "ov-gtc-hit", onEnter);
+      map.on("mousemove", "ov-gtc-hit", onMove);
+      map.on("mouseleave", "ov-gtc-hit", onLeave);
+    }
     map.on("click", "ov-gtc-hit", onClick);
     return () => {
-      map.off("mouseenter", "ov-gtc-hit", onEnter);
-      map.off("mousemove", "ov-gtc-hit", onMove);
-      map.off("mouseleave", "ov-gtc-hit", onLeave);
+      if (!tapOnly) {
+        map.off("mouseenter", "ov-gtc-hit", onEnter);
+        map.off("mousemove", "ov-gtc-hit", onMove);
+        map.off("mouseleave", "ov-gtc-hit", onLeave);
+      }
       map.off("click", "ov-gtc-hit", onClick);
     };
   }, [
@@ -854,9 +872,10 @@ export default function GridMap({
     onIsolateConstraint,
     onConstraintPreview,
     onConstraintSelect,
+    tapOnly,
   ]);
 
-  const containerWidth = containerRef.current?.clientWidth ?? 0;
+  const visiblePopover = showConstraints && !tapOnly ? popover : null;
 
   return (
     <>
@@ -864,14 +883,14 @@ export default function GridMap({
         ref={containerRef}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
-        {popover && (
+        {visiblePopover && (
           <OverviewPopover
-            name={popover.name}
-            kind={popover.kind}
-            members={popover.members}
-            meta={popover.meta}
-            x={popover.x}
-            y={popover.y}
+            name={visiblePopover.name}
+            kind={visiblePopover.kind}
+            members={visiblePopover.members}
+            meta={visiblePopover.meta}
+            x={visiblePopover.x}
+            y={visiblePopover.y}
             containerWidth={containerWidth}
             onRowHover={(key) => {
               onIsolateConstraint?.(key);

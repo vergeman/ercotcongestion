@@ -68,13 +68,10 @@ function Membership({
   );
   const [loading, setLoading] = useState(!reachCache.has(id));
   useEffect(() => {
-    if (reachCache.has(id)) {
-      setReach(reachCache.get(id)!);
-      setLoading(false);
-      return;
-    }
+    // A membership row is keyed by constraint id, so its initial state already
+    // reflects a cache hit. Only cache misses need an asynchronous update.
+    if (reachCache.has(id)) return;
     let live = true;
-    setLoading(true);
     fetchMapReach(id, 20)
       .then((r) => {
         reachCache.set(id, r);

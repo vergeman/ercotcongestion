@@ -38,6 +38,7 @@ import {
   type CongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
+import MobileDrawer from "./components/layout/MobileDrawer";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import type { SparkPoint } from "./components/playback/TimelineSparkline";
@@ -53,6 +54,24 @@ import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
 import { useTheme } from "./lib/theme";
 
 type ConnectionState = "ok" | "error" | "loading";
+
+const MOBILE_BREAKPOINT = "(max-width: 767px)";
+
+function useMediaQuery(query: string): boolean {
+  const getMatches = () =>
+    typeof window !== "undefined" && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const update = () => setMatches(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
 
 interface HoveredSp {
   spId: string;
@@ -70,6 +89,10 @@ interface HoveredSp {
 }
 
 export default function App() {
+  // Mobile is intentionally a map-first experience. Keep the user's desktop
+  // view choice in state, but never mount the second synchronized map below the
+  // breakpoint; returning to desktop restores their chosen view.
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   // Re-render on theme flip so the forecast-error legend gradient (built from the
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
@@ -79,12 +102,14 @@ export default function App() {
   // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
   // color by; forecast error is congestion-based regardless of palette.
   const [viewMode, setViewMode] = useState<ViewMode>("forecastError");
+  const renderedViewMode = isMobile ? "forecastError" : viewMode;
   const [palette, setPalette] = useState<Palette>("congestion");
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [connState, setConnState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Each map owns its own card interaction. In dual view, touching the ERCOT
   // pane must not replace or close the prediction pane's card (and vice versa).
@@ -905,7 +930,8 @@ export default function App() {
         onConstraintPreview={handleConstraintPreview}
         onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
-        ringedSpId={hoveredMemberSp}
+        ringedSpId={isMobile ? null : hoveredMemberSp}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -933,9 +959,10 @@ export default function App() {
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={handleConstraintHover}
-        onHoverMember={setHoveredMemberSp}
+        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
+        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
         onSelectMember={handleMemberSelect}
+        mobile={isMobile}
       />
     </>
   );
@@ -950,6 +977,7 @@ export default function App() {
         onSpHover={handleSpHoverRight}
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -972,6 +1000,7 @@ export default function App() {
         pinnedSp={pinnedSp.actual}
         showDrivers={false}
         onClose={() => handleClearPinnedSp("actual")}
+        mobile={isMobile}
       />
     </>
   );
@@ -1008,8 +1037,9 @@ export default function App() {
         onConstraintPreview={handleConstraintPreview}
         onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
-        ringedSpId={hoveredMemberSp}
+        ringedSpId={isMobile ? null : hoveredMemberSp}
         congestionColor={forecastErrorColor}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -1040,15 +1070,40 @@ export default function App() {
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={handleConstraintHover}
-        onHoverMember={setHoveredMemberSp}
+        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
+        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
         onSelectMember={handleMemberSelect}
+        mobile={isMobile}
       />
     </>
   );
 
+  const sidePanelProps = {
+    network: networkStats,
+    headline,
+    fitMeta: mapMeta,
+    ranked,
+    rankedLoading,
+    constraintBasis,
+    onConstraintBasis: setConstraintBasis,
+    onSelectConstraint: handleConstraintLock,
+    highlightedConstraintId: effectiveConstraintId,
+    onHoverConstraint: isMobile ? undefined : handleConstraintHover,
+    onMemberHover: isMobile ? undefined : setHoveredMemberSp,
+  };
+  const mobileLoadWindow = (
+    <DateRangePicker
+      inline
+      onLoad={handleCustomLoadWindow}
+      onSelectEvent={handleSelectEvent}
+      events={CURATED_EVENTS}
+      activeEventId={activeEventId}
+      loading={loading}
+    />
+  );
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div className="app-shell">
       <Header
         viewMode={viewMode}
         onViewMode={handleViewMode}
@@ -1060,22 +1115,17 @@ export default function App() {
         onToggleConstraints={
           overview?.constraints.length ? setShowConstraints : undefined
         }
+        mobileDrawerOpen={mobileDrawerOpen}
+        onToggleMobileDrawer={() => setMobileDrawerOpen((open) => !open)}
       />
 
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
+      <div className="app-workspace">
         {/* Forecast error = single map of P50 forecast − realized (default
             landing). Dual = prediction | ERCOT split, both under the active palette. */}
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
             enough that the constraint list/table don't wrap without overshooting. */}
-        <div style={{ flex: 5, position: "relative" }}>
-          {viewMode === "forecastError" ? (
+        <div className="app-map-area">
+          {renderedViewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (
             <CompareMap main={leftPane} right={rightPane} />
@@ -1126,20 +1176,41 @@ export default function App() {
             per-day ranked list) in one tabbed region. Row click traces the
             constraint on the map via /map/reach (same as a marker click); the
             synced hover is wired in the next group. */}
-          <SidePanel
-            network={networkStats}
-            headline={headline}
-            fitMeta={mapMeta}
-          ranked={ranked}
-          rankedLoading={rankedLoading}
-          constraintBasis={constraintBasis}
-          onConstraintBasis={setConstraintBasis}
-          onSelectConstraint={handleConstraintLock}
-          highlightedConstraintId={effectiveConstraintId}
-          onHoverConstraint={handleConstraintHover}
-          onMemberHover={setHoveredMemberSp}
-        />
+        <SidePanel {...sidePanelProps} />
       </div>
+
+      {isMobile && (
+        <MobileDrawer
+          open={mobileDrawerOpen}
+          onClose={() => setMobileDrawerOpen(false)}
+        >
+          <section className="mobile-drawer__section">
+            <div className="mobile-drawer__section-title label">Map</div>
+            {overview?.constraints.length ? (
+              <button
+                className={showConstraints ? "active" : ""}
+                onClick={() => setShowConstraints((shown) => !shown)}
+              >
+                Constraints overlay
+              </button>
+            ) : null}
+          </section>
+          <SidePanel
+            {...sidePanelProps}
+            variant="drawer"
+            loadWindow={mobileLoadWindow}
+          />
+          <style>{`
+            .mobile-drawer__section { margin-bottom: 18px; }
+            .mobile-drawer__section-title {
+              display: block;
+              margin-bottom: 8px;
+              color: var(--text-secondary);
+            }
+            .mobile-drawer__section > button { min-height: 38px; }
+          `}</style>
+        </MobileDrawer>
+      )}
 
       {/* Bottom scrubber: Load Window picker sits in the scrubber's left column,
           above the transport controls. */}

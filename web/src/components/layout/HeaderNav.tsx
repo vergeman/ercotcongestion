@@ -81,6 +81,15 @@ export default function HeaderNav({ active }: { active: NavKey }) {
           color: var(--text-muted);
           background: none;
         }
+        @media (max-width: 767px) {
+          .brand-nav { min-width: 0; gap: 5px; }
+          .brand-nav__logo { font-size: var(--fs-lg); }
+          .brand-nav__title {
+            font-size: var(--fs-lg);
+            white-space: nowrap;
+          }
+          .brand-nav__links { display: none; }
+        }
       `}</style>
     </div>
   );

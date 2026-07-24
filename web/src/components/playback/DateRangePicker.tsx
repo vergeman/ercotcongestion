@@ -9,6 +9,7 @@ interface Props {
   events?: CuratedEvent[];
   activeEventId?: string | null;
   loading: boolean;
+  inline?: boolean;
 }
 
 const PRESETS = [
@@ -40,6 +41,7 @@ export default function DateRangePicker({
   events,
   activeEventId,
   loading,
+  inline = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [startStr, setStartStr] = useState(() =>
@@ -67,18 +69,20 @@ export default function DateRangePicker({
   };
 
   return (
-    <div className="drp">
-      <button onClick={() => setOpen((o) => !o)}>📅 Load Window</button>
+    <div className={`drp${inline ? " drp--inline" : ""}`}>
+      {!inline && <button onClick={() => setOpen((o) => !o)}>📅 Load Window</button>}
 
-      {open && (
+      {(inline || open) && (
         <div className="drp__dropdown">
-          <button
-            className="drp__close"
-            onClick={() => setOpen(false)}
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          {!inline && (
+            <button
+              className="drp__close"
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          )}
           {events && events.length > 0 && (
             <div className="drp__events">
               <div className="label drp__section-label">Curated events</div>
@@ -258,6 +262,16 @@ export default function DateRangePicker({
           border-color: var(--accent);
           color: var(--accent);
           font-weight: 600;
+        }
+        .drp--inline .drp__dropdown {
+          position: static;
+          width: 100%;
+          max-height: none;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          box-shadow: none;
+          overflow: visible;
         }
       `}</style>
     </div>

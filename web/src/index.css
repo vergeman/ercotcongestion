@@ -113,6 +113,7 @@
   /* ---- layout ----------------------------------------------------------- */
   --panel-w: 320px;
   --header-h: 48px;
+  --mobile-header-h: 44px;
   --scrubber-h: 96px;
 
   font-family: var(--font-sans);
@@ -200,6 +201,30 @@ body,
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* The map page is a viewport application. Its responsive shell keeps the map
+   between the header and scrubber without allowing a narrow viewport to become
+   a horizontally scrolling desktop layout. Mobile's later drawer/sheet work
+   plugs into these stable regions. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-map-area {
+  flex: 5;
+  min-width: 0;
+  position: relative;
 }
 
 /* Digits line up in every table and stat tile in this app. */
@@ -355,4 +380,8 @@ input[type='range']::-webkit-slider-thumb {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+@media (max-width: 767px) {
+  .app-map-area { flex: 1 1 100%; }
 }
