@@ -1,4 +1,5 @@
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
+import { congestionColor } from "../../lib/colors";
 
 interface HoveredSp {
   spId: string;
@@ -132,6 +133,18 @@ function NodeChip() {
   );
 }
 
+// The SF's sign deserves its own fast visual cue. This sits beside the numeric
+// value, leaving the square marker free to identify the constraint or node.
+function SfSign({ sf }: { sf: number }) {
+  const color = congestionColor(sf < 0 ? 1 : -1);
+  return (
+    <>
+      <span className="dc-sf-dot" style={{ background: color }} aria-hidden="true" />
+      <span className="dc-driver-sf mono" style={{ color }}>{fmtSf(sf)}</span>
+    </>
+  );
+}
+
 // Node-explorer body: drivers are ordered by |SF|, so the first row already
 // communicates the largest influence without a redundant headline statistic.
 function ExposuresBody({
@@ -170,7 +183,7 @@ function ExposuresBody({
           >
             <TypeChip ctype={e.ctype} />
             <span className="dc-driver-key mono">{e.constraint_key}</span>
-            <span className="dc-driver-sf mono">{fmtSf(e.sf)}</span>
+            <SfSign sf={e.sf} />
             <span className="dc-driver-sup label">
               {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
             </span>
@@ -229,7 +242,7 @@ function ReachBody({
           >
             <NodeChip />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
-            <span className="dc-driver-sf mono">{fmtSf(s.sf)}</span>
+            <SfSign sf={s.sf} />
           </button>
         ))}
       </div>
@@ -325,7 +338,7 @@ export default function DetailCard({
           position: absolute;
           top: 12px;
           left: 12px;
-          width: 250px;
+          width: 270px;
           background: var(--bg-glass);
           border: 1px solid var(--border-bright);
           border-radius: 4px;
@@ -425,7 +438,7 @@ export default function DetailCard({
         }
         .dc-driver {
           display: grid;
-          grid-template-columns: 10px 1fr auto auto;
+          grid-template-columns: 10px 1fr 7px auto auto;
           align-items: center;
           gap: 6px;
           padding: 3px 0;
@@ -444,18 +457,18 @@ export default function DetailCard({
           flex-shrink: 0;
         }
         .dc-driver-key {
-          font-size: 11px;
+          font-size: 12px;
           color: var(--text-primary);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .dc-driver-sf {
-          font-size: 11px;
-          color: var(--text-secondary);
+          font-size: 12px;
         }
+        .dc-sf-dot { width: 7px; height: 7px; border-radius: 50%; }
         .dc-driver-sup {
-          font-size: 10px;
+          font-size: 11px;
           color: var(--text-muted);
           min-width: 30px;
           text-align: right;
