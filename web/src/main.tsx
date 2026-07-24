@@ -4,10 +4,8 @@ import './index.css'
 import App from './App.tsx'
 import ScoreboardPage from './pages/ScoreboardPage.tsx'
 
-// Minimal pathname routing (no router dependency): /scoreboard renders the full
-// backtest board (the "View full scoreboard" target), everything else the map.
-// The <a href> links do full navigations; vite's SPA fallback serves index.html
-// for /scoreboard so this switch resolves it.
+// Scoreboard remains a standalone analytical application. The explorer itself
+// handles /map and /matrix transitions without recreating its live session.
 export function Root() {
   return window.location.pathname.startsWith('/scoreboard') ? (
     <ScoreboardPage />
