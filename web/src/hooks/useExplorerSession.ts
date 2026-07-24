@@ -20,7 +20,7 @@ import type { SparkPoint } from "../components/playback/TimelineSparkline";
 export type ConnectionState = "ok" | "error" | "loading";
 
 /** State shared by every live explorer workspace, independent of its rendering. */
-export function useExplorerSession(onSuggestedPalette: (palette: Palette) => void) {
+export function useExplorerSession() {
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -102,11 +102,11 @@ export function useExplorerSession(onSuggestedPalette: (palette: Palette) => voi
     }
   }, []);
 
-  const selectEvent = useCallback((event: CuratedEvent) => {
+  const selectEvent = useCallback((event: CuratedEvent, onSuggestedPalette?: (palette: Palette) => void) => {
     setActiveEventId(event.id);
-    if (event.suggested_view) onSuggestedPalette(event.suggested_view);
+    if (event.suggested_view) onSuggestedPalette?.(event.suggested_view);
     void loadWindow(new Date(event.window_start), new Date(event.window_end), new Date(event.cursor_ts));
-  }, [loadWindow, onSuggestedPalette]);
+  }, [loadWindow]);
 
   const loadCustomWindow = useCallback((start: Date, end: Date) => {
     setActiveEventId(null);
