@@ -237,6 +237,37 @@ export default function PlaybackScrubber({
           justify-content: space-between;
           opacity: 0.5;
         }
+        @media (max-width: 767px) {
+          .scrubber {
+            flex-direction: column;
+            gap: 6px;
+            padding: 6px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+          }
+          .scrubber__left { display: contents; }
+          .scrubber__left > .drp { display: none; }
+          .scrubber__controls {
+            order: 2;
+            justify-content: center;
+            gap: 10px;
+          }
+          .scrubber__controls button { min-width: 40px; height: 36px; }
+          .scrubber__controls .playbtn {
+            flex-direction: row;
+            gap: 7px;
+            width: auto;
+            min-width: 82px;
+            height: 36px;
+            padding: 4px 12px;
+          }
+          .scrubber__main { order: 1; }
+          .scrubber__meta { justify-content: center; min-height: 16px; }
+          .scrubber__ts { font-size: 13px; }
+          .scrubber__event { display: none; }
+          .scrubber__track .sparkline,
+          .scrubber__range-labels { display: none; }
+          input[type='range'] { height: 6px; }
+          input[type='range']::-webkit-slider-thumb { width: 20px; height: 20px; }
+        }
       `}</style>
     </div>
   );

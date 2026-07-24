@@ -38,6 +38,7 @@ import {
   type CongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
+import MobileDrawer from "./components/layout/MobileDrawer";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import type { SparkPoint } from "./components/playback/TimelineSparkline";
@@ -108,6 +109,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [connState, setConnState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // A drawer cannot remain relevant after returning to desktop, where the
+  // information lives in the persistent sidebar again.
+  useEffect(() => {
+    if (!isMobile) setMobileDrawerOpen(false);
+  }, [isMobile]);
 
   // Each map owns its own card interaction. In dual view, touching the ERCOT
   // pane must not replace or close the prediction pane's card (and vice versa).
@@ -1070,6 +1078,30 @@ export default function App() {
     </>
   );
 
+  const sidePanelProps = {
+    network: networkStats,
+    headline,
+    fitMeta: mapMeta,
+    ranked,
+    rankedLoading,
+    constraintBasis,
+    onConstraintBasis: setConstraintBasis,
+    onSelectConstraint: handleConstraintLock,
+    highlightedConstraintId: effectiveConstraintId,
+    onHoverConstraint: handleConstraintHover,
+    onMemberHover: setHoveredMemberSp,
+  };
+  const mobileLoadWindow = (
+    <DateRangePicker
+      inline
+      onLoad={handleCustomLoadWindow}
+      onSelectEvent={handleSelectEvent}
+      events={CURATED_EVENTS}
+      activeEventId={activeEventId}
+      loading={loading}
+    />
+  );
+
   return (
     <div className="app-shell">
       <Header
@@ -1083,6 +1115,8 @@ export default function App() {
         onToggleConstraints={
           overview?.constraints.length ? setShowConstraints : undefined
         }
+        mobileDrawerOpen={mobileDrawerOpen}
+        onToggleMobileDrawer={() => setMobileDrawerOpen((open) => !open)}
       />
 
       <div className="app-workspace">
@@ -1142,20 +1176,41 @@ export default function App() {
             per-day ranked list) in one tabbed region. Row click traces the
             constraint on the map via /map/reach (same as a marker click); the
             synced hover is wired in the next group. */}
-          <SidePanel
-            network={networkStats}
-            headline={headline}
-            fitMeta={mapMeta}
-          ranked={ranked}
-          rankedLoading={rankedLoading}
-          constraintBasis={constraintBasis}
-          onConstraintBasis={setConstraintBasis}
-          onSelectConstraint={handleConstraintLock}
-          highlightedConstraintId={effectiveConstraintId}
-          onHoverConstraint={handleConstraintHover}
-          onMemberHover={setHoveredMemberSp}
-        />
+        <SidePanel {...sidePanelProps} />
       </div>
+
+      {isMobile && (
+        <MobileDrawer
+          open={mobileDrawerOpen}
+          onClose={() => setMobileDrawerOpen(false)}
+        >
+          <section className="mobile-drawer__section">
+            <div className="mobile-drawer__section-title label">Map</div>
+            {overview?.constraints.length ? (
+              <button
+                className={showConstraints ? "active" : ""}
+                onClick={() => setShowConstraints((shown) => !shown)}
+              >
+                Constraints overlay
+              </button>
+            ) : null}
+          </section>
+          <SidePanel
+            {...sidePanelProps}
+            variant="drawer"
+            loadWindow={mobileLoadWindow}
+          />
+          <style>{`
+            .mobile-drawer__section { margin-bottom: 18px; }
+            .mobile-drawer__section-title {
+              display: block;
+              margin-bottom: 8px;
+              color: var(--text-secondary);
+            }
+            .mobile-drawer__section > button { min-height: 38px; }
+          `}</style>
+        </MobileDrawer>
+      )}
 
       {/* Bottom scrubber: Load Window picker sits in the scrubber's left column,
           above the transport controls. */}

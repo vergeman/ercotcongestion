@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, type ReactNode } from "react";
 import type {
   ScoreboardHeadline,
   RankedConstraints,
@@ -44,6 +44,10 @@ interface Props {
   onSelectConstraint?: (id: string) => void;
   // A constituent SP hovered in an expanded row — App rings that node on the map.
   onMemberHover?: (sp: string | null) => void;
+  variant?: "sidebar" | "drawer";
+  // Mobile supplies the inline date/event picker here. Keeping it as a panel
+  // tab avoids placing a tall form ahead of the stats and constraint explorer.
+  loadWindow?: ReactNode;
 }
 
 function fmtNum(v: number | null, decimals = 1): string {
@@ -123,20 +127,25 @@ export default function SidePanel({
   onHoverConstraint,
   onSelectConstraint,
   onMemberHover,
+  variant = "sidebar",
+  loadWindow,
 }: Props) {
   const [windowDays, setWindowDays] = useState<number>(30);
-  const [tab, setTab] = useState<"stats" | "constraints">("stats");
+  const [tab, setTab] = useState<"stats" | "constraints" | "window">("stats");
   const win =
     headline?.windows.find((w) => w.window_days === windowDays) ??
     headline?.windows[0] ??
     null;
   const byCurrency = new Map(win?.currencies.map((c) => [c.currency, c]) ?? []);
+  const tabs = loadWindow
+    ? (["stats", "constraints", "window"] as const)
+    : (["stats", "constraints"] as const);
 
   return (
-    <aside className="side-panel">
+    <aside className={`side-panel side-panel--${variant}`}>
       {/* ── Tab bar: one region, two questions (plan/0103) ─────────────── */}
       <div className="sp-tabs" role="tablist" aria-label="side panel">
-        {(["stats", "constraints"] as const).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             role="tab"
@@ -144,12 +153,18 @@ export default function SidePanel({
             className={`sp-tab${tab === t ? " active" : ""}`}
             onClick={() => setTab(t)}
           >
-            {t === "stats" ? "Stats" : "Constraints"}
+            {t === "stats"
+              ? "Stats"
+              : t === "constraints"
+              ? "Constraints"
+              : "Load window"}
           </button>
         ))}
       </div>
 
-      {tab === "constraints" ? (
+      {tab === "window" && loadWindow ? (
+        <section className="sp-load-window">{loadWindow}</section>
+      ) : tab === "constraints" ? (
         <ConstraintPanel
           ranked={ranked}
           loading={rankedLoading}
@@ -327,6 +342,7 @@ export default function SidePanel({
           color: var(--text-primary);
           border-bottom-color: var(--accent);
         }
+        .sp-load-window { padding-top: 2px; }
         .sp-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .np-section { margin-bottom: 18px; }
         .np-section__header {
@@ -405,7 +421,17 @@ export default function SidePanel({
         }
         .sc-link:hover { text-decoration: underline; }
         @media (max-width: 767px) {
-          .side-panel { display: none; }
+          .side-panel--sidebar { display: none; }
+          .side-panel--drawer {
+            display: block;
+            width: auto;
+            min-width: 0;
+            height: auto;
+            overflow: visible;
+            padding: 0;
+            border: 0;
+            background: transparent;
+          }
         }
       `}</style>
     </aside>

@@ -18,6 +18,8 @@ interface Props {
   // before the overlay has loaded).
   showConstraints?: boolean;
   onToggleConstraints?: (v: boolean) => void;
+  mobileDrawerOpen?: boolean;
+  onToggleMobileDrawer?: () => void;
 }
 
 export default function Header({
@@ -29,6 +31,8 @@ export default function Header({
   connectionState,
   showConstraints,
   onToggleConstraints,
+  mobileDrawerOpen = false,
+  onToggleMobileDrawer,
 }: Props) {
   // Seeded from the attribute the index.html bootstrap already resolved, so the
   // button label is correct on first paint.
@@ -100,6 +104,16 @@ export default function Header({
       </div>
 
       <div className="header__status">
+        {onToggleMobileDrawer && (
+          <button
+            className="mobile-menu-button"
+            onClick={onToggleMobileDrawer}
+            aria-label={mobileDrawerOpen ? "Close map menu" : "Open map menu"}
+            aria-expanded={mobileDrawerOpen}
+          >
+            ☰
+          </button>
+        )}
         <Tooltip
           as="button"
           placement="bottom"
@@ -154,6 +168,7 @@ export default function Header({
           align-items: center;
           gap: 8px;
         }
+        .mobile-menu-button { display: none; }
         .theme-toggle {
           display: flex;
           align-items: center;
@@ -198,6 +213,19 @@ export default function Header({
           .header__controls { display: none; }
           .header__status { margin-left: auto; gap: 6px; }
           .header__status > .label { display: none; }
+          .mobile-menu-button {
+            display: inline-flex;
+            width: 30px;
+            height: 30px;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: none;
+            background: none;
+            color: var(--text-secondary);
+            font-size: 18px;
+          }
+          .mobile-menu-button:hover { color: var(--accent); }
           .theme-toggle { width: 30px; height: 30px; }
         }
       `}</style>
