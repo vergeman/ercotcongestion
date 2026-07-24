@@ -352,14 +352,10 @@ dependency change needs a new image.
 Hand-run the deployed cronjob on the identical path:
 ```
 cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
-kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
+kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh
+kubectl -n ercotstress create job --from=cronjob/forecast-daily
 ```
 
-Hand-run the deployed cronjob on the identical path:
-```
-cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
-kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh map-refresh-manual
-```
 
 ### Good to know
 
