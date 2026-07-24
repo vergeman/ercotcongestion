@@ -4,15 +4,22 @@
 
 import Tooltip from "../ui/Tooltip";
 
-type NavKey = "map" | "scoreboard" | "analysis";
+type NavKey = "map" | "matrix" | "scoreboard" | "analysis";
 
 const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean }[] = [
-  { key: "map", label: "Map", href: "/" },
-  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", newTab: true },
+  { key: "map", label: "Map", href: "/map" },
+  { key: "matrix", label: "Matrix", href: "/matrix" },
+  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard" },
   { key: "analysis", label: "Analysis" }, // not yet built — disabled
 ];
 
-export default function HeaderNav({ active }: { active: NavKey }) {
+export default function HeaderNav({
+  active,
+  onNavigate,
+}: {
+  active: NavKey;
+  onNavigate?: (workspace: "map" | "matrix") => void;
+}) {
   return (
     <div className="brand-nav">
       <span className="brand-nav__logo">⚡</span>
@@ -25,6 +32,12 @@ export default function HeaderNav({ active }: { active: NavKey }) {
               href={n.href}
               target={n.newTab ? "_blank" : undefined}
               rel={n.newTab ? "noopener noreferrer" : undefined}
+              onClick={(event) => {
+                if (!onNavigate || (n.key !== "map" && n.key !== "matrix")) return;
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onNavigate(n.key);
+              }}
               className={`brand-nav__link${active === n.key ? " active" : ""}`}
               aria-current={active === n.key ? "page" : undefined}
             >
