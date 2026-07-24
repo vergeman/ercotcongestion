@@ -1,5 +1,9 @@
 import { useState, Fragment } from "react";
-import type { ScoreboardHeadline, RankedConstraints, MapMeta } from "../../api/types";
+import type {
+  ScoreboardHeadline,
+  RankedConstraints,
+  MapMeta,
+} from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
 
@@ -56,9 +60,9 @@ const fmtScore = (v: number | null): string => (v == null ? "—" : v.toFixed(2)
 
 // The three headline currencies (screening leads; §6) with per-row hover copy.
 const CURRENCY_ORDER = [
-  "topdecile_hit",
   "rank_spearman",
   "sign_agree",
+  "topdecile_hit",
 ] as const;
 const CURRENCY_META: Record<string, { label: string; hint: string }> = {
   topdecile_hit: {
@@ -70,7 +74,7 @@ const CURRENCY_META: Record<string, { label: string; hint: string }> = {
     hint: "Spatial Spearman rank correlation of the forecast to realized congestion across nodes.",
   },
   sign_agree: {
-    label: "Sign",
+    label: "Sign Agreement",
     hint: "Sign agreement: fraction of nodes whose congestion sign (import vs export) the forecast gets right.",
   },
 };
@@ -259,7 +263,7 @@ export default function SidePanel({
                     value={fmtScore(fitMeta.oos_r2)}
                   />
                   <Stat
-                    label="SF stability"
+                    label="SF Stability"
                     hint="How consistently the model assigns shift factors — each place's sensitivity to a constraint — from one time window to the next. Higher is more repeatable."
                     value={fmtScore(fitMeta.sf_stability)}
                   />
