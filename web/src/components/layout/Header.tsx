@@ -5,6 +5,8 @@ import HeaderNav from "./HeaderNav";
 import Tooltip from "../ui/Tooltip";
 
 interface Props {
+  activeWorkspace?: "map" | "matrix";
+  onNavigate?: (workspace: "map" | "matrix") => void;
   // The two orthogonal axes: `viewMode` picks forecast-error vs dual compare;
   // `palette` picks the ERCOT quantity the dual panes color by. The palette control
   // is shown only in dual — forecast error is congestion-based regardless of palette.
@@ -23,6 +25,8 @@ interface Props {
 }
 
 export default function Header({
+  activeWorkspace = "map",
+  onNavigate,
   viewMode,
   onViewMode,
   palette,
@@ -40,9 +44,9 @@ export default function Header({
 
   return (
     <header className="header">
-      <HeaderNav active="map" />
+      <HeaderNav active={activeWorkspace} onNavigate={onNavigate} />
 
-      <div className="header__controls">
+      {activeWorkspace === "map" && <div className="header__controls">
         <div className="view-toggle">
           <span className="label" style={{ marginRight: 6 }}>
             View
@@ -101,7 +105,7 @@ export default function Header({
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="header__status">
         {onToggleMobileDrawer && (
