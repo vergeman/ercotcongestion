@@ -222,7 +222,15 @@ export default function GridMap({
 
     mapRef.current = map;
     onMapReady?.(map);
+    // MapLibre measures its container at construction time. Switching from the
+    // full-width forecast-error map to the half-width dual pane does not emit a
+    // window resize, leaving projection coordinates based on the old map width.
+    // Observe the actual pane instead so both map geometry and the React hover
+    // popover (which uses projected pixels) stay in the same coordinate space.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
       setSourcesReady(false);
@@ -420,15 +428,16 @@ export default function GridMap({
         const mem = spMembersRef.current.get(sp);
         const hasMembers = !!mem && mem.length >= 2;
         hoveredNodeHasMembersRef.current = hasMembers;
-        const geom = e.features[0].geometry as GeoJSON.Point;
-        const pt = map.project(geom.coordinates as [number, number]);
         setPopover({
           name: sp,
           kind: "node",
           members: hasMembers ? mem : undefined,
           meta: typeof props.load_zone === "string" ? props.load_zone : null,
-          x: pt.x,
-          y: pt.y,
+          // Event pixels are already relative to this map's own canvas. Using
+          // them avoids re-projecting against a stale full-width transform while
+          // the dual pane is being laid out.
+          x: e.point.x,
+          y: e.point.y,
         });
       });
 
