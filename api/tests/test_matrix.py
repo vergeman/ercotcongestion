@@ -1,0 +1,105 @@
+"""Unit tests for the bounded causal /matrix/frame contract."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pandas as pd
+import pytest
+
+import matrix as matrix_module
+from compute.sf.project import build_sf_mu_artifact
+
+
+T0 = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)  # midnight Central
+T1 = datetime(2026, 7, 1, 6, tzinfo=timezone.utc)
+
+
+def _blob() -> bytes:
+    sf = pd.DataFrame(
+        {'SP_A': [1.0, 0.5, 0.1], 'SP_B': [-0.2, 0.3, 0.7], 'SP_C': [0.1, 0.4, 0.2]},
+        index=['AAA|BASE', 'BBB|LINE', 'CCC|OUTAGE'],
+    )
+    mu = pd.DataFrame(
+        {'AAA|BASE': [2.0, 1.0], 'BBB|LINE': [3.0, 0.0], 'CCC|OUTAGE': [0.0, 2.0]},
+        index=pd.to_datetime([T0, T1], utc=True),
+    )
+    return build_sf_mu_artifact(sf, mu)
+
+
+def _queue_frame(fake_pool, dam_rows: list[dict] | None = None):
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'sf_npz': _blob()}])
+    fake_pool.cursor.queue(dam_rows or [])
+
+
+def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('hub', 'north_hub'), 'SP_B': ('load_zone', 'west'), 'SP_C': ('resource', None),
+    })
+    _queue_frame(fake_pool, [
+        {'constraint_name': ' BBB ', 'contingency_name': ' LINE ', 'shadow_price': 9.0},
+    ])
+
+    response = client.get('/matrix/frame', params={
+        'interval_ts': '2026-07-01T05:00:00Z', 'row_limit': 2, 'column_limit': 2,
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['available'] is True
+    assert body['delivery_date'] == '2026-07-01'
+    assert body['dam_status'] == 'partial'
+    # Daily ordering is independent of the selected hour: AAA (3*1.3) beats
+    # BBB (3*1.2), and CCC is outside the requested bounded row universe.
+    assert [r['constraint_key'] for r in body['rows']] == ['AAA|BASE', 'BBB|LINE']
+    assert [r['forecast_mu'] for r in body['rows']] == [2.0, 3.0]
+    assert [r['ercot_dam_mu'] for r in body['rows']] == [None, 9.0]
+    assert [c['settlement_point'] for c in body['columns']] == ['SP_A', 'SP_C']
+    assert body['columns'][0]['settlement_point_type'] == 'hub'
+    # Row-major: AAA×(A,C), BBB×(A,C), exactly aligned to the labels above.
+    assert body['sf']['row_count'] == 2 and body['sf']['column_count'] == 2
+    assert body['sf']['values'] == pytest.approx([1.0, 0.1, 0.5, 0.4])
+    assert body['fit_window_start'] is None and body['fit_window_end'] is None
+
+
+def test_frame_order_does_not_change_by_hour(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _queue_frame(fake_pool)
+    first = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
+    # Cache reuse skips the blob query, but pointer and exact-hour DAM still query.
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([])
+    second = client.get('/matrix/frame', params={'interval_ts': T1.isoformat(), 'row_limit': 2, 'column_limit': 2})
+    assert first.status_code == second.status_code == 200
+    assert [r['constraint_key'] for r in first.json()['rows']] == [r['constraint_key'] for r in second.json()['rows']]
+    assert [c['settlement_point'] for c in first.json()['columns']] == [c['settlement_point'] for c in second.json()['columns']]
+
+
+def test_frame_reports_missing_artifact_without_fallback(client, fake_pool):
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([])
+    response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat()})
+    assert response.status_code == 200
+    assert response.json()['available'] is False
+    assert response.json()['unavailable_reason'] == 'artifact_missing'
+    assert response.json()['sf']['values'] == []
+
+
+def test_frame_reports_interval_absent_from_artifact(client, fake_pool):
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'sf_npz': _blob()}])
+    response = client.get('/matrix/frame', params={'interval_ts': '2026-07-01T07:00:00Z'})
+    assert response.status_code == 200
+    assert response.json()['available'] is False
+    assert response.json()['unavailable_reason'] == 'interval_not_in_artifact'
+
+
+def test_delivery_date_uses_central_time_boundary():
+    assert matrix_module._delivery_date(datetime(2026, 7, 1, 4, 59, tzinfo=timezone.utc)).isoformat() == '2026-06-30'
+    assert matrix_module._delivery_date(T0).isoformat() == '2026-07-01'
+
+
+def test_frame_enforces_conservative_bounds(client):
+    response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 101})
+    assert response.status_code == 422
+    response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'column_limit': 101})
+    assert response.status_code == 422

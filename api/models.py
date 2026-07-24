@@ -1,6 +1,7 @@
 """Response schemas for the API."""
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -283,6 +284,53 @@ class RankedConstraints(BaseModel):
     k: int
     n_ranked: int
     constraints: list[RankedConstraint]
+
+
+# ---- /matrix/frame -------------------------------------------------------
+
+class MatrixRow(BaseModel):
+    """One stable constraint row in a delivery day's bounded SF rectangle."""
+    constraint_key: str
+    constraint_name: str
+    contingency_name: str | None = None
+    constraint_type: str | None = None
+    forecast_mu: float
+    ercot_dam_mu: float | None = None
+    daily_rank: int
+    binding_hours: int
+    max_abs_sf: float
+
+
+class MatrixColumn(BaseModel):
+    """One stable settlement-point column in a bounded SF rectangle."""
+    settlement_point: str
+    settlement_point_type: str | None = None
+    load_zone: str | None = None
+    max_abs_sf: float
+
+
+class MatrixSfValues(BaseModel):
+    """Row-major recovered implied-SF values aligned to ``rows`` and ``columns``."""
+    row_count: int
+    column_count: int
+    values: list[float]
+
+
+class MatrixFrame(BaseModel):
+    """A causal, immutable-artifact-backed Matrix frame for one delivery hour."""
+    available: bool
+    unavailable_reason: str | None = None
+    run_id: str
+    delivery_date: date
+    interval_ts: datetime
+    fit_window_start: datetime | None = None
+    fit_window_end: datetime | None = None
+    dam_status: Literal['pending', 'partial', 'available'] = 'pending'
+    row_ordering: str = 'daily_abs_forecast_contribution_desc_then_constraint_key'
+    column_ordering: str = 'max_abs_sf_desc_then_settlement_point'
+    rows: list[MatrixRow] = []
+    columns: list[MatrixColumn] = []
+    sf: MatrixSfValues
 
 
 # ---- /scoreboard/headline ------------------------------------------------
