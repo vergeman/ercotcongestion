@@ -32,9 +32,11 @@ exceptions and no "just for the sweep".
 """
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -511,6 +513,7 @@ def walk_forward(panel: pd.DataFrame,
                  train_days: int = DEFAULT_TRAIN_DAYS,
                  refit_days: int = DEFAULT_REFIT_DAYS,
                  score_from: pd.Timestamp | None = None,
+                 score_until: pd.Timestamp | None = None,
                  anchor: pd.Timestamp | None = None,
                  seed: int = 0,
                  arms: tuple[str, ...] = ("lag", "geo", "wx"),
@@ -533,6 +536,8 @@ def walk_forward(panel: pd.DataFrame,
     cols = feat + ["key_bind_rate"]
     ts = panel.index.get_level_values("interval_ts")
     starts = refit_boundaries(panel, train_days, refit_days, score_from, anchor)
+    if score_until is not None:
+        starts = starts[starts < pd.Timestamp(score_until)]
     if not len(starts):
         return pd.DataFrame(), pd.DataFrame()
 
@@ -745,6 +750,70 @@ def save_preds(path: str, preds: pd.DataFrame) -> None:
     )
 
 
+_PRED_ARRAY_DTYPES = {
+    "interval_ts": np.dtype("int64"),
+    "week": np.dtype("int64"),
+    "key_code": np.dtype("int32"),
+    "p_bind": np.dtype("float32"),
+    "mu_clim": np.dtype("float32"),
+    "mu_gbm": np.dtype("float32"),
+    "y_bind": np.dtype("int8"),
+    "y_mu": np.dtype("float32"),
+}
+
+
+def combine_pred_chunks(paths: list[str], output: str) -> int:
+    """Stream per-chunk NPZs into one standard ``mu_preds.npz`` artifact.
+
+    The walk writes each chunk before releasing its panel.  Loading those chunks
+    into one DataFrame merely moves the full-history OOM to the finish line, so the
+    final ZIP members are written as streaming ``.npy`` arrays instead.  The result
+    is byte-schema-compatible with ``save_preds`` / ``load_preds``.
+    """
+    if not paths:
+        raise ValueError("cannot combine zero prediction chunks")
+
+    vocab_parts: list[np.ndarray] = []
+    n_rows = 0
+    for path in paths:
+        with np.load(path, allow_pickle=False) as z:
+            vocab_parts.append(z["key_vocab"])
+            n_rows += len(z["interval_ts"])
+    vocab = np.unique(np.concatenate(vocab_parts))
+    tmp = f"{output}.tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(output)) or ".", exist_ok=True)
+
+    def write_member(zf: zipfile.ZipFile, name: str, dtype: np.dtype, chunks) -> None:
+        header = {"descr": dtype.str, "fortran_order": False, "shape": (n_rows,)}
+        with zf.open(f"{name}.npy", "w", force_zip64=True) as fh:
+            np.lib.format.write_array_header_2_0(fh, header)
+            for values in chunks:
+                fh.write(np.ascontiguousarray(values, dtype=dtype).tobytes())
+
+    try:
+        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED,
+                             allowZip64=True) as zf:
+            with zf.open("key_vocab.npy", "w", force_zip64=True) as fh:
+                np.save(fh, vocab, allow_pickle=False)
+            for name, dtype in _PRED_ARRAY_DTYPES.items():
+                def arrays(name=name):
+                    for path in paths:
+                        with np.load(path, allow_pickle=False) as z:
+                            if name == "key_code":
+                                keys = z["key_vocab"][z["key_code"]]
+                                yield np.searchsorted(vocab, keys).astype("int32")
+                            else:
+                                yield z[name]
+                write_member(zf, name, dtype, arrays())
+        os.replace(tmp, output)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return n_rows
+
+
 def load_preds(path: str) -> pd.DataFrame:
     """Inverse of `save_preds`. Round-trips exactly — see the test."""
     z = np.load(path, allow_pickle=False)
@@ -828,6 +897,69 @@ def spill_panel_features(panel: pd.DataFrame, spill_dir: str) -> pd.DataFrame:
     return adf
 
 
+def score_chunks(score_from: pd.Timestamp, end: pd.Timestamp, refit_days: int,
+                 chunk_weeks: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Partition the fixed scored grid into exclusive-end chunk windows."""
+    if chunk_weeks < 1:
+        raise ValueError("chunk_weeks must be positive")
+    end = pd.Timestamp(end).tz_convert(score_from.tz)
+    starts = pd.date_range(score_from, end, freq=pd.Timedelta(days=refit_days),
+                           inclusive="left")
+    step = pd.Timedelta(days=refit_days)
+    return [(block[0], block[-1] + step)
+            for block in (starts[i:i + chunk_weeks]
+                          for i in range(0, len(starts), chunk_weeks)) if len(block)]
+
+
+def walk_forward_chunked(build_panel_for_range, *, score_from: pd.Timestamp,
+                         end: pd.Timestamp, train_days: int, refit_days: int,
+                         chunk_weeks: int, arms: tuple[str, ...],
+                         spill_dir: str | None, chunk_dir: str,
+                         ) -> tuple[pd.DataFrame, list[str]]:
+    """Build, score, and release bounded historical panel chunks.
+
+    Each chunk reads the score window plus its full causal training margin; only
+    that chunk's predictions are held in RAM, then saved as a standard NPZ piece.
+    ``combine_pred_chunks`` subsequently produces the canonical single artifact.
+    """
+    windows = score_chunks(score_from, end, refit_days, chunk_weeks)
+    os.makedirs(chunk_dir, exist_ok=True)
+    weekly_parts: list[pd.DataFrame] = []
+    paths: list[str] = []
+    for i, (chunk_start, chunk_end) in enumerate(windows, start=1):
+        read_start = chunk_start - pd.Timedelta(days=train_days + PANEL_LEADIN_DAYS)
+        log.info("chunk %d/%d: scores %s → %s; reads from %s",
+                 i, len(windows), chunk_start.date(),
+                 (chunk_end - pd.Timedelta(days=refit_days)).date(), read_start.date())
+        panel = build_panel_for_range(read_start, chunk_end)
+        try:
+            log.info("chunk %d/%d: panel = %s rows x %s cols", i, len(windows),
+                     f"{len(panel):,}", panel.shape[1])
+            if spill_dir and os.environ.get("MU_SPILL_PANEL"):
+                panel = spill_panel_features(panel, spill_dir)
+            preds, weekly = walk_forward(
+                panel, train_days, refit_days, chunk_start, chunk_end,
+                arms=arms, spill_dir=spill_dir,
+            )
+            path = os.path.join(chunk_dir, f"preds-{i:04d}.npz")
+            save_preds(path, preds)
+            paths.append(path)
+            weekly_parts.append(weekly)
+            log.info("chunk %d/%d: wrote %s prediction rows", i, len(windows),
+                     f"{len(preds):,}")
+            del preds
+        finally:
+            del panel
+            if spill_dir:
+                try:
+                    os.remove(os.path.join(spill_dir, _PANEL_FILE))
+                except OSError:
+                    pass
+            gc.collect()
+    return (pd.concat(weekly_parts, ignore_index=True) if weekly_parts
+            else pd.DataFrame()), paths
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -851,6 +983,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS),
                    help="ablation arm (plan/0088): which covariate families the "
                         "model may see. The panel is built identically either way.")
+    p.add_argument("--chunk-weeks", type=int, default=0,
+                   help="build and score this many weekly folds at a time, writing "
+                        "temporary prediction chunks to bound full-history memory; "
+                        "0 keeps the single-panel walk")
     p.add_argument("--run-id", default=None,
                    help="canonical run namespace (plan/0113): derive --out and "
                         "--preds-out under runs/<run-id>/mu/ (mu_weekly.csv, "
@@ -876,6 +1012,10 @@ def main(argv: list[str] | None = None) -> int:
     if origin is None:
         p.error("pass --start (the series origin / first scored week)")
     score_from_ts = pd.Timestamp(origin, tz="UTC")
+    if args.chunk_weeks < 0:
+        p.error("--chunk-weeks must be non-negative")
+    if args.chunk_weeks and not args.preds_out:
+        p.error("--chunk-weeks requires --run-id or --preds-out for the final artifact")
 
     # Derive the data-read floor from the origin: the walk needs train_days of history
     # behind the first scored week, plus PANEL_LEADIN_DAYS of slack for the panel's
@@ -889,26 +1029,6 @@ def main(argv: list[str] | None = None) -> int:
 
     arms = arms_for(args.features)
 
-    with psycopg.connect(dsn) as conn:
-        log.info("loading shadow prices %s → %s", lo.date(), hi.date())
-        M = load_shadow_prices(conn, lo, hi)
-        # The congestion panel is loaded only for the geography arm — it is what
-        # `SF` is fitted against. Skipping it when no arm needs it keeps the base
-        # run identical to 0085's and saves a large read.
-        C = None
-        if "geo" in arms:
-            C = load_congestion_panel(conn, lo, hi)
-            log.info("C = %s (geography arm is on)", C.shape)
-        log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
-        panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
-                            score_from=score_from_ts,
-                            with_weather="wx" in arms)
-
-    log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
-             f"{len(panel):,}", panel.shape[1],
-             panel.memory_usage(deep=False).sum() / 1e9, args.features,
-             len(feature_cols(panel, arms)) + 1)
-
     # Resolve the disk spill directory once — both spills share it: the disk-backed
     # --preds-out PVC by default, MU_SPILL_DIR overrides.
     spill_dir = os.environ.get("MU_SPILL_DIR")
@@ -916,54 +1036,119 @@ def main(argv: list[str] | None = None) -> int:
         spill_dir = os.path.join(
             os.path.dirname(os.path.abspath(args.preds_out)) or ".", "spill")
 
-    # The per-fold bind matrix always spills when a dir is available (the ~3.4 GB
-    # float64 train matrix — see _alloc_bind_matrix). The resident panel is a larger,
-    # opt-in spill (pyarrow): enabled by MU_SPILL_PANEL for nodes whose headroom can
-    # dip mid-run, off by default so the common path keeps the fast in-RAM panel.
     if spill_dir:
         log.info("bind matrix spills to disk at %s", spill_dir)
-        if os.environ.get("MU_SPILL_PANEL"):
-            panel = spill_panel_features(panel, spill_dir)
 
-    # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
-    # with sf/eval's — see refit_boundaries.
-    preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
-                                 score_from_ts, anchor=M.index[0].normalize(),
-                                 arms=arms, spill_dir=spill_dir)
+    if args.chunk_weeks:
+        chunk_dir = os.path.join(
+            spill_dir or os.path.dirname(os.path.abspath(args.preds_out)),
+            "mu-pred-chunks",
+        )
+        with psycopg.connect(dsn) as conn:
+            def build_chunk(read_start, chunk_end):
+                log.info("loading chunk inputs %s → %s", read_start.date(),
+                         chunk_end.date())
+                M = load_shadow_prices(conn, read_start, chunk_end)
+                C = None
+                if "geo" in arms:
+                    C = load_congestion_panel(conn, read_start, chunk_end)
+                    log.info("chunk C = %s", C.shape)
+                panel = build_panel(conn, M, read_start, chunk_end,
+                                    policy=args.policy, C=C,
+                                    score_from=score_from_ts,
+                                    with_weather="wx" in arms)
+                del M, C
+                return panel
 
-    # Unlink the on-disk panel copy; the mmap stays valid until this process exits.
-    if spill_dir:
+            weekly, chunk_paths = walk_forward_chunked(
+                build_chunk, score_from=score_from_ts, end=hi,
+                train_days=args.train_days, refit_days=args.refit_days,
+                chunk_weeks=args.chunk_weeks, arms=arms, spill_dir=spill_dir,
+                chunk_dir=chunk_dir,
+            )
+        n_pred_rows = combine_pred_chunks(chunk_paths, args.preds_out)
+        for path in chunk_paths:
+            os.remove(path)
         try:
-            os.remove(os.path.join(spill_dir, _PANEL_FILE))
+            os.rmdir(chunk_dir)
         except OSError:
             pass
+        preds = None
+        log.info("combined %d prediction chunks into %s (%s rows)",
+                 len(chunk_paths), args.preds_out, f"{n_pred_rows:,}")
+    else:
+        with psycopg.connect(dsn) as conn:
+            log.info("loading shadow prices %s → %s", lo.date(), hi.date())
+            M = load_shadow_prices(conn, lo, hi)
+            # The congestion panel is loaded only for the geography arm — it is what
+            # `SF` is fitted against. Skipping it when no arm needs it keeps the base
+            # run identical to 0085's and saves a large read.
+            C = None
+            if "geo" in arms:
+                C = load_congestion_panel(conn, lo, hi)
+                log.info("C = %s (geography arm is on)", C.shape)
+            log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
+            panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
+                                score_from=score_from_ts,
+                                with_weather="wx" in arms)
+            anchor = M.index[0].normalize()
+            del M, C
+
+        log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
+                 f"{len(panel):,}", panel.shape[1],
+                 panel.memory_usage(deep=False).sum() / 1e9, args.features,
+                 len(feature_cols(panel, arms)) + 1)
+        if spill_dir and os.environ.get("MU_SPILL_PANEL"):
+            panel = spill_panel_features(panel, spill_dir)
+
+        # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
+        # with sf/eval's — see refit_boundaries.
+        preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
+                                     score_from_ts, anchor=anchor,
+                                     arms=arms, spill_dir=spill_dir)
+        del panel
+        if spill_dir:
+            try:
+                os.remove(os.path.join(spill_dir, _PANEL_FILE))
+            except OSError:
+                pass
 
     if weekly.empty:
         print("no scorable weeks")
         return 1
 
-    y = preds["y_bind"].to_numpy()
-    pr = preds["p_bind"].to_numpy()
-    pooled = bind_metrics(y, pr)
-
     print(f"\n=== HEAD 1: P(bind) — calibration first === [arm: {args.features}]")
-    print(f"  weeks {len(weekly)}   rows {len(preds):,}   "
-          f"base rate {pooled['base_rate']:.4f}   mean pred {pooled['mean_pred']:.4f}")
-    print(f"  Brier {pooled['brier']:.5f}   ECE {pooled['ece']:.4f}   "
-          f"AUC {pooled['auc']:.4f}")
-    print("\n  reliability curve (said vs happened):")
-    print(_fmt_reliability(reliability(y, pr)))
+    if preds is None:
+        print(f"  weeks {len(weekly)}   rows {n_pred_rows:,}   "
+              "(chunked; pooled calibration is in the prediction artifact)")
+        print(f"  weekly mean Brier {weekly['brier'].mean():.5f}   "
+              f"ECE {weekly['ece'].mean():.4f}   AUC {weekly['auc'].mean():.4f}")
+    else:
+        y = preds["y_bind"].to_numpy()
+        pr = preds["p_bind"].to_numpy()
+        pooled = bind_metrics(y, pr)
+        print(f"  weeks {len(weekly)}   rows {len(preds):,}   "
+              f"base rate {pooled['base_rate']:.4f}   mean pred {pooled['mean_pred']:.4f}")
+        print(f"  Brier {pooled['brier']:.5f}   ECE {pooled['ece']:.4f}   "
+              f"AUC {pooled['auc']:.4f}")
+        print("\n  reliability curve (said vs happened):")
+        print(_fmt_reliability(reliability(y, pr)))
 
-    hit = preds[preds["y_bind"] == 1]
     print("\n=== HEAD 2: E[mu | bind] ===")
-    print(f"  binding rows {len(hit):,}   mean mu ${hit['y_mu'].mean():.2f}")
+    if preds is None:
+        print("  chunked; values below are weekly means")
+    else:
+        hit = preds[preds["y_bind"] == 1]
+        print(f"  binding rows {len(hit):,}   mean mu ${hit['y_mu'].mean():.2f}")
     for name in ("mu_clim", "mu_gbm"):
-        mae = float((hit[name] - hit["y_mu"]).abs().mean())
+        mae = (float((hit[name] - hit["y_mu"]).abs().mean())
+               if preds is not None else float(weekly[f"mae_{name}"].mean()))
         print(f"  {name:8s} MAE ${mae:7.2f}   "
-              f"weekly R2 {weekly[f'r2_{name}'].mean():+.3f}")
+             f"weekly R2 {weekly[f'r2_{name}'].mean():+.3f}")
     print(f"\n  VERDICT: {mu_head_verdict(weekly)}")
 
-    persist_outputs(weekly, preds, args.out, args.preds_out)
+    persist_outputs(weekly, preds if preds is not None else pd.DataFrame(),
+                    args.out, None if preds is None else args.preds_out)
     return 0
 
 
