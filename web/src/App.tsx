@@ -206,6 +206,9 @@ export default function App() {
   // The SP a constituent row in the panel's expanded list is hovering — rings that
   // node white on the map so the row and the node point at each other.
   const [hoveredMemberSp, setHoveredMemberSp] = useState<string | null>(null);
+  useEffect(() => {
+    if (isMobile) setHoveredMemberSp(null);
+  }, [isMobile]);
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
@@ -936,7 +939,8 @@ export default function App() {
         onConstraintPreview={handleConstraintPreview}
         onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
-        ringedSpId={hoveredMemberSp}
+        ringedSpId={isMobile ? null : hoveredMemberSp}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -964,9 +968,10 @@ export default function App() {
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={handleConstraintHover}
-        onHoverMember={setHoveredMemberSp}
+        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
+        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
         onSelectMember={handleMemberSelect}
+        mobile={isMobile}
       />
     </>
   );
@@ -981,6 +986,7 @@ export default function App() {
         onSpHover={handleSpHoverRight}
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -1003,6 +1009,7 @@ export default function App() {
         pinnedSp={pinnedSp.actual}
         showDrivers={false}
         onClose={() => handleClearPinnedSp("actual")}
+        mobile={isMobile}
       />
     </>
   );
@@ -1039,8 +1046,9 @@ export default function App() {
         onConstraintPreview={handleConstraintPreview}
         onConstraintSelect={handleConstraintSelectFromCard}
         focusReach={focusReach}
-        ringedSpId={hoveredMemberSp}
+        ringedSpId={isMobile ? null : hoveredMemberSp}
         congestionColor={forecastErrorColor}
+        tapOnly={isMobile}
       />
       <div className="pane-badge">
         {badgeFor(
@@ -1071,9 +1079,10 @@ export default function App() {
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
         onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={handleConstraintHover}
-        onHoverMember={setHoveredMemberSp}
+        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
+        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
         onSelectMember={handleMemberSelect}
+        mobile={isMobile}
       />
     </>
   );
@@ -1088,8 +1097,8 @@ export default function App() {
     onConstraintBasis: setConstraintBasis,
     onSelectConstraint: handleConstraintLock,
     highlightedConstraintId: effectiveConstraintId,
-    onHoverConstraint: handleConstraintHover,
-    onMemberHover: setHoveredMemberSp,
+    onHoverConstraint: isMobile ? undefined : handleConstraintHover,
+    onMemberHover: isMobile ? undefined : setHoveredMemberSp,
   };
   const mobileLoadWindow = (
     <DateRangePicker

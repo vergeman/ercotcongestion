@@ -124,6 +124,9 @@ interface Props {
   // fill — the reach/SF glow stays on congestionColor (there the sign is the
   // export/import dipole).
   congestionColor?: (norm: number, theme: Theme) => string;
+  // Phones have no durable hover state. In tap-only mode selection remains, but
+  // node/constraint hover cards and transient constraint previews are disabled.
+  tapOnly?: boolean;
 }
 
 export default function GridMap({
@@ -147,6 +150,7 @@ export default function GridMap({
   onConstraintSelect,
   onMapReady,
   congestionColor = congestionRampColor,
+  tapOnly = false,
 }: Props) {
   // Node fill colors flip with the theme (light gets a visible grey center — see
   // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
@@ -159,6 +163,7 @@ export default function GridMap({
   // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const tapOnlyRef = useRef(tapOnly);
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
@@ -185,6 +190,13 @@ export default function GridMap({
     x: number;
     y: number;
   } | null>(null);
+  useEffect(() => {
+    tapOnlyRef.current = tapOnly;
+    if (tapOnly) {
+      setPopover(null);
+      mapRef.current?.getCanvas().style.setProperty("cursor", "");
+    }
+  }, [tapOnly]);
   const hoveredNodeHasMembersRef = useRef(false);
   const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);
   const spMembersRef = useRef(spMembers);
@@ -420,6 +432,7 @@ export default function GridMap({
 
       // Hover interactions
       map.on("mousemove", "sps", (e) => {
+        if (tapOnlyRef.current) return;
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "crosshair";
         const props = e.features[0].properties as Record<string, unknown>;
@@ -442,6 +455,7 @@ export default function GridMap({
       });
 
       map.on("mouseleave", "sps", () => {
+        if (tapOnlyRef.current) return;
         map.getCanvas().style.cursor = "";
         callbacksRef.current.onSpHover(null, null);
         if (!hoveredNodeHasMembersRef.current) setPopover(null);
@@ -800,9 +814,9 @@ export default function GridMap({
     focusReach,
   ]);
 
-  // Gate interaction mirrors the constraint panel: hover previews and isolates
-  // that one constraint; click commits it to the DetailCard's constraint view.
-  // This binds after the overview-layer effect above has created the gate layer.
+  // Desktop gate interaction previews/isolates on hover, then commits on click.
+  // Tap-only mode binds only the click path: a constraint is either selected or
+  // not selected, never transiently previewed under a finger.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
@@ -839,14 +853,18 @@ export default function GridMap({
       onConstraintSelect?.(key);
       setPopover(null);
     };
-    map.on("mouseenter", "ov-gtc-hit", onEnter);
-    map.on("mousemove", "ov-gtc-hit", onMove);
-    map.on("mouseleave", "ov-gtc-hit", onLeave);
+    if (!tapOnly) {
+      map.on("mouseenter", "ov-gtc-hit", onEnter);
+      map.on("mousemove", "ov-gtc-hit", onMove);
+      map.on("mouseleave", "ov-gtc-hit", onLeave);
+    }
     map.on("click", "ov-gtc-hit", onClick);
     return () => {
-      map.off("mouseenter", "ov-gtc-hit", onEnter);
-      map.off("mousemove", "ov-gtc-hit", onMove);
-      map.off("mouseleave", "ov-gtc-hit", onLeave);
+      if (!tapOnly) {
+        map.off("mouseenter", "ov-gtc-hit", onEnter);
+        map.off("mousemove", "ov-gtc-hit", onMove);
+        map.off("mouseleave", "ov-gtc-hit", onLeave);
+      }
       map.off("click", "ov-gtc-hit", onClick);
     };
   }, [
@@ -854,6 +872,7 @@ export default function GridMap({
     onIsolateConstraint,
     onConstraintPreview,
     onConstraintSelect,
+    tapOnly,
   ]);
 
   const containerWidth = containerRef.current?.clientWidth ?? 0;
@@ -864,7 +883,7 @@ export default function GridMap({
         ref={containerRef}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
-        {popover && (
+        {!tapOnly && popover && (
           <OverviewPopover
             name={popover.name}
             kind={popover.kind}
