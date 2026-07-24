@@ -162,8 +162,13 @@ export default function GridMap({
   // paint into a map whose source isn't ready yet — and re-fire the paint the
   // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const tapOnlyRef = useRef(tapOnly);
+  const onMapReadyRef = useRef(onMapReady);
+  useEffect(() => {
+    onMapReadyRef.current = onMapReady;
+  }, [onMapReady]);
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
@@ -200,11 +205,6 @@ export default function GridMap({
   useEffect(() => {
     spMembersRef.current = spMembers;
   }, [spMembers]);
-  // The overlay is unmounted when the constraint layer is off, so drop any box.
-  useEffect(() => {
-    if (!showConstraints) setPopover(null);
-  }, [showConstraints]);
-
   // Initialize map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -230,13 +230,16 @@ export default function GridMap({
     );
 
     mapRef.current = map;
-    onMapReady?.(map);
+    onMapReadyRef.current?.(map);
     // MapLibre measures its container at construction time. Switching from the
     // full-width forecast-error map to the half-width dual pane does not emit a
     // window resize, leaving projection coordinates based on the old map width.
     // Observe the actual pane instead so both map geometry and the React hover
     // popover (which uses projected pixels) stay in the same coordinate space.
-    const resizeObserver = new ResizeObserver(() => map.resize());
+    const resizeObserver = new ResizeObserver((entries) => {
+      map.resize();
+      setContainerWidth(entries[0]?.contentRect.width ?? 0);
+    });
     resizeObserver.observe(containerRef.current);
     return () => {
       resizeObserver.disconnect();
@@ -872,7 +875,7 @@ export default function GridMap({
     tapOnly,
   ]);
 
-  const containerWidth = containerRef.current?.clientWidth ?? 0;
+  const visiblePopover = showConstraints && !tapOnly ? popover : null;
 
   return (
     <>
@@ -880,14 +883,14 @@ export default function GridMap({
         ref={containerRef}
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
-        {!tapOnly && popover && (
+        {visiblePopover && (
           <OverviewPopover
-            name={popover.name}
-            kind={popover.kind}
-            members={popover.members}
-            meta={popover.meta}
-            x={popover.x}
-            y={popover.y}
+            name={visiblePopover.name}
+            kind={visiblePopover.kind}
+            members={visiblePopover.members}
+            meta={visiblePopover.meta}
+            x={visiblePopover.x}
+            y={visiblePopover.y}
             containerWidth={containerWidth}
             onRowHover={(key) => {
               onIsolateConstraint?.(key);

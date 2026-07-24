@@ -8,7 +8,13 @@ import ScoreboardPage from './pages/ScoreboardPage.tsx'
 // backtest board (the "View full scoreboard" target), everything else the map.
 // The <a href> links do full navigations; vite's SPA fallback serves index.html
 // for /scoreboard so this switch resolves it.
-const Root = window.location.pathname.startsWith('/scoreboard') ? ScoreboardPage : App
+export function Root() {
+  return window.location.pathname.startsWith('/scoreboard') ? (
+    <ScoreboardPage />
+  ) : (
+    <App />
+  )
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
