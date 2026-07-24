@@ -46,6 +46,7 @@ from models import (
     ReachSp,
     SpExposure,
 )
+from services.sf_artifacts import load_daily_artifact, normalize_constraint_key
 from shared.settings import settings
 
 log = logging.getLogger(__name__)
@@ -329,13 +330,17 @@ def _realized_mu_mass(cur, lo, hi) -> dict[str, float]:
     — the realized-basis μ series, keyed the same way the SF panel is (compute.sf
     .panels), so it aligns to the artifact's constraint index with no name match."""
     cur.execute(
-        "SELECT trim(constraint_name) || '|' || trim(contingency_name) AS key, "
-        "sum(abs(shadow_price)) AS mass FROM ercot_dam_shadow_prices "
+        "SELECT constraint_name, contingency_name, sum(abs(shadow_price)) AS mass "
+        "FROM ercot_dam_shadow_prices "
         "WHERE interval_ts >= %s AND interval_ts <= %s AND shadow_price IS NOT NULL "
-        "GROUP BY key",
+        "GROUP BY constraint_name, contingency_name",
         (lo, hi),
     )
-    return {r["key"]: float(r["mass"]) for r in cur.fetchall() if r["mass"] is not None}
+    return {
+        normalize_constraint_key(r["constraint_name"], r["contingency_name"]): float(r["mass"])
+        for r in cur.fetchall()
+        if r["mass"] is not None
+    }
 
 
 @router.get(
@@ -368,9 +373,6 @@ def get_map_constraints_ranked(
         "peak |SF| (mirrors /map/reach).",
     ),
 ) -> RankedConstraints:
-    # The day's SF + E_mu artifact decoder — lazy so the map module stays light.
-    from compute.sf.project import load_sf_mu
-
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         # Resolve the forecast run (this feature's own pointer, not the SF-map
         # run) and the delivery day, then load that day's SF+μ blob.
@@ -397,18 +399,13 @@ def get_map_constraints_ranked(
                 )
             day = row["d"]
 
-        cur.execute(
-            "SELECT sf_npz FROM forecast_sf_artifact WHERE run_id = %s AND delivery_date = %s",
-            (run_id, day),
-        )
-        row = cur.fetchone()
-        if row is None:
+        assert run_id is not None and day is not None  # resolved-or-503 above
+        art = load_daily_artifact(cur, run_id, day)
+        if art is None:
             raise HTTPException(
                 status_code=503,
                 detail=f"no SF+μ artifact for run_id={run_id} on {day}.",
             )
-        assert run_id is not None and day is not None  # resolved-or-503 above
-        art = load_sf_mu(bytes(row["sf_npz"]))
 
         # μ mass per constraint (Σ_ts |μ|) for the chosen basis, on the artifact's
         # shared constraint-key index. Predicted reads the fitted E_mu; realized
