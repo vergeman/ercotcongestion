@@ -13,19 +13,23 @@ const SF_TOKENS: Record<string, string> = {
 };
 
 interface Props {
-  sp: string;
-  members: OvMember[];
+  name: string;
+  kind: "node" | "gtc";
+  members?: OvMember[];
+  meta?: string | null;
   x: number;
   y: number;
   containerWidth: number;
-  onRowHover: (key: string | null) => void;
-  onRowClick: (key: string) => void;
+  onRowHover?: (key: string | null) => void;
+  onRowClick?: (key: string) => void;
   onLeave: () => void;
 }
 
 export default function OverviewPopover({
-  sp,
+  name,
+  kind,
   members,
+  meta,
   x,
   y,
   containerWidth,
@@ -44,25 +48,32 @@ export default function OverviewPopover({
   const flip = x > containerWidth - 300;
   const left = flip ? x - 300 : x + 12;
   const top = y + 12;
-  const shown = members.slice(0, 10);
+  const shown = members?.slice(0, 10) ?? [];
+  const hasMembers = shown.length > 0;
+  const typeToken = kind === "gtc" ? "--sf-gtc" : "--violet";
 
   return (
-    <div className="ov-pop" style={{ left, top }} onMouseLeave={onLeave}>
-      <div className="ov-pop-sp">
-        <span className="ov-chip ov-pop-sp__chip" style={{ background: "var(--violet)" }} />
-        <span>{sp}</span>
+    <div
+      className={`ov-pop${hasMembers ? "" : " ov-pop--static"}`}
+      style={{ left, top }}
+      onMouseLeave={onLeave}
+    >
+      <div className={`ov-pop-sp${hasMembers ? "" : " ov-pop-sp--solo"}`}>
+        <span className="ov-chip ov-pop-sp__chip" style={{ background: `var(${typeToken})` }} />
+        <span>{name}</span>
         <small>
-          · {members.length} constraint{members.length > 1 ? "s" : ""}
+          · {hasMembers ? `${members!.length} constraint${members!.length > 1 ? "s" : ""}` : kind === "gtc" ? "GTC" : "node"}
         </small>
       </div>
+      {meta && <div className="ov-pop-meta">{meta}</div>}
       {shown.map((m) => {
         const imp = m.sf < 0;
         return (
           <div
             key={m.key}
             className="ov-row"
-            onMouseEnter={() => onRowHover(m.key)}
-            onClick={() => onRowClick(m.key)}
+            onMouseEnter={() => onRowHover?.(m.key)}
+            onClick={() => onRowClick?.(m.key)}
           >
             <span className="ov-chip" style={{ background: colors.byType[m.type] ?? colors.untyped }} />
             <span className="ov-ck">{m.key}</span>
@@ -73,18 +84,22 @@ export default function OverviewPopover({
           </div>
         );
       })}
-      {members.length > 10 && (
-        <div className="ov-more">+{members.length - 10} more</div>
+      {(members?.length ?? 0) > 10 && (
+        <div className="ov-more">+{members!.length - 10} more</div>
       )}
       <style>{`
         .ov-pop { position: absolute; pointer-events: auto; background: var(--bg-glass);
           border: 1px solid var(--border); border-radius: 7px; padding: 6px; font-size: var(--fs-body);
           min-width: 210px; max-width: 290px; box-shadow: var(--shadow-panel); z-index: 5; }
+        .ov-pop--static { pointer-events: none; min-width: 0; }
         .ov-pop-sp { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono);
           font-weight: 600; font-size: var(--fs-body); padding: 2px 5px 6px; color: var(--text-primary);
           border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .ov-pop-sp--solo { padding-bottom: 2px; border-bottom: none; margin-bottom: 0; }
         .ov-pop-sp__chip { width: 8px; height: 8px; }
         .ov-pop-sp small { color: var(--text-secondary); font-weight: 400; }
+        .ov-pop-meta { margin: 3px 5px 1px 20px; color: var(--text-secondary);
+          font-size: var(--fs-label); }
         .ov-row { display: flex; align-items: center; gap: 7px; padding: 4px 5px;
           border-radius: 4px; cursor: pointer; }
         .ov-row:hover { background: var(--bg-hover); }

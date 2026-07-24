@@ -159,7 +159,6 @@ export default function GridMap({
   // moment the source lands.
   const [sourcesReady, setSourcesReady] = useState(false);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const tooltipRef = useRef<maplibregl.Popup | null>(null);
 
   // Stash the latest callback props in a ref so the map setup effect can bind
   // handlers once on mount and still call the latest version of each callback.
@@ -176,24 +175,17 @@ export default function GridMap({
     };
   }, [onSpHover, onSpClick, onMapClick]);
 
-  // Multi-constraint hover box (plan/0112). `spMembers` maps sp_id → the overview
-  // constraints it belongs to; the base `sps` hover opens the box for a 2+ node,
-  // anchored at the node's pixel. Kept in a ref too so the once-bound `sps`
-  // handler reads the latest map without rebinding.
+  // One React-owned map hover card. Nodes use it either as a compact header or
+  // as a full member list; GTC gates use the same compact header form.
   const [popover, setPopover] = useState<{
-    sp: string;
-    members: OvMember[];
+    name: string;
+    kind: "node" | "gtc";
+    members?: OvMember[];
+    meta?: string | null;
     x: number;
     y: number;
   } | null>(null);
-  // The GTC gate is an interface glyph, not a settlement-point node. It gets a
-  // compact, non-interactive hover label of its own; clicking the glyph follows
-  // the same constraint-card flow as a row in the Constraints panel.
-  const [gtcHover, setGtcHover] = useState<{
-    key: string;
-    x: number;
-    y: number;
-  } | null>(null);
+  const hoveredNodeHasMembersRef = useRef(false);
   const spMembers = useMemo(() => buildSpMembers(overview ?? null), [overview]);
   const spMembersRef = useRef(spMembers);
   useEffect(() => {
@@ -230,13 +222,6 @@ export default function GridMap({
 
     mapRef.current = map;
     onMapReady?.(map);
-    tooltipRef.current = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      className: "grid-tooltip",
-      offset: 8,
-    });
-
     return () => {
       map.remove();
       mapRef.current = null;
@@ -431,41 +416,26 @@ export default function GridMap({
         map.getCanvas().style.cursor = "crosshair";
         const props = e.features[0].properties as Record<string, unknown>;
         const sp = props.sp_id as string;
-        const zone =
-          typeof props.load_zone === "string" && props.load_zone
-            ? `<div class="map-hover-meta">${props.load_zone}</div>`
-            : "";
         callbacksRef.current.onSpHover(sp, props);
-        // Multi-constraint node → open the constraint box, anchored at the node's
-        // pixel (not the cursor, so it stays put). Its OverviewPopover is the
-        // only hover card in that case; ordinary nodes retain the compact tooltip.
         const mem = spMembersRef.current.get(sp);
-        if (mem && mem.length >= 2) {
-          tooltipRef.current?.remove();
-          const geom = e.features[0].geometry as GeoJSON.Point;
-          const pt = map.project(geom.coordinates as [number, number]);
-          setPopover({ sp, members: mem, x: pt.x, y: pt.y });
-        } else {
-          setPopover(null);
-          tooltipRef.current
-            ?.setLngLat(e.lngLat)
-            .setHTML(
-              `<div class="map-hover-row">
-                 <span class="map-hover-chip" style="background:var(--violet)"></span>
-                 <span class="map-hover-key">${props.sp_id}</span>
-                 <span class="map-hover-dot">·</span>
-                 <span class="map-hover-kind">node</span>
-               </div>
-               ${zone}`
-            )
-            .addTo(map);
-        }
+        const hasMembers = !!mem && mem.length >= 2;
+        hoveredNodeHasMembersRef.current = hasMembers;
+        const geom = e.features[0].geometry as GeoJSON.Point;
+        const pt = map.project(geom.coordinates as [number, number]);
+        setPopover({
+          name: sp,
+          kind: "node",
+          members: hasMembers ? mem : undefined,
+          meta: typeof props.load_zone === "string" ? props.load_zone : null,
+          x: pt.x,
+          y: pt.y,
+        });
       });
 
       map.on("mouseleave", "sps", () => {
         map.getCanvas().style.cursor = "";
         callbacksRef.current.onSpHover(null, null);
-        tooltipRef.current?.remove();
+        if (!hoveredNodeHasMembersRef.current) setPopover(null);
       });
 
       map.on("click", "sps", (e) => {
@@ -837,18 +807,18 @@ export default function GridMap({
       const key = keyAt(e);
       if (!key) return;
       map.getCanvas().style.cursor = "pointer";
-      setGtcHover({ key, x: e.point.x, y: e.point.y });
+      setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
       onIsolateConstraint?.(key);
       onConstraintPreview?.(key);
     };
     const onMove = (e: maplibregl.MapLayerMouseEvent) => {
       if (overSettlementPoint(e)) return;
       const key = keyAt(e);
-      if (key) setGtcHover({ key, x: e.point.x, y: e.point.y });
+      if (key) setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
     };
     const onLeave = () => {
       map.getCanvas().style.cursor = "";
-      setGtcHover(null);
+      setPopover(null);
       onIsolateConstraint?.(null);
       onConstraintPreview?.(null);
     };
@@ -858,7 +828,7 @@ export default function GridMap({
       if (!key) return;
       e.preventDefault();
       onConstraintSelect?.(key);
-      setGtcHover(null);
+      setPopover(null);
     };
     map.on("mouseenter", "ov-gtc-hit", onEnter);
     map.on("mousemove", "ov-gtc-hit", onMove);
@@ -887,8 +857,10 @@ export default function GridMap({
       >
         {popover && (
           <OverviewPopover
-            sp={popover.sp}
+            name={popover.name}
+            kind={popover.kind}
             members={popover.members}
+            meta={popover.meta}
             x={popover.x}
             y={popover.y}
             containerWidth={containerWidth}
@@ -909,17 +881,6 @@ export default function GridMap({
               setPopover(null);
             }}
           />
-        )}
-        {gtcHover && (
-          <div
-            className="gtc-hover"
-            style={{ left: gtcHover.x + 12, top: gtcHover.y + 12 }}
-          >
-            <span className="map-hover-chip gtc-hover__chip" />
-            <span className="map-hover-key">{gtcHover.key}</span>
-            <span className="map-hover-dot">·</span>
-            <span className="map-hover-kind">GTC</span>
-          </div>
         )}
       </div>
       <style>{`
@@ -942,38 +903,6 @@ export default function GridMap({
         :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: opacity(0.65);
         }
-        /* Chrome matched to the shared .tt tooltip (index.css): glass surface,
-           bright border, panel shadow — so the map's feature-hover popup reads as
-           the same tooltip system, even though maplibre owns its positioning. */
-        .grid-tooltip .maplibregl-popup-content {
-          background: var(--bg-glass);
-          border: 1px solid var(--border-bright);
-          box-shadow: var(--shadow-panel);
-          border-radius: 4px;
-          padding: 8px 10px;
-          color: var(--text-primary);
-          font-family: var(--font-mono);
-          font-size: var(--fs-body);
-          pointer-events: none;
-        }
-        .grid-tooltip .maplibregl-popup-tip { display: none; }
-        .map-hover-row, .gtc-hover { display: flex; align-items: center; gap: 7px;
-          font-family: var(--font-mono); font-size: var(--fs-label); }
-        .map-hover-chip { display: inline-block; width: 8px; height: 8px;
-          border-radius: 2px; flex: 0 0 auto; }
-        .map-hover-key { color: var(--text-primary); white-space: nowrap; overflow: hidden;
-          text-overflow: ellipsis; font-size: var(--fs-body); font-weight: 600; }
-        .map-hover-dot, .map-hover-kind, .map-hover-meta { color: var(--text-secondary); }
-        .map-hover-kind { font-family: var(--font-sans); font-size: var(--fs-label); }
-        .map-hover-meta { margin: 3px 0 0 15px; font-family: var(--font-sans);
-          font-size: var(--fs-label); }
-        .gtc-hover { position: absolute; pointer-events: none; z-index: 5;
-          min-width: 178px; padding: 7px 9px; border: 1px solid var(--border-bright); border-radius: 5px;
-          background: var(--bg-glass); box-shadow: var(--shadow-panel);
-          color: var(--text-primary); }
-        .gtc-hover__chip { background: var(--sf-gtc); }
-        .tip-lowconf { color: var(--text-dim); font-size: var(--fs-label); margin-top: 3px; }
-        .tip-thin { color: var(--text-faint); font-size: var(--fs-label); margin-top: 3px; }
       `}</style>
     </>
   );
