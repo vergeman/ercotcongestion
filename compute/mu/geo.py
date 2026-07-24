@@ -296,7 +296,8 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
               sp: pd.DataFrame | None = None,
               window_days: int = WINDOW_DAYS, refit_days: int = REFIT_DAYS,
               lam: float = LAM, min_hours: int = MIN_HOURS,
-              anchor: pd.Timestamp | None = None) -> pd.DataFrame:
+              anchor: pd.Timestamp | None = None,
+              on_refit=None) -> pd.DataFrame:
     """Per (delivery_day, constraint) geography, from honestly-refit SFs.
 
     **This function takes the raw panels and fits the SF itself, on purpose.** It
@@ -339,11 +340,14 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
 
         g = constraint_geography(SF, sp)
         week_days = days[(days >= s) & (days < s + pd.Timedelta(days=refit_days))]
-        for d in week_days:
-            f = g.copy()
-            f["delivery_day"] = d
-            f.index.name = "key"
-            frames.append(f.reset_index())
+        if on_refit is not None:
+            on_refit(week_days, g)
+        else:
+            for d in week_days:
+                f = g.copy()
+                f["delivery_day"] = d
+                f.index.name = "key"
+                frames.append(f.reset_index())
 
         log.info("  geo %s: SF %s → %d constraints located",
                  s.date(), SF.shape, int(g["geo_lat"].notna().sum()))
@@ -352,7 +356,7 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
         log.info("geo: %d/%d refit boundaries had no fittable window "
                  "(expected at the start — C begins months after M)",
                  skipped, len(grid))
-    if not frames:
+    if on_refit is not None or not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True).set_index(["delivery_day", "key"])
 

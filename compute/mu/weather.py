@@ -150,7 +150,8 @@ def response_vectors(M_win: pd.DataFrame, X_win: pd.DataFrame) -> pd.DataFrame:
 
 def wx_panel(M: pd.DataFrame, sys_panel: pd.DataFrame, days: pd.DatetimeIndex,
              window_days: int = WINDOW_DAYS, refit_days: int = REFIT_DAYS,
-             anchor: pd.Timestamp | None = None) -> pd.DataFrame:
+             anchor: pd.Timestamp | None = None,
+             on_refit=None) -> pd.DataFrame:
     """Per (delivery_day, constraint) weather-response vectors, honestly windowed.
 
     For each refit boundary `s`, the correlations are computed on `[s - window_days,
@@ -185,15 +186,18 @@ def wx_panel(M: pd.DataFrame, sys_panel: pd.DataFrame, days: pd.DatetimeIndex,
             continue
 
         week_days = days[(days >= s) & (days < s + pd.Timedelta(days=refit_days))]
-        for d in week_days:
-            f = R.copy()
-            f["delivery_day"] = d
-            f.index.name = "key"
-            frames.append(f.reset_index())
+        if on_refit is not None:
+            on_refit(week_days, R)
+        else:
+            for d in week_days:
+                f = R.copy()
+                f["delivery_day"] = d
+                f.index.name = "key"
+                frames.append(f.reset_index())
 
     if skipped:
         log.info("wx: %d/%d boundaries had too little history (the earliest "
                  "training margin — honest NaN, not a fill)", skipped, len(grid))
-    if not frames:
+    if on_refit is not None or not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True).set_index(["delivery_day", "key"])
