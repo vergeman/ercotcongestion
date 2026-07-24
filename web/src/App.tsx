@@ -22,26 +22,18 @@ import {
 } from "./api/client";
 import { formatCT } from "./lib/time";
 import {
-  prefetchWindow,
   getErcotCached,
   getErcotSppCached,
   getForecastCached,
-  getForecastRunId,
-  getAvailableTimestamps,
 } from "./api/prefetch";
 import {
-  computeLmpStats,
-  computeCongestionStats,
   forecastErrorColor,
   forecastErrorGradientCss,
-  type LmpStats,
-  type CongestionStats,
 } from "./lib/colors";
 import Header from "./components/layout/Header";
 import MobileDrawer from "./components/layout/MobileDrawer";
 import GridMap from "./components/map/GridMap";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
-import type { SparkPoint } from "./components/playback/TimelineSparkline";
 import Legend from "./components/map/Legend";
 import CompareMap from "./components/map/CompareMap";
 import DateRangePicker from "./components/playback/DateRangePicker";
@@ -50,12 +42,11 @@ import Tooltip from "./components/ui/Tooltip";
 import SidePanel, {
   type NetworkStats,
 } from "./components/panels/SidePanel";
-import { CURATED_EVENTS, type CuratedEvent } from "./lib/events";
+import { CURATED_EVENTS } from "./lib/events";
 import { useTheme } from "./lib/theme";
 import { useExplorerRoute } from "./lib/explorerRoute";
 import MatrixWorkspace from "./workspaces/MatrixWorkspace";
-
-type ConnectionState = "ok" | "error" | "loading";
+import { useExplorerSession } from "./hooks/useExplorerSession";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -109,11 +100,14 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("forecastError");
   const renderedViewMode = isMobile ? "forecastError" : viewMode;
   const [palette, setPalette] = useState<Palette>("congestion");
-  const [timestamps, setTimestamps] = useState<Date[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [connState, setConnState] = useState<ConnectionState>("loading");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const session = useExplorerSession(setPalette);
+  const {
+    timestamps, currentIndex, setCurrentIndex, loading, connectionState: connState,
+    setConnectionState: setConnState, lastUpdated, sparkSeries, activeEventId,
+    congestionStats, sppStats, forecastCongestionStats, forecastLmpStats,
+    errorStats, forecastRunId, selectEvent: handleSelectEvent,
+    loadCustomWindow: handleCustomLoadWindow,
+  } = session;
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Each map owns its own card interaction. In dual view, touching the ERCOT
@@ -127,18 +121,8 @@ export default function App() {
     actual: null,
   });
 
-  // Window-wide stats, computed once on window load and reused for every frame
-  // so coloring is stable across playback. congestion → diverging palette;
-  // spp → LMP palette.
-  const [congestionStats, setCongestionStats] =
-    useState<CongestionStats | null>(null);
-  const [sppStats, setSppStats] = useState<LmpStats | null>(null);
   // Per-current-hour SP rows, merged from the congestion and SPP caches.
   const [spRows, setSpRows] = useState<SpRow[]>([]);
-  // Per-timestamp series for the timeline sparkline (Σ|congestion| per hour),
-  // aligned 1:1 with `timestamps`.
-  const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
-  const [activeEventId, setActiveEventId] = useState<string | null>(null);
 
   const [showConstraints, setShowConstraints] = useState(true);
   // The de-piled overview (top-N constraints at their |SF|² cores + type) — the
@@ -152,16 +136,10 @@ export default function App() {
   // `forecastRunId` labels which refit is serving (null → no forecast covered
   // the window, pane falls back to the realized rows).
   const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
-  const [forecastCongestionStats, setForecastCongestionStats] =
-    useState<CongestionStats | null>(null);
-  const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
-  const [forecastRunId, setForecastRunId] = useState<string | null>(null);
   // Forecast-error (P50 forecast − realized congestion) window-wide stats, for the
   // diverging palette centered at 0 in the forecast-error view. Computed once per
   // window load from the forecast and realized caches; the per-hour error rows are
   // derived below.
-  const [errorStats, setErrorStats] =
-    useState<CongestionStats | null>(null);
   // The rolling backtest scorecard for the side panel. Fetched once (the board
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
@@ -289,7 +267,7 @@ export default function App() {
         setConnState("ok");
       })
       .catch(() => setConnState("error"));
-  }, []);
+  }, [setConnState]);
 
   // Constraint overview load — once, independent of the playback window (the SF
   // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
@@ -433,147 +411,6 @@ export default function App() {
       ercotNodes: ercot,
     };
   }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
-
-  const handleLoadWindow = useCallback(
-    async (start?: Date, end?: Date, cursorTs?: Date) => {
-      setLoading(true);
-      setConnState("loading");
-      try {
-        await prefetchWindow(start, end);
-        const ts = getAvailableTimestamps();
-        setTimestamps(ts);
-        if (ts.length > 0) {
-          // Window-wide stats: walk the caches so we use the deduped,
-          // label-stripped entries prefetchWindow already stored.
-          const allCong: Array<number | null> = [];
-          const allSpp: Array<number | null> = [];
-          // Forecast side: P50 (congestion) and P50 + system-λ (predicted LMP),
-          // so the prediction pane can color even on a forecast-only window with
-          // no realized rows.
-          const allFcCong: Array<number | null> = [];
-          const allFcLmp: Array<number | null> = [];
-          // Forecast-error side: P50 forecast − realized congestion per (SP, hour)
-          // where both are present, so the diverging error palette is anchored to
-          // the error magnitude range (not the market's).
-          const allError: Array<number | null> = [];
-          for (const t of ts) {
-            const c = getErcotCached(t);
-            if (c) for (const s of c.sps) allCong.push(s.congestion);
-            const s = getErcotSppCached(t);
-            if (s) for (const sp of s.sps) allSpp.push(sp.spp);
-            const f = getForecastCached(t);
-            if (f)
-              for (const sp of f.sps) {
-                allFcCong.push(sp.p50);
-                allFcLmp.push(
-                  sp.p50 != null && f.system_lambda != null
-                    ? sp.p50 + f.system_lambda
-                    : null
-                );
-              }
-            if (c && f) {
-              const marketById = new Map(
-                c.sps.map((cs) => [cs.sp_id, cs.congestion])
-              );
-              for (const sp of f.sps) {
-                const m = marketById.get(sp.sp_id);
-                if (sp.p50 != null && m != null) allError.push(sp.p50 - m);
-              }
-            }
-          }
-          setCongestionStats(
-            allCong.length ? computeCongestionStats(allCong) : null
-          );
-          setSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
-          setForecastCongestionStats(
-            allFcCong.length ? computeCongestionStats(allFcCong) : null
-          );
-          setForecastLmpStats(
-            allFcLmp.length ? computeLmpStats(allFcLmp) : null
-          );
-          setErrorStats(
-            allError.length ? computeCongestionStats(allError) : null
-          );
-          setForecastRunId(getForecastRunId());
-
-          // Sparkline: one point per timestamp, Σ|congestion| across SPs.
-          setSparkSeries(
-            ts.map((t) => {
-              const c = getErcotCached(t);
-              let absTotal: number | null = null;
-              if (c) {
-                absTotal = 0;
-                for (const s of c.sps) {
-                  if (s.congestion != null) absTotal += Math.abs(s.congestion);
-                }
-              }
-              return {
-                congestion_abs_total: absTotal,
-              };
-            })
-          );
-
-          // Snap to the closest available frame if a cursor was given
-          // (curated event); otherwise start at the beginning.
-          if (cursorTs) {
-            const target = cursorTs.getTime();
-            let bestIdx = 0;
-            let bestDelta = Infinity;
-            for (let i = 0; i < ts.length; i++) {
-              const d = Math.abs(ts[i].getTime() - target);
-              if (d < bestDelta) {
-                bestDelta = d;
-                bestIdx = i;
-              }
-            }
-            setCurrentIndex(bestIdx);
-          } else {
-            setCurrentIndex(0);
-          }
-          setLastUpdated(new Date());
-          setConnState("ok");
-        } else {
-          setConnState("error");
-        }
-      } catch {
-        setConnState("error");
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  // Curated events: load window, snap cursor, optionally switch palette.
-  const handleSelectEvent = useCallback(
-    (event: CuratedEvent) => {
-      setActiveEventId(event.id);
-      if (event.suggested_view) setPalette(event.suggested_view);
-      handleLoadWindow(
-        new Date(event.window_start),
-        new Date(event.window_end),
-        new Date(event.cursor_ts)
-      );
-    },
-    [handleLoadWindow]
-  );
-
-  // Date picker wrapper — clears event selection on custom load.
-  const handleCustomLoadWindow = useCallback(
-    (start: Date, end: Date) => {
-      setActiveEventId(null);
-      handleLoadWindow(start, end);
-    },
-    [handleLoadWindow]
-  );
-
-  // Landing view: no explicit window — the forecast's latest operating day
-  // defines the default window (prediction leads; the realized ranges are fetched
-  // to match), with the cursor snapped to now. Runs once; the user can then scrub
-  // or load a custom window. Placed after handleLoadWindow so its dep is in scope.
-  useEffect(() => {
-    handleLoadWindow(undefined, undefined, new Date());
-  }, [handleLoadWindow]);
 
   // The full forecast / realized / error decomposition for one SP — carried by
   // every card in every view, so the error-default never hides raw magnitude.
