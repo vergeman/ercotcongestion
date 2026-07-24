@@ -165,20 +165,19 @@ export default function SidePanel({
           {/* ── Network readout ───────────────────────────────────────────── */}
           <section className="np-section">
             <div className="np-section__header label">Network</div>
-            <Stat label="Forecast Run" value={network.forecastRunId} />
-            <Stat
-              label="DAM System λ"
-              value={
-                network.systemLambda != null
-                  ? `$${fmtNum(network.systemLambda, 2)}/MWh`
-                  : null
-              }
-            />
             <Stat
               label="Total Load"
               value={
                 network.totalLoadMw != null
                   ? `${fmtNum(network.totalLoadMw, 0)} MW`
+                  : null
+              }
+            />
+            <Stat
+              label="DAM System λ"
+              value={
+                network.systemLambda != null
+                  ? `$${fmtNum(network.systemLambda, 2)}/MWh`
                   : null
               }
             />
@@ -219,8 +218,9 @@ export default function SidePanel({
                 </div>
               </div>
 
+              <Stat label="Forecast Run" value={network.forecastRunId} />
               <div className="sc-meta label">
-                {win.weeks} wk · as of {headline.as_of_week} · {headline.regime}
+                30-day rolling aggregation score based on weekly backtests
               </div>
 
               <div className="sc-table">
