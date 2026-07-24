@@ -431,24 +431,34 @@ export default function GridMap({
         map.getCanvas().style.cursor = "crosshair";
         const props = e.features[0].properties as Record<string, unknown>;
         const sp = props.sp_id as string;
+        const zone =
+          typeof props.load_zone === "string" && props.load_zone
+            ? `<div class="map-hover-meta">${props.load_zone}</div>`
+            : "";
         callbacksRef.current.onSpHover(sp, props);
-        tooltipRef.current
-          ?.setLngLat(e.lngLat)
-          .setHTML(
-            `<div class="tip-id">${props.sp_id}</div>
-             <div class="tip-zone">${props.load_zone ?? "—"}</div>`
-          )
-          .addTo(map);
-
         // Multi-constraint node → open the constraint box, anchored at the node's
-        // pixel (not the cursor, so it stays put). A 0-1 node closes any open box.
+        // pixel (not the cursor, so it stays put). Its OverviewPopover is the
+        // only hover card in that case; ordinary nodes retain the compact tooltip.
         const mem = spMembersRef.current.get(sp);
         if (mem && mem.length >= 2) {
+          tooltipRef.current?.remove();
           const geom = e.features[0].geometry as GeoJSON.Point;
           const pt = map.project(geom.coordinates as [number, number]);
           setPopover({ sp, members: mem, x: pt.x, y: pt.y });
         } else {
           setPopover(null);
+          tooltipRef.current
+            ?.setLngLat(e.lngLat)
+            .setHTML(
+              `<div class="map-hover-row">
+                 <span class="map-hover-chip" style="background:var(--violet)"></span>
+                 <span class="map-hover-key">${props.sp_id}</span>
+                 <span class="map-hover-dot">·</span>
+                 <span class="map-hover-kind">node</span>
+               </div>
+               ${zone}`
+            )
+            .addTo(map);
         }
       });
 
@@ -905,11 +915,10 @@ export default function GridMap({
             className="gtc-hover"
             style={{ left: gtcHover.x + 12, top: gtcHover.y + 12 }}
           >
-            <span className="gtc-hover__mark">║</span>
-            <span>
-              <strong>GTC interface</strong>
-              <small>{gtcHover.key}</small>
-            </span>
+            <span className="map-hover-chip gtc-hover__chip" />
+            <span className="map-hover-key">{gtcHover.key}</span>
+            <span className="map-hover-dot">·</span>
+            <span className="map-hover-kind">GTC</span>
           </div>
         )}
       </div>
@@ -948,20 +957,21 @@ export default function GridMap({
           pointer-events: none;
         }
         .grid-tooltip .maplibregl-popup-tip { display: none; }
+        .map-hover-row, .gtc-hover { display: flex; align-items: center; gap: 7px;
+          font-family: var(--font-mono); font-size: var(--fs-label); }
+        .map-hover-chip { display: inline-block; width: 8px; height: 8px;
+          border-radius: 2px; flex: 0 0 auto; }
+        .map-hover-key { color: var(--text-primary); white-space: nowrap; overflow: hidden;
+          text-overflow: ellipsis; font-size: var(--fs-body); font-weight: 600; }
+        .map-hover-dot, .map-hover-kind, .map-hover-meta { color: var(--text-secondary); }
+        .map-hover-kind { font-family: var(--font-sans); font-size: var(--fs-label); }
+        .map-hover-meta { margin: 3px 0 0 15px; font-family: var(--font-sans);
+          font-size: var(--fs-label); }
         .gtc-hover { position: absolute; pointer-events: none; z-index: 5;
-          display: flex; align-items: center; gap: 7px; min-width: 178px;
-          padding: 7px 9px; border: 1px solid var(--border-bright); border-radius: 5px;
+          min-width: 178px; padding: 7px 9px; border: 1px solid var(--border-bright); border-radius: 5px;
           background: var(--bg-glass); box-shadow: var(--shadow-panel);
-          color: var(--text-primary); font-size: var(--fs-body); }
-        .gtc-hover__mark { color: var(--sf-gtc); font-family: var(--font-mono);
-          font-size: 18px; line-height: 1; font-weight: 700; }
-        .gtc-hover strong, .gtc-hover small { display: block; }
-        .gtc-hover strong { color: var(--sf-gtc); font-size: var(--fs-label); font-weight: 600; }
-        .gtc-hover small { margin-top: 2px; color: var(--text-secondary);
-          font-family: var(--font-mono); font-size: var(--fs-micro); }
-        .tip-id { color: var(--accent); font-size: var(--fs-body); }
-        .tip-id--constraint { color: var(--violet); }
-        .tip-zone { color: var(--text-secondary); font-size: var(--fs-label); margin-top: 2px; }
+          color: var(--text-primary); }
+        .gtc-hover__chip { background: var(--sf-gtc); }
         .tip-lowconf { color: var(--text-dim); font-size: var(--fs-label); margin-top: 3px; }
         .tip-thin { color: var(--text-faint); font-size: var(--fs-label); margin-top: 3px; }
       `}</style>

@@ -49,7 +49,8 @@ export default function OverviewPopover({
   return (
     <div className="ov-pop" style={{ left, top }} onMouseLeave={onLeave}>
       <div className="ov-pop-sp">
-        {sp}{" "}
+        <span className="ov-chip ov-pop-sp__chip" style={{ background: "var(--violet)" }} />
+        <span>{sp}</span>
         <small>
           · {members.length} constraint{members.length > 1 ? "s" : ""}
         </small>
@@ -79,9 +80,10 @@ export default function OverviewPopover({
         .ov-pop { position: absolute; pointer-events: auto; background: var(--bg-glass);
           border: 1px solid var(--border); border-radius: 7px; padding: 6px; font-size: var(--fs-body);
           min-width: 210px; max-width: 290px; box-shadow: var(--shadow-panel); z-index: 5; }
-        .ov-pop-sp { font-family: var(--font-mono); font-weight: 600;
-          font-size: var(--fs-body); padding: 2px 5px 6px; color: var(--text-primary);
+        .ov-pop-sp { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono);
+          font-weight: 600; font-size: var(--fs-body); padding: 2px 5px 6px; color: var(--text-primary);
           border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .ov-pop-sp__chip { width: 8px; height: 8px; }
         .ov-pop-sp small { color: var(--text-secondary); font-weight: 400; }
         .ov-row { display: flex; align-items: center; gap: 7px; padding: 4px 5px;
           border-radius: 4px; cursor: pointer; }
