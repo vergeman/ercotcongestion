@@ -110,9 +110,13 @@ ENDPOINTS = {
 }
 
 def is_completed(conn, endpoint: str, start: datetime, end: datetime) -> bool:
+    # A 0-row fetch usually means the source hadn't published yet (e.g. an
+    # in-progress operating day), not that the window is done — so --resume
+    # retries those instead of skipping them forever.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM ingest_log WHERE endpoint = %s AND window_start = %s AND window_end = %s",
+            "SELECT 1 FROM ingest_log WHERE endpoint = %s AND window_start = %s "
+            "AND window_end = %s AND rows_fetched > 0",
             (endpoint, start, end),
         )
         return cur.fetchone() is not None
@@ -244,6 +248,16 @@ def main():
                     print(f"  [{key}] {start.date()} — FAILED: {e}")
                     traceback.print_exc(limit=2)
                     conn.rollback()
+                    # The rollback also discards the window's ingest_log insert,
+                    # which is how failed days used to vanish without a trace
+                    # while every other endpoint logged success. Commit a -1
+                    # marker so the failure is visible; rows_fetched <= 0 keeps
+                    # it retryable under --resume.
+                    try:
+                        log_completion(conn, key, start, end, -1, -1)
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()  # connection may be unusable; keep going
                     # continue to next window — don't abort entire run
 
     print("\nBackfill complete.")
