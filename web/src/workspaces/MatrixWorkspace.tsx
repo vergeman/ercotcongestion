@@ -21,6 +21,8 @@ interface Props {
 export default function MatrixWorkspace({ timestamp }: Props) {
   const [frame, setFrame] = useState<MatrixFrame | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [requestVersion, setRequestVersion] = useState(0);
   const [valueMode, setValueMode] = useState<MatrixValueMode>(rememberedValueMode);
   const [muSource, setMuSource] = useState<MatrixMuSource>(rememberedMuSource);
   const requestId = useRef(0);
@@ -30,21 +32,22 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
+    setError(null);
     void getMatrixFrame(timestamp, {}, controller.signal)
       .then((nextFrame) => {
         if (id === requestId.current) setFrame(nextFrame);
       })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        // The detailed unavailable/error treatment follows in the availability
-        // commit. Keep the prior frame while a replacement cannot be loaded.
-        if (id === requestId.current) setFrame(null);
+      .catch((requestError: unknown) => {
+        if (requestError instanceof Error && requestError.name === "AbortError") return;
+        if (id === requestId.current) {
+          setError("The Matrix frame could not be loaded. Check the connection and retry.");
+        }
       })
       .finally(() => {
         if (id === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [timestamp]);
+  }, [requestVersion, timestamp]);
 
   const setMode = (mode: MatrixValueMode) => {
     rememberedValueMode = mode;
@@ -85,8 +88,11 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     return Math.max(0, ...values.flatMap((value) => value == null ? [] : [Math.abs(value)]));
   }, [frame, muSource, valueMode]);
 
-  const activeTimestamp = frame ? new Date(frame.interval_ts) : timestamp;
+  const activeTimestamp = timestamp;
   const isUsable = frame?.available && frame.rows.length > 0 && frame.columns.length > 0;
+  const isUnavailable = frame && !frame.available;
+  const isEmpty = frame?.available && !isUsable;
+  const damUnmatchedRows = frame?.rows.filter((row) => row.ercot_dam_mu == null).length ?? 0;
 
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
@@ -106,22 +112,48 @@ export default function MatrixWorkspace({ timestamp }: Props) {
             <fieldset>
               <legend>μ source</legend>
               <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast</button>
-              <button type="button" disabled={damPending} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
+              <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
             </fieldset>
           )}
         </div>
       </section>
 
-      {loading && !frame && <div className="matrix-workspace__loading" role="status">Loading matrix frame…</div>}
-      {isUsable && frame && (
+      {loading && !frame && !error && <div className="matrix-workspace__loading" role="status">Loading matrix frame…</div>}
+      {error && (
+        <section className="matrix-workspace__state" role="alert">
+          <h2>Unable to load Matrix</h2>
+          <p>{error}</p>
+          <button type="button" onClick={() => setRequestVersion((version) => version + 1)}>Retry</button>
+        </section>
+      )}
+      {!error && isUnavailable && frame && (
+        <section className="matrix-workspace__state" role="status">
+          <h2>Matrix unavailable for this hour</h2>
+          <p>{frame.unavailable_reason === "artifact_missing" ? "No causal daily Matrix artifact was published for this delivery day." : "This timestamp is outside the available Matrix artifact."}</p>
+        </section>
+      )}
+      {!error && isEmpty && (
+        <section className="matrix-workspace__state" role="status">
+          <h2>No bounded Matrix values</h2>
+          <p>The selected artifact contains no rows or settlement-point columns for this bounded view.</p>
+        </section>
+      )}
+      {!error && isUsable && frame && (
         <section className="matrix-workspace__surface" aria-busy={loading}>
           <div className="matrix-workspace__meta">
             <span>Run {frame.run_id}</span>
             <span>Delivery day {frame.delivery_date}</span>
             <span>{frame.fit_window_start && frame.fit_window_end ? `Fit ${frame.fit_window_start}–${frame.fit_window_end}` : "Fit provenance unavailable"}</span>
             <span>Recovered implied shift factors</span>
+            <span>{frame.dam_status === "pending" ? "DAM μ pending — forecast-only" : frame.dam_status === "partial" ? "DAM μ partial match" : "DAM μ available"}</span>
             {loading && <span>Updating frame…</span>}
           </div>
+          {valueMode === "contribution" && frame.dam_status === "pending" && (
+            <div className="matrix-workspace__notice" role="status">ERCOT DAM μ has not been published for this hour; Contribution uses Forecast μ.</div>
+          )}
+          {valueMode === "contribution" && frame.dam_status === "partial" && (
+            <div className="matrix-workspace__notice" role="status">ERCOT DAM μ matched {frame.rows.length - damUnmatchedRows} of {frame.rows.length} constraints. Unmatched contribution cells are unavailable.</div>
+          )}
           <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} />
           <footer className="matrix-workspace__footer">
             <MatrixLegend mode={valueMode} maxAbs={legendMax} />
@@ -129,6 +161,13 @@ export default function MatrixWorkspace({ timestamp }: Props) {
               {valueMode === "contribution" ? <><span className="label">Visible-row contribution</span><strong>${(summary ?? 0).toFixed(2)}/MWh</strong></> : <span>SF is dimensionless. Positive/export is blue; negative/import is red.</span>}
             </div>
           </footer>
+        </section>
+      )}
+
+      {!timestamp && !loading && (
+        <section className="matrix-workspace__state" role="status">
+          <h2>Waiting for a playback hour</h2>
+          <p>Choose an available timestamp in the shared playback scrubber to load its Matrix frame.</p>
         </section>
       )}
 
@@ -144,8 +183,13 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-workspace button.is-active { background: var(--accent-dim); color: var(--accent); }
         .matrix-workspace button:disabled { cursor: not-allowed; color: var(--text-muted); }
         .matrix-workspace__loading { display: grid; flex: 1; place-items: center; color: var(--text-secondary); }
+        .matrix-workspace__state { align-self: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow-panel); max-width: 500px; padding: 22px; width: min(500px, 100%); }
+        .matrix-workspace__state h2 { font: 600 var(--fs-lg) var(--font-label); margin: 0 0 8px; }
+        .matrix-workspace__state p { line-height: 1.45; }
+        .matrix-workspace__state button { background: var(--accent-dim); color: var(--accent); margin-top: 14px; }
         .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        .matrix-workspace__notice { background: var(--accent-dim); border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: var(--fs-label); padding: 6px 10px; }
         .matrix-workspace__footer { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 9px 10px; border-top: 1px solid var(--border); }
         .matrix-workspace__summary { text-align: right; max-width: 310px; }
         .matrix-workspace__summary strong { display: block; color: var(--text-primary); font: 600 var(--fs-md) var(--font-mono); margin-top: 3px; }
@@ -168,7 +212,7 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-legend__bar { height: 8px; }
         .matrix-legend__ticks, .matrix-legend__signs { display: flex; justify-content: space-between; font-size: 9px; margin-top: 3px; }
         .matrix-legend__signs { color: var(--text-secondary); }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__toolbar { align-items: start; } .matrix-workspace__footer { align-items: start; flex-direction: column; } .matrix-workspace__summary { max-width: none; text-align: left; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } }
+        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__toolbar { align-items: start; } .matrix-workspace__footer { align-items: start; flex-direction: column; } .matrix-workspace__summary { max-width: none; text-align: left; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
       `}</style>
     </main>
   );
