@@ -15,7 +15,7 @@ import { formatCT } from "../lib/time";
 
 let rememberedValueMode: MatrixValueMode = "sf";
 let rememberedMuSource: MatrixMuSource = "forecast";
-let rememberedInspectorCollapsed = false;
+let rememberedInspectorCollapsed = true;
 let rememberedSelection: MatrixSelection = null;
 let rememberedFrame: MatrixFrame | null = null;
 
@@ -201,14 +201,11 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     return sum;
   }, [frame, muSource, valueMode]);
 
-  const legendMax = useMemo(() => {
-    if (!frame?.available) return 0;
-    const values = frame.rows.flatMap((row, rowIndex) => frame.columns.map((_, columnIndex) => {
-      const sf = matrixCellSf(frame.sf.values, rowIndex, columnIndex, frame.columns.length);
-      return valueMode === "sf" ? sf : matrixContribution(sf, muSource === "forecast" ? row.forecast_mu : row.ercot_dam_mu);
-    }));
-    return Math.max(0, ...values.flatMap((value) => value == null ? [] : [Math.abs(value)]));
-  }, [frame, muSource, valueMode]);
+  // These are artifact-wide, day-stable scales—not the current filtered
+  // rectangle—so a cell keeps the same color while discovery controls change.
+  const legendMax = frame?.available
+    ? (valueMode === "sf" ? frame.sf_day_max_abs : frame.contribution_day_max_abs)
+    : 0;
 
   const activeTimestamp = timestamp;
   const isUsable = frame?.available && frame.rows.length > 0 && frame.columns.length > 0;
@@ -222,6 +219,9 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const select = (nextSelection: MatrixSelection) => {
     rememberedSelection = nextSelection;
     setSelection(nextSelection);
+    // An explicit table selection is the moment the inspector becomes useful.
+    rememberedInspectorCollapsed = false;
+    setInspectorCollapsed(false);
     onSelectionRouteChange(matrixSearch(discovery, nextSelection));
   };
   const updateDiscovery = (next: DiscoveryState, nextSelection = selection) => {
@@ -230,20 +230,12 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   };
   const isPinned = (value: string, kind: "constraint" | "sp") =>
     (kind === "constraint" ? discovery.pinnedConstraints : discovery.pinnedSettlementPoints).includes(value);
-  const toggleSelectedPins = () => {
-    if (!selection) return;
-    let next = discovery;
-    if (selection.kind === "constraint" || selection.kind === "cell") {
-      next = { ...next, pinnedConstraints: isPinned(selection.constraintKey, "constraint")
-        ? next.pinnedConstraints.filter((key) => key !== selection.constraintKey)
-        : boundedPins([...next.pinnedConstraints, selection.constraintKey]) };
-    }
-    if (selection.kind === "settlementPoint" || selection.kind === "cell") {
-      next = { ...next, pinnedSettlementPoints: isPinned(selection.settlementPoint, "sp")
-        ? next.pinnedSettlementPoints.filter((point) => point !== selection.settlementPoint)
-        : boundedPins([...next.pinnedSettlementPoints, selection.settlementPoint]) };
-    }
-    updateDiscovery(next);
+  const togglePin = (value: string, kind: "constraint" | "sp") => {
+    const key = kind === "constraint" ? "pinnedConstraints" : "pinnedSettlementPoints";
+    const values = discovery[key];
+    updateDiscovery({ ...discovery, [key]: isPinned(value, kind)
+      ? values.filter((item) => item !== value)
+      : boundedPins([...values, value]) });
   };
   const selectedRowVisible = !selection || selection.kind === "settlementPoint" || Boolean(frame?.rows.some((row) => row.constraint_key === selection.constraintKey));
   const selectedColumnVisible = !selection || selection.kind === "constraint" || Boolean(frame?.columns.some((column) => column.settlement_point === selection.settlementPoint));
@@ -265,24 +257,22 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
       <section className="matrix-workspace__toolbar">
-        <div>
+        <div className="matrix-workspace__heading">
           <span className="label">Explorer / matrix</span>
-          <h1 id="matrix-title">Constraint × settlement point</h1>
+          <div className="matrix-workspace__title-row">
+            <h1 id="matrix-title">Constraint × settlement point</h1>
+            <div className="matrix-workspace__controls" aria-label="Matrix value controls">
+              <div className="matrix-workspace__toggle"><span className="label">Value</span>
+                <button type="button" className={valueMode === "sf" ? "is-active" : ""} onClick={() => setMode("sf")}>Shift Factor</button>
+                <button type="button" className={valueMode === "contribution" ? "is-active" : ""} onClick={() => setMode("contribution")}>Contribution</button>
+              </div>
+              {valueMode === "contribution" && <div className="matrix-workspace__toggle"><span className="label">μ source</span>
+                <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast</button>
+                <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
+              </div>}
+            </div>
+          </div>
           <p>{activeTimestamp ? `${formatCT(activeTimestamp, "MMM d, yyyy HH:mm")} CT` : "Waiting for playback data"}</p>
-        </div>
-        <div className="matrix-workspace__controls" aria-label="Matrix value controls">
-          <fieldset>
-            <legend>Value</legend>
-            <button type="button" className={valueMode === "sf" ? "is-active" : ""} onClick={() => setMode("sf")}>Shift Factor</button>
-            <button type="button" className={valueMode === "contribution" ? "is-active" : ""} onClick={() => setMode("contribution")}>Contribution</button>
-          </fieldset>
-          {valueMode === "contribution" && (
-            <fieldset>
-              <legend>μ source</legend>
-              <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast</button>
-              <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
-            </fieldset>
-          )}
         </div>
         <div className="matrix-workspace__discovery" aria-label="Matrix discovery controls">
           <label>Constraints <input value={discovery.constraintSearch} onChange={(event) => updateDiscovery({ ...discovery, constraintSearch: event.target.value.slice(0, 64) })} placeholder="Search name or contingency" /></label>
@@ -296,7 +286,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           <label>Columns <select value={discovery.columnSet} onChange={(event) => updateDiscovery({ ...discovery, columnSet: event.target.value as ColumnSet })}>
             <option value="core">Core exposures</option><option value="anchors">Hubs / load zones</option><option value="pinned">Pinned settlement points</option><option value="core_pinned">Core + pinned</option>
           </select></label>
-          {selection && <button type="button" onClick={toggleSelectedPins}>Pin selected</button>}
           <button type="button" onClick={resetView}>Reset view</button>
         </div>
       </section>
@@ -326,22 +315,21 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           <div className="matrix-workspace__meta">
             <span>Run {frame.run_id}</span>
             <span>Delivery day {frame.delivery_date}</span>
-            <span>{frame.fit_window_start && frame.fit_window_end ? `Fit ${frame.fit_window_start}–${frame.fit_window_end}` : "Fit provenance unavailable"}</span>
-            <span>Recovered implied shift factors</span>
-            <span>{frame.dam_status === "pending" ? "DAM μ pending — forecast-only" : frame.dam_status === "partial" ? "DAM μ partial match" : "DAM μ available"}</span>
             <span>{frame.rows.length} of {frame.total_constraint_count} constraints</span>
             <span>{frame.columns.length} of {frame.total_settlement_point_count} settlement points</span>
             {loading && <span>Updating frame…</span>}
           </div>
-          {selectionHidden && <div className="matrix-workspace__notice" role="status">The selected item is hidden by the current discovery view. <button type="button" onClick={revealSelection}>Reveal it</button></div>}
-          {valueMode === "contribution" && frame.dam_status === "pending" && (
-            <div className="matrix-workspace__notice" role="status">ERCOT DAM μ has not been published for this hour; Contribution uses Forecast μ.</div>
-          )}
-          {valueMode === "contribution" && frame.dam_status === "partial" && (
-            <div className="matrix-workspace__notice" role="status">ERCOT DAM μ matched {frame.rows.length - damUnmatchedRows} of {frame.rows.length} constraints. Unmatched contribution cells are unavailable.</div>
-          )}
-          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} onSelect={select} />
-          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} />
+          <div className={`matrix-workspace__notices${selectionHidden || (valueMode === "contribution" && frame.dam_status !== "available") ? " has-notices" : ""}`}>
+            {selectionHidden && <div className="matrix-workspace__notice" role="status">The selected item is hidden by the current discovery view. <button type="button" onClick={revealSelection}>Reveal it</button></div>}
+            {valueMode === "contribution" && frame.dam_status === "pending" && (
+              <div className="matrix-workspace__notice" role="status">ERCOT DAM μ is pending; Contribution uses Forecast μ.</div>
+            )}
+            {valueMode === "contribution" && frame.dam_status === "partial" && (
+              <div className="matrix-workspace__notice" role="status">DAM μ: {frame.rows.length - damUnmatchedRows}/{frame.rows.length} constraints matched; unmatched cells are unavailable.</div>
+            )}
+          </div>
+          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} maxAbs={legendMax} onSelect={select} />
+          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} pinnedConstraints={discovery.pinnedConstraints} pinnedSettlementPoints={discovery.pinnedSettlementPoints} onToggleConstraintPin={(key) => togglePin(key, "constraint")} onToggleSettlementPointPin={(point) => togglePin(point, "sp")} />
           <footer className="matrix-workspace__footer">
             <MatrixLegend mode={valueMode} maxAbs={legendMax} />
             <div className="matrix-workspace__summary">
@@ -361,26 +349,31 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
       <style>{`
         .matrix-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-base); }
         .matrix-workspace__toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .matrix-workspace__heading { min-width: 0; }
+        .matrix-workspace__title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
         .matrix-workspace h1 { margin: 3px 0; font: 600 var(--fs-xl)/1.2 var(--font-label); color: var(--text-primary); }
         .matrix-workspace p, .matrix-workspace__meta, .matrix-workspace__summary { color: var(--text-secondary); font-size: var(--fs-label); }
         .matrix-workspace__controls { display: flex; gap: 10px; flex-wrap: wrap; }
+        .matrix-workspace__toggle { align-items: center; display: flex; gap: 6px; }
+        .matrix-workspace__toggle > .label { margin: 0 6px 0 0; }
         .matrix-workspace__discovery { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
         .matrix-workspace__discovery label { color: var(--text-secondary); display: grid; font-size: var(--fs-micro); gap: 3px; }
         .matrix-workspace__discovery input, .matrix-workspace__discovery select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font: var(--fs-label) var(--font-sans); min-height: 30px; padding: 4px 6px; }
         .matrix-workspace__discovery input { min-width: 175px; }
-        .matrix-workspace fieldset { display: flex; border: 0; gap: 1px; background: var(--bg-surface); padding: 2px; }
-        .matrix-workspace legend { color: var(--text-secondary); font-size: var(--fs-micro); margin-bottom: 3px; }
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
-        .matrix-workspace button.is-active { background: var(--accent-dim); color: var(--accent); }
+        .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); }
+        .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
         .matrix-workspace button:disabled { cursor: not-allowed; color: var(--text-muted); }
         .matrix-workspace__loading { display: grid; flex: 1; place-items: center; color: var(--text-secondary); }
         .matrix-workspace__state { align-self: center; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow-panel); max-width: 500px; padding: 22px; width: min(500px, 100%); }
         .matrix-workspace__state h2 { font: 600 var(--fs-lg) var(--font-label); margin: 0 0 8px; }
         .matrix-workspace__state p { line-height: 1.45; }
         .matrix-workspace__state button { background: var(--accent-dim); color: var(--accent); margin-top: 14px; }
-        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto minmax(180px, 1fr) auto auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
+        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto auto minmax(180px, 1fr) auto auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-        .matrix-workspace__notice { background: var(--accent-dim); border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: var(--fs-label); padding: 6px 10px; }
+        .matrix-workspace__notices { min-height: 0; }
+        .matrix-workspace__notices.has-notices { border-bottom: 1px solid var(--border); display: grid; gap: 1px; }
+        .matrix-workspace__notice { background: var(--accent-dim); color: var(--text-secondary); font-size: var(--fs-label); padding: 5px 10px; }
         .matrix-workspace__footer { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 9px 10px; border-top: 1px solid var(--border); }
         .matrix-workspace__summary { text-align: right; max-width: 310px; }
         .matrix-workspace__summary strong { display: block; color: var(--text-primary); font: 600 var(--fs-md) var(--font-mono); margin-top: 3px; }
@@ -396,7 +389,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-grid__column > span { color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; }
         .matrix-grid__row { background: var(--bg-panel); cursor: pointer; left: 0; min-width: 205px; max-width: 205px; padding: 6px 10px; position: sticky; text-align: left; z-index: 1; }
         .matrix-grid__row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .matrix-grid__cell { color: var(--text-primary); cursor: pointer; font: 500 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
+        .matrix-grid__cell { color: #172033; cursor: pointer; font: 600 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__cell--unavailable { color: var(--text-muted); background: repeating-linear-gradient(-45deg, var(--bg-surface), var(--bg-surface) 3px, var(--bg-panel) 3px, var(--bg-panel) 6px) !important; }
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
@@ -408,18 +401,17 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-inspector__collapse svg { display: block; fill: none; height: 24px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; transition: transform 160ms ease; width: 24px; }
         .matrix-inspector__collapse svg.is-collapsed { transform: rotate(180deg); }
         .matrix-inspector__collapsed-title { align-items: center; color: var(--text-secondary); display: flex; font: 500 var(--fs-label) var(--font-label); min-height: 42px; padding: 0 50px 0 10px; }
-        .matrix-inspector__body { color: var(--text-secondary); font-size: var(--fs-label); max-height: 280px; overflow: auto; padding: 12px 42px 12px 10px; }
+        .matrix-inspector__body { color: var(--text-secondary); font-size: var(--fs-md); line-height: 1.45; max-height: 320px; overflow: auto; padding: 14px 42px 16px 12px; }
         .matrix-inspector__body > p { margin: 0; }
-        .matrix-inspector__key { font: 500 var(--fs-micro) var(--font-mono); margin: 3px 0 10px; }.matrix-inspector__key span { color: var(--text-muted); display: block; font: var(--fs-micro) var(--font-sans); margin-bottom: 2px; }
-        .matrix-inspector__metrics { display: grid; gap: 8px 18px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; }
-        .matrix-inspector__metrics div { min-width: 0; }.matrix-inspector__metrics dt { color: var(--text-muted); font-size: var(--fs-micro); }.matrix-inspector__metrics dd { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); margin: 2px 0 0; overflow-wrap: anywhere; }
-        .matrix-inspector__actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 0; }.matrix-inspector__actions a { color: var(--accent); font-size: var(--fs-label); }.matrix-inspector__warning { background: color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent); border-left: 3px solid var(--warning, #f59e0b); color: var(--text-primary); margin: 12px 0 0; padding: 7px 9px; }
+        .matrix-inspector__table-wrap { width: 100%; }.matrix-inspector__table-wrap h3 { margin: 0 0 8px; text-transform: uppercase; }
+        .matrix-inspector__table { border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; width: 100%; }.matrix-inspector__table th, .matrix-inspector__table td { border-bottom: 1px solid var(--border); padding: 5px 6px; text-align: left; vertical-align: top; }.matrix-inspector__table thead th { color: var(--text-muted); font: 600 var(--fs-micro) var(--font-label); letter-spacing: .04em; text-transform: uppercase; }.matrix-inspector__table thead th:nth-child(1) { width: 15%; }.matrix-inspector__table thead th:nth-child(2) { width: 21%; }.matrix-inspector__table thead th:nth-child(3) { width: 20%; }.matrix-inspector__table thead th:nth-child(4) { width: 44%; }.matrix-inspector__table th[scope="row"] { color: var(--text-secondary); font-weight: 500; }.matrix-inspector__table td { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); overflow-wrap: anywhere; }.matrix-inspector__table tr:last-child > * { border-bottom: 0; }
+        .matrix-inspector__table a { color: var(--accent); font-family: var(--font-sans); }.matrix-inspector__pin { accent-color: var(--accent); cursor: pointer; height: 15px; margin: 0; width: 15px; }
         .matrix-legend { width: 240px; }
         .matrix-legend__title { color: var(--text-secondary); margin-bottom: 4px; }
         .matrix-legend__bar { height: 8px; }
         .matrix-legend__ticks, .matrix-legend__signs { display: flex; justify-content: space-between; font-size: 9px; margin-top: 3px; }
         .matrix-legend__signs { color: var(--text-secondary); }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__toolbar { align-items: start; } .matrix-workspace__footer { align-items: start; flex-direction: column; } .matrix-workspace__summary { max-width: none; text-align: left; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
+        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__toolbar { align-items: start; } .matrix-workspace__footer { align-items: start; flex-direction: column; } .matrix-workspace__summary { max-width: none; text-align: left; } .matrix-inspector__metrics div { grid-template-columns: minmax(0, 1fr) auto; }.matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
       `}</style>
     </main>
   );

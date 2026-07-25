@@ -21,6 +21,7 @@ interface Props {
   mode: MatrixValueMode;
   muSource: MatrixMuSource;
   selection: MatrixSelection;
+  maxAbs: number;
   onSelect: (selection: MatrixSelection) => void;
 }
 
@@ -135,7 +136,7 @@ function selectionElementId(selection: Exclude<MatrixSelection, null>) {
       `matrix-cell-${part(selection.constraintKey)}-${part(selection.settlementPoint)}`;
 }
 
-export default function MatrixGrid({ frame, mode, muSource, selection, onSelect }: Props) {
+export default function MatrixGrid({ frame, mode, muSource, selection, maxAbs, onSelect }: Props) {
   const [tooltip, setTooltip] = useState<MatrixTooltipTarget | null>(null);
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
@@ -174,15 +175,6 @@ export default function MatrixGrid({ frame, mode, muSource, selection, onSelect 
   }, []);
 
   const isContribution = mode === "contribution";
-  const values = frame.rows.flatMap((row, rowIndex) =>
-    frame.columns.map((_, columnIndex) => {
-      const sf = matrixCellMetadata(frame, rowIndex, columnIndex)?.sf ?? null;
-      return isContribution
-        ? matrixContribution(sf, matrixMuForSource(row, muSource))
-        : sf;
-    })
-  );
-  const maxAbs = Math.max(0, ...values.flatMap((value) => value == null ? [] : [Math.abs(value)]));
   const sourceLabel = muSource === "forecast" ? "Forecast μ" : "ERCOT DAM μ";
   const unit = isContribution ? "$/MWh" : "dimensionless implied shift factor";
 
@@ -209,8 +201,8 @@ export default function MatrixGrid({ frame, mode, muSource, selection, onSelect 
                 data-matrix-column={columnIndex}
                 onClick={() => onSelect({ kind: "settlementPoint", settlementPoint: column.settlement_point })}
                 onKeyDown={(event) => selectOnKey(event, () => onSelect({ kind: "settlementPoint", settlementPoint: column.settlement_point }))}
-              >
-                <span>{column.settlement_point}</span>
+                >
+                  <span>{column.settlement_point}</span>
                 {column.load_zone && <small>{column.load_zone}</small>}
               </th>
             ))}

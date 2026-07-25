@@ -67,6 +67,8 @@ export interface MatrixFrame {
   columns_truncated: boolean;
   total_constraint_count: number;
   total_settlement_point_count: number;
+  sf_day_max_abs: number;
+  contribution_day_max_abs: number;
   rows: MatrixRow[];
   columns: MatrixColumn[];
   sf: MatrixSfValues;
