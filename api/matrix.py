@@ -162,5 +162,7 @@ def get_matrix_frame(
     return MatrixFrame(
         available=True, run_id=run_id, delivery_date=delivery_date, interval_ts=interval_ts,
         dam_status=dam_status, rows=rows, columns=columns,
+        rows_truncated=len(row_keys) < len(artifact.SF.index),
+        columns_truncated=len(column_keys) < len(artifact.SF.columns),
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),
     )
