@@ -73,15 +73,20 @@ Source: `plan/0118-matrix-feature/sprint-matrix.md`
 
 ## Acceptance
 
-* [ ] The same matrix switches among SF, Forecast Contribution, and ERCOT DAM Contribution.
+* [x] The same matrix switches among SF, Forecast Contribution, and ERCOT DAM Contribution.
 * [ ] A fixture contribution displays `-SF × μ` at the documented precision.
-* [ ] Timestamp, value, and source changes do not reorder rows/columns within a delivery day.
-* [ ] A future hour never displays DAM zeroes.
-* [ ] Units, sign convention, value source, timestamp, and fit provenance are visible.
-* [ ] A stale response cannot replace the newest timestamp after rapid scrubbing.
+* [x] Timestamp, value, and source changes do not reorder rows/columns within a delivery day.
+* [x] A future hour never displays DAM zeroes.
+* [x] Units, sign convention, value source, timestamp, and fit provenance are visible.
+* [x] A stale response cannot replace the newest timestamp after rapid scrubbing.
 * [ ] The default 30 × 40 surface scrolls smoothly on supported desktop browsers.
-* [ ] The Matrix has a safe small-screen state.
+* [x] The Matrix has a safe small-screen state.
 * [ ] Frontend build and canonical checks pass.
+
+Verification still needed: exercise a fixture contribution and the 30 × 40
+surface in a supported browser, then run the frontend checks under the
+project's supported Node/toolchain. The local Node 18 environment has an
+incomplete dependency installation and cannot run those checks.
 
 ## Merge boundary
 
