@@ -35,7 +35,12 @@ export default function App() {
       {/* Keep MapWorkspace alive across route changes: its map-only state and
           one-time map requests survive a visit to Matrix. */}
       <div style={{ display: workspace === "map" ? "contents" : "none" }}>
-        <MapWorkspace session={session} onNavigate={navigate} routeSearch={location.search} />
+        <MapWorkspace
+          session={session}
+          onNavigate={navigate}
+          routeSearch={location.search}
+          onSelectionRouteChange={(search) => navigate("map", search)}
+        />
       </div>
 
       {workspace === "matrix" && (
