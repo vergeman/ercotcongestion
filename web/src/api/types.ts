@@ -229,6 +229,7 @@ export interface ConstraintReach {
   n_rail: number | null;
   peak_offrail: number | null;
   binding_hours: number | null;
+  available: boolean;
   sps: ReachSp[];
 }
 

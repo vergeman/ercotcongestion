@@ -9,7 +9,7 @@ import MatrixWorkspace from "./workspaces/MatrixWorkspace";
 
 /** Persistent live-data shell shared by the Map and Matrix workspaces. */
 export default function App() {
-  const { workspace, navigate } = useExplorerRoute();
+  const { workspace, search, navigate } = useExplorerRoute();
   const session = useExplorerSession();
   const {
     timestamps,
@@ -29,7 +29,7 @@ export default function App() {
       {/* Keep MapWorkspace alive across route changes: its map-only state and
           one-time map requests survive a visit to Matrix. */}
       <div style={{ display: workspace === "map" ? "contents" : "none" }}>
-        <MapWorkspace session={session} onNavigate={navigate} />
+        <MapWorkspace session={session} onNavigate={navigate} routeSearch={search} />
       </div>
 
       {workspace === "matrix" && (
@@ -44,7 +44,12 @@ export default function App() {
             lastUpdated={lastUpdated}
             connectionState={connectionState}
           />
-          <MatrixWorkspace timestamp={timestamps[currentIndex] ?? null} />
+          <MatrixWorkspace
+            timestamp={timestamps[currentIndex] ?? null}
+            routeSearch={search}
+            onSelectionRouteChange={(search) => navigate("matrix", search)}
+            onNavigateToMap={(search) => navigate("map", search)}
+          />
         </>
       )}
 

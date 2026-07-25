@@ -81,9 +81,23 @@ interface HoveredSp {
 export interface MapWorkspaceProps {
   session: ReturnType<typeof useExplorerSession>;
   onNavigate: (workspace: "map" | "matrix") => void;
+  routeSearch: string;
 }
 
-export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps) {
+type RequestedMapTarget =
+  | { kind: "constraint"; value: string }
+  | { kind: "sp"; value: string }
+  | null;
+
+function requestedMapTarget(search: string): RequestedMapTarget {
+  const params = new URLSearchParams(search);
+  const constraint = params.get("constraint");
+  if (constraint) return { kind: "constraint", value: constraint };
+  const sp = params.get("sp");
+  return sp ? { kind: "sp", value: sp } : null;
+}
+
+export default function MapWorkspace({ session, onNavigate, routeSearch }: MapWorkspaceProps) {
   // Mobile is intentionally a map-first experience. Keep the user's desktop
   // view choice in state, but never mount the second synchronized map below the
   // breakpoint; returning to desktop restores their chosen view.
@@ -92,6 +106,10 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
   const [topology, setTopology] = useState<unknown | null>(null);
+  const [topologyReady, setTopologyReady] = useState(false);
+  const target = useMemo(() => requestedMapTarget(routeSearch), [routeSearch]);
+  const [targetUnavailable, setTargetUnavailable] = useState(false);
+  const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
   // landing) is a single map of P50 forecast − realized congestion; `dual` is the
   // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
@@ -268,7 +286,8 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
         setTopology(t);
         setConnState("ok");
       })
-      .catch(() => setConnState("error"));
+      .catch(() => setConnState("error"))
+      .finally(() => setTopologyReady(true));
   }, [setConnState]);
 
   // Constraint overview load — once, independent of the playback window (the SF
@@ -531,6 +550,62 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
         if (reachReqRef.current === token) setReach(null);
       });
   }, []);
+
+  // Deep links from the Matrix retain the requested identifier in the URL and
+  // replay the equivalent Map selection once its representation is available.
+  // The map fetches are selection work, not inspector metadata lookups.
+  useEffect(() => {
+    if (!target) {
+      handledTargetRef.current = null;
+      setTargetUnavailable(false);
+      return;
+    }
+    const key = `${target.kind}:${target.value}`;
+    if (handledTargetRef.current === key) return;
+
+    if (target.kind === "sp") {
+      if (!topologyReady) return;
+      handledTargetRef.current = key;
+      const feature = spPoints?.features.find((point) =>
+        (point.properties?.sp_id as string | undefined) === target.value
+      );
+      if (!feature) {
+        setTargetUnavailable(true);
+        return;
+      }
+      setTargetUnavailable(false);
+      handleSpClickPrediction(target.value, (feature.properties ?? { sp_id: target.value }) as Record<string, unknown>);
+      return;
+    }
+
+    handledTargetRef.current = key;
+    setTargetUnavailable(false);
+    setPinnedSp((current) => ({ ...current, prediction: null }));
+    setExposures(null);
+    exposureReqRef.current++;
+    previewReachRef.current = false;
+    setHoveredConstraintId(null);
+    const token = ++reachReqRef.current;
+    fetchMapReach(target.value)
+      .then((nextReach) => {
+        if (reachReqRef.current !== token) return;
+        if (!nextReach?.available) {
+          setReach(null);
+          setLockedConstraintId(null);
+          setTargetUnavailable(true);
+          return;
+        }
+        setReach(nextReach);
+        focusReachCache.current.set(target.value, nextReach);
+        setLockedConstraintId(target.value);
+      })
+      .catch(() => {
+        if (reachReqRef.current !== token) return;
+        setReach(null);
+        setLockedConstraintId(null);
+        setTargetUnavailable(true);
+      });
+  }, [target, topologyReady, spPoints, handleSpClickPrediction]);
 
   const handleCloseReach = useCallback(() => {
     setReach(null);
@@ -971,6 +1046,11 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
             enough that the constraint list/table don't wrap without overshooting. */}
         <div className="app-map-area">
+          {targetUnavailable && target && (
+            <div className="map-target-notice" role="status">
+              Requested {target.kind === "sp" ? "settlement point" : "constraint"} <span className="mono">{target.value}</span> is not present in this map fit/window.
+            </div>
+          )}
           {renderedViewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (
@@ -981,6 +1061,18 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
               width: 100%;
               height: 100%;
               position: relative;
+            }
+            .map-target-notice {
+              background: var(--bg-panel);
+              border: 1px solid var(--warning, #f59e0b);
+              color: var(--text-primary);
+              font-size: var(--fs-label);
+              left: 10px;
+              max-width: min(440px, calc(100% - 20px));
+              padding: 8px 10px;
+              position: absolute;
+              top: 68px;
+              z-index: 3;
             }
             .pane-badge {
               position: absolute;

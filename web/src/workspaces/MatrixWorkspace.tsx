@@ -16,19 +16,43 @@ import { formatCT } from "../lib/time";
 let rememberedValueMode: MatrixValueMode = "sf";
 let rememberedMuSource: MatrixMuSource = "forecast";
 let rememberedInspectorCollapsed = false;
+let rememberedSelection: MatrixSelection = null;
+let rememberedFrame: MatrixFrame | null = null;
 
 interface Props {
   timestamp: Date | null;
+  routeSearch: string;
+  onSelectionRouteChange: (search: string) => void;
+  onNavigateToMap: (search: string) => void;
 }
 
-export default function MatrixWorkspace({ timestamp }: Props) {
-  const [frame, setFrame] = useState<MatrixFrame | null>(null);
+function selectionFromSearch(search: string): MatrixSelection {
+  const params = new URLSearchParams(search);
+  const constraintKey = params.get("constraint");
+  const settlementPoint = params.get("sp");
+  if (constraintKey && settlementPoint) return { kind: "cell", constraintKey, settlementPoint };
+  if (constraintKey) return { kind: "constraint", constraintKey };
+  return settlementPoint ? { kind: "settlementPoint", settlementPoint } : null;
+}
+
+function selectionSearch(selection: MatrixSelection): string {
+  if (!selection) return "";
+  const params = new URLSearchParams();
+  if (selection.kind === "constraint" || selection.kind === "cell") params.set("constraint", selection.constraintKey);
+  if (selection.kind === "settlementPoint" || selection.kind === "cell") params.set("sp", selection.settlementPoint);
+  return `?${params.toString()}`;
+}
+
+export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRouteChange, onNavigateToMap }: Props) {
+  const [frame, setFrame] = useState<MatrixFrame | null>(() =>
+    rememberedFrame?.interval_ts === timestamp?.toISOString() ? rememberedFrame : null
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
   const [valueMode, setValueMode] = useState<MatrixValueMode>(rememberedValueMode);
   const [muSource, setMuSource] = useState<MatrixMuSource>(rememberedMuSource);
-  const [selection, setSelection] = useState<MatrixSelection>(null);
+  const [selection, setSelection] = useState<MatrixSelection>(rememberedSelection);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(rememberedInspectorCollapsed);
   const requestId = useRef(0);
 
@@ -40,7 +64,10 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     setError(null);
     void getMatrixFrame(timestamp, {}, controller.signal)
       .then((nextFrame) => {
-        if (id === requestId.current) setFrame(nextFrame);
+        if (id === requestId.current) {
+          rememberedFrame = nextFrame;
+          setFrame(nextFrame);
+        }
       })
       .catch((requestError: unknown) => {
         if (requestError instanceof Error && requestError.name === "AbortError") return;
@@ -80,9 +107,26 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     if ((selection.kind === "constraint" && !hasRow(selection.constraintKey)) ||
       (selection.kind === "settlementPoint" && !hasColumn(selection.settlementPoint)) ||
       (selection.kind === "cell" && (!hasRow(selection.constraintKey) || !hasColumn(selection.settlementPoint)))) {
+      rememberedSelection = null;
       setSelection(null);
     }
   }, [frame, selection]);
+
+  // Matrix selection is URL-addressable. A browser Back/Forward navigation or
+  // a shared Matrix link resolves against the already-loaded bounded frame.
+  useEffect(() => {
+    if (!frame?.available) return;
+    const requested = selectionFromSearch(routeSearch);
+    const hasRow = (key: string) => frame.rows.some((row) => row.constraint_key === key);
+    const hasColumn = (point: string) => frame.columns.some((column) => column.settlement_point === point);
+    const present = requested == null ||
+      (requested.kind === "constraint" && hasRow(requested.constraintKey)) ||
+      (requested.kind === "settlementPoint" && hasColumn(requested.settlementPoint)) ||
+      (requested.kind === "cell" && hasRow(requested.constraintKey) && hasColumn(requested.settlementPoint));
+    const nextSelection = present ? requested : null;
+    rememberedSelection = nextSelection;
+    setSelection(nextSelection);
+  }, [frame, routeSearch]);
 
   const summary = useMemo(() => {
     if (!frame?.available || valueMode !== "contribution") return null;
@@ -114,6 +158,11 @@ export default function MatrixWorkspace({ timestamp }: Props) {
   const setCollapsed = (collapsed: boolean) => {
     rememberedInspectorCollapsed = collapsed;
     setInspectorCollapsed(collapsed);
+  };
+  const select = (nextSelection: MatrixSelection) => {
+    rememberedSelection = nextSelection;
+    setSelection(nextSelection);
+    onSelectionRouteChange(selectionSearch(nextSelection));
   };
 
   return (
@@ -176,8 +225,8 @@ export default function MatrixWorkspace({ timestamp }: Props) {
           {valueMode === "contribution" && frame.dam_status === "partial" && (
             <div className="matrix-workspace__notice" role="status">ERCOT DAM μ matched {frame.rows.length - damUnmatchedRows} of {frame.rows.length} constraints. Unmatched contribution cells are unavailable.</div>
           )}
-          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} onSelect={setSelection} />
-          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} />
+          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} onSelect={select} />
+          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} />
           <footer className="matrix-workspace__footer">
             <MatrixLegend mode={valueMode} maxAbs={legendMax} />
             <div className="matrix-workspace__summary">
@@ -233,7 +282,7 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
         .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
-        .matrix-inspector { border-top: 1px solid var(--border); background: var(--bg-surface); min-height: 42px; position: relative; }
+        .matrix-inspector { background: var(--bg-surface); border-top: 1px solid var(--border); min-height: 42px; position: relative; z-index: 4; }
         .matrix-inspector h3 { color: var(--text-primary); font: 600 var(--fs-md) var(--font-label); margin: 0; }
         .matrix-workspace .matrix-inspector__collapse { align-items: center; background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; display: flex; height: 38px; justify-content: center; line-height: 1; margin: 0; padding: 0; position: absolute; right: 4px; top: 2px; width: 38px; z-index: 1; }
         .matrix-workspace .matrix-inspector__collapse:hover { color: var(--accent); }
