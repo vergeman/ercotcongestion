@@ -198,6 +198,9 @@ class ConstraintReach(BaseModel):
     n_rail: int | None = None
     peak_offrail: float | None = None
     binding_hours: int | None = None
+    # False means the requested key has no represented SF reach in the active
+    # fit/window; callers can distinguish it from an empty visual selection.
+    available: bool = True
     sps: list[ReachSp]
 
 
