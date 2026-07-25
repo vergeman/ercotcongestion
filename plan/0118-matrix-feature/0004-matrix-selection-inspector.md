@@ -25,6 +25,8 @@ Source: `plan/0118-matrix-feature/sprint-matrix.md`
 * Selection persists across hour and value-mode changes while its stable row/column identifiers remain in the frame.
 * Collapsing the inspector requires an explicit user action and does not clear selection.
 * The shared timestamp remains unchanged during Matrix → Map navigation.
+* A selection is addressable in the URL and restores into the appropriate workspace on load, Back/Forward, or return navigation.
+* The selected Matrix row, column, or cell is scrolled into the Matrix viewport when restored from a URL.
 
 ## Selection model
 
@@ -67,9 +69,14 @@ Store stable identifiers, never row/column indices.
 * Reuse the matrix's shared arithmetic and formatting helpers so cells and inspector cannot disagree.
 * Add persistent selected styles, keyboard operation, focus behavior, and `aria-selected`.
 * Add deep links:
+  * `/matrix?constraint=<encoded key>`
+  * `/matrix?sp=<encoded point>`
+  * `/matrix?constraint=<encoded key>&sp=<encoded point>` for an exact cell
   * `/map?constraint=<encoded key>`
   * `/map?sp=<encoded point>`
-* Teach `MapWorkspace` to consume those parameters and select the corresponding object when available.
+* Update the Matrix URL when a row, column, or cell is selected; teach `MatrixWorkspace` to consume those parameters and restore the inspector selection when available.
+* Update the Map URL when a constraint or settlement point is selected; teach `MapWorkspace` to consume those parameters and select the corresponding object when available.
+* Keep the Explorer session mounted across route changes so Matrix → Map → Matrix retains the loaded frame, selection, inspector state, and timestamp.
 * If the current map artifact cannot represent the target, retain the requested selection and show a graceful “not present in this fit/window” state.
 * Keep the inspector below the matrix and make collapse/expand layout stable.
 
@@ -83,8 +90,11 @@ Store stable identifiers, never row/column indices.
 * [ ] Inspector arithmetic matches the selected cell for both available `μ` sources.
 * [ ] Inspector content updates during playback while selection remains stable.
 * [ ] Collapse/expand neither clears selection nor unpredictably resizes the page.
+* [ ] Matrix selection updates `/matrix` with the constraint, settlement point, or exact cell identifiers and restores the inspector selection from that URL.
+* [ ] Map and Matrix selections update their respective URLs, and browser Back/Forward restores the selected object without changing the shared timestamp.
 * [ ] Deep links open the existing map with the selected constraint or SP when present.
 * [ ] Unavailable map targets receive a graceful, explicit state.
+* [ ] A URL-restored Matrix selection is scrolled into view within the Matrix grid.
 * [ ] No click triggers an N+1 metadata request.
 * [ ] Truncated sums are never labeled total nodal congestion.
 
