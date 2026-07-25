@@ -69,14 +69,14 @@ Show:
 
 ## Acceptance
 
-* [ ] Every focusable row header, column header, and cell exposes the intended tooltip.
-* [ ] Pointer and keyboard users receive equivalent information.
-* [ ] Hovering changes no selection, order, playback, or filter state.
-* [ ] No network request occurs because of hover/focus.
-* [ ] Tooltip values agree with the matrix cell and persistent inspector.
-* [ ] Missing DAM values have accurate unavailable labels rather than zeroes.
-* [ ] Tooltips remain readable at matrix edges and around sticky headers.
-* [ ] Default-rectangle interaction remains performant.
+* [x] Every focusable row header, column header, and cell exposes the intended tooltip.
+* [x] Pointer and keyboard users receive equivalent information.
+* [x] Hovering changes no selection, order, playback, or filter state.
+* [x] No network request occurs because of hover/focus.
+* [x] Tooltip values agree with the matrix cell and persistent inspector.
+* [x] Missing DAM values have accurate unavailable labels rather than zeroes.
+* [x] Tooltips remain readable at matrix edges and around sticky headers.
+* [ ] Default-rectangle interaction remains performant (not browser-profiled in this environment).
 
 ## Merge boundary
 
