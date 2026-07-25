@@ -18,6 +18,56 @@ export interface ErcotStateRangeResponse {
   entries: ErcotStateRangeEntry[];
 }
 
+// =============================================================================
+// /matrix/frame — one bounded, day-stable constraint × settlement-point frame.
+// The API owns the row and column ordering.  `sf.values` is row-major and is
+// aligned exactly to `rows` then `columns`; it contains recovered implied shift
+// factors, not an official ERCOT shift-factor field.
+// =============================================================================
+
+export type MatrixDamStatus = "pending" | "partial" | "available";
+
+export interface MatrixRow {
+  constraint_key: string;
+  constraint_name: string;
+  contingency_name: string | null;
+  constraint_type: string | null;
+  forecast_mu: number;
+  ercot_dam_mu: number | null;
+  daily_rank: number;
+  binding_hours: number;
+  max_abs_sf: number;
+}
+
+export interface MatrixColumn {
+  settlement_point: string;
+  settlement_point_type: string | null;
+  load_zone: string | null;
+  max_abs_sf: number;
+}
+
+export interface MatrixSfValues {
+  row_count: number;
+  column_count: number;
+  values: number[];
+}
+
+export interface MatrixFrame {
+  available: boolean;
+  unavailable_reason: string | null;
+  run_id: string;
+  delivery_date: string;
+  interval_ts: string;
+  fit_window_start: string | null;
+  fit_window_end: string | null;
+  dam_status: MatrixDamStatus;
+  row_ordering: string;
+  column_ordering: string;
+  rows: MatrixRow[];
+  columns: MatrixColumn[];
+  sf: MatrixSfValues;
+}
+
 // Raw DAM SPP per settlement point, per hour. Feeds the LMP palette so the
 // price view renders directly from ERCOT's published prices.
 export interface ErcotSpSpp {

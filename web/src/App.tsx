@@ -44,7 +44,7 @@ export default function App() {
             lastUpdated={lastUpdated}
             connectionState={connectionState}
           />
-          <MatrixWorkspace />
+          <MatrixWorkspace timestamp={timestamps[currentIndex] ?? null} />
         </>
       )}
 
