@@ -1,15 +1,21 @@
+import { useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Header from "./components/layout/Header";
 import DateRangePicker from "./components/playback/DateRangePicker";
 import PlaybackScrubber from "./components/playback/PlaybackScrubber";
 import { useExplorerSession } from "./hooks/useExplorerSession";
 import { CURATED_EVENTS } from "./lib/events";
-import { useExplorerRoute } from "./lib/explorerRoute";
 import MapWorkspace from "./workspaces/MapWorkspace";
 import MatrixWorkspace from "./workspaces/MatrixWorkspace";
 
 /** Persistent live-data shell shared by the Map and Matrix workspaces. */
 export default function App() {
-  const { workspace, search, navigate } = useExplorerRoute();
+  const location = useLocation();
+  const routerNavigate = useNavigate();
+  const workspace = location.pathname.startsWith("/matrix") ? "matrix" : "map";
+  const navigate = useCallback((next: "map" | "matrix", search = location.search) => {
+    routerNavigate({ pathname: next === "map" ? "/map" : "/matrix", search });
+  }, [location.search, routerNavigate]);
   const session = useExplorerSession();
   const {
     timestamps,
@@ -29,7 +35,7 @@ export default function App() {
       {/* Keep MapWorkspace alive across route changes: its map-only state and
           one-time map requests survive a visit to Matrix. */}
       <div style={{ display: workspace === "map" ? "contents" : "none" }}>
-        <MapWorkspace session={session} onNavigate={navigate} routeSearch={search} />
+        <MapWorkspace session={session} onNavigate={navigate} routeSearch={location.search} />
       </div>
 
       {workspace === "matrix" && (
@@ -46,7 +52,7 @@ export default function App() {
           />
           <MatrixWorkspace
             timestamp={timestamps[currentIndex] ?? null}
-            routeSearch={search}
+            routeSearch={location.search}
             onSelectionRouteChange={(search) => navigate("matrix", search)}
             onNavigateToMap={(search) => navigate("map", search)}
           />
