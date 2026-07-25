@@ -362,6 +362,43 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--text-primary);
   font-weight: 600;
 }
+.tt--matrix {
+  width: 300px;
+  max-width: min(300px, calc(100vw - 8px));
+  padding: 0;
+}
+.matrix-tooltip__header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.matrix-tooltip__header b,
+.matrix-tooltip__header span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matrix-tooltip__header span {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  margin-top: 2px;
+}
+.matrix-tooltip__body { padding: 6px 10px 8px; }
+.matrix-tooltip__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+.matrix-tooltip__row > span { color: var(--text-secondary); }
+.matrix-tooltip__row > strong {
+  color: var(--text-primary);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  text-align: right;
+}
 @keyframes tt-in {
   from {
     opacity: 0;
