@@ -126,14 +126,16 @@ export default function Tooltip({
 // viewport rect — flipping to the opposite side if the preferred edge would run
 // off-screen, and clamping to stay fully in view. Hidden for the first paint so
 // it never flashes at the pre-measured spot.
-function TooltipBubble({
+export function TooltipBubble({
   anchor,
   placement,
   children,
+  className,
 }: {
   anchor: DOMRect;
   placement: Placement;
   children: ReactNode;
+  className?: string;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -186,7 +188,7 @@ function TooltipBubble({
     <div
       ref={el}
       role="tooltip"
-      className="tt"
+      className={`tt${className ? ` ${className}` : ""}`}
       style={{
         left: pos ? pos.left : anchor.left,
         top: pos ? pos.top : anchor.top,
