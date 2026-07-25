@@ -233,14 +233,16 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
         .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
-        .matrix-inspector { border-top: 1px solid var(--border); background: var(--bg-surface); }
-        .matrix-inspector__header { align-items: center; display: flex; justify-content: space-between; gap: 12px; min-height: 54px; padding: 8px 10px; }
-        .matrix-inspector h2 { color: var(--text-primary); font: 600 var(--fs-md) var(--font-label); margin: 2px 0 0; }
+        .matrix-inspector { border-top: 1px solid var(--border); background: var(--bg-surface); min-height: 42px; position: relative; }
         .matrix-inspector h3 { color: var(--text-primary); font: 600 var(--fs-md) var(--font-label); margin: 0; }
-        .matrix-inspector button { background: var(--accent-dim); color: var(--accent); }
-        .matrix-inspector__body { border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--fs-label); max-height: 280px; overflow: auto; padding: 12px 10px; }
+        .matrix-workspace .matrix-inspector__collapse { align-items: center; background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; display: flex; height: 38px; justify-content: center; line-height: 1; margin: 0; padding: 0; position: absolute; right: 4px; top: 2px; width: 38px; z-index: 1; }
+        .matrix-workspace .matrix-inspector__collapse:hover { color: var(--accent); }
+        .matrix-inspector__collapse svg { display: block; fill: none; height: 24px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; transition: transform 160ms ease; width: 24px; }
+        .matrix-inspector__collapse svg.is-collapsed { transform: rotate(180deg); }
+        .matrix-inspector__collapsed-title { align-items: center; color: var(--text-secondary); display: flex; font: 500 var(--fs-label) var(--font-label); min-height: 42px; padding: 0 50px 0 10px; }
+        .matrix-inspector__body { color: var(--text-secondary); font-size: var(--fs-label); max-height: 280px; overflow: auto; padding: 12px 42px 12px 10px; }
         .matrix-inspector__body > p { margin: 0; }
-        .matrix-inspector__key { font: 500 var(--fs-micro) var(--font-mono); margin: 3px 0 10px; }
+        .matrix-inspector__key { font: 500 var(--fs-micro) var(--font-mono); margin: 3px 0 10px; }.matrix-inspector__key span { color: var(--text-muted); display: block; font: var(--fs-micro) var(--font-sans); margin-bottom: 2px; }
         .matrix-inspector__metrics { display: grid; gap: 8px 18px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; }
         .matrix-inspector__metrics div { min-width: 0; }.matrix-inspector__metrics dt { color: var(--text-muted); font-size: var(--fs-micro); }.matrix-inspector__metrics dd { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); margin: 2px 0 0; overflow-wrap: anywhere; }
         .matrix-inspector__actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 0; }.matrix-inspector__actions a { color: var(--accent); font-size: var(--fs-label); }.matrix-inspector__warning { background: color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent); border-left: 3px solid var(--warning, #f59e0b); color: var(--text-primary); margin: 12px 0 0; padding: 7px 9px; }

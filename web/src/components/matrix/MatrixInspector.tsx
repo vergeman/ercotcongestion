@@ -18,6 +18,10 @@ function mapHref(kind: "constraint" | "sp", value: string) {
   return `/map?${kind}=${encodeURIComponent(value)}`;
 }
 
+function valueOrDash(value: string | null | undefined) {
+  return value || "-";
+}
+
 function rowFor(frame: MatrixFrame, key: string): [MatrixRow, number] | null {
   const index = frame.rows.findIndex((row) => row.constraint_key === key);
   return index < 0 ? null : [frame.rows[index], index];
@@ -44,8 +48,8 @@ function CellDetails({ frame, constraintKey, settlementPoint }: { frame: MatrixF
       <div><dt>Implied SF</dt><dd>{formatMatrixValue(sf, "sf")}</dd></div>
       <div><dt>Forecast μ</dt><dd>{formatMatrixMu(constraint.forecast_mu)}</dd></div>
       <div><dt>−SF × Forecast μ</dt><dd>{formatMatrixValue(forecast, "contribution")}/MWh</dd></div>
-      <div><dt>ERCOT DAM μ</dt><dd>{constraint.ercot_dam_mu == null ? "Unavailable for this constraint and hour" : formatMatrixMu(constraint.ercot_dam_mu)}</dd></div>
-      <div><dt>−SF × DAM μ</dt><dd>{dam == null ? "Unavailable because ERCOT DAM μ is unavailable" : `${formatMatrixValue(dam, "contribution")}/MWh`}</dd></div>
+      <div><dt>ERCOT DAM μ</dt><dd>{constraint.ercot_dam_mu == null ? "-" : formatMatrixMu(constraint.ercot_dam_mu)}</dd></div>
+      <div><dt>−SF × DAM μ</dt><dd>{dam == null ? "-" : `${formatMatrixValue(dam, "contribution")}/MWh`}</dd></div>
     </dl>
     <p className="matrix-inspector__actions"><a href={mapHref("constraint", constraint.constraint_key)}>View constraint on map</a><a href={mapHref("sp", point.settlement_point)}>View settlement point on map</a></p>
   </>;
@@ -62,12 +66,13 @@ function ConstraintDetails({ frame, constraintKey }: { frame: MatrixFrame; const
   const positive = exposures.filter((exposure) => exposure.sf > 0).sort((a, b) => b.sf - a.sf)[0];
   const negative = exposures.filter((exposure) => exposure.sf < 0).sort((a, b) => a.sf - b.sf)[0];
   return <>
-    <h3>{row.constraint_name}</h3><p className="matrix-inspector__key">{row.constraint_key}</p>
+    <h3>{row.constraint_name}</h3><p className="matrix-inspector__key"><span>Constraint key (name | contingency)</span>{row.constraint_key}</p>
     <dl className="matrix-inspector__metrics">
-      <div><dt>Contingency / type</dt><dd>{[row.contingency_name, row.constraint_type].filter(Boolean).join(" · ") || "Not specified"}</dd></div>
-      <div><dt>Daily rank</dt><dd>{row.daily_rank}</dd></div><div><dt>Binding / active hours</dt><dd>{row.binding_hours}</dd></div><div><dt>Maximum |SF|</dt><dd>{formatMatrixValue(row.max_abs_sf, "sf")}</dd></div>
-      <div><dt>Forecast μ</dt><dd>{formatMatrixMu(row.forecast_mu)}</dd></div><div><dt>ERCOT DAM μ</dt><dd>{row.ercot_dam_mu == null ? "Unavailable for this constraint and hour" : formatMatrixMu(row.ercot_dam_mu)}</dd></div>
-      <div><dt>Strongest positive exposure</dt><dd>{positive ? `${positive.point} (${formatMatrixValue(positive.sf, "sf")})` : "None visible"}</dd></div><div><dt>Strongest negative exposure</dt><dd>{negative ? `${negative.point} (${formatMatrixValue(negative.sf, "sf")})` : "None visible"}</dd></div>
+      <div><dt>Contingency</dt><dd>{valueOrDash(row.contingency_name)}</dd></div>
+      {row.constraint_type != null && <div><dt>Matrix class</dt><dd>{row.constraint_type}</dd></div>}
+      <div><dt>Daily rank</dt><dd>{row.daily_rank}</dd></div><div><dt>Binding</dt><dd>{row.binding_hours}</dd></div><div><dt>Maximum |SF|</dt><dd>{formatMatrixValue(row.max_abs_sf, "sf")}</dd></div>
+      <div><dt>Forecast μ</dt><dd>{formatMatrixMu(row.forecast_mu)}</dd></div><div><dt>ERCOT DAM μ</dt><dd>{row.ercot_dam_mu == null ? "-" : formatMatrixMu(row.ercot_dam_mu)}</dd></div>
+      <div><dt>Strongest positive exposure</dt><dd>{positive ? `${positive.point} (${formatMatrixValue(positive.sf, "sf")})` : "-"}</dd></div><div><dt>Strongest negative exposure</dt><dd>{negative ? `${negative.point} (${formatMatrixValue(negative.sf, "sf")})` : "-"}</dd></div>
     </dl><p className="matrix-inspector__actions"><a href={mapHref("constraint", row.constraint_key)}>View constraint on map</a></p>
   </>;
 }
@@ -92,9 +97,9 @@ function SettlementPointDetails({ frame, settlementPoint }: { frame: MatrixFrame
   return <>
     <h3>{column.settlement_point}</h3>
     <dl className="matrix-inspector__metrics">
-      <div><dt>Type</dt><dd>{column.settlement_point_type ?? "Not specified"}</dd></div><div><dt>Load zone</dt><dd>{column.load_zone ?? "Not specified"}</dd></div>
-      <div><dt>Visible-row Forecast contribution</dt><dd>{formatMatrixValue(forecastSum, "contribution")}/MWh</dd></div><div><dt>Visible-row DAM contribution</dt><dd>{damSum == null ? "Unavailable: no visible row has DAM μ" : `${formatMatrixValue(damSum, "contribution")}/MWh`}</dd></div>
-      <div><dt>Strongest visible drivers</dt><dd>{drivers.length ? drivers.map((driver) => `${driver.row.constraint_name} (${formatMatrixValue(driver.sf, "sf")})`).join(", ") : "None visible"}</dd></div>
+      <div><dt>Type</dt><dd>{valueOrDash(column.settlement_point_type)}</dd></div><div><dt>Load zone</dt><dd>{valueOrDash(column.load_zone)}</dd></div>
+      <div><dt>Visible-row Forecast contribution</dt><dd>{forecastSum == null ? "-" : `${formatMatrixValue(forecastSum, "contribution")}/MWh`}</dd></div><div><dt>Visible-row DAM contribution</dt><dd>{damSum == null ? "-" : `${formatMatrixValue(damSum, "contribution")}/MWh`}</dd></div>
+      <div><dt>Strongest visible drivers</dt><dd>{drivers.length ? drivers.map((driver) => `${driver.row.constraint_name} (${formatMatrixValue(driver.sf, "sf")})`).join(", ") : "-"}</dd></div>
     </dl>
     {(frame.rows_truncated || frame.columns_truncated) && <p className="matrix-inspector__warning">Visible-row sums are not total nodal congestion: this Matrix response is truncated.</p>}
     <p className="matrix-inspector__actions"><a href={mapHref("sp", column.settlement_point)}>View settlement point on map</a></p>
@@ -102,8 +107,8 @@ function SettlementPointDetails({ frame, settlementPoint }: { frame: MatrixFrame
 }
 
 export default function MatrixInspector({ frame, selection, collapsed, onCollapsedChange }: Props) {
-  return <section className="matrix-inspector" aria-labelledby="matrix-inspector-title">
-    <div className="matrix-inspector__header"><div><span className="label">Selection inspector</span><h2 id="matrix-inspector-title">{selection ? "Selected Matrix object" : "Nothing selected"}</h2></div><button type="button" aria-expanded={!collapsed} onClick={() => onCollapsedChange(!collapsed)}>{collapsed ? "Expand inspector" : "Collapse inspector"}</button></div>
-    {!collapsed && <div className="matrix-inspector__body">{selection?.kind === "cell" ? <CellDetails frame={frame} {...selection} /> : selection?.kind === "constraint" ? <ConstraintDetails frame={frame} {...selection} /> : selection?.kind === "settlementPoint" ? <SettlementPointDetails frame={frame} {...selection} /> : <p>Select a constraint row, settlement-point column, or cell to inspect its exact-hour values.</p>}</div>}
+  return <section className="matrix-inspector" aria-label="Selection inspector">
+    <button className="matrix-inspector__collapse" type="button" aria-expanded={!collapsed} aria-label={collapsed ? "Expand inspector" : "Collapse inspector"} title={collapsed ? "Expand inspector" : "Collapse inspector"} onClick={() => onCollapsedChange(!collapsed)}><svg className={collapsed ? "is-collapsed" : ""} viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button>
+    {collapsed ? <div className="matrix-inspector__collapsed-title">Selection Inspector.</div> : <div className="matrix-inspector__body">{selection?.kind === "cell" ? <CellDetails frame={frame} {...selection} /> : selection?.kind === "constraint" ? <ConstraintDetails frame={frame} {...selection} /> : selection?.kind === "settlementPoint" ? <SettlementPointDetails frame={frame} {...selection} /> : <p>Select a constraint row, settlement-point column, or cell to inspect its exact-hour values.</p>}</div>}
   </section>;
 }
