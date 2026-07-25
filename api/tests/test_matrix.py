@@ -26,10 +26,11 @@ def _blob() -> bytes:
     return build_sf_mu_artifact(sf, mu)
 
 
-def _queue_frame(fake_pool, dam_rows: list[dict] | None = None):
+def _queue_frame(fake_pool, dam_rows: list[dict] | None = None, type_rows: list[dict] | None = None):
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
     fake_pool.cursor.queue([{'sf_npz': _blob()}])
     fake_pool.cursor.queue(dam_rows or [])
+    fake_pool.cursor.queue(type_rows or [])
 
 
 def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
@@ -60,6 +61,8 @@ def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
     assert body['sf']['values'] == pytest.approx([1.0, 0.1, 0.5, 0.4])
     assert body['rows_truncated'] is True
     assert body['columns_truncated'] is True
+    assert body['total_constraint_count'] == 3
+    assert body['total_settlement_point_count'] == 3
     assert body['fit_window_start'] is None and body['fit_window_end'] is None
 
 
@@ -69,6 +72,7 @@ def test_frame_order_does_not_change_by_hour(client, fake_pool, monkeypatch):
     first = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
     # Cache reuse skips the blob query, but pointer and exact-hour DAM still query.
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
     second = client.get('/matrix/frame', params={'interval_ts': T1.isoformat(), 'row_limit': 2, 'column_limit': 2})
     assert first.status_code == second.status_code == 200
@@ -104,4 +108,35 @@ def test_frame_enforces_conservative_bounds(client):
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 101})
     assert response.status_code == 422
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'column_limit': 101})
+    assert response.status_code == 422
+
+
+def test_frame_discovery_pins_search_types_and_column_presets(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('hub', 'north_hub'), 'SP_B': ('resource', None), 'SP_C': ('load_zone', 'west'),
+    })
+    _queue_frame(fake_pool, type_rows=[
+        {'constraint_key': 'AAA|BASE', 'ctype': 'gtc'},
+        {'constraint_key': 'BBB|LINE', 'ctype': 'transmission'},
+        {'constraint_key': 'CCC|OUTAGE', 'ctype': 'radial'},
+    ])
+    response = client.get('/matrix/frame', params=[
+        ('interval_ts', T0.isoformat()), ('row_preset', 'pinned'),
+        ('pinned_constraint', 'CCC|OUTAGE'), ('constraint_search', 'bbb'),
+        ('constraint_type', 'gtc'), ('column_set', 'anchors'),
+        ('pinned_settlement_point', 'SP_B'), ('settlement_point_search', 'sp_a'),
+    ])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Pins and search results append in a deterministic order; a type filter
+    # never silently drops a pin the user explicitly curated.
+    assert [row['constraint_key'] for row in body['rows']] == ['CCC|OUTAGE', 'BBB|LINE']
+    assert [row['constraint_type'] for row in body['rows']] == ['radial', 'transmission']
+    assert [column['settlement_point'] for column in body['columns']] == ['SP_A', 'SP_C', 'SP_B']
+
+
+def test_frame_rejects_unbounded_discovery_values(client):
+    response = client.get('/matrix/frame', params=[('interval_ts', T0.isoformat())] + [('pinned_constraint', f'C{i}') for i in range(21)])
+    assert response.status_code == 422
+    response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'constraint_search': 'x' * 65})
     assert response.status_code == 422

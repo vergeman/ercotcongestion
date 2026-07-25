@@ -20,6 +20,10 @@ DEFAULT_ROW_LIMIT = 30
 DEFAULT_COLUMN_LIMIT = 40
 MAX_ROW_LIMIT = 100
 MAX_COLUMN_LIMIT = 100
+MAX_PINNED_ITEMS = 20
+MAX_SEARCH_RESULTS = 20
+MAX_SEARCH_LENGTH = 64
+ROW_PRESETS = {'top30': 30, 'top100': 100, 'pinned': 0}
 
 # Metadata is deliberately best-effort: the artifact is authoritative for the
 # matrix itself, and an absent topology record must not change its shape.
@@ -78,6 +82,51 @@ def _unavailable(run_id: str, delivery_date, interval_ts: datetime, reason: str)
     )
 
 
+def _bounded_values(values: list[str], *, name: str) -> list[str]:
+    """Normalize repeated pin parameters before they reach dense selection."""
+    normalized: list[str] = []
+    for value in values:
+        value = value.strip()
+        if not value or value in normalized:
+            continue
+        normalized.append(value)
+    if len(normalized) > MAX_PINNED_ITEMS:
+        raise HTTPException(status_code=422, detail=f'{name} supports at most {MAX_PINNED_ITEMS} values.')
+    return normalized
+
+
+def _bounded_search(value: str | None, *, name: str) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if len(value) > MAX_SEARCH_LENGTH:
+        raise HTTPException(status_code=422, detail=f'{name} must be at most {MAX_SEARCH_LENGTH} characters.')
+    return value.casefold() or None
+
+
+def _append_bounded(base: list[str], additions: list[str], *, limit: int) -> list[str]:
+    """Append discovery additions without changing the existing stable order."""
+    result = list(base)
+    for key in additions:
+        if key not in result:
+            result.append(key)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _constraint_types(cur, keys: list[str]) -> dict[str, str]:
+    """Best-effort type metadata; absent map metadata must not change a frame."""
+    if not keys:
+        return {}
+    cur.execute(
+        "SELECT DISTINCT ON (constraint_key) constraint_key, ctype FROM constraint_geo "
+        "WHERE constraint_key = ANY(%s) ORDER BY constraint_key, window_start DESC",
+        (keys,),
+    )
+    return {str(r['constraint_key']): str(r['ctype']) for r in cur.fetchall() if r['ctype'] is not None}
+
+
 def _dam_mu(cur, interval_ts: datetime) -> dict[str, float]:
     """Exact-hour published DAM μ keyed exactly like the artifact vocabulary."""
     cur.execute(
@@ -98,9 +147,18 @@ def get_matrix_frame(
     interval_ts: datetime = Query(..., description='Delivery interval in ISO-8601 UTC.'),
     row_limit: int = Query(DEFAULT_ROW_LIMIT, ge=1, le=MAX_ROW_LIMIT),
     column_limit: int = Query(DEFAULT_COLUMN_LIMIT, ge=1, le=MAX_COLUMN_LIMIT),
-    column_set: str = Query('core', pattern='^core$', description='Frozen column selection.'),
+    row_preset: str = Query('top30', pattern='^(top30|top100|pinned)$'),
+    constraint_type: str | None = Query(None, pattern='^(gtc|transmission|radial)$'),
+    constraint_search: str | None = Query(None),
+    settlement_point_search: str | None = Query(None),
+    pinned_constraint: list[str] = Query(default=[]),
+    pinned_settlement_point: list[str] = Query(default=[]),
+    column_set: str = Query('core', pattern='^(core|anchors|pinned|core_pinned)$', description='Bounded named column selection.'),
 ) -> MatrixFrame:
-    del column_set  # Reserved for future named sets; only the causal core set exists today.
+    pinned_constraint = _bounded_values(pinned_constraint, name='pinned_constraint')
+    pinned_settlement_point = _bounded_values(pinned_settlement_point, name='pinned_settlement_point')
+    constraint_search = _bounded_search(constraint_search, name='constraint_search')
+    settlement_point_search = _bounded_search(settlement_point_search, name='settlement_point_search')
     interval_ts = _coerce_utc(interval_ts)
     delivery_date = _delivery_date(interval_ts)
 
@@ -119,34 +177,77 @@ def get_matrix_frame(
         if hour not in artifact.E_mu.index:
             return _unavailable(run_id, delivery_date, interval_ts, 'interval_not_in_artifact')
 
-        # Freeze rows from the whole day, never from the selected hour. The
+        # Freeze default rows from the whole day, never from the selected hour. The
         # contribution mass is the artifact's causal μ multiplied by its recovered
         # SF reach; ties are explicit so refreshes cannot shuffle labels.
         mu_mass = artifact.E_mu.abs().sum(axis=0)
         reach = artifact.SF.abs().sum(axis=1)
         contribution = (mu_mass * reach).astype(float)
-        row_keys = sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))[:row_limit]
-
-        # The core column universe is likewise day-stable, but scoped to the
-        # frozen rows so widening row_limit is the only way it can change.
-        row_sf = artifact.SF.loc[row_keys]
-        col_max = row_sf.abs().max(axis=0)
-        column_keys = sorted(row_sf.columns, key=lambda key: (-col_max.loc[key], str(key)))[:column_limit]
-
+        ranked_rows = [str(key) for key in sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))]
+        all_columns = [str(key) for key in artifact.SF.columns]
+        pinned_rows = [key for key in pinned_constraint if key in artifact.SF.index]
+        matched_rows = [key for key in ranked_rows if constraint_search and constraint_search in key.casefold()][:MAX_SEARCH_RESULTS]
+        # Preserve the established DAM query before best-effort discovery
+        # metadata; both use indexed, bounded key sets.
         dam_by_key = _dam_mu(cur, interval_ts)
+        type_candidates = _append_bounded(ranked_rows[:MAX_ROW_LIMIT], pinned_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS)
+        type_candidates = _append_bounded(type_candidates, matched_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS + MAX_SEARCH_RESULTS)
+        row_types = _constraint_types(cur, type_candidates)
+
+        # Core columns always come from the frozen unfiltered row preset. Pins,
+        # searches, and type filters may add or hide visible members but cannot
+        # make the existing core columns jump around.  ``row_limit`` remains
+        # the compatible form of the default top-30 preset.
+        core_reference_limit = row_limit if row_preset == 'top30' else (DEFAULT_ROW_LIMIT if row_preset == 'pinned' else ROW_PRESETS[row_preset])
+        default_rows = ranked_rows[:core_reference_limit]
+        core_max = artifact.SF.loc[default_rows].abs().max(axis=0)
+        ranked_columns = [str(key) for key in sorted(artifact.SF.columns, key=lambda key: (-core_max.loc[key], str(key)))]
+        metadata = _sp_metadata()
+
+        # Keep explicit row_limit compatible with the existing client while a
+        # preset is top30; named presets use their fixed bounded universe.
+        base_rows = ranked_rows[:row_limit if row_preset == 'top30' else ROW_PRESETS[row_preset]]
+        if constraint_type:
+            base_rows = [key for key in base_rows if row_types.get(key) == constraint_type]
+        # Reserve bounded room for explicit pins and search matches, so a Top
+        # 100 request cannot make a pinned item disappear behind the cap.
+        additions = [key for key in pinned_rows + matched_rows if key not in base_rows]
+        row_keys = _append_bounded([], base_rows, limit=MAX_ROW_LIMIT - len(additions))
+        row_keys = _append_bounded(row_keys, pinned_rows, limit=MAX_ROW_LIMIT)
+        row_keys = _append_bounded(row_keys, matched_rows, limit=MAX_ROW_LIMIT)
+
+        core_columns = ranked_columns[:column_limit]
+        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone', 'HB', 'LZ'} or metadata.get(key, (None, None))[1] is not None]
+        if column_set == 'core':
+            base_columns = core_columns
+        elif column_set == 'anchors':
+            base_columns = anchor_columns[:column_limit]
+        elif column_set == 'pinned':
+            base_columns = []
+        else:
+            base_columns = core_columns
+        pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
+        matched_columns = [key for key in ranked_columns if settlement_point_search and settlement_point_search in key.casefold()][:MAX_SEARCH_RESULTS]
+        additions = [key for key in pinned_columns + matched_columns if key not in base_columns]
+        column_keys = _append_bounded([], base_columns, limit=MAX_COLUMN_LIMIT - len(additions))
+        column_keys = _append_bounded(column_keys, pinned_columns, limit=MAX_COLUMN_LIMIT)
+        column_keys = _append_bounded(column_keys, matched_columns, limit=MAX_COLUMN_LIMIT)
+        row_sf = artifact.SF.loc[row_keys]
+        col_max = artifact.SF.loc[default_rows].abs().max(axis=0)
 
     exact_mu = artifact.E_mu.loc[hour]
-    metadata = _sp_metadata()
     rows: list[MatrixRow] = []
     matched_dam = 0
-    for rank, key in enumerate(row_keys, start=1):
+    daily_ranks = {key: rank for rank, key in enumerate(ranked_rows, start=1)}
+    for key in row_keys:
         name, contingency = _split_constraint_key(str(key))
         dam_mu = dam_by_key.get(str(key))
         matched_dam += dam_mu is not None
         rows.append(MatrixRow(
             constraint_key=str(key), constraint_name=name, contingency_name=contingency,
+            constraint_type=row_types.get(str(key)),
             forecast_mu=float(exact_mu.loc[key]), ercot_dam_mu=dam_mu,
-            daily_rank=rank,
+            daily_rank=daily_ranks[str(key)],
             binding_hours=int((artifact.E_mu[key].abs() > 0).sum()),
             max_abs_sf=float(artifact.SF.loc[key].abs().max()),
         ))
@@ -164,5 +265,6 @@ def get_matrix_frame(
         dam_status=dam_status, rows=rows, columns=columns,
         rows_truncated=len(row_keys) < len(artifact.SF.index),
         columns_truncated=len(column_keys) < len(artifact.SF.columns),
+        total_constraint_count=len(ranked_rows), total_settlement_point_count=len(all_columns),
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),
     )

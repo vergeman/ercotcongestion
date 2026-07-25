@@ -335,6 +335,11 @@ class MatrixFrame(BaseModel):
     # need this distinction before describing any visible-only sum.
     rows_truncated: bool = False
     columns_truncated: bool = False
+    # Counts describe the artifact universe, not a congestion total.  A client
+    # can therefore say "30 of 143 constraints" without implying that the
+    # visible rows account for all nodal congestion.
+    total_constraint_count: int = 0
+    total_settlement_point_count: int = 0
     rows: list[MatrixRow] = []
     columns: list[MatrixColumn] = []
     sf: MatrixSfValues
