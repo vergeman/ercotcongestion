@@ -183,6 +183,11 @@ def get_matrix_frame(
         mu_mass = artifact.E_mu.abs().sum(axis=0)
         reach = artifact.SF.abs().sum(axis=1)
         contribution = (mu_mass * reach).astype(float)
+        sf_day_max_abs = float(artifact.SF.abs().to_numpy().max()) if not artifact.SF.empty else 0.0
+        # For each row, its peak |μ| hour and peak-|SF| settlement point are
+        # independently attainable, making this the exact day-wide maximum
+        # absolute contribution in the recovered matrix.
+        contribution_day_max_abs = float((artifact.E_mu.abs().max(axis=0) * artifact.SF.abs().max(axis=1)).max()) if not artifact.SF.empty else 0.0
         ranked_rows = [str(key) for key in sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))]
         all_columns = [str(key) for key in artifact.SF.columns]
         pinned_rows = [key for key in pinned_constraint if key in artifact.SF.index]
@@ -209,6 +214,8 @@ def get_matrix_frame(
         base_rows = ranked_rows[:row_limit if row_preset == 'top30' else ROW_PRESETS[row_preset]]
         if constraint_type:
             base_rows = [key for key in base_rows if row_types.get(key) == constraint_type]
+        if constraint_search:
+            base_rows = [key for key in base_rows if key in matched_rows]
         # Reserve bounded room for explicit pins and search matches, so a Top
         # 100 request cannot make a pinned item disappear behind the cap.
         additions = [key for key in pinned_rows + matched_rows if key not in base_rows]
@@ -228,6 +235,8 @@ def get_matrix_frame(
             base_columns = core_columns
         pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
         matched_columns = [key for key in ranked_columns if settlement_point_search and settlement_point_search in key.casefold()][:MAX_SEARCH_RESULTS]
+        if settlement_point_search:
+            base_columns = [key for key in base_columns if key in matched_columns]
         additions = [key for key in pinned_columns + matched_columns if key not in base_columns]
         column_keys = _append_bounded([], base_columns, limit=MAX_COLUMN_LIMIT - len(additions))
         column_keys = _append_bounded(column_keys, pinned_columns, limit=MAX_COLUMN_LIMIT)
@@ -266,5 +275,6 @@ def get_matrix_frame(
         rows_truncated=len(row_keys) < len(artifact.SF.index),
         columns_truncated=len(column_keys) < len(artifact.SF.columns),
         total_constraint_count=len(ranked_rows), total_settlement_point_count=len(all_columns),
+        sf_day_max_abs=sf_day_max_abs, contribution_day_max_abs=contribution_day_max_abs,
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),
     )

@@ -63,6 +63,8 @@ def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
     assert body['columns_truncated'] is True
     assert body['total_constraint_count'] == 3
     assert body['total_settlement_point_count'] == 3
+    assert body['sf_day_max_abs'] == pytest.approx(1.0)
+    assert body['contribution_day_max_abs'] == pytest.approx(2.0)
     assert body['fit_window_start'] is None and body['fit_window_end'] is None
 
 
@@ -132,7 +134,7 @@ def test_frame_discovery_pins_search_types_and_column_presets(client, fake_pool,
     # never silently drops a pin the user explicitly curated.
     assert [row['constraint_key'] for row in body['rows']] == ['CCC|OUTAGE', 'BBB|LINE']
     assert [row['constraint_type'] for row in body['rows']] == ['radial', 'transmission']
-    assert [column['settlement_point'] for column in body['columns']] == ['SP_A', 'SP_C', 'SP_B']
+    assert [column['settlement_point'] for column in body['columns']] == ['SP_A', 'SP_B']
 
 
 def test_frame_rejects_unbounded_discovery_values(client):
