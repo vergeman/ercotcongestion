@@ -6,7 +6,13 @@ const MAX_CACHED_FRAMES = 36;
 export interface MatrixFrameBounds {
   rowLimit?: number;
   columnLimit?: number;
-  columnSet?: "core";
+  rowPreset?: "top30" | "top100" | "pinned";
+  constraintType?: "gtc" | "transmission" | "radial";
+  constraintSearch?: string;
+  settlementPointSearch?: string;
+  pinnedConstraints?: string[];
+  pinnedSettlementPoints?: string[];
+  columnSet?: "core" | "anchors" | "pinned" | "core_pinned";
 }
 
 interface CachedFrame {
@@ -26,6 +32,12 @@ function normalizedBounds(bounds: MatrixFrameBounds = {}) {
   return {
     rowLimit: bounds.rowLimit ?? 30,
     columnLimit: bounds.columnLimit ?? 40,
+    rowPreset: bounds.rowPreset ?? "top30",
+    constraintType: bounds.constraintType ?? "",
+    constraintSearch: bounds.constraintSearch ?? "",
+    settlementPointSearch: bounds.settlementPointSearch ?? "",
+    pinnedConstraints: bounds.pinnedConstraints ?? [],
+    pinnedSettlementPoints: bounds.pinnedSettlementPoints ?? [],
     columnSet: bounds.columnSet ?? "core",
   } as const;
 }
@@ -35,6 +47,12 @@ function requestKey(intervalTs: Date, bounds: MatrixFrameBounds = {}): string {
   return [
     intervalTs.toISOString(),
     normalized.rowLimit,
+    normalized.rowPreset,
+    normalized.constraintType,
+    normalized.constraintSearch,
+    normalized.settlementPointSearch,
+    normalized.pinnedConstraints.join(","),
+    normalized.pinnedSettlementPoints.join(","),
     normalized.columnSet,
     normalized.columnLimit,
   ].join("|");
@@ -50,6 +68,12 @@ export function matrixFrameCacheKey(
     frame.delivery_date,
     frame.interval_ts,
     normalized.rowLimit,
+    normalized.rowPreset,
+    normalized.constraintType,
+    normalized.constraintSearch,
+    normalized.settlementPointSearch,
+    normalized.pinnedConstraints.join(","),
+    normalized.pinnedSettlementPoints.join(","),
     normalized.columnSet,
     normalized.columnLimit,
   ].join("|");
@@ -90,7 +114,12 @@ export async function getMatrixFrame(
     return cached.frame;
   }
 
-  const requestOptions: MatrixFrameRequest = { ...normalizedBounds(bounds), signal };
+  const normalized = normalizedBounds(bounds);
+  const requestOptions: MatrixFrameRequest = {
+    ...normalized,
+    constraintType: normalized.constraintType || undefined,
+    signal,
+  };
   const frame = await fetchMatrixFrame(intervalTs, requestOptions);
   return remember(request, frame, bounds);
 }

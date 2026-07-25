@@ -24,7 +24,13 @@ export async function fetchTopology(): Promise<unknown> {
 export interface MatrixFrameRequest {
   rowLimit?: number;
   columnLimit?: number;
-  columnSet?: "core";
+  rowPreset?: "top30" | "top100" | "pinned";
+  constraintType?: "gtc" | "transmission" | "radial";
+  constraintSearch?: string;
+  settlementPointSearch?: string;
+  pinnedConstraints?: string[];
+  pinnedSettlementPoints?: string[];
+  columnSet?: "core" | "anchors" | "pinned" | "core_pinned";
   signal?: AbortSignal;
 }
 
@@ -37,6 +43,12 @@ export async function fetchMatrixFrame(
   {
     rowLimit = 30,
     columnLimit = 40,
+    rowPreset = "top30",
+    constraintType,
+    constraintSearch,
+    settlementPointSearch,
+    pinnedConstraints = [],
+    pinnedSettlementPoints = [],
     columnSet = "core",
     signal,
   }: MatrixFrameRequest = {}
@@ -46,7 +58,13 @@ export async function fetchMatrixFrame(
     row_limit: String(rowLimit),
     column_limit: String(columnLimit),
     column_set: columnSet,
+    row_preset: rowPreset,
   });
+  if (constraintType) qs.set("constraint_type", constraintType);
+  if (constraintSearch) qs.set("constraint_search", constraintSearch);
+  if (settlementPointSearch) qs.set("settlement_point_search", settlementPointSearch);
+  pinnedConstraints.forEach((key) => qs.append("pinned_constraint", key));
+  pinnedSettlementPoints.forEach((point) => qs.append("pinned_settlement_point", point));
   const r = await fetch(`${BASE}/matrix/frame?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`matrix/frame ${r.status}`);
   return r.json();

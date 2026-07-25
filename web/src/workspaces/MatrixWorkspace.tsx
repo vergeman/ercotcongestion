@@ -19,6 +19,61 @@ let rememberedInspectorCollapsed = false;
 let rememberedSelection: MatrixSelection = null;
 let rememberedFrame: MatrixFrame | null = null;
 
+const PIN_STORAGE_KEY = "ercotstress.matrix-pins.v1";
+const MAX_PINS = 20;
+
+type RowPreset = "top30" | "top100" | "pinned";
+type ColumnSet = "core" | "anchors" | "pinned" | "core_pinned";
+type ConstraintType = "gtc" | "transmission" | "radial";
+
+interface DiscoveryState {
+  rowPreset: RowPreset;
+  constraintType: ConstraintType | "";
+  constraintSearch: string;
+  settlementPointSearch: string;
+  columnSet: ColumnSet;
+  pinnedConstraints: string[];
+  pinnedSettlementPoints: string[];
+}
+
+const DEFAULT_DISCOVERY: Omit<DiscoveryState, "pinnedConstraints" | "pinnedSettlementPoints"> = {
+  rowPreset: "top30", constraintType: "", constraintSearch: "", settlementPointSearch: "", columnSet: "core",
+};
+
+function boundedPins(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, MAX_PINS);
+}
+
+function storedPins(): Pick<DiscoveryState, "pinnedConstraints" | "pinnedSettlementPoints"> {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(PIN_STORAGE_KEY) ?? "null") as { version?: number; constraints?: string[]; settlementPoints?: string[] } | null;
+    if (value?.version === 1) return {
+      pinnedConstraints: boundedPins(value.constraints ?? []),
+      pinnedSettlementPoints: boundedPins(value.settlementPoints ?? []),
+    };
+  } catch {
+    // A malformed old value is recoverable through Reset view.
+  }
+  return { pinnedConstraints: [], pinnedSettlementPoints: [] };
+}
+
+function discoveryFromSearch(search: string): DiscoveryState {
+  const params = new URLSearchParams(search);
+  const stored = storedPins();
+  const rowPreset = params.get("rows");
+  const columnSet = params.get("columns");
+  const type = params.get("ctype");
+  return {
+    rowPreset: rowPreset === "top100" || rowPreset === "pinned" ? rowPreset : "top30",
+    columnSet: columnSet === "anchors" || columnSet === "pinned" || columnSet === "core_pinned" ? columnSet : "core",
+    constraintType: type === "gtc" || type === "transmission" || type === "radial" ? type : "",
+    constraintSearch: params.get("constraint_search")?.slice(0, 64) ?? "",
+    settlementPointSearch: params.get("sp_search")?.slice(0, 64) ?? "",
+    pinnedConstraints: params.has("pinned_constraint") ? boundedPins(params.getAll("pinned_constraint")) : stored.pinnedConstraints,
+    pinnedSettlementPoints: params.has("pinned_sp") ? boundedPins(params.getAll("pinned_sp")) : stored.pinnedSettlementPoints,
+  };
+}
+
 interface Props {
   timestamp: Date | null;
   routeSearch: string;
@@ -35,12 +90,19 @@ function selectionFromSearch(search: string): MatrixSelection {
   return settlementPoint ? { kind: "settlementPoint", settlementPoint } : null;
 }
 
-function selectionSearch(selection: MatrixSelection): string {
-  if (!selection) return "";
+function matrixSearch(discovery: DiscoveryState, selection: MatrixSelection): string {
   const params = new URLSearchParams();
-  if (selection.kind === "constraint" || selection.kind === "cell") params.set("constraint", selection.constraintKey);
-  if (selection.kind === "settlementPoint" || selection.kind === "cell") params.set("sp", selection.settlementPoint);
-  return `?${params.toString()}`;
+  if (discovery.rowPreset !== "top30") params.set("rows", discovery.rowPreset);
+  if (discovery.columnSet !== "core") params.set("columns", discovery.columnSet);
+  if (discovery.constraintType) params.set("ctype", discovery.constraintType);
+  if (discovery.constraintSearch) params.set("constraint_search", discovery.constraintSearch);
+  if (discovery.settlementPointSearch) params.set("sp_search", discovery.settlementPointSearch);
+  discovery.pinnedConstraints.forEach((key) => params.append("pinned_constraint", key));
+  discovery.pinnedSettlementPoints.forEach((point) => params.append("pinned_sp", point));
+  if (selection?.kind === "constraint" || selection?.kind === "cell") params.set("constraint", selection.constraintKey);
+  if (selection?.kind === "settlementPoint" || selection?.kind === "cell") params.set("sp", selection.settlementPoint);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRouteChange, onNavigateToMap }: Props) {
@@ -52,7 +114,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const [requestVersion, setRequestVersion] = useState(0);
   const [valueMode, setValueMode] = useState<MatrixValueMode>(rememberedValueMode);
   const [muSource, setMuSource] = useState<MatrixMuSource>(rememberedMuSource);
-  const [selection, setSelection] = useState<MatrixSelection>(rememberedSelection);
+  const [selection, setSelection] = useState<MatrixSelection>(() => selectionFromSearch(routeSearch) ?? rememberedSelection);
+  const [discovery, setDiscovery] = useState<DiscoveryState>(() => discoveryFromSearch(routeSearch));
   const [inspectorCollapsed, setInspectorCollapsed] = useState(rememberedInspectorCollapsed);
   const requestId = useRef(0);
 
@@ -62,7 +125,15 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     const id = ++requestId.current;
     setLoading(true);
     setError(null);
-    void getMatrixFrame(timestamp, {}, controller.signal)
+    void getMatrixFrame(timestamp, {
+      rowPreset: discovery.rowPreset,
+      constraintType: discovery.constraintType || undefined,
+      constraintSearch: discovery.constraintSearch,
+      settlementPointSearch: discovery.settlementPointSearch,
+      columnSet: discovery.columnSet,
+      pinnedConstraints: discovery.pinnedConstraints,
+      pinnedSettlementPoints: discovery.pinnedSettlementPoints,
+    }, controller.signal)
       .then((nextFrame) => {
         if (id === requestId.current) {
           rememberedFrame = nextFrame;
@@ -79,7 +150,17 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         if (id === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [requestVersion, timestamp]);
+  }, [discovery, requestVersion, timestamp]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify({
+        version: 1, constraints: discovery.pinnedConstraints, settlementPoints: discovery.pinnedSettlementPoints,
+      }));
+    } catch {
+      // Local persistence is deliberately optional; URL state remains usable.
+    }
+  }, [discovery.pinnedConstraints, discovery.pinnedSettlementPoints]);
 
   const setMode = (mode: MatrixValueMode) => {
     rememberedValueMode = mode;
@@ -98,35 +179,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     }
   }, [damPending, muSource, valueMode]);
 
-  // Frame ordering is stable, but selection is deliberately stored by its
-  // identifiers so the selected object survives hour and value-mode changes.
+  // Selection and discovery controls are URL-addressable. A hidden selection
+  // remains explicit instead of being erased when a filter changes its frame.
   useEffect(() => {
-    if (!frame?.available || !selection) return;
-    const hasRow = (key: string) => frame.rows.some((row) => row.constraint_key === key);
-    const hasColumn = (point: string) => frame.columns.some((column) => column.settlement_point === point);
-    if ((selection.kind === "constraint" && !hasRow(selection.constraintKey)) ||
-      (selection.kind === "settlementPoint" && !hasColumn(selection.settlementPoint)) ||
-      (selection.kind === "cell" && (!hasRow(selection.constraintKey) || !hasColumn(selection.settlementPoint)))) {
-      rememberedSelection = null;
-      setSelection(null);
-    }
-  }, [frame, selection]);
-
-  // Matrix selection is URL-addressable. A browser Back/Forward navigation or
-  // a shared Matrix link resolves against the already-loaded bounded frame.
-  useEffect(() => {
-    if (!frame?.available) return;
-    const requested = selectionFromSearch(routeSearch);
-    const hasRow = (key: string) => frame.rows.some((row) => row.constraint_key === key);
-    const hasColumn = (point: string) => frame.columns.some((column) => column.settlement_point === point);
-    const present = requested == null ||
-      (requested.kind === "constraint" && hasRow(requested.constraintKey)) ||
-      (requested.kind === "settlementPoint" && hasColumn(requested.settlementPoint)) ||
-      (requested.kind === "cell" && hasRow(requested.constraintKey) && hasColumn(requested.settlementPoint));
-    const nextSelection = present ? requested : null;
+    const nextSelection = selectionFromSearch(routeSearch);
     rememberedSelection = nextSelection;
     setSelection(nextSelection);
-  }, [frame, routeSearch]);
+    setDiscovery(discoveryFromSearch(routeSearch));
+  }, [routeSearch]);
 
   const summary = useMemo(() => {
     if (!frame?.available || valueMode !== "contribution") return null;
@@ -162,7 +222,44 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const select = (nextSelection: MatrixSelection) => {
     rememberedSelection = nextSelection;
     setSelection(nextSelection);
-    onSelectionRouteChange(selectionSearch(nextSelection));
+    onSelectionRouteChange(matrixSearch(discovery, nextSelection));
+  };
+  const updateDiscovery = (next: DiscoveryState, nextSelection = selection) => {
+    setDiscovery(next);
+    onSelectionRouteChange(matrixSearch(next, nextSelection));
+  };
+  const isPinned = (value: string, kind: "constraint" | "sp") =>
+    (kind === "constraint" ? discovery.pinnedConstraints : discovery.pinnedSettlementPoints).includes(value);
+  const toggleSelectedPins = () => {
+    if (!selection) return;
+    let next = discovery;
+    if (selection.kind === "constraint" || selection.kind === "cell") {
+      next = { ...next, pinnedConstraints: isPinned(selection.constraintKey, "constraint")
+        ? next.pinnedConstraints.filter((key) => key !== selection.constraintKey)
+        : boundedPins([...next.pinnedConstraints, selection.constraintKey]) };
+    }
+    if (selection.kind === "settlementPoint" || selection.kind === "cell") {
+      next = { ...next, pinnedSettlementPoints: isPinned(selection.settlementPoint, "sp")
+        ? next.pinnedSettlementPoints.filter((point) => point !== selection.settlementPoint)
+        : boundedPins([...next.pinnedSettlementPoints, selection.settlementPoint]) };
+    }
+    updateDiscovery(next);
+  };
+  const selectedRowVisible = !selection || selection.kind === "settlementPoint" || Boolean(frame?.rows.some((row) => row.constraint_key === selection.constraintKey));
+  const selectedColumnVisible = !selection || selection.kind === "constraint" || Boolean(frame?.columns.some((column) => column.settlement_point === selection.settlementPoint));
+  const selectionHidden = Boolean(selection && (!selectedRowVisible || !selectedColumnVisible));
+  const revealSelection = () => {
+    if (!selection) return;
+    let next = discovery;
+    if (selection.kind === "constraint" || selection.kind === "cell") next = { ...next, pinnedConstraints: boundedPins([...next.pinnedConstraints, selection.constraintKey]) };
+    if (selection.kind === "settlementPoint" || selection.kind === "cell") next = { ...next, pinnedSettlementPoints: boundedPins([...next.pinnedSettlementPoints, selection.settlementPoint]) };
+    updateDiscovery(next);
+  };
+  const resetView = () => {
+    try { window.localStorage.removeItem(PIN_STORAGE_KEY); } catch { /* Reset still works in memory. */ }
+    rememberedSelection = null;
+    setSelection(null);
+    updateDiscovery({ ...DEFAULT_DISCOVERY, pinnedConstraints: [], pinnedSettlementPoints: [] }, null);
   };
 
   return (
@@ -186,6 +283,21 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
               <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
             </fieldset>
           )}
+        </div>
+        <div className="matrix-workspace__discovery" aria-label="Matrix discovery controls">
+          <label>Constraints <input value={discovery.constraintSearch} onChange={(event) => updateDiscovery({ ...discovery, constraintSearch: event.target.value.slice(0, 64) })} placeholder="Search name or contingency" /></label>
+          <label>Settlement points <input value={discovery.settlementPointSearch} onChange={(event) => updateDiscovery({ ...discovery, settlementPointSearch: event.target.value.slice(0, 64) })} placeholder="Search settlement point" /></label>
+          <label>Rows <select value={discovery.rowPreset} onChange={(event) => updateDiscovery({ ...discovery, rowPreset: event.target.value as RowPreset })}>
+            <option value="top30">Top 30 forecast contribution</option><option value="top100">Top 100</option><option value="pinned">Pinned constraints</option>
+          </select></label>
+          <label>Type <select value={discovery.constraintType} onChange={(event) => updateDiscovery({ ...discovery, constraintType: event.target.value as ConstraintType | "" })}>
+            <option value="">All types</option><option value="gtc">GTC</option><option value="transmission">Transmission</option><option value="radial">Radial</option>
+          </select></label>
+          <label>Columns <select value={discovery.columnSet} onChange={(event) => updateDiscovery({ ...discovery, columnSet: event.target.value as ColumnSet })}>
+            <option value="core">Core exposures</option><option value="anchors">Hubs / load zones</option><option value="pinned">Pinned settlement points</option><option value="core_pinned">Core + pinned</option>
+          </select></label>
+          {selection && <button type="button" onClick={toggleSelectedPins}>Pin selected</button>}
+          <button type="button" onClick={resetView}>Reset view</button>
         </div>
       </section>
 
@@ -217,8 +329,11 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             <span>{frame.fit_window_start && frame.fit_window_end ? `Fit ${frame.fit_window_start}–${frame.fit_window_end}` : "Fit provenance unavailable"}</span>
             <span>Recovered implied shift factors</span>
             <span>{frame.dam_status === "pending" ? "DAM μ pending — forecast-only" : frame.dam_status === "partial" ? "DAM μ partial match" : "DAM μ available"}</span>
+            <span>{frame.rows.length} of {frame.total_constraint_count} constraints</span>
+            <span>{frame.columns.length} of {frame.total_settlement_point_count} settlement points</span>
             {loading && <span>Updating frame…</span>}
           </div>
+          {selectionHidden && <div className="matrix-workspace__notice" role="status">The selected item is hidden by the current discovery view. <button type="button" onClick={revealSelection}>Reveal it</button></div>}
           {valueMode === "contribution" && frame.dam_status === "pending" && (
             <div className="matrix-workspace__notice" role="status">ERCOT DAM μ has not been published for this hour; Contribution uses Forecast μ.</div>
           )}
@@ -249,6 +364,10 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace h1 { margin: 3px 0; font: 600 var(--fs-xl)/1.2 var(--font-label); color: var(--text-primary); }
         .matrix-workspace p, .matrix-workspace__meta, .matrix-workspace__summary { color: var(--text-secondary); font-size: var(--fs-label); }
         .matrix-workspace__controls { display: flex; gap: 10px; flex-wrap: wrap; }
+        .matrix-workspace__discovery { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+        .matrix-workspace__discovery label { color: var(--text-secondary); display: grid; font-size: var(--fs-micro); gap: 3px; }
+        .matrix-workspace__discovery input, .matrix-workspace__discovery select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font: var(--fs-label) var(--font-sans); min-height: 30px; padding: 4px 6px; }
+        .matrix-workspace__discovery input { min-width: 175px; }
         .matrix-workspace fieldset { display: flex; border: 0; gap: 1px; background: var(--bg-surface); padding: 2px; }
         .matrix-workspace legend { color: var(--text-secondary); font-size: var(--fs-micro); margin-bottom: 3px; }
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
