@@ -55,14 +55,14 @@ Source: `plan/0118-matrix-feature/sprint-matrix.md`
 
 ## Acceptance
 
-* [ ] A user can locate a named constraint or SP without requesting an unbounded matrix.
-* [ ] Pinned rows/columns remain visible through playback and value-source toggles.
-* [ ] Default row/column ordering remains deterministic.
-* [ ] URL state reproduces the selected presets/search/filter configuration.
-* [ ] Pin persistence is bounded, versioned, and recoverable through Reset.
-* [ ] Server limits prevent accidental multi-megabyte/unbounded responses.
-* [ ] A filtered-out selection remains explicit and can be revealed.
-* [ ] Filtering never relabels a partial visible-row sum as total congestion.
+* [x] A user can locate a named constraint or SP without requesting an unbounded matrix.
+* [x] Pinned rows/columns remain visible through playback and value-source toggles.
+* [x] Default row/column ordering remains deterministic.
+* [x] URL state reproduces the selected presets/search/filter configuration.
+* [x] Pin persistence is bounded, versioned, and recoverable through Reset.
+* [x] Server limits prevent accidental multi-megabyte/unbounded responses.
+* [x] A filtered-out selection remains explicit and can be revealed.
+* [x] Filtering never relabels a partial visible-row sum as total congestion.
 * [ ] Performance remains acceptable for every supported preset.
 
 ## Sprint-level verification
@@ -75,6 +75,12 @@ Source: `plan/0118-matrix-feature/sprint-matrix.md`
 * [ ] Verify all partial visible-row sums are labeled accurately.
 * [ ] Verify the map Constraints tab and existing map behavior remain intact.
 * [ ] Run backend tests and frontend build/checks in the canonical clean environment; document pre-existing environment failures separately.
+
+## Verification notes
+
+* `docker compose run --rm api pytest -q tests/test_matrix.py` passed (8 tests).
+* `docker compose run --rm web npm run build` passed. Vite reported its existing large-chunk advisory.
+* The remaining sprint checks require interactive/manual verification across playback, Map navigation, and DAM availability scenarios.
 
 ## Merge boundary
 
