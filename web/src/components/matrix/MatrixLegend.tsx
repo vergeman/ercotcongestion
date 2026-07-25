@@ -14,7 +14,7 @@ export default function MatrixLegend({ mode, maxAbs }: Props) {
   const unit = mode === "sf" ? "dimensionless implied SF" : "$/MWh contribution";
   return (
     <div className="matrix-legend" aria-label={`${unit} color legend`}>
-      <div className="matrix-legend__title label">{unit}</div>
+      <div className="matrix-legend__title label">Implied SF</div>
       <div
         className="matrix-legend__bar"
         aria-hidden="true"

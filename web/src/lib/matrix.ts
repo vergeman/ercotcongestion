@@ -43,7 +43,7 @@ export function formatMatrixMu(value: number | null): string {
 }
 
 export function matrixDamUnavailableLabel(frame: Pick<MatrixFrame, "dam_status">): string {
-  return frame.dam_status === "pending" ? "Not published" : "No matched DAM value";
+  return frame.dam_status === "pending" ? "Not published" : "-";
 }
 
 export function formatMatrixDamMu(
