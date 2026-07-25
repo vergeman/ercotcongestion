@@ -19,17 +19,17 @@ export default function MatrixLegend({ mode, maxAbs }: Props) {
         className="matrix-legend__bar"
         aria-hidden="true"
         style={{
-          background: `linear-gradient(to right, ${congestionColor(1)}, ${congestionColor(0)}, ${congestionColor(-1)})`,
+          background: `linear-gradient(to right, ${congestionColor(-1)}, ${congestionColor(0)}, ${congestionColor(1)})`,
         }}
       />
       <div className="matrix-legend__ticks mono">
-        <span>−{label(maxAbs, mode)}</span>
-        <span>0</span>
         <span>+{label(maxAbs, mode)}</span>
+        <span>0</span>
+        <span>−{label(maxAbs, mode)}</span>
       </div>
       <div className="matrix-legend__signs label">
-        <span>Import / negative</span>
         <span>Export / positive</span>
+        <span>Import / negative</span>
       </div>
     </div>
   );
