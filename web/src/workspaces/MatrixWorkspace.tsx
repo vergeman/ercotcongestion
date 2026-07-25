@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MatrixFrame } from "../api/types";
 import { getMatrixFrame } from "../api/matrixFrames";
 import MatrixGrid from "../components/matrix/MatrixGrid";
 import MatrixLegend from "../components/matrix/MatrixLegend";
 import MatrixInspector from "../components/matrix/MatrixInspector";
 import {
-  matrixCellSf,
-  matrixContribution,
   type MatrixMuSource,
   type MatrixSelection,
   type MatrixValueMode,
@@ -188,19 +186,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     setDiscovery(discoveryFromSearch(routeSearch));
   }, [routeSearch]);
 
-  const summary = useMemo(() => {
-    if (!frame?.available || valueMode !== "contribution") return null;
-    const sum = frame.rows.reduce((total, row, rowIndex) => {
-      const mu = muSource === "forecast" ? row.forecast_mu : row.ercot_dam_mu;
-      return total + frame.columns.reduce((rowTotal, _, columnIndex) =>
-        rowTotal + (matrixContribution(
-          matrixCellSf(frame.sf.values, rowIndex, columnIndex, frame.columns.length),
-          mu
-        ) ?? 0), 0);
-    }, 0);
-    return sum;
-  }, [frame, muSource, valueMode]);
-
   // These are artifact-wide, day-stable scales—not the current filtered
   // rectangle—so a cell keeps the same color while discovery controls change.
   const legendMax = frame?.available
@@ -261,32 +246,35 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           <span className="label">Explorer / matrix</span>
           <div className="matrix-workspace__title-row">
             <h1 id="matrix-title">Constraint × settlement point</h1>
-            <div className="matrix-workspace__controls" aria-label="Matrix value controls">
-              <div className="matrix-workspace__toggle"><span className="label">Value</span>
+            <div className="matrix-workspace__controls matrix-workspace__controls--header" aria-label="Matrix value controls">
+              <div className="matrix-workspace__toggle">
                 <button type="button" className={valueMode === "sf" ? "is-active" : ""} onClick={() => setMode("sf")}>Shift Factor</button>
                 <button type="button" className={valueMode === "contribution" ? "is-active" : ""} onClick={() => setMode("contribution")}>Contribution</button>
               </div>
-              {valueMode === "contribution" && <div className="matrix-workspace__toggle"><span className="label">μ source</span>
-                <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast</button>
-                <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM</button>
+              {valueMode === "contribution" && <div className="matrix-workspace__toggle">
+                <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast μ</button>
+                <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM μ</button>
               </div>}
             </div>
           </div>
           <p>{activeTimestamp ? `${formatCT(activeTimestamp, "MMM d, yyyy HH:mm")} CT` : "Waiting for playback data"}</p>
         </div>
-        <div className="matrix-workspace__discovery" aria-label="Matrix discovery controls">
-          <label>Constraints <input value={discovery.constraintSearch} onChange={(event) => updateDiscovery({ ...discovery, constraintSearch: event.target.value.slice(0, 64) })} placeholder="Search name or contingency" /></label>
-          <label>Settlement points <input value={discovery.settlementPointSearch} onChange={(event) => updateDiscovery({ ...discovery, settlementPointSearch: event.target.value.slice(0, 64) })} placeholder="Search settlement point" /></label>
-          <label>Rows <select value={discovery.rowPreset} onChange={(event) => updateDiscovery({ ...discovery, rowPreset: event.target.value as RowPreset })}>
-            <option value="top30">Top 30 forecast contribution</option><option value="top100">Top 100</option><option value="pinned">Pinned constraints</option>
-          </select></label>
-          <label>Type <select value={discovery.constraintType} onChange={(event) => updateDiscovery({ ...discovery, constraintType: event.target.value as ConstraintType | "" })}>
-            <option value="">All types</option><option value="gtc">GTC</option><option value="transmission">Transmission</option><option value="radial">Radial</option>
-          </select></label>
-          <label>Columns <select value={discovery.columnSet} onChange={(event) => updateDiscovery({ ...discovery, columnSet: event.target.value as ColumnSet })}>
-            <option value="core">Core exposures</option><option value="anchors">Hubs / load zones</option><option value="pinned">Pinned settlement points</option><option value="core_pinned">Core + pinned</option>
-          </select></label>
-          <button type="button" onClick={resetView}>Reset view</button>
+        <div className="matrix-workspace__control-row">
+          <div className="matrix-workspace__discovery" aria-label="Matrix discovery controls">
+            <label>Constraints <input value={discovery.constraintSearch} onChange={(event) => updateDiscovery({ ...discovery, constraintSearch: event.target.value.slice(0, 64) })} placeholder="Search name or contingency" /></label>
+            <label>Settlement points <input value={discovery.settlementPointSearch} onChange={(event) => updateDiscovery({ ...discovery, settlementPointSearch: event.target.value.slice(0, 64) })} placeholder="Search settlement point" /></label>
+            <label>Rows <select value={discovery.rowPreset} onChange={(event) => updateDiscovery({ ...discovery, rowPreset: event.target.value as RowPreset })}>
+              <option value="top30">Top 30 forecast contribution</option><option value="top100">Top 100</option><option value="pinned">Pinned constraints</option>
+            </select></label>
+            <label>Type <select value={discovery.constraintType} onChange={(event) => updateDiscovery({ ...discovery, constraintType: event.target.value as ConstraintType | "" })}>
+              <option value="">All types</option><option value="gtc">GTC</option><option value="transmission">Transmission</option><option value="radial">Radial</option>
+            </select></label>
+            <label>Columns <select value={discovery.columnSet} onChange={(event) => updateDiscovery({ ...discovery, columnSet: event.target.value as ColumnSet })}>
+              <option value="core">Core exposures</option><option value="anchors">Hubs / load zones</option><option value="pinned">Pinned settlement points</option><option value="core_pinned">Core + pinned</option>
+            </select></label>
+            <button type="button" onClick={resetView}>Reset view</button>
+          </div>
+          {isUsable && frame && <MatrixLegend mode={valueMode} maxAbs={legendMax} />}
         </div>
       </section>
 
@@ -330,12 +318,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           </div>
           <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} maxAbs={legendMax} onSelect={select} />
           <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} pinnedConstraints={discovery.pinnedConstraints} pinnedSettlementPoints={discovery.pinnedSettlementPoints} onToggleConstraintPin={(key) => togglePin(key, "constraint")} onToggleSettlementPointPin={(point) => togglePin(point, "sp")} />
-          <footer className="matrix-workspace__footer">
-            <MatrixLegend mode={valueMode} maxAbs={legendMax} />
-            <div className="matrix-workspace__summary">
-              {valueMode === "contribution" ? <><span className="label">Visible-row contribution</span><strong>${(summary ?? 0).toFixed(2)}/MWh</strong></> : <span>SF is dimensionless. Positive/export is blue; negative/import is red.</span>}
-            </div>
-          </footer>
         </section>
       )}
 
@@ -348,20 +330,22 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
 
       <style>{`
         .matrix-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-base); }
-        .matrix-workspace__toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+        .matrix-workspace__toolbar { display: flex; align-items: stretch; flex-direction: column; gap: 10px; }
         .matrix-workspace__heading { min-width: 0; }
         .matrix-workspace__title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
         .matrix-workspace h1 { margin: 3px 0; font: 600 var(--fs-xl)/1.2 var(--font-label); color: var(--text-primary); }
-        .matrix-workspace p, .matrix-workspace__meta, .matrix-workspace__summary { color: var(--text-secondary); font-size: var(--fs-label); }
-        .matrix-workspace__controls { display: flex; gap: 10px; flex-wrap: wrap; }
-        .matrix-workspace__toggle { align-items: center; display: flex; gap: 6px; }
-        .matrix-workspace__toggle > .label { margin: 0 6px 0 0; }
-        .matrix-workspace__discovery { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+        .matrix-workspace p, .matrix-workspace__meta { color: var(--text-secondary); font-size: var(--fs-label); }
+        .matrix-workspace__control-row { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
+        .matrix-workspace__controls { align-items: end; display: flex; gap: 10px; flex-wrap: wrap; }
+        .matrix-workspace__controls--header { gap: 12px; margin-left: 8px; }
+        .matrix-workspace__toggle { display: flex; gap: 7px; }
+        .matrix-workspace__discovery { align-items: end; display: flex; flex: 1; flex-wrap: wrap; gap: 8px; }
         .matrix-workspace__discovery label { color: var(--text-secondary); display: grid; font-size: var(--fs-micro); gap: 3px; }
         .matrix-workspace__discovery input, .matrix-workspace__discovery select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font: var(--fs-label) var(--font-sans); min-height: 30px; padding: 4px 6px; }
         .matrix-workspace__discovery input { min-width: 175px; }
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
         .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); }
+        .matrix-workspace__controls--header button { font-weight: 600; padding: 7px 11px; }
         .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
         .matrix-workspace button:disabled { cursor: not-allowed; color: var(--text-muted); }
         .matrix-workspace__loading { display: grid; flex: 1; place-items: center; color: var(--text-secondary); }
@@ -369,17 +353,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace__state h2 { font: 600 var(--fs-lg) var(--font-label); margin: 0 0 8px; }
         .matrix-workspace__state p { line-height: 1.45; }
         .matrix-workspace__state button { background: var(--accent-dim); color: var(--accent); margin-top: 14px; }
-        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto auto minmax(180px, 1fr) auto auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
+        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto auto minmax(180px, 1fr) auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
         .matrix-workspace__notices { min-height: 0; }
         .matrix-workspace__notices.has-notices { border-bottom: 1px solid var(--border); display: grid; gap: 1px; }
         .matrix-workspace__notice { background: var(--accent-dim); color: var(--text-secondary); font-size: var(--fs-label); padding: 5px 10px; }
-        .matrix-workspace__footer { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 9px 10px; border-top: 1px solid var(--border); }
-        .matrix-workspace__summary { text-align: right; max-width: 310px; }
-        .matrix-workspace__summary strong { display: block; color: var(--text-primary); font: 600 var(--fs-md) var(--font-mono); margin-top: 3px; }
         .matrix-grid { overflow: auto; min-height: 0; outline: none; }
         .matrix-grid:focus-visible, .matrix-grid [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; position: relative; z-index: 3; }
-        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-micro); width: max-content; min-width: 100%; }
+        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-micro); width: max-content; }
         .matrix-grid th, .matrix-grid td { border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
         .matrix-grid thead th { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; height: 50px; vertical-align: bottom; }
         .matrix-grid__corner { left: 0; z-index: 4 !important; min-width: 205px; padding: 7px 10px; text-align: left; }
@@ -406,12 +387,12 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-inspector__table-wrap { width: 100%; }.matrix-inspector__table-wrap h3 { margin: 0 0 8px; text-transform: uppercase; }
         .matrix-inspector__table { border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; width: 100%; }.matrix-inspector__table th, .matrix-inspector__table td { border-bottom: 1px solid var(--border); padding: 5px 6px; text-align: left; vertical-align: top; }.matrix-inspector__table thead th { color: var(--text-muted); font: 600 var(--fs-micro) var(--font-label); letter-spacing: .04em; text-transform: uppercase; }.matrix-inspector__table thead th:nth-child(1) { width: 15%; }.matrix-inspector__table thead th:nth-child(2) { width: 21%; }.matrix-inspector__table thead th:nth-child(3) { width: 20%; }.matrix-inspector__table thead th:nth-child(4) { width: 44%; }.matrix-inspector__table th[scope="row"] { color: var(--text-secondary); font-weight: 500; }.matrix-inspector__table td { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); overflow-wrap: anywhere; }.matrix-inspector__table tr:last-child > * { border-bottom: 0; }
         .matrix-inspector__table a { color: var(--accent); font-family: var(--font-sans); }.matrix-inspector__pin { accent-color: var(--accent); cursor: pointer; height: 15px; margin: 0; width: 15px; }
-        .matrix-legend { width: 240px; }
+        .matrix-legend { flex: 0 0 240px; width: 240px; }
         .matrix-legend__title { color: var(--text-secondary); margin-bottom: 4px; }
         .matrix-legend__bar { height: 8px; }
         .matrix-legend__ticks, .matrix-legend__signs { display: flex; justify-content: space-between; font-size: 9px; margin-top: 3px; }
         .matrix-legend__signs { color: var(--text-secondary); }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__toolbar { align-items: start; } .matrix-workspace__footer { align-items: start; flex-direction: column; } .matrix-workspace__summary { max-width: none; text-align: left; } .matrix-inspector__metrics div { grid-template-columns: minmax(0, 1fr) auto; }.matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
+        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__control-row { align-items: start; flex-direction: column; } .matrix-inspector__metrics div { grid-template-columns: minmax(0, 1fr) auto; }.matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
       `}</style>
     </main>
   );
