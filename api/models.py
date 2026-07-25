@@ -198,6 +198,9 @@ class ConstraintReach(BaseModel):
     n_rail: int | None = None
     peak_offrail: float | None = None
     binding_hours: int | None = None
+    # False means the requested key has no represented SF reach in the active
+    # fit/window; callers can distinguish it from an empty visual selection.
+    available: bool = True
     sps: list[ReachSp]
 
 
@@ -328,6 +331,10 @@ class MatrixFrame(BaseModel):
     dam_status: Literal['pending', 'partial', 'available'] = 'pending'
     row_ordering: str = 'daily_abs_forecast_contribution_desc_then_constraint_key'
     column_ordering: str = 'max_abs_sf_desc_then_settlement_point'
+    # The bounded rectangle is intentionally not the whole artifact.  Clients
+    # need this distinction before describing any visible-only sum.
+    rows_truncated: bool = False
+    columns_truncated: bool = False
     rows: list[MatrixRow] = []
     columns: list[MatrixColumn] = []
     sf: MatrixSfValues

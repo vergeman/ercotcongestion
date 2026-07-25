@@ -43,7 +43,7 @@ export default function Header({
   const [theme, setTheme] = useState<Theme>(() => currentTheme());
 
   return (
-    <header className="header">
+    <header className={`header header--${activeWorkspace}`}>
       <HeaderNav active={activeWorkspace} onNavigate={onNavigate} />
 
       {activeWorkspace === "map" && <div className="header__controls">
@@ -172,6 +172,7 @@ export default function Header({
           align-items: center;
           gap: 8px;
         }
+        .header--matrix .header__status { margin-left: auto; }
         .mobile-menu-button { display: none; }
         .theme-toggle {
           display: flex;

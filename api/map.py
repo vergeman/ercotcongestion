@@ -240,6 +240,7 @@ def get_map_reach(
         n_rail=geo.get("n_rail"),
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=geo.get("binding_hours"),
+        available=bool(sps),
         sps=sps,
     )
 

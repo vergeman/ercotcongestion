@@ -2,6 +2,11 @@ import { congestionColor } from "./colors";
 
 export type MatrixValueMode = "sf" | "contribution";
 export type MatrixMuSource = "forecast" | "ercotDam";
+export type MatrixSelection =
+  | { kind: "constraint"; constraintKey: string }
+  | { kind: "settlementPoint"; settlementPoint: string }
+  | { kind: "cell"; constraintKey: string; settlementPoint: string }
+  | null;
 
 export function matrixCellSf(
   values: number[],

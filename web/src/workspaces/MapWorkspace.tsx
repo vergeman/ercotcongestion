@@ -81,9 +81,24 @@ interface HoveredSp {
 export interface MapWorkspaceProps {
   session: ReturnType<typeof useExplorerSession>;
   onNavigate: (workspace: "map" | "matrix") => void;
+  routeSearch: string;
+  onSelectionRouteChange: (search: string) => void;
 }
 
-export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps) {
+type RequestedMapTarget =
+  | { kind: "constraint"; value: string }
+  | { kind: "sp"; value: string }
+  | null;
+
+function requestedMapTarget(search: string): RequestedMapTarget {
+  const params = new URLSearchParams(search);
+  const constraint = params.get("constraint");
+  if (constraint) return { kind: "constraint", value: constraint };
+  const sp = params.get("sp");
+  return sp ? { kind: "sp", value: sp } : null;
+}
+
+export default function MapWorkspace({ session, onNavigate, routeSearch, onSelectionRouteChange }: MapWorkspaceProps) {
   // Mobile is intentionally a map-first experience. Keep the user's desktop
   // view choice in state, but never mount the second synchronized map below the
   // breakpoint; returning to desktop restores their chosen view.
@@ -92,6 +107,10 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
   const [topology, setTopology] = useState<unknown | null>(null);
+  const [topologyReady, setTopologyReady] = useState(false);
+  const target = useMemo(() => requestedMapTarget(routeSearch), [routeSearch]);
+  const [targetUnavailable, setTargetUnavailable] = useState(false);
+  const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
   // landing) is a single map of P50 forecast − realized congestion; `dual` is the
   // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
@@ -268,7 +287,8 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
         setTopology(t);
         setConnState("ok");
       })
-      .catch(() => setConnState("error"));
+      .catch(() => setConnState("error"))
+      .finally(() => setTopologyReady(true));
   }, [setConnState]);
 
   // Constraint overview load — once, independent of the playback window (the SF
@@ -462,11 +482,19 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
   // popover row), so leaving the row clears it — but a *clicked* reach is not a
   // preview and survives (plan/0112).
   const previewReachRef = useRef(false);
+  const setSelectionRoute = useCallback((target: Exclude<RequestedMapTarget, null>) => {
+    handledTargetRef.current = `${target.kind}:${target.value}`;
+    setTargetUnavailable(false);
+    const params = new URLSearchParams();
+    params.set(target.kind, target.value);
+    onSelectionRouteChange(`?${params.toString()}`);
+  }, [onSelectionRouteChange]);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
   // reach machinery lives on this pane).
   const handleSpClickPrediction = useCallback(
-    (spId: string, props: Record<string, unknown>) => {
+    (spId: string, props: Record<string, unknown>, writeRoute = true) => {
+      if (writeRoute) setSelectionRoute({ kind: "sp", value: spId });
       setReach(null); // a node click leaves constraint-reach mode
       reachReqRef.current++;
       // Also drop any locked/previewed constraint focus, so the overview marks
@@ -492,19 +520,20 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
           if (exposureReqRef.current === token) setExposuresLoading(false);
         });
     },
-    [spDecomp]
+    [spDecomp, setSelectionRoute]
   );
 
   // Actual-pane click: pin the node scoped to the realized values only — no SF
   // drivers (those belong to the prediction pane), so drop any in-flight fetch.
   const handleSpClickActual = useCallback(
     (spId: string, props: Record<string, unknown>) => {
+      setSelectionRoute({ kind: "sp", value: spId });
       setPinnedSp((current) => ({
         ...current,
         actual: { spId, props, side: "actual", spState: spDecomp(spId) },
       }));
     },
-    [spDecomp]
+    [spDecomp, setSelectionRoute]
   );
 
   const handleClearPinnedSp = useCallback((side: "prediction" | "actual") => {
@@ -517,7 +546,8 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
 
   // Constraint click (map marker or a driver row) → trace its reach; leaves the
   // node-explorer view. handleCloseReach / a background click return to normal.
-  const handleConstraintClick = useCallback((constraintKey: string) => {
+  const handleConstraintClick = useCallback((constraintKey: string, writeRoute = true) => {
+    if (writeRoute) setSelectionRoute({ kind: "constraint", value: constraintKey });
     setPinnedSp((current) => ({ ...current, prediction: null }));
     setExposures(null);
     exposureReqRef.current++;
@@ -530,7 +560,63 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, []);
+  }, [setSelectionRoute]);
+
+  // Deep links from the Matrix retain the requested identifier in the URL and
+  // replay the equivalent Map selection once its representation is available.
+  // The map fetches are selection work, not inspector metadata lookups.
+  useEffect(() => {
+    if (!target) {
+      handledTargetRef.current = null;
+      setTargetUnavailable(false);
+      return;
+    }
+    const key = `${target.kind}:${target.value}`;
+    if (handledTargetRef.current === key) return;
+
+    if (target.kind === "sp") {
+      if (!topologyReady) return;
+      handledTargetRef.current = key;
+      const feature = spPoints?.features.find((point) =>
+        (point.properties?.sp_id as string | undefined) === target.value
+      );
+      if (!feature) {
+        setTargetUnavailable(true);
+        return;
+      }
+      setTargetUnavailable(false);
+      handleSpClickPrediction(target.value, (feature.properties ?? { sp_id: target.value }) as Record<string, unknown>, false);
+      return;
+    }
+
+    handledTargetRef.current = key;
+    setTargetUnavailable(false);
+    setPinnedSp((current) => ({ ...current, prediction: null }));
+    setExposures(null);
+    exposureReqRef.current++;
+    previewReachRef.current = false;
+    setHoveredConstraintId(null);
+    const token = ++reachReqRef.current;
+    fetchMapReach(target.value)
+      .then((nextReach) => {
+        if (reachReqRef.current !== token) return;
+        if (!nextReach?.available) {
+          setReach(null);
+          setLockedConstraintId(null);
+          setTargetUnavailable(true);
+          return;
+        }
+        setReach(nextReach);
+        focusReachCache.current.set(target.value, nextReach);
+        setLockedConstraintId(target.value);
+      })
+      .catch(() => {
+        if (reachReqRef.current !== token) return;
+        setReach(null);
+        setLockedConstraintId(null);
+        setTargetUnavailable(true);
+      });
+  }, [target, topologyReady, spPoints, handleSpClickPrediction]);
 
   const handleCloseReach = useCallback(() => {
     setReach(null);
@@ -576,10 +662,11 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
 
   // Click a constraint: lock it. Clear the transient hover so the effective id
   // resolves to the lock immediately (and moving the mouse off doesn't reset it).
-  const handleConstraintLock = useCallback((id: string) => {
+  const handleConstraintLock = useCallback((id: string, writeRoute = true) => {
+    if (writeRoute) setSelectionRoute({ kind: "constraint", value: id });
     setLockedConstraintId(id);
     setHoveredConstraintId(null);
-  }, []);
+  }, [setSelectionRoute]);
 
   const clearFocus = useCallback(() => {
     setLockedConstraintId(null);
@@ -594,7 +681,7 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
   const handleConstraintSelectFromCard = useCallback(
     (key: string) => {
       handleConstraintClick(key);
-      handleConstraintLock(key);
+      handleConstraintLock(key, false);
     },
     [handleConstraintClick, handleConstraintLock]
   );
@@ -971,6 +1058,11 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
             enough that the constraint list/table don't wrap without overshooting. */}
         <div className="app-map-area">
+          {targetUnavailable && target && (
+            <div className="map-target-notice" role="status">
+              Requested {target.kind === "sp" ? "settlement point" : "constraint"} <span className="mono">{target.value}</span> is not present in this map fit/window.
+            </div>
+          )}
           {renderedViewMode === "forecastError" ? (
             <div className="forecast-error-single">{errorPane}</div>
           ) : (
@@ -981,6 +1073,18 @@ export default function MapWorkspace({ session, onNavigate }: MapWorkspaceProps)
               width: 100%;
               height: 100%;
               position: relative;
+            }
+            .map-target-notice {
+              background: var(--bg-panel);
+              border: 1px solid var(--warning, #f59e0b);
+              color: var(--text-primary);
+              font-size: var(--fs-label);
+              left: 10px;
+              max-width: min(440px, calc(100% - 20px));
+              padding: 8px 10px;
+              position: absolute;
+              top: 68px;
+              z-index: 3;
             }
             .pane-badge {
               position: absolute;

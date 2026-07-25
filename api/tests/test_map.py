@@ -118,6 +118,7 @@ def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["constraint_key"] == "CONSTR_A"
+    assert body["available"] is True
     assert body["max_abs_sf"] == 0.72
     assert body["oos_r2"] == 0.62
     sps = body["sps"]

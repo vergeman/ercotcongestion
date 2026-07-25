@@ -3,28 +3,57 @@ import type { MatrixFrame } from "../api/types";
 import { getMatrixFrame } from "../api/matrixFrames";
 import MatrixGrid from "../components/matrix/MatrixGrid";
 import MatrixLegend from "../components/matrix/MatrixLegend";
+import MatrixInspector from "../components/matrix/MatrixInspector";
 import {
   matrixCellSf,
   matrixContribution,
   type MatrixMuSource,
+  type MatrixSelection,
   type MatrixValueMode,
 } from "../lib/matrix";
 import { formatCT } from "../lib/time";
 
 let rememberedValueMode: MatrixValueMode = "sf";
 let rememberedMuSource: MatrixMuSource = "forecast";
+let rememberedInspectorCollapsed = false;
+let rememberedSelection: MatrixSelection = null;
+let rememberedFrame: MatrixFrame | null = null;
 
 interface Props {
   timestamp: Date | null;
+  routeSearch: string;
+  onSelectionRouteChange: (search: string) => void;
+  onNavigateToMap: (search: string) => void;
 }
 
-export default function MatrixWorkspace({ timestamp }: Props) {
-  const [frame, setFrame] = useState<MatrixFrame | null>(null);
+function selectionFromSearch(search: string): MatrixSelection {
+  const params = new URLSearchParams(search);
+  const constraintKey = params.get("constraint");
+  const settlementPoint = params.get("sp");
+  if (constraintKey && settlementPoint) return { kind: "cell", constraintKey, settlementPoint };
+  if (constraintKey) return { kind: "constraint", constraintKey };
+  return settlementPoint ? { kind: "settlementPoint", settlementPoint } : null;
+}
+
+function selectionSearch(selection: MatrixSelection): string {
+  if (!selection) return "";
+  const params = new URLSearchParams();
+  if (selection.kind === "constraint" || selection.kind === "cell") params.set("constraint", selection.constraintKey);
+  if (selection.kind === "settlementPoint" || selection.kind === "cell") params.set("sp", selection.settlementPoint);
+  return `?${params.toString()}`;
+}
+
+export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRouteChange, onNavigateToMap }: Props) {
+  const [frame, setFrame] = useState<MatrixFrame | null>(() =>
+    rememberedFrame?.interval_ts === timestamp?.toISOString() ? rememberedFrame : null
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
   const [valueMode, setValueMode] = useState<MatrixValueMode>(rememberedValueMode);
   const [muSource, setMuSource] = useState<MatrixMuSource>(rememberedMuSource);
+  const [selection, setSelection] = useState<MatrixSelection>(rememberedSelection);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(rememberedInspectorCollapsed);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -35,7 +64,10 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     setError(null);
     void getMatrixFrame(timestamp, {}, controller.signal)
       .then((nextFrame) => {
-        if (id === requestId.current) setFrame(nextFrame);
+        if (id === requestId.current) {
+          rememberedFrame = nextFrame;
+          setFrame(nextFrame);
+        }
       })
       .catch((requestError: unknown) => {
         if (requestError instanceof Error && requestError.name === "AbortError") return;
@@ -66,6 +98,36 @@ export default function MatrixWorkspace({ timestamp }: Props) {
     }
   }, [damPending, muSource, valueMode]);
 
+  // Frame ordering is stable, but selection is deliberately stored by its
+  // identifiers so the selected object survives hour and value-mode changes.
+  useEffect(() => {
+    if (!frame?.available || !selection) return;
+    const hasRow = (key: string) => frame.rows.some((row) => row.constraint_key === key);
+    const hasColumn = (point: string) => frame.columns.some((column) => column.settlement_point === point);
+    if ((selection.kind === "constraint" && !hasRow(selection.constraintKey)) ||
+      (selection.kind === "settlementPoint" && !hasColumn(selection.settlementPoint)) ||
+      (selection.kind === "cell" && (!hasRow(selection.constraintKey) || !hasColumn(selection.settlementPoint)))) {
+      rememberedSelection = null;
+      setSelection(null);
+    }
+  }, [frame, selection]);
+
+  // Matrix selection is URL-addressable. A browser Back/Forward navigation or
+  // a shared Matrix link resolves against the already-loaded bounded frame.
+  useEffect(() => {
+    if (!frame?.available) return;
+    const requested = selectionFromSearch(routeSearch);
+    const hasRow = (key: string) => frame.rows.some((row) => row.constraint_key === key);
+    const hasColumn = (point: string) => frame.columns.some((column) => column.settlement_point === point);
+    const present = requested == null ||
+      (requested.kind === "constraint" && hasRow(requested.constraintKey)) ||
+      (requested.kind === "settlementPoint" && hasColumn(requested.settlementPoint)) ||
+      (requested.kind === "cell" && hasRow(requested.constraintKey) && hasColumn(requested.settlementPoint));
+    const nextSelection = present ? requested : null;
+    rememberedSelection = nextSelection;
+    setSelection(nextSelection);
+  }, [frame, routeSearch]);
+
   const summary = useMemo(() => {
     if (!frame?.available || valueMode !== "contribution") return null;
     const sum = frame.rows.reduce((total, row, rowIndex) => {
@@ -93,6 +155,15 @@ export default function MatrixWorkspace({ timestamp }: Props) {
   const isUnavailable = frame && !frame.available;
   const isEmpty = frame?.available && !isUsable;
   const damUnmatchedRows = frame?.rows.filter((row) => row.ercot_dam_mu == null).length ?? 0;
+  const setCollapsed = (collapsed: boolean) => {
+    rememberedInspectorCollapsed = collapsed;
+    setInspectorCollapsed(collapsed);
+  };
+  const select = (nextSelection: MatrixSelection) => {
+    rememberedSelection = nextSelection;
+    setSelection(nextSelection);
+    onSelectionRouteChange(selectionSearch(nextSelection));
+  };
 
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
@@ -154,7 +225,8 @@ export default function MatrixWorkspace({ timestamp }: Props) {
           {valueMode === "contribution" && frame.dam_status === "partial" && (
             <div className="matrix-workspace__notice" role="status">ERCOT DAM μ matched {frame.rows.length - damUnmatchedRows} of {frame.rows.length} constraints. Unmatched contribution cells are unavailable.</div>
           )}
-          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} />
+          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} onSelect={select} />
+          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} />
           <footer className="matrix-workspace__footer">
             <MatrixLegend mode={valueMode} maxAbs={legendMax} />
             <div className="matrix-workspace__summary">
@@ -187,7 +259,7 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-workspace__state h2 { font: 600 var(--fs-lg) var(--font-label); margin: 0 0 8px; }
         .matrix-workspace__state p { line-height: 1.45; }
         .matrix-workspace__state button { background: var(--accent-dim); color: var(--accent); margin-top: 14px; }
-        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto minmax(0, 1fr) auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
+        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto minmax(180px, 1fr) auto auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
         .matrix-workspace__notice { background: var(--accent-dim); border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: var(--fs-label); padding: 6px 10px; }
         .matrix-workspace__footer { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 9px 10px; border-top: 1px solid var(--border); }
@@ -201,12 +273,28 @@ export default function MatrixWorkspace({ timestamp }: Props) {
         .matrix-grid__corner { left: 0; z-index: 4 !important; min-width: 205px; padding: 7px 10px; text-align: left; }
         .matrix-grid__corner span, .matrix-grid__row span { display: block; color: var(--text-primary); font-weight: 600; }
         .matrix-grid small { color: var(--text-secondary); display: block; font-size: 9px; font-weight: 400; margin-top: 2px; }
-        .matrix-grid__column { min-width: 72px; max-width: 72px; padding: 6px; text-align: right; white-space: nowrap; }
+        .matrix-grid__column { min-width: 72px; max-width: 72px; cursor: pointer; padding: 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__column > span { color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; }
-        .matrix-grid__row { background: var(--bg-panel); left: 0; min-width: 205px; max-width: 205px; padding: 6px 10px; position: sticky; text-align: left; z-index: 1; }
+        .matrix-grid__row { background: var(--bg-panel); cursor: pointer; left: 0; min-width: 205px; max-width: 205px; padding: 6px 10px; position: sticky; text-align: left; z-index: 1; }
         .matrix-grid__row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .matrix-grid__cell { color: var(--text-primary); font: 500 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
+        .matrix-grid__cell { color: var(--text-primary); cursor: pointer; font: 500 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__cell--unavailable { color: var(--text-muted); background: repeating-linear-gradient(-45deg, var(--bg-surface), var(--bg-surface) 3px, var(--bg-panel) 3px, var(--bg-panel) 6px) !important; }
+        .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
+        .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
+        .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
+        .matrix-inspector { background: var(--bg-surface); border-top: 1px solid var(--border); min-height: 42px; position: relative; z-index: 4; }
+        .matrix-inspector h3 { color: var(--text-primary); font: 600 var(--fs-md) var(--font-label); margin: 0; }
+        .matrix-workspace .matrix-inspector__collapse { align-items: center; background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; display: flex; height: 38px; justify-content: center; line-height: 1; margin: 0; padding: 0; position: absolute; right: 4px; top: 2px; width: 38px; z-index: 1; }
+        .matrix-workspace .matrix-inspector__collapse:hover { color: var(--accent); }
+        .matrix-inspector__collapse svg { display: block; fill: none; height: 24px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; transition: transform 160ms ease; width: 24px; }
+        .matrix-inspector__collapse svg.is-collapsed { transform: rotate(180deg); }
+        .matrix-inspector__collapsed-title { align-items: center; color: var(--text-secondary); display: flex; font: 500 var(--fs-label) var(--font-label); min-height: 42px; padding: 0 50px 0 10px; }
+        .matrix-inspector__body { color: var(--text-secondary); font-size: var(--fs-label); max-height: 280px; overflow: auto; padding: 12px 42px 12px 10px; }
+        .matrix-inspector__body > p { margin: 0; }
+        .matrix-inspector__key { font: 500 var(--fs-micro) var(--font-mono); margin: 3px 0 10px; }.matrix-inspector__key span { color: var(--text-muted); display: block; font: var(--fs-micro) var(--font-sans); margin-bottom: 2px; }
+        .matrix-inspector__metrics { display: grid; gap: 8px 18px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 0; }
+        .matrix-inspector__metrics div { min-width: 0; }.matrix-inspector__metrics dt { color: var(--text-muted); font-size: var(--fs-micro); }.matrix-inspector__metrics dd { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); margin: 2px 0 0; overflow-wrap: anywhere; }
+        .matrix-inspector__actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 0; }.matrix-inspector__actions a { color: var(--accent); font-size: var(--fs-label); }.matrix-inspector__warning { background: color-mix(in srgb, var(--warning, #f59e0b) 16%, transparent); border-left: 3px solid var(--warning, #f59e0b); color: var(--text-primary); margin: 12px 0 0; padding: 7px 9px; }
         .matrix-legend { width: 240px; }
         .matrix-legend__title { color: var(--text-secondary); margin-bottom: 4px; }
         .matrix-legend__bar { height: 8px; }

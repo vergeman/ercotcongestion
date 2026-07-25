@@ -58,6 +58,8 @@ def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
     # Row-major: AAA×(A,C), BBB×(A,C), exactly aligned to the labels above.
     assert body['sf']['row_count'] == 2 and body['sf']['column_count'] == 2
     assert body['sf']['values'] == pytest.approx([1.0, 0.1, 0.5, 0.4])
+    assert body['rows_truncated'] is True
+    assert body['columns_truncated'] is True
     assert body['fit_window_start'] is None and body['fit_window_end'] is None
 
 

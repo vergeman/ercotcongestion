@@ -63,6 +63,8 @@ export interface MatrixFrame {
   dam_status: MatrixDamStatus;
   row_ordering: string;
   column_ordering: string;
+  rows_truncated: boolean;
+  columns_truncated: boolean;
   rows: MatrixRow[];
   columns: MatrixColumn[];
   sf: MatrixSfValues;
@@ -227,6 +229,7 @@ export interface ConstraintReach {
   n_rail: number | null;
   peak_offrail: number | null;
   binding_hours: number | null;
+  available: boolean;
   sps: ReachSp[];
 }
 
