@@ -18,6 +18,7 @@ Branch: refactor/0121-reduce-api-content
 * Add `/ercot_range`: one SPP query, shared `sp_ids` index, aligned congestion/SPP arrays.
 * Decode the compact response once in `web/src/api/prefetch.ts`; preserve map cache shapes.
 * Round served realized and forecast congestion values to cents, half-up.
+* Round served matrix `forecast_mu`, `max_abs_sf`, and dense SF values to three decimals.
 * Attach Traefik `compress` middleware to the HTTPS API route.
 * Keep legacy realized endpoints compatible; do not merge unrelated map bootstrap calls.
 
