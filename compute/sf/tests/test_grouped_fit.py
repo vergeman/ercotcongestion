@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.eval import evaluate
+from compute.sf.eval import evaluate, evaluate_chunked
 from compute.sf.grouping import group_constraints
-from compute.sf.rolling import rolling_sf
+from compute.sf.rolling import fit_refit_window, rolling_sf
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
            "topdecile_hit", "coverage", "sf_stability", "n_kept"]
@@ -122,6 +122,30 @@ def test_linkage_cache_does_not_change_results(panels):
                                    rtol=1e-12, equal_nan=True)
 
 
+def test_chunked_evaluation_matches_the_full_history_run(panels):
+    """Chunk boundaries are an allocation detail, not a scoring change."""
+    M, C = panels
+    window_days, refit_days = 14, 7
+    start = M.index[0].normalize() + pd.Timedelta(days=2 * window_days)
+    end = M.index[-1].normalize() + pd.Timedelta(days=1)
+    kw = dict(window_days=window_days, refit_days=refit_days,
+              lam=1.0, min_hours=10, rho_min=0.8)
+
+    full = evaluate(M, C, **kw).reset_index(drop=True)
+
+    def load_chunk(lo, hi):
+        return (M.loc[(M.index >= lo) & (M.index < hi)],
+                C.loc[(C.index >= lo) & (C.index < hi)])
+
+    chunked = evaluate_chunked(load_chunk, score_from=start, end=end,
+                               chunk_weeks=2, **kw)
+    assert list(chunked["score_start"]) == list(full["score_start"])
+    for col in METRICS + ["n_groups", "group_churn"]:
+        np.testing.assert_allclose(chunked[col].to_numpy(float),
+                                   full[col].to_numpy(float), rtol=1e-12,
+                                   equal_nan=True)
+
+
 # ------------------------------------------------------------------- callback
 
 def test_refit_window_carries_labels_and_fit_panel(panels):
@@ -147,6 +171,26 @@ def test_refit_window_ungrouped_fit_panel_is_the_raw_panel(panels):
     w = seen[0]
     assert w.labels is None
     assert w.M_fit is w.M_window
+
+
+def test_single_refit_fit_matches_the_full_panel_walker(panels):
+    """A bounded panel must produce the same fit as the legacy full walk."""
+    M, C = panels
+    seen = []
+    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
+               on_refit_window=seen.append)
+    expected = seen[4]
+    lo, hi = expected.window_start, expected.window_end
+    actual = fit_refit_window(
+        M.loc[(M.index >= lo) & (M.index < hi)],
+        C.loc[(C.index >= lo) & (C.index < hi)],
+        refit_start=pd.Timestamp(expected.score_start),
+        score_end=pd.Timestamp(expected.score_end), window_days=14,
+        lam=1.0, min_hours=10,
+    )
+    pd.testing.assert_frame_equal(actual.SF, expected.SF)
+    pd.testing.assert_frame_equal(actual.M_window, expected.M_window)
+    pd.testing.assert_frame_equal(actual.C_window, expected.C_window)
 
 
 # ------------------------------------------------------------------- scoring

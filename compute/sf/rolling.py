@@ -48,6 +48,78 @@ def _align(M: pd.DataFrame, C: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
     return M.reindex(idx).fillna(0.0), C.reindex(idx)
 
 
+def fit_refit_window(
+    M_all: pd.DataFrame,
+    C_all: pd.DataFrame,
+    *,
+    refit_start: pd.Timestamp,
+    score_end: pd.Timestamp,
+    window_days: int,
+    lam: float = RIDGE_LAMBDA,
+    min_hours: int = MIN_BINDING_HOURS,
+    standardize: bool = True,
+    std_floor: float = STD_FLOOR,
+    rho_min: float | None = None,
+) -> RefitWindow:
+    """Fit one refit boundary from a panel containing its trailing history.
+
+    This is the unit used by both the legacy full-history walker and the map
+    runner's bounded panel chunks.  Giving it only the fit interval is
+    numerically identical to slicing it from a full panel: `_align` restores
+    the same zero-μ / missing-congestion hour semantics before the solve.
+    """
+    M_all, C_all = _align(M_all, C_all)
+    return _fit_refit_window_aligned(
+        M_all, C_all, refit_start=refit_start, score_end=score_end,
+        window_days=window_days, lam=lam, min_hours=min_hours,
+        standardize=standardize, std_floor=std_floor, rho_min=rho_min,
+    )
+
+
+def _fit_refit_window_aligned(
+    M_all: pd.DataFrame,
+    C_all: pd.DataFrame,
+    *,
+    refit_start: pd.Timestamp,
+    score_end: pd.Timestamp,
+    window_days: int,
+    lam: float,
+    min_hours: int,
+    standardize: bool,
+    std_floor: float,
+    rho_min: float | None,
+) -> RefitWindow:
+    """`fit_refit_window` implementation for already aligned panel chunks."""
+    window_end = score_end
+    window_start = window_end - pd.Timedelta(days=window_days)
+    win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
+    M_win = M_all.loc[win_mask]
+    C_win = C_all.loc[win_mask]
+    labels = None
+    M_fit = M_win
+    if M_win.empty:
+        SF = pd.DataFrame(columns=C_all.columns)
+    else:
+        if rho_min is not None:
+            labels = cut_groups(constraint_linkage(M_win), rho_min)
+            M_fit = aggregate_mu(M_win, labels)
+        SF = implied_shift_factors(
+            M_fit, C_win, lam=lam, min_hours=min_hours,
+            standardize=standardize, std_floor=std_floor,
+        )
+    return RefitWindow(
+        window_start=window_start.to_pydatetime(),
+        window_end=window_end.to_pydatetime(),
+        score_start=refit_start.to_pydatetime(),
+        score_end=score_end.to_pydatetime(),
+        M_window=M_win,
+        C_window=C_win,
+        SF=SF,
+        M_fit=M_fit,
+        labels=labels,
+    )
+
+
 def rolling_sf(
     M_all: pd.DataFrame,
     C_all: pd.DataFrame,
@@ -124,31 +196,10 @@ def rolling_sf(
         if window_start.value in skip:
             continue
 
-        win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
-        M_win = M_all.loc[win_mask]
-        C_win = C_all.loc[win_mask]
-        labels = None
-        M_fit = M_win
-        if M_win.empty:
-            SF = pd.DataFrame(columns=C_all.columns)
-        else:
-            if rho_min is not None:
-                labels = cut_groups(constraint_linkage(M_win), rho_min)
-                M_fit = aggregate_mu(M_win, labels)
-            SF = implied_shift_factors(
-                M_fit, C_win, lam=lam, min_hours=min_hours,
-                standardize=standardize, std_floor=std_floor,
-            )
-
+        window = _fit_refit_window_aligned(
+            M_all, C_all, refit_start=refit_start, score_end=score_end,
+            window_days=window_days, lam=lam, min_hours=min_hours,
+            standardize=standardize, std_floor=std_floor, rho_min=rho_min,
+        )
         if on_refit_window is not None:
-            on_refit_window(RefitWindow(
-                window_start=window_start.to_pydatetime(),
-                window_end=window_end.to_pydatetime(),
-                score_start=refit_start.to_pydatetime(),
-                score_end=score_end.to_pydatetime(),
-                M_window=M_win,
-                C_window=C_win,
-                SF=SF,
-                M_fit=M_fit,
-                labels=labels,
-            ))
+            on_refit_window(window)
