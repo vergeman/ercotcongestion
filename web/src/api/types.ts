@@ -216,6 +216,8 @@ export interface ReachSp {
   sf: number;
   lat: number | null;
   lon: number | null;
+  settlement_point_type: string | null;
+  load_zone: string | null;
 }
 
 // Top-k nodes one constraint drives — the constraint click. `sps` carries the
