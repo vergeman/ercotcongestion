@@ -16,6 +16,46 @@ from datetime import date, datetime
 import pandas as pd
 
 
+def panel_bounds(
+    conn,
+    start: date | datetime,
+    end: date | datetime,
+) -> tuple[datetime, datetime] | None:
+    """First/last hour in the same union clock used by the two SF panels.
+
+    The map runner needs these bounds to construct the stable refit grid before
+    it loads any dense pivot.  This small aggregate query replaces the previous
+    full-panel load solely used to discover the grid's endpoints.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH panel_hours AS (
+                SELECT interval_ts
+                FROM ercot_dam_shadow_prices
+                WHERE interval_ts >= %s AND interval_ts < %s
+                  AND dst_flag = FALSE
+                  AND shadow_price IS NOT NULL
+                GROUP BY interval_ts
+                UNION
+                (
+                    SELECT interval_ts
+                    FROM dam_system_lambda
+                    WHERE interval_ts >= %s AND interval_ts < %s
+                    INTERSECT
+                    SELECT interval_ts
+                    FROM ercot_dam_spp
+                    WHERE interval_ts >= %s AND interval_ts < %s
+                )
+            )
+            SELECT min(interval_ts), max(interval_ts) FROM panel_hours
+            """,
+            (start, end, start, end, start, end),
+        )
+        lo, hi = cur.fetchone()
+    return (lo, hi) if lo is not None and hi is not None else None
+
+
 # ---------------------------------------------------------------- shadow prices
 
 def load_shadow_prices(

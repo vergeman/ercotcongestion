@@ -15,7 +15,7 @@ import pytest
 
 from compute.sf.eval import evaluate, evaluate_chunked
 from compute.sf.grouping import group_constraints
-from compute.sf.rolling import rolling_sf
+from compute.sf.rolling import fit_refit_window, rolling_sf
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
            "topdecile_hit", "coverage", "sf_stability", "n_kept"]
@@ -171,6 +171,26 @@ def test_refit_window_ungrouped_fit_panel_is_the_raw_panel(panels):
     w = seen[0]
     assert w.labels is None
     assert w.M_fit is w.M_window
+
+
+def test_single_refit_fit_matches_the_full_panel_walker(panels):
+    """A bounded panel must produce the same fit as the legacy full walk."""
+    M, C = panels
+    seen = []
+    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
+               on_refit_window=seen.append)
+    expected = seen[4]
+    lo, hi = expected.window_start, expected.window_end
+    actual = fit_refit_window(
+        M.loc[(M.index >= lo) & (M.index < hi)],
+        C.loc[(C.index >= lo) & (C.index < hi)],
+        refit_start=pd.Timestamp(expected.score_start),
+        score_end=pd.Timestamp(expected.score_end), window_days=14,
+        lam=1.0, min_hours=10,
+    )
+    pd.testing.assert_frame_equal(actual.SF, expected.SF)
+    pd.testing.assert_frame_equal(actual.M_window, expected.M_window)
+    pd.testing.assert_frame_equal(actual.C_window, expected.C_window)
 
 
 # ------------------------------------------------------------------- scoring
