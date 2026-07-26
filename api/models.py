@@ -177,6 +177,8 @@ class ReachSp(BaseModel):
     sf: float
     lat: float | None = None
     lon: float | None = None
+    settlement_point_type: str | None = None
+    load_zone: str | None = None
 
 
 class ConstraintReach(BaseModel):

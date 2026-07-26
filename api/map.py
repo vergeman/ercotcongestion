@@ -57,6 +57,7 @@ router = APIRouter(prefix="/map")
 # lon)), for the /map/reach join. The CSV only changes when we re-geocode, so
 # a process-lifetime cache is fine (mirrors topology_builder's source).
 _SP_COORDS: dict[str, tuple[float, float]] | None = None
+_SP_METADATA: dict[str, tuple[str | None, str | None]] | None = None
 
 
 def _sp_coords() -> dict[str, tuple[float, float]]:
@@ -74,6 +75,25 @@ def _sp_coords() -> dict[str, tuple[float, float]]:
             for r in df.itertuples(index=False)
         }
     return _SP_COORDS
+
+
+def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
+    global _SP_METADATA
+    if _SP_METADATA is None:
+        try:
+            df = pd.read_csv(settings.settlement_points_geocoded_csv)
+        except FileNotFoundError:
+            log.warning("settlement_points geocoded csv missing; reach metadata empty")
+            _SP_METADATA = {}
+            return _SP_METADATA
+        _SP_METADATA = {
+            str(r.settlement_point): (
+                None if pd.isna(getattr(r, 'sp_type', None)) else str(getattr(r, 'sp_type')),
+                None if pd.isna(getattr(r, 'load_zone', None)) else str(getattr(r, 'load_zone')),
+            )
+            for r in df.itertuples(index=False)
+        }
+    return _SP_METADATA
 
 
 def _resolve(cur) -> tuple[str, object]:
@@ -221,11 +241,15 @@ def get_map_reach(
             (run_id, window_start, constraint, floor, k),
         )
         coords = _sp_coords()
+        metadata = _sp_metadata()
         sps = []
         for r in cur.fetchall():
             lat, lon = coords.get(r["settlement_point"], (None, None))
+            settlement_point_type, load_zone = metadata.get(r["settlement_point"], (None, None))
             sps.append(ReachSp(settlement_point=r["settlement_point"],
-                               sf=r["sf"], lat=lat, lon=lon))
+                               sf=r["sf"], lat=lat, lon=lon,
+                               settlement_point_type=settlement_point_type,
+                               load_zone=load_zone))
 
     return ConstraintReach(
         constraint_key=constraint,
@@ -293,6 +317,7 @@ def get_map_overview(
                 (run_id, window_start, keys),
             )
             coords = _sp_coords()
+            metadata = _sp_metadata()
             floors = {r["constraint_key"]: (min_frac * r["max_abs_sf"])
                       if r["max_abs_sf"] else 0.0 for r in rows}
             for r in cur.fetchall():
@@ -300,8 +325,11 @@ def get_map_overview(
                 if len(bucket) >= k or abs(r["sf"]) < floors[r["constraint_key"]]:
                     continue
                 lat, lon = coords.get(r["settlement_point"], (None, None))
+                settlement_point_type, load_zone = metadata.get(r["settlement_point"], (None, None))
                 bucket.append(ReachSp(settlement_point=r["settlement_point"],
-                                      sf=r["sf"], lat=lat, lon=lon))
+                                      sf=r["sf"], lat=lat, lon=lon,
+                                      settlement_point_type=settlement_point_type,
+                                      load_zone=load_zone))
 
         constraints = [
             OverviewConstraint(

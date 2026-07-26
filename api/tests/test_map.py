@@ -106,6 +106,9 @@ def test_exposures_headline_and_confidence(client, fake_pool, configured_run):
 def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch):
     monkeypatch.setattr(map_module, "_SP_COORDS",
                         {"LZ_WEST": (31.9, -102.1), "LZ_NORTH": (33.0, -97.0)})
+    monkeypatch.setattr(map_module, "_SP_METADATA", {
+        "LZ_WEST": ("load_zone", "west"), "LZ_NORTH": ("load_zone", "north"),
+    })
     fake_pool.cursor.queue([{"ws": WS}])                             # _resolve
     fake_pool.cursor.queue([_meta_row()])                            # _meta_row
     fake_pool.cursor.queue([{"max_abs_sf": 0.72}])                   # constraint geo
@@ -122,8 +125,12 @@ def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch
     assert body["max_abs_sf"] == 0.72
     assert body["oos_r2"] == 0.62
     sps = body["sps"]
-    assert sps[0] == {"settlement_point": "LZ_WEST", "sf": 0.72, "lat": 31.9, "lon": -102.1}
+    assert sps[0] == {
+        "settlement_point": "LZ_WEST", "sf": 0.72, "lat": 31.9, "lon": -102.1,
+        "settlement_point_type": "load_zone", "load_zone": "west",
+    }
     assert sps[1]["sf"] == -0.30 and sps[1]["lat"] == 33.0  # opposite sign end
+    assert sps[1]["load_zone"] == "north"
 
 
 # ---- /map/overview -------------------------------------------------------
@@ -136,6 +143,7 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
     monkeypatch.setattr(map_module, "_SP_COORDS",
                         {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
                          "N3": (30.0, -99.0), "N4": (33.0, -97.0)})
+    monkeypatch.setattr(map_module, "_SP_METADATA", {"N1": ("RN", "houston")})
     fake_pool.cursor.queue([{"ws": WS}])            # _resolve
     fake_pool.cursor.queue([_meta_row()])           # _meta_row
     fake_pool.cursor.queue([                         # top-n constraint_geo rows
@@ -162,6 +170,8 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
     # the noise-floor node (0.02 < 0.15*0.50) is dropped; the two real ones stay
     assert [n["settlement_point"] for n in a["nodes"]] == ["N1", "N2"]
     assert a["nodes"][1]["sf"] == -0.40 and a["nodes"][1]["lat"] == 32.6  # opposite end, coord joined
+    assert a["nodes"][0]["settlement_point_type"] == "RN"
+    assert a["nodes"][0]["load_zone"] == "houston"
     assert b["ctype"] == "transmission" and [n["settlement_point"] for n in b["nodes"]] == ["N4"]
 
 

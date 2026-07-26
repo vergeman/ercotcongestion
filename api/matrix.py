@@ -55,16 +55,10 @@ def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
         except FileNotFoundError:
             _SP_METADATA = {}
         else:
-            def load_zone(sp: str) -> str | None:
-                if sp.startswith('LZ_'):
-                    return sp[3:].lower() or None
-                if sp.startswith('HB_'):
-                    return f'{sp[3:].lower()}_hub' if sp[3:] else None
-                return None
             _SP_METADATA = {
                 str(r.settlement_point): (
                     None if pd.isna(getattr(r, 'sp_type', None)) else str(getattr(r, 'sp_type')),
-                    load_zone(str(r.settlement_point)),
+                    None if pd.isna(getattr(r, 'load_zone', None)) else str(getattr(r, 'load_zone')),
                 )
                 for r in df.itertuples(index=False)
             }
@@ -228,7 +222,7 @@ def get_matrix_frame(
         row_keys = _append_bounded(row_keys, matched_rows, limit=MAX_ROW_LIMIT)
 
         core_columns = ranked_columns[:column_limit]
-        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone', 'HB', 'LZ'} or metadata.get(key, (None, None))[1] is not None]
+        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone'}]
         if column_set == 'core':
             base_columns = core_columns
         elif column_set == 'anchors':
