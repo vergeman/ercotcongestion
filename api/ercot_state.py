@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -36,6 +37,12 @@ def _coerce_utc(ts: datetime) -> datetime:
     if ts.tzinfo is None:
         return ts.replace(tzinfo=timezone.utc)
     return ts.astimezone(timezone.utc)
+
+
+def _round_congestion_difference(spp: object, system_lambda: object) -> float:
+    """Serve map congestion at cent resolution, avoiding float artifacts."""
+    value = Decimal(str(spp)) - Decimal(str(system_lambda))
+    return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 @router.get(
@@ -93,7 +100,9 @@ def get_ercot_state_range(
         if lam is None:
             continue
         spp = r["dam_spp"]
-        congestion = None if spp is None else float(spp) - lam
+        congestion = (
+            None if spp is None else _round_congestion_difference(spp, lam)
+        )
         by_ts.setdefault(ts, []).append(
             ErcotSpState(
                 sp_id=str(r["settlement_point"]),

@@ -54,6 +54,28 @@ class ErcotSppRangeResponse(BaseModel):
     entries: list[ErcotSppRangeEntry]
 
 
+# ---- /ercot_range --------------------------------------------------------
+#
+# Compact wire format for the two realized ERCOT views.  Settlement-point IDs
+# are static across a requested window, so send them once and align each
+# hour's value arrays to that index.  The browser expands this at its API edge
+# into the small object shape its map code already consumes.
+
+class ErcotRangeEntry(BaseModel):
+    interval_ts: datetime
+    total_load_mw: float | None = None
+    congestion: list[float | None]
+    spp: list[float | None]
+
+
+class ErcotRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    sp_ids: list[str]
+    entries: list[ErcotRangeEntry]
+
+
 # ---- /forecast_range -----------------------------------------------------
 #
 # Per-hour, per-SP forecast congestion (P10/P50/P90) over a window — the

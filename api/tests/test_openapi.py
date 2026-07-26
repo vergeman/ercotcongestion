@@ -36,7 +36,7 @@ def test_openapi_keeps_realized_schemas(client):
     assert r.status_code == 200
     schemas = r.json()['components']['schemas']
 
-    for name in ('ErcotStateRangeResponse', 'ErcotSppRangeResponse'):
+    for name in ('ErcotRangeResponse', 'ErcotStateRangeResponse', 'ErcotSppRangeResponse'):
         assert name in schemas, f'{name} should be present'
 
 
