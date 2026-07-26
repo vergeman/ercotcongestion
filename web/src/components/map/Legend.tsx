@@ -14,7 +14,7 @@ import {
 interface Props {
   palette: Palette;
   rows: SpRow[];
-  // Window-wide stats. Stable across playback.
+  // Cursor-day stats. Stable while playback stays within a delivery day.
   lmpStats: LmpStats | null;
   mcStats: CongestionStats | null;
   // Forecast-error view overrides: a custom palette title, and the diverging end
@@ -191,7 +191,7 @@ export default function Legend({
       <div className="legend__title label">{titleName}</div>
       {titleEq && <div className="legend__eq label">{titleEq}</div>}
 
-      {/* Snapshot distribution over the window-wide bin range, on every legend. */}
+      {/* Snapshot distribution over the cursor-day bin range, on every legend. */}
       {!isOff && hist && (
         <div className="legend__hist">
           {hist.counts.map((c, i) => (

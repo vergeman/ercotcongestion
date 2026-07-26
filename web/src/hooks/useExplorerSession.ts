@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Palette } from "../api/types";
 import {
   getAvailableTimestamps,
@@ -11,11 +11,10 @@ import {
 import {
   computeCongestionStats,
   computeLmpStats,
-  type CongestionStats,
-  type LmpStats,
 } from "../lib/colors";
 import type { CuratedEvent } from "../lib/events";
 import type { SparkPoint } from "../components/playback/TimelineSparkline";
+import { formatCT } from "../lib/time";
 
 export type ConnectionState = "ok" | "error" | "loading";
 
@@ -28,11 +27,6 @@ export function useExplorerSession() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [sparkSeries, setSparkSeries] = useState<SparkPoint[]>([]);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
-  const [congestionStats, setCongestionStats] = useState<CongestionStats | null>(null);
-  const [sppStats, setSppStats] = useState<LmpStats | null>(null);
-  const [forecastCongestionStats, setForecastCongestionStats] = useState<CongestionStats | null>(null);
-  const [forecastLmpStats, setForecastLmpStats] = useState<LmpStats | null>(null);
-  const [errorStats, setErrorStats] = useState<CongestionStats | null>(null);
   const [forecastRunId, setForecastRunId] = useState<string | null>(null);
 
   const loadWindow = useCallback(async (start?: Date, end?: Date, cursorTs?: Date) => {
@@ -47,34 +41,6 @@ export function useExplorerSession() {
         return;
       }
 
-      const allCong: Array<number | null> = [];
-      const allSpp: Array<number | null> = [];
-      const allFcCong: Array<number | null> = [];
-      const allFcLmp: Array<number | null> = [];
-      const allError: Array<number | null> = [];
-      for (const timestamp of nextTimestamps) {
-        const congestion = getErcotCached(timestamp);
-        if (congestion) for (const sp of congestion.sps) allCong.push(sp.congestion);
-        const spp = getErcotSppCached(timestamp);
-        if (spp) for (const sp of spp.sps) allSpp.push(sp.spp);
-        const forecast = getForecastCached(timestamp);
-        if (forecast) for (const sp of forecast.sps) {
-          allFcCong.push(sp.p50);
-          allFcLmp.push(sp.p50 != null && forecast.system_lambda != null ? sp.p50 + forecast.system_lambda : null);
-        }
-        if (congestion && forecast) {
-          const marketById = new Map(congestion.sps.map((sp) => [sp.sp_id, sp.congestion]));
-          for (const sp of forecast.sps) {
-            const market = marketById.get(sp.sp_id);
-            if (sp.p50 != null && market != null) allError.push(sp.p50 - market);
-          }
-        }
-      }
-      setCongestionStats(allCong.length ? computeCongestionStats(allCong) : null);
-      setSppStats(allSpp.length ? computeLmpStats(allSpp) : null);
-      setForecastCongestionStats(allFcCong.length ? computeCongestionStats(allFcCong) : null);
-      setForecastLmpStats(allFcLmp.length ? computeLmpStats(allFcLmp) : null);
-      setErrorStats(allError.length ? computeCongestionStats(allError) : null);
       setForecastRunId(getForecastRunId());
       setSparkSeries(nextTimestamps.map((timestamp) => {
         const congestion = getErcotCached(timestamp);
@@ -118,10 +84,69 @@ export function useExplorerSession() {
     return () => window.clearTimeout(timer);
   }, [loadWindow]);
 
+  // Color domains belong to the cursor's Central-time delivery day. This keeps
+  // colors comparable while inspecting that day without letting an extreme on a
+  // non-visible day in a multi-day playback window flatten the active palette.
+  const dayStats = useMemo(() => {
+    const cursor = timestamps[currentIndex];
+    if (!cursor) {
+      return {
+        congestionStats: null,
+        sppStats: null,
+        forecastCongestionStats: null,
+        forecastLmpStats: null,
+        errorStats: null,
+      };
+    }
+
+    const deliveryDay = formatCT(cursor, "yyyy-MM-dd");
+    const actualCongestion: Array<number | null> = [];
+    const actualLmp: Array<number | null> = [];
+    const forecastCongestion: Array<number | null> = [];
+    const forecastLmp: Array<number | null> = [];
+    const forecastError: Array<number | null> = [];
+
+    for (const timestamp of timestamps) {
+      if (formatCT(timestamp, "yyyy-MM-dd") !== deliveryDay) continue;
+
+      const congestion = getErcotCached(timestamp);
+      if (congestion) for (const sp of congestion.sps) actualCongestion.push(sp.congestion);
+      const spp = getErcotSppCached(timestamp);
+      if (spp) for (const sp of spp.sps) actualLmp.push(sp.spp);
+      const forecast = getForecastCached(timestamp);
+      if (forecast) {
+        for (const sp of forecast.sps) {
+          forecastCongestion.push(sp.p50);
+          forecastLmp.push(
+            sp.p50 != null && forecast.system_lambda != null
+              ? sp.p50 + forecast.system_lambda
+              : null
+          );
+        }
+      }
+      if (congestion && forecast) {
+        const marketById = new Map(congestion.sps.map((sp) => [sp.sp_id, sp.congestion]));
+        for (const sp of forecast.sps) {
+          const market = marketById.get(sp.sp_id);
+          if (sp.p50 != null && market != null) forecastError.push(sp.p50 - market);
+        }
+      }
+    }
+
+    return {
+      congestionStats: actualCongestion.length ? computeCongestionStats(actualCongestion) : null,
+      sppStats: actualLmp.length ? computeLmpStats(actualLmp) : null,
+      forecastCongestionStats: forecastCongestion.length
+        ? computeCongestionStats(forecastCongestion)
+        : null,
+      forecastLmpStats: forecastLmp.length ? computeLmpStats(forecastLmp) : null,
+      errorStats: forecastError.length ? computeCongestionStats(forecastError) : null,
+    };
+  }, [timestamps, currentIndex]);
+
   return {
     timestamps, currentIndex, setCurrentIndex, loading, connectionState, setConnectionState,
-    lastUpdated, sparkSeries, activeEventId, congestionStats, sppStats,
-    forecastCongestionStats, forecastLmpStats, errorStats, forecastRunId,
+    lastUpdated, sparkSeries, activeEventId, ...dayStats, forecastRunId,
     selectEvent, loadCustomWindow,
   };
 }
