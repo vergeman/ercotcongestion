@@ -96,6 +96,7 @@
   --map-node-hover: #ffffff;           /* selection ring; must beat the ground */
   --map-node-null: #1a4731;            /* no data for this node */
   --map-node-idle: #c9d3df;            /* overlay node at rest */
+  --map-aggregate-label: #0b0f14;
 
   /* SF overlay constraint types. These are categorical annotation colors; form
      carries the primary type cue, so their luminance can follow the ground. */
@@ -157,6 +158,7 @@
   --map-node-hover: #0f172a;
   --map-node-null: #c7d9cd;
   --map-node-idle: #46596e;
+  --map-aggregate-label: #0f172a;
 
   /* A light-ground companion palette: the yellow GTC cloud separates from
      blue/red error fills and violet corridors without becoming a second heatmap. */

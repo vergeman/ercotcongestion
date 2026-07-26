@@ -3,13 +3,13 @@
 Build settlement_points_geocoded.csv: a mapping from priced ERCOT settlement
 points (RN/PCCRN/LCCRN/PUN) to lat/lon, sourced from EIA-860 via name matching.
 
-Hubs and Load Zones are hand-geocoded in hubs_lz_centroids.csv (companion).
+Hubs and Load Zones are hand-geocoded in hubs_lz_centroids.csv.
 
 Prerequisite: run extract_eia860.py to produce master_eia860.csv.
 
 Pipeline:
   1. Read priced settlement points from the CDR LMP snapshot.
-  2. Drop HB_/DC_/LZ_ (covered by hubs_lz_centroids.csv).
+  2. Drop HB_/DC_/LZ_; then prepend their hand-geocoded centroids to output.
   3. Classify the remainder as PCCRN (via CCP_Resource_Names), PUN, RN, or OTHER.
   4. Aggregate master_eia860.csv to plant level (lat/lon, capacity sum,
      concatenated LMP node designations).
@@ -33,8 +33,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 from rapidfuzz import fuzz, process
 
+from assign_bus_weather_load_zones import assign_zone
 from shared.settings import settings
 
 ERCOT_GEOCODE_DIR = Path(settings.ercot_geocode_dir)
@@ -43,6 +45,28 @@ OUT_CSV = Path(settings.settlement_points_geocoded_csv)
 REVIEW_QUEUE_CSV = Path(settings.ercot_geocode_review_queue_csv)
 MANUAL_OVERRIDES_CSV = Path(settings.ercot_geocode_manual_overrides_csv)
 GRIDSTATUS_NODES_JSON = Path(settings.ercot_geocode_nodes_json)
+HUBS_LZ_CENTROIDS_CSV = Path(settings.hubs_lz_centroids_csv)
+LOAD_ZONES_GEOJSON = Path(settings.load_zones_geojson)
+
+
+def load_hub_lz_centroids(columns: list[str]) -> pd.DataFrame:
+    """Load hand-geocoded hub/load-zone centroids into the canonical schema."""
+    centroids = pd.read_csv(HUBS_LZ_CENTROIDS_CSV)
+    hubs = centroids["settlement_point"].str.startswith("HB_")
+    centroids["sp_type"] = np.where(hubs, "hub", "load_zone")
+    return centroids.reindex(columns=columns)
+
+
+def assign_load_zones(points: pd.DataFrame) -> pd.Series:
+    """Assign every settlement-point coordinate to its ERCOT load-zone polygon."""
+    zones = gpd.read_file(LOAD_ZONES_GEOJSON).to_crs("EPSG:4326")
+    zones["NAME"] = zones["NAME"].str.lower()
+    point_gdf = gpd.GeoDataFrame(
+        points,
+        geometry=gpd.points_from_xy(points["lon"], points["lat"]),
+        crs="EPSG:4326",
+    )
+    return assign_zone(point_gdf, zones, zone_col="NAME", output_col="load_zone")
 
 # gridstatus.io encodes each node coordinate as two 5-char base62 groups of
 # microdegrees: lat = base62(coord[:5]) / 1e6 - 90, lon = base62(coord[5:]) /
@@ -949,6 +973,8 @@ def main() -> int:
          "matched_plant", "matched_capacity_mw",
          "station_description", "owner_re", "expected_mw", "capacity_ratio"]
     ]
+    geocoded = pd.concat([load_hub_lz_centroids(list(geocoded.columns)), geocoded], ignore_index=True)
+    geocoded["load_zone"] = assign_load_zones(geocoded).to_numpy()
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     geocoded.to_csv(OUT_CSV, index=False)
     print(f"[output] {OUT_CSV}  rows={len(geocoded)}")

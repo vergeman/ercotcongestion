@@ -1,7 +1,7 @@
 """Unit tests for the bounded causal /matrix/frame contract."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -23,6 +23,22 @@ def _blob() -> bytes:
         {'AAA|BASE': [2.0, 1.0], 'BBB|LINE': [3.0, 0.0], 'CCC|OUTAGE': [0.0, 2.0]},
         index=pd.to_datetime([T0, T1], utc=True),
     )
+    return build_sf_mu_artifact(sf, mu)
+
+
+def _full_utc_day_blob(day: datetime) -> bytes:
+    sf = pd.DataFrame({'SP_A': [1.0]}, index=['AAA|BASE'])
+    hours = pd.date_range(day, periods=24, freq='h', tz='UTC')
+    mu = pd.DataFrame({'AAA|BASE': range(24)}, index=hours)
+    return build_sf_mu_artifact(sf, mu)
+
+
+def _hub_zone_blob() -> bytes:
+    sf = pd.DataFrame(
+        {'SP_A': [0.9], 'HB_WEST': [0.734], 'LZ_COAST': [0.5]},
+        index=['AAA|BASE'],
+    )
+    mu = pd.DataFrame({'AAA|BASE': [2.0]}, index=pd.to_datetime([T0], utc=True))
     return build_sf_mu_artifact(sf, mu)
 
 
@@ -106,11 +122,58 @@ def test_delivery_date_uses_central_time_boundary():
     assert matrix_module._delivery_date(T0).isoformat() == '2026-07-01'
 
 
+def test_frame_resolves_all_utc_day_hours_from_one_utc_artifact(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    utc_day = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    artifact = _full_utc_day_blob(utc_day)
+    for hour in range(24):
+        fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+        if hour == 0:
+            fake_pool.cursor.queue([{'sf_npz': artifact}])
+        fake_pool.cursor.queue([])
+        fake_pool.cursor.queue([])
+
+    frames = [
+        client.get('/matrix/frame', params={'interval_ts': (utc_day + timedelta(hours=hour)).isoformat()})
+        for hour in range(24)
+    ]
+
+    assert all(frame.status_code == 200 and frame.json()['available'] for frame in frames)
+    # 00:00–04:00 UTC retain their Central delivery label, while every request
+    # still resolves the same July 1 UTC artifact.
+    assert frames[0].json()['delivery_date'] == '2026-06-30'
+    artifact_query = fake_pool.cursor.queries[1]
+    assert artifact_query[1] == ('fc-v1', utc_day.date())
+
+
 def test_frame_enforces_conservative_bounds(client):
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 101})
     assert response.status_code == 422
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'column_limit': 101})
     assert response.status_code == 422
+
+
+def test_frame_anchor_columns_include_artifact_hubs_and_load_zones(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('resource', None),
+        'HB_WEST': ('hub', 'west_hub'),
+        'LZ_COAST': ('load_zone', 'coast'),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'sf_npz': _hub_zone_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'column_set': 'anchors',
+    })
+
+    assert response.status_code == 200, response.text
+    columns = response.json()['columns']
+    assert [column['settlement_point'] for column in columns] == ['HB_WEST', 'LZ_COAST']
+    assert [(column['settlement_point_type'], column['load_zone']) for column in columns] == [
+        ('hub', 'west_hub'), ('load_zone', 'coast'),
+    ]
 
 
 def test_frame_discovery_pins_search_types_and_column_presets(client, fake_pool, monkeypatch):

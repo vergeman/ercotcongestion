@@ -9,8 +9,7 @@ Output shape (cached as JSON to TOPOLOGY_CACHE):
 SP features carry: sp_id, sp_type, load_zone, capacity_mw.
 
 settlement_points_geocoded_csv has columns: settlement_point, lat, lon,
-sp_type, matched_capacity_mw. `load_zone` is derived best-effort from the SP
-name prefix (see `_sp_load_zone_from_name`); `capacity_mw` comes from
+sp_type, load_zone, matched_capacity_mw. `capacity_mw` comes from
 `matched_capacity_mw` and is used for node sizing in the UI.
 
 Idempotent: regenerating from the same inputs produces an identical file.
@@ -36,21 +35,6 @@ def build_topology() -> dict[str, Any]:
     return {'settlement_points': _settlement_points_feature_collection()}
 
 
-def _sp_load_zone_from_name(sp_id: str) -> str | None:
-    """Best-effort load_zone from an SP name prefix.
-
-    `LZ_XXX` → load zone `XXX`; `HB_XXX` → hub `XXX_HUB`. Anything else
-    (OTHER, RN, generator resource names) returns None — no reliable
-    prefix mapping exists for those.
-    """
-    if sp_id.startswith('LZ_'):
-        return sp_id[len('LZ_'):].lower() or None
-    if sp_id.startswith('HB_'):
-        rest = sp_id[len('HB_'):]
-        return f"{rest.lower()}_hub" if rest else None
-    return None
-
-
 def _settlement_points_feature_collection() -> dict[str, Any]:
     """Return SP points as GeoJSON. Rows missing lat/lon are dropped."""
     try:
@@ -60,12 +44,10 @@ def _settlement_points_feature_collection() -> dict[str, Any]:
         return {'type': 'FeatureCollection', 'features': []}
     df = df.dropna(subset=['lat', 'lon'])
     features = []
-    n_tagged = 0
     for _, row in df.iterrows():
         sp_id = str(row['settlement_point'])
-        load_zone = _sp_load_zone_from_name(sp_id)
-        if load_zone is not None:
-            n_tagged += 1
+        raw_load_zone = row.get('load_zone')
+        load_zone = None if pd.isna(raw_load_zone) else str(raw_load_zone)
         cap = row.get('matched_capacity_mw')
         features.append({
             'type': 'Feature',
@@ -80,7 +62,6 @@ def _settlement_points_feature_collection() -> dict[str, Any]:
                 'capacity_mw': float(cap) if pd.notna(cap) else 0.0,
             },
         })
-    log.info("SP load_zone tagged %d/%d via name prefix", n_tagged, len(features))
     return {'type': 'FeatureCollection', 'features': features}
 
 
@@ -107,10 +88,14 @@ def get_or_build_topology(force: bool = False) -> dict[str, Any]:
     if not force and os.path.exists(TOPOLOGY_CACHE):
         with open(TOPOLOGY_CACHE) as f:
             topo = json.load(f)
-        if _cache_is_current(topo):
+        source_is_newer = (
+            os.path.exists(settings.settlement_points_geocoded_csv)
+            and os.path.getmtime(settings.settlement_points_geocoded_csv) > os.path.getmtime(TOPOLOGY_CACHE)
+        )
+        if _cache_is_current(topo) and not source_is_newer:
             log.info("Topology cache hit: %s", TOPOLOGY_CACHE)
             return topo
-        log.info("Topology cache stale; rebuilding: %s", TOPOLOGY_CACHE)
+        log.info("Topology cache stale or source updated; rebuilding: %s", TOPOLOGY_CACHE)
 
     topo = build_topology()
     os.makedirs(os.path.dirname(TOPOLOGY_CACHE), exist_ok=True)

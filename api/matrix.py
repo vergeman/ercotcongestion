@@ -55,16 +55,10 @@ def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
         except FileNotFoundError:
             _SP_METADATA = {}
         else:
-            def load_zone(sp: str) -> str | None:
-                if sp.startswith('LZ_'):
-                    return sp[3:].lower() or None
-                if sp.startswith('HB_'):
-                    return f'{sp[3:].lower()}_hub' if sp[3:] else None
-                return None
             _SP_METADATA = {
                 str(r.settlement_point): (
                     None if pd.isna(getattr(r, 'sp_type', None)) else str(getattr(r, 'sp_type')),
-                    load_zone(str(r.settlement_point)),
+                    None if pd.isna(getattr(r, 'load_zone', None)) else str(getattr(r, 'load_zone')),
                 )
                 for r in df.itertuples(index=False)
             }
@@ -160,7 +154,11 @@ def get_matrix_frame(
     constraint_search = _bounded_search(constraint_search, name='constraint_search')
     settlement_point_search = _bounded_search(settlement_point_search, name='settlement_point_search')
     interval_ts = _coerce_utc(interval_ts)
+    # Artifacts are partitioned by their UTC timestamps.  The Central operating
+    # date remains the response label, but must not select the artifact: its
+    # first five summer hours otherwise look in the preceding UTC partition.
     delivery_date = _delivery_date(interval_ts)
+    artifact_date = interval_ts.date()
 
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
@@ -169,7 +167,7 @@ def get_matrix_frame(
             raise HTTPException(status_code=503, detail='no forecast run is published yet.')
         run_id = str(row['run_id'])
 
-        artifact = load_daily_artifact(cur, run_id, delivery_date)
+        artifact = load_daily_artifact(cur, run_id, artifact_date)
         if artifact is None:
             return _unavailable(run_id, delivery_date, interval_ts, 'artifact_missing')
 
@@ -224,7 +222,7 @@ def get_matrix_frame(
         row_keys = _append_bounded(row_keys, matched_rows, limit=MAX_ROW_LIMIT)
 
         core_columns = ranked_columns[:column_limit]
-        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone', 'HB', 'LZ'} or metadata.get(key, (None, None))[1] is not None]
+        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone'}]
         if column_set == 'core':
             base_columns = core_columns
         elif column_set == 'anchors':

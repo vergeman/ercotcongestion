@@ -34,8 +34,72 @@ function chromeColors() {
     outlineFill: cssVar("--map-outline-fill"),
     nodeNull: cssVar("--map-node-null"),
     nodeHover: cssVar("--map-node-hover"),
+    aggregateLabel: cssVar("--map-aggregate-label"),
     accent: cssVar("--accent"),
   };
+}
+
+function spRadius(): maplibregl.ExpressionSpecification {
+  return [
+    "interpolate", ["linear"], ["zoom"],
+    4, ["match", ["get", "sp_type"], "hub", 6.5, "load_zone", 0, 3],
+    8, ["match", ["get", "sp_type"], "hub", 10.5, "load_zone", 0, 5.5],
+    12, ["match", ["get", "sp_type"], "hub", 15, "load_zone", 0, 9],
+  ] as maplibregl.ExpressionSpecification;
+}
+
+function spStrokeWidth(): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    ["boolean", ["feature-state", "selected"], false], 5,
+    ["boolean", ["feature-state", "ringed"], false], 4,
+    ["boolean", ["feature-state", "hovered"], false], 4,
+    ["match", ["get", "sp_type"], "hub", 1.75, 0],
+  ] as maplibregl.ExpressionSpecification;
+}
+
+function fanOutAggregateMarkers(points: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+  const features = points.features.map((feature) => ({
+    ...feature,
+    properties: { ...(feature.properties ?? {}) },
+  }));
+  const groups = new Map<string, typeof features>();
+  for (const feature of features) {
+    const props = feature.properties as Record<string, unknown>;
+    const coords = feature.geometry?.type === "Point" ? feature.geometry.coordinates : null;
+    if (!coords || (props.sp_type !== "hub" && props.sp_type !== "load_zone")) continue;
+    props.aggregate_marker_offset = [0, 0];
+    const key = `${coords[0]},${coords[1]}`;
+    groups.set(key, [...(groups.get(key) ?? []), feature]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => {
+      const aProps = a.properties as Record<string, unknown>;
+      const bProps = b.properties as Record<string, unknown>;
+      const aType = aProps.sp_type === "hub" ? 0 : 1;
+      const bType = bProps.sp_type === "hub" ? 0 : 1;
+      return aType - bType || String(aProps.sp_id).localeCompare(String(bProps.sp_id));
+    });
+    const offsets = group.length === 2
+      ? [[-0.55, 0], [0.55, 0]]
+      : [[-0.7, 0.5], [0.7, -0.5], [-0.7, -0.5], [0.7, 0.5]];
+    group.forEach((feature, index) => {
+      (feature.properties as Record<string, unknown>).aggregate_marker_offset =
+        offsets[index % offsets.length];
+    });
+  }
+  return { ...points, features };
+}
+
+function spStrokeColor(chrome: ReturnType<typeof chromeColors>): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    ["boolean", ["feature-state", "selected"], false], chrome.nodeHover,
+    ["boolean", ["feature-state", "ringed"], false], chrome.nodeHover,
+    ["boolean", ["feature-state", "hovered"], false], chrome.accent,
+    ["match", ["get", "sp_type"], "hub", chrome.nodeHover, chrome.accent],
+  ] as maplibregl.ExpressionSpecification;
 }
 
 // Major ERCOT-region cities, for map orientation only. Rendered as a faint
@@ -269,14 +333,7 @@ export default function GridMap({
       set("texas-line", "line-color", c.outline);
       set("city-labels", "text-color", c.label);
       set("city-labels", "text-halo-color", c.halo);
-      set("sps", "circle-stroke-color", [
-        "case",
-        ["boolean", ["feature-state", "selected"], false],
-        c.nodeHover,
-        ["boolean", ["feature-state", "ringed"], false],
-        c.nodeHover,
-        c.accent,
-      ]);
+      set("sps", "circle-stroke-color", spStrokeColor(c));
       // The null-data fallback is the second branch of the circle-color case.
       set("sps", "circle-color", [
         "case",
@@ -284,6 +341,18 @@ export default function GridMap({
         ["feature-state", "color"],
         c.nodeNull,
       ]);
+      set("load-zone-diamonds", "text-color", [
+        "case",
+        ["!=", ["feature-state", "color"], null],
+        ["feature-state", "color"],
+        c.nodeNull,
+      ]);
+      set("load-zone-diamonds", "text-halo-color", [
+        "case",
+        ["boolean", ["feature-state", "hovered"], false], c.accent,
+        c.nodeHover,
+      ]);
+      set("aggregate-labels", "text-color", c.aggregateLabel);
     });
   }, []);
 
@@ -292,7 +361,7 @@ export default function GridMap({
     const map = mapRef.current;
     if (!map || !points) return;
 
-    const fc = points as GeoJSON.FeatureCollection;
+    const fc = fanOutAggregateMarkers(points as GeoJSON.FeatureCollection);
 
     const onLoad = () => {
       if (!map.getSource("sps")) {
@@ -375,6 +444,9 @@ export default function GridMap({
           id: "sps",
           type: "circle",
           source: "sps",
+          filter: ["all",
+            ["!=", ["get", "sp_type"], "load_zone"],
+          ],
           paint: {
             "circle-color": [
               "case",
@@ -389,49 +461,107 @@ export default function GridMap({
               0.08,
               0.9,
             ],
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              4,
-              3,
-              8,
-              5.5,
-              12,
-              9,
-            ],
+            // Hubs and load zones are aggregate price points, not physical
+            // generator/load nodes. Their larger neutral keylines preserve the
+            // congestion fill while shape and label make their class obvious.
+            "circle-radius": spRadius(),
             // Selected = a distinct, persistent high-contrast ring (thicker than
             // hover) so the active click stays visible until another node is
             // selected or the selection is cleared. Hover keeps the sky-blue
             // ring. The ring color inverts with the theme -- white over the dark
             // ground, near-black over the light one.
-            "circle-stroke-width": [
+            "circle-stroke-width": spStrokeWidth(),
+            "circle-stroke-color": spStrokeColor(chrome),
+            "circle-stroke-opacity": [
               "case",
-              ["boolean", ["feature-state", "selected"], false],
-              4,
-              // `ringed` = a member node hovered in the panel's constituent list.
-              ["boolean", ["feature-state", "ringed"], false],
-              3,
-              ["boolean", ["feature-state", "hovered"], false],
-              2,
+              ["boolean", ["feature-state", "faded"], false],
               0,
+              1,
             ],
-            "circle-stroke-color": [
+          },
+        });
+      }
+
+      // Load zones are aggregate price areas, rendered as diamonds so they
+      // cannot be mistaken for physical settlement-point circles. Their fill
+      // still uses the active congestion/LMP feature-state color.
+      if (!map.getLayer("load-zone-diamonds")) {
+        map.addLayer({
+          id: "load-zone-diamonds",
+          type: "symbol",
+          source: "sps",
+          filter: ["==", ["get", "sp_type"], "load_zone"],
+          layout: {
+            "text-field": "◆",
+            "text-font": ["Noto Sans Regular"],
+            "text-size": ["interpolate", ["linear"], ["zoom"], 4, 18, 8, 28, 12, 38],
+            "text-offset": ["get", "aggregate_marker_offset"],
+            "text-allow-overlap": true,
+            "text-ignore-placement": true,
+          },
+          paint: {
+            "text-color": [
               "case",
-              ["boolean", ["feature-state", "selected"], false],
-              chrome.nodeHover,
-              ["boolean", ["feature-state", "ringed"], false],
-              chrome.nodeHover,
-              chrome.accent,
+              ["!=", ["feature-state", "color"], null],
+              ["feature-state", "color"],
+              chrome.nodeNull,
             ],
-            // The ring must read even over a faded (non-member) node.
-            "circle-stroke-opacity": 1,
+            "text-opacity": [
+              "case",
+              ["boolean", ["feature-state", "faded"], false],
+              0,
+              0.9,
+            ],
+            "text-halo-width": [
+              "case",
+              ["boolean", ["feature-state", "selected"], false], 3,
+              ["boolean", ["feature-state", "ringed"], false], 2.5,
+              ["boolean", ["feature-state", "hovered"], false], 2.5,
+              1.5,
+            ],
+            "text-halo-color": [
+              "case",
+              ["boolean", ["feature-state", "hovered"], false], chrome.accent,
+              chrome.nodeHover,
+            ],
+          },
+        });
+      }
+
+      if (!map.getLayer("aggregate-labels")) {
+        map.addLayer({
+          id: "aggregate-labels",
+          type: "symbol",
+          source: "sps",
+          filter: ["in", ["get", "sp_type"], ["literal", ["hub", "load_zone"]]],
+          layout: {
+            "text-field": ["match", ["get", "sp_type"], "hub", "H", "Z"],
+            "text-font": ["Noto Sans Regular"],
+            "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 8, 14, 12, 17],
+            "text-offset": [
+              "case",
+              ["==", ["get", "sp_type"], "load_zone"],
+              ["get", "aggregate_marker_offset"],
+              ["literal", [0, 0]],
+            ],
+            "text-allow-overlap": true,
+            "text-ignore-placement": true,
+          },
+          paint: {
+            "text-color": chrome.aggregateLabel,
+            "text-halo-width": 0,
+            "text-opacity": [
+              "case",
+              ["boolean", ["feature-state", "faded"], false],
+              0,
+              1,
+            ],
           },
         });
       }
 
       // Hover interactions
-      map.on("mousemove", "sps", (e) => {
+      const handleSpMove = (e: maplibregl.MapLayerMouseEvent) => {
         if (tapOnlyRef.current) return;
         if (!e.features?.length) return;
         map.getCanvas().style.cursor = "crosshair";
@@ -452,21 +582,36 @@ export default function GridMap({
           x: e.point.x,
           y: e.point.y,
         });
-      });
+      };
+      for (const layer of ["sps", "load-zone-diamonds"]) {
+        map.on("mousemove", layer, handleSpMove);
+      }
 
-      map.on("mouseleave", "sps", () => {
+      const handleSpLeave = () => {
         if (tapOnlyRef.current) return;
         map.getCanvas().style.cursor = "";
         callbacksRef.current.onSpHover(null, null);
         if (!hoveredNodeHasMembersRef.current) setPopover(null);
-      });
+      };
+      for (const layer of ["sps", "load-zone-diamonds"]) {
+        map.on("mouseleave", layer, handleSpLeave);
+      }
 
-      map.on("click", "sps", (e) => {
+      const handleSpClick = (e: maplibregl.MapLayerMouseEvent, layer: string) => {
         if (!e.features?.length) return;
+        // A large aggregate marker can cover a nearby regular node in screen
+        // space. The aggregate is the intended click target, even when both
+        // layers report a feature at the same pixel.
+        if (layer === "sps" && map.queryRenderedFeatures(e.point, {
+          layers: ["load-zone-diamonds"],
+        }).length) return;
         e.preventDefault?.();
         const props = e.features[0].properties as Record<string, unknown>;
         callbacksRef.current.onSpClick(props.sp_id as string, props);
-      });
+      };
+      for (const layer of ["sps", "load-zone-diamonds"]) {
+        map.on("click", layer, (e) => handleSpClick(e, layer));
+      }
 
       // Sources are live — coloring/selection effects can now paint.
       setSourcesReady(true);
@@ -822,7 +967,7 @@ export default function GridMap({
     if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
 
     const overSettlementPoint = (e: maplibregl.MapLayerMouseEvent) =>
-      map.queryRenderedFeatures(e.point, { layers: ["sps"] }).length > 0;
+      map.queryRenderedFeatures(e.point, { layers: ["sps", "load-zone-diamonds"] }).length > 0;
     const keyAt = (e: maplibregl.MapLayerMouseEvent) =>
       e.features?.[0]?.properties?.constraint_key as string | undefined;
     const onEnter = (e: maplibregl.MapLayerMouseEvent) => {

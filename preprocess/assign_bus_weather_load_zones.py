@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 import pandas as pd
 import geopandas as gpd
-import pypsa
 from shared.settings import settings
 
 log = logging.getLogger(__name__)
@@ -101,6 +100,7 @@ def assign_zone(
 
 
 if __name__ == '__main__':
+    import pypsa
 
     log.info(f"Loading network from {NETWORK_NC}")
     n = pypsa.Network(NETWORK_NC)
