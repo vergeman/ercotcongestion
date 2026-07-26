@@ -12,9 +12,9 @@
       (function () {
         try {
           var t = localStorage.getItem('ercotstress:theme');
-          document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+          document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
         } catch (e) {
-          document.documentElement.dataset.theme = 'dark';
+          document.documentElement.dataset.theme = 'light';  // default theme
         }
       })();
     </script>
