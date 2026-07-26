@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.eval import evaluate
+from compute.sf.eval import evaluate, evaluate_chunked
 from compute.sf.grouping import group_constraints
 from compute.sf.rolling import rolling_sf
 
@@ -120,6 +120,30 @@ def test_linkage_cache_does_not_change_results(panels):
     for col in METRICS + ["n_groups", "group_churn"]:
         np.testing.assert_allclose(a[col].to_numpy(float), b[col].to_numpy(float),
                                    rtol=1e-12, equal_nan=True)
+
+
+def test_chunked_evaluation_matches_the_full_history_run(panels):
+    """Chunk boundaries are an allocation detail, not a scoring change."""
+    M, C = panels
+    window_days, refit_days = 14, 7
+    start = M.index[0].normalize() + pd.Timedelta(days=2 * window_days)
+    end = M.index[-1].normalize() + pd.Timedelta(days=1)
+    kw = dict(window_days=window_days, refit_days=refit_days,
+              lam=1.0, min_hours=10, rho_min=0.8)
+
+    full = evaluate(M, C, **kw).reset_index(drop=True)
+
+    def load_chunk(lo, hi):
+        return (M.loc[(M.index >= lo) & (M.index < hi)],
+                C.loc[(C.index >= lo) & (C.index < hi)])
+
+    chunked = evaluate_chunked(load_chunk, score_from=start, end=end,
+                               chunk_weeks=2, **kw)
+    assert list(chunked["score_start"]) == list(full["score_start"])
+    for col in METRICS + ["n_groups", "group_churn"]:
+        np.testing.assert_allclose(chunked[col].to_numpy(float),
+                                   full[col].to_numpy(float), rtol=1e-12,
+                                   equal_nan=True)
 
 
 # ------------------------------------------------------------------- callback

@@ -40,6 +40,7 @@ kept module carries no dependency on ``experiments/``.
 from __future__ import annotations
 
 import argparse
+import gc
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -171,6 +172,7 @@ def evaluate(
     control: bool = False,
     linkage_cache: dict | None = None,
     score_from: pd.Timestamp | None = None,
+    refit_origin: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """One row per scored week. M, C need NOT be pre-aligned.
 
@@ -253,7 +255,13 @@ def evaluate(
     # First refit needs a full trailing window behind it. The refit grid is
     # anchored at days[0] + win regardless of `score_from`, so the scored weeks
     # land on the same boundaries whether or not the warmup is skipped.
-    starts = pd.date_range(days[0] + win, end_day, freq=refit, inclusive="left")
+    # Normally the first panel day fixes the grid.  Chunked callers pass the
+    # original grid anchor explicitly: their per-chunk read margin begins
+    # earlier than a score boundary, but the resulting rows must remain exactly
+    # phase-aligned with an equivalent single full-history evaluation.
+    origin = (pd.Timestamp(refit_origin) if refit_origin is not None
+              else days[0] + win)
+    starts = pd.date_range(origin, end_day, freq=refit, inclusive="left")
     if score_from is not None:
         starts = starts[starts >= score_from]
     if not len(starts):
@@ -346,6 +354,84 @@ def evaluate(
         })
         prev_labels = labels
     return pd.DataFrame(rows)
+
+
+def eval_chunks(score_from: pd.Timestamp, end: pd.Timestamp, refit_days: int,
+                chunk_weeks: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Partition the scored grid into bounded, exclusive-end week chunks."""
+    if chunk_weeks < 1:
+        raise ValueError("chunk_weeks must be positive")
+    end = pd.Timestamp(end).tz_convert(score_from.tz)
+    step = pd.Timedelta(days=refit_days)
+    starts = pd.date_range(score_from, end, freq=step, inclusive="left")
+    return [(block[0], min(block[-1] + step, end))
+            for block in (starts[i:i + chunk_weeks]
+                          for i in range(0, len(starts), chunk_weeks)) if len(block)]
+
+
+def evaluate_chunked(
+    load_panels,
+    *,
+    score_from: pd.Timestamp,
+    end: pd.Timestamp,
+    chunk_weeks: int,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    refit_days: int = DEFAULT_REFIT_DAYS,
+    **evaluate_kwargs,
+) -> pd.DataFrame:
+    """Load, evaluate, and release bounded history chunks.
+
+    Each chunk includes two trailing fit windows for the disjoint-stability
+    metric plus one prior refit.  The latter preserves the first kept week's
+    group-churn value.  ``refit_origin`` pins every chunk to the same weekly
+    grid as the legacy full-panel run, so this is a memory-only change.
+    """
+    # The legacy full-panel invocation starts one fit window before the
+    # user-facing score range. Keep that leading row: it is deliberately used
+    # by --persist-eval to backfill the week that meets the requested boundary.
+    first_score = score_from - pd.Timedelta(days=window_days)
+    windows = eval_chunks(first_score, end, refit_days, chunk_weeks)
+    if not windows:
+        return pd.DataFrame()
+
+    win = pd.Timedelta(days=window_days)
+    refit = pd.Timedelta(days=refit_days)
+    origin = first_score
+    parts: list[pd.DataFrame] = []
+    for n, (chunk_start, chunk_end) in enumerate(windows, start=1):
+        # Later chunks retain one preceding boundary to seed group churn.  The
+        # first chunk deliberately matches the legacy read floor, where that
+        # leading score has no disjoint predecessor.
+        is_first = n == 1
+        read_start = chunk_start - 2 * win - (pd.Timedelta(0) if is_first else refit)
+        log.info("eval chunk %d/%d: scores [%s, %s), reads [%s, %s)",
+                 n, len(windows), chunk_start.date(), chunk_end.date(),
+                 read_start.date(), chunk_end.date())
+        M, C = load_panels(read_start, chunk_end)
+        try:
+            if M.empty or C.empty:
+                log.warning("eval chunk %d/%d has empty panel(s): M=%s C=%s",
+                            n, len(windows), M.shape, C.shape)
+                continue
+            df = evaluate(
+                M, C, window_days=window_days, refit_days=refit_days,
+                score_from=chunk_start if is_first else chunk_start - refit,
+                refit_origin=origin,
+                **evaluate_kwargs,
+            )
+            df = df[(df["score_start"] >= chunk_start)
+                    & (df["score_start"] < chunk_end)]
+            if not df.empty:
+                parts.append(df)
+        finally:
+            del M, C
+            # A grouping linkage cache can be very large; it only helps within
+            # a chunk and must not grow back into a full-history allocation.
+            cache = evaluate_kwargs.get("linkage_cache")
+            if cache is not None:
+                cache.clear()
+            gc.collect()
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
 
 def sf_decay(
@@ -464,34 +550,59 @@ def main(argv: list[str] | None = None) -> int:
                    help="With --rho-min, also emit sf_stability_proj: the "
                         "ungrouped SF projected into the group row-space. The "
                         "apples-to-apples drift baseline for R3. ~2x cost.")
+    p.add_argument("--chunk-weeks", type=int, default=32,
+                   help="Evaluate this many weekly folds per loaded panel "
+                        "(default 32). Each chunk retains the required 2×window "
+                        "history for disjoint stability, then releases its dense "
+                        "panels. Use 0 for the legacy full-history evaluation.")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    # Read window extends back 2×window so the earliest refit gets its full
-    # trailing history AND its disjoint-stability predecessor.
-    read_start = args.start - timedelta(days=2 * args.window_days)
-    log.info("loading panels: read=[%s, %s), score=[%s, %s)",
-             read_start, args.end, args.start, args.end)
-    with psycopg.connect(PG_DSN) as conn:
-        M = load_shadow_prices(conn, read_start, args.end)
-        C = load_congestion_panel(conn, read_start, args.end)
-    if M.empty or C.empty:
-        log.error("empty panel(s): M=%s C=%s", M.shape, C.shape)
-        return 3
-    log.info("M=%s C=%s", M.shape, C.shape)
+    if args.chunk_weeks < 0:
+        p.error("--chunk-weeks must be non-negative")
 
     # One tree per window, shared by evaluate and sf_decay.
     linkage_cache: dict = {}
-    df_full = evaluate(M, C, args.window_days, args.refit_days, args.ridge_lambda,
-                       args.min_binding_hours, args.standardize, args.std_floor,
-                       rho_min=args.rho_min, control=args.control,
-                       linkage_cache=linkage_cache)
+    if args.chunk_weeks:
+        score_from = pd.Timestamp(args.start, tz="UTC")
+        end = pd.Timestamp(args.end, tz="UTC")
+        with psycopg.connect(PG_DSN) as conn:
+            def load_chunk(read_start, chunk_end):
+                return (load_shadow_prices(conn, read_start, chunk_end),
+                        load_congestion_panel(conn, read_start, chunk_end))
+
+            df_full = evaluate_chunked(
+                load_chunk, score_from=score_from, end=end,
+                chunk_weeks=args.chunk_weeks,
+                window_days=args.window_days, refit_days=args.refit_days,
+                lam=args.ridge_lambda, min_hours=args.min_binding_hours,
+                standardize=args.standardize, std_floor=args.std_floor,
+                rho_min=args.rho_min, control=args.control,
+                linkage_cache=linkage_cache,
+            )
+        panel_tz = score_from.tz
+    else:
+        # Legacy full-panel path, useful for one-off numerical comparisons.
+        read_start = args.start - timedelta(days=2 * args.window_days)
+        log.info("loading panels: read=[%s, %s), score=[%s, %s)",
+                 read_start, args.end, args.start, args.end)
+        with psycopg.connect(PG_DSN) as conn:
+            M = load_shadow_prices(conn, read_start, args.end)
+            C = load_congestion_panel(conn, read_start, args.end)
+        if M.empty or C.empty:
+            log.error("empty panel(s): M=%s C=%s", M.shape, C.shape)
+            return 3
+        log.info("M=%s C=%s", M.shape, C.shape)
+        df_full = evaluate(M, C, args.window_days, args.refit_days, args.ridge_lambda,
+                           args.min_binding_hours, args.standardize, args.std_floor,
+                           rho_min=args.rho_min, control=args.control,
+                           linkage_cache=linkage_cache)
+        panel_tz = M.index.tz
     # Keep only scored weeks in the requested range for display/CSV (the read
     # window pulled extra warmup history). df_full drives the meta backfill so
     # the week straddling `start` is matched too.
-    panel_tz = M.index.tz
     start_ts = pd.Timestamp(args.start, tz=panel_tz)
     df = df_full[df_full["score_start"] >= start_ts].reset_index(drop=True)
     if df.empty:
@@ -556,6 +667,15 @@ def main(argv: list[str] | None = None) -> int:
     log.info("wrote %s", out_path)
 
     if args.emit_decay:
+        if args.chunk_weeks:
+            # Decay compares fits across the whole history, so it intentionally
+            # uses the legacy panel once when explicitly requested.
+            read_start = args.start - timedelta(days=2 * args.window_days)
+            log.info("loading full panel for requested decay: [%s, %s)",
+                     read_start, args.end)
+            with psycopg.connect(PG_DSN) as conn:
+                M = load_shadow_prices(conn, read_start, args.end)
+                C = load_congestion_panel(conn, read_start, args.end)
         deltas = tuple(int(x) for x in args.deltas.split(",") if x.strip())
         decay = sf_decay(M, C, args.window_days, deltas_days=deltas,
                          lam=args.ridge_lambda,
