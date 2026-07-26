@@ -1,6 +1,7 @@
 import type {
   ErcotStateRangeResponse,
   ErcotSppRangeResponse,
+  ErcotRangeResponse,
   ForecastRangeResponse,
   MapMeta,
   ExposuresResponse,
@@ -96,6 +97,20 @@ export async function fetchErcotSppRange(
   );
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`ercot_spp_range ${r.status}`);
+  return r.json();
+}
+
+// Compact replacement for the two realized range calls above. Settlement-point
+// IDs are sent once, and congestion + SPP share the same timestamped rows.
+export async function fetchErcotRange(
+  start: Date,
+  end: Date
+): Promise<ErcotRangeResponse | null> {
+  const r = await fetch(
+    `${BASE}/ercot_range?start=${start.toISOString()}&end=${end.toISOString()}`
+  );
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`ercot_range ${r.status}`);
   return r.json();
 }
 

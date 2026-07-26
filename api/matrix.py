@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -32,6 +33,13 @@ _SP_METADATA: dict[str, tuple[str | None, str | None]] | None = None
 
 def _coerce_utc(ts: datetime) -> datetime:
     return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
+def _round_matrix_value(value: float) -> float:
+    """The matrix UI renders these values to three decimal places."""
+    return float(
+        Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    )
 
 
 def _delivery_date(ts: datetime):
@@ -253,20 +261,24 @@ def get_matrix_frame(
         rows.append(MatrixRow(
             constraint_key=str(key), constraint_name=name, contingency_name=contingency,
             constraint_type=row_types.get(str(key)),
-            forecast_mu=float(exact_mu.loc[key]), ercot_dam_mu=dam_mu,
+            forecast_mu=_round_matrix_value(float(exact_mu.loc[key])), ercot_dam_mu=dam_mu,
             daily_rank=daily_ranks[str(key)],
             binding_hours=int((artifact.E_mu[key].abs() > 0).sum()),
-            max_abs_sf=float(artifact.SF.loc[key].abs().max()),
+            max_abs_sf=_round_matrix_value(float(artifact.SF.loc[key].abs().max())),
         ))
     columns = [
         MatrixColumn(
             settlement_point=str(key), settlement_point_type=metadata.get(str(key), (None, None))[0],
-            load_zone=metadata.get(str(key), (None, None))[1], max_abs_sf=float(col_max.loc[key]),
+            load_zone=metadata.get(str(key), (None, None))[1],
+            max_abs_sf=_round_matrix_value(float(col_max.loc[key])),
         )
         for key in column_keys
     ]
     dam_status = 'available' if matched_dam == len(rows) else ('partial' if matched_dam else 'pending')
-    values = [float(value) for value in row_sf.loc[row_keys, column_keys].to_numpy().ravel()]
+    values = [
+        _round_matrix_value(float(value))
+        for value in row_sf.loc[row_keys, column_keys].to_numpy().ravel()
+    ]
     return MatrixFrame(
         available=True, run_id=run_id, delivery_date=delivery_date, interval_ts=interval_ts,
         dam_status=dam_status, rows=rows, columns=columns,

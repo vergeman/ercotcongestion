@@ -84,6 +84,31 @@ def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
     assert body['fit_window_start'] is None and body['fit_window_end'] is None
 
 
+def test_frame_rounds_matrix_display_values_to_three_decimals(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('hub', None), 'SP_B': ('resource', None),
+    })
+    sf = pd.DataFrame(
+        {'SP_A': [0.12349], 'SP_B': [-0.98765]}, index=['AAA|BASE']
+    )
+    mu = pd.DataFrame({'AAA|BASE': [2.3456]}, index=pd.to_datetime([T0], utc=True))
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'sf_npz': build_sf_mu_artifact(sf, mu)}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'row_limit': 1, 'column_limit': 2,
+    })
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['rows'][0]['forecast_mu'] == 2.346
+    assert body['rows'][0]['max_abs_sf'] == 0.988
+    assert [column['max_abs_sf'] for column in body['columns']] == [0.988, 0.123]
+    assert body['sf']['values'] == [-0.988, 0.123]
+
+
 def test_frame_order_does_not_change_by_hour(client, fake_pool, monkeypatch):
     monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
     _queue_frame(fake_pool)

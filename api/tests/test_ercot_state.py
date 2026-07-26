@@ -58,6 +58,17 @@ def test_null_spp_yields_null_congestion(client, fake_pool):
     assert r.json()["entries"][0]["sps"][0]["congestion"] is None
 
 
+def test_congestion_is_rounded_to_cents(client, fake_pool):
+    fake_pool.cursor.queue([{"interval_ts": T0, "system_lambda": 30.0}])
+    fake_pool.cursor.queue([
+        {"interval_ts": T0, "settlement_point": "LZ_SOUTH", "dam_spp": 42.345},
+    ])
+
+    r = _get(client)
+    assert r.status_code == 200, r.text
+    assert r.json()["entries"][0]["sps"][0]["congestion"] == 12.35
+
+
 def test_hour_without_system_lambda_drops_out(client, fake_pool):
     """SPP at an hour with no matching system_λ is not emitted (join gap)."""
     fake_pool.cursor.queue([{"interval_ts": T0, "system_lambda": 30.0}])

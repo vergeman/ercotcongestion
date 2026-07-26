@@ -1,14 +1,12 @@
 import type {
   ErcotSppRangeEntry,
-  ErcotSppRangeResponse,
+  ErcotRangeResponse,
   ErcotStateRangeEntry,
-  ErcotStateRangeResponse,
   ForecastRangeEntry,
   ForecastRangeResponse,
 } from "./types";
 import {
-  fetchErcotSppRange,
-  fetchErcotStateRange,
+  fetchErcotRange,
   fetchForecastRange,
 } from "./client";
 
@@ -61,22 +59,31 @@ export function getForecastRunId(): string | null {
   return forecastRunId;
 }
 
-function ingestErcot(data: ErcotStateRangeResponse | null): void {
+// Decode the compact wire shape exactly once at the API boundary. Rendering and
+// cache lookups keep their simple object-based shape, while the network avoids
+// repeating every settlement-point ID in every hour and in both realized feeds.
+function ingestErcotRange(data: ErcotRangeResponse | null): void {
   if (!data) return;
   for (const entry of data.entries) {
+    const stateEntry: ErcotStateRangeEntry = {
+      interval_ts: entry.interval_ts,
+      sps: data.sp_ids.map((sp_id, index) => ({
+        sp_id,
+        congestion: entry.congestion[index] ?? null,
+      })),
+    };
+    const sppEntry: ErcotSppRangeEntry = {
+      interval_ts: entry.interval_ts,
+      total_load_mw: entry.total_load_mw,
+      sps: data.sp_ids.map((sp_id, index) => ({
+        sp_id,
+        spp: entry.spp[index] ?? null,
+      })),
+    };
     const ts = normalizeInterval(entry.interval_ts);
-    // Multiple scenario-labeled hours can collapse to the same wall-clock
-    // interval; first write wins so we don't oscillate between scenarios.
     const key = cacheKey(ts);
-    if (!ercotCache.has(key)) ercotCache.set(key, entry);
-  }
-}
-
-function ingestErcotSpp(data: ErcotSppRangeResponse | null): void {
-  if (!data) return;
-  for (const entry of data.entries) {
-    const ts = roundToInterval(new Date(entry.interval_ts));
-    ercotSppCache.set(cacheKey(ts), entry);
+    if (!ercotCache.has(key)) ercotCache.set(key, stateEntry);
+    ercotSppCache.set(key, sppEntry);
   }
 }
 
@@ -90,7 +97,7 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
 }
 
 // Load a window into the caches. With an explicit [start, end] (a history scrub)
-// all three ranges fetch in parallel. With no window — the default landing view —
+// the compact realized range and forecast fetch in parallel. With no window — the default landing view —
 // the forecast leads: fetch the current run's latest operating day first, then
 // the realized ranges for the span its response reports, so the prediction pane
 // defines the day and realized is fetched to match. Returns the resolved window
@@ -106,13 +113,11 @@ export async function prefetchWindow(
   // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
-    const [ercotData, ercotSppData, forecastData] = await Promise.all([
-      fetchErcotStateRange(start, end),
-      fetchErcotSppRange(start, end),
+    const [ercotData, forecastData] = await Promise.all([
+      fetchErcotRange(start, end),
       fetchForecastRange(start, end),
     ]);
-    ingestErcot(ercotData);
-    ingestErcotSpp(ercotSppData);
+    ingestErcotRange(ercotData);
     ingestForecast(forecastData);
     return { start, end };
   }
@@ -121,12 +126,8 @@ export async function prefetchWindow(
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
-  const [ercotData, ercotSppData] = await Promise.all([
-    fetchErcotStateRange(winStart, winEnd),
-    fetchErcotSppRange(winStart, winEnd),
-  ]);
-  ingestErcot(ercotData);
-  ingestErcotSpp(ercotSppData);
+  const ercotData = await fetchErcotRange(winStart, winEnd);
+  ingestErcotRange(ercotData);
   ingestForecast(forecastData);
   return { start: winStart, end: winEnd };
 }

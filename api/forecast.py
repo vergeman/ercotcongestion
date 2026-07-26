@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -44,6 +45,15 @@ def _coerce_utc(ts: datetime) -> datetime:
     if ts.tzinfo is None:
         return ts.replace(tzinfo=timezone.utc)
     return ts.astimezone(timezone.utc)
+
+
+def _round_congestion(value: float | None) -> float | None:
+    """The map has cent resolution; don't ship model float noise."""
+    if value is None:
+        return None
+    return float(
+        Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    )
 
 
 @router.get(
@@ -165,9 +175,9 @@ def get_forecast_range(
         by_ts.setdefault(ts, []).append(
             ForecastSpState(
                 sp_id=str(r["settlement_point"]),
-                p10=r["p10"],
-                p50=r["p50"],
-                p90=r["p90"],
+                p10=_round_congestion(r["p10"]),
+                p50=_round_congestion(r["p50"]),
+                p90=_round_congestion(r["p90"]),
             )
         )
 

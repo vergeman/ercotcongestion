@@ -9,11 +9,21 @@ spec:
   routes:
     - match: Host(`api.ercotstress.com`)
       kind: Rule
+      middlewares:
+        - name: api-compress
       services:
         - name: api
           port: 8000
   tls:
     secretName: api-ercotstress-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-compress
+  namespace: ercotstress
+spec:
+  compress: {}
 ---
 # HTTP -> HTTPS redirect.
 apiVersion: traefik.io/v1alpha1
