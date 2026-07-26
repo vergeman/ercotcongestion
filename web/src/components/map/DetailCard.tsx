@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
-import { congestionColor } from "../../lib/colors";
+import { shiftFactorColor } from "../../lib/colors";
 
 interface HoveredSp {
   spId: string;
@@ -138,7 +138,7 @@ function NodeChip() {
 // The SF's sign deserves its own fast visual cue. This sits beside the numeric
 // value, leaving the square marker free to identify the constraint or node.
 function SfSign({ sf }: { sf: number }) {
-  const color = congestionColor(sf < 0 ? 1 : -1);
+  const color = shiftFactorColor(sf);
   return (
     <>
       <span className="dc-sf-dot" style={{ background: color }} aria-hidden="true" />

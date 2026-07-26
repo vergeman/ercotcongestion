@@ -18,6 +18,7 @@ import {
   normalizeLmpFromStats,
   congestionColor as congestionRampColor,
   normalizeCongestion,
+  shiftFactorColor,
   type LmpStats,
   type CongestionStats,
 } from "../../lib/colors";
@@ -651,10 +652,9 @@ export default function GridMap({
       { sp_id: string }
     >;
 
-    // Reach mode: a focused constraint's driven nodes glow by *signed* SF (red
-    // import end SF<0 ↔ cream ↔ blue export end SF>0, normalized to the reach's own
-    // max |SF|; docs/SF.md). Colored by congestion sign (−SF), so the glow agrees
-    // with the congestion fill: import is red, export is blue.
+    // Reach mode: a focused constraint's driven nodes glow by signed SF role:
+    // soft-magenta import end (SF<0) or teal export end (SF>0). This deliberately does
+    // not reuse a metric-map gradient, whose sign can mean something different.
     // Every other node fades to the no-data fill. This is SF *structure*,
     // deliberately overriding the realized/forecast-error palette while a
     // constraint is focused. `focusReach` (the effective hovered/locked constraint)
@@ -664,10 +664,8 @@ export default function GridMap({
     const rch = focusReach ?? reach;
     if (rch && rch.sps.length > 0) {
       const bySp = new Map<string, number>();
-      let maxAbs = 1e-9;
       for (const s of rch.sps) {
         bySp.set(s.settlement_point, s.sf);
-        maxAbs = Math.max(maxAbs, Math.abs(s.sf));
       }
       const touched = new Set<string>();
       for (const feat of fc.features) {
@@ -679,12 +677,9 @@ export default function GridMap({
             { color: null, faded: true }
           );
         } else {
-          // Color by congestion sign (−SF): import (SF<0) → +norm → red, export
-          // (SF>0) → −norm → blue, so the glow agrees with the congestion fill.
-          const norm = Math.max(-1, Math.min(1, -sf / maxAbs));
           map.setFeatureState(
             { source: "sps", id },
-            { color: congestionRampColor(norm, theme), faded: false }
+            { color: shiftFactorColor(sf), faded: false }
           );
         }
         touched.add(id);
