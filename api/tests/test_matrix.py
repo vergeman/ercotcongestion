@@ -33,6 +33,15 @@ def _full_utc_day_blob(day: datetime) -> bytes:
     return build_sf_mu_artifact(sf, mu)
 
 
+def _hub_zone_blob() -> bytes:
+    sf = pd.DataFrame(
+        {'SP_A': [0.9], 'HB_WEST': [0.734], 'LZ_COAST': [0.5]},
+        index=['AAA|BASE'],
+    )
+    mu = pd.DataFrame({'AAA|BASE': [2.0]}, index=pd.to_datetime([T0], utc=True))
+    return build_sf_mu_artifact(sf, mu)
+
+
 def _queue_frame(fake_pool, dam_rows: list[dict] | None = None, type_rows: list[dict] | None = None):
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
     fake_pool.cursor.queue([{'sf_npz': _blob()}])
@@ -142,6 +151,29 @@ def test_frame_enforces_conservative_bounds(client):
     assert response.status_code == 422
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'column_limit': 101})
     assert response.status_code == 422
+
+
+def test_frame_anchor_columns_include_artifact_hubs_and_load_zones(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('resource', None),
+        'HB_WEST': ('hub', 'west_hub'),
+        'LZ_COAST': ('load_zone', 'coast'),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'sf_npz': _hub_zone_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'column_set': 'anchors',
+    })
+
+    assert response.status_code == 200, response.text
+    columns = response.json()['columns']
+    assert [column['settlement_point'] for column in columns] == ['HB_WEST', 'LZ_COAST']
+    assert [(column['settlement_point_type'], column['load_zone']) for column in columns] == [
+        ('hub', 'west_hub'), ('load_zone', 'coast'),
+    ]
 
 
 def test_frame_discovery_pins_search_types_and_column_presets(client, fake_pool, monkeypatch):

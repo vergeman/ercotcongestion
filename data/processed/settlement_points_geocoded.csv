@@ -1,4 +1,19 @@
 settlement_point,sp_type,lat,lon,match_method,match_confidence,matched_plant,matched_capacity_mw,station_description,owner_re,expected_mw,capacity_ratio
+LZ_AEN,load_zone,30.2672,-97.7431,manual,1.0,,,,,,
+LZ_CPS,load_zone,29.4241,-98.4936,manual,1.0,,,,,,
+LZ_HOUSTON,load_zone,29.7604,-95.3698,manual,1.0,,,,,,
+LZ_LCRA,load_zone,30.4700,-97.8120,manual,1.0,,,,,,
+LZ_NORTH,load_zone,32.7767,-96.7970,manual,1.0,,,,,,
+LZ_RAYBN,load_zone,33.1500,-96.1100,manual,1.0,,,,,,
+LZ_SOUTH,load_zone,28.8060,-97.0030,manual,1.0,,,,,,
+LZ_WEST,load_zone,32.4500,-101.5000,manual,1.0,,,,,,
+HB_HOUSTON,hub,29.7604,-95.3698,manual,1.0,,,,,,
+HB_NORTH,hub,32.7767,-96.7970,manual,1.0,,,,,,
+HB_PAN,hub,34.9900,-101.9100,manual,1.0,,,,,,
+HB_SOUTH,hub,28.8060,-97.0030,manual,1.0,,,,,,
+HB_WEST,hub,32.4500,-101.5000,manual,1.0,,,,,,
+HB_HUBAVG,hub,31.0000,-99.0000,manual,1.0,,,,,,
+HB_BUSAVG,hub,31.0000,-99.0000,manual,1.0,,,,,,
 7RNCHSLR_ALL,OTHER,29.806984,-97.07408,station_description,1.0,7V Solar Ranch,240.0,7V SOLAR RANCH,7V SOLAR RANCH LLC,242.0,1.008
 A4_DGR1_RN,RN,29.356924,-98.601522,manual,1.0,Pearsall,201.60000000000002,PEARSAL,PRIME POWER SOLUTIONS LLC DBA LIFE CYCLE POWER,35.0,0.174
 A4_DGR2_RN,RN,29.35701,-98.601678,manual,1.0,Pearsall,201.60000000000002,PEARSAL,PRIME POWER SOLUTIONS LLC DBA LIFE CYCLE POWER,35.0,0.174
