@@ -217,10 +217,12 @@ that tree itself. Pass `--preds` / `--scores` / `--out` / `--nodal-out` only to 
 somewhere else.
 
 ```
+set -o pipefail
+
 python -m compute.jobs.backfill_nodal \
     --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
     --end <tomorrow YYYY-MM-DD> \
-    --to-db
+    --to-db 2>&1 | tee -a "$RUN_ID/backfill_nodal.log"
 ```
 
 `--to-db` requires `--run-id` (which derives `--nodal-out`) or an explicit
@@ -266,11 +268,14 @@ expensive than step 3 (a per-day refit, ~16 GiB each, vs. one weekly fit shared 
 days), so it is optional and intentionally not the default history seed.
 
 ```
+set -o pipefail
+
 MU_SPILL_PANEL=1
 MU_SPILL_DIR=/compute/runs/__spill__
 
 python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
-    --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db
+    --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db \
+    2>&1 | tee -a "$RUN_ID/backfill_artifacts.log"
 ```
 
 * **Resumable** — skips dates already in `forecast_sf_artifact` (pass `--no-skip-existing`
