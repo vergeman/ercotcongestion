@@ -94,6 +94,23 @@ export interface ErcotSppRangeResponse {
   entries: ErcotSppRangeEntry[];
 }
 
+// Compact realized-range wire format. `sp_ids` is the one settlement-point
+// index for the response; each entry's same-length arrays align to it.
+export interface ErcotRangeEntry {
+  interval_ts: string;
+  total_load_mw: number | null;
+  congestion: Array<number | null>;
+  spp: Array<number | null>;
+}
+
+export interface ErcotRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  sp_ids: string[];
+  entries: ErcotRangeEntry[];
+}
+
 // The palette selects the ERCOT quantity a map colors by. Each mode picks the
 // ERCOT quantity the pane renders:
 //   congestion → SPP − system_λ  (diverging palette)
