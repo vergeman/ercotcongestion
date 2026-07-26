@@ -4,6 +4,7 @@ import type {
   ConstraintReach,
 } from "../../api/types";
 import { fetchMapReach } from "../../api/client";
+import { SF_EXPORT_COLOR, SF_IMPORT_COLOR, shiftFactorColor } from "../../lib/colors";
 import Tooltip from "../ui/Tooltip";
 
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
@@ -14,12 +15,9 @@ import Tooltip from "../ui/Tooltip";
 // overlay (via `onHover`), the same way the map itself is navigated. The server
 // owns the order — this component never re-ranks.
 //
-// Colour: import/export is a diverging polarity (docs/SF.md). Import (SF<0, the
-// receiving/expensive end) is red; export (SF>0, the trapped/cheap end) is blue —
-// matching the map's congestion fill so a lobe reads the same on panel and map.
-
-const IMPORT = "#ef4444"; // import lobe (SF<0) — congestion price ↑, red
-const EXPORT = "#3b82f6"; // export lobe (SF>0) — congestion price ↓, blue
+// Colour: import/export is a structural polarity (docs/SF.md), distinct from
+// signed metric maps. Import (SF<0, receiving/expensive) is soft magenta;
+// export (SF>0, trapped/cheap) is teal.
 
 // One /map/reach lookup per constraint is stable for the session (same map run),
 // so cache it module-side: hovering down the list is then instant and never spams
@@ -105,9 +103,9 @@ function Membership({
             className="cp-mem-row"
             onMouseEnter={() => onMemberHover?.(s.settlement_point)}
           >
-            <span className="cp-dot" style={{ background: imp ? IMPORT : EXPORT }} />
+            <span className="cp-dot" style={{ background: shiftFactorColor(s.sf) }} />
             <span className="cp-mem-sp mono">{s.settlement_point}</span>
-            <span className="cp-mem-sf mono" style={{ color: imp ? IMPORT : EXPORT }}>
+            <span className="cp-mem-sf mono" style={{ color: shiftFactorColor(s.sf) }}>
               {imp ? "import" : "export"} {s.sf.toFixed(2)}
             </span>
           </li>
@@ -117,8 +115,8 @@ function Membership({
   );
 }
 
-// The import↔export dipole as a compact bicolor gauge: red (import, SF<0) vs blue
-// (export, SF>0), split by located-node share, so the row shows at a glance which
+// The import↔export dipole as a compact bicolor gauge: soft magenta (import,
+// SF<0) vs teal (export, SF>0), split by located-node share, so the row shows at a glance which
 // way the constraint pushes congestion. (`imp` is the server's n_import — the
 // SF<0 node count; `exp` its n_export — the SF>0 node count.)
 function Dipole({ imp, exp }: { imp: number; exp: number }) {
@@ -127,8 +125,8 @@ function Dipole({ imp, exp }: { imp: number; exp: number }) {
   const tot = s + k || 1;
   return (
     <span className="cp-dip">
-      <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: IMPORT }} />
-      <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: EXPORT }} />
+      <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: SF_IMPORT_COLOR }} />
+      <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: SF_EXPORT_COLOR }} />
     </span>
   );
 }
@@ -202,10 +200,10 @@ export default function ConstraintPanel({
         member nodes.
         <span className="cp-key-legend">
           <span className="cp-key-item">
-            <span className="cp-dot" style={{ background: IMPORT }} /> SF&nbsp;&lt;&nbsp;0 · import (price ↑)
+            <span className="cp-dot" style={{ background: SF_IMPORT_COLOR }} /> SF&nbsp;&lt;&nbsp;0 · import (price ↑)
           </span>
           <span className="cp-key-item">
-            <span className="cp-dot" style={{ background: EXPORT }} /> SF&nbsp;&gt;&nbsp;0 · export (price ↓)
+            <span className="cp-dot" style={{ background: SF_EXPORT_COLOR }} /> SF&nbsp;&gt;&nbsp;0 · export (price ↓)
           </span>
         </span>
       </div>
@@ -225,7 +223,7 @@ export default function ConstraintPanel({
           <Tooltip className="cp-ch" tabIndex={-1} tip="ERCOT's identifier for the transmission constraint (line/element and contingency)">Constraint</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
-          <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, red) ↔ export (SF>0, blue) split by node share">Dipole</Tooltip>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, soft magenta) ↔ export (SF>0, teal) split by node share">Dipole</Tooltip>
         </div>
       )}
 

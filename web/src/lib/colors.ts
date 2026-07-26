@@ -329,6 +329,22 @@ export function congestionColor(
 }
 
 // =============================================================================
+// Shift-factor role palette
+// =============================================================================
+//
+// Import/export is a structural role within one selected constraint, not a
+// congestion, price, or forecast-error sign. Keep it off the metric blue↔red
+// axis so exploring a constraint never reverses the apparent meaning of a map
+// fill. Soft magenta marks the importing/expensive end (SF < 0); teal marks
+// the exporting/trapped end (SF >= 0).
+export const SF_IMPORT_COLOR = "#d382ae";
+export const SF_EXPORT_COLOR = "#4aa892";
+
+export function shiftFactorColor(sf: number): string {
+  return sf < 0 ? SF_IMPORT_COLOR : SF_EXPORT_COLOR;
+}
+
+// =============================================================================
 // Forecast error (diverging): P50 forecast − realized congestion
 // =============================================================================
 //
@@ -340,8 +356,8 @@ export function congestionColor(
 //   norm > 0 → over-forecast  (predicted > realized, magenta)
 //   norm < 0 → under-forecast (predicted < realized, emerald)
 //   norm ≈ 0 → cream (on target — shares the neutral with congestion)
-// Reach/SF glow deliberately keeps congestionColor: there the sign IS the
-// export/import dipole, and blue↔red is the right reading.
+// Reach/SF glow deliberately uses the separate shift-factor role palette: it
+// must not imply a forecast-error or congestion sign.
 const ERROR_EMERALD = [52, 211, 153]; // under-forecast (−) — brighter emerald-400
 const ERROR_CREAM = MC_CREAM; // on target (0)
 const ERROR_MAGENTA = [244, 114, 182]; // over-forecast (+) — brighter pink-400
@@ -350,9 +366,8 @@ const ERROR_MAGENTA_LIGHT = [236, 72, 153]; // vivid pink-500 on the white groun
 
 // TRIAL (plan/0112): reuse the congestion blue↔red ramp for forecast error, so it
 // reads on the same familiar axis (blue = under-forecast, red = over-forecast).
-// The focus/SF glow already owns blue↔red, but the fade carries the mode cue there
-// exactly as it does in the congestion view. Flip to false to go back to the
-// distinct emerald↔magenta set (ERROR_* anchors) if this reads worse.
+// Flip to false to use the distinct emerald↔magenta set (ERROR_* anchors) if
+// this reads worse.
 const ERROR_USE_CONGESTION: boolean = true;
 
 function errorAnchors(theme: Theme) {

@@ -14,7 +14,7 @@ import {
 interface Props {
   palette: Palette;
   rows: SpRow[];
-  // Window-wide stats. Stable across playback.
+  // Cursor-day stats. Stable while playback stays within a delivery day.
   lmpStats: LmpStats | null;
   mcStats: CongestionStats | null;
   // Forecast-error view overrides: a custom palette title, and the diverging end
@@ -47,7 +47,11 @@ const OVERVIEW_TYPES: {
   // Theme-aware: resolved per theme via cssVar() so the type key stays legible
   // on a light ground (the --sf-* tokens carry a darkened light-mode set).
   { label: "GTC / interface — region", mark: "region", token: "--sf-gtc" },
-  { label: "Transmission — corridor", mark: "corridor", token: "--sf-transmission" },
+  {
+    label: "Transmission — corridor",
+    mark: "corridor",
+    token: "--sf-transmission",
+  },
   { label: "Radial — point", mark: "point", token: "--sf-radial" },
 ];
 
@@ -61,7 +65,15 @@ function TypeMark({
   return (
     <svg width="18" height="12" className="legend__type-svg" aria-hidden="true">
       {mark === "region" && (
-        <rect x="1" y="2" width="16" height="8" rx="4" fill={color} opacity="0.85" />
+        <rect
+          x="1"
+          y="2"
+          width="16"
+          height="8"
+          rx="4"
+          fill={color}
+          opacity="0.85"
+        />
       )}
       {mark === "corridor" && (
         <>
@@ -71,9 +83,24 @@ function TypeMark({
         </>
       )}
       {mark === "point" && (
-        <circle cx="9" cy="6" r="4" fill="none" stroke={color} strokeWidth="2" />
+        <circle
+          cx="9"
+          cy="6"
+          r="4"
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+        />
       )}
     </svg>
+  );
+}
+
+function AggregateMark({ label }: { label: "H" | "Z" }) {
+  return (
+    <span className="legend__aggregate-mark-box" aria-hidden="true">
+      <span className="legend__aggregate-mark mono">{label}</span>
+    </span>
   );
 }
 
@@ -158,9 +185,9 @@ export default function Legend({
   const barGradient =
     barGradientOverride ??
     (isCongestion
-      ? `linear-gradient(to right, ${congestionColor(
-          -1
-        )}, ${congestionColor(0)}, ${congestionColor(1)})`
+      ? `linear-gradient(to right, ${congestionColor(-1)}, ${congestionColor(
+          0
+        )}, ${congestionColor(1)})`
       : `linear-gradient(to right, ${lmpColor(0)}, ${lmpColor(0.5)}, ${lmpColor(
           1
         )})`);
@@ -191,7 +218,7 @@ export default function Legend({
       <div className="legend__title label">{titleName}</div>
       {titleEq && <div className="legend__eq label">{titleEq}</div>}
 
-      {/* Snapshot distribution over the window-wide bin range, on every legend. */}
+      {/* Snapshot distribution over the cursor-day bin range, on every legend. */}
       {!isOff && hist && (
         <div className="legend__hist">
           {hist.counts.map((c, i) => (
@@ -248,7 +275,9 @@ export default function Legend({
                   ? " legend__tick--end"
                   : ""
               }`}
-              style={t.pct === 0 || t.pct === 100 ? undefined : { left: `${t.pct}%` }}
+              style={
+                t.pct === 0 || t.pct === 100 ? undefined : { left: `${t.pct}%` }
+              }
             >
               {t.label}
             </span>
@@ -263,16 +292,23 @@ export default function Legend({
         </div>
       )}
 
-      {overviewTypes && (
-        <div className="legend__types">
-          {OVERVIEW_TYPES.map((t) => (
+      <div className="legend__types">
+        {overviewTypes &&
+          OVERVIEW_TYPES.map((t) => (
             <div key={t.mark} className="legend__type-row">
               <TypeMark mark={t.mark} color={cssVar(t.token)} />
               <span className="label legend__type-text">{t.label}</span>
             </div>
           ))}
+        <div className="legend__type-row">
+          <AggregateMark label="H" />
+          <span className="label legend__type-text">Hub</span>
         </div>
-      )}
+        <div className="legend__type-row">
+          <AggregateMark label="Z" />
+          <span className="label legend__type-text">Load zone</span>
+        </div>
+      </div>
 
       {constraintOverlay && !overviewTypes && (
         <div className="legend__overlay">
@@ -369,7 +405,7 @@ export default function Legend({
           display: flex;
           align-items: center;
           gap: 6px;
-          margin-bottom: 2px;
+          margin-bottom: 6px;
         }
         .legend__type-svg {
           flex-shrink: 0;
@@ -377,6 +413,24 @@ export default function Legend({
         .legend__type-text {
           font-size: var(--fs-label);
           opacity: 0.85;
+        }
+        .legend__aggregate-mark {
+          display: grid;
+          place-items: center;
+          width: 16px;
+          height: 16px;
+          border: 1px solid var(--map-aggregate-label);
+          border-radius: 50%;
+          color: var(--map-aggregate-label);
+          font-size: 11px;
+          font-weight: 300;
+          line-height: 1;
+        }
+        .legend__aggregate-mark-box {
+          display: grid;
+          place-items: center;
+          width: 18px;
+          flex: 0 0 18px;
         }
         .legend__overlay {
           display: flex;

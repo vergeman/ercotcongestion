@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { cssVar, useTheme } from "../../lib/theme";
+import { shiftFactorColor } from "../../lib/colors";
 import type { OvMember } from "./overviewSources";
 
 // The multi-constraint hover box (plan/0112). A plain positioned <div> anchored
@@ -77,7 +78,7 @@ export default function OverviewPopover({
           >
             <span className="ov-chip" style={{ background: colors.byType[m.type] ?? colors.untyped }} />
             <span className="ov-ck">{m.key}</span>
-            <span className={`ov-role ${imp ? "ov-import" : "ov-export"}`}>
+            <span className="ov-role" style={{ color: shiftFactorColor(m.sf) }}>
               {imp ? "import" : "export"} {m.sf.toFixed(2)}
             </span>
             <span className="ov-bh">{m.bh ?? "—"}h</span>
@@ -107,7 +108,6 @@ export default function OverviewPopover({
         .ov-ck { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           font-family: var(--font-mono); font-size: var(--fs-label); }
         .ov-role { font-weight: 700; font-size: var(--fs-label); }
-        .ov-import { color: #ef4444; } .ov-export { color: #3b82f6; }
         .ov-bh { color: var(--text-secondary); font-size: var(--fs-label); width: 34px; text-align: right; }
         .ov-more { color: var(--text-secondary); font-size: var(--fs-label); text-align: center; padding: 3px; }
       `}</style>

@@ -153,14 +153,13 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Forecast side of the split map (left/prediction pane): per-hour P10/P50/P90
   // congestion for the current forecast run, read hour-for-hour off the same
   // scrubber as the realized right pane. `forecastRows` is the current hour;
-  // the stats are window-wide (computed once on load) so coloring is stable;
+  // the stats cover the cursor's delivery day so coloring is stable within it;
   // `forecastRunId` labels which refit is serving (null → no forecast covered
   // the window, pane falls back to the realized rows).
   const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
-  // Forecast-error (P50 forecast − realized congestion) window-wide stats, for the
-  // diverging palette centered at 0 in the forecast-error view. Computed once per
-  // window load from the forecast and realized caches; the per-hour error rows are
-  // derived below.
+  // Forecast-error (P50 forecast − realized congestion) delivery-day stats, for
+  // the diverging palette centered at 0 in the forecast-error view. The per-hour
+  // error rows are derived below.
   // The rolling backtest scorecard for the side panel. Fetched once (the board
   // is static), independent of the forecast/playback window. `null` on 503 (no
   // board loaded) — the panel then shows network stats alone.
@@ -779,9 +778,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // was no prediction). `forecastRows` is already [] without a forecast.
   const hasForecast = forecastRows.length > 0;
   const leftRows = forecastRows;
-  // Color the forecast on the realized scale when both exist, so the two panes
-  // are directly comparable; fall back to the forecast's own scale on a
-  // forecast-only window (tomorrow, no realized rows yet).
+  // Color the forecast on the realized day's scale when both exist, so the two
+  // panes are directly comparable; fall back to the forecast's own daily scale
+  // on a forecast-only window (tomorrow, no realized rows yet).
   const leftMcStats = congestionStats ?? forecastCongestionStats;
   const leftLmpStats = sppStats ?? forecastLmpStats;
 
