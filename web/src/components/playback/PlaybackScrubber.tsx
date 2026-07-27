@@ -1,5 +1,6 @@
 import { type ReactNode, useState, useEffect, useRef, useCallback } from "react";
 import TimelineSparkline, { type SparkPoint } from "./TimelineSparkline";
+import Tooltip from "../ui/Tooltip";
 import { formatCT } from "../../lib/time";
 
 interface Props {
@@ -95,8 +96,22 @@ export default function PlaybackScrubber({
 
       <div className="scrubber__main">
         <div className="scrubber__meta">
+          {/* The label names what the cursor moves through, and is part of the
+              timestamp rather than a separate chip — both panes are keyed on the
+              hour power is priced FOR, which is the thing easiest to misread
+              while scrubbing. */}
           <span className="scrubber__ts mono">
-            {current ? formatCT(current, "MMM d, yyyy HH:mm") + " CT" : "—"}
+            <Tooltip
+              className="scrubber__axis"
+              tip={
+                <>
+                  The hourly settlement price power is priced <b>for</b>.
+                </>
+              }
+            >
+              Delivery hour
+            </Tooltip>
+            : {current ? formatCT(current, "MMM d, yyyy HH:mm") + " CT" : "—"}
           </span>
 
           {eventLabel && (
@@ -226,6 +241,12 @@ export default function PlaybackScrubber({
         }
         .scrubber__event-sep {
           color: var(--text-muted);
+        }
+        /* Inherits the timestamp's face, size and color — it reads as one string,
+           not a chip beside one. Dotted underline marks the hoverable term. */
+        .scrubber__axis {
+          border-bottom: 1px dotted currentColor;
+          cursor: help;
         }
         .scrubber__loading {
           margin-left: auto;

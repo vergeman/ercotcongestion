@@ -14,7 +14,9 @@
 #          --delivery-date 2026-05-01 --run-id mu-all-v1 --to-db
 # Same image + command as the daily tick; only --delivery-date changes (an
 # explicit YYYY-MM-DD instead of `tomorrow`). Drop --to-db for a dry run
-# (compute + report only, pointer untouched).
+# (compute + report only, pointer untouched). Add --force to overwrite a day
+# already published under this --run-id; without it the job refuses before
+# doing any work.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -29,9 +31,14 @@ spec:
   # Both land >=1h past DAM close (10:00 CT) and past the every-15-min ingest of
   # D-1's DAM shadow prices, in BOTH DST states. The plan sketched 0 16, but
   # 16:00 UTC = 10:00 CST in winter — exactly on close, zero margin — so this
-  # pads an hour past instead of sitting on it (spec §7, §10). If D-1 DAM lands
-  # later than observed, push this later; a too-early tick starves the job and
-  # 0013 fails it loud (prior pointer intact), never forecasts stale.
+  # pads an hour past instead of sitting on it (spec §7, §10). A too-early tick
+  # starves the job and 0013 fails it loud (prior pointer intact), never
+  # forecasts stale.
+  #
+  # Only the 10:00 CT floor constrains this schedule. Running later is safe --
+  # the reads are bounded by the data, not the clock, so the time of day the job
+  # fires does not change what it produces. Before adding a late cutoff, read
+  # "When you run it does not change what it produces" in compute/README.md.
   schedule: "0 17 * * *"
 
   # If a previous run is still going, skip this slot. A refit + fit + propagate

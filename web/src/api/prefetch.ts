@@ -98,7 +98,7 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
 
 // Load a window into the caches. With an explicit [start, end] (a history scrub)
 // the compact realized range and forecast fetch in parallel. With no window — the default landing view —
-// the forecast leads: fetch the current run's latest operating day first, then
+// the forecast leads: fetch the current run's latest delivery day first, then
 // the realized ranges for the span its response reports, so the prediction pane
 // defines the day and realized is fetched to match. Returns the resolved window
 // for cursor placement, or null when there's nothing to show (no explicit window

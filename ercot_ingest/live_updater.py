@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 from ErcotClient import ErcotClient, PG_DSN
-from backfill import ENDPOINTS, backfill_one_window
+from backfill import (DAILY_SETTLED, ENDPOINTS, backfill_one_window,
+                      update_recent_daily)
 from loaders import ERCOT_TZ
 from backfill_dam_close import update_recent as update_forecasts
 from backfill_outages import update_recent as update_outages
@@ -27,6 +28,9 @@ def update_recent_window(client, conn, hours_back: int = 2):
     start = end - timedelta(hours=hours_back)
     log(f"cycle start, window {start.isoformat()} → {end.isoformat()}")
     for key in ENDPOINTS:
+        # Refreshed per delivery day below instead (update_recent_daily).
+        if key in DAILY_SETTLED:
+            continue
         try:
             # The vintaged wind/solar reports otherwise re-pull *every* posting
             # made so far today each cycle. Narrow them to the last `hours_back`
@@ -41,6 +45,13 @@ def update_recent_window(client, conn, hours_back: int = 2):
         except Exception as e:
             log(f"  [{key}] FAILED: {e}")
             conn.rollback()
+    # Day-published DAM endpoints (dam_spp): one lookup per already-ingested day
+    # instead of a 26,736-row re-fetch, and pulls tomorrow once past 14:00 CT.
+    try:
+        update_recent_daily(client, conn)
+    except Exception as e:
+        log(f"  [daily_settled] FAILED: {e}")
+        conn.rollback()
     # Vintaged load/wind/solar DAM-close forecasts (NP3-561, NP4-742/745-CD). Moved out
     # of ENDPOINTS so the hourly over-fetch stops; refreshed here at DAM-close cadence
     # instead. Self-throttling: already-logged delivery days are one cheap lookup each.

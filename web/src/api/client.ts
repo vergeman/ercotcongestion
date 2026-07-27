@@ -133,8 +133,10 @@ export async function fetchMapMeta(): Promise<MapMeta | null> {
 // ("prediction") pane's fill, aligned to the same scrubber as the realized
 // ranges. Each hour carries its system-λ so predicted LMP = p50 + λ resolves on
 // the client. Call with no args for the default landing view: the server returns
-// the current run's latest operating day, and the response's start/end define the
-// window the realized ranges are then fetched to match. Same soft-fail contract:
+// the current run's latest delivery day — a UTC calendar day, so in CT it spans
+// 19:00 → 18:00 (CDT) rather than midnight to midnight — and the response's
+// start/end define the window the realized ranges are then fetched to match.
+// Same soft-fail contract:
 // 503 (no forecast run published / no hours in range) returns null so the pane
 // falls back rather than erroring.
 export async function fetchForecastRange(
