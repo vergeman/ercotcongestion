@@ -54,19 +54,26 @@ Branch: fix/0122-forecast-day-boundary-and-labeling-fixes
 
 ### 6. Scrubber label
 
-* Add a header to the loaded window showing the **delivery-hour span in CT** and the forecast run that produced it, e.g. `Delivery hours - Jul 25 19:00 → Jul 26 18:00 CT · forecast run mu-all-v1`.
-* `run_id` is already available client-side via `getForecastRunId()` (`web/src/api/prefetch.ts:59`); the span is the min/max of `getAvailableTimestamps()`.
-* Render CT via `formatCT` (`web/src/lib/time.ts:8`). Follow the existing `--track-label` token for the label type; do not uppercase dynamic values.
+* Prefix the cursor timestamp with what the axis *is*: `Delivery hour: Jul 27, 2026 02:00 CT`. The label sits inside the timestamp span so it inherits that face, size and color — one string, not a chip beside one.
+* Hover carries the distinction that caused the confusion: "The hourly settlement price power is priced **for**."
+* Render CT via `formatCT` (`web/src/lib/time.ts:8`); sentence case per the `.label` rule in `index.css`; do not uppercase dynamic values.
+* **Not** the window span or `run_id`: the span is already on the timeline's end labels and the model is already in the Stats panel.
 
 * Do NOT touch: CT-day realignment of the forecast block; the vantage/as-of axis; forecast vintage storage; the SP-universe drift.
 
 ## Acceptance
 
-* [ ] `_resolve_delivery_date("tomorrow")` returns the same delivery day whether invoked at 09:00 CT or 22:00 CT on the same CT date; unit test covers both, plus a DST-transition date.
-* [ ] Job logs one INFO line naming the resolved `delivery_date` and its CT hour span.
-* [ ] Re-running an existing `(run_id, delivery_date)` without `--force` exits non-zero without writing or flipping `forecast_current`.
-* [ ] `forecast_nodal` has rows for `delivery_date = 2026-07-27`, run_id `mu-all-v1`, 24 distinct `ts`, and no gaps across the trailing 14 days.
-* [ ] `compute/README.md` states that run time does not affect the output, with the two mechanisms (vintage predicate, interval bound) named; `forecast_cronjob.yml` points at it instead of advising a schedule change.
-* [ ] `api/forecast.py` window comment describes UTC-day derivation and its CT span; no reference to recovering a CT operating day.
-* [ ] A 15-min ingest tick with all target delivery days already complete performs no `dam_spp` fetch and logs the skip; a tick where tomorrow's DAM has just published still ingests it.
-* [ ] Scrubber shows delivery-hour span in CT plus `run_id`, correct on both a straddling day and a DST-transition day.
+* [x] `_resolve_delivery_date("tomorrow")` returns the same delivery day whether invoked at 09:00 CT or 22:00 CT on the same CT date; unit test covers six hours across four dates, including both DST transitions.
+* [x] Job logs one INFO line naming the resolved `delivery_date` and its CT hour span.
+* [x] Re-running an existing `(run_id, delivery_date)` without `--force` exits non-zero without writing or flipping `forecast_current` — checked *before* the fit, so it costs a query rather than 20 minutes.
+* [x] `forecast_nodal` has rows for `delivery_date = 2026-07-27`, run_id `mu-all-v1`, 24 distinct `ts`, and no gaps across the trailing 14 days. Verified in prod: 26,760 rows `00:00Z → 23:00Z` + its SF+μ artifact; `mu-all-v1` is contiguous over all 574 days.
+* [x] `compute/README.md` states that run time does not affect the output, with the two mechanisms (vintage predicate, interval bound) named; `forecast_cronjob.yml` points at it instead of advising a schedule change.
+* [x] `api/forecast.py` window comment describes UTC-day derivation and its CT span; no reference to recovering a CT operating day. "Operating day" also replaced on the OpenAPI surface, where it asserted the same wrong thing.
+* [x] A 15-min ingest tick with all target delivery days already complete performs no `dam_spp` fetch and logs the skip; a tick where tomorrow's DAM has just published still ingests it.
+* [x] Scrubber reads `Delivery hour: <cursor> CT` in the timestamp's own face, with the priced-for distinction on hover.
+
+## Notes from execution
+
+* The `ercot-forecast` CronJob was created `2026-07-27T01:05:22Z` and had **never fired on schedule** (`LAST SCHEDULE <none>`). Days through 07-26 came from the bulk backfill; the only forecast run was the 01:10:32Z hand-run that jumped to 07-28. So 07-27 was never produced by anything, and no later tick would have produced it either.
+* 07-28's rows were deleted after the backfill so the first scheduled tick writes that day itself. The landing view (`MAX(delivery_date)`) is 07-27 until then.
+* Pre-existing, untouched: a few partial days in the bulk-seeded history at DST / weekly-window boundaries (`2025-11-02` 23h, `2026-03-07` 6h + `2026-03-08` 18h), and `2026-04-12` has nodal rows with no SF artifact.
