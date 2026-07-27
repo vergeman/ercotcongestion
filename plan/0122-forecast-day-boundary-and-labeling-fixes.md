@@ -7,7 +7,7 @@ Branch: fix/0122-forecast-day-boundary-and-labeling-fixes
 
 * Make `--delivery-date tomorrow` resolve unambiguously so a manual evening run cannot silently produce the wrong day.
 * Backfill the missing forecast for UTC delivery day 2026-07-27 (currently zero rows in prod).
-* Refuse to run `forecast_day` past the DAM publication ceiling (13:30 CT), so the forecast cannot degrade into a restatement of published prices.
+* Record, once, that run time has no bearing on `forecast_day`'s output, so the "should it refuse to run late?" question stops recurring.
 * Correct the `api/forecast.py` window comment, which currently asserts the opposite of what the code does.
 * Narrow the `dam_spp` ingest to the delivery days it actually needs instead of re-pulling whole days every 15 minutes.
 * Label the scrubber with the delivery-hour span (CT) and the forecast run that produced it.
@@ -36,10 +36,11 @@ Branch: fix/0122-forecast-day-boundary-and-labeling-fixes
 * Causally safe despite July 27's DAM now being in the DB: `load_shadow_prices` / `load_congestion_panel` read `interval_ts >= start AND interval_ts < end` with `end = D` (`compute/sf/panels.py:36`, `:160`), so the fit cannot see the day it predicts.
 * Verify afterward that `forecast_nodal` has no gaps in `delivery_date` across the last 14 days.
 
-### 3. Publication ceiling
+### 3. Timeliness — document, do not guard
 
-* Add a hard guard in `daily_forecast.py`: if the resolved run time is past **13:30 CT on D-1**, fail loud unless `--allow-late` is passed. Past that instant the "forecast" is a restatement of published prices.
-* Rewrite the `forecast_cronjob.yml:33` note. It must state the ceiling explicitly and remove the open-ended "push this later" advice.
+* **No ceiling.** A guard was built and removed: run time does not enter the computation. Covariates are filtered on `posted_datetime <= dam_close(interval_ts)` (`features.py`); shadow prices / congestion are bounded by `interval_ts < D` (`panels.py:81`, `:161`), which is what excludes D's own prices — structurally, not by timing; the SF window closes at `≤ D` and the residual pool is `week < D`. A run at 16:00 CT yields the same panel as one at 12:00 CT, and a backfill reproduces the day it would have produced live. A hard fail would have converted a delayed pod into a missing delivery day — the exact failure class this plan exists to close.
+* Only the **floor** binds: 10:00 CT on D-1 (DAM close). Earlier has nothing to read and already fails loud.
+* Add a short "Run time does not affect the output" note to `compute/README.md` step 6 and point `forecast_cronjob.yml` at it, so the next reader does not re-derive this.
 
 ### 4. Correct the wrong comment
 
@@ -65,8 +66,7 @@ Branch: fix/0122-forecast-day-boundary-and-labeling-fixes
 * [ ] Job logs one INFO line naming the resolved `delivery_date` and its CT hour span.
 * [ ] Re-running an existing `(run_id, delivery_date)` without `--force` exits non-zero without writing or flipping `forecast_current`.
 * [ ] `forecast_nodal` has rows for `delivery_date = 2026-07-27`, run_id `mu-all-v1`, 24 distinct `ts`, and no gaps across the trailing 14 days.
-* [ ] Job invoked past 13:30 CT on D-1 exits non-zero without `--allow-late`; passes with it.
-* [ ] `forecast_cronjob.yml` states the 13:30 CT ceiling and no longer advises pushing the schedule later without bound.
+* [ ] `compute/README.md` states that run time does not affect the output, with the two mechanisms (vintage predicate, interval bound) named; `forecast_cronjob.yml` points at it instead of advising a schedule change.
 * [ ] `api/forecast.py` window comment describes UTC-day derivation and its CT span; no reference to recovering a CT operating day.
 * [ ] A 15-min ingest tick with all target delivery days already complete performs no `dam_spp` fetch and logs the skip; a tick where tomorrow's DAM has just published still ingests it.
 * [ ] Scrubber shows delivery-hour span in CT plus `run_id`, correct on both a straddling day and a DST-transition day.

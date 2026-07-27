@@ -5,8 +5,9 @@ The prediction counterpart to ``/ercot_spp_range``: same range shape, read from
 accumulates many ``delivery_date`` s); an explicit ``?run_id=`` selects a version
 to A/B, and omitting it serves the current ``forecast_current[ercot]`` run (this
 feature's own pointer, independent of the SF-map ``map_run_id``). ``start``/``end``
-scrub history; omitting both serves the run's latest operating day — the default
-landing view. The left ("prediction") map pane consumes it through the same
+scrub history; omitting both serves the run's latest ``delivery_date`` — a **UTC**
+calendar day, so in CT it spans 19:00 → 18:00 (CDT), not midnight to midnight — the
+default landing view. The left ("prediction") map pane consumes it through the same
 prefetch/scrubber path the realized ranges use, so the two panes align hour for
 hour instead of both rendering one realized quantity.
 
@@ -60,7 +61,7 @@ def _round_congestion(value: float | None) -> float | None:
     "/forecast_range",
     response_model=ForecastRangeResponse,
     summary="Per-hour forecast congestion (P10/P50/P90) per SP; "
-    "defaults to the latest operating day",
+    "defaults to the latest delivery day",
 )
 def get_forecast_range(
     run_id: str | None = Query(
@@ -71,12 +72,12 @@ def get_forecast_range(
     start: datetime | None = Query(
         None,
         description="ISO-8601 UTC start (inclusive). Omit together with `end` "
-        "to default to the run's latest operating day.",
+        "to default to the run's latest delivery day (a UTC calendar day).",
     ),
     end: datetime | None = Query(
         None,
         description="ISO-8601 UTC end (inclusive). Omit together with `start` "
-        "to default to the run's latest operating day.",
+        "to default to the run's latest delivery day (a UTC calendar day).",
     ),
 ) -> ForecastRangeResponse:
     pool = get_pool()
@@ -102,9 +103,17 @@ def get_forecast_range(
 
             # Resolve the window. An explicit start+end is a history scrub; with
             # neither (the default landing view) we serve the run's latest
-            # operating day — its actual ts span, so the CT operating day and its
-            # DST offset come from the stored rows rather than UTC-midnight
-            # arithmetic on the client.
+            # delivery day, as the actual ts span of its stored rows.
+            #
+            # That span is a **UTC** calendar day: `daily_forecast` forecasts
+            # `pd.date_range(D, periods=24, freq="h", tz="UTC")`, so in CT the day
+            # runs 19:00 -> 18:00 (CDT) / 18:00 -> 17:00 (CST), not midnight to
+            # midnight. Reading the span from the rows keeps this endpoint honest
+            # about what was actually published — including a short or missing day
+            # — but it does NOT recover a CT operating day, and a client must not
+            # assume it did. Note the default also hides a gap: it serves
+            # MAX(delivery_date), so a missing day earlier in the run is invisible
+            # here and only shows up when someone scrubs onto it.
             if start is not None and end is not None:
                 start_u = _coerce_utc(start)
                 end_u = _coerce_utc(end)

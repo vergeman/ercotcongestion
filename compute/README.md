@@ -303,6 +303,26 @@ with `window_end ≤ D` and fails loud (prior pointer intact) if that window is 
 stale (`D − window_end > 14d`), or covers `< 50%` of D's predicted binding mass — it
 never serves stale geography. Peak ~16 GiB (the pod limit).
 
+**When you run it does not change what it produces.** Don't start before 10:00 CT on D-1
+(DAM close) — the covariates aren't there yet and the job fails loud. After that, any
+time is fine. Running at 16:00 CT gives the same panel as running at 12:00 CT, and a
+backfill of an old day gives what that day would have produced live.
+
+This surprises people, because ERCOT publishes D's own DAM prices at 13:30 CT on D-1, so
+a late run *looks* like it could peek. It can't: the reads are bounded by the data, not
+by the clock. Covariates filter on `posted_datetime` against DAM close (`features.py`),
+and prices are read with `interval_ts < D` (`panels.py`), which is what keeps D's own
+prices out. Neither depends on when the job fires.
+(`test_reads_and_propagation_touch_no_interval_at_or_after_D` pins this.)
+
+A late run is still worth noticing — it usually means the schedule or ingest has drifted
+— but it is not a correctness problem, so the job doesn't refuse.
+
+The cron fires at 17:00 UTC = 12:00 CDT / 11:00 CST, past DAM close in both DST states.
+`tomorrow` means the next **CT** date. The run logs the delivery date it resolved along
+with its CT hour span — 19:00 → 18:00 CT in summer, because the delivery day is a UTC
+calendar day.
+
 ```
 python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 \
     --map-run-id map-v1 --to-db
@@ -318,7 +338,10 @@ python -m compute.jobs.grade_day --delivery-date auto --run-id mu-all-v1 --to-db
 ```
 
 Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
-for a dry run). The pod **must mount the `compute-runs` PVC** at `/compute/runs` so the
+for a dry run). Old days need no special flag; see "When you run it does not change what
+it produces" above. Add `--force` to overwrite a day already published under this
+`--run-id` — without it the job stops before doing any work. The pod **must mount the
+`compute-runs` PVC** at `/compute/runs` so the
 job can read the residual pool; because the override supplies `volumes`, it also has to
 specify the container fully (image, command, env), so the top-level `--image` /
 `--env-from-*` flags no longer drive it:
