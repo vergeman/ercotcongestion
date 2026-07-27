@@ -226,6 +226,48 @@ def test_empty_propagation_panel_fails_loudly(monkeypatch):
 
 
 # ----------------------------------------------------------------------------
+# CLI date resolution (0122) — `tomorrow` is a CT calendar step
+# ----------------------------------------------------------------------------
+
+def _tomorrow_at(ct_wall: str) -> str:
+    """Resolve `tomorrow` as if the job were launched at CT wall-clock `ct_wall`."""
+    now = pd.Timestamp(ct_wall, tz="America/Chicago").tz_convert("UTC")
+    return fd._resolve_delivery_date("tomorrow", now=now).date().isoformat()
+
+
+@pytest.mark.parametrize("day", ["2026-07-26",      # CDT, UTC-5
+                                 "2026-01-15",      # CST, UTC-6
+                                 "2026-03-08",      # spring forward (23h CT day)
+                                 "2026-11-01"])     # fall back (25h CT day)
+def test_tomorrow_is_the_same_day_all_day_long(day):
+    """`tomorrow` is the next CT date no matter what hour of the CT day the job is
+    launched. Resolving off the UTC clock broke exactly here: past 19:00 CT the UTC
+    date has already rolled, so an evening run skipped a day (the 2026-07-27 prod
+    hole). Both DST transitions are covered — the CT date is normalized before the
+    day is added, so a 23-/25-hour day cannot shift it."""
+    expect = (pd.Timestamp(day) + pd.Timedelta(days=1)).date().isoformat()
+    for hour in ("00:30", "09:00", "12:00", "18:30", "20:10", "23:45"):
+        assert _tomorrow_at(f"{day} {hour}") == expect
+
+
+def test_explicit_date_is_parsed_as_the_utc_day_label():
+    """An explicit `YYYY-MM-DD` is unchanged by the CT fix — it names the UTC day
+    label directly, which is what the backfill recipe and every stored
+    `delivery_date` mean."""
+    assert fd._resolve_delivery_date("2026-07-27") == pd.Timestamp("2026-07-27",
+                                                                   tz="UTC")
+
+
+def test_ct_span_reports_the_delivery_blocks_wall_clock():
+    """The logged span shows the block is 19:00 → 18:00 CT (CDT), not midnight to
+    midnight — the line that would have made the skipped day obvious."""
+    span = fd._ct_span(pd.Timestamp("2026-07-27", tz="UTC"))
+    assert "2026-07-26 19:00" in span and "2026-07-27 18:00" in span
+    # Winter shifts the whole block an hour earlier in CT.
+    assert "2026-01-14 18:00" in fd._ct_span(pd.Timestamp("2026-01-15", tz="UTC"))
+
+
+# ----------------------------------------------------------------------------
 # Persist: idempotency + atomicity (spec §6, §9) — real Postgres, scratch layer
 # ----------------------------------------------------------------------------
 
@@ -325,6 +367,20 @@ def test_persist_is_idempotent_and_flips_pointer_last(pg):
                     "WHERE layer=%s", (layer,))
         n_ptr, ptr = cur.fetchone()
         assert n_ptr == 1 and ptr == run_id                # pointer: one row, our run
+
+
+def test_published_day_is_detected_before_the_fit(pg):
+    """The overwrite guard's probe (0122): a published `(run_id, delivery_date)`
+    reads back as present, and neither a different run nor a different day does. The
+    CLI runs this before the fit, so an unintended re-run costs a query instead of a
+    clobbered panel."""
+    conn, run_id, layer = pg
+    other = D + pd.Timedelta(days=1)
+    assert not fd._day_already_published(conn, run_id, D)
+    persist_forecast(conn, _synthetic_result(run_id), layer=layer)
+    assert fd._day_already_published(conn, run_id, D)
+    assert not fd._day_already_published(conn, run_id, other)
+    assert not fd._day_already_published(conn, f"{run_id}-nope", D)
 
 
 def test_pointer_flips_only_after_rows_land(pg):

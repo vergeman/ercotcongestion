@@ -42,7 +42,7 @@ from compute.jobs.grade_day import (
     persist_grades,
     resolve_gradeable_date,
 )
-from compute.mu.features import build_panel
+from compute.mu.features import ERCOT_TZ, build_panel
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
@@ -357,13 +357,51 @@ def persist_forecast(conn, result: ForecastResult, *,
 # CLI — the daily tick and single-day backfill on the identical path (spec §7)
 # --------------------------------------------------------------------------
 
-def _resolve_delivery_date(spec: str) -> pd.Timestamp:
-    """`tomorrow` → the next UTC day; else parse `YYYY-MM-DD` as a UTC day. Both go
-    through `_as_utc_day`, so the CLI and the daily cron share one code path."""
+def _resolve_delivery_date(spec: str, *, now: pd.Timestamp | None = None
+                           ) -> pd.Timestamp:
+    """`tomorrow` → the next **CT** day; else parse `YYYY-MM-DD` as a UTC day. Both
+    go through `_as_utc_day`, so the CLI and the daily cron share one code path.
+
+    `tomorrow` means what an operator standing in Texas means: the CT calendar date
+    after today's CT date, used as the UTC-day *label* the rest of the pipeline
+    slices on. Resolving it off the UTC clock instead is a live footgun — after
+    19:00 CT (18:00 CST) the UTC date has already rolled, so an evening hand-run
+    silently resolved to D+2 and skipped D+1 entirely (a real prod hole on
+    2026-07-27). The CT date is normalized *before* the day is added, so the
+    arithmetic is naive and a 23-/25-hour DST day cannot shift the answer.
+    """
     if spec == "tomorrow":
-        return _as_utc_day(pd.Timestamp.now(tz="UTC").normalize()
-                           + pd.Timedelta(days=1))
+        now = now if now is not None else pd.Timestamp.now(tz="UTC")
+        today_ct = now.tz_convert(ERCOT_TZ).normalize().tz_localize(None)
+        return _as_utc_day(today_ct + pd.Timedelta(days=1))
     return _as_utc_day(spec)
+
+
+def _ct_span(D: pd.Timestamp) -> str:
+    """`D`'s 24 UTC delivery hours rendered as their CT wall-clock span.
+
+    The delivery day is a UTC calendar day, so in CT it runs 19:00 → 18:00 (CDT) /
+    18:00 → 17:00 (CST) — not midnight to midnight. Logging the span alongside the
+    date makes an off-by-one day self-evident in the run log instead of something
+    you discover by scrubbing onto a hole.
+    """
+    lo = D.tz_convert(ERCOT_TZ)
+    hi = (D + pd.Timedelta(hours=23)).tz_convert(ERCOT_TZ)
+    return f"CT {lo:%Y-%m-%d %H:%M} -> {hi:%Y-%m-%d %H:%M} {hi:%Z}"
+
+
+def _day_already_published(conn, run_id: str, D: pd.Timestamp) -> bool:
+    """True when `(run_id, delivery_date)` already has rows in `forecast_nodal`.
+
+    The write is a replace-in-place, so a re-run overwrites a published day with no
+    confirmation. Cheap enough to check before the fit, so an unintended re-run
+    costs a query instead of 20 minutes and a clobbered panel.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM forecast_nodal WHERE run_id = %s AND delivery_date = %s "
+            "LIMIT 1", (run_id, D.date()))
+        return cur.fetchone() is not None
 
 
 def _summary(result: ForecastResult) -> str:
@@ -414,8 +452,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--delivery-date", required=True,
-                   help="'tomorrow' (the daily tick) or 'YYYY-MM-DD' (single-day "
-                        "backfill on the identical path)")
+                   help="'tomorrow' (the daily tick — the next CT calendar date) "
+                        "or 'YYYY-MM-DD' (single-day backfill on the identical "
+                        "path; names the UTC day label directly)")
     p.add_argument("--run-id", required=True,
                    help="model version, e.g. mu-all-v1 — NOT the day (spec §4)")
     p.add_argument("--to-db", action="store_true",
@@ -443,6 +482,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE,
                    help=f"fail loud if the map locates less than this share of D's "
                         f"predicted binding mass (default {MIN_SF_COVERAGE})")
+    p.add_argument("--force", action="store_true",
+                   help="allow overwriting a delivery day already published under "
+                        "this --run-id. Without it a --to-db run that would replace "
+                        "existing forecast_nodal rows exits non-zero before the fit")
     p.add_argument("--no-grade", action="store_true",
                    help="skip the live grade step that normally follows a --to-db "
                         "publish. The daily tick grades the most recent fully-"
@@ -455,11 +498,21 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     D = _resolve_delivery_date(args.delivery_date)
+    log.info("delivery_date=%s (%s) from --delivery-date %s",
+             D.date(), _ct_span(D), args.delivery_date)
     arms = arms_for(args.features)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
     with psycopg.connect(dsn) as conn:
+        # Before the fit, not after: a re-run that would clobber a published day
+        # should cost a query, not 20 minutes of compute and the day it replaces.
+        if args.to_db and not args.force and _day_already_published(
+                conn, args.run_id, D):
+            log.error("%s is already published under run_id=%s — refusing to "
+                      "overwrite. Re-run with --force if that is intended.",
+                      D.date(), args.run_id)
+            return 1
         result = forecast_day(conn, D, run_id=args.run_id,
                               train_days=args.train_days, arms=arms,
                               seed=args.seed, n_draws=args.draws,
