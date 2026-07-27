@@ -71,12 +71,16 @@ ENDPOINTS = {
         "param_format": "date",
         "posting_window": True,
     },
+    # A delivery day of SPP is 26,736 rows (1,114 SPs x 24h), published all at once.
+    # `daily_settled` keeps the live path from re-pulling it every 15 min — see
+    # update_recent_daily.
     "dam_spp": {
         "path": "/np4-190-cd/dam_stlmnt_pnt_prices",
         "loader": load_dam_spp,
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+        "daily_settled": True,
     },
     "dam_shadow": {
         "path": "/np4-191-cd/dam_shadow_prices",
@@ -108,6 +112,10 @@ ENDPOINTS = {
     # them here made both a bulk `backfill.py` run and every live cycle pull the other
     # 23 postings for nothing.
 }
+
+# Refreshed per delivery day by update_recent_daily, not on the rolling window.
+DAILY_SETTLED = tuple(k for k, v in ENDPOINTS.items() if v.get("daily_settled"))
+
 
 def is_completed(conn, endpoint: str, start: datetime, end: datetime) -> bool:
     # A 0-row fetch usually means the source hadn't published yet (e.g. an
@@ -169,6 +177,46 @@ def daily_windows(start_date: date, end_date: date):
         end_dt = start_dt + timedelta(days=1)
         yield start_dt, end_dt
         d += timedelta(days=1)
+
+
+DAM_PUBLISH_HOUR_CT = 14   # D's DAM posts by 13:30 CT on D-1; asking earlier is empty
+LIVE_LOOKBACK_DAYS = 3     # repair window for a failed cycle / not-yet-published day
+
+
+def update_recent_daily(client: ErcotClient, conn,
+                        keys: tuple[str, ...] = DAILY_SETTLED) -> None:
+    """Refresh the day-published DAM endpoints, called by `live_updater` each cycle.
+
+    Self-throttling like `backfill_dam_close.update_recent`: a delivery day already in
+    `ingest_log` with a non-empty fetch costs one lookup. Once per day is enough
+    because the DAM publishes a day complete and final in one posting — no later
+    vintage to chase.
+
+    Whole-day date labels are kept deliberately; the label is what makes tomorrow's
+    DAM reachable. Asking for D+1 by name also gets it ~6h sooner than the rolling
+    window did, which only reached that label after the UTC clock rolled (19:00 CT).
+    """
+    now_ct = datetime.now(timezone.utc).astimezone(ERCOT_TZ)
+    end_day = now_ct.date() + (timedelta(days=1)
+                               if now_ct.hour >= DAM_PUBLISH_HOUR_CT
+                               else timedelta(0))
+    start_day = now_ct.date() - timedelta(days=LIVE_LOOKBACK_DAYS)
+
+    skipped = 0
+    for start, end in daily_windows(start_day, end_day):
+        for key in keys:
+            # Same UTC-midnight key the CLI backfill uses, so the two throttle each other.
+            if is_completed(conn, key, start, end):
+                skipped += 1
+                continue
+            try:
+                backfill_one_window(client, conn, key, start, end, resume=False)
+            except Exception as e:                       # noqa: BLE001
+                conn.rollback()
+                print(f"  [{key}] {start.date()} — FAILED: {e}")
+    if skipped:
+        print(f"  [{','.join(keys)}] {skipped} (endpoint, day) pairs already "
+              f"complete — no fetch")
 
 
 def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
