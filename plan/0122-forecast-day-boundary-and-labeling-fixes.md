@@ -1,0 +1,72 @@
+# 0122 - forecast-day-boundary-and-labeling-fixes
+
+Type: fix
+Branch: fix/0122-forecast-day-boundary-and-labeling-fixes
+
+## Goal
+
+* Make `--delivery-date tomorrow` resolve unambiguously so a manual evening run cannot silently produce the wrong day.
+* Backfill the missing forecast for UTC delivery day 2026-07-27 (currently zero rows in prod).
+* Refuse to run `forecast_day` past the DAM publication ceiling (13:30 CT), so the forecast cannot degrade into a restatement of published prices.
+* Correct the `api/forecast.py` window comment, which currently asserts the opposite of what the code does.
+* Narrow the `dam_spp` ingest to the delivery days it actually needs instead of re-pulling whole days every 15 minutes.
+* Label the scrubber with the delivery-hour span (CT) and the forecast run that produced it.
+
+## Context
+
+* The forecast day is a **UTC** calendar day: `forward_hours = pd.date_range(D, periods=24, freq="h", tz="UTC")` (`compute/jobs/daily_forecast.py:272`). UTC midnight is 19:00 CT the prior evening (CDT) / 18:00 CT (CST), so `delivery_date=2026-07-26` covers CT Jul 25 19:00 → Jul 26 18:00 — verified in prod.
+* `tomorrow` resolves off the UTC clock (`daily_forecast.py:363`). A hand-run at `2026-07-27T01:10:32Z` (20:10 CT Jul 26) resolved to July **28**, skipping July 27 entirely and flipping `forecast_current` anyway. Silent: exit 0, valid 24h panel, no warning. The default landing view serves `MAX(delivery_date)` (`api/forecast.py:116-118`), so the hole is invisible until someone scrubs onto it.
+* The job's validity depends on a ~90-minute margin: covariates are pinned to DAM close (10:00 CT, `features.py:63`) so it cannot run earlier, and ERCOT publishes DAM results for delivery day D by 13:30 CT on D-1 so it must not run later. Cron at 17:00 UTC (12:00 CDT / 11:00 CST) sits inside that box. `forecast_cronjob.yml:33` currently invites pushing it later with no stated ceiling.
+* **Not doing CT-day realignment in this plan** (see Deferred below). Rescheduling the cron does *not* fix alignment — the block boundary comes from `D`, not from run time.
+
+## Approach
+
+* Work in: `compute/jobs/daily_forecast.py`, `ercot_ingest/backfill.py`, `api/forecast.py`, `ops/deploy/jobs/forecast_cronjob.yml`, `web/src/components/playback/`
+* Entry point / primary change: `_resolve_delivery_date` in `compute/jobs/daily_forecast.py:360`
+
+### 1. `tomorrow` resolution (fix + guard)
+
+* In `_resolve_delivery_date`, compute the candidate from **CT** wall-clock, not UTC: take `now` in `America/Chicago`, add one day, and map that CT date to its UTC-day label. This makes "tomorrow" mean what an operator standing in Texas means.
+* Log the resolved date at INFO **with its CT hour span** — e.g. `delivery_date=2026-07-27 (CT 2026-07-26 19:00 → 2026-07-27 18:00)`. This single line would have made the skip self-evident.
+* Refuse to overwrite an existing `(run_id, delivery_date)` in `forecast_nodal` unless `--force` is passed. Today the write is replace-in-place (`daily_forecast.py:322-323`) with no confirmation.
+
+### 2. Backfill the July 27 hole
+
+* Run the documented single-day path from `forecast_cronjob.yml:7-14` with `--delivery-date 2026-07-27 --run-id mu-all-v1 --to-db`.
+* Causally safe despite July 27's DAM now being in the DB: `load_shadow_prices` / `load_congestion_panel` read `interval_ts >= start AND interval_ts < end` with `end = D` (`compute/sf/panels.py:36`, `:160`), so the fit cannot see the day it predicts.
+* Verify afterward that `forecast_nodal` has no gaps in `delivery_date` across the last 14 days.
+
+### 3. Publication ceiling
+
+* Add a hard guard in `daily_forecast.py`: if the resolved run time is past **13:30 CT on D-1**, fail loud unless `--allow-late` is passed. Past that instant the "forecast" is a restatement of published prices.
+* Rewrite the `forecast_cronjob.yml:33` note. It must state the ceiling explicitly and remove the open-ended "push this later" advice.
+
+### 4. Correct the wrong comment
+
+* `api/forecast.py:105-107` claims the default window is taken from stored rows so "the CT operating day and its DST offset come from the stored rows rather than UTC-midnight arithmetic on the client." The stored rows *are* UTC-midnight arithmetic (`daily_forecast.py:271`). Replace with an accurate description: the window is the UTC-day span of the run's latest `delivery_date`, which in CT runs 19:00 → 18:00.
+
+### 5. Narrow the `dam_spp` ingest
+
+* `dam_spp` uses `param_format: "date"` and date filters are whole-day inclusive (`ercot_ingest/backfill.py:183-188`), so each 15-min tick re-pulls entire delivery days — 26,736 rows (1114 SPs x 24h), ~96 times a day. Correct via upsert, just wasteful.
+* Keep the whole-day semantics (they are what makes a straddling window pick up the next delivery date at all — this is how tomorrow's DAM legitimately lands), but skip the fetch when the target delivery days are already complete for the expected SP count. Reuse the self-throttling `ingest_log` lookup pattern already used by `backfill_dam_close.update_recent` / `backfill_outages.update_recent`.
+* Do NOT change the date-label derivation itself — narrowing it would stop tomorrow's DAM from being ingested.
+
+### 6. Scrubber label
+
+* Add a header to the loaded window showing the **delivery-hour span in CT** and the forecast run that produced it, e.g. `Delivery hours - Jul 25 19:00 → Jul 26 18:00 CT · forecast run mu-all-v1`.
+* `run_id` is already available client-side via `getForecastRunId()` (`web/src/api/prefetch.ts:59`); the span is the min/max of `getAvailableTimestamps()`.
+* Render CT via `formatCT` (`web/src/lib/time.ts:8`). Follow the existing `--track-label` token for the label type; do not uppercase dynamic values.
+
+* Do NOT touch: CT-day realignment of the forecast block; the vantage/as-of axis; forecast vintage storage; the SP-universe drift.
+
+## Acceptance
+
+* [ ] `_resolve_delivery_date("tomorrow")` returns the same delivery day whether invoked at 09:00 CT or 22:00 CT on the same CT date; unit test covers both, plus a DST-transition date.
+* [ ] Job logs one INFO line naming the resolved `delivery_date` and its CT hour span.
+* [ ] Re-running an existing `(run_id, delivery_date)` without `--force` exits non-zero without writing or flipping `forecast_current`.
+* [ ] `forecast_nodal` has rows for `delivery_date = 2026-07-27`, run_id `mu-all-v1`, 24 distinct `ts`, and no gaps across the trailing 14 days.
+* [ ] Job invoked past 13:30 CT on D-1 exits non-zero without `--allow-late`; passes with it.
+* [ ] `forecast_cronjob.yml` states the 13:30 CT ceiling and no longer advises pushing the schedule later without bound.
+* [ ] `api/forecast.py` window comment describes UTC-day derivation and its CT span; no reference to recovering a CT operating day.
+* [ ] A 15-min ingest tick with all target delivery days already complete performs no `dam_spp` fetch and logs the skip; a tick where tomorrow's DAM has just published still ingests it.
+* [ ] Scrubber shows delivery-hour span in CT plus `run_id`, correct on both a straddling day and a DST-transition day.
