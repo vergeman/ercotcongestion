@@ -25,6 +25,7 @@ import {
   getErcotCached,
   getErcotSppCached,
   getForecastCached,
+  getForecastHorizon,
 } from "../api/prefetch";
 import {
   forecastErrorColor,
@@ -319,6 +320,16 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const deliveryDay = useMemo<string | undefined>(() => {
     const ts = timestamps[currentIndex];
     return ts ? formatCT(ts, "yyyy-MM-dd") : undefined;
+  }, [timestamps, currentIndex]);
+
+  // Whether the cursor's forecast day is a PREVIEW (horizon 2, 0123) — read-only
+  // off the per-day provenance the range response carried, keyed by the frame's UTC
+  // date (the backend's delivery_date). No toggle, no extra fetch: the scrubber
+  // still renders the one coalesced series; this only labels which days are still
+  // previews. Recomputed as the cursor moves or a new window loads.
+  const isPreviewDay = useMemo<boolean>(() => {
+    const ts = timestamps[currentIndex];
+    return ts ? getForecastHorizon(ts) === 2 : false;
   }, [timestamps, currentIndex]);
 
   // Ranked constraints for the panel — refetched only when the ranked DAY or the
@@ -870,6 +881,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           "forecast",
           "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count."
         )}
+        {isPreviewDay && (
+          <span className="pane-badge__preview" role="status">
+            Preview — refreshes at noon CT
+          </span>
+        )}
       </div>
       <Legend
         palette={palette}
@@ -1118,6 +1134,23 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
             .pane-badge__stat { pointer-events: auto; cursor: help; }
             .pane-badge__key { color: var(--text-muted); }
             .pane-badge__stat b { color: var(--text-primary); font-weight: 600; }
+            /* Preview provenance (0123): the served day is a t+2 preview, refreshed
+               by the noon-CT final run. A static, sentence-case label (the app's
+               casing rule) carrying the shared --track-label token; the accent
+               border/color sets it apart from the neutral title/meta above (reusing
+               the app-wide --accent so it tracks both themes). */
+            .pane-badge__preview {
+              align-self: flex-start;
+              margin-top: 2px;
+              padding: 1px 6px;
+              border: 1px solid var(--accent);
+              border-radius: 3px;
+              font-family: var(--font-label);
+              font-weight: var(--fw-label);
+              font-size: var(--fs-body);
+              letter-spacing: var(--track-label);
+              color: var(--accent);
+            }
           `}</style>
         </div>
 

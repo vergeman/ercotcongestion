@@ -174,13 +174,16 @@ export interface ForecastRangeEntry {
 
 // Per-hour forecast congestion across a window. `run_id` labels which refit is
 // serving; the served day is the cursor hour's date. `entries` are the forecast
-// hours in [start, end] for the current run.
+// hours in [start, end] for the current run. `horizons` maps each served UTC
+// delivery day (`"YYYY-MM-DD"`) to the horizon it came from — 1 = final/t+1,
+// 2 = preview/t+2 (0123) — the provenance behind the one coalesced series.
 export interface ForecastRangeResponse {
   start: string;
   end: string;
   run_id: string;
   count: number;
   entries: ForecastRangeEntry[];
+  horizons: Record<string, number>;
 }
 
 // =============================================================================
