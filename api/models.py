@@ -123,12 +123,19 @@ class ForecastRangeResponse(BaseModel):
     ``run_id`` (model version) labels which refit is serving; ``entries`` are the
     forecast hours falling in ``[start, end]`` for that run, so a window covering
     the served delivery day renders the forecast aligned to the realized ranges.
+
+    ``horizons`` is the per-delivery-day provenance map (``"YYYY-MM-DD" -> 1|2``,
+    0123): which horizon each served day came from — 1 = final/t+1, 2 = preview/t+2.
+    Absent an explicit ``?horizon=``, the endpoint coalesces per day (prefer final,
+    fall back to preview) into one continuous series; this map is how a client knows
+    which days are still previews without changing the series shape.
     """
     start: datetime
     end: datetime
     run_id: str
     count: int
     entries: list[ForecastRangeEntry]
+    horizons: dict[str, int] = {}
 
 
 # ---- /map/* --------------------------------------------------------------
