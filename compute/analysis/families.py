@@ -23,7 +23,21 @@ from collections.abc import Mapping
 
 import pandas as pd
 
-from compute.analysis.brief import SF_MEANINGFUL, TOP_K_CONSTRAINTS, TOP_N_NODES
+from compute.analysis.brief import (
+    SF_MEANINGFUL,
+    TOP_K_CONSTRAINTS,
+    TOP_N_NODES,
+    pair_contributions,
+)
+
+# The canonical liquid trading points ERCOT settles against. They live in the
+# SF artifact by name (``HB_*`` hubs, ``LZ_*`` load zones) even though the
+# geocoded SP metadata omits them, so F5a reads them straight from the artifact
+# and never inherits ``api/matrix.py:_sp_metadata``'s geocode-only filter.
+HUB_LZ_PREFIXES = ("HB_", "LZ_")
+# ``*AVG`` hubs are bus/hub *averages* — aggregates, not locations — so they can
+# never be a dipole endpoint.
+HUB_AVG_EXCLUDE = frozenset({"HB_BUSAVG", "HB_HUBAVG"})
 
 
 def split_constraint_key(key: object) -> tuple[str, str | None]:
@@ -159,4 +173,64 @@ def constraint_stats(sf_row: pd.Series, mu_c: float,
             "export_sp": str(sf_row.idxmax()),
             "import_sp": str(sf_row.idxmin()),
         },
+    }
+
+
+# --- F5a — hub/LZ dipole (always emitted) ----------------------------------
+
+def canonical_hubs(settlement_points) -> list[str]:
+    """The hub/LZ settlement points present in the artifact, ``*AVG`` excluded.
+
+    Read from the artifact's own SP vocabulary by name — no metadata lookup — so
+    the fixed, liquid endpoint set is always available regardless of geocode
+    coverage. Returns ~12–13 keys, sorted for determinism.
+    """
+    return sorted(
+        str(sp) for sp in settlement_points
+        if str(sp).startswith(HUB_LZ_PREFIXES) and str(sp) not in HUB_AVG_EXCLUDE
+    )
+
+
+def hub_dipole(cong: pd.Series, SF: pd.DataFrame, mu: pd.Series,
+               hubs: list[str] | None = None,
+               top_drivers: int = TOP_K_CONSTRAINTS) -> dict:
+    """Project congestion onto the canonical hubs and read the spread.
+
+    Reports the min and max hub, the spread between them, the full per-hub
+    congestion vector, and the top constraint drivers of ``max − min`` (a pair
+    waterfall that sums exactly to the spread). This is the one-sentence market
+    read; because the endpoint set is fixed and liquid it needs no guardrails.
+
+    ``cong`` is the day's full nodal-congestion vector (computed once per hour);
+    ``SF``/``mu`` supply the two endpoint columns for the driver waterfall.
+    """
+    if hubs is None:
+        hubs = canonical_hubs(cong.index)
+    hub_cong = cong.reindex([h for h in hubs if h in cong.index]).sort_values()
+    if hub_cong.empty:
+        return {"min": None, "max": None, "spread": 0.0, "hubs": [], "drivers": []}
+
+    lo, hi = str(hub_cong.index[0]), str(hub_cong.index[-1])
+    spread = float(hub_cong.iloc[-1] - hub_cong.iloc[0])
+    drivers = pair_contributions(SF, mu, sink=hi, source=lo)
+    ranked = drivers.reindex(drivers.abs().sort_values(ascending=False).index)
+
+    driver_list = []
+    for key in ranked.index[:top_drivers]:
+        name, contingency = split_constraint_key(key)
+        driver_list.append({
+            "constraint_key": str(key),
+            "constraint_name": name,
+            "contingency_name": contingency,
+            "contribution": float(ranked[key]),
+            "share": (float(ranked[key]) / spread) if spread else 0.0,
+        })
+
+    return {
+        "min": {"settlement_point": lo, "cong": float(hub_cong.iloc[0])},
+        "max": {"settlement_point": hi, "cong": float(hub_cong.iloc[-1])},
+        "spread": spread,
+        "hubs": [{"settlement_point": str(h), "cong": float(hub_cong[h])}
+                 for h in hub_cong.index],
+        "drivers": driver_list,
     }
