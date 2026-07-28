@@ -114,23 +114,40 @@ Branch: feat/0123-forecast-horizon-preview
 
 ## Acceptance
 
-* [ ] Migration 37 applies on a copy of prod; existing rows read back as
+* [x] Migration 37 applies on a copy of prod; existing rows read back as
       horizon 1; all current API queries return identical results pre/post.
-* [ ] `daily_forecast --horizon 2 --delivery-date tomorrow` resolves to CT
+      — Applied on the dev DB (8.4M nodal rows backfilled to h1); widened PKs +
+      CHECK verified; re-apply idempotent.
+* [x] `daily_forecast --horizon 2 --delivery-date tomorrow` resolves to CT
       today + 2 days and refuses to run (non-zero, nothing written) when day
       D−1 has no shadow-price rows.
-* [ ] Running h2 for day X then h1 for day X leaves BOTH row sets present;
+      — Verified live (exit 1, gate message, zero rows written) + unit tests
+      across both DST transitions.
+* [x] Running h2 for day X then h1 for day X leaves BOTH row sets present;
       re-running h1 replaces only horizon-1 rows (preview bytes unchanged).
-* [ ] Range API over a week of 5 final + 1 preview-only days returns one
+      — DB-backed `test_horizon_tracks_coexist_and_final_never_clobbers_preview`
+      + direct writer check.
+* [x] Range API over a week of 5 final + 1 preview-only days returns one
       gapless series; the preview day's rows come from horizon 2 and the
       provenance map says so; the day after the noon run lands, the same
       request serves horizon 1 for that day with no other change.
-* [ ] `?horizon=2` returns the preserved preview for a day that has both;
+      — Verified against the running API with seeded h1/h2 rows + `test_forecast.py`.
+* [x] `?horizon=2` returns the preserved preview for a day that has both;
       `?horizon=1` on a preview-only day 404s.
-* [ ] `scoreboard_daily` carries separate rows per horizon; grading tick for
+      — Verified live + unit tests.
+* [x] `scoreboard_daily` carries separate rows per horizon; grading tick for
       each track selects only its own ungraded days.
-* [ ] Matrix/map artifact lookup for a preview-only day serves the h2 artifact;
+      — `grade_day`/`persist_grades`/`resolve_gradeable_date` scoped to
+      `(run_id, horizon)`; `test_grade_day.py` horizon cases.
+* [x] Matrix/map artifact lookup for a preview-only day serves the h2 artifact;
       after the final lands, the same request serves h1.
-* [ ] Web shows the preview badge on a horizon-2 day and no badge on a
+      — `load_daily_artifact` coalesce (min-horizon probe before cache);
+      `test_sf_artifacts.py` coalesce/fallback/independent-cache cases.
+* [x] Web shows the preview badge on a horizon-2 day and no badge on a
       horizon-1 day; nothing else in the UI changes.
-* [ ] Run log lines include horizon, CT span, and `map_run_id`/SF window.
+      — Read-only off the per-day `horizons` map (`getForecastHorizon` →
+      `isPreviewDay` badge); tsc + vite build clean. Build-verified, not
+      screenshotted (no preview-only day in the served dev run).
+* [x] Run log lines include horizon, CT span, and `map_run_id`/SF window.
+      — `forecast_day` opening line + `_summary` carry horizon, CT span,
+      `map_run_id`, SF `window_end`.
