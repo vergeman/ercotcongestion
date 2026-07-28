@@ -29,6 +29,9 @@ SF_MEANINGFUL = 0.05
 TOP_K_CONSTRAINTS = 10   # per hour
 TOP_N_NODES = 5          # per side (import / export) per constraint
 TOP_N_HOTSPOTS = 10      # highest-|congestion| settlement points per hour
+# Day roll-up: how many hours a constraint/node must recur in to make the
+# watchlist — a quarter of the delivery day.
+WATCHLIST_MIN_HOURS = 6
 
 
 def cell_contributions(SF: pd.DataFrame, mu: pd.Series) -> pd.DataFrame:
