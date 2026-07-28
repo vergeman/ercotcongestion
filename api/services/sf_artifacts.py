@@ -1,9 +1,17 @@
 """Shared access to immutable per-day SF + forecast-μ artifacts.
 
-The database stores one compressed NPZ per ``(run_id, delivery_date)``.  The
-decoded object is reused by endpoints that need a dense slice of the day's
-causal fit; it is deliberately keyed by both values so a request can never
-cross a model-version or delivery-day boundary.
+The database stores one compressed NPZ per ``(run_id, delivery_date, horizon)``
+(0123: horizon 1 = final/t+1, horizon 2 = preview/t+2).  The decoded object is
+reused by endpoints that need a dense slice of the day's causal fit; it is
+deliberately keyed by all three values so a request can never cross a
+model-version, delivery-day, or horizon boundary.
+
+By default a lookup coalesces per day — it serves the final artifact when one
+exists and falls back to the preview otherwise — so a preview-only day is fully
+inspectable and, once the final lands, the same request transparently switches to
+it.  The transition is handled by resolving the served horizon per request (a cheap
+``min(horizon)`` probe) *before* the cache, so the cache never pins a stale preview
+for a day that has since been finalized.
 """
 from __future__ import annotations
 
@@ -39,17 +47,17 @@ class SfArtifactCache:
 
     def __init__(self, max_bytes: int = ARTIFACT_CACHE_MAX_BYTES) -> None:
         self.max_bytes = max_bytes
-        self._items: OrderedDict[tuple[str, date], tuple[SfMuArtifact, int]] = OrderedDict()
+        self._items: OrderedDict[tuple[str, date, int], tuple[SfMuArtifact, int]] = OrderedDict()
         self._bytes = 0
 
-    def get(self, key: tuple[str, date]) -> SfMuArtifact | None:
+    def get(self, key: tuple[str, date, int]) -> SfMuArtifact | None:
         item = self._items.get(key)
         if item is None:
             return None
         self._items.move_to_end(key)
         return item[0]
 
-    def put(self, key: tuple[str, date], artifact: SfMuArtifact) -> SfMuArtifact:
+    def put(self, key: tuple[str, date, int], artifact: SfMuArtifact) -> SfMuArtifact:
         size = _artifact_size_bytes(artifact)
         old = self._items.pop(key, None)
         if old is not None:
@@ -69,16 +77,39 @@ class SfArtifactCache:
 _ARTIFACT_CACHE = SfArtifactCache()
 
 
-def load_daily_artifact(cur, run_id: str, delivery_date: date) -> SfMuArtifact | None:
-    """Fetch and decode a day's artifact, or ``None`` when the blob is absent."""
-    key = (run_id, delivery_date)
+def load_daily_artifact(cur, run_id: str, delivery_date: date,
+                        horizon: int | None = None) -> SfMuArtifact | None:
+    """Fetch and decode a day's artifact, or ``None`` when the blob is absent.
+
+    ``horizon=None`` (the default) coalesces per day: it serves the final artifact
+    (horizon 1) when one exists and falls back to the preview (horizon 2) otherwise.
+    An explicit ``horizon`` reads exactly that track — used to inspect a preserved
+    preview for a day that already has a final (0123).
+
+    The served horizon is resolved *before* the cache via a cheap ``min(horizon)``
+    probe, so the cache is keyed by the concrete horizon and never returns a stale
+    preview for a day that has since been finalized.
+    """
+    if horizon is None:
+        cur.execute(
+            "SELECT min(horizon) AS h FROM forecast_sf_artifact "
+            "WHERE run_id = %s AND delivery_date = %s",
+            (run_id, delivery_date),
+        )
+        row = cur.fetchone()
+        if row is None or row["h"] is None:
+            return None
+        horizon = int(row["h"])
+
+    key = (run_id, delivery_date, horizon)
     cached = _ARTIFACT_CACHE.get(key)
     if cached is not None:
         return cached
 
     cur.execute(
-        "SELECT sf_npz FROM forecast_sf_artifact WHERE run_id = %s AND delivery_date = %s",
-        key,
+        "SELECT sf_npz FROM forecast_sf_artifact "
+        "WHERE run_id = %s AND delivery_date = %s AND horizon = %s",
+        (run_id, delivery_date, horizon),
     )
     row = cur.fetchone()
     if row is None:

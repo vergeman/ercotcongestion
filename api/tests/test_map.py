@@ -221,6 +221,7 @@ def test_ranked_predicted_orders_and_dipole(client, fake_pool, configured_run,
     monkeypatch.setattr(map_module, "_SP_COORDS",
                         {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
                          "N3": (30.0, -99.0)})
+    fake_pool.cursor.queue([{"h": 1}])                     # 0123: coalesce probe
     fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
     fake_pool.cursor.queue([{"ws": WS}])                    # _resolve (geo run)
     fake_pool.cursor.queue([                                 # constraint_geo join
@@ -256,6 +257,7 @@ def test_ranked_realized_swaps_mu_series(client, fake_pool, configured_run,
     """Realized basis keeps the SF structure but reweights by DAM shadow-price
     mass — enough to flip the order relative to predicted."""
     monkeypatch.setattr(map_module, "_SP_COORDS", {"N1": (29.7, -95.3)})
+    fake_pool.cursor.queue([{"h": 1}])                     # 0123: coalesce probe
     fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
     fake_pool.cursor.queue([                                 # realized mu mass
         {"constraint_name": " AAA ", "contingency_name": " BASE ", "mass": 1.0},

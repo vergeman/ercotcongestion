@@ -94,6 +94,12 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
         seen["map_run_id"] = kw.get("run_id")
         return pd.DataFrame([[1.0]], index=["K0|c"], columns=["SP0"]).astype("f4")
 
+    def fake_resolve_sf_window(conn, run_id, *, as_of=None):
+        # The run-log provenance capture (0123): forecast_day re-resolves the SF
+        # window to pin the geography vintage in the result. A fixed causal window.
+        seen["sf_window_run_id"] = run_id
+        return (D - pd.Timedelta(days=7), D - pd.Timedelta(days=1))
+
     def fake_propagate(s, end, M, C, wp, eps, n_draws, rng, **kw):
         seen["prop_s"] = s
         seen["prop_end"] = end
@@ -114,6 +120,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     monkeypatch.setattr(fd, "predict_day", fake_predict_day)
     monkeypatch.setattr(fd, "load_preds", fake_load_preds)
     monkeypatch.setattr(fd, "load_forecast_sf", fake_load_forecast_sf)
+    monkeypatch.setattr(fd, "resolve_sf_window", fake_resolve_sf_window)
     monkeypatch.setattr(fd, "propagate_window", fake_propagate)
     return seen
 
@@ -268,20 +275,121 @@ def test_ct_span_reports_the_delivery_blocks_wall_clock():
 
 
 # ----------------------------------------------------------------------------
+# Horizon 2 (0123) — the preview: t+2 date resolution + the DAM-publication gate
+# ----------------------------------------------------------------------------
+
+@pytest.mark.parametrize("day", ["2026-07-26",      # CDT
+                                 "2026-01-15",      # CST
+                                 "2026-03-08",      # spring forward
+                                 "2026-11-01"])     # fall back
+def test_horizon_2_tomorrow_is_two_ct_days_out(day):
+    """With horizon 2, `tomorrow` resolves to the CT date two days ahead (T+2) — the
+    preview lands inside D's decision window — no matter the launch hour, both DST
+    transitions covered. Horizon 1 stays the classic next CT day."""
+    expect2 = (pd.Timestamp(day) + pd.Timedelta(days=2)).date().isoformat()
+    expect1 = (pd.Timestamp(day) + pd.Timedelta(days=1)).date().isoformat()
+    for hour in ("00:30", "12:00", "18:30", "20:10", "23:45"):
+        now = pd.Timestamp(f"{day} {hour}", tz="America/Chicago").tz_convert("UTC")
+        assert fd._resolve_delivery_date("tomorrow", horizon=2,
+                                         now=now).date().isoformat() == expect2
+        assert fd._resolve_delivery_date("tomorrow", horizon=1,
+                                         now=now).date().isoformat() == expect1
+
+
+def test_explicit_date_ignores_horizon():
+    """An explicit `YYYY-MM-DD` names the UTC day directly — horizon does not shift
+    it (only `tomorrow` is horizon-relative)."""
+    for h in (1, 2):
+        assert fd._resolve_delivery_date("2026-07-27", horizon=h) == pd.Timestamp(
+            "2026-07-27", tz="UTC")
+
+
+class _GateCur:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self._conn.sql, self._conn.params = sql, params
+
+    def fetchone(self):
+        return (1,) if self._conn.has_row else None
+
+
+class _GateConn:
+    """Minimal fake conn for the DAM gate: `has_row` decides whether D−1's DAM has
+    published. Records the executed query so the window can be asserted."""
+    def __init__(self, has_row):
+        self.has_row = has_row
+        self.sql = None
+        self.params = None
+
+    def cursor(self):
+        return _GateCur(self)
+
+
+def test_horizon_2_gate_passes_when_freshest_day_published():
+    """D−1 has shadow-price rows → the gate is silent, and it probed exactly D−1's
+    UTC-day window [D−1, D)."""
+    conn = _GateConn(True)
+    fd._assert_freshest_history_published(conn, D)      # no raise
+    assert conn.params == (D - pd.Timedelta(days=1), D)
+
+
+def test_horizon_2_gate_fails_loud_when_freshest_day_missing():
+    """D−1 has no shadow-price rows (late ERCOT post) → RuntimeError, before any
+    fit; nothing is written because the caller never reaches persistence."""
+    with pytest.raises(RuntimeError, match="horizon-2 gate"):
+        fd._assert_freshest_history_published(_GateConn(False), D)
+
+
+def test_forecast_day_horizon_2_gates_before_fit_and_labels_result(monkeypatch):
+    """forecast_day(horizon=2) runs the gate before stage 1 and stamps horizon=2 on
+    the result; horizon=1 skips the gate entirely."""
+    _install_fakes(monkeypatch)
+    calls = []
+    monkeypatch.setattr(fd, "_assert_freshest_history_published",
+                        lambda conn, D_: calls.append(D_))
+    r2 = forecast_day(None, D, run_id="t", horizon=2)
+    assert calls == [D] and r2.horizon == 2
+
+    calls.clear()
+    r1 = forecast_day(None, D, run_id="t", horizon=1)
+    assert calls == [] and r1.horizon == 1
+
+
+def test_forecast_day_horizon_2_gate_stops_before_any_read(monkeypatch):
+    """When the gate fails, the fit never starts — no shadow-price/panel read runs."""
+    seen = _install_fakes(monkeypatch)
+    with pytest.raises(RuntimeError, match="horizon-2 gate"):
+        forecast_day(_GateConn(False), D, run_id="t", horizon=2)
+    assert "sp_window" not in seen and "panel_window" not in seen
+
+
+# ----------------------------------------------------------------------------
 # Persist: idempotency + atomicity (spec §6, §9) — real Postgres, scratch layer
 # ----------------------------------------------------------------------------
 
+# Mirrors migrations 30/31 + 37 (the horizon column, widened PKs). IF NOT EXISTS, so
+# against an already-migrated DB it is a no-op and the real tables are used.
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS forecast_nodal (
   run_id text NOT NULL, delivery_date date NOT NULL, ts timestamptz NOT NULL,
   settlement_point text NOT NULL, p10 real, p50 real, p90 real, point real,
-  PRIMARY KEY (run_id, ts, settlement_point));
+  horizon smallint NOT NULL DEFAULT 1,
+  PRIMARY KEY (run_id, ts, settlement_point, horizon));
 CREATE TABLE IF NOT EXISTS forecast_current (
   layer text PRIMARY KEY, run_id text NOT NULL,
   promoted_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS forecast_sf_artifact (
   run_id text NOT NULL, delivery_date date NOT NULL, sf_npz bytea NOT NULL,
-  PRIMARY KEY (run_id, delivery_date));
+  horizon smallint NOT NULL DEFAULT 1,
+  PRIMARY KEY (run_id, delivery_date, horizon));
 """
 
 
@@ -319,11 +427,11 @@ def pg():
             conn.commit()
 
 
-def _synthetic_result(run_id, day=D, point_value=2.5):
+def _synthetic_result(run_id, day=D, point_value=2.5, horizon=1, seed=0):
     ts = pd.date_range(day, periods=24, freq="h", tz="UTC")
     sps = np.array(["SP_A", "SP_B", "SP_C"])
     keys = ["K1|c", "K2|c"]
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     p50 = rng.random((24, 3)).astype("f4") + point_value
     panel = NodalPanel(ts=ts.to_numpy(), settlement_points=sps,
                        p10=(p50 - 0.5).astype("f4"), p50=p50,
@@ -332,7 +440,8 @@ def _synthetic_result(run_id, day=D, point_value=2.5):
     SF = pd.DataFrame(rng.random((2, 3)).astype("f4"), index=keys, columns=sps)
     E_mu = pd.DataFrame(rng.random((24, 2)).astype("f4"), index=ts, columns=keys)
     return ForecastResult(run_id=run_id, delivery_date=day.date(), panel=panel,
-                          SF=SF, E_mu=E_mu, sf_mu=build_sf_mu_artifact(SF, E_mu))
+                          SF=SF, E_mu=E_mu, sf_mu=build_sf_mu_artifact(SF, E_mu),
+                          horizon=horizon)
 
 
 def _count(conn, run_id):
@@ -393,6 +502,41 @@ def test_pointer_flips_only_after_rows_land(pg):
         cur.execute("SELECT run_id FROM forecast_current WHERE layer=%s", (layer,))
         pointed = cur.fetchone()[0]
     assert _count(conn, pointed) == 24 * 3                 # pointed run has its rows
+
+
+def _sf_blob(conn, run_id, horizon):
+    with conn.cursor() as cur:
+        cur.execute("SELECT sf_npz FROM forecast_sf_artifact WHERE run_id=%s "
+                    "AND horizon=%s", (run_id, horizon))
+        row = cur.fetchone()
+        return None if row is None else bytes(row[0])
+
+
+def test_horizon_tracks_coexist_and_final_never_clobbers_preview(pg):
+    """Acceptance (0123): publish preview (h2) then final (h1) for the same day and
+    BOTH row sets survive; re-running the final replaces only its own horizon and
+    leaves the preview's rows and blob byte-for-byte intact — the preserved audit
+    trail."""
+    conn, run_id, layer = pg
+    # Distinct seeds so the two horizons' SF/E_mu blobs genuinely differ.
+    persist_forecast(conn, _synthetic_result(run_id, horizon=2, seed=2), layer=layer)
+    persist_forecast(conn, _synthetic_result(run_id, horizon=1, seed=1), layer=layer)
+
+    # Both tracks present, side by side (72 rows each), one blob each.
+    with conn.cursor() as cur:
+        cur.execute("SELECT horizon, count(*) FROM forecast_nodal WHERE run_id=%s "
+                    "GROUP BY horizon ORDER BY horizon", (run_id,))
+        assert cur.fetchall() == [(1, 24 * 3), (2, 24 * 3)]
+    preview_bytes = _sf_blob(conn, run_id, 2)
+    assert preview_bytes is not None and preview_bytes != _sf_blob(conn, run_id, 1)
+
+    # Re-run the final under the same run_id — replaces h1 only.
+    persist_forecast(conn, _synthetic_result(run_id, horizon=1, seed=99), layer=layer)
+    with conn.cursor() as cur:
+        cur.execute("SELECT horizon, count(*) FROM forecast_nodal WHERE run_id=%s "
+                    "GROUP BY horizon ORDER BY horizon", (run_id,))
+        assert cur.fetchall() == [(1, 24 * 3), (2, 24 * 3)]   # still both, not tripled
+    assert _sf_blob(conn, run_id, 2) == preview_bytes          # preview bytes intact
 
 
 def test_sf_blob_round_trips_from_db(pg):

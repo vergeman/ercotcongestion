@@ -27,8 +27,8 @@ forecast loud and leaves the prior served day intact.
 | | SF map (`map-v1`) | Forecast (`mu-all-v1`) |
 |---|---|---|
 | What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: per-SP P10/P50/P90 congestion forecast |
-| Cadence | weekly, Sun 18:00 UTC | daily, 17:00 UTC |
-| Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `ops/deploy/jobs/forecast_cronjob.yml` |
+| Cadence | weekly, Sun 18:00 UTC | daily ×2: final 17:00 UTC (h1) + preview 19:45 UTC (h2) |
+| Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `forecast_cronjob.yml` (final), `forecast_preview_cronjob.yml` (preview) |
 | Entry | `weekly_map` → `geo_persist` → `eval` | `daily_forecast` |
 | Writes | `implied_shift_factors`, `sf_window_meta`, `constraint_geo` | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
 
@@ -321,20 +321,50 @@ A late run is still worth noticing — it usually means the schedule or ingest h
 The cron fires at 17:00 UTC = 12:00 CDT / 11:00 CST, past DAM close in both DST states.
 `tomorrow` means the next **CT** date. The run logs the delivery date it resolved along
 with its CT hour span — 19:00 → 18:00 CT in summer, because the delivery day is a UTC
-calendar day.
+calendar day — plus its `horizon`, `map_run_id`, and the SF `window_end` it projected
+through (so a preview-vs-final diff contaminated by a weekly map refit is identifiable).
 
 ```
 python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 \
     --map-run-id map-v1 --to-db
 ```
 
+**Two horizons — final and preview (0123).** The forecast runs *twice* a day, same
+model version (`--run-id` unchanged — it scopes MODEL VERSION only, not the day or the
+horizon). `--horizon` is the only difference; horizon is a persistence/labeling
+property, so the fit is byte-identical at both — only the vintaged forecast covariates
+on the prediction row differ.
+
+| | Final (h1) | Preview (h2) |
+|---|---|---|
+| Tick | 17:00 UTC (`forecast_cronjob.yml`) | 19:45 UTC (`forecast_preview_cronjob.yml`) |
+| `tomorrow` resolves to | T+1 (next CT date) | T+2 (two CT dates out) |
+| Timing vs D's DAM | ~2h AFTER D's DAM closed — verification-only | inside D's decision window, ~20h before D's DAM closes |
+| DAM-publication gate | none (D−1 closed hours ago) | asserts D−1's `ercot_dam_shadow_prices` exist BEFORE the fit; missing → fail loud, nothing written |
+| Immutability | replace-in-place per re-run | **never overwritten by the final** — `final − preview` is a preserved audit trail |
+| Scoreboard | its own track | its own independent track (graded per horizon) |
+
+Serving coalesces the two into one continuous series (prefer final, fall back to
+preview) with zero web changes; `/forecast_range` reports per-day `horizons`
+provenance and accepts `?horizon=` to read one track explicitly (the "what changed"
+view). See `plan/0123-forecast-horizon-preview.md`.
+
+```
+# the preview tick — identical path, add --horizon 2
+python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 \
+    --horizon 2 --map-run-id map-v1 --to-db
+```
+
 **Grading is embedded — not a separate step.** After a successful publish and pointer
 flip, `daily_forecast` calls `grade_day` itself to grade the most recent
-fully-realized served day. Run `grade_day` standalone **only** to retry a day whose
-grade failed or was skipped (never as a duplicate routine step):
+fully-realized served day **on its own horizon's track** — the final tick grades the
+h1 scoreboard, the preview tick the h2 scoreboard, two independent tracks per run_id
+(0123). Run `grade_day` standalone **only** to retry a day whose grade failed or was
+skipped (never as a duplicate routine step); `--horizon` selects the track (default 1):
 
 ```
 python -m compute.jobs.grade_day --delivery-date auto --run-id mu-all-v1 --to-db
+python -m compute.jobs.grade_day --delivery-date auto --run-id mu-all-v1 --horizon 2 --to-db
 ```
 
 Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
@@ -370,18 +400,20 @@ command there.
 
 ### Step 7 — Build and deploy
 
-Build and deploy the image, then deploy both cronjobs (`map_refresh_cronjob.yml`,
-`forecast_cronjob.yml`) and the `compute-runs` PVC (`ops/deploy/base/compute/runs-pvc.yml`)
-if not already applied. The weekly map append (step 1) and daily forecast (step 6) then
-keep everything current. The residual pool now lives on the PVC (step 2), so refreshing
-it is a file drop on `/compute/runs` — **no image rebuild required**; only a code or
-dependency change needs a new image.
+Build and deploy the image, then deploy every cronjob (`map_refresh_cronjob.yml`,
+`forecast_cronjob.yml`, `forecast_preview_cronjob.yml`) and the `compute-runs` PVC
+(`ops/deploy/base/compute/runs-pvc.yml`) if not already applied — `./model_cronjobs.sh
+all` applies all three. The weekly map append (step 1) and the two daily forecast ticks
+(step 6) then keep everything current. The residual pool now lives on the PVC (step 2),
+so refreshing it is a file drop on `/compute/runs` — **no image rebuild required**; only
+a code or dependency change needs a new image.
 
-Hand-run the deployed cronjob on the identical path:
+Hand-run the deployed cronjobs on the identical path:
 ```
 cd ops/deploy && source ../../.env && export IMAGE_TAG="$(cat ../../.image-tag)"
 kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh
-kubectl -n ercotstress create job --from=cronjob/forecast-daily
+kubectl -n ercotstress create job --from=cronjob/ercot-forecast
+kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 ```
 
 

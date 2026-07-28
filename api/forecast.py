@@ -79,6 +79,15 @@ def get_forecast_range(
         description="ISO-8601 UTC end (inclusive). Omit together with `start` "
         "to default to the run's latest delivery day (a UTC calendar day).",
     ),
+    horizon: int | None = Query(
+        None,
+        ge=1,
+        le=2,
+        description="Explicitly read one horizon track: 1 = final/t+1, 2 = "
+        "preview/t+2 (0123). Omit to coalesce per day (prefer final, fall back to "
+        "preview) into one continuous series. An explicit horizon with no rows for "
+        "a day 404s (no fallback) — the 'what changed' view of a preserved preview.",
+    ),
 ) -> ForecastRangeResponse:
     pool = get_pool()
     with pool.connection() as conn:
@@ -114,39 +123,56 @@ def get_forecast_range(
             # assume it did. Note the default also hides a gap: it serves
             # MAX(delivery_date), so a missing day earlier in the run is invisible
             # here and only shows up when someone scrubs onto it.
+            # A `?horizon=` (1|2) reads exactly that track; omitted, the window
+            # default and the main read both coalesce per day, preferring the final
+            # (horizon 1) over the preview (horizon 2). The horizon clause is shared
+            # by the default-window probe and the main read so both agree.
+            hz_clause = "" if horizon is None else " AND horizon = %s"
+            hz_args: tuple = () if horizon is None else (horizon,)
+
             if start is not None and end is not None:
                 start_u = _coerce_utc(start)
                 end_u = _coerce_utc(end)
             else:
                 cur.execute(
-                    """
+                    f"""
                     SELECT MIN(ts) AS lo, MAX(ts) AS hi
                     FROM forecast_nodal
-                    WHERE run_id = %s AND delivery_date = (
+                    WHERE run_id = %s{hz_clause} AND delivery_date = (
                         SELECT MAX(delivery_date)
-                        FROM forecast_nodal WHERE run_id = %s
+                        FROM forecast_nodal WHERE run_id = %s{hz_clause}
                     )
                     """,
-                    (run_id, run_id),
+                    (run_id, *hz_args, run_id, *hz_args),
                 )
                 span = cur.fetchone()
                 if span is None or span["lo"] is None:
+                    # Explicit horizon with nothing published is a 404 (that track
+                    # does not exist for this run); the coalesced default keeps the
+                    # realized-range 503 soft-fail contract.
                     raise HTTPException(
-                        status_code=503,
-                        detail=f"run_id={run_id} has no forecast_nodal rows to "
-                        "default a window from.",
+                        status_code=404 if horizon is not None else 503,
+                        detail=f"run_id={run_id}"
+                        + (f" horizon={horizon}" if horizon is not None else "")
+                        + " has no forecast_nodal rows to default a window from.",
                     )
                 start_u = _coerce_utc(span["lo"])
                 end_u = _coerce_utc(span["hi"])
 
+            # Coalesce per (ts, sp): DISTINCT ON keeping the lowest horizon present —
+            # the final when it exists, else the preview. Ordering by horizon ASC
+            # makes horizon 1 win. With an explicit horizon the filter already pins
+            # one track, so the DISTINCT ON is a harmless no-op. `delivery_date` +
+            # `horizon` ride along so the response can report per-day provenance.
             cur.execute(
-                """
-                SELECT ts, settlement_point, p10, p50, p90
+                f"""
+                SELECT DISTINCT ON (ts, settlement_point)
+                       ts, settlement_point, p10, p50, p90, delivery_date, horizon
                 FROM forecast_nodal
-                WHERE run_id = %s AND ts >= %s AND ts <= %s
-                ORDER BY ts, settlement_point
+                WHERE run_id = %s AND ts >= %s AND ts <= %s{hz_clause}
+                ORDER BY ts, settlement_point, horizon ASC
                 """,
-                (run_id, start_u, end_u),
+                (run_id, start_u, end_u, *hz_args),
             )
             rows = cur.fetchall()
 
@@ -163,11 +189,15 @@ def get_forecast_range(
             lam_rows = cur.fetchall()
 
     if not rows:
+        # Explicit horizon with no rows → 404 (no fallback to the other track); the
+        # coalesced default keeps the realized-range 503 soft-fail contract.
         raise HTTPException(
-            status_code=503,
+            status_code=404 if horizon is not None else 503,
             detail=(
-                f"no forecast_nodal rows for run_id={run_id} in window "
-                f"{start_u} .. {end_u}. The served forecast run has no hours here."
+                f"no forecast_nodal rows for run_id={run_id}"
+                + (f" horizon={horizon}" if horizon is not None else "")
+                + f" in window {start_u} .. {end_u}. "
+                "The served forecast run has no hours here."
             ),
         )
 
@@ -178,9 +208,13 @@ def get_forecast_range(
         for r in lam_rows
     }
 
+    # Per-delivery-day horizon provenance (0123): every (ts, sp) of a day carries the
+    # same coalesced horizon, so any row of the day fixes it — 1 = final, 2 = preview.
+    horizons_map: dict[str, int] = {}
     by_ts: dict[datetime, list[ForecastSpState]] = {}
     for r in rows:
         ts = _coerce_utc(r["ts"])
+        horizons_map[r["delivery_date"].isoformat()] = int(r["horizon"])
         by_ts.setdefault(ts, []).append(
             ForecastSpState(
                 sp_id=str(r["settlement_point"]),
@@ -205,4 +239,5 @@ def get_forecast_range(
         run_id=run_id,
         count=len(entries),
         entries=entries,
+        horizons=horizons_map,
     )

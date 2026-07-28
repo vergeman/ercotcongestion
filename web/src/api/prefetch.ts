@@ -19,6 +19,10 @@ const forecastCache = new Map<string, ForecastRangeEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
+// Per-UTC-delivery-day horizon provenance for the loaded window (0123):
+// `"YYYY-MM-DD" -> 1|2` (1 = final, 2 = preview). Backs the preview badge; empty
+// until a forecast loads.
+let forecastHorizons: Record<string, number> = {};
 
 function cacheKey(ts: Date): string {
   return ts.toISOString();
@@ -59,6 +63,15 @@ export function getForecastRunId(): string | null {
   return forecastRunId;
 }
 
+// The horizon serving `ts`'s delivery day, or `null` when unknown (no forecast
+// this window, or an hour outside it). The delivery day is the UTC calendar date
+// of `ts` — the same key the backend's `horizons` map uses — so a preview day
+// (horizon 2) is identifiable read-only, without any extra fetch.
+export function getForecastHorizon(ts: Date): number | null {
+  const key = ts.toISOString().slice(0, 10);
+  return forecastHorizons[key] ?? null;
+}
+
 // Decode the compact wire shape exactly once at the API boundary. Rendering and
 // cache lookups keep their simple object-based shape, while the network avoids
 // repeating every settlement-point ID in every hour and in both realized feeds.
@@ -90,6 +103,7 @@ function ingestErcotRange(data: ErcotRangeResponse | null): void {
 function ingestForecast(data: ForecastRangeResponse | null): void {
   if (!data) return;
   forecastRunId = data.run_id;
+  forecastHorizons = data.horizons ?? {};
   for (const entry of data.entries) {
     const ts = roundToInterval(new Date(entry.interval_ts));
     forecastCache.set(cacheKey(ts), entry);
@@ -152,4 +166,5 @@ export function clearCache(): void {
   ercotSppCache.clear();
   forecastCache.clear();
   forecastRunId = null;
+  forecastHorizons = {};
 }

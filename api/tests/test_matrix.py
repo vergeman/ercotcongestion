@@ -44,6 +44,7 @@ def _hub_zone_blob() -> bytes:
 
 def _queue_frame(fake_pool, dam_rows: list[dict] | None = None, type_rows: list[dict] | None = None):
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])          # 0123: coalesce min(horizon) probe
     fake_pool.cursor.queue([{'sf_npz': _blob()}])
     fake_pool.cursor.queue(dam_rows or [])
     fake_pool.cursor.queue(type_rows or [])
@@ -93,6 +94,7 @@ def test_frame_rounds_matrix_display_values_to_three_decimals(client, fake_pool,
     )
     mu = pd.DataFrame({'AAA|BASE': [2.3456]}, index=pd.to_datetime([T0], utc=True))
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])          # 0123: coalesce min(horizon) probe
     fake_pool.cursor.queue([{'sf_npz': build_sf_mu_artifact(sf, mu)}])
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
@@ -113,8 +115,10 @@ def test_frame_order_does_not_change_by_hour(client, fake_pool, monkeypatch):
     monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
     _queue_frame(fake_pool)
     first = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
-    # Cache reuse skips the blob query, but pointer and exact-hour DAM still query.
+    # Cache reuse skips the blob fetch, but pointer, the min(horizon) probe, and the
+    # exact-hour DAM still query (0123: the probe runs before the cache is consulted).
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])          # coalesce probe (cache hit follows)
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
     second = client.get('/matrix/frame', params={'interval_ts': T1.isoformat(), 'row_limit': 2, 'column_limit': 2})
@@ -135,6 +139,7 @@ def test_frame_reports_missing_artifact_without_fallback(client, fake_pool):
 
 def test_frame_reports_interval_absent_from_artifact(client, fake_pool):
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])          # 0123: coalesce min(horizon) probe
     fake_pool.cursor.queue([{'sf_npz': _blob()}])
     response = client.get('/matrix/frame', params={'interval_ts': '2026-07-01T07:00:00Z'})
     assert response.status_code == 200
@@ -153,6 +158,7 @@ def test_frame_resolves_all_utc_day_hours_from_one_utc_artifact(client, fake_poo
     artifact = _full_utc_day_blob(utc_day)
     for hour in range(24):
         fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+        fake_pool.cursor.queue([{'h': 1}])      # 0123: coalesce probe every hour
         if hour == 0:
             fake_pool.cursor.queue([{'sf_npz': artifact}])
         fake_pool.cursor.queue([])
@@ -167,8 +173,10 @@ def test_frame_resolves_all_utc_day_hours_from_one_utc_artifact(client, fake_poo
     # 00:00–04:00 UTC retain their Central delivery label, while every request
     # still resolves the same July 1 UTC artifact.
     assert frames[0].json()['delivery_date'] == '2026-06-30'
-    artifact_query = fake_pool.cursor.queries[1]
-    assert artifact_query[1] == ('fc-v1', utc_day.date())
+    # queries[1] is the coalesce min(horizon) probe (0123); it targets the artifact's
+    # UTC day, the same (run_id, date) the blob fetch then uses.
+    probe_query = fake_pool.cursor.queries[1]
+    assert probe_query[1] == ('fc-v1', utc_day.date())
 
 
 def test_frame_enforces_conservative_bounds(client):
@@ -185,6 +193,7 @@ def test_frame_anchor_columns_include_artifact_hubs_and_load_zones(client, fake_
         'LZ_COAST': ('load_zone', 'coast'),
     })
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])          # 0123: coalesce min(horizon) probe
     fake_pool.cursor.queue([{'sf_npz': _hub_zone_blob()}])
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
