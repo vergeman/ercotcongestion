@@ -63,6 +63,7 @@ from compute.sf.project import (
     load_forecast_sf,
     propagate_window,
     residual_pool,
+    resolve_sf_window,
 )
 
 log = logging.getLogger(__name__)
@@ -113,9 +114,12 @@ class ForecastResult:
     SF: pd.DataFrame
     E_mu: pd.DataFrame
     sf_mu: bytes
+    horizon: int = 1              # 1 = final/t+1, 2 = preview/t+2 (0123)
     novelty: int = 0
     novel_keys: list[str] = field(default_factory=list)
     n_scored_keys: int = 0        # constraints predicted (in wp) — coverage numerator
+    map_run_id: str = ""          # weekly SF map projected through (run-log provenance)
+    sf_window_end: date | None = None   # its window close — pins the SF vintage used
 
 
 def _as_utc_day(D) -> pd.Timestamp:
@@ -130,11 +134,34 @@ def _as_utc_day(D) -> pd.Timestamp:
     return ts.normalize()
 
 
+def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
+    """Fail loud if delivery day D−1 has no `ercot_dam_shadow_prices` rows yet.
+
+    The horizon-2 (preview) tick fires the same afternoon T+1's DAM is due (~13:30
+    CT); the fit's freshest history day is D−1 (= T+1). A late ERCOT post would let
+    the fit run with that day silently missing — a quietly degraded forecast. So
+    before the fit, assert D−1's DAM has published (spec §8 pattern: fail, write
+    nothing, prior rows intact). D−1's 24 UTC hours are `[D − 1 day, D)`.
+    """
+    lo = D - pd.Timedelta(days=1)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s LIMIT 1", (lo, D))
+        if cur.fetchone() is None:
+            raise RuntimeError(
+                f"horizon-2 gate: no ercot_dam_shadow_prices rows for delivery day "
+                f"{lo.date()} (D−1, the freshest history day) — T+1's DAM has not "
+                f"published yet. Refusing to fit a preview on stale history "
+                f"(spec §8: fail, nothing written, prior rows intact).")
+
+
 def forecast_day(
     conn,
     D,
     *,
     run_id: str,
+    horizon: int = 1,
     train_days: int = DEFAULT_TRAIN_DAYS,
     arms: tuple[str, ...] = DEFAULT_ARMS,
     seed: int = 0,
@@ -166,6 +193,11 @@ def forecast_day(
     causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
     """
     D = _as_utc_day(D)
+    # Horizon-2 (preview) fires while D−1's DAM is still landing; gate before the fit
+    # so a late ERCOT post fails loud rather than fitting on a missing freshest day
+    # (0123). Horizon 1 fires two hours after D−1 closed — no gate needed.
+    if horizon == 2:
+        _assert_freshest_history_published(conn, D)
     preds_path = preds_path or preds_path_for(run_id)
     # Reproducing the validated model means reproducing how it built its TRAIN rows.
     # The geo/wx arms fit a per-boundary SF/weather-response on
@@ -180,8 +212,8 @@ def forecast_day(
     # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
     # rows are built only to give the arms their history and are then sliced off.
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
-    log.info("forecast_day %s  run_id=%s  arms=%s  train_days=%d  preds=%s",
-             D.date(), run_id, ",".join(arms), train_days, preds_path)
+    log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  preds=%s",
+             D.date(), run_id, horizon, ",".join(arms), train_days, preds_path)
 
     # --- stage 1: μ inference ------------------------------------------------
     # M and C end at D (exclusive): the SF fit window and every covariate see only
@@ -248,6 +280,11 @@ def forecast_day(
     SF_map = load_forecast_sf(conn, D, wp, run_id=map_run_id,
                               max_age_days=max_sf_age_days,
                               min_coverage=min_sf_coverage)
+    # Pin the SF vintage in the result for the run log: a preview-vs-final diff for a
+    # day is only clean if BOTH runs projected through the same weekly map window —
+    # if a weekly refit landed between them the diff also carries a map change (0123).
+    sf_win = resolve_sf_window(conn, map_run_id, as_of=D)
+    sf_window_end = sf_win[1].date() if sf_win is not None else None
 
     # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature `panel`,
     # and no longer M/C for an SF fit. In one
@@ -293,9 +330,10 @@ def forecast_day(
     sf_mu = build_sf_mu_artifact(SF, E_mu)
     return ForecastResult(
         run_id=run_id, delivery_date=D.date(), panel=panel_out,
-        SF=SF, E_mu=E_mu, sf_mu=sf_mu,
+        SF=SF, E_mu=E_mu, sf_mu=sf_mu, horizon=horizon,
         novelty=novelty, novel_keys=novel_keys,
-        n_scored_keys=int(wp["key"].nunique()) if len(wp) else 0)
+        n_scored_keys=int(wp["key"].nunique()) if len(wp) else 0,
+        map_run_id=map_run_id, sf_window_end=sf_window_end)
 
 
 def _write_nodal_npz(result: ForecastResult, path: str) -> None:
@@ -319,17 +357,21 @@ def persist_forecast(conn, result: ForecastResult, *,
     the commit rolls the transaction back, leaving the **prior pointer intact** with
     no degraded day written (spec §8).
 
-    Idempotent per `(run_id, delivery_date)`: `nodal_to_db`/`persist_sf_mu_artifact`
-    both replace-in-place scoped to the UTC delivery date, so a re-run of D under the
-    same `run_id` overwrites D's rows and blob and leaves the pointer where it is.
+    Idempotent per `(run_id, delivery_date, horizon)`: `nodal_to_db`/
+    `persist_sf_mu_artifact` both replace-in-place scoped to the UTC delivery date and
+    horizon, so a re-run of D under the same `run_id` overwrites only that horizon's
+    rows and blob — a horizon-1 (final) publish never touches the preserved horizon-2
+    (preview) rows and vice versa (0123) — and leaves the pointer where it is.
     `npz_dir` (optional) is the on-disk artifact of record (spec §5c) — the nodal and
-    SF+μ npz land there too, byte-identical to the DB; omitted, only the DB is written
-    (a throwaway temp file carries the nodal panel into `COPY`). `layer` defaults to
-    the served `ercot` pointer; a test overrides it to a scratch layer so it never
-    touches the live one. Returns rows written.
+    SF+μ npz land there too, byte-identical to the DB, each tagged with an `h{horizon}`
+    suffix so the two tracks never share a filename; omitted, only the DB is written (a
+    throwaway temp file carries the nodal panel into `COPY`). `layer`
+    defaults to the served `ercot` pointer; a test overrides it to a scratch layer so
+    it never touches the live one. Returns rows written.
     """
     D = result.delivery_date
     run_id = result.run_id
+    horizon = result.horizon
     if npz_dir is None:
         tmp = tempfile.TemporaryDirectory()
         out_dir = tmp.name
@@ -338,18 +380,21 @@ def persist_forecast(conn, result: ForecastResult, *,
         os.makedirs(npz_dir, exist_ok=True)
         out_dir = npz_dir
     try:
-        nodal_path = os.path.join(out_dir, f"nodal_{run_id}_{D.isoformat()}.npz")
+        nodal_path = os.path.join(out_dir,
+                                  f"nodal_{run_id}_{D.isoformat()}h{horizon}.npz")
         _write_nodal_npz(result, nodal_path)
-        n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D)
+        n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D,
+                        horizon=horizon)
         persist_sf_mu_artifact(conn, result.SF, result.E_mu,
-                               run_id=run_id, delivery_date=D, npz_dir=npz_dir)
+                               run_id=run_id, delivery_date=D, npz_dir=npz_dir,
+                               horizon=horizon)
         upsert_pointer(conn, layer, run_id)               # pointer LAST, before commit
         conn.commit()                                     # the atomic flip
     finally:
         if tmp is not None:
             tmp.cleanup()
-    log.info("published %s nodal rows for %s under run_id=%s; pointer[%s] -> %s",
-             f"{n:,}", D, run_id, layer, run_id)
+    log.info("published %s nodal rows for %s (horizon %d) under run_id=%s; "
+             "pointer[%s] -> %s", f"{n:,}", D, horizon, run_id, layer, run_id)
     return n
 
 
@@ -357,23 +402,27 @@ def persist_forecast(conn, result: ForecastResult, *,
 # CLI — the daily tick and single-day backfill on the identical path (spec §7)
 # --------------------------------------------------------------------------
 
-def _resolve_delivery_date(spec: str, *, now: pd.Timestamp | None = None
-                           ) -> pd.Timestamp:
-    """`tomorrow` → the next **CT** day; else parse `YYYY-MM-DD` as a UTC day. Both
-    go through `_as_utc_day`, so the CLI and the daily cron share one code path.
+def _resolve_delivery_date(spec: str, *, horizon: int = 1,
+                           now: pd.Timestamp | None = None) -> pd.Timestamp:
+    """`tomorrow` → the CT day `horizon` days ahead; else parse `YYYY-MM-DD` as a UTC
+    day. Both go through `_as_utc_day`, so the CLI and the daily cron share one code
+    path.
 
-    `tomorrow` means what an operator standing in Texas means: the CT calendar date
-    after today's CT date, used as the UTC-day *label* the rest of the pipeline
-    slices on. Resolving it off the UTC clock instead is a live footgun — after
-    19:00 CT (18:00 CST) the UTC date has already rolled, so an evening hand-run
-    silently resolved to D+2 and skipped D+1 entirely (a real prod hole on
-    2026-07-27). The CT date is normalized *before* the day is added, so the
-    arithmetic is naive and a 23-/25-hour DST day cannot shift the answer.
+    `tomorrow` means what an operator standing in Texas means: horizon 1 (final) is
+    the CT calendar date after today's (T+1, the classic next day); horizon 2
+    (preview) is two CT days out (T+2 — the run lands inside D's decision window,
+    before D's DAM closes). Both are the UTC-day *label* the rest of the pipeline
+    slices on. Resolving off the UTC clock instead is a live footgun — after 19:00 CT
+    (18:00 CST) the UTC date has already rolled, so an evening hand-run silently
+    resolved a day late and skipped one entirely (a real prod hole on 2026-07-27). An
+    explicit `YYYY-MM-DD` names the day directly and ignores horizon. The CT date is
+    normalized *before* the offset is added, so the arithmetic is naive and a
+    23-/25-hour DST day cannot shift the answer.
     """
     if spec == "tomorrow":
         now = now if now is not None else pd.Timestamp.now(tz="UTC")
         today_ct = now.tz_convert(ERCOT_TZ).normalize().tz_localize(None)
-        return _as_utc_day(today_ct + pd.Timedelta(days=1))
+        return _as_utc_day(today_ct + pd.Timedelta(days=horizon))
     return _as_utc_day(spec)
 
 
@@ -390,17 +439,21 @@ def _ct_span(D: pd.Timestamp) -> str:
     return f"CT {lo:%Y-%m-%d %H:%M} -> {hi:%Y-%m-%d %H:%M} {hi:%Z}"
 
 
-def _day_already_published(conn, run_id: str, D: pd.Timestamp) -> bool:
-    """True when `(run_id, delivery_date)` already has rows in `forecast_nodal`.
+def _day_already_published(conn, run_id: str, D: pd.Timestamp,
+                           horizon: int = 1) -> bool:
+    """True when `(run_id, delivery_date, horizon)` already has rows in
+    `forecast_nodal`.
 
-    The write is a replace-in-place, so a re-run overwrites a published day with no
-    confirmation. Cheap enough to check before the fit, so an unintended re-run
+    Scoped to horizon (0123) so the check is per-track: the preview's existence must
+    never block the final run for the same day and vice versa — they publish side by
+    side. The write is a replace-in-place, so a re-run overwrites a published day with
+    no confirmation. Cheap enough to check before the fit, so an unintended re-run
     costs a query instead of 20 minutes and a clobbered panel.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM forecast_nodal WHERE run_id = %s AND delivery_date = %s "
-            "LIMIT 1", (run_id, D.date()))
+            "AND horizon = %s LIMIT 1", (run_id, D.date(), horizon))
         return cur.fetchone() is not None
 
 
@@ -411,17 +464,25 @@ def _summary(result: ForecastResult) -> str:
     seen = result.n_scored_keys
     cov = seen / (seen + result.novelty) if (seen + result.novelty) else float("nan")
     sample = ", ".join(result.novel_keys[:5])
-    return (f"coverage: {result.SF.shape[0]} SF constraints x "
-            f"{len(result.panel.settlement_points)} SPs over "
+    # map_run_id + SF window pin the geography vintage: a preview(h2)-vs-final(h1) diff
+    # for a day is only a clean covariate-vintage delta if BOTH projected through the
+    # same weekly map window (0123).
+    return (f"horizon {result.horizon}; coverage: {result.SF.shape[0]} SF "
+            f"constraints x {len(result.panel.settlement_points)} SPs over "
             f"{len(result.panel.ts)} h; scored {seen} keys, "
             f"{result.novelty} novel (enforced D-1, no fit history; "
-            f"{cov:.1%} scored)"
+            f"{cov:.1%} scored); map_run_id={result.map_run_id} "
+            f"SF window_end={result.sf_window_end}"
             + (f" — e.g. {sample}" if sample else ""))
 
 
-def _grade_latest(conn, run_id: str) -> None:
+def _grade_latest(conn, run_id: str, horizon: int = 1) -> None:
     """Fold the live grade into the daily tick (no separate job): grade the most
-    recent fully-realized, ungraded served day for `run_id`.
+    recent fully-realized, ungraded served day for `run_id` on THIS horizon's track.
+
+    Horizon-scoped (0123): the h2 tick grades the h2 track and the h1 tick the h1
+    track, two independent scoreboards — a day the preview already graded does not
+    stop the final from grading it and vice versa.
 
     Non-fatal by contract. The forecast has already been published and committed by
     the time this runs, so a grading failure must NOT fail the publish or move the
@@ -430,15 +491,16 @@ def _grade_latest(conn, run_id: str) -> None:
     latest still-ungraded day, so a transient miss heals without any retry logic.
     """
     try:
-        D = resolve_gradeable_date(conn, run_id)
+        D = resolve_gradeable_date(conn, run_id, horizon)
         if D is None:
-            log.info("live grade: no ungraded fully-realized served day this tick")
+            log.info("live grade: no ungraded fully-realized served day this tick "
+                     "(horizon %d)", horizon)
             return
-        rows = grade_day(conn, D, run_id=run_id)
-        n = persist_grades(conn, run_id, D, rows)
+        rows = grade_day(conn, D, run_id=run_id, horizon=horizon)
+        n = persist_grades(conn, run_id, D, rows, horizon)
         conn.commit()
-        log.info("live grade: scoreboard_daily <- %d rows for %s (run_id=%s)",
-                 n, D.date(), run_id)
+        log.info("live grade: scoreboard_daily <- %d rows for %s (run_id=%s "
+                 "horizon=%d)", n, D.date(), run_id, horizon)
     except Exception:
         conn.rollback()
         log.exception("live grade step failed (non-fatal; forecast already "
@@ -457,6 +519,12 @@ def main(argv: list[str] | None = None) -> int:
                         "path; names the UTC day label directly)")
     p.add_argument("--run-id", required=True,
                    help="model version, e.g. mu-all-v1 — NOT the day (spec §4)")
+    p.add_argument("--horizon", type=int, choices=(1, 2), default=1,
+                   help="1 = final/t+1 (the noon tick, verification-grade; default); "
+                        "2 = preview/t+2 (the afternoon tick, inside D's decision "
+                        "window). Same model version; horizon 2 resolves 'tomorrow' "
+                        "to T+2, gates on D−1's DAM, and persists side by side with "
+                        "the final — never overwriting it (0123).")
     p.add_argument("--to-db", action="store_true",
                    help="persist + flip the pointer; omit for a dry run (compute "
                         "and report only, nothing written)")
@@ -497,9 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    D = _resolve_delivery_date(args.delivery_date)
-    log.info("delivery_date=%s (%s) from --delivery-date %s",
-             D.date(), _ct_span(D), args.delivery_date)
+    D = _resolve_delivery_date(args.delivery_date, horizon=args.horizon)
+    log.info("delivery_date=%s (%s) from --delivery-date %s (horizon %d)",
+             D.date(), _ct_span(D), args.delivery_date, args.horizon)
     arms = arms_for(args.features)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
@@ -508,12 +576,12 @@ def main(argv: list[str] | None = None) -> int:
         # Before the fit, not after: a re-run that would clobber a published day
         # should cost a query, not 20 minutes of compute and the day it replaces.
         if args.to_db and not args.force and _day_already_published(
-                conn, args.run_id, D):
-            log.error("%s is already published under run_id=%s — refusing to "
-                      "overwrite. Re-run with --force if that is intended.",
-                      D.date(), args.run_id)
+                conn, args.run_id, D, args.horizon):
+            log.error("%s is already published under run_id=%s horizon=%d — refusing "
+                      "to overwrite. Re-run with --force if that is intended.",
+                      D.date(), args.run_id, args.horizon)
             return 1
-        result = forecast_day(conn, D, run_id=args.run_id,
+        result = forecast_day(conn, D, run_id=args.run_id, horizon=args.horizon,
                               train_days=args.train_days, arms=arms,
                               seed=args.seed, n_draws=args.draws,
                               preds_path=args.preds,
@@ -528,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
             del result
             gc.collect()
             if not args.no_grade:
-                _grade_latest(conn, args.run_id)
+                _grade_latest(conn, args.run_id, args.horizon)
         else:
             log.info("dry run (--to-db not set): nothing written, pointer unchanged")
     return 0

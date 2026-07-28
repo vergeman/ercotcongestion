@@ -216,16 +216,14 @@ def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
 
     Always upserts the `forecast_sf_artifact` bytea; also drops the identical npz
     under `npz_dir` when given (§5c — disk and DB hold the same bytes, either is
-    authoritative). The disk npz gains a `_h2` suffix for horizon 2 only, so
-    horizon-1 (final) artifacts keep their current filenames (0123). Idempotent
-    replace per key; does NOT commit. Returns the blob so the caller can
-    size/inspect it. `forecast_day` (phase2b) is the production caller; `--drivers`
-    (below) is the offline one."""
+    authoritative). The disk npz is tagged with an `h{horizon}` suffix so the two
+    tracks never share a filename (0123). Idempotent replace per key; does NOT commit.
+    Returns the blob so the caller can size/inspect it. `forecast_day` (phase2b) is
+    the production caller; `--drivers` (below) is the offline one."""
     blob = build_sf_mu_artifact(SF, E_mu)
     if npz_dir is not None:
         dd = pd.Timestamp(delivery_date).date()
-        suffix = "_h2" if horizon == 2 else ""
-        with open(os.path.join(npz_dir, f"sf_mu_{run_id}_{dd.isoformat()}{suffix}.npz"),
+        with open(os.path.join(npz_dir, f"sf_mu_{run_id}_{dd.isoformat()}h{horizon}.npz"),
                   "wb") as fh:
             fh.write(blob)
     sf_artifact_to_db(conn, run_id=run_id, delivery_date=delivery_date, sf_npz=blob,
