@@ -57,7 +57,8 @@ def _scenario(seed: int = 0):
 
 
 def _install(monkeypatch, M, C, SF, fc):
-    monkeypatch.setattr(gd, "load_served_forecast", lambda conn, run_id, D_: fc)
+    monkeypatch.setattr(gd, "load_served_forecast",
+                        lambda conn, run_id, D_, horizon=1: fc)
     monkeypatch.setattr(gd, "load_shadow_prices", lambda conn, lo, hi: M)
     monkeypatch.setattr(gd, "load_congestion_panel", lambda conn, lo, hi: C)
     monkeypatch.setattr(gd, "implied_shift_factors", lambda *a, **k: SF)
@@ -102,7 +103,7 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
             _eq(by_src[name][k], v)
 
     messages = [record.getMessage() for record in caplog.records]
-    assert "grade_day start: delivery_date=2025-09-15 run_id=t" in messages
+    assert "grade_day start: delivery_date=2025-09-15 run_id=t horizon=1" in messages
     assert any(message.startswith("grade_day complete: delivery_date=2025-09-15 ")
                and "elapsed_s=" in message for message in messages)
 
@@ -160,7 +161,8 @@ def test_coverage_grain_is_shared_across_sources(monkeypatch):
 def test_raises_when_nothing_was_served(monkeypatch):
     M, C, SF, fc, _ = _scenario()
     _install(monkeypatch, M, C, SF, fc)
-    monkeypatch.setattr(gd, "load_served_forecast", lambda conn, run_id, D_: {})
+    monkeypatch.setattr(gd, "load_served_forecast",
+                        lambda conn, run_id, D_, horizon=1: {})
     with pytest.raises(RuntimeError, match="no served forecast"):
         gd.grade_day(None, D, run_id="t")
 
@@ -211,12 +213,40 @@ def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_utc_midnight
     with caplog.at_level(logging.INFO, logger=gd.__name__):
         D_ = gd.resolve_gradeable_date(conn, "t")
     assert D_ == D
-    assert conn.params == {"run_id": "t"}
+    assert conn.params == {"run_id": "t", "horizon": 1}
     messages = [record.getMessage() for record in caplog.records]
-    assert "grade selection start: run_id=t" in messages
+    assert "grade selection start: run_id=t horizon=1" in messages
     assert any(message.startswith("grade selection complete: run_id=t ")
                and "delivery_date=2025-09-15" in message
                and "elapsed_s=" in message for message in messages)
+
+
+def test_horizon_scopes_the_read_and_stamps_every_row(monkeypatch):
+    """grade_day(horizon=2) reads the horizon-2 served rows and stamps horizon=2 on
+    every source row — the two tracks grade independently (0123)."""
+    M, C, SF, fc, _ = _scenario()
+    _install(monkeypatch, M, C, SF, fc)
+    seen = {}
+
+    def _read(conn, run_id, D_, horizon=1):
+        seen["horizon"] = horizon
+        return fc
+
+    monkeypatch.setattr(gd, "load_served_forecast", _read)
+    rows = gd.grade_day(None, D, run_id="t", horizon=2)
+    assert seen["horizon"] == 2
+    assert all(r["horizon"] == 2 for r in rows)
+
+
+def test_resolve_gradeable_date_scopes_to_horizon():
+    """The day selector filters both served rows and the graded-already check to the
+    requested horizon, so the final and preview tracks select independently."""
+    conn = _FakeConn((D.date(),))
+    assert gd.resolve_gradeable_date(conn, "t", horizon=2) == D
+    assert conn.params == {"run_id": "t", "horizon": 2}
+    sql = " ".join(conn.sql.split()).lower()
+    assert "and horizon = %(horizon)s" in sql
+    assert "sd.horizon = %(horizon)s" in sql
 
 
 def test_resolve_gradeable_date_none_when_no_served_day_is_gradeable():

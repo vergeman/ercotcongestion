@@ -67,7 +67,7 @@ _BASELINES = ("oracle", "persistence", "climatology", "null")
 
 # scoreboard_daily columns, in table order — the tuple `persist_grades` COPYs.
 _COLS = (
-    "run_id", "delivery_date", "source",
+    "run_id", "delivery_date", "source", "horizon",
     "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
     "coverage80", "band_width", "pinball",
     "sf_coverage", "model_coverage", "n_hours", "n_nodes",
@@ -97,22 +97,24 @@ def _v(x) -> float | None:
     return None if not np.isfinite(x) else x
 
 
-def load_served_forecast(conn, run_id: str, D: pd.Timestamp) -> dict[str, pd.DataFrame]:
-    """Read the served nodal panel for (run_id, delivery_date=D) back into wide
-    (ts × settlement_point) frames for point / p10 / p50 / p90.
+def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
+                         horizon: int = 1) -> dict[str, pd.DataFrame]:
+    """Read the served nodal panel for (run_id, delivery_date=D, horizon) back into
+    wide (ts × settlement_point) frames for point / p10 / p50 / p90.
 
-    Empty dict if nothing was served for that day+run — the caller fails loud, since
-    there is no product to grade.
+    Each horizon is its own scoreboard track, so grading reads only the horizon's
+    own rows (0123). Empty dict if nothing was served for that day+run+horizon — the
+    caller fails loud, since there is no product to grade.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT ts, settlement_point, point, p10, p50, p90
             FROM forecast_nodal
-            WHERE run_id = %s AND delivery_date = %s
+            WHERE run_id = %s AND delivery_date = %s AND horizon = %s
             ORDER BY ts, settlement_point
             """,
-            (run_id, D.date()),
+            (run_id, D.date(), horizon),
         )
         rows = cur.fetchall()
     if not rows:
@@ -132,11 +134,16 @@ def grade_day(
     D,
     *,
     run_id: str,
+    horizon: int = 1,
     window_days: int = WINDOW_DAYS,
     lam: float = LAM,
     min_hours: int = MIN_HOURS,
 ) -> list[dict]:
     """Grade the served forecast for UTC delivery day D; return one row per source.
+
+    `horizon` selects the track to grade (1 = final/t+1, 2 = preview/t+2; 0123) —
+    each horizon is graded against the same realized C on its own served rows, so
+    preview and final are two independent scoreboard tracks per run_id.
 
     Reads only; the caller persists (`persist_grades`) and owns the transaction.
     Fails loud when there is nothing to grade — no served panel, no realized
@@ -144,14 +151,16 @@ def grade_day(
     """
     D = _as_utc_day(D)
     started = perf_counter()
-    log.info("grade_day start: delivery_date=%s run_id=%s", D.date(), run_id)
+    log.info("grade_day start: delivery_date=%s run_id=%s horizon=%d",
+             D.date(), run_id, horizon)
 
     # --- the served product (model source) ----------------------------------
-    fc = load_served_forecast(conn, run_id, D)
+    fc = load_served_forecast(conn, run_id, D, horizon)
     if not fc:
         raise RuntimeError(
             f"no served forecast_nodal rows for run_id={run_id} delivery_date="
-            f"{D.date()} — nothing to grade (run daily_forecast for D first).")
+            f"{D.date()} horizon={horizon} — nothing to grade (run daily_forecast "
+            f"for D first).")
 
     # --- realized congestion + shadow prices over the fit+score window ------
     # `end = D + 1 day` so the score block is D's 24 UTC hours; the fit window is
@@ -216,6 +225,7 @@ def grade_day(
 
     def _row(source: str, metrics: dict, bands: dict | None = None) -> dict:
         row = {"run_id": run_id, "delivery_date": D.date(), "source": source,
+               "horizon": horizon,
                **{k: metrics.get(k) for k in _METRICS},
                "coverage80": None, "band_width": None, "pinball": None,
                "sf_coverage": sf_coverage, "model_coverage": None,
@@ -263,30 +273,38 @@ def grade_day(
     return rows
 
 
-def persist_grades(conn, run_id: str, D, rows: list[dict]) -> int:
+def persist_grades(conn, run_id: str, D, rows: list[dict], horizon: int = 1) -> int:
     """Delete-then-COPY the day's grades into scoreboard_daily. Idempotent per
-    (run_id, delivery_date); does NOT commit — the caller owns the transaction.
-    Returns rows written."""
+    (run_id, delivery_date, horizon) — each horizon is its own track, so re-grading
+    one never clears the other (0123); does NOT commit — the caller owns the
+    transaction. Returns rows written."""
     D = _as_utc_day(D)
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM scoreboard_daily WHERE run_id = %s AND delivery_date = %s",
-            (run_id, D.date()),
+            "DELETE FROM scoreboard_daily WHERE run_id = %s AND delivery_date = %s "
+            "AND horizon = %s",
+            (run_id, D.date(), horizon),
         )
         sql = f"COPY scoreboard_daily ({', '.join(_COLS)}) FROM STDIN"
         with cur.copy(sql) as cp:
             for r in rows:
                 cp.write_row(tuple(
                     r[c] if c in ("run_id", "delivery_date", "source")
-                    else (int(r[c]) if c in ("n_hours", "n_nodes") and r[c] is not None
+                    else (int(r[c]) if c in ("n_hours", "n_nodes", "horizon")
+                          and r[c] is not None
                           else _v(r[c]))
                     for c in _COLS
                 ))
     return len(rows)
 
 
-def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
+def resolve_gradeable_date(conn, run_id: str, horizon: int = 1) -> pd.Timestamp | None:
     """Return the newest forecast day that has not been graded and is complete.
+
+    Scoped to `horizon` (0123): a day counts as gradeable only when it has served
+    rows AND no scoreboard row for THIS horizon, so the two tracks select
+    independently — the final tick never skips a day just because the preview track
+    already graded it.
 
     A UTC delivery day ends at 23:00, so this checks directly for the system-lambda
     price at that known hour. If it exists, the day is ready to grade; if not, the
@@ -295,16 +313,17 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
     ``None`` simply means there is nothing ready to grade yet.
     """
     started = perf_counter()
-    log.info("grade selection start: run_id=%s", run_id)
+    log.info("grade selection start: run_id=%s horizon=%d", run_id, horizon)
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT c.delivery_date
             FROM (SELECT DISTINCT delivery_date FROM forecast_nodal
-                  WHERE run_id = %(run_id)s) c
+                  WHERE run_id = %(run_id)s AND horizon = %(horizon)s) c
             WHERE NOT EXISTS (
                     SELECT 1 FROM scoreboard_daily sd
                     WHERE sd.run_id = %(run_id)s
+                      AND sd.horizon = %(horizon)s
                       AND sd.delivery_date = c.delivery_date)
               AND EXISTS (
                     SELECT 1 FROM dam_system_lambda l
@@ -314,12 +333,13 @@ def resolve_gradeable_date(conn, run_id: str) -> pd.Timestamp | None:
             ORDER BY c.delivery_date DESC
             LIMIT 1
             """,
-            {"run_id": run_id},
+            {"run_id": run_id, "horizon": horizon},
         )
         row = cur.fetchone()
     D = None if row is None else _as_utc_day(row[0])
-    log.info("grade selection complete: run_id=%s delivery_date=%s elapsed_s=%.3f",
-             run_id, D.date() if D is not None else None, perf_counter() - started)
+    log.info("grade selection complete: run_id=%s horizon=%d delivery_date=%s "
+             "elapsed_s=%.3f", run_id, horizon, D.date() if D is not None else None,
+             perf_counter() - started)
     return D
 
 
@@ -341,6 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", required=True,
                    help="model version whose served forecast to grade (e.g. "
                         "mu-all-v1) — the same run_id daily_forecast published")
+    p.add_argument("--horizon", type=int, choices=(1, 2), default=1,
+                   help="which track to grade: 1 = final/t+1 (default), 2 = "
+                        "preview/t+2 (0123). Each horizon is an independent track.")
     p.add_argument("--to-db", action="store_true",
                    help="persist the grades; omit for a dry run (compute + report "
                         "only, nothing written)")
@@ -356,21 +379,21 @@ def main(argv: list[str] | None = None) -> int:
 
     with psycopg.connect(dsn) as conn:
         if args.delivery_date == "auto":
-            D = resolve_gradeable_date(conn, args.run_id)
+            D = resolve_gradeable_date(conn, args.run_id, args.horizon)
             if D is None:
-                log.info("nothing gradeable for run_id=%s (no ungraded fully-"
-                         "realized served day)", args.run_id)
+                log.info("nothing gradeable for run_id=%s horizon=%d (no ungraded "
+                         "fully-realized served day)", args.run_id, args.horizon)
                 return 0
         else:
             D = _as_utc_day(args.delivery_date)
 
-        rows = grade_day(conn, D, run_id=args.run_id,
+        rows = grade_day(conn, D, run_id=args.run_id, horizon=args.horizon,
                          window_days=args.window_days, lam=args.lam)
         if args.to_db:
-            n = persist_grades(conn, args.run_id, D, rows)
+            n = persist_grades(conn, args.run_id, D, rows, args.horizon)
             conn.commit()
-            log.info("scoreboard_daily <- %d rows for %s (run_id=%s)",
-                     n, D.date(), args.run_id)
+            log.info("scoreboard_daily <- %d rows for %s (run_id=%s horizon=%d)",
+                     n, D.date(), args.run_id, args.horizon)
         else:
             log.info("dry run (--to-db not set): %d source rows for %s, nothing "
                      "written", len(rows), D.date())
