@@ -26,6 +26,7 @@ import pandas as pd
 from compute.analysis.brief import (
     SF_MEANINGFUL,
     TOP_K_CONSTRAINTS,
+    TOP_N_HOTSPOTS,
     TOP_N_NODES,
     pair_contributions,
 )
@@ -234,3 +235,82 @@ def hub_dipole(cong: pd.Series, SF: pd.DataFrame, mu: pd.Series,
                  for h in hub_cong.index],
         "drivers": driver_list,
     }
+
+
+# --- F4 — nodal hotspots and common nodes ----------------------------------
+
+def nodal_hotspots(cong: pd.Series, SF: pd.DataFrame, mu: pd.Series,
+                   top_n: int = TOP_N_HOTSPOTS,
+                   top_drivers: int = TOP_N_NODES) -> list[dict]:
+    """Top settlement points by ``|cong[sp]|``, each decomposed into constraints.
+
+    ``cong`` is the forecast (μ̂-basis) nodal congestion — the same reconstructed
+    operator F5 uses, so a node's ``net`` congestion equals the sum of its
+    per-constraint contributions exactly. Each hotspot also reports
+    ``gross = Σ_c |k[c, sp]|`` alongside ``net = Σ_c k[c, sp] = cong[sp]``: a big
+    gross with a small net is a *cancellation* node (constraints fighting over
+    one location), itself a finding. ``net_gross_ratio`` near 1 is pure
+    reinforcement, near 0 heavy cancellation — labeling is left to the reader.
+    """
+    ranked = cong.reindex(cong.abs().sort_values(ascending=False).index)
+
+    hotspots = []
+    for sp in ranked.index[:top_n]:
+        k = -SF[sp] * mu                       # per-constraint contribution to sp
+        gross = float(k.abs().sum())
+        net = float(k.sum())                   # == cong[sp]
+        by_mag = k.reindex(k.abs().sort_values(ascending=False).index)
+        drivers = []
+        for ckey in by_mag.index[:top_drivers]:
+            name, contingency = split_constraint_key(ckey)
+            drivers.append({
+                "constraint_key": str(ckey),
+                "constraint_name": name,
+                "contingency_name": contingency,
+                "contribution": float(by_mag[ckey]),
+                "share": (float(by_mag[ckey]) / net) if net else 0.0,
+            })
+        hotspots.append({
+            "settlement_point": str(sp),
+            "cong": float(cong[sp]),
+            "gross": gross,
+            "net": net,
+            "net_gross_ratio": (abs(net) / gross) if gross else 0.0,
+            "drivers": drivers,
+        })
+    return hotspots
+
+
+def common_nodes(f2_results: Mapping[str, dict], min_count: int = 2) -> list[dict]:
+    """Settlement points in the F2 top-N of ``≥ min_count`` constraints.
+
+    These confluence points are where independent constraints stack on one
+    location — the natural map anchors for the hour. ``f2_results`` maps a
+    constraint key to its ``constraint_node_extrema`` output; a node is counted
+    once per constraint (its SF sign fixes which side it lands on). Ranked by how
+    many constraints touch it, then by total absolute contribution.
+    """
+    by_sp: dict[str, list[dict]] = {}
+    for constraint_key, extrema in f2_results.items():
+        for side in ("import", "export"):
+            for node in extrema.get(side, []):
+                by_sp.setdefault(node["settlement_point"], []).append({
+                    "constraint_key": str(constraint_key),
+                    "side": side,
+                    "sf": node["sf"],
+                    "contribution": node["contribution"],
+                })
+
+    common = []
+    for sp, entries in by_sp.items():
+        constraints = sorted({e["constraint_key"] for e in entries})
+        if len(constraints) >= min_count:
+            common.append({
+                "settlement_point": sp,
+                "count": len(constraints),
+                "constraints": constraints,
+                "total_abs_contribution": float(sum(abs(e["contribution"]) for e in entries)),
+                "entries": entries,
+            })
+    common.sort(key=lambda d: (-d["count"], -d["total_abs_contribution"], d["settlement_point"]))
+    return common

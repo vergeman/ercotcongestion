@@ -28,6 +28,7 @@ SF_MEANINGFUL = 0.05
 # Screening cutoffs. Absolute $/MWh ranks first; these bound how much survives.
 TOP_K_CONSTRAINTS = 10   # per hour
 TOP_N_NODES = 5          # per side (import / export) per constraint
+TOP_N_HOTSPOTS = 10      # highest-|congestion| settlement points per hour
 
 
 def cell_contributions(SF: pd.DataFrame, mu: pd.Series) -> pd.DataFrame:
