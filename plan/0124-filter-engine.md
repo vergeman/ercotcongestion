@@ -89,6 +89,6 @@ All verified against the served `mu-all-v1` June-30 artifact in the dev stack;
 * **Extra payload:** each hour also carries `common_nodes` (F4 confluence
   anchors), and F6 adds `best_pair_decomposition` alongside the hub-dipole one.
 * **F5b type gate** relaxed to "any typed SP" — see the F5b NOTE above.
-* **Not wired:** hooking `daily_brief` into the live grading tick / orchestrator
-  is deferred — the job is idempotent and re-run-safe, but nothing schedules it
-  yet.
+* **Scheduling (0126):** the "Not wired" gap is closed in `0126-include-daily-brief-jobs.md`
+  — `daily_forecast.py` now chains the brief in-process each `--to-db` tick, and
+  `compute/jobs/backfill_briefs.py` backfills a range from existing artifacts.
