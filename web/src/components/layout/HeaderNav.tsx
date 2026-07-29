@@ -10,7 +10,7 @@ const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean }[] = [
   { key: "map", label: "Map", href: "/map" },
   { key: "matrix", label: "Matrix", href: "/matrix" },
   { key: "scoreboard", label: "Scoreboard", href: "/scoreboard" },
-  { key: "analysis", label: "Analysis" }, // not yet built — disabled
+  { key: "analysis", label: "Analysis", href: "/analysis" },
 ];
 
 export default function HeaderNav({

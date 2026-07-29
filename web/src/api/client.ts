@@ -12,6 +12,7 @@ import type {
   ScoreboardWeekly,
   ScoreboardDaily,
   MatrixFrame,
+  AnalysisBrief,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -260,5 +261,42 @@ export async function fetchScoreboardDaily(
   const r = await fetch(`${BASE}/scoreboard/daily?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`scoreboard/daily ${r.status}`);
+  return r.json();
+}
+
+// =============================================================================
+// /analysis/brief[/latest] — the server-computed daily Insight Brief (0124/0125).
+// Both fetchers soft-fail to null on 503 (no forecast run published), matching
+// the scoreboard/matrix contract; a day/run with no brief is not a network
+// failure but an `available: false` envelope the page renders as an empty state.
+// =============================================================================
+
+// The latest day's full brief for the current run, plus `available_dates` — the
+// run's sorted day index the page steps prev/next through. The page's landing
+// call. Null on 503 (no forecast run published yet).
+export async function fetchAnalysisBriefLatest(
+  runId?: string
+): Promise<AnalysisBrief | null> {
+  const qs = new URLSearchParams();
+  if (runId) qs.set("run_id", runId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/analysis/brief/latest${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/brief/latest ${r.status}`);
+  return r.json();
+}
+
+// One specific day's full brief (the frozen 0124 per-day endpoint). Used for the
+// prev/next day steps once `available_dates` is known. Null on 503; a day with no
+// brief returns an `available: false` envelope (not an error).
+export async function fetchAnalysisBrief(
+  deliveryDate: string,
+  runId?: string
+): Promise<AnalysisBrief | null> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
   return r.json();
 }
