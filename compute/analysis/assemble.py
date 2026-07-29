@@ -28,6 +28,7 @@ from typing import cast
 
 import pandas as pd
 
+from compute.analysis.after_action import hour_after_action, scorecard
 from compute.analysis.brief import (
     TOP_K_CONSTRAINTS,
     WATCHLIST_MIN_HOURS,
@@ -57,8 +58,16 @@ def _round(obj, ndigits: int = 4):
     return obj
 
 
-def _hour_entry(reach, E_mu, SF, hour, metadata, hubs, top_k):
-    """One hour: F1 constraints (+F2 nodes, +F3 stats), F4 hotspots, F5a dipole."""
+def _hour_series(panel, hour):
+    """A panel's row at ``hour`` if present, else ``None`` (panel may be None)."""
+    if panel is None or hour not in panel.index:
+        return None
+    return panel.loc[hour]
+
+
+def _hour_entry(reach, E_mu, SF, hour, metadata, hubs, top_k, dam):
+    """One hour: F1 constraints (+F2 nodes, +F3 stats), F4 hotspots, F5a dipole,
+    and — when realized DAM panels are present for the hour — F6 after-action."""
     mu = E_mu.loc[hour]
     cong = nodal_congestion(SF, mu)
 
@@ -72,19 +81,33 @@ def _hour_entry(reach, E_mu, SF, hour, metadata, hubs, top_k):
         finding["nodes"] = nodes
         finding["stats"] = constraint_stats(sf_row, mu[key])
 
-    return {
+    entry = {
         "constraints": constraints,
         "hotspots": nodal_hotspots(cong, SF, mu),
         "common_nodes": common_nodes(extrema_by_key),
         "hub_dipole": hub_dipole(cong, SF, mu, hubs),
         "best_pair": None,      # F5b — later commit
-        "after_action": None,   # F6 — filled when DAM lands
+        "after_action": None,   # F6 — filled below when DAM lands
     }
+
+    # F6 — realized DAM μ (same S) + realized SPP congestion for this hour.
+    realized = _hour_series(dam["realized"], hour) if dam else None
+    mu_dam_row = _hour_series(dam["mu"], hour) if dam else None
+    if realized is not None and mu_dam_row is not None:
+        cong_recon = nodal_congestion(SF, mu_dam_row.reindex(SF.index).fillna(0.0))
+        entry["after_action"] = hour_after_action(
+            reach=reach, mu_fc=mu, mu_dam_row=mu_dam_row,
+            cong_fc=cong, cong_recon=cong_recon, realized=realized,
+            p10=_hour_series(dam.get("p10"), hour),
+            p90=_hour_series(dam.get("p90"), hour),
+            hubs=hubs, dipole=entry["hub_dipole"], top_k=top_k)
+    return entry
 
 
 def _day_rollup(reach, E_mu, hour_entries: Mapping[str, dict], top_k: int,
-                min_hours: int) -> dict:
-    """Whole-day ranks, peak hours, and the recurring-item watchlist."""
+                min_hours: int, dam) -> dict:
+    """Whole-day ranks, peak hours, the recurring-item watchlist, and — when DAM
+    is present — the day-level ranking scorecard the daily piece leads with."""
     daily_score = E_mu.abs().sum(axis=0) * reach
     ranked = sorted(daily_score.index, key=lambda k: (-float(daily_score[k]), str(k)))
     daily_ranks = []
@@ -125,33 +148,49 @@ def _day_rollup(reach, E_mu, hour_entries: Mapping[str, dict], top_k: int,
         key=lambda d: (-d["hours"], d["settlement_point"]),
     )
 
-    return {
+    rollup = {
         "daily_ranks": daily_ranks,
         "peak_hours": {"by_hour_score": peak_hour_score, "by_dipole_spread": peak_dipole},
         "watchlist": {"constraints": watch_constraints, "nodes": watch_nodes},
+        "after_action": None,
     }
+
+    # Day-level after-action: predicted vs realized *daily* footprint ranking
+    # (μ-mass × reach), plus the mean per-hour DAM match coverage.
+    if dam is not None and not dam["mu"].empty:
+        daily_real = (dam["mu"].abs().sum(axis=0).reindex(reach.index).fillna(0.0)) * reach
+        coverages = [e["after_action"]["dam_match_coverage"]
+                     for e in hour_entries.values() if e.get("after_action")]
+        rollup["after_action"] = {
+            "scorecard": scorecard(daily_score, daily_real, top_k),
+            "dam_match_coverage": (sum(coverages) / len(coverages)) if coverages else None,
+        }
+    return rollup
 
 
 def build_brief(SF: pd.DataFrame, E_mu: pd.DataFrame, metadata: Mapping[str, Mapping],
                 *, run_id: str, delivery_date, horizon: int = 1,
                 artifact_date=None, mu_basis: str = "forecast",
+                dam: Mapping | None = None,
                 top_k: int = TOP_K_CONSTRAINTS,
                 watchlist_min_hours: int = WATCHLIST_MIN_HOURS) -> dict:
     """Build the full brief document for one delivery day.
 
     ``SF`` (constraints × SPs) and ``E_mu`` (hours × constraints) are the decoded
-    artifact; ``metadata`` maps SP → attributes for node labeling. The hours axis
-    is taken from ``E_mu.index`` in order.
+    artifact; ``metadata`` maps SP → attributes for node labeling. When ``dam`` is
+    given — ``{"mu", "realized", "p10", "p90"}`` panels (hours × keys/SPs) — each
+    hour with realized data and the day roll-up gain their F6 after-action; absent
+    ``dam`` leaves those ``None``. The hours axis is ``E_mu.index`` in order.
     """
     reach = sf_reach(SF)
     hubs = canonical_hubs(SF.columns)
 
     hours = {
         pd.Timestamp(hour).isoformat(): _hour_entry(
-            reach, E_mu, SF, hour, metadata, hubs, top_k)
+            reach, E_mu, SF, hour, metadata, hubs, top_k, dam)
         for hour in E_mu.index
     }
-    day = _day_rollup(reach, E_mu, hours, top_k, watchlist_min_hours)
+    day = _day_rollup(reach, E_mu, hours, top_k, watchlist_min_hours, dam)
 
     brief: dict = {
         "provenance": {
@@ -163,7 +202,8 @@ def build_brief(SF: pd.DataFrame, E_mu: pd.DataFrame, metadata: Mapping[str, Map
             "n_constraints": int(SF.shape[0]),
             "n_settlement_points": int(SF.shape[1]),
             "n_hours": int(len(E_mu.index)),
-            "dam_match_coverage": None,   # set by F6 after-action
+            "dam_match_coverage": (day["after_action"]["dam_match_coverage"]
+                                   if day.get("after_action") else None),
         },
         "hours": hours,
         "day": day,

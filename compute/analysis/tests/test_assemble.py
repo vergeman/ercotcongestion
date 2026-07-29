@@ -6,6 +6,7 @@ hotspots + common nodes, the F5a dipole, and the F5b/F6 placeholders; the day
 roll-up carries ranks, peak hours, and the watchlist; floats are rounded.
 """
 import pandas as pd
+import pytest
 
 from compute.analysis.assemble import build_brief
 from compute.analysis.metadata import load_sp_metadata
@@ -81,6 +82,41 @@ def test_day_rollup():
     # watchlist_min_hours=1, so every top-ranked constraint recurs enough to list.
     assert {"constraints", "nodes"} == set(day["watchlist"])
     assert all(w["hours"] >= 1 for w in day["watchlist"]["constraints"])
+
+
+def test_after_action_wires_in_when_dam_present():
+    """With realized panels, each hour and the day roll-up gain their F6 block."""
+    SF, E_mu = _artifact()
+    metadata = load_sp_metadata(SPS, csv_path="/nonexistent.csv")
+    # Realized DAM μ (subset of constraints) + realized SPP congestion + bands.
+    hours = E_mu.index
+    dam = {
+        "mu": pd.DataFrame([[40.0, 0.0, 10.0, 0.0], [10.0, 50.0, 0.0, 5.0]],
+                           index=hours, columns=CONSTRAINTS),
+        "realized": pd.DataFrame([[1.0, -2.0, 3.0, -1.0, -5.0, 6.0],
+                                  [2.0, -1.0, 1.0, -2.0, -4.0, 5.0]],
+                                 index=hours, columns=SPS),
+        "p10": pd.DataFrame(-20.0, index=hours, columns=SPS),
+        "p90": pd.DataFrame(20.0, index=hours, columns=SPS),
+    }
+    b = build_brief(SF, E_mu, metadata, run_id="run-x", delivery_date="2026-06-30",
+                    horizon=1, dam=dam, watchlist_min_hours=1)
+
+    aa = b["hours"]["2026-06-30T00:00:00+00:00"]["after_action"]
+    assert aa is not None
+    assert {"dam_match_coverage", "scorecard", "hub_dipole_decomposition",
+            "hub_triple"} <= set(aa)
+    # Dipole decomposition reconciles: forecast + Δμ + residual == actual.
+    d = aa["hub_dipole_decomposition"]
+    assert (d["recon_spread"] + d["spatial_residual"]
+            == pytest.approx(d["actual_spread"], abs=1e-4))
+    # Every SP is inside the wide ±20 band here.
+    assert all(t["in_band"] for t in aa["hub_triple"])
+
+    # Day roll-up carries its own realized scorecard + coverage; provenance echoes it.
+    day_aa = b["day"]["after_action"]
+    assert day_aa is not None and 0.0 <= day_aa["dam_match_coverage"] <= 1.0
+    assert b["provenance"]["dam_match_coverage"] == day_aa["dam_match_coverage"]
 
 
 def test_floats_are_rounded():

@@ -15,14 +15,16 @@ CLI (same shape as grade_day):
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from time import perf_counter
 
+import pandas as pd
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from compute.analysis.assemble import build_brief
 from compute.analysis.metadata import load_sp_metadata
+from compute.sf.panels import load_congestion_panel, load_shadow_prices
 from compute.sf.project import load_sf_mu
 
 log = logging.getLogger("daily_brief")
@@ -67,8 +69,41 @@ def resolve_briefable_date(conn, run_id: str) -> date | None:
     return None if row is None or row["d"] is None else row["d"]
 
 
+def _load_bands(cur, run_id: str, D: date, horizon: int) -> dict:
+    """The served P10/P90 nodal congestion bands (hours × SP) for the band check."""
+    cur.execute(
+        "SELECT ts, settlement_point, p10, p90 FROM forecast_nodal "
+        "WHERE run_id = %s AND delivery_date = %s AND horizon = %s",
+        (run_id, D, horizon),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return {}
+    df = pd.DataFrame(rows)
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return {q: df.pivot(index="ts", columns="settlement_point", values=q).sort_index()
+            for q in ("p10", "p90")}
+
+
+def _load_dam(conn, run_id: str, D: date, horizon: int) -> dict | None:
+    """Realized DAM μ + SPP-congestion panels for D, with the forecast bands.
+
+    Returns ``None`` when DAM has not published for the day (F6 stays off); the
+    grading tick re-runs the job once it has, filling after-action idempotently.
+    """
+    start = datetime(D.year, D.month, D.day, tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+    M = load_shadow_prices(conn, start, end)          # (hours × constraint key)
+    C = load_congestion_panel(conn, start, end)       # (hours × SP), SPP − λ
+    if M.empty or C.empty:
+        return None
+    with conn.cursor(row_factory=dict_row) as cur:
+        bands = _load_bands(cur, run_id, D, horizon)
+    return {"mu": M, "realized": C, "p10": bands.get("p10"), "p90": bands.get("p90")}
+
+
 def compute_brief(conn, run_id: str, D: date, horizon: int | None = None) -> dict:
-    """Load the day's artifact and build its brief document (no persistence)."""
+    """Load the day's artifact (+ realized DAM when present) and build its brief."""
     started = perf_counter()
     with conn.cursor(row_factory=dict_row) as cur:
         if horizon is None:
@@ -82,17 +117,18 @@ def compute_brief(conn, run_id: str, D: date, horizon: int | None = None) -> dic
             f"no forecast_sf_artifact for run_id={run_id} delivery_date={D} "
             f"horizon={horizon}")
 
+    dam = _load_dam(conn, run_id, D, horizon)
     SF, E_mu = artifact.SF, artifact.E_mu
     metadata = load_sp_metadata(SF.columns)
     brief = build_brief(
         SF, E_mu, metadata,
         run_id=run_id, delivery_date=D, horizon=horizon,
-        artifact_date=D, mu_basis="forecast",
+        artifact_date=D, mu_basis="forecast", dam=dam,
     )
     log.info("compute_brief: delivery_date=%s run_id=%s horizon=%d hours=%d "
-             "constraints=%d sps=%d elapsed_s=%.2f",
+             "constraints=%d sps=%d after_action=%s elapsed_s=%.2f",
              D, run_id, horizon, len(E_mu.index), SF.shape[0], SF.shape[1],
-             perf_counter() - started)
+             dam is not None, perf_counter() - started)
     return brief
 
 
@@ -134,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    with psycopg.connect(settings.pg_dsn, row_factory=dict_row) as conn:
+    # Default (tuple) row factory: the sf.panels loaders use conn.cursor() and
+    # expect tuples; every dict read below asks for dict_row explicitly.
+    with psycopg.connect(settings.pg_dsn) as conn:
         conn.autocommit = False
         if args.delivery_date == "auto":
             D = resolve_briefable_date(conn, args.run_id)
