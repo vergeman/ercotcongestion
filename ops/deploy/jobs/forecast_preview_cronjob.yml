@@ -20,7 +20,7 @@
 # published BEFORE the fit and fails loud (nothing written, prior rows intact) if
 # not — so a late post is a no-op this slot, not a degraded preview.
 #
-# Sequencing: the final tick fires 17:00 UTC and the preview 19:45 UTC — a 2h45m
+# Sequencing: the final tick fires 17:00 UTC and the preview 20:15 UTC — a 3h15m
 # gap, far more than the 30-min hard deadline (activeDeadlineSeconds), so the two
 # fits never overlap on the node (each peaks ~16Gi; they must not sum).
 #
@@ -34,15 +34,14 @@ metadata:
   name: ercot-forecast-preview
   namespace: ercotstress
 spec:
-  # Daily at 19:45 UTC. Cron runs in the cluster's local timezone (k3s default:
-  # UTC), fixed year-round — so the CT wall-clock this fires at shifts with DST:
-  #   CDT (summer, UTC-5): 19:45 UTC = 14:45 CDT
-  #   CST (winter, UTC-6): 19:45 UTC = 13:45 CST
-  # Both land after T+1's DAM posts (~13:30 CT). Winter is tight (15 min past), so
-  # the horizon-2 DAM-publication gate backstops a late post rather than the clock.
-  # Kept clear of the 17:00 UTC final tick (2h45m earlier) so the two fits never
-  # contend for the node's memory.
-  schedule: "45 19 * * *"
+  # Daily at 20:15 UTC. Cron runs in UTC, fixed year-round, so the CT time shifts:
+  #   CDT (summer, UTC-5): 20:15 UTC = 15:15 CDT
+  #   CST (winter, UTC-6): 20:15 UTC = 14:15 CST
+  # Both land after 14:00 CT — when the daily-settled ingest fetches T+1's DAM by
+  # name (0127) — so the horizon-2 gate, which now requires T+1's DAM to span its
+  # window (not just have a row), sees it in both seasons. Still 3h+ clear of the
+  # 17:00 UTC final tick so the two ~16Gi fits never contend for memory.
+  schedule: "15 20 * * *"
 
   # If a previous preview run is still going, skip this slot. A refit + fit +
   # propagate should never overlap itself.
@@ -110,7 +109,7 @@ spec:
                 # same fit as the final tick (horizon is persistence/labeling only).
                 requests:
                   cpu: "2"
-                  memory: "8Gi"
+                  memory: "5Gi"
                 limits:
                   cpu: "6"
                   memory: "16Gi"

@@ -110,6 +110,26 @@ def load_shadow_prices(
     return M
 
 
+# A UTC delivery window always catches the ~5h tail (00:00–04:00Z) of the prior CT
+# op-day's shadow report, so a non-empty window is not proof the day's own DAM has
+# landed. Require the latest interval to reach ≥12h in — well past the tail (~4h),
+# well below a normal day's afternoon-peak max (~23h). Erring to "not covered" is
+# safe: the brief leaves after-action off and the h2 gate retries.
+DAM_SHADOW_MIN_COVER_HOURS = 12
+
+
+def dam_shadow_covers_window(ts_max, lo) -> bool:
+    """True when DAM shadow prices span the delivery window, not just the ~5h
+    prior-op-day tail. ``ts_max`` is the latest shadow-price ``interval_ts`` in the
+    window (``None`` when there are none); ``lo`` is the window start. See
+    ``DAM_SHADOW_MIN_COVER_HOURS``.
+    """
+    if ts_max is None or pd.isna(ts_max):
+        return False
+    return pd.Timestamp(ts_max) >= pd.Timestamp(lo) + pd.Timedelta(
+        hours=DAM_SHADOW_MIN_COVER_HOURS)
+
+
 # ---------------------------------------------------------------- congestion panel
 
 def load_congestion_panel(

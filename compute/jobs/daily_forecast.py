@@ -52,7 +52,11 @@ from compute.mu.mu_model import (
     spill_panel_features,
 )
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.panels import (
+    dam_shadow_covers_window,
+    load_congestion_panel,
+    load_shadow_prices,
+)
 from compute.sf.project import (
     MAP_RUN_ID,
     MAX_SF_AGE_DAYS,
@@ -147,14 +151,19 @@ def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
     lo = D - pd.Timedelta(days=1)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM ercot_dam_shadow_prices "
-            "WHERE interval_ts >= %s AND interval_ts < %s LIMIT 1", (lo, D))
-        if cur.fetchone() is None:
-            raise RuntimeError(
-                f"horizon-2 gate: no ercot_dam_shadow_prices rows for delivery day "
-                f"{lo.date()} (D−1, the freshest history day) — T+1's DAM has not "
-                f"published yet. Refusing to fit a preview on stale history "
-                f"(spec §8: fail, nothing written, prior rows intact).")
+            "SELECT max(interval_ts) FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s", (lo, D))
+        ts_max = cur.fetchone()[0]
+    # Not merely "any row": D−1's UTC window always catches the ~5h tail of the op-day
+    # before it, so a bare existence check false-passes when T+1's own DAM has not yet
+    # landed (0127). Require the shadow prices to actually span D−1's window.
+    if not dam_shadow_covers_window(ts_max, lo):
+        raise RuntimeError(
+            f"horizon-2 gate: ercot_dam_shadow_prices does not span delivery day "
+            f"{lo.date()} (D−1, the freshest history day; latest interval "
+            f"{ts_max}) — T+1's DAM has not published yet, only the prior op-day's "
+            f"tail. Refusing to fit a preview on stale history (spec §8: fail, "
+            f"nothing written, prior rows intact).")
 
 
 def forecast_day(

@@ -45,8 +45,9 @@ def update_recent_window(client, conn, hours_back: int = 2):
         except Exception as e:
             log(f"  [{key}] FAILED: {e}")
             conn.rollback()
-    # Day-published DAM endpoints (dam_spp): one lookup per already-ingested day
-    # instead of a 26,736-row re-fetch, and pulls tomorrow once past 14:00 CT.
+    # Day-published DAM endpoints (dam_spp, dam_shadow, dam_lambda): one lookup per
+    # already-ingested day instead of re-fetching it every cycle, and pulls tomorrow
+    # once past 14:00 CT.
     try:
         update_recent_daily(client, conn)
     except Exception as e:

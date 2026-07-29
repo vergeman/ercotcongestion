@@ -71,9 +71,11 @@ ENDPOINTS = {
         "param_format": "date",
         "posting_window": True,
     },
-    # A delivery day of SPP is 26,736 rows (1,114 SPs x 24h), published all at once.
-    # `daily_settled` keeps the live path from re-pulling it every 15 min — see
-    # update_recent_daily.
+    # A delivery day of SPP is 26,736 rows (1,114 SPs x 24h), published all at
+    # once. `daily_settled` keeps the live path from re-pulling it every 15 min
+    # — see update_recent_daily. This is a static once-per-op-day DAM publish.
+    # daily_settled asks for it by delivery-date name — so it lands the
+    # afternoon it posts (D+1 after 14:00 CT) instead of a full op-day behind
     "dam_spp": {
         "path": "/np4-190-cd/dam_stlmnt_pnt_prices",
         "loader": load_dam_spp,
@@ -88,6 +90,7 @@ ENDPOINTS = {
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+        "daily_settled": True,
     },
     "dam_lambda": {
         "path": "/np4-523-cd/dam_system_lambda",
@@ -95,6 +98,7 @@ ENDPOINTS = {
         "from_param": "deliveryDateFrom",
         "to_param": "deliveryDateTo",
         "param_format": "date",
+        "daily_settled": True,
     },
     "sced_lambda": {
         "path": "/np6-322-cd/sced_system_lambda",
