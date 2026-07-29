@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type {
   AnalysisBrief,
   Brief,
@@ -20,6 +20,7 @@ import type {
 import { fetchAnalysisBrief, fetchAnalysisBriefLatest } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import Tooltip from "../components/ui/Tooltip";
+import { mapSettlementPointLink } from "../lib/mapLinks";
 
 // The Analysis page (plan/0125): a single-delivery-day Insight Brief rendering
 // the 0124 F1–F6 findings for one day, defaulting to the latest. The landing
@@ -81,23 +82,31 @@ function splitKey(key: string): { name: string; contingency: string | null } {
     : { name: key.slice(0, i), contingency: key.slice(i + 1) };
 }
 
-// An ISO hour key (UTC) → the ERCOT "hour ending" label in Central time. HE N is
-// the hour spanning [N−1:00, N:00) CT, so the delivery hour starting at CT hour h
-// is HE (h+1). Returns e.g. { he: 17, clock: "4 PM", label: "HE17 · 4 PM CT" }.
-function ctHourEnding(iso: string): { he: number; clock: string; label: string } {
-  const d = new Date(iso);
+// An ISO hour key (UTC) → the ERCOT "hour ending" label in Central time. ERCOT
+// settles day-ahead by *hour ending*: HE N is the delivery hour spanning
+// [N−1:00, N:00) CT, so the hour starting at CT hour h is HE (h+1). To keep the
+// HE number from reading as a mismatch against the clock (HE20 is 7–8 PM, not
+// 8 PM), the label carries the full clock span: e.g. "HE20 · 7–8 PM CT".
+function ctHourEnding(iso: string): { he: number; label: string } {
+  const start = new Date(iso);
   const parts = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     hourCycle: "h23",
     timeZone: "America/Chicago",
-  }).formatToParts(d);
+  }).formatToParts(start);
   const startHour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
   const he = startHour + 1; // 00:00 CT → HE01, 23:00 CT → HE24
-  const clock = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    timeZone: "America/Chicago",
-  }).format(d);
-  return { he, clock, label: `HE${he} · ${clock} CT` };
+  const end = new Date(start.getTime() + 3_600_000);
+  const clock = (d: Date) =>
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      timeZone: "America/Chicago",
+    }).format(d); // e.g. "7 PM"
+  const [sNum, sMer] = clock(start).split(" ");
+  const [eNum, eMer] = clock(end).split(" ");
+  // Collapse a shared meridiem ("7–8 PM"); keep both when it flips ("11 PM–12 AM").
+  const span = sMer === eMer ? `${sNum}–${eNum} ${eMer}` : `${sNum} ${sMer}–${eNum} ${eMer}`;
+  return { he, label: `HE${he} · ${span} CT` };
 }
 
 // A constraint key "NAME|CONTINGENCY" split for display. The brief already
@@ -292,20 +301,26 @@ function BestPairCard({ bp, hourLabel }: { bp: BriefBestPair; hourLabel: string 
         </Tooltip>
       </div>
 
+      {/* Read source → sink: congestion rises from the low (source) endpoint to
+          the high (sink) one across the spread. Each node links into the map. */}
       <div className="an-pair">
         <div className="an-pair__end">
-          <div className="an-pair__sp">{bp.sink.settlement_point}</div>
-          <div className="an-pair__meta label">
-            sink · {usd(bp.sink.cong)}
-            {bp.sink.sp_type ? ` · ${bp.sink.sp_type}` : ""}
-          </div>
-        </div>
-        <div className="an-pair__arrow">↔</div>
-        <div className="an-pair__end an-pair__end--right">
-          <div className="an-pair__sp">{bp.source.settlement_point}</div>
+          <Link className="an-pair__sp an-pair__link" to={mapSettlementPointLink(bp.source.settlement_point)}>
+            {bp.source.settlement_point}
+          </Link>
           <div className="an-pair__meta label">
             source · {usd(bp.source.cong)}
             {bp.source.sp_type ? ` · ${bp.source.sp_type}` : ""}
+          </div>
+        </div>
+        <div className="an-pair__arrow">→</div>
+        <div className="an-pair__end an-pair__end--right">
+          <Link className="an-pair__sp an-pair__link" to={mapSettlementPointLink(bp.sink.settlement_point)}>
+            {bp.sink.settlement_point}
+          </Link>
+          <div className="an-pair__meta label">
+            sink · {usd(bp.sink.cong)}
+            {bp.sink.sp_type ? ` · ${bp.sink.sp_type}` : ""}
           </div>
         </div>
       </div>
@@ -390,8 +405,9 @@ function SpreadDecomp({ d }: { d: BriefSpreadDecomposition }) {
   );
   return (
     <div className="an-df">
+      {/* Same source → sink reading as the headline: b (low) → a (high). */}
       <div className="an-df__pair label">
-        {d.a} <span className="an-df__sep">↔</span> {d.b}
+        {d.b} <span className="an-df__sep">→</span> {d.a}
       </div>
       {row("Forecast spread", d.forecast_spread, "total")}
       {row(
@@ -1328,6 +1344,8 @@ export default function AnalysisPage() {
         .an-pair__end { min-width: 0; }
         .an-pair__end--right { text-align: right; }
         .an-pair__sp { font-size: 20px; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); }
+        .an-pair__link { text-decoration: none; cursor: pointer; }
+        .an-pair__link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
         .an-pair__meta { color: var(--text-muted); margin-top: 2px; }
         .an-pair__arrow { font-size: 22px; color: var(--text-secondary); }
 
