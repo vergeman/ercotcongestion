@@ -58,16 +58,37 @@ Branch: feat/0124-filter-engine
 ### Commit 7 — F5b best pair (last, highest risk)
 
 * Max |cong[b]−cong[a]| over quality-gated pairs, with driver waterfall + dominance share.
-* Guardrails in order: cluster geographic duplicates (keep one representative); require allowed SP-type (hub/LZ/RN/gen/storage, readable names preferred); require DAM-SPP coverage for both endpoints; suppress pairs already told by F5a. Rank by absolute forecast spread.
+* Guardrails in order: cluster geographic duplicates (keep one representative); require allowed SP-type; require DAM-SPP coverage for both endpoints; suppress pairs already told by F5a. Rank by absolute forecast spread.
+* NOTE (as built): the geocoded `sp_type` vocab is `{OTHER, RN, PCCRN, PUN, hub, load_zone}` — the walkthrough's own headline nodes (OLNEY/LGW/CFLATS) are typed `OTHER`, so a literal `{hub,LZ,RN,gen,storage}` allowlist drops them (min flips to DORA_SLR_RN). Default gate therefore requires only a *non-null* type; `allowed_types` is a param to tighten later. This preserves the documented result and matches `last_mile.md`'s warning against over-restrictive allowlists.
 
 * Do NOT touch: modeling / fit code; do NOT add LLM commentary, manual source–sink builder, alerts, change-since-yesterday, or historical analogs (all deferred per `last_mile.md`).
 
 ## Acceptance
 
-* [ ] `compute/analysis/brief.py` primitives reproduce the June 30 golden numbers in tests (OLNEY−LGW $159.19; JUNCTION−CFLATS $69.10).
-* [ ] F2/F4 rank over the full artifact including hubs/LZs — hubs present in F5a despite absent geocode metadata.
-* [ ] F1 reports hour rank and daily rank as distinct fields.
-* [ ] `compute/jobs/daily_brief.py` writes one append-only brief per `(run_id, delivery_date)` with per-hour entries + `brief.day` roll-up matching the Output shape.
-* [ ] `GET /analysis/brief?delivery_date=…` returns the persisted brief read-only.
-* [ ] F6 populates `after_action` idempotently once DAM μ + SPPs exist; null before.
-* [ ] Brief provenance records run_id, artifact date, μ basis, DAM match coverage.
+All verified against the served `mu-all-v1` June-30 artifact in the dev stack;
+33 hermetic tests in `compute/analysis/tests/` pin every golden number.
+
+* [x] `compute/analysis/brief.py` primitives reproduce the June 30 golden numbers (OLNEY−LGW $159.19; JUNCTION−CFLATS $69.10). — `test_brief.py`
+* [x] F2/F4 rank over the full artifact including hubs/LZs; F5a reads the 13 canonical hubs (`*AVG` excluded) by name despite absent geocode metadata. — `test_families.py`, `test_hub_dipole.py`, `test_nodal.py`
+* [x] F1 reports `hour_rank` and `daily_rank` as distinct fields (107__B: hour 1 / daily 2). — `test_families.py`
+* [x] F5b best pair = OLNEY↔LGW $159.19 after dedup + guardrails; F5a suppressed, DAM coverage gated. — `test_best_pair.py`
+* [x] `compute/jobs/daily_brief.py` upserts one brief per `(run_id, delivery_date, horizon)` with per-hour entries + `day` roll-up matching the Output shape. Re-run is byte-identical (idempotent). — verified in stack
+* [x] `GET /analysis/brief?delivery_date=…` returns the persisted brief read-only; `available:false` (not 404) when absent. — `api/analysis.py`, registered in `main.py`
+* [x] F6 fills `after_action` per hour + day roll-up when DAM μ + SPPs exist (recall@10 0.7, top-2 exact; OLNEY−LGW 159.19→250.08→237.40), null before; provenance `dam_match_coverage` populated. — `test_after_action.py`
+* [x] Brief provenance records run_id, delivery_date, horizon, artifact_date, mu_basis, dam_match_coverage. — `assemble.py`
+
+### As-built deltas from the plan
+
+* **Module split:** primitives in `brief.py`; families in `families.py`; F6 in
+  `after_action.py`; assembly in `assemble.py`; metadata provider in
+  `metadata.py`. (Plan implied a single `brief.py`.)
+* **Persistence:** table `analysis_brief` (migration `38_analysis_brief.sql`),
+  JSONB, keyed `(run_id, delivery_date, horizon)` with `ON CONFLICT` upsert — an
+  in-place read-cache, not the append-only blob the plan sketched. Migration was
+  applied to the dev DB during Commit 5; **apply it wherever else this runs.**
+* **Extra payload:** each hour also carries `common_nodes` (F4 confluence
+  anchors), and F6 adds `best_pair_decomposition` alongside the hub-dipole one.
+* **F5b type gate** relaxed to "any typed SP" — see the F5b NOTE above.
+* **Not wired:** hooking `daily_brief` into the live grading tick / orchestrator
+  is deferred — the job is idempotent and re-run-safe, but nothing schedules it
+  yet.
