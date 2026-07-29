@@ -3,10 +3,14 @@ import { useSearchParams } from "react-router-dom";
 import type {
   AnalysisBrief,
   Brief,
+  BriefAfterAction,
   BriefBestPair,
   BriefDriver,
   BriefHour,
   BriefHubDipole,
+  BriefHubTriple,
+  BriefScorecard,
+  BriefSpreadDecomposition,
 } from "../api/types";
 import { fetchAnalysisBrief, fetchAnalysisBriefLatest } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
@@ -55,12 +59,22 @@ const HORIZON = {
   2: { label: "Preview · t+2", tip: "Served from the preview (t+2) artifact — no final horizon exists for this day yet." },
 } as const;
 
-// $/MWh formatters. `usd` is a bare magnitude; `usdSigned` keeps the driver
-// sign (unicode minus, to match the app's numeric styling).
-const usd = (v: number): string => `$${v.toFixed(2)}`;
+// $/MWh formatters. `usd` keeps a leading unicode minus for negatives (no plus
+// for positives); `usdSigned` always shows the sign — for deltas/driver
+// contributions where the direction is the point.
+const usd = (v: number): string => `${v < 0 ? "−" : ""}$${Math.abs(v).toFixed(2)}`;
 const usdSigned = (v: number): string =>
   `${v >= 0 ? "+" : "−"}$${Math.abs(v).toFixed(2)}`;
 const pct = (v: number): string => `${(v * 100).toFixed(0)}%`;
+
+// Split a "NAME|CONTINGENCY" constraint key for the rows that carry only the
+// key (the F6 scorecard), mirroring families.py:split_constraint_key.
+function splitKey(key: string): { name: string; contingency: string | null } {
+  const i = key.indexOf("|");
+  return i < 0
+    ? { name: key, contingency: null }
+    : { name: key.slice(0, i), contingency: key.slice(i + 1) };
+}
 
 // An ISO hour key (UTC) → the ERCOT "hour ending" label in Central time. HE N is
 // the hour spanning [N−1:00, N:00) CT, so the delivery hour starting at CT hour h
@@ -349,6 +363,227 @@ function HubDipoleLine({ dipole }: { dipole: BriefHubDipole }) {
   );
 }
 
+// ── F6 — the spread decomposition (severity vs reconstruction) ───────────────
+// forecast → +Δμ (realized DAM μ through the same S) → +spatial residual → actual
+// DAM SPP spread. The two intermediate totals (reconstruction, actual) are the
+// milestones; the deltas between them isolate severity error from the spatial
+// operator's residual. `actual`/`residual` are null until DAM SPP covers both
+// endpoints — then the flow stops at the reconstruction with a pending note.
+function SpreadDecomp({ d }: { d: BriefSpreadDecomposition }) {
+  const hasActual = d.actual_spread != null && d.spatial_residual != null;
+  const row = (
+    label: React.ReactNode,
+    value: number,
+    kind: "total" | "delta"
+  ) => (
+    <div className={`an-df__row an-df__row--${kind}`}>
+      <span className="an-df__label">{label}</span>
+      <span className="an-df__val" data-sign={value >= 0 ? "pos" : "neg"}>
+        {kind === "delta" ? usdSigned(value) : usd(value)}
+      </span>
+    </div>
+  );
+  return (
+    <div className="an-df">
+      <div className="an-df__pair label">
+        {d.a} <span className="an-df__sep">↔</span> {d.b}
+      </div>
+      {row("Forecast spread", d.forecast_spread, "total")}
+      {row(
+        <Tooltip
+          className="an-help"
+          tip="How much the realized DAM shadow prices differ from the forecast μ̂, pushed through the SAME recovered shift-factor operator — the severity (μ) error, isolated from any spatial error."
+        >
+          + Δμ (severity)
+        </Tooltip>,
+        d.delta_mu,
+        "delta"
+      )}
+      {row("Reconstructed (DAM μ)", d.recon_spread, "total")}
+      {hasActual ? (
+        <>
+          {row(
+            <Tooltip
+              className="an-help"
+              tip="What the recovered operator couldn't reconstruct: the gap between the DAM-μ reconstruction and the actual DAM SPP spread — the spatial (SF) residual."
+            >
+              + spatial residual
+            </Tooltip>,
+            d.spatial_residual as number,
+            "delta"
+          )}
+          {row("Actual DAM spread", d.actual_spread as number, "total")}
+        </>
+      ) : (
+        <div className="an-df__pending label">
+          Actual DAM SPP spread pending for these endpoints.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── F6 — the ranking scorecard (predicted vs realized top-K) ─────────────────
+// recall/exact hits + the two error exemplars, then the predicted top-K with its
+// realized rank. The hour scorecard carries μ̂/μ_DAM per row; the day roll-up's
+// does not, so the μ columns are shown only when present.
+function Scorecard({ card }: { card: BriefScorecard }) {
+  const hasMu = card.predicted.some(
+    (r) => r.mu_forecast != null || r.mu_dam != null
+  );
+  const miss = splitKey(card.biggest_severity_miss.constraint_key);
+  const alarm = splitKey(card.biggest_false_alarm.constraint_key);
+  return (
+    <div className="an-sc">
+      <div className="an-sc__tiles">
+        <div className="an-sc__tile">
+          <span className="label an-sc__k">
+            <Tooltip
+              className="an-help"
+              tip="Of the predicted top-K constraints, the fraction that were also in the realized top-K — constraint-selection accuracy, independent of rank order."
+            >
+              Recall@{card.top_k}
+            </Tooltip>
+          </span>
+          <span className="an-sc__v">{pct(card.recall_at_k)}</span>
+        </div>
+        <div className="an-sc__tile">
+          <span className="label an-sc__k">Exact hits</span>
+          <span className="an-sc__v">
+            {card.exact_hits}/{card.top_k}
+          </span>
+        </div>
+      </div>
+      <div className="an-sc__errs">
+        <div className="an-sc__err">
+          <span className="label an-sc__errk">Biggest severity miss</span>
+          <ConstraintLabel name={miss.name} contingency={miss.contingency} />
+          <span className="an-sc__rank label">
+            pred #{card.biggest_severity_miss.predicted_rank} → real #
+            {card.biggest_severity_miss.realized_rank}
+          </span>
+        </div>
+        <div className="an-sc__err">
+          <span className="label an-sc__errk">Biggest false alarm</span>
+          <ConstraintLabel name={alarm.name} contingency={alarm.contingency} />
+          <span className="an-sc__rank label">
+            pred #{card.biggest_false_alarm.predicted_rank} → real #
+            {card.biggest_false_alarm.realized_rank}
+          </span>
+        </div>
+      </div>
+      <div className={`an-sctab${hasMu ? " an-sctab--mu" : ""}`} role="table">
+        <div className="an-sctab__head" role="row">
+          <span role="columnheader">Constraint</span>
+          <span role="columnheader" className="an-sctab__num">Pred</span>
+          <span role="columnheader" className="an-sctab__num">Real</span>
+          {hasMu && (
+            <>
+              <span role="columnheader" className="an-sctab__num">μ̂</span>
+              <span role="columnheader" className="an-sctab__num">μ DAM</span>
+            </>
+          )}
+        </div>
+        {card.predicted.map((r) => {
+          const k = splitKey(r.constraint_key);
+          return (
+            <div key={r.constraint_key} className="an-sctab__row" role="row">
+              <span role="cell">
+                <ConstraintLabel name={k.name} contingency={k.contingency} />
+              </span>
+              <span role="cell" className="an-sctab__num">#{r.predicted_rank}</span>
+              <span role="cell" className="an-sctab__num">#{r.realized_rank}</span>
+              {hasMu && (
+                <>
+                  <span role="cell" className="an-sctab__num">
+                    {r.mu_forecast == null ? "—" : usd(r.mu_forecast)}
+                  </span>
+                  <span role="cell" className="an-sctab__num">
+                    {r.mu_dam == null ? "—" : usd(r.mu_dam)}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── F6 — the hub triple: forecast / reconstruction / realized + band check ───
+function HubTriple({ triples }: { triples: BriefHubTriple[] }) {
+  const num = (v: number | null) => (v == null ? "—" : usd(v));
+  return (
+    <div className="an-htab" role="table">
+      <div className="an-htab__head" role="row">
+        <span role="columnheader">Hub</span>
+        <span role="columnheader" className="an-htab__num">Forecast</span>
+        <span role="columnheader" className="an-htab__num">Recon</span>
+        <span role="columnheader" className="an-htab__num">Realized</span>
+        <span role="columnheader" className="an-htab__num">P10–P90</span>
+        <span role="columnheader" className="an-htab__band">Band</span>
+      </div>
+      {triples.map((t) => (
+        <div key={t.settlement_point} className="an-htab__row" role="row">
+          <span role="cell" className="an-htab__sp">{t.settlement_point}</span>
+          <span role="cell" className="an-htab__num">{num(t.forecast)}</span>
+          <span role="cell" className="an-htab__num">{num(t.reconstruction)}</span>
+          <span role="cell" className="an-htab__num">{num(t.realized)}</span>
+          <span role="cell" className="an-htab__num an-htab__band-range">
+            {t.p10 == null || t.p90 == null
+              ? "—"
+              : `${usd(t.p10)} … ${usd(t.p90)}`}
+          </span>
+          <span
+            role="cell"
+            className="an-htab__band"
+            data-band={t.in_band == null ? "na" : t.in_band ? "in" : "out"}
+          >
+            {t.in_band == null ? "—" : t.in_band ? "✓" : "✗"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── F6 — the after-action section for one hour ───────────────────────────────
+function AfterAction({ after }: { after: BriefAfterAction | null }) {
+  if (!after) {
+    return (
+      <section className="an-aa an-aa--pending">
+        <div className="an-aa__h label">After DAM · pending</div>
+        <p className="an-aa__pend">
+          DAM shadow prices for this hour haven't published yet — the forecast is
+          graded here once they land.
+        </p>
+      </section>
+    );
+  }
+  const decomp = after.best_pair_decomposition ?? after.hub_dipole_decomposition;
+  const inBand = after.hub_triple.filter((t) => t.in_band === true).length;
+  const graded = after.hub_triple.filter((t) => t.in_band != null).length;
+  return (
+    <section className="an-aa">
+      <div className="an-aa__head">
+        <div className="an-aa__h label">After DAM · how the forecast graded</div>
+        <span className="an-aa__cov label">
+          DAM coverage {pct(after.dam_match_coverage)}
+        </span>
+      </div>
+      {decomp && <SpreadDecomp d={decomp} />}
+      <Scorecard card={after.scorecard} />
+      <details className="an-htab-wrap">
+        <summary className="an-htab-sum">
+          Hub band check — {inBand}/{graded} hubs inside P10–P90
+        </summary>
+        <HubTriple triples={after.hub_triple} />
+      </details>
+    </section>
+  );
+}
+
 // ── one hour's story ────────────────────────────────────────────────────────
 function HourStory({ hour, hourLabel }: { hour: BriefHour; hourLabel: string }) {
   return (
@@ -361,6 +596,7 @@ function HourStory({ hour, hourLabel }: { hour: BriefHour; hourLabel: string }) 
           survived the quality gates.
         </div>
       )}
+      <AfterAction after={hour.after_action} />
       <HubDipoleLine dipole={hour.hub_dipole} />
     </div>
   );
@@ -392,6 +628,20 @@ function DaySummary({
           </button>
         </div>
       </section>
+
+      {day.after_action && (
+        <section className="an-aa">
+          <div className="an-aa__head">
+            <div className="an-aa__h label">Day scorecard · after DAM</div>
+            {day.after_action.dam_match_coverage != null && (
+              <span className="an-aa__cov label">
+                DAM coverage {pct(day.after_action.dam_match_coverage)}
+              </span>
+            )}
+          </div>
+          <Scorecard card={day.after_action.scorecard} />
+        </section>
+      )}
 
       <section>
         <div className="an-section-h label">Daily footprint ranks</div>
@@ -840,6 +1090,87 @@ export default function AnalysisPage() {
         .an-watch__key { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-primary); }
         .an-watch__hrs { color: var(--text-muted); }
         .an-watch__none { color: var(--text-muted); }
+
+        /* F6 — the after-action section */
+        .an-aa {
+          margin: 8px 16px; padding: 14px 16px;
+          background: var(--bg-panel); border: 1px solid var(--border);
+          border-radius: 6px;
+        }
+        .an-aa__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+        .an-aa__h { color: var(--text-secondary); }
+        .an-aa__cov { margin-left: auto; color: var(--text-muted); }
+        .an-aa--pending { border-style: dashed; }
+        .an-aa__pend { margin: 6px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+        /* spread-decomposition flow */
+        .an-df {
+          margin-top: 12px; padding: 10px 12px;
+          background: var(--bg-surface); border-radius: 4px;
+          max-width: 460px;
+        }
+        .an-df__pair { color: var(--text-muted); margin-bottom: 6px; font-family: var(--font-mono); letter-spacing: normal; }
+        .an-df__sep { color: var(--text-secondary); }
+        .an-df__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; }
+        .an-df__row--total { font-weight: 700; }
+        .an-df__row--total + .an-df__row--delta { border-top: none; }
+        .an-df__row--total .an-df__label, .an-df__row--total .an-df__val { color: var(--text-primary); }
+        .an-df__row--delta { padding-left: 12px; }
+        .an-df__label { font-size: 13px; color: var(--text-secondary); }
+        .an-df__val { font-family: var(--font-mono); font-size: 13px; }
+        .an-df__row--delta .an-df__val[data-sign="pos"] { color: var(--ok); }
+        .an-df__row--delta .an-df__val[data-sign="neg"] { color: var(--danger); }
+        .an-df__pending { padding: 4px 0 0; color: var(--text-muted); font-style: italic; }
+
+        /* ranking scorecard */
+        .an-sc { margin-top: 14px; }
+        .an-sc__tiles { display: flex; gap: 12px; flex-wrap: wrap; }
+        .an-sc__tile {
+          background: var(--bg-surface); border: 1px solid var(--border);
+          border-radius: 4px; padding: 6px 14px; min-width: 96px;
+        }
+        .an-sc__k { display: block; color: var(--text-muted); }
+        .an-sc__v { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+        .an-sc__errs { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+        .an-sc__err { font-size: 13px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+        .an-sc__errk { color: var(--text-muted); min-width: 150px; }
+        .an-sc__rank { color: var(--text-secondary); }
+
+        .an-sctab { margin-top: 12px; display: grid; row-gap: 2px; }
+        /* 3-column default (day roll-up: no μ); the μ variant adds two columns
+           for the hour scorecard's μ̂ / μ_DAM. */
+        .an-sctab__head, .an-sctab__row {
+          display: grid;
+          grid-template-columns: minmax(150px, 1fr) 52px 52px;
+          column-gap: 10px; align-items: baseline;
+        }
+        .an-sctab--mu .an-sctab__head, .an-sctab--mu .an-sctab__row {
+          grid-template-columns: minmax(150px, 1fr) 52px 52px 78px 78px;
+        }
+        .an-sctab__head { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+        .an-sctab__head span { font-family: var(--font-label); font-size: 11px; letter-spacing: var(--track-label); color: var(--text-muted); }
+        .an-sctab__row { padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .an-sctab__num { text-align: right; font-family: var(--font-mono); color: var(--text-secondary); }
+
+        /* hub-triple band table (behind a disclosure) */
+        .an-htab-wrap { margin-top: 12px; }
+        .an-htab-sum { cursor: pointer; font-size: 12px; color: var(--accent); font-family: var(--font-label); letter-spacing: var(--track-label); }
+        .an-htab { margin-top: 8px; display: grid; row-gap: 2px; overflow-x: auto; }
+        .an-htab__head, .an-htab__row {
+          display: grid;
+          grid-template-columns: minmax(96px, 1fr) 74px 74px 74px 132px 44px;
+          column-gap: 10px; align-items: baseline;
+        }
+        .an-htab__head { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+        .an-htab__head span { font-family: var(--font-label); font-size: 11px; letter-spacing: var(--track-label); color: var(--text-muted); }
+        .an-htab__row { padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+        .an-htab__sp { font-family: var(--font-mono); color: var(--text-primary); }
+        .an-htab__num { text-align: right; font-family: var(--font-mono); color: var(--text-secondary); }
+        .an-htab__band-range { color: var(--text-muted); }
+        .an-htab__band { text-align: center; }
+        .an-htab__band[data-band="in"] { color: var(--ok); }
+        .an-htab__band[data-band="out"] { color: var(--danger); }
+        .an-htab__band[data-band="na"] { color: var(--text-muted); }
 
         @media (max-width: 900px) {
           .an-page { overflow-y: auto; }
