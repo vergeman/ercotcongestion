@@ -24,7 +24,11 @@ from psycopg.types.json import Json
 
 from compute.analysis.assemble import build_brief
 from compute.analysis.metadata import load_sp_metadata
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.sf.panels import (
+    dam_shadow_covers_window,
+    load_congestion_panel,
+    load_shadow_prices,
+)
 from compute.sf.project import load_sf_mu
 
 log = logging.getLogger("daily_brief")
@@ -95,7 +99,11 @@ def _load_dam(conn, run_id: str, D: date, horizon: int) -> dict | None:
     end = start + timedelta(days=1)
     M = load_shadow_prices(conn, start, end)          # (hours × constraint key)
     C = load_congestion_panel(conn, start, end)       # (hours × SP), SPP − λ
-    if M.empty or C.empty:
+    # A non-empty M is not enough: a UTC day always catches the ~5h tail of the prior
+    # op-day's shadow report, so require it to actually span the window before F6 runs
+    # against it (else after-action stays off; the grade tick re-briefs once DAM lands).
+    ts_max = None if M.empty else M.index.max()
+    if C.empty or not dam_shadow_covers_window(ts_max, start):
         return None
     with conn.cursor(row_factory=dict_row) as cur:
         bands = _load_bands(cur, run_id, D, horizon)
