@@ -458,3 +458,262 @@ export interface ScoreboardDaily {
   primary_source: string;
   points: DailyPoint[];
 }
+
+// =============================================================================
+// /analysis/brief[/latest] — the server-computed daily Insight Brief (0124).
+// The daily_brief job computes one JSON document per (run_id, delivery_date,
+// horizon) from the served SF + μ̂ artifact; the API hands it back verbatim.
+// These types mirror compute/analysis/{assemble,families,after_action}.py — the
+// client renders server values only and never re-ranks. Floats are pre-rounded
+// server-side. A day with no brief is `available: false`, not a 404 (soft-fail).
+// =============================================================================
+
+// One constraint driving a spread/hotspot, with its signed contribution and the
+// share of the total it accounts for. `contingency_name` is null for a bare key.
+export interface BriefDriver {
+  constraint_key: string;
+  constraint_name: string;
+  contingency_name: string | null;
+  contribution: number;
+  share: number;
+}
+
+// F2 — one node in a constraint's import/export extrema. `sf` is the signed
+// shift factor; `contribution = -sf · μ`. Geocode fields are null off-grid.
+export interface BriefNode {
+  settlement_point: string;
+  sf: number;
+  contribution: number;
+  sp_type: string | null;
+  load_zone: string | null;
+  lat: number | null;
+  lon: number | null;
+}
+
+// F3 — a constraint's shape descriptors (breadth vs concentration). Archetype
+// labels are derived at render, never stored (see families.py). `max_contrast`
+// is the constraint's own strongest export−import separation, valued at |μ|.
+export interface BriefConstraintStats {
+  reach: number;
+  import_count: number;
+  import_sf_sum: number;
+  export_count: number;
+  export_sf_sum: number;
+  top5_share: number;
+  peak_abs_sf: number;
+  p95_abs_sf: number;
+  max_contrast: {
+    value: number;
+    export_sp: string;
+    import_sp: string;
+  };
+}
+
+// F1 — one hour-ranked constraint, carrying both the exact-hour rank and the
+// whole-day rank (never conflated), plus its F2 nodes and F3 stats.
+export interface BriefConstraint {
+  constraint_key: string;
+  constraint_name: string;
+  contingency_name: string | null;
+  mu: number;
+  hour_score: number;
+  hour_rank: number;
+  daily_score: number;
+  daily_rank: number;
+  nodes: { import: BriefNode[]; export: BriefNode[] };
+  stats: BriefConstraintStats;
+}
+
+// F4 — a settlement point ranked by |congestion|, decomposed into constraints.
+// `net` (= cong) vs `gross` (Σ|k|) splits reinforcement from cancellation:
+// `net_gross_ratio` near 1 is pure reinforcement, near 0 heavy cancellation.
+export interface BriefHotspot {
+  settlement_point: string;
+  cong: number;
+  gross: number;
+  net: number;
+  net_gross_ratio: number;
+  drivers: BriefDriver[];
+}
+
+// F4 — a node appearing in ≥2 constraints' F2 extrema (a confluence point).
+export interface BriefCommonNode {
+  settlement_point: string;
+  count: number;
+  constraints: string[];
+  total_abs_contribution: number;
+  entries: {
+    constraint_key: string;
+    side: "import" | "export";
+    sf: number;
+    contribution: number;
+  }[];
+}
+
+// F5a — congestion projected onto the canonical hubs/LZs. `spread = max − min`;
+// `drivers` is the per-constraint waterfall that sums exactly to the spread.
+export interface BriefHubDipole {
+  min: { settlement_point: string; cong: number } | null;
+  max: { settlement_point: string; cong: number } | null;
+  spread: number;
+  hubs: { settlement_point: string; cong: number }[];
+  drivers: BriefDriver[];
+}
+
+// F5b — one endpoint of the best source→sink pair.
+export interface BriefEndpoint {
+  settlement_point: string;
+  cong: number;
+  sp_type: string | null;
+  load_zone: string | null;
+  lat: number | null;
+  lon: number | null;
+}
+
+// F5b — the best quality-gated separation for the hour (or null when fewer than
+// two SPs survive the gates). `drivers` sums to `spread`; `dominance_share` is
+// the leading driver's fraction of it.
+export interface BriefBestPair {
+  sink: BriefEndpoint;
+  source: BriefEndpoint;
+  spread: number;
+  dominance_share: number;
+  drivers: BriefDriver[];
+  guardrails: {
+    n_candidates: number;
+    n_clusters: number;
+    dam_coverage_checked: boolean;
+    f5a_suppressed: string[];
+  };
+}
+
+// F6 — one predicted constraint graded against reality. `mu_forecast`/`mu_dam`
+// ride along on the hour scorecard (absent on the day roll-up scorecard).
+export interface BriefScorecardRow {
+  constraint_key: string;
+  predicted_rank: number;
+  realized_rank: number;
+  mu_forecast?: number | null;
+  mu_dam?: number | null;
+}
+
+// F6 — predicted-vs-realized constraint ranking for one hour or the day.
+export interface BriefScorecard {
+  top_k: number;
+  recall_at_k: number;
+  exact_hits: number;
+  predicted: BriefScorecardRow[];
+  biggest_severity_miss: {
+    constraint_key: string;
+    predicted_rank: number;
+    realized_rank: number;
+  };
+  biggest_false_alarm: {
+    constraint_key: string;
+    predicted_rank: number;
+    realized_rank: number;
+  };
+}
+
+// F6 — a pair's spread split: forecast → +Δμ (severity) → spatial residual →
+// actual. `forecast_spread + delta_mu + spatial_residual = actual_spread`.
+// `actual_spread`/`spatial_residual` are null until DAM SPP covers both ends.
+export interface BriefSpreadDecomposition {
+  a: string;
+  b: string;
+  forecast_spread: number;
+  delta_mu: number;
+  recon_spread: number;
+  spatial_residual: number | null;
+  actual_spread: number | null;
+}
+
+// F6 — one hub's forecast / reconstruction / realized congestion + the P10–P90
+// band check. All values nullable (a hub off the DAM feed reads null).
+export interface BriefHubTriple {
+  settlement_point: string;
+  forecast: number | null;
+  reconstruction: number | null;
+  realized: number | null;
+  p10: number | null;
+  p90: number | null;
+  in_band: boolean | null;
+}
+
+// F6 — one hour's after-action, present only once realized DAM lands (else the
+// hour's `after_action` is null → a "pending DAM" state).
+export interface BriefAfterAction {
+  dam_match_coverage: number;
+  scorecard: BriefScorecard;
+  hub_dipole_decomposition: BriefSpreadDecomposition | null;
+  best_pair_decomposition: BriefSpreadDecomposition | null;
+  hub_triple: BriefHubTriple[];
+}
+
+// One hour of the brief: F1 constraints (with F2/F3 nested), F4 hotspots +
+// common nodes, the F5a dipole, the F5b best pair, and F6 after-action.
+export interface BriefHour {
+  constraints: BriefConstraint[];
+  hotspots: BriefHotspot[];
+  common_nodes: BriefCommonNode[];
+  hub_dipole: BriefHubDipole;
+  best_pair: BriefBestPair | null;
+  after_action: BriefAfterAction | null;
+}
+
+// The day roll-up — the "what to look at" filter across all 24 hours.
+export interface BriefDay {
+  daily_ranks: {
+    constraint_key: string;
+    constraint_name: string;
+    contingency_name: string | null;
+    daily_score: number;
+    daily_rank: number;
+  }[];
+  peak_hours: {
+    by_hour_score: string; // ISO hour key into `hours`
+    by_dipole_spread: string;
+  };
+  watchlist: {
+    constraints: { constraint_key: string; hours: number }[];
+    nodes: { settlement_point: string; hours: number }[];
+  };
+  after_action: {
+    scorecard: BriefScorecard;
+    dam_match_coverage: number | null;
+  } | null;
+}
+
+export interface BriefProvenance {
+  run_id: string;
+  delivery_date: string;
+  horizon: number;
+  artifact_date: string | null;
+  mu_basis: string;
+  n_constraints: number;
+  n_settlement_points: number;
+  n_hours: number;
+  dam_match_coverage: number | null;
+}
+
+// The full brief document — `hours` keyed by ISO hour (UTC).
+export interface Brief {
+  provenance: BriefProvenance;
+  hours: Record<string, BriefHour>;
+  day: BriefDay;
+}
+
+// The envelope both /analysis/brief and /analysis/brief/latest return. Soft-fail:
+// `available: false` (never a throw) when the day/run has no brief. `/latest`
+// additionally carries `available_dates` — the run's sorted day index the page
+// steps prev/next through (gaps skipped as array neighbors).
+export interface AnalysisBrief {
+  available: boolean;
+  unavailable_reason?: string;
+  run_id: string;
+  delivery_date?: string;
+  horizon?: number;
+  computed_at?: string;
+  brief?: Brief;
+  available_dates?: string[];
+}

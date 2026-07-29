@@ -1,16 +1,21 @@
-// Shared brand + primary nav, rendered identically on the map and scoreboard
-// topbars so the two pages read as one product. `active` bolds the current
-// section; `Analysis` is a placeholder for a not-yet-built page (disabled).
+// Shared brand + primary nav, rendered identically across the map, matrix,
+// scoreboard, and analysis topbars so they read as one product. `active` bolds
+// the current section. Links route client-side through the Router (no reload);
+// Scoreboard is the deliberate full-reload exception (see NAV `reload`).
 
+import { useNavigate } from "react-router-dom";
 import Tooltip from "../ui/Tooltip";
 
 type NavKey = "map" | "matrix" | "scoreboard" | "analysis";
 
-const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean }[] = [
+// `reload: true` opts a destination out of client-side routing — its link does a
+// full-page load instead. Everything else routes through the Router (no reload).
+// Scoreboard is the deliberate exception.
+const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean; reload?: boolean }[] = [
   { key: "map", label: "Map", href: "/map" },
   { key: "matrix", label: "Matrix", href: "/matrix" },
-  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard" },
-  { key: "analysis", label: "Analysis" }, // not yet built — disabled
+  { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", reload: true },
+  { key: "analysis", label: "Analysis", href: "/analysis" },
 ];
 
 export default function HeaderNav({
@@ -20,6 +25,7 @@ export default function HeaderNav({
   active: NavKey;
   onNavigate?: (workspace: "map" | "matrix") => void;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="brand-nav">
       <span className="brand-nav__logo">⚡</span>
@@ -33,10 +39,19 @@ export default function HeaderNav({
               target={n.newTab ? "_blank" : undefined}
               rel={n.newTab ? "noopener noreferrer" : undefined}
               onClick={(event) => {
-                if (!onNavigate || (n.key !== "map" && n.key !== "matrix")) return;
+                // Let the browser handle modified / non-primary clicks (new tab,
+                // new window) and the reload-opt-out destination (Scoreboard).
                 if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (n.reload || !n.href) return;
                 event.preventDefault();
-                onNavigate(n.key);
+                // Map/Matrix share the App shell; when it supplies onNavigate,
+                // route through it so the current query (selection / discovery)
+                // survives the workspace switch. Everything else routes plainly.
+                if (onNavigate && (n.key === "map" || n.key === "matrix")) {
+                  onNavigate(n.key);
+                } else {
+                  navigate(n.href);
+                }
               }}
               className={`brand-nav__link${active === n.key ? " active" : ""}`}
               aria-current={active === n.key ? "page" : undefined}

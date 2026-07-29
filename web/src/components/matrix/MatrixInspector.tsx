@@ -8,6 +8,7 @@ import {
   matrixColumnContributionSum,
   type MatrixSelection,
 } from "../../lib/matrix";
+import { mapLinkTo } from "../../lib/mapLinks";
 
 interface Props {
   frame: MatrixFrame;
@@ -21,12 +22,12 @@ interface Props {
   onToggleSettlementPointPin: (settlementPoint: string) => void;
 }
 
-function mapHref(kind: "constraint" | "sp", value: string) {
-  return `/map?${kind}=${encodeURIComponent(value)}`;
-}
-
 function MapLink({ kind, value, children, onNavigateToMap }: { kind: "constraint" | "sp"; value: string; children: string; onNavigateToMap: (search: string) => void }) {
-  const href = mapHref(kind, value);
+  // The map deep-link path comes from the shared convention (lib/mapLinks), so
+  // it matches exactly what the map parses. Plain left-clicks are intercepted
+  // for in-app SPA navigation; modified/middle-clicks fall through to the real
+  // <a href>, so Cmd/Ctrl-click still opens the map in a new tab.
+  const href = mapLinkTo({ kind, value });
   return <a href={href} onClick={(event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();

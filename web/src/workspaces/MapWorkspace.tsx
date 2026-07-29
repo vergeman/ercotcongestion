@@ -43,6 +43,7 @@ import SidePanel, {
   type NetworkStats,
 } from "../components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
+import { type MapTarget, parseMapTarget, mapTargetSearch } from "../lib/mapLinks";
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 
@@ -86,18 +87,9 @@ export interface MapWorkspaceProps {
   onSelectionRouteChange: (search: string) => void;
 }
 
-type RequestedMapTarget =
-  | { kind: "constraint"; value: string }
-  | { kind: "sp"; value: string }
-  | null;
-
-function requestedMapTarget(search: string): RequestedMapTarget {
-  const params = new URLSearchParams(search);
-  const constraint = params.get("constraint");
-  if (constraint) return { kind: "constraint", value: constraint };
-  const sp = params.get("sp");
-  return sp ? { kind: "sp", value: sp } : null;
-}
+// The map's selection convention (the `MapTarget` shape, parse + serialize, and
+// the two `?…=` param names) is single-sourced in lib/mapLinks so other pages
+// can build deep links into the map that match exactly what a click here writes.
 
 export default function MapWorkspace({ session, onNavigate, routeSearch, onSelectionRouteChange }: MapWorkspaceProps) {
   // Mobile is intentionally a map-first experience. Keep the user's desktop
@@ -109,7 +101,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   useTheme();
   const [topology, setTopology] = useState<unknown | null>(null);
   const [topologyReady, setTopologyReady] = useState(false);
-  const target = useMemo(() => requestedMapTarget(routeSearch), [routeSearch]);
+  const target = useMemo(() => parseMapTarget(routeSearch), [routeSearch]);
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
@@ -492,12 +484,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // popover row), so leaving the row clears it — but a *clicked* reach is not a
   // preview and survives (plan/0112).
   const previewReachRef = useRef(false);
-  const setSelectionRoute = useCallback((target: Exclude<RequestedMapTarget, null>) => {
+  const setSelectionRoute = useCallback((target: MapTarget) => {
     handledTargetRef.current = `${target.kind}:${target.value}`;
     setTargetUnavailable(false);
-    const params = new URLSearchParams();
-    params.set(target.kind, target.value);
-    onSelectionRouteChange(`?${params.toString()}`);
+    onSelectionRouteChange(mapTargetSearch(target));
   }, [onSelectionRouteChange]);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
