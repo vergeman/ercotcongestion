@@ -68,3 +68,59 @@ def get_brief(
         "computed_at": row["computed_at"],
         "brief": row["brief"],
     }
+
+
+@router.get("/brief/latest", summary="Latest day's Insight Brief + the day index")
+def get_brief_latest(
+    run_id: str | None = Query(None, description="Model version; defaults to the "
+                               "currently published ercot run."),
+) -> dict:
+    """The most recent day's full brief, plus the run's ``available_dates`` index.
+
+    Resolves the run the same way ``GET /analysis/brief`` does, picks the latest
+    ``delivery_date`` that has a brief, and returns that day's brief in the same
+    envelope the per-day endpoint uses — coalescing the served horizon (final,
+    else preview) exactly as the sibling does. ``available_dates`` is the sorted
+    list of every delivery day with a brief for the run: the page derives prev/next
+    as array neighbors (gaps skipped) and fetches each day through the frozen
+    per-day endpoint. ``available=false`` (not 404) when the run has no brief yet.
+    """
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        if run_id is None:
+            cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=503, detail="no forecast run is published yet.")
+            run_id = str(row["run_id"])
+
+        # The run's day index (dates only — cheap). Neighbors of this sorted list
+        # are what the page steps through, so gaps in history are skipped.
+        cur.execute(
+            "SELECT DISTINCT delivery_date FROM analysis_brief "
+            "WHERE run_id = %s ORDER BY delivery_date",
+            (run_id,),
+        )
+        available_dates = [r["delivery_date"] for r in cur.fetchall()]
+        if not available_dates:
+            return {"available": False, "unavailable_reason": "brief_missing",
+                    "run_id": run_id, "available_dates": []}
+
+        delivery_date = available_dates[-1]
+
+        # Coalesce the served horizon for the latest day: final (min horizon) wins.
+        cur.execute(
+            "SELECT brief, horizon, computed_at FROM analysis_brief "
+            "WHERE run_id = %s AND delivery_date = %s ORDER BY horizon LIMIT 1",
+            (run_id, delivery_date),
+        )
+        row = cur.fetchone()
+
+    return {
+        "available": True,
+        "run_id": run_id,
+        "delivery_date": delivery_date,
+        "horizon": int(row["horizon"]),
+        "computed_at": row["computed_at"],
+        "brief": row["brief"],
+        "available_dates": available_dates,
+    }
