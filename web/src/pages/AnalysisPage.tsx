@@ -5,10 +5,15 @@ import type {
   Brief,
   BriefAfterAction,
   BriefBestPair,
+  BriefCommonNode,
+  BriefConstraint,
+  BriefConstraintStats,
   BriefDriver,
+  BriefHotspot,
   BriefHour,
   BriefHubDipole,
   BriefHubTriple,
+  BriefNode,
   BriefScorecard,
   BriefSpreadDecomposition,
 } from "../api/types";
@@ -584,6 +589,187 @@ function AfterAction({ after }: { after: BriefAfterAction | null }) {
   );
 }
 
+// ── F3 — archetype label derived at render (never a stored fact) ─────────────
+// The quantitative stats are the primary evidence (last_mile.md); this label is
+// a legible convenience read off them: a large one-sided footprint is broad /
+// systemic, a small footprint is a localized pocket, and a footprint with
+// meaningful mass on BOTH sides is a strong separator.
+function archetype(s: BriefConstraintStats): { label: string; tip: string } {
+  const total = s.import_count + s.export_count;
+  const minSide = Math.min(s.import_count, s.export_count);
+  const balance = total ? minSide / total : 0; // 0 = one-sided, 0.5 = even
+  if (s.reach <= 30) {
+    return {
+      label: "Localized pocket",
+      tip: "Small footprint (few meaningful members) — its influence is concentrated on one location, not the system.",
+    };
+  }
+  if (balance >= 0.2) {
+    return {
+      label: "Strong separator",
+      tip: "Meaningful shift-factor mass on both the import and export sides — it pushes some nodes up while pulling others down.",
+    };
+  }
+  return {
+    label: "Broad / systemic",
+    tip: "Large footprint moving mostly one direction — importance comes from breadth, not a single sharp pocket.",
+  };
+}
+
+// ── F2 — a constraint's import- or export-side node extrema ──────────────────
+function NodeList({ nodes, side }: { nodes: BriefNode[]; side: "import" | "export" }) {
+  return (
+    <div className="an-nodes">
+      <div className="an-nodes__h label">
+        {side} · SF {side === "import" ? "< 0" : "> 0"}
+      </div>
+      {nodes.length === 0 && <div className="an-nodes__none label">none</div>}
+      {nodes.map((n) => (
+        <div key={n.settlement_point} className="an-nodes__row">
+          <span className="an-nodes__sp">{n.settlement_point}</span>
+          <span className="an-nodes__sf">{n.sf.toFixed(3)}</span>
+          <span className="an-nodes__contrib">{usdSigned(n.contribution)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── F1 — one ranked constraint (expands to F2 nodes + F3 stats) ──────────────
+function ConstraintRow({ c }: { c: BriefConstraint }) {
+  const arch = archetype(c.stats);
+  return (
+    <details className="an-crow">
+      <summary className="an-crow__sum">
+        <span className="an-crow__rank">
+          <span className="an-crow__rk">h#{c.hour_rank}</span>
+          <span className="an-crow__rk an-crow__rk--day">d#{c.daily_rank}</span>
+        </span>
+        <span className="an-crow__key">
+          <ConstraintLabel name={c.constraint_name} contingency={c.contingency_name} />
+        </span>
+        <span className="an-crow__mu">{usd(c.mu)}</span>
+        <span className="an-crow__reach label">reach {c.stats.reach}</span>
+        <Tooltip className="an-arch" tip={arch.tip}>
+          {arch.label}
+        </Tooltip>
+      </summary>
+      <div className="an-crow__body">
+        <div className="an-stats">
+          <span><b>{c.stats.import_count}</b> import · <b>{c.stats.export_count}</b> export members</span>
+          <span>top-5 share <b>{pct(c.stats.top5_share)}</b></span>
+          <span>peak |SF| <b>{c.stats.peak_abs_sf.toFixed(3)}</b></span>
+          <span>
+            max contrast <b>{usd(c.stats.max_contrast.value)}</b>{" "}
+            <span className="label">
+              ({c.stats.max_contrast.export_sp} ↔ {c.stats.max_contrast.import_sp})
+            </span>
+          </span>
+        </div>
+        <div className="an-nodes__grid">
+          <NodeList nodes={c.nodes.import} side="import" />
+          <NodeList nodes={c.nodes.export} side="export" />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+// ── F4 — nodal hotspots (reinforcement vs cancellation) ──────────────────────
+function Hotspots({ hotspots }: { hotspots: BriefHotspot[] }) {
+  return (
+    <div className="an-hot">
+      {hotspots.map((h) => {
+        const cancel = h.net_gross_ratio < 0.6;
+        return (
+          <div key={h.settlement_point} className="an-hot__row">
+            <span className="an-hot__sp">{h.settlement_point}</span>
+            <span className="an-hot__cong">{usd(h.cong)}</span>
+            <span className="an-hot__ng">
+              <span className="an-hot__meter" aria-hidden="true">
+                <span
+                  className="an-hot__meter-fill"
+                  style={{ width: `${h.net_gross_ratio * 100}%` }}
+                />
+              </span>
+              <Tooltip
+                className="an-hot__ratio"
+                tip="net ÷ gross: near 1 the constraints all push this node the same way (reinforcement); near 0 they fight over it (cancellation) — a big gross with a small net is itself a finding."
+              >
+                {h.net_gross_ratio.toFixed(2)} {cancel ? "cancellation" : "reinforcement"}
+              </Tooltip>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── F4 — confluence nodes (in ≥2 constraints' extrema) ───────────────────────
+function CommonNodes({ nodes }: { nodes: BriefCommonNode[] }) {
+  return (
+    <div className="an-cn">
+      {nodes.map((n) => (
+        <div key={n.settlement_point} className="an-cn__row">
+          <span className="an-cn__sp">{n.settlement_point}</span>
+          <span className="an-cn__count label">{n.count} constraints</span>
+          <span className="an-cn__keys label">{n.constraints.join(", ")}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── F1–F4 supporting families, behind progressive disclosure ─────────────────
+function SupportingDetail({ hour }: { hour: BriefHour }) {
+  return (
+    <section className="an-support">
+      <div className="an-section-h label">Supporting detail</div>
+
+      <details className="an-fam">
+        <summary className="an-fam__sum">
+          Ranked constraints — this hour ({hour.constraints.length})
+        </summary>
+        <div className="an-fam__body">
+          <div className="an-crow__legend label">
+            <Tooltip
+              className="an-help"
+              tip="Two independent ranks: h# is this hour's footprint (|μ̂|·reach); d# is the whole day's mass. A constraint can lead the hour yet rank differently across the day — the two are never conflated."
+            >
+              h# hour rank · d# daily rank
+            </Tooltip>
+            <span> · expand a row for its node extrema and shape stats</span>
+          </div>
+          {hour.constraints.map((c) => (
+            <ConstraintRow key={c.constraint_key} c={c} />
+          ))}
+        </div>
+      </details>
+
+      <details className="an-fam">
+        <summary className="an-fam__sum">
+          Nodal hotspots ({hour.hotspots.length})
+        </summary>
+        <div className="an-fam__body">
+          <Hotspots hotspots={hour.hotspots} />
+        </div>
+      </details>
+
+      {hour.common_nodes.length > 0 && (
+        <details className="an-fam">
+          <summary className="an-fam__sum">
+            Confluence nodes ({hour.common_nodes.length})
+          </summary>
+          <div className="an-fam__body">
+            <CommonNodes nodes={hour.common_nodes} />
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
 // ── one hour's story ────────────────────────────────────────────────────────
 function HourStory({ hour, hourLabel }: { hour: BriefHour; hourLabel: string }) {
   return (
@@ -598,6 +784,7 @@ function HourStory({ hour, hourLabel }: { hour: BriefHour; hourLabel: string }) 
       )}
       <AfterAction after={hour.after_action} />
       <HubDipoleLine dipole={hour.hub_dipole} />
+      <SupportingDetail hour={hour} />
     </div>
   );
 }
@@ -785,6 +972,128 @@ function BriefView({ brief }: { brief: Brief }) {
   );
 }
 
+// Inline defined term — the dotted-underline word whose definition rides the
+// shared Tooltip, matching ScoreboardPage's `Term`.
+function Term({ children, def }: { children: React.ReactNode; def: React.ReactNode }) {
+  return (
+    <Tooltip as="span" className="an-term" placement="bottom" tip={def}>
+      {children}
+    </Tooltip>
+  );
+}
+
+// ── right-rail glossary: plain-language read of the brief's vocabulary ───────
+function Glossary() {
+  return (
+    <aside className="an-guide">
+      <div className="an-guide__block">
+        <div className="an-guide__h">What this page is</div>
+        <p className="an-guide__p">
+          One delivery day's <b>Insight Brief</b> — a server-computed reading of
+          the forecast that leads with the single most consequential spatial{" "}
+          <Term def="Two settlement points whose forecast congestion prices pull hardest apart this hour — the sink (highest) and the source (lowest). The gap between them is the spread.">
+            separation
+          </Term>
+          , explains which constraints drive it, and — once the day-ahead market
+          publishes — grades what actually happened. Nothing here is re-ranked in
+          your browser; every figure is served.
+        </p>
+      </div>
+
+      <div className="an-guide__block">
+        <div className="an-guide__h">The separation story</div>
+        <dl className="an-guide__dl">
+          <dt>Spread</dt>
+          <dd>
+            The forecast congestion gap between the sink and source, in $/MWh —
+            the largest quality-gated one this hour.
+          </dd>
+          <dt>
+            <Term def="A binding transmission constraint whose shadow price moves these two nodes apart. Each driver's contribution is −(SF_sink − SF_source)·μ.">
+              Driver
+            </Term>
+          </dt>
+          <dd>
+            A constraint pushing the two endpoints apart. The{" "}
+            <b>waterfall</b> lists each driver's contribution; they sum exactly to
+            the spread (the un-listed remainder is folded into "Other").
+          </dd>
+          <dt>Dominance</dt>
+          <dd>The leading driver's share of the whole spread.</dd>
+          <dt>
+            <Term def="Congestion projected onto ERCOT's liquid hubs and load zones — the market-wide read, independent of the localized best pair.">
+              Hub spread
+            </Term>
+          </dt>
+          <dd>
+            The north/south market read across the canonical hubs — separate from
+            the localized best pair above.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="an-guide__block">
+        <div className="an-guide__h">After DAM (the grade)</div>
+        <p className="an-guide__p">
+          Once day-ahead shadow prices land, the realized μ is pushed through the{" "}
+          <b>same</b> recovered shift-factor operator, so error splits cleanly:
+        </p>
+        <dl className="an-guide__dl">
+          <dt>Δμ (severity)</dt>
+          <dd>
+            How far the realized shadow prices moved the spread — the μ error,
+            with the spatial operator held fixed.
+          </dd>
+          <dt>Spatial residual</dt>
+          <dd>
+            What the recovered operator couldn't reconstruct — the gap left to the
+            actual DAM SPP spread.
+          </dd>
+          <dt>
+            <Term def="Of the predicted top-K constraints, the fraction that landed in the realized top-K. Selection accuracy, independent of order.">
+              Recall@K
+            </Term>
+          </dt>
+          <dd>Did the forecast flag the constraints that mattered?</dd>
+          <dt>Band check</dt>
+          <dd>
+            Whether each hub's realized congestion fell inside the forecast
+            P10–P90 — the calibration test.
+          </dd>
+        </dl>
+      </div>
+
+      <div className="an-guide__block">
+        <div className="an-guide__h">Supporting detail</div>
+        <dl className="an-guide__dl">
+          <dt>Hour rank vs daily rank</dt>
+          <dd>
+            A constraint's footprint this exact hour vs its whole-day mass — kept
+            as distinct columns because "rank 1 this hour" and "rank 2 all day"
+            are different statements.
+          </dd>
+          <dt>Archetype</dt>
+          <dd>
+            A convenience label read off the shape stats — <i>broad / systemic</i>{" "}
+            (large one-sided footprint), <i>strong separator</i> (mass on both
+            sides), <i>localized pocket</i> (small footprint). The stats are the
+            real evidence; the label is derived, not stored.
+          </dd>
+          <dt>
+            <Term def="net ÷ gross for a node: near 1, every constraint pushes it the same way (reinforcement); near 0, they cancel — a large gross with a small net is itself a finding.">
+              net / gross
+            </Term>
+          </dt>
+          <dd>
+            Whether the constraints stacking on a hotspot reinforce or cancel each
+            other.
+          </dd>
+        </dl>
+      </div>
+    </aside>
+  );
+}
+
 export default function AnalysisPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlDate = searchParams.get("date");
@@ -893,8 +1202,8 @@ export default function AnalysisPage() {
           )}
         </main>
 
-        {/* Right rail — the glossary lands in a later commit. */}
-        <aside className="an-guide" />
+        {/* Right rail — plain-language glossary for the brief's vocabulary. */}
+        <Glossary />
       </div>
 
       <style>{`
@@ -1171,6 +1480,83 @@ export default function AnalysisPage() {
         .an-htab__band[data-band="in"] { color: var(--ok); }
         .an-htab__band[data-band="out"] { color: var(--danger); }
         .an-htab__band[data-band="na"] { color: var(--text-muted); }
+
+        /* F1–F4 supporting families (behind disclosure) */
+        .an-support { margin-top: 6px; }
+        .an-fam { margin: 0 16px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-panel); }
+        .an-fam__sum {
+          cursor: pointer; padding: 9px 12px; font-size: 13px;
+          font-family: var(--font-label); letter-spacing: var(--track-label);
+          color: var(--text-secondary); list-style: none;
+        }
+        .an-fam__sum::-webkit-details-marker { display: none; }
+        .an-fam__sum::before { content: "▸ "; color: var(--text-muted); }
+        .an-fam[open] > .an-fam__sum::before { content: "▾ "; }
+        .an-fam[open] > .an-fam__sum { border-bottom: 1px solid var(--border); color: var(--text-primary); }
+        .an-fam__body { padding: 10px 12px; }
+
+        .an-crow__legend { color: var(--text-muted); margin-bottom: 8px; display: block; }
+        .an-crow { border-bottom: 1px solid var(--border); }
+        .an-crow__sum {
+          cursor: pointer; list-style: none; padding: 6px 0;
+          display: grid; grid-template-columns: 70px minmax(140px, 1fr) 68px auto auto;
+          column-gap: 10px; align-items: baseline;
+        }
+        .an-crow__sum::-webkit-details-marker { display: none; }
+        .an-crow__rank { display: flex; gap: 5px; }
+        .an-crow__rk { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
+        .an-crow__rk--day { color: var(--text-muted); }
+        .an-crow__mu { text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); }
+        .an-crow__reach { color: var(--text-muted); text-align: right; }
+        .an-arch {
+          font-family: var(--font-label); font-size: 10.5px;
+          letter-spacing: var(--track-label); color: var(--text-secondary);
+          border: 1px solid var(--border); border-radius: 3px;
+          padding: 1px 6px; cursor: help; white-space: nowrap;
+        }
+        .an-crow__body { padding: 6px 0 10px; }
+        .an-stats {
+          display: flex; flex-wrap: wrap; gap: 6px 18px;
+          font-size: 12.5px; color: var(--text-secondary); margin-bottom: 10px;
+        }
+        .an-stats b { color: var(--text-primary); font-family: var(--font-mono); font-weight: 600; }
+
+        .an-nodes__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .an-nodes__h { display: block; color: var(--text-muted); margin-bottom: 4px; text-transform: capitalize; }
+        .an-nodes__none { color: var(--text-muted); }
+        .an-nodes__row { display: grid; grid-template-columns: 1fr 56px 64px; column-gap: 8px; padding: 2px 0; font-size: 12px; }
+        .an-nodes__sp { font-family: var(--font-mono); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; }
+        .an-nodes__sf { text-align: right; font-family: var(--font-mono); color: var(--text-muted); }
+        .an-nodes__contrib { text-align: right; font-family: var(--font-mono); color: var(--text-secondary); }
+
+        /* F4 hotspots */
+        .an-hot__row { display: grid; grid-template-columns: minmax(110px, 1fr) 74px minmax(150px, 220px); column-gap: 12px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+        .an-hot__sp { font-family: var(--font-mono); color: var(--text-primary); }
+        .an-hot__cong { text-align: right; font-family: var(--font-mono); color: var(--text-secondary); }
+        .an-hot__ng { display: flex; align-items: center; gap: 8px; }
+        .an-hot__meter { position: relative; flex: 1; height: 6px; background: var(--danger); opacity: 0.9; border-radius: 3px; overflow: hidden; }
+        .an-hot__meter-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
+        .an-hot__ratio { font-size: 11px; color: var(--text-secondary); cursor: help; white-space: nowrap; }
+
+        /* F4 confluence nodes */
+        .an-cn__row { display: grid; grid-template-columns: minmax(110px, auto) 110px 1fr; column-gap: 12px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+        .an-cn__sp { font-family: var(--font-mono); color: var(--text-primary); }
+        .an-cn__count { color: var(--text-secondary); }
+        .an-cn__keys { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* right-rail glossary (mirrors ScoreboardPage's sb-guide) */
+        .an-guide__block + .an-guide__block { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+        .an-guide__block:first-child { padding-top: 4px; }
+        .an-guide__h { display: block; margin: 0 0 10px; font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--text-primary); }
+        .an-guide__p { font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
+        .an-guide__p b { color: var(--text-primary); }
+        .an-guide__dl { margin: 0; }
+        .an-guide__dl dt { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+        .an-guide__dl dt:first-child { margin-top: 0; }
+        .an-guide__dl dd { margin: 1px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+        .an-guide__dl dd b { color: var(--text-primary); }
+        .an-term { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; outline: none; }
+        .an-guide { padding: 14px 16px 24px; }
 
         @media (max-width: 900px) {
           .an-page { overflow-y: auto; }
