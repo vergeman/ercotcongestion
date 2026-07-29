@@ -109,7 +109,7 @@ spec:
                 # mid-write.
                 requests:
                   cpu: "2"
-                  memory: "8Gi"
+                  memory: "5Gi"
                 limits:
                   cpu: "6"
                   memory: "16Gi"
