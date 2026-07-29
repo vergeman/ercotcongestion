@@ -35,6 +35,7 @@ from compute.analysis.brief import (
     nodal_congestion,
 )
 from compute.analysis.families import (
+    best_pair,
     canonical_hubs,
     common_nodes,
     constraint_node_extrema,
@@ -81,12 +82,20 @@ def _hour_entry(reach, E_mu, SF, hour, metadata, hubs, top_k, dam):
         finding["nodes"] = nodes
         finding["stats"] = constraint_stats(sf_row, mu[key])
 
+    dipole = hub_dipole(cong, SF, mu, hubs)
+    # F5b endpoints must be actionable after DAM: gate on realized SPP coverage
+    # when it exists, and never re-tell F5a's dipole.
+    dam_cov = set(dam["realized"].columns) if dam and dam.get("realized") is not None else None
+    suppress = {dipole["min"]["settlement_point"], dipole["max"]["settlement_point"]} \
+        if dipole.get("min") else set()
+
     entry = {
         "constraints": constraints,
         "hotspots": nodal_hotspots(cong, SF, mu),
         "common_nodes": common_nodes(extrema_by_key),
-        "hub_dipole": hub_dipole(cong, SF, mu, hubs),
-        "best_pair": None,      # F5b — later commit
+        "hub_dipole": dipole,
+        "best_pair": best_pair(cong, SF, mu, metadata,
+                               dam_sp_coverage=dam_cov, exclude_sps=suppress),
         "after_action": None,   # F6 — filled below when DAM lands
     }
 
@@ -100,7 +109,8 @@ def _hour_entry(reach, E_mu, SF, hour, metadata, hubs, top_k, dam):
             cong_fc=cong, cong_recon=cong_recon, realized=realized,
             p10=_hour_series(dam.get("p10"), hour),
             p90=_hour_series(dam.get("p90"), hour),
-            hubs=hubs, dipole=entry["hub_dipole"], top_k=top_k)
+            hubs=hubs, dipole=entry["hub_dipole"],
+            best_pair=entry["best_pair"], top_k=top_k)
     return entry
 
 

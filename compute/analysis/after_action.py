@@ -127,12 +127,15 @@ def hour_after_action(*, reach: pd.Series, mu_fc: pd.Series, mu_dam_row: pd.Seri
                       cong_fc: pd.Series, cong_recon: pd.Series,
                       realized: pd.Series | None, p10: pd.Series | None,
                       p90: pd.Series | None, hubs: list[str], dipole: dict,
+                      best_pair: dict | None = None,
                       top_k: int = TOP_K_CONSTRAINTS) -> dict:
     """Assemble one hour's after-action from realized DAM panels.
 
     ``mu_dam_row`` is the hour's realized shadow prices over the DAM vocabulary
     (before alignment); ``cong_recon`` is that μ pushed through the artifact SF.
-    ``dipole`` is the hour's F5a result — its endpoints are the decomposed pair.
+    The F5a ``dipole`` and (when present) the F5b ``best_pair`` each get their
+    severity-vs-reconstruction decomposition — the best pair's endpoints are
+    DAM-covered by construction, so its actual SPP spread is always available.
     """
     mu_dam = mu_dam_row.reindex(reach.index).fillna(0.0)
     card = scorecard(mu_fc.abs() * reach, mu_dam.abs() * reach, top_k)
@@ -142,15 +145,17 @@ def hour_after_action(*, reach: pd.Series, mu_fc: pd.Series, mu_dam_row: pd.Seri
         entry["mu_forecast"] = float(mu_fc[k]) if k in mu_fc.index else None
         entry["mu_dam"] = float(mu_dam[k]) if k in mu_dam.index else None
 
-    decomposition = None
-    if dipole and dipole.get("min") and dipole.get("max"):
-        decomposition = spread_decomposition(
-            cong_fc, cong_recon, realized,
-            dipole["max"]["settlement_point"], dipole["min"]["settlement_point"])
+    def _decompose(pair, hi_key, lo_key):
+        if not pair or not pair.get(hi_key) or not pair.get(lo_key):
+            return None
+        return spread_decomposition(cong_fc, cong_recon, realized,
+                                    pair[hi_key]["settlement_point"],
+                                    pair[lo_key]["settlement_point"])
 
     return {
         "dam_match_coverage": dam_match_coverage(mu_fc, mu_dam_row),
         "scorecard": card,
-        "hub_dipole_decomposition": decomposition,
+        "hub_dipole_decomposition": _decompose(dipole, "max", "min"),
+        "best_pair_decomposition": _decompose(best_pair, "sink", "source"),
         "hub_triple": hub_triples(cong_fc, cong_recon, realized, p10, p90, hubs),
     }

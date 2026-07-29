@@ -40,6 +40,16 @@ HUB_LZ_PREFIXES = ("HB_", "LZ_")
 # never be a dipole endpoint.
 HUB_AVG_EXCLUDE = frozenset({"HB_BUSAVG", "HB_HUBAVG"})
 
+# F5b endpoint-type gate. The doc's intended set is {hub, LZ, RN, gen, storage},
+# but the geocoded metadata's `sp_type` vocabulary is {hub, load_zone, RN, PCCRN,
+# PUN, OTHER} — and the recognizable resource nodes the walkthrough headlined
+# (OLNEYTN, LGW, CFLATS) are typed OTHER. A literal hubs-only allowlist would drop
+# them, exactly the failure `last_mile.md` warns against ("important localized
+# resource-node separations would disappear"). So the default gate is inclusive —
+# any *typed* SP qualifies — and the junk it excludes is the untyped tail; callers
+# can pass a stricter `allowed_types` once a real day demands it.
+PAIR_COORD_ROUND = 4        # ~11 m; the granularity at which two SPs are "the same place"
+
 
 def split_constraint_key(key: object) -> tuple[str, str | None]:
     """``"NAME|CONTINGENCY"`` → ``("NAME", "CONTINGENCY")``; no bar → (name, None)."""
@@ -314,3 +324,115 @@ def common_nodes(f2_results: Mapping[str, dict], min_count: int = 2) -> list[dic
             })
     common.sort(key=lambda d: (-d["count"], -d["total_abs_contribution"], d["settlement_point"]))
     return common
+
+
+# --- F5b — best source→sink pair (guarded) ---------------------------------
+
+def _cluster_representatives(candidates: list[str], cong: pd.Series,
+                             metadata: Mapping[str, Mapping],
+                             coord_round: int) -> list[str]:
+    """Collapse geographic duplicates: one representative per coordinate cluster.
+
+    SPs sharing a rounded ``(lat, lon)`` are the same electrical location (138 such
+    clusters on June 30), so a raw max would keep re-reporting the same place under
+    different IDs. Each cluster keeps its strongest member (max ``|cong|``, key as
+    the deterministic tie-break); an SP without a geocode is its own singleton.
+    """
+    clusters: dict[tuple, list[str]] = {}
+    for sp in candidates:
+        meta = metadata.get(sp) or {}
+        lat, lon = meta.get("lat"), meta.get("lon")
+        key = (round(float(lat), coord_round), round(float(lon), coord_round)) \
+            if lat is not None and lon is not None else ("nogeo", sp)
+        clusters.setdefault(key, []).append(sp)
+    return [max(members, key=lambda s: (abs(float(cong[s])), s))
+            for members in clusters.values()]
+
+
+def _endpoint(sp: str, cong: pd.Series, metadata: Mapping[str, Mapping]) -> dict:
+    meta = metadata.get(sp) or {}
+    return {
+        "settlement_point": str(sp),
+        "cong": float(cong[sp]),
+        "sp_type": meta.get("sp_type"),
+        "load_zone": meta.get("load_zone"),
+        "lat": meta.get("lat"),
+        "lon": meta.get("lon"),
+    }
+
+
+def best_pair(cong: pd.Series, SF: pd.DataFrame, mu: pd.Series,
+              metadata: Mapping[str, Mapping], *,
+              dam_sp_coverage: set | None = None,
+              exclude_sps: set | None = None,
+              allowed_types: frozenset | None = None,
+              coord_round: int = PAIR_COORD_ROUND,
+              top_drivers: int = TOP_K_CONSTRAINTS) -> dict | None:
+    """The best quality-gated source→sink separation for one hour, or ``None``.
+
+    Because ``cong`` is one scalar per SP, ``max |cong[b] − cong[a]|`` is just
+    ``max(cong) − min(cong)`` over the eligible set, so the "pair search" is an
+    argmax/argmin, not an O(N²) scan. Guardrails, applied in order:
+
+    1. **type gate** — keep SPs whose ``sp_type`` is in ``allowed_types`` (default:
+       any typed SP; see ``PAIR_COORD_ROUND`` note on why not a hubs-only list);
+    2. **DAM coverage** — when ``dam_sp_coverage`` is given, both endpoints must be
+       in it, so an after-action SPP spread is always computable (skipped, and
+       flagged, before DAM publishes);
+    3. **F5a suppression** — ``exclude_sps`` (the hub dipole's endpoints) are
+       dropped so F5b never re-tells F5a's story;
+    4. **duplicate clustering** — one representative per coordinate cluster.
+
+    Ranked by absolute forecast spread. Returns the pair, its driver waterfall
+    (summing exactly to the spread), the dominant driver's share, and the guardrail
+    provenance; ``None`` when fewer than two SPs survive the gates.
+    """
+    exclude_sps = exclude_sps or set()
+    candidates = []
+    for sp in cong.index:
+        sp = str(sp)
+        if sp in exclude_sps:
+            continue
+        sp_type = (metadata.get(sp) or {}).get("sp_type")
+        if allowed_types is None:
+            if sp_type is None:
+                continue                       # default gate: require a known type
+        elif sp_type not in allowed_types:
+            continue
+        if dam_sp_coverage is not None and sp not in dam_sp_coverage:
+            continue
+        candidates.append(sp)
+
+    reps = _cluster_representatives(candidates, cong, metadata, coord_round)
+    if len(reps) < 2:
+        return None
+
+    rep_cong = cong.reindex(reps)
+    sink, source = str(rep_cong.idxmax()), str(rep_cong.idxmin())
+    spread = float(rep_cong[sink] - rep_cong[source])
+
+    drivers = pair_contributions(SF, mu, sink=sink, source=source)
+    ranked = drivers.reindex(drivers.abs().sort_values(ascending=False).index)
+    driver_list = []
+    for key in ranked.index[:top_drivers]:
+        name, contingency = split_constraint_key(key)
+        driver_list.append({
+            "constraint_key": str(key), "constraint_name": name,
+            "contingency_name": contingency,
+            "contribution": float(ranked[key]),
+            "share": (float(ranked[key]) / spread) if spread else 0.0,
+        })
+
+    return {
+        "sink": _endpoint(sink, cong, metadata),
+        "source": _endpoint(source, cong, metadata),
+        "spread": spread,
+        "dominance_share": (float(ranked.iloc[0]) / spread) if spread else 0.0,
+        "drivers": driver_list,
+        "guardrails": {
+            "n_candidates": len(candidates),
+            "n_clusters": len(reps),
+            "dam_coverage_checked": dam_sp_coverage is not None,
+            "f5a_suppressed": sorted(exclude_sps),
+        },
+    }
