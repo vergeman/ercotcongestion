@@ -21,6 +21,10 @@ import { fetchAnalysisBrief, fetchAnalysisBriefLatest } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import Tooltip from "../components/ui/Tooltip";
 import { mapSettlementPointLink } from "../lib/mapLinks";
+import ExplorerScrubber from "../components/playback/ExplorerScrubber";
+import { useSharedExplorer } from "../hooks/useSharedExplorer";
+import { snapToFrames } from "../hooks/useTimeCursor";
+import { formatCT } from "../lib/time";
 
 // The Analysis page (plan/0125): a single-delivery-day Insight Brief rendering
 // the 0124 F1–F6 findings for one day, defaulting to the latest. The landing
@@ -165,52 +169,6 @@ function Provenance({ env }: { env: AnalysisBrief }) {
         </span>
       )}
     </>
-  );
-}
-
-// ── the day navigator (Previous / Latest / Next), driven by available_dates ──
-function DayNav({
-  dates,
-  current,
-  latest,
-  onGo,
-}: {
-  dates: string[];
-  current: string;
-  latest: string | null;
-  onGo: (date: string | null) => void;
-}) {
-  const idx = dates.indexOf(current);
-  const prev = idx > 0 ? dates[idx - 1] : null;
-  const next = idx >= 0 && idx < dates.length - 1 ? dates[idx + 1] : null;
-  const atLatest = current === latest;
-  return (
-    <div className="an-daynav">
-      <button
-        className="an-daynav__btn"
-        onClick={() => onGo(prev)}
-        disabled={!prev}
-        aria-label="Previous day"
-      >
-        ← Previous
-      </button>
-      <span className="an-daynav__cur">{fmtDay(current)}</span>
-      <button
-        className="an-daynav__btn"
-        onClick={() => onGo(next)}
-        disabled={!next}
-        aria-label="Next day"
-      >
-        Next →
-      </button>
-      <button
-        className="an-daynav__latest"
-        onClick={() => onGo(null)}
-        disabled={atLatest}
-      >
-        Latest
-      </button>
-    </div>
   );
 }
 
@@ -902,87 +860,31 @@ function DaySummary({
 }
 
 // ── the brief body: mode toggle + hour selector + the story ─────────────────
-function BriefView({ brief }: { brief: Brief }) {
-  const hourKeys = useMemo(() => Object.keys(brief.hours).sort(), [brief]);
-  const peakKey = brief.day.peak_hours.by_hour_score;
-
-  const [mode, setMode] = useState<"hour" | "day">("hour");
-  const [hourKey, setHourKey] = useState<string | null>(null);
-  // Keep the selection valid across day navigation: an hour key from the prior
-  // day (different date) falls back to this day's peak.
-  const selectedHour =
-    hourKey && hourKeys.includes(hourKey) ? hourKey : peakKey;
-  const hourIdx = hourKeys.indexOf(selectedHour);
-
-  const pickHour = (iso: string) => {
-    setHourKey(iso);
-    setMode("hour");
-  };
-  const stepHour = (delta: number) => {
-    const next = hourKeys[hourIdx + delta];
-    if (next) setHourKey(next);
-  };
-
-  const hour = brief.hours[selectedHour];
-  const hourLabel = ctHourEnding(selectedHour).label;
-
+function BriefView({
+  brief,
+  selectedHour,
+  wholeDay,
+  onPickHour,
+}: {
+  brief: Brief;
+  selectedHour: string | null;
+  wholeDay: boolean;
+  onPickHour: (iso: string) => void;
+}) {
+  // Controlled by the shared URL time cursor (useTimeCursor): the selected hour
+  // and the whole-day flag now live in the URL, driven by the bottom
+  // TimeTransport — so Analysis reads "when" exactly the way Map and Matrix do.
+  // This component just renders the selected slice.
+  const hour = selectedHour ? brief.hours[selectedHour] : null;
+  const hourLabel = selectedHour ? ctHourEnding(selectedHour).label : "";
   return (
     <div className="an-brief">
-      <div className="an-modebar">
-        <div className="an-seg">
-          <button
-            className={mode === "hour" ? "active" : ""}
-            onClick={() => setMode("hour")}
-          >
-            This hour
-          </button>
-          <button
-            className={mode === "day" ? "active" : ""}
-            onClick={() => setMode("day")}
-          >
-            Whole day
-          </button>
-        </div>
-
-        {mode === "hour" && (
-          <div className="an-hoursel">
-            <button
-              className="an-hoursel__step"
-              onClick={() => stepHour(-1)}
-              disabled={hourIdx <= 0}
-              aria-label="Earlier hour"
-            >
-              ◀
-            </button>
-            <select
-              className="an-hoursel__select"
-              value={selectedHour}
-              onChange={(e) => setHourKey(e.target.value)}
-              aria-label="Delivery hour"
-            >
-              {hourKeys.map((k) => (
-                <option key={k} value={k}>
-                  {ctHourEnding(k).label}
-                  {k === peakKey ? "  — peak" : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              className="an-hoursel__step"
-              onClick={() => stepHour(1)}
-              disabled={hourIdx < 0 || hourIdx >= hourKeys.length - 1}
-              aria-label="Later hour"
-            >
-              ▶
-            </button>
-          </div>
-        )}
-      </div>
-
-      {mode === "hour" ? (
+      {wholeDay ? (
+        <DaySummary brief={brief} onPickHour={onPickHour} />
+      ) : hour ? (
         <HourStory hour={hour} hourLabel={hourLabel} />
       ) : (
-        <DaySummary brief={brief} onPickHour={pickHour} />
+        <div className="an-empty label">no hour available for this day.</div>
       )}
     </div>
   );
@@ -1111,8 +1013,13 @@ function Glossary() {
 }
 
 export default function AnalysisPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const urlDate = searchParams.get("date");
+  // Shared explorer: the live session drives the scrubber and the URL time
+  // coordinate; `cursor` is that coordinate. On Analysis the cursor also selects
+  // the day — the shown day is the cursor hour's Central-time date (empty when
+  // that day has no brief).
+  const { session, cursor } = useSharedExplorer();
 
   // The landing call: latest day's brief + the run's day index. Fetched once;
   // null on 503 (no forecast run published — soft-fail).
@@ -1136,17 +1043,30 @@ export default function AnalysisPage() {
   );
   const latestDate = latest?.delivery_date ?? null;
 
-  // The day actually shown: the URL date when it's a real day in the index,
-  // otherwise the latest. Null until the index resolves (we wait, not fetch).
-  const selectedDate =
-    urlDate && availableDates.includes(urlDate) ? urlDate : latestDate;
+  // What day the coordinate asks for, and whether a brief exists for it. A
+  // cursor hour from another day (e.g. arriving from the Map) resolves to ITS
+  // day — if that day has no brief we show an explicit empty state rather than
+  // silently falling back to the latest. With no coordinate at all we land on
+  // the latest available day. `selectedDate` is null (→ nothing fetched) when
+  // the requested day is unavailable.
+  const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
+  const requestedDay = cursorDay ?? urlDate ?? latestDate;
+  const dayAvailable =
+    requestedDay != null && availableDates.includes(requestedDay);
+  const selectedDate = dayAvailable ? requestedDay : null;
 
   // The selected day's brief. Reuse the latest envelope when the selection is
   // the latest day, so the landing view never double-fetches.
   const [dayEnv, setDayEnv] = useState<AnalysisBrief | null>(null);
   const [dayLoading, setDayLoading] = useState(false);
   useEffect(() => {
-    if (!selectedDate) return;
+    if (!selectedDate) {
+      // Requested day has no brief — clear any stale envelope so the empty state
+      // shows instead of the previously-loaded day.
+      setDayEnv(null);
+      setDayLoading(false);
+      return;
+    }
     if (latest && selectedDate === latestDate) {
       setDayEnv(latest);
       setDayLoading(false);
@@ -1164,17 +1084,27 @@ export default function AnalysisPage() {
     };
   }, [selectedDate, latest, latestDate]);
 
-  // Navigate to a date; null → the latest (drop the query param).
-  const goTo = (date: string | null) => {
-    if (date == null || date === latestDate) {
-      setSearchParams({}, { replace: false });
-    } else {
-      setSearchParams({ date }, { replace: false });
-    }
-  };
-
   const loading = !indexLoaded || (selectedDate != null && dayLoading);
   const env = dayEnv;
+
+  // The shown day's brief (null when unavailable). The hour view renders the
+  // brief hour nearest the cursor — cursor.t is within this day, so that is just
+  // its hour; before the session has set a cursor, default to the day's peak.
+  const brief = env?.available ? env.brief ?? null : null;
+  const hourKeys = useMemo(
+    () => (brief ? Object.keys(brief.hours).sort() : []),
+    [brief]
+  );
+  const frames = useMemo(() => hourKeys.map((k) => new Date(k)), [hourKeys]);
+  const peakKey = brief?.day.peak_hours.by_hour_score ?? null;
+  const snapped = snapToFrames(cursor.t, frames);
+  const hourIdx =
+    cursor.t && snapped >= 0
+      ? snapped
+      : peakKey
+        ? Math.max(0, hourKeys.indexOf(peakKey))
+        : 0;
+  const selectedHour = hourKeys[hourIdx] ?? null;
 
   return (
     <div className="an-page">
@@ -1183,12 +1113,7 @@ export default function AnalysisPage() {
         {env?.available && selectedDate && (
           <>
             <div className="an-daynav-wrap">
-              <DayNav
-                dates={availableDates}
-                current={selectedDate}
-                latest={latestDate}
-                onGo={goTo}
-              />
+              <span className="an-daylabel">{fmtDay(selectedDate)}</span>
             </div>
             <Provenance env={env} />
           </>
@@ -1204,8 +1129,18 @@ export default function AnalysisPage() {
             <div className="an-empty label">no forecast run is published yet.</div>
           )}
 
-          {/* Run is published but this day has no brief (available:false). */}
-          {!loading && latest && env && !env.available && (
+          {/* The coordinate points to a day with no brief in this run — say so,
+              rather than silently showing a different day. */}
+          {!loading && latest && !dayAvailable && (
+            <div className="an-empty label">
+              No Insight Brief for{" "}
+              {requestedDay ? fmtDay(requestedDay) : "this day"} — this run has no
+              analysis for that day.
+            </div>
+          )}
+
+          {/* Day is in the index but the fetch came back unavailable. */}
+          {!loading && latest && dayAvailable && env && !env.available && (
             <div className="an-empty label">
               no Insight Brief for{" "}
               {selectedDate ? fmtDay(selectedDate) : "this day"}.
@@ -1213,14 +1148,39 @@ export default function AnalysisPage() {
           )}
 
           {/* The brief for the selected day: the "what matters" story. */}
-          {!loading && env?.available && env.brief && (
-            <BriefView brief={env.brief} />
+          {!loading && brief && (
+            <BriefView
+              brief={brief}
+              selectedHour={selectedHour}
+              wholeDay={cursor.wholeDay}
+              onPickHour={(iso) => {
+                cursor.setWholeDay(false);
+                cursor.setT(new Date(iso));
+              }}
+            />
           )}
         </main>
 
         {/* Right rail — plain-language glossary for the brief's vocabulary. */}
         <Glossary />
       </div>
+
+      {/* The shared explorer scrubber — the same control (Load Window + play +
+          step + spark) as Map and Matrix — always present, even with no brief so
+          you can keep scrolling to a day that has one; the whole-day toggle rides
+          in its right slot. */}
+      <ExplorerScrubber
+        session={session}
+        rightSlot={
+          <button
+            className="an-wholeday"
+            aria-pressed={cursor.wholeDay}
+            onClick={() => cursor.setWholeDay(!cursor.wholeDay)}
+          >
+            {cursor.wholeDay ? "● Whole day" : "○ Whole day"}
+          </button>
+        }
+      />
 
       <style>{`
         .an-page {
@@ -1242,6 +1202,10 @@ export default function AnalysisPage() {
           flex-wrap: nowrap;
         }
         .an-daynav-wrap { margin-left: auto; }
+        .an-daylabel {
+          font-size: 13px; color: var(--text-primary);
+          font-family: var(--font-label); letter-spacing: var(--track-label);
+        }
         .an-daynav { display: flex; align-items: center; gap: 8px; }
         .an-daynav__btn, .an-daynav__latest {
           background: var(--bg-surface); color: var(--text-primary);
@@ -1286,6 +1250,14 @@ export default function AnalysisPage() {
           border-left: 1px solid var(--border);
         }
         .an-empty { padding: 40px 16px; text-align: center; color: var(--text-secondary); }
+        .an-wholeday {
+          background: var(--bg-surface); color: var(--text-secondary);
+          border: 1px solid var(--border); border-radius: 4px;
+          padding: 6px 12px; font-size: 12px; cursor: pointer;
+          font-family: var(--font-label); letter-spacing: var(--track-label);
+          white-space: nowrap;
+        }
+        .an-wholeday[aria-pressed="true"] { color: var(--accent); border-color: var(--border-bright); }
         .an-section-h {
           padding: 14px 16px 6px;
           display: block;
