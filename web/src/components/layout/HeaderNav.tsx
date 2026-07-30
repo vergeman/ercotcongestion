@@ -3,7 +3,8 @@
 // the current section. Links route client-side through the Router (no reload);
 // Scoreboard is the deliberate full-reload exception (see NAV `reload`).
 
-import { useNavigate } from "react-router-dom";
+import { useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Tooltip from "../ui/Tooltip";
 
 type NavKey = "map" | "matrix" | "scoreboard" | "analysis";
@@ -26,6 +27,20 @@ export default function HeaderNav({
   onNavigate?: (workspace: "map" | "matrix") => void;
 }) {
   const navigate = useNavigate();
+  const { search } = useLocation();
+  // Carry only the shared time coordinate (t / run / span) across sections, so
+  // "when" stays consistent between Map, Matrix, and Analysis. Page-local state
+  // (selection, date) stays behind.
+  const coord = useMemo(() => {
+    const src = new URLSearchParams(search);
+    const out = new URLSearchParams();
+    for (const k of ["t", "run", "span", "ws", "we"]) {
+      const v = src.get(k);
+      if (v) out.set(k, v);
+    }
+    const s = out.toString();
+    return s ? `?${s}` : "";
+  }, [search]);
   return (
     <div className="brand-nav">
       <span className="brand-nav__logo">⚡</span>
@@ -35,7 +50,7 @@ export default function HeaderNav({
           n.href ? (
             <a
               key={n.key}
-              href={n.href}
+              href={n.reload ? n.href : `${n.href}${coord}`}
               target={n.newTab ? "_blank" : undefined}
               rel={n.newTab ? "noopener noreferrer" : undefined}
               onClick={(event) => {
@@ -50,7 +65,7 @@ export default function HeaderNav({
                 if (onNavigate && (n.key === "map" || n.key === "matrix")) {
                   onNavigate(n.key);
                 } else {
-                  navigate(n.href);
+                  navigate({ pathname: n.href, search: coord });
                 }
               }}
               className={`brand-nav__link${active === n.key ? " active" : ""}`}

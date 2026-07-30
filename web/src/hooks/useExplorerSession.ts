@@ -19,7 +19,10 @@ import { formatCT } from "../lib/time";
 export type ConnectionState = "ok" | "error" | "loading";
 
 /** State shared by every live explorer workspace, independent of its rendering. */
-export function useExplorerSession() {
+export function useExplorerSession(opts?: {
+  initialCursor?: Date | null;
+  initialWindow?: { start: Date; end: Date } | null;
+}) {
   const [timestamps, setTimestamps] = useState<Date[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -79,9 +82,37 @@ export function useExplorerSession() {
     void loadWindow(start, end);
   }, [loadWindow]);
 
+  // Landing load, from the URL coordinate. Precedence:
+  //  1. a stored window [ws, we] that *contains* the cursor (or when there is no
+  //     cursor) → restore that exact range — the Map → Analysis → Map round-trip;
+  //  2. a cursor only (or a stored window that no longer contains it, e.g. the
+  //     hour moved on Analysis) → a ±1-day window around the cursor;
+  //  3. nothing → the default window around now.
+  // Runs once — loadWindow is stable and the coordinate is read at mount.
+  const initialCursor = opts?.initialCursor ?? null;
+  const initialWindow = opts?.initialWindow ?? null;
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadWindow(undefined, undefined, new Date()), 0);
+    const timer = window.setTimeout(() => {
+      const inWindow =
+        initialWindow &&
+        initialCursor &&
+        initialCursor.getTime() >= initialWindow.start.getTime() &&
+        initialCursor.getTime() <= initialWindow.end.getTime();
+      if (initialWindow && (inWindow || !initialCursor)) {
+        void loadWindow(initialWindow.start, initialWindow.end, initialCursor ?? undefined);
+      } else if (initialCursor) {
+        const pad = 24 * 60 * 60 * 1000; // ±1 day so the day and its neighbors load
+        void loadWindow(
+          new Date(initialCursor.getTime() - pad),
+          new Date(initialCursor.getTime() + pad),
+          initialCursor
+        );
+      } else {
+        void loadWindow(undefined, undefined, new Date());
+      }
+    }, 0);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadWindow]);
 
   // Color domains belong to the cursor's Central-time delivery day. This keeps
