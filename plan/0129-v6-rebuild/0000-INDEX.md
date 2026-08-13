@@ -16,8 +16,9 @@ Consequences that shape every sub-plan below:
 * `/` routes to the brief. `web/src/main.tsx` currently sends both `/` and every
   unknown path to `<App />` (the Map) via `path="*"`; that catch-all has to be
   re-pointed deliberately, not left to fall through.
-* `web/src/pages/AnalysisPage.tsx` (1,567 lines) is replaced, not refactored. Its
-  panels map to the old brief blob.
+* `web/src/pages/BriefPage.tsx` is the new entry-point surface. Keep the
+  1,567-line `AnalysisPage.tsx` legacy blob reader on `/analysis` until `0012`;
+  its panels are re-sourced into BriefPage rather than refactored in place.
 * The **`PlaybackScrubber` timeline comes off the brief page** — an hour cursor is the
   wrong control for a page whose unit is a delivery day. **The URL coordinate it reads
   must survive intact** (`0009`); the brief has to keep emitting a well-formed
@@ -132,8 +133,8 @@ sequenced first to stop the bleeding, because there is no bleeding.
 
 **Phase 4 — the page.**
 
-9. `0009-brief-page-v6` — replace `AnalysisPage.tsx` with the v6 layout and route `/`
-   to it; un-mount the scrubber from this page only. **`/map` and `/matrix` keep the
+9. `0009-brief-page-v6` — build `BriefPage.tsx` as the v6 layout and route `/`
+   to it; un-mount the scrubber from the Brief only. **`/map` and `/matrix` keep the
    scrubber exactly as today** — this is one page's composition changing, not a
    teardown, and `0128`'s time-coordinate refactor is not touched.
 
