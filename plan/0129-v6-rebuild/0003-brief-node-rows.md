@@ -95,6 +95,13 @@ Depends on: none
     the day has settled, else `null`. **This is the number that proves the fix.**
     It is the 4%/0% figure above, recomputed against the full column.
 
+* **`GET /analysis/settlement-points`** — params `delivery_date`, optional
+  `run_id` and `horizon`. Return the artifact's complete, stable settlement-point
+  vocabulary for the day. Counterparty discovery fetches this once; it must not
+  infer candidates from Matrix's bounded columns or from brief top-5 membership.
+  It follows the same `available=false` artifact-missing contract as the two
+  attribution endpoints.
+
 * **`GET /analysis/path`** — params `source`, `sink`, and the same day/basis set.
   * `β[c] = SF[c,source] − SF[c,sink]`; `contrib[c] = μ[c]·β[c]`. Use
     `pair_contributions`, which already reconciles exactly to
@@ -169,17 +176,19 @@ Depends on: none
 
 ## Acceptance
 
-* [ ] `GET /analysis/node?settlement_point=MCSES_UNIT6&delivery_date=2026-07-28&basis=realized`
+* [x] `GET /analysis/node?settlement_point=MCSES_UNIT6&delivery_date=2026-07-28&basis=realized`
       returns > 5 terms and a `coverage` materially above the 0.04 the truncated
-      payload implies.
-* [ ] `CHAR_SLR_RN` on the same day returns a non-empty term list (it currently
+      payload implies. Verified against production `mu-all-v1`: 129 terms and
+      84.9% coverage.
+* [x] `CHAR_SLR_RN` on the same day returns a non-empty term list (it currently
       reconstructs to exactly 0% — it appears in no constraint's top-5).
+      Verified against production `mu-all-v1`: 158 terms.
 * [ ] `GET /analysis/path` terms sum to `cong[sink] − cong[source]` within 1e-6
       for three sampled pairs, asserted in `api/tests/`.
 * [ ] `basis=predicted` and `basis=realized` return the same constraint set
       shape over the same SF, differing only in μ — verified against
       `/map/constraints/ranked` for one day.
-* [ ] Matrix's exact-hour DAM μ and a one-hour `basis=realized` node/path read
+* [x] Matrix's exact-hour DAM μ and a one-hour `basis=realized` node/path read
       share one canonical-key, non-DST-preferred loader; a missing DAM key stays
       visibly unmatched in Matrix but contributes zero to full-column arithmetic.
 * [ ] Node panel's dominant-driver column changes for at least one row versus the
