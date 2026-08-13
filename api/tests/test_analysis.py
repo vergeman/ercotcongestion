@@ -230,6 +230,7 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
                         "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
                         "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "climatology": None,
         "support": None,
     }
     assert body["nodes"] == {
@@ -240,6 +241,7 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
                         "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
                         "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "climatology": None,
         "support": None,
     }
     assert "grade" not in body

@@ -759,6 +759,11 @@ export interface AnalysisGradeSupport {
   hourly_bound_count: number;
   forecast_total: number;
   settled_total: number;
+  daily_bound_rate: number;
+  hourly_bound_rate: number;
+  forecast_to_settled_ratio: number | null;
+  magnitude_ceiling: number | null;
+  magnitude_of_ceiling: number | null;
 }
 
 export interface AnalysisGradeHalf {
@@ -767,6 +772,7 @@ export interface AnalysisGradeHalf {
   universe_size?: number | null;
   model?: AnalysisGradeMetrics | null;
   persistence?: AnalysisGradeMetrics | null;
+  climatology?: AnalysisGradeMetrics | null;
   support?: AnalysisGradeSupport | null;
 }
 

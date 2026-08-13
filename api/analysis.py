@@ -218,6 +218,21 @@ def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
     return result.reindex(pd.RangeIndex(count))
 
 
+def _trailing_settled_average(cur, delivery_date: date, count: int, loader) -> pd.DataFrame | None:
+    """A complete trailing-30-day settled baseline on the target's ordinal hours."""
+    profiles = []
+    for offset in range(1, 31):
+        profile = loader(cur, delivery_date - timedelta(days=offset))
+        if profile.empty:
+            return None
+        profiles.append(_ordinal_profile(profile, count))
+    universe = list(dict.fromkeys(str(key) for profile in profiles for key in profile.columns))
+    if not universe:
+        return None
+    return sum((profile.reindex(index=pd.RangeIndex(count), columns=universe, fill_value=0.0)
+                .fillna(0.0) for profile in profiles)) / len(profiles)
+
+
 def _grade_vocabulary(cur, delivery_date: date) -> list[str]:
     """Every key that settled in the prototype's trailing 30-day universe."""
     start, end = delivery_bounds(delivery_date)
@@ -243,9 +258,11 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(forecast, len(forecast))
     settled = _ordinal_profile(settled, len(forecast))
     persistence = _ordinal_profile(persistence, len(forecast))
+    climatology = _trailing_settled_average(cur, delivery_date, len(forecast), _settled_mu_profile)
     # The sparse settled profile carries the row-exists labels before values are
     # zero-filled by grade_profiles; a published zero remains a positive label.
     return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
+                          climatology=climatology,
                           universe=_grade_vocabulary(cur, delivery_date))
 
 
@@ -263,10 +280,14 @@ def _grade_node_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(forecast, len(forecast)).abs()
     settled = _ordinal_profile(settled, len(forecast)).abs()
     persistence = _ordinal_profile(persistence, len(forecast)).abs()
+    climatology = _trailing_settled_average(cur, delivery_date, len(forecast), _settled_node_profile)
+    if climatology is not None:
+        climatology = climatology.abs()
     # Nodes do not bind.  Their detection labels only filter floating-point
     # residue; magnitude always consumes the full absolute congestion profile.
     return grade_profiles(model, settled, persistence,
                           settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
+                          climatology=climatology,
                           top_fraction=0.10)
 
 
@@ -276,6 +297,7 @@ def _grade_half(result: GradeResult) -> GradeHalfResponse:
         universe_size=len(result.universe),
         model=result.model.__dict__,
         persistence=result.persistence.__dict__,
+        climatology=None if result.climatology is None else result.climatology.__dict__,
         support=None if result.support is None else result.support.__dict__,
     )
 

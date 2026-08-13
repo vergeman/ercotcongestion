@@ -199,6 +199,11 @@ class GradeSupportResponse(BaseModel):
     hourly_bound_count: int
     forecast_total: float
     settled_total: float
+    daily_bound_rate: float
+    hourly_bound_rate: float
+    forecast_to_settled_ratio: float | None
+    magnitude_ceiling: float | None
+    magnitude_of_ceiling: float | None
 
 
 class GradeHalfResponse(BaseModel):
@@ -208,6 +213,7 @@ class GradeHalfResponse(BaseModel):
     universe_size: int | None = None
     model: GradeMetricsResponse | None = None
     persistence: GradeMetricsResponse | None = None
+    climatology: GradeMetricsResponse | None = None
     support: GradeSupportResponse | None = None
 
 
