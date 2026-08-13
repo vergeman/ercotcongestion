@@ -9,6 +9,7 @@ import pandas as pd
 
 from compute.analysis.hero import classify_slots
 from compute.analysis.hero_window import (
+    HIGH_CONGESTION_CT_HOURS,
     daily_total,
     load_constraint_days,
     load_constraint_geo,
@@ -76,6 +77,15 @@ def _magnitude_summary(rows: list[dict[str, Any]], delivery_date: date, *, days:
     return {"value": values[-1], "prior": values[:-1], "basis": basis, "n_keys": n_keys}
 
 
+def _forecast_high_congestion_value(artifact) -> float:
+    """Sum forecast μ over the empirical high-congestion CT slice."""
+    index = pd.DatetimeIndex(artifact.E_mu.index)
+    if index.tz is None:
+        index = index.tz_localize("UTC")
+    mask = index.tz_convert("America/Chicago").hour.isin(HIGH_CONGESTION_CT_HOURS)
+    return float(artifact.E_mu.loc[mask].sum(axis=0).sum())
+
+
 def _exception_summary(rows: list[dict[str, Any]], delivery_date: date,
                        artifact_keys: list[str], *, days: int) -> dict[str, Any]:
     """Find DAM-active constraints that the day's artifact does not model.
@@ -130,6 +140,9 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
     artifact_keys = [str(key) for key in artifact.SF.index]
     artifact_rows = load_constraint_days(
         conn, delivery_date, days=days, constraint_keys=artifact_keys)
+    high_congestion_rows = load_constraint_days(
+        conn, delivery_date, days=days, constraint_keys=artifact_keys,
+        ct_hours=HIGH_CONGESTION_CT_HOURS)
     all_rows = load_constraint_days(conn, delivery_date, days=days)
     weights = _weights(artifact, basis, artifact_rows, delivery_date)
     if basis == "forecast":
@@ -146,6 +159,12 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
                                      n_keys=len({row["constraint_key"] for row in all_rows
                                                  if row["delivery_date"] == delivery_date}))
     artifact_summary["all_keys"] = all_summary
+    high_congestion_summary = _magnitude_summary(high_congestion_rows, delivery_date, days=days,
+                                                 basis="artifact_keys", n_keys=len(artifact_keys))
+    high_congestion_summary["hours_ct"] = list(HIGH_CONGESTION_CT_HOURS)
+    if basis == "forecast":
+        high_congestion_summary["value"] = _forecast_high_congestion_value(artifact)
+    artifact_summary["high_congestion_hours"] = high_congestion_summary
 
     condition = summarize_load_condition(load_load_condition(conn, delivery_date))
     if condition is None:

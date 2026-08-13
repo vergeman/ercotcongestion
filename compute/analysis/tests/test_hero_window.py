@@ -55,6 +55,10 @@ def test_constraint_window_aggregates_in_sql_and_has_a_strict_as_of_end_bound():
     assert "ANY(%s)" in conn.cur.sql
     assert conn.cur.params[-1] == ["A|B"]
 
+    load_constraint_days(conn, date(2026, 7, 28), ct_hours=(15, 16, 17, 18))
+    assert "EXTRACT(hour FROM interval_ts AT TIME ZONE 'America/Chicago') = ANY(%s)" in conn.cur.sql
+    assert conn.cur.params[-1] == [15, 16, 17, 18]
+
 
 def test_constraint_summary_carries_series_median_and_previous_day():
     summary = summarize_constraint_days([

@@ -64,6 +64,11 @@ def _diagnostics(slots: dict) -> str:
         f"regime_pct={float(regime['pct']):.1f}" if regime.get("pct") is not None else "regime_pct=-",
         f"where_share={float(where['share']):.3f}" if where.get("share") is not None else "where_share=-",
     ]
+    high_congestion = magnitude.get("high_congestion_hours")
+    if high_congestion is not None:
+        parts.extend((f"high_congestion_rank={high_congestion.get('rank', '-')}/{high_congestion.get('n', '-')}",
+                      f"high_congestion_ratio={float(high_congestion['ratio']):.2f}"
+                      if high_congestion.get("ratio") is not None else "high_congestion_ratio=-"))
     if exceptions.get("available") is False:
         parts.append("exceptions=unavailable")
     else:

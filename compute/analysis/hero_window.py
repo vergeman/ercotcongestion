@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 
 ERCOT_TZ = ZoneInfo("America/Chicago")
+HIGH_CONGESTION_CT_HOURS = (15, 16, 17, 18)  # Empirical slice; not a market on-peak definition.
 
 
 def delivery_bounds(delivery_date: date) -> tuple[datetime, datetime]:
@@ -33,7 +34,8 @@ def _rows(cur, columns: tuple[str, ...]) -> list[dict[str, Any]]:
 
 
 def load_constraint_days(conn, delivery_date: date, *, days: int = 30,
-                         constraint_keys: list[str] | None = None) -> list[dict[str, Any]]:
+                         constraint_keys: list[str] | None = None,
+                         ct_hours: tuple[int, ...] | None = None) -> list[dict[str, Any]]:
     """Return one daily ``Σμ`` row per constraint from the trailing window.
 
     ``end`` is midnight CT immediately after ``delivery_date``.  Its strict
@@ -43,10 +45,14 @@ def load_constraint_days(conn, delivery_date: date, *, days: int = 30,
     start, end = delivery_bounds(delivery_date)
     start -= timedelta(days=days)
     key_clause = ""
+    hour_clause = ""
     params: list[Any] = [start, end]
     if constraint_keys is not None:
         key_clause = " AND (btrim(constraint_name) || '|' || btrim(contingency_name)) = ANY(%s)"
         params.append(constraint_keys)
+    if ct_hours is not None:
+        hour_clause = " AND EXTRACT(hour FROM interval_ts AT TIME ZONE 'America/Chicago') = ANY(%s)"
+        params.append(list(ct_hours))
     sql = f"""
         SELECT (interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
                btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key,
@@ -54,7 +60,7 @@ def load_constraint_days(conn, delivery_date: date, *, days: int = 30,
                COUNT(*) FILTER (WHERE shadow_price <> 0) AS hours_bound
         FROM ercot_dam_shadow_prices
         WHERE interval_ts >= %s AND interval_ts < %s
-          AND dst_flag = FALSE AND shadow_price IS NOT NULL{key_clause}
+          AND dst_flag = FALSE AND shadow_price IS NOT NULL{key_clause}{hour_clause}
         GROUP BY 1, 2
         ORDER BY 1, 2
     """

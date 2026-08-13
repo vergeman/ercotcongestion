@@ -57,8 +57,12 @@ def classify_magnitude(summary: dict[str, Any]) -> dict[str, Any]:
         "prior_last": prior[-1] if prior else None,
     }
     result["bucket"] = _magnitude_bucket(rank, ratio)
+    if "hours_ct" in summary:
+        result["hours_ct"] = list(summary["hours_ct"])
     if "all_keys" in summary:
         result["all_keys"] = classify_magnitude(summary["all_keys"])
+    if "high_congestion_hours" in summary:
+        result["high_congestion_hours"] = classify_magnitude(summary["high_congestion_hours"])
     return result
 
 

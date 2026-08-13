@@ -9,18 +9,22 @@ from compute.sf.project import SfMuArtifact
 def _artifact():
     return SfMuArtifact(
         SF=pd.DataFrame([[1.0, -1.0], [.5, -.5]], index=["A|B", "C|D"], columns=["N1", "N2"]),
-        E_mu=pd.DataFrame([[100.0, 20.0], [80.0, 10.0]], columns=["A|B", "C|D"]),
+        E_mu=pd.DataFrame([[100.0, 20.0], [80.0, 10.0]],
+                          index=pd.to_datetime(["2026-07-28T20:00Z", "2026-07-28T21:00Z"]),
+                          columns=["A|B", "C|D"]),
     )
 
 
 def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_context(monkeypatch):
     D = date(2026, 7, 28)
 
-    def shadow(_conn, _day, *, constraint_keys=None, **_kwargs):
+    def shadow(_conn, _day, *, constraint_keys=None, ct_hours=None, **_kwargs):
         rows = [
             {"delivery_date": date(2026, 7, 27), "constraint_key": "A|B", "value": 100},
             {"delivery_date": D, "constraint_key": "A|B", "value": 200},
         ]
+        if ct_hours:
+            return rows
         return rows if constraint_keys else rows + [
             {"delivery_date": D, "constraint_key": "OUT|SIDE", "value": 500}]
 
@@ -38,6 +42,8 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
     assert slots["magnitude"]["n_keys"] == 2
     assert slots["magnitude"]["value"] == 210.0
     assert slots["magnitude"]["all_keys"]["value"] == 700.0
+    assert slots["magnitude"]["high_congestion_hours"]["value"] == 210.0
+    assert slots["magnitude"]["high_congestion_hours"]["hours_ct"] == [15, 16, 17, 18]
     assert slots["where"]["zone"] == "south"
     assert slots["where"]["geo_as_of"] == "2025-12-13"
     assert slots["exceptions"] == {"available": False, "bucket": "unavailable"}
@@ -46,7 +52,7 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
 def test_build_hero_reports_unmodeled_dam_constraint_tiers(monkeypatch):
     D = date(2026, 7, 28)
 
-    def shadow(_conn, _day, *, constraint_keys=None, **_kwargs):
+    def shadow(_conn, _day, *, constraint_keys=None, ct_hours=None, **_kwargs):
         artifact_rows = [{"delivery_date": D, "constraint_key": "A|B", "value": 10}]
         all_rows = artifact_rows + [
             {"delivery_date": D, "constraint_key": "NEW|ONE", "value": 30},
