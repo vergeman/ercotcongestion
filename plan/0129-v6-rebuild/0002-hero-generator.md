@@ -17,7 +17,10 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * The desired register is v5's (`docs/daily_brief_v5_prototype_hero.html:433 renderLead`) — "a near-record day… three things stand apart" — but its place names ("deep South Texas", "the Valley and Duval County") were hand-typed. On 2026-07-28 the node extremes actually split 8 North / 6 South, so that claim was wrong as well as underivable.
 * Everything the hero needs is already-persisted and timestamp-keyed: `ercot_dam_shadow_prices` (hypertable on `interval_ts`), the SPP/λ congestion panel, the tracked condition series, and `forecast_sf_artifact`. Nothing requires the model fit, so this is a query, not a cron step.
 * `docs/daily_brief_page*.md` and `docs/daily_brief_engine*.md` are outdated — v6 is the current outline. The prototype payload shapes (`const D`, `const X`) are not a contract.
-* Known constraints: `cast` carries only 32 of 281 settled keys (serving floor); `constraint_geo.zone_shares` is stamped 2025-12-13; ESSP (`0008`) is not built, so node dedupe is coordinate-based; load series carry `basis=forecast` with no actual.
+* Known constraints: the legacy brief's `cast` carries only 32 of 281 settled
+  keys (a serving-floor screen, not artifact metadata); `constraint_geo.zone_shares`
+  is stamped 2025-12-13; ESSP (`0008`) is not built, so node dedupe is
+  coordinate-based; load series carry `basis=forecast` with no actual.
 
 ## Approach
 
@@ -34,7 +37,19 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 **Classifiers** — `compute/analysis/hero.py`
 
 * Four slots: `magnitude`, `regime`, `where`, `exceptions`. Pure functions over the window dict — no I/O, no DB.
-* `magnitude` MUST carry `basis` and `n_keys`. Rank the forecast against a distribution restricted to the **same cast keys**; carry the all-keys total as separate context. Comparing a floor-truncated forecast (32 keys) against a full settled total (281) prints "badly under-called" every day for a structural reason.
+* `magnitude` MUST carry `basis` and `n_keys`. Its primary universe is the full
+  **artifact-key** vocabulary: the constraints the day's SF+μ artifact actually
+  models. Rank forecast and settled totals against trailing distributions over
+  those same keys. Carry the all-DAM-keys total as separate context, including
+  the keys outside the model vocabulary. Comparing unlike universes prints
+  "badly under-called" every day for a structural reason.
+
+  Do **not** recreate the legacy brief's 32-key serving cast here. That screen
+  was a precomputed-payload presentation choice, not metadata persisted on
+  `forecast_sf_artifact`; inferring it from non-zero μ would silently discard
+  low-but-real model possibilities. The rebuild is query-first, so the hero
+  reports the complete model vocabulary and leaves request-side below-floor
+  filtering to `0005`'s panel consumers.
 * `where`: zone shares Σμ-weighted from `constraint_geo`, plus node-side zone from the geocoded layer. Stamp `geo_as_of` on the constraint half.
 * `exceptions`: count tier-0 (never bound in window) and tier-1 (top-3 of own window) above the materiality gate. Dedupe nodes by coordinate and record `"dedupe":"coordinate"` — this over-counts until `0008` lands.
 * Mark slots that cannot be reconciled (`"reconcilable": false`) — load has no actual side.
@@ -48,7 +63,9 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * `verdict` is rung-distance on the magnitude enum — `ordinary` → `near_top` is two rungs up → `under_called`. No new thresholds.
 * Render to segments, never a flat string: `[{"text": "...", "ref": "magnitude"}, ...]` so the frontend attaches tooltips and jump targets by `ref` without parsing prose.
 * Carry `cursor: {ws, we, t}` on the response — the delivery day's CT bounds plus the hour worth opening on. `t` is a judgment (peak congestion hour), so it belongs here rather than being re-derived in the frontend; `0010` hands it straight to the Map deep link.
-* Phrase surprises as "constraints the forecast doesn't carry", not "the forecast missed" — on 2026-07-28 all 14 were outside the cast, so the count measures the serving floor.
+* Phrase surprises as "constraints outside the model vocabulary", not "the
+  forecast missed". A low forecast value is a model opinion; absence from the
+  artifact-key vocabulary is the distinct coverage fact the phrase describes.
 
 **Serving** — `api/analysis.py`
 
@@ -73,8 +90,13 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 ## Acceptance
 
 * [ ] `GET /analysis/hero?date=2026-07-28` returns segments, slots and provenance in one response; no prose is assembled in the frontend.
-* [ ] Forecast basis for 2026-07-28 yields `magnitude {value 11892, rank 9 of 31, ratio 1.17, basis "cast_keys", n_keys 32, bucket "ordinary"}` and `regime {load.system, pct 100 of 361, bucket "load_record_high", reconcilable false}`.
-* [ ] Settled basis for the same day yields `magnitude {value 23044, rank 2, ratio 2.26}` on the cast keys, `all_keys {value 36679, rank 1}`, and `verdict {bucket "under_called", rungs 2}`.
+* [ ] Forecast basis for 2026-07-28 yields an `artifact_keys` magnitude slot:
+  the complete `forecast_sf_artifact` vocabulary, its trailing-30-day rank and
+  ratio, and an `ordinary` bucket. It does not infer or report a legacy
+  32-key cast.
+* [ ] Settled basis for the same day uses that exact same artifact-key universe,
+  carries `all_keys {value 36679, rank 1}` for the full DAM vocabulary, and
+  emits a magnitude verdict from the two existing bucket positions.
 * [ ] `where` reports south 0.546 forecast / 0.543 settled with `geo_as_of "2025-12-13"`, and its verdict is `held`.
 * [ ] Every hero segment carries a `ref` resolving to a slot key; every slot carries the raw numbers behind its adjective.
 * [ ] Unit test: a table of synthetic slot inputs → expected bucket, per ladder, with no DB.
