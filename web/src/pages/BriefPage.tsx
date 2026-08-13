@@ -41,8 +41,11 @@ function Fact({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-const score = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
+const score = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}`;
+const percent = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
+const multiple = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}×`;
 const scorePosition = (value: number | null | undefined) => `${Math.max(0, Math.min(100, (value ?? 0) * 100))}%`;
+const beats = (model: number | null | undefined, comparator: number | null | undefined) => model != null && comparator != null && model >= comparator;
 
 function ScoreWhisker({ model, persistence }: { model: number | null | undefined; persistence: number | null | undefined }) {
   if (model == null && persistence == null) return null;
@@ -63,12 +66,11 @@ function GradeCard({
   model,
   modelHourly,
   persistence,
-  persistenceHourly,
   support,
   entity,
   footer,
   formula,
-  timing = false,
+  supportRows,
 }: {
   kind: string;
   question: string;
@@ -76,16 +78,14 @@ function GradeCard({
   model: number | null | undefined;
   modelHourly?: number | null | undefined;
   persistence: number | null | undefined;
-  persistenceHourly?: number | null | undefined;
   support: AnalysisGradeSupport | null | undefined;
   entity: string;
   footer: string;
   formula: string;
-  timing?: boolean;
+  supportRows: Array<{ value: string; label: string; win?: boolean }>;
 }) {
   const [formulaOpen, setFormulaOpen] = useState(false);
   const formulaRef = useRef<HTMLDivElement>(null);
-  const modelWins = model != null && persistence != null && model >= persistence;
   useEffect(() => {
     if (!formulaOpen) return;
     const closeIfOutside = (event: MouseEvent) => {
@@ -108,23 +108,14 @@ function GradeCard({
       <p className="an-grade-card__detail">{detail}</p>
       <div className="an-grade-card__value">
         <strong>{score(model)}</strong>
-        {timing ? <><small>day</small><span>→</span><strong>{score(modelHourly)}</strong><small>hourly</small></> : <small>model</small>}
+        {modelHourly !== undefined ? <><small>day</small><span>→</span><strong>{score(modelHourly)}</strong><small>hourly</small></> : <small>model</small>}
       </div>
       <ScoreWhisker model={model} persistence={persistence} />
-      {timing ? (
-        <div className="an-grade-card__support">
-          <div className={modelWins ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
-            <strong>{score(persistence)}</strong><span>persistence daily</span>
-          </div>
-          <div className="an-grade-card__comparison">
-            <strong>{score(persistenceHourly)}</strong><span>persistence hourly</span>
-          </div>
-        </div>
-      ) : (
-        <div className={modelWins ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
-          <strong>{score(persistence)}</strong><span>persistence (repeat yesterday)</span>
-        </div>
-      )}
+      <div className="an-grade-card__support">
+        {supportRows.map((row) => <div key={row.label} className={row.win ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
+          <strong>{row.value}</strong><span>{row.label}</span>
+        </div>)}
+      </div>
       <p className="an-grade-card__evidence">{footer}</p>
       <p className="an-grade-card__footer">{support
         ? entity === "node"
@@ -156,7 +147,6 @@ function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | u
   const dailyRank = nodes ? half.model?.top_decile_daily_capture : half.model?.detection_ap;
   const persistenceDailyRank = nodes ? half.persistence?.top_decile_daily_capture : half.persistence?.detection_ap;
   const hourlyRank = nodes ? half.model?.top_decile_hourly_capture : half.model?.timing_hourly_skill;
-  const persistenceHourlyRank = nodes ? half.persistence?.top_decile_hourly_capture : half.persistence?.timing_hourly_skill;
   return (
     <div className="an-grade__half">
       <h3>{label}{half.universe_size != null && <span>{half.universe_size} scored</span>}</h3>
@@ -169,6 +159,11 @@ function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | u
           persistence={persistenceDailyRank}
           support={half.support}
           entity={nodes ? "node" : "constraint"}
+          supportRows={[
+            { value: score(persistenceDailyRank), label: "Persistence (repeat yesterday)", win: beats(dailyRank, persistenceDailyRank) },
+            { value: score(nodes ? half.climatology?.top_decile_daily_capture : half.climatology?.detection_ap), label: "30-day settled average", win: beats(dailyRank, nodes ? half.climatology?.top_decile_daily_capture : half.climatology?.detection_ap) },
+            { value: percent(nodes ? 0.10 : half.support?.daily_bound_rate), label: nodes ? "Random top-decile capture" : "Blind guess" },
+          ]}
           footer={half.support ? (nodes ? `Top ${Math.ceil((half.universe_size ?? 0) * 0.1).toLocaleString()} of ${half.universe_size?.toLocaleString() ?? "—"} nodes · 10% random capture is the baseline.` : `${half.support.daily_bound_count.toLocaleString()} bound of ${half.universe_size?.toLocaleString() ?? "—"} constraints · 100% means every realized event ranked first.`) : "Measures average precision."}
           formula={nodes
             ? `Capture₁₀ = | Top₁₀%(forecast) ∩ Top₁₀%(settled) |
@@ -185,11 +180,16 @@ B    = constraints that bind`}
         <GradeCard
           kind="Magnitude"
           question="Were the prices about right?"
-          detail="Compares the forecast and settled daily profiles without reducing them to membership alone."
+          detail="Matches forecast dollars to settled dollars by element. A forecast with the wrong total cannot reach 1.00, even with perfect placement."
           model={half.model?.magnitude_overlap}
           persistence={half.persistence?.magnitude_overlap}
           support={half.support}
           entity={label === "Constraints" ? "constraint" : "node"}
+          supportRows={[
+            { value: multiple(half.support?.forecast_to_settled_ratio), label: "Forecast dollars per settled dollar" },
+            { value: score(half.support?.magnitude_ceiling), label: "Highest overlap possible with this total" },
+            { value: percent(half.support?.magnitude_of_ceiling), label: "Share of that maximum achieved" },
+          ]}
           footer={half.support ? `${usd(half.support.forecast_total)} forecast · ${usd(half.support.settled_total)} settled.` : "Measures soft overlap of daily magnitude."}
           formula={`2 × Σ min(forecastᵢ, settledᵢ)
 ────────────────────────────────
@@ -198,14 +198,17 @@ B    = constraints that bind`}
         <GradeCard
           kind="Timing"
           question={nodes ? "Did the same high-congestion nodes appear in the right hours?" : "Did the right signal arrive in the right hours?"}
-          detail={nodes ? "Shows daily top-decile capture, then the same top-decile overlap averaged across delivery hours." : "Shows the delivery-day result beside the same test over individual hours."}
+          detail={nodes ? "The 0.xx scores are settled top-decile nodes captured by the forecast; the 10% lines below are random-selection baselines." : "Shows the delivery-day result beside the same test over individual hours."}
           model={nodes ? dailyRank : half.model?.timing_daily_skill}
           modelHourly={hourlyRank}
           persistence={nodes ? persistenceDailyRank : half.persistence?.timing_daily_skill}
-          persistenceHourly={persistenceHourlyRank}
           support={half.support}
           entity={nodes ? "node" : "constraint"}
-          footer={nodes ? "Daily capture first, then top-decile capture averaged across delivery hours." : "Daily score first, then the same chance-adjusted ranking test over all delivery hours."}
+          supportRows={[
+            { value: percent(nodes ? 0.10 : half.support?.daily_bound_rate), label: nodes ? "Random daily capture baseline" : "Constraint-days that bind" },
+            { value: percent(nodes ? 0.10 : half.support?.hourly_bound_rate), label: nodes ? "Random hourly capture baseline" : "Constraint-hours that bind" },
+          ]}
+          footer={nodes ? "Daily capture first, then capture averaged across delivery hours; each comparison selects 10% of nodes." : "Daily score first, then the same chance-adjusted ranking test over all delivery hours."}
           formula={nodes
             ? `Hourly capture₁₀ = (1/H) · Σ  | Top₁₀%(forecastₕ) ∩ Top₁₀%(settledₕ) |
                                   h                 ────────────────────────────────────
@@ -216,7 +219,6 @@ N = complete node universe · H = delivery hours`
 run on days, then on hours
 
 chance = share that bind`}
-          timing
         />
       </div>
     </div>
