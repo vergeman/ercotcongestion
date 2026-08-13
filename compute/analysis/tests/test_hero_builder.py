@@ -29,6 +29,10 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
             {"delivery_date": D, "constraint_key": "OUT|SIDE", "value": 500}]
 
     monkeypatch.setattr(hero_builder, "load_constraint_days", shadow)
+    monkeypatch.setattr(hero_builder, "load_forecast_constraint_days", lambda *_args, **_kwargs: [
+        {"delivery_date": date(2026, 7, 27), "constraint_key": "A|B", "value": 120},
+        {"delivery_date": D, "constraint_key": "A|B", "value": 210},
+    ])
     monkeypatch.setattr(hero_builder, "load_load_condition", lambda *_: [
         {"delivery_date": D, "value": 100}])
     monkeypatch.setattr(hero_builder, "load_constraint_geo", lambda *_: [
@@ -38,7 +42,7 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
         "N1": {"load_zone": "LZ_SOUTH"}, "N2": {"load_zone": "LZ_NORTH"}})
 
     slots = hero_builder.build_hero(None, "run", D, 1, "forecast", artifact=_artifact())
-    assert slots["magnitude"]["basis"] == "artifact_keys"
+    assert slots["magnitude"]["basis"] == "forecast_history_artifact_keys"
     assert slots["magnitude"]["n_keys"] == 2
     assert slots["magnitude"]["value"] == 210.0
     assert slots["magnitude"]["all_keys"]["value"] == 700.0
