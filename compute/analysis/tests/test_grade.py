@@ -68,21 +68,6 @@ def test_grade_exposes_persistence_on_every_prototype_metric():
     assert grade.model.timing_hourly_skill < grade.persistence.timing_hourly_skill
 
 
-def test_grade_can_use_a_separate_daily_event_definition_for_nodes():
-    model = _profiles({"IMPORT": [0.2, 0.2], "EXPORT": [0.2, 0.2]})
-    settled = _profiles({"IMPORT": [0.4, 0.4], "EXPORT": [0.4, 0.4]})
-    persistence = _profiles({})
-    hourly_bound = settled.abs().ge(0.3)
-    daily_bound = settled.abs().mean(axis=0).ge(0.5)
-
-    grade = grade_profiles(model.abs(), settled.abs(), persistence,
-                           settled_bound=hourly_bound, settled_daily_bound=daily_bound)
-
-    assert grade.model.detection_ap is None
-    assert grade.model.timing_hourly_skill is None
-    assert grade.model.magnitude_overlap == pytest.approx(2 / 3)
-
-
 def test_grade_rejects_profiles_that_do_not_share_target_delivery_hours():
     model = _profiles({"A|BASE": [1.0, 0.0]})
     settled = model.copy()

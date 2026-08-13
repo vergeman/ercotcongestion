@@ -229,6 +229,20 @@ def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkey
     assert grade.model.magnitude_overlap == 2 / 11
 
 
+def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
+    hours = pd.RangeIndex(2)
+    forecast = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [0.0, 0.0]}, index=hours)
+    settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
+    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
+
+    grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
+
+    assert grade is not None
+    assert grade.model.detection_ap == 1.0
+    assert grade.model.timing_daily_skill == 1.0
+
+
 def test_forecast_mu_returns_requested_near_zero_fit_values(client, fake_pool, monkeypatch):
     artifact = SfMuArtifact(
         SF=pd.DataFrame([[1.0], [1.0]], index=["CAST|BASE", "BRUNI_69_1|DFOAVLO5"], columns=["SP"]),

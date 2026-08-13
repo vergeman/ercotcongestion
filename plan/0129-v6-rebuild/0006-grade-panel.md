@@ -37,9 +37,11 @@ Depends on: `0002`, `0003`, `0004`, `0005`
 ## Approach
 
 * Work in: `compute/analysis/`, `api/analysis.py`
-* Three metrics, kept separate and separately labelled: **detection** (did the elements
-  that bound get forecast), **magnitude** (Σμ error over the union universe), **timing**
-  (hour alignment of the μ profile).
+* Three metrics, kept separate and separately labelled, following
+  `docs/daily_brief_v6_prototype.html`: **detection** (expected-tie average precision
+  over the forecast rank), **magnitude** (soft overlap of the daily Σμ vectors), and
+  **timing** (the same AP over pooled constraint-hours, chance-adjusted before it is
+  compared with daily detection).
 * Universe = union of forecast-set and settled-set, so a no-show costs detection and a
   surprise costs it too. Settled zeros print as `$0`, never a dash — "it did not bind"
   must never read as "we do not know".
@@ -49,6 +51,10 @@ Depends on: `0002`, `0003`, `0004`, `0005`
   scale. If the model loses, the panel says so.
 * Constraints and nodes are two rows, not one score. The node row stays struck through
   and labelled "not graded" until `0003` lands (`NODES_GRADEABLE`).
+  Nodes do not bind: their detection and timing labels use `abs(congestion) > 1e-6`
+  $/MWh only to discard floating-point residue, not a materiality floor. Node magnitude
+  always uses the full `abs(SPP − system_lambda)` profile, so opposite signed errors
+  cannot net out.
 * Do NOT touch: the modelling path, or the scoreboard tables (`scoreboard_daily` /
   `scoreboard_weekly`) — this is the per-day panel, not the running scoreboard.
 
@@ -60,3 +66,5 @@ Depends on: `0002`, `0003`, `0004`, `0005`
 * [ ] Constraint and node halves are separately visible; no averaged number exists anywhere in the response.
 * [ ] Signed bias, if shown, is labelled as bias and is not an input to any accuracy figure.
 * [ ] Settled non-binding renders `$0`, not `—`.
+* [ ] Node detection/timing use the `1e-6` $/MWh numerical-noise epsilon, not an
+  economic materiality threshold; node magnitude includes all absolute congestion.

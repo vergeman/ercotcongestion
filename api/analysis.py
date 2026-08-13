@@ -248,7 +248,7 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
                           universe=_grade_vocabulary(cur, delivery_date))
 
 
-NODE_MATERIALITY_FLOOR = 0.50  # $/MWh block mean; prototype's node event definition.
+NODE_CONGESTION_EPSILON = 1e-6  # $/MWh; suppresses float residue, not economics.
 
 
 def _grade_node_profiles(cur, run_id: str, delivery_date: date,
@@ -262,12 +262,10 @@ def _grade_node_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(forecast, len(forecast)).abs()
     settled = _ordinal_profile(settled, len(forecast)).abs()
     persistence = _ordinal_profile(persistence, len(forecast)).abs()
-    # A node event is material absolute congestion over the block. Hourly timing
-    # uses the same floor per hour; magnitude always consumes the full |price|.
-    hourly_bound = settled.ge(NODE_MATERIALITY_FLOOR)
-    daily_bound = settled.mean(axis=0).ge(NODE_MATERIALITY_FLOOR)
-    return grade_profiles(model, settled, persistence, settled_bound=hourly_bound,
-                          settled_daily_bound=daily_bound)
+    # Nodes do not bind.  Their detection labels only filter floating-point
+    # residue; magnitude always consumes the full absolute congestion profile.
+    return grade_profiles(model, settled, persistence,
+                          settled_bound=settled.gt(NODE_CONGESTION_EPSILON))
 
 
 def _grade_half(result: GradeResult) -> GradeHalfResponse:
