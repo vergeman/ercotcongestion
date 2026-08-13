@@ -45,11 +45,11 @@ def load_constraint_days(conn, delivery_date: date, *, days: int = 30,
     key_clause = ""
     params: list[Any] = [start, end]
     if constraint_keys is not None:
-        key_clause = " AND (constraint_name || '|' || contingency_name) = ANY(%s)"
+        key_clause = " AND (btrim(constraint_name) || '|' || btrim(contingency_name)) = ANY(%s)"
         params.append(constraint_keys)
     sql = f"""
         SELECT (interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
-               constraint_name || '|' || contingency_name AS constraint_key,
+               btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key,
                SUM(shadow_price) AS value,
                COUNT(*) FILTER (WHERE shadow_price <> 0) AS hours_bound
         FROM ercot_dam_shadow_prices
@@ -90,13 +90,18 @@ def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -
 
 
 def load_constraint_geo(conn) -> list[dict[str, Any]]:
-    """Read the newest persisted geography per constraint, independent of run name."""
+    """Read one coherent, newest persisted geography window.
+
+    Selecting the latest row per key can splice several map runs into one hero and
+    makes ``geo_as_of`` ambiguous.  The hero instead uses the complete newest
+    window, so every zone share carries the same provenance stamp.
+    """
     sql = """
-        SELECT DISTINCT ON (constraint_key)
-               constraint_key, zone_shares, window_start::date AS geo_as_of
+        SELECT constraint_key, zone_shares, window_start::date AS geo_as_of
         FROM constraint_geo
-        WHERE zone_shares IS NOT NULL
-        ORDER BY constraint_key, window_start DESC
+        WHERE window_start = (SELECT max(window_start) FROM constraint_geo)
+          AND zone_shares IS NOT NULL
+        ORDER BY constraint_key
     """
     with conn.cursor() as cur:
         cur.execute(sql, ())

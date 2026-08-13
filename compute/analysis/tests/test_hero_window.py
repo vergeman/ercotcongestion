@@ -51,6 +51,7 @@ def test_constraint_window_aggregates_in_sql_and_has_a_strict_as_of_end_bound():
     assert rows[0]["value"] == 12.5
     assert "GROUP BY 1, 2" in conn.cur.sql
     assert "interval_ts < %s" in conn.cur.sql
+    assert "btrim(constraint_name) || '|' || btrim(contingency_name)" in conn.cur.sql
     assert "ANY(%s)" in conn.cur.sql
     assert conn.cur.params[-1] == ["A|B"]
 
@@ -82,7 +83,7 @@ def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
 
     geo_conn = Conn([])
     load_constraint_geo(geo_conn)
-    assert "DISTINCT ON (constraint_key)" in geo_conn.cur.sql
+    assert "window_start = (SELECT max(window_start) FROM constraint_geo)" in geo_conn.cur.sql
 
 
 def test_node_and_condition_summaries_carry_classifier_ready_ranks_and_percentiles():

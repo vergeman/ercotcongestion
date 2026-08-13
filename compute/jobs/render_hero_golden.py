@@ -50,21 +50,49 @@ def line_for(slots: dict) -> str:
     return f"{buckets}\t{headline}\t{lede}"
 
 
-def render_audit(conn, run_id: str, days: list[tuple[date, int]], *, basis: str = "settled") -> list[str]:
+def render_audit(conn, run_id: str, days: list[tuple[date, int]], *, basis: str = "settled",
+                 strict: bool = True) -> list[str]:
     """Render one on-demand hero per day and guard against available-bucket drift."""
+    # Geography is immutable for this review run, and artifact SP vocabularies
+    # repeat across adjacent days. Cache these two expensive support reads here
+    # only; the API continues to read its current sources per request.
+    from compute.analysis import hero_builder
+    load_geo = hero_builder.load_constraint_geo
+    load_metadata = hero_builder.load_sp_metadata
+    if conn is not None:
+        geo = load_geo(conn)
+        metadata_cache: dict[tuple[str, ...], dict] = {}
+
+        def cached_geo(_conn):
+            return geo
+
+        def cached_metadata(points):
+            key = tuple(map(str, points))
+            if key not in metadata_cache:
+                metadata_cache[key] = load_metadata(points)
+            return metadata_cache[key]
+
+        hero_builder.load_constraint_geo = cached_geo
+        hero_builder.load_sp_metadata = cached_metadata
     lines = []
     counts = {name: Counter() for name in SLOT_NAMES}
     available = Counter()
-    for delivery_date, horizon in days:
-        slots = build_hero(conn, run_id, delivery_date, horizon, basis)
-        for name in SLOT_NAMES:
-            if slots[name].get("available") is not False:
-                counts[name][slots[name]["bucket"]] += 1
-                available[name] += 1
-        lines.append(f"{delivery_date.isoformat()}\t{line_for(slots)}")
-    for name, bucket_counts in counts.items():
-        if available[name] and max(bucket_counts.values()) > available[name] / 2:
-            raise ValueError(f"{name} bucket dominates audit: {bucket_counts.most_common(1)[0]}")
+    try:
+        for delivery_date, horizon in days:
+            slots = build_hero(conn, run_id, delivery_date, horizon, basis)
+            for name in SLOT_NAMES:
+                if slots[name].get("available") is not False:
+                    counts[name][slots[name]["bucket"]] += 1
+                    available[name] += 1
+            lines.append(f"{delivery_date.isoformat()}\t{line_for(slots)}")
+    finally:
+        if conn is not None:
+            hero_builder.load_constraint_geo = load_geo
+            hero_builder.load_sp_metadata = load_metadata
+    if strict:
+        for name, bucket_counts in counts.items():
+            if available[name] and max(bucket_counts.values()) > available[name] / 2:
+                raise ValueError(f"{name} bucket dominates audit: {bucket_counts.most_common(1)[0]}")
     return lines
 
 
@@ -74,12 +102,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end-date", required=True, type=date.fromisoformat)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--basis", choices=("forecast", "settled"), default="settled")
+    parser.add_argument("--allow-dominant", action="store_true",
+                        help="write a browsable snapshot even when the strict bucket audit fails")
     args = parser.parse_args(argv)
 
     from shared.settings import settings
     with psycopg.connect(settings.pg_dsn) as conn:
         lines = render_audit(conn, args.run_id,
-                             available_days(conn, args.run_id, args.end_date), basis=args.basis)
+                             available_days(conn, args.run_id, args.end_date), basis=args.basis,
+                             strict=not args.allow_dominant)
     args.output.write_text("\n".join(lines) + "\n")
     return 0
 
