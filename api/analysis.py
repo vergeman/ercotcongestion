@@ -248,12 +248,16 @@ def get_settlement_points(
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
-            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
-                    "delivery_date": delivery_date}
+            return AnalysisSettlementPointsUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date,
+            )
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
-            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
-                    "delivery_date": delivery_date, "horizon": horizon}
+            return AnalysisSettlementPointsUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date, horizon=horizon,
+            )
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         settlement_points=sorted(str(sp) for sp in artifact.SF.columns),

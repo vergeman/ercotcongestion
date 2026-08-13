@@ -168,3 +168,11 @@ def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(c
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
                     "horizon": 1, "settlement_points": ["SINK", "SOURCE"]}
+
+
+def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    body = client.get("/analysis/settlement-points?delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
+                    "delivery_date": "2026-07-28", "horizon": 1}
