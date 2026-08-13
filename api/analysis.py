@@ -67,43 +67,46 @@ def get_hero(
     horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; final preferred."),
 ) -> dict:
     """Return prose segments, raw slots, independent verdicts, and map cursor."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        if run_id is None:
-            cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
-            row = cur.fetchone()
-            if row is None:
-                raise HTTPException(status_code=503, detail="no forecast run is published yet.")
-            run_id = str(row["run_id"])
-        if horizon is None:
-            cur.execute(
-                "SELECT min(horizon) AS h FROM forecast_sf_artifact "
-                "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
-            row = cur.fetchone()
-            if row is None or row["h"] is None:
-                return {"available": False, "unavailable_reason": "artifact_missing",
-                        "run_id": run_id, "delivery_date": delivery_date}
-            horizon = int(row["h"])
-        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-        settled = _dam_landed(cur, delivery_date)
+    # All window reads below share this checked-out connection.  Do not release
+    # it before ``build_hero``: it performs the on-demand query layer itself.
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            if run_id is None:
+                cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
+                row = cur.fetchone()
+                if row is None:
+                    raise HTTPException(status_code=503, detail="no forecast run is published yet.")
+                run_id = str(row["run_id"])
+            if horizon is None:
+                cur.execute(
+                    "SELECT min(horizon) AS h FROM forecast_sf_artifact "
+                    "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
+                row = cur.fetchone()
+                if row is None or row["h"] is None:
+                    return {"available": False, "unavailable_reason": "artifact_missing",
+                            "run_id": run_id, "delivery_date": delivery_date}
+                horizon = int(row["h"])
+            artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+            settled = _dam_landed(cur, delivery_date)
 
-    if artifact is None:
-        return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
-                "delivery_date": delivery_date, "horizon": horizon}
-    basis = "settled" if settled else "forecast"
-    slots = build_hero(conn, run_id, delivery_date, horizon, basis, artifact=artifact)
-    verdict = None
-    if settled:
-        forecast = build_hero(conn, run_id, delivery_date, horizon, "forecast", artifact=artifact)
-        verdict = _verdicts(forecast, slots)
-    return {
-        "available": True,
-        "segments": render(slots),
-        "slots": slots,
-        "verdict": verdict,
-        "cursor": _cursor(delivery_date, artifact),
-        "provenance": {"run_id": run_id, "delivery_date": delivery_date,
-                       "horizon": horizon, "basis": basis},
-    }
+        if artifact is None:
+            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
+                    "delivery_date": delivery_date, "horizon": horizon}
+        basis = "settled" if settled else "forecast"
+        slots = build_hero(conn, run_id, delivery_date, horizon, basis, artifact=artifact)
+        verdict = None
+        if settled:
+            forecast = build_hero(conn, run_id, delivery_date, horizon, "forecast", artifact=artifact)
+            verdict = _verdicts(forecast, slots)
+        return {
+            "available": True,
+            "segments": render(slots),
+            "slots": slots,
+            "verdict": verdict,
+            "cursor": _cursor(delivery_date, artifact),
+            "provenance": {"run_id": run_id, "delivery_date": delivery_date,
+                           "horizon": horizon, "basis": basis},
+        }
 
 
 @router.get("/brief", summary="Server-computed daily Insight Brief")
