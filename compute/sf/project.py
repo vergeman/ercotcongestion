@@ -251,6 +251,20 @@ def node_drivers(art: SfMuArtifact, sp: str, ts, k: int = DRIVERS_K) -> pd.DataF
     })
 
 
+def node_contributions(art: SfMuArtifact, sp: str, mu: pd.Series) -> pd.Series:
+    """Full-column constraint contributions for one settlement point.
+
+    ``mu`` may be a forecast or realized shadow-price vector already rolled up
+    over any requested block of hours.  Its labels are reindexed explicitly so
+    the returned series always follows the artifact's constraint vocabulary.
+    This deliberately has no top-k: API callers use it for attribution that
+    must reconcile to the node's full congestion price.
+    """
+    if sp not in art.SF.columns:
+        raise KeyError(sp)
+    return -(art.SF[sp] * mu.reindex(art.SF.index).fillna(0.0))
+
+
 def materialize_drivers(art: SfMuArtifact, k: int = DRIVERS_K,
                         sps=None) -> pd.DataFrame:
     """Offline/debug top-k driver rows for one day's artifact — curated days ONLY.

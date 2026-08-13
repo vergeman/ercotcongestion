@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import date
 
+import pandas as pd
+
 from compute.sf.project import SfMuArtifact, load_sf_mu
 
 
@@ -29,6 +31,36 @@ ARTIFACT_CACHE_MAX_BYTES = 128 * 1024 * 1024
 def normalize_constraint_key(constraint_name: str, contingency_name: str) -> str:
     """Return the canonical ``constraint|contingency`` key used by SF artifacts."""
     return f"{str(constraint_name).strip()}|{str(contingency_name).strip()}"
+
+
+def load_realized_mu(cur, timestamps, constraint_keys) -> pd.Series:
+    """Sum published DAM μ over artifact hours, aligned to its key vocabulary.
+
+    This is the realized counterpart to an artifact's ``E_mu.sum(axis=0)``.
+    Both Matrix's exact-hour display and the brief's multi-hour attribution use
+    it, so key normalization and the non-DST duplicate preference cannot drift.
+    Missing DAM constraints are omitted; consumers that need a full arithmetic
+    vector explicitly reindex and fill zero, while display consumers retain the
+    important distinction between an unmatched price and a published zero.
+    """
+    keys = set(str(key) for key in constraint_keys)
+    values: dict[str, float] = {}
+    hours = list(pd.DatetimeIndex(timestamps).to_pydatetime())
+    if not hours:
+        return pd.Series(dtype=float)
+    cur.execute(
+        "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
+        "interval_ts, constraint_name, contingency_name, shadow_price "
+        "FROM ercot_dam_shadow_prices "
+        "WHERE interval_ts = ANY(%s) AND shadow_price IS NOT NULL "
+        "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
+        (hours,),
+    )
+    for row in cur.fetchall():
+        key = normalize_constraint_key(row["constraint_name"], row["contingency_name"])
+        if key in keys:
+            values[key] = values.get(key, 0.0) + float(row["shadow_price"])
+    return pd.Series(values, dtype=float)
 
 
 def _artifact_size_bytes(artifact: SfMuArtifact) -> int:

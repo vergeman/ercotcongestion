@@ -51,6 +51,27 @@ def test_normalize_constraint_key_trims_only_outer_whitespace():
     assert normalize_constraint_key("  C North  ", " BASE CASE ") == "C North|BASE CASE"
 
 
+def test_load_realized_mu_keeps_unmatched_keys_absent_for_display_consumers():
+    class Cur:
+        def __init__(self):
+            self.sql = ""
+
+        def execute(self, sql, params=()):
+            self.sql = sql
+
+        def fetchall(self):
+            return [
+                {"constraint_name": " A ", "contingency_name": " BASE ", "shadow_price": 2.5},
+                {"constraint_name": "A", "contingency_name": "BASE", "shadow_price": 1.5},
+                {"constraint_name": "OTHER", "contingency_name": "BASE", "shadow_price": 9.0},
+            ]
+
+    cur = Cur()
+    mu = sa.load_realized_mu(cur, pd.to_datetime(["2026-07-01T05:00Z"]), ["A|BASE", "B|BASE"])
+    assert mu.to_dict() == {"A|BASE": 4.0}
+    assert "DISTINCT ON" in cur.sql and "dst_flag ASC" in cur.sql
+
+
 def test_cache_keys_include_run_delivery_day_and_horizon():
     """The cache key carries horizon (0123), so a day's final and preview artifacts
     live in separate slots and never alias."""

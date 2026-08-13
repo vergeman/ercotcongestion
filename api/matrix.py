@@ -11,7 +11,7 @@ from psycopg.rows import dict_row
 
 from db import get_pool
 from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
-from services.sf_artifacts import load_daily_artifact, normalize_constraint_key
+from services.sf_artifacts import load_daily_artifact, load_realized_mu
 
 
 router = APIRouter(prefix='/matrix')
@@ -129,19 +129,9 @@ def _constraint_types(cur, keys: list[str]) -> dict[str, str]:
     return {str(r['constraint_key']): str(r['ctype']) for r in cur.fetchall() if r['ctype'] is not None}
 
 
-def _dam_mu(cur, interval_ts: datetime) -> dict[str, float]:
+def _dam_mu(cur, interval_ts: datetime, constraint_keys) -> dict[str, float]:
     """Exact-hour published DAM μ keyed exactly like the artifact vocabulary."""
-    cur.execute(
-        "SELECT constraint_name, contingency_name, sum(shadow_price) AS shadow_price "
-        "FROM ercot_dam_shadow_prices WHERE interval_ts = %s AND shadow_price IS NOT NULL "
-        "GROUP BY constraint_name, contingency_name",
-        (interval_ts,),
-    )
-    return {
-        normalize_constraint_key(r['constraint_name'], r['contingency_name']): float(r['shadow_price'])
-        for r in cur.fetchall()
-        if r['shadow_price'] is not None
-    }
+    return load_realized_mu(cur, [interval_ts], constraint_keys).to_dict()
 
 
 @router.get('/frame', response_model=MatrixFrame, summary='Bounded causal SF matrix frame')
@@ -200,7 +190,7 @@ def get_matrix_frame(
         matched_rows = [key for key in ranked_rows if constraint_search and constraint_search in key.casefold()][:MAX_SEARCH_RESULTS]
         # Preserve the established DAM query before best-effort discovery
         # metadata; both use indexed, bounded key sets.
-        dam_by_key = _dam_mu(cur, interval_ts)
+        dam_by_key = _dam_mu(cur, interval_ts, artifact.SF.index)
         type_candidates = _append_bounded(ranked_rows[:MAX_ROW_LIMIT], pinned_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS)
         type_candidates = _append_bounded(type_candidates, matched_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS + MAX_SEARCH_RESULTS)
         row_types = _constraint_types(cur, type_candidates)

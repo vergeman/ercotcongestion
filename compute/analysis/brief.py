@@ -47,10 +47,12 @@ def cell_contributions(SF: pd.DataFrame, mu: pd.Series) -> pd.DataFrame:
 def nodal_congestion(SF: pd.DataFrame, mu: pd.Series) -> pd.Series:
     """Forecast congestion price at each settlement point, ``cong = -Sᵀ mu``.
 
-    Equivalent to ``cell_contributions(SF, mu).sum(axis=0)`` but formed as one
-    matrix-vector product; ``mu`` aligns to ``SF.index`` by label.
+    Formed by the same per-cell contributions exposed in a driver waterfall.
+    Besides keeping the sign convention in one place, this gives pair terms and
+    endpoint totals a deterministic float64 reduction path when artifacts store
+    their SF values as float32.
     """
-    return -(SF.T @ mu.reindex(SF.index))
+    return cell_contributions(SF, mu).sum(axis=0)
 
 
 def pair_contributions(SF: pd.DataFrame, mu: pd.Series, sink: str, source: str) -> pd.Series:
@@ -61,4 +63,25 @@ def pair_contributions(SF: pd.DataFrame, mu: pd.Series, sink: str, source: str) 
     congestion above the source's. This is the waterfall behind a node-to-node
     separation story (F5).
     """
-    return mu * (SF[source] - SF[sink])
+    # Subtract the same per-node cells that form ``nodal_congestion`` instead
+    # of first subtracting two float32 SF columns. They are algebraically
+    # identical, but this order avoids a measurable reduction-order residual
+    # when a large full artifact is summed.
+    cells = cell_contributions(SF, mu)
+    return cells[sink] - cells[source]
+
+
+def congestion_bias(forecast_cong: pd.Series, realized_cong: pd.Series,
+                    *, signed: bool = False) -> float:
+    """Mean forecast-minus-realized congestion bias, on ``|congestion|`` by default.
+
+    Node congestion is signed by shift factor, so signed errors let an
+    over-called import net against an under-called export into a spurious
+    "balanced" bias while both are wrong (the ``0003`` netting trap). Scoring
+    the magnitude matches the unsigned constraint half; ``signed=True`` exists
+    only so a test can pin the difference. Series align on shared SPs first.
+    """
+    forecast_cong, realized_cong = forecast_cong.align(realized_cong, join="inner")
+    if not signed:
+        forecast_cong, realized_cong = forecast_cong.abs(), realized_cong.abs()
+    return float((forecast_cong - realized_cong).mean())

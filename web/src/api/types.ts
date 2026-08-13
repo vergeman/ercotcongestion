@@ -717,3 +717,66 @@ export interface AnalysisBrief {
   brief?: Brief;
   available_dates?: string[];
 }
+
+// =============================================================================
+// /analysis/node, /analysis/path, /analysis/settlement-points — full-artifact
+// attribution. These are intentionally sparse lists, not Matrix rectangles:
+// every nonzero driver for a chosen node or path is preserved.
+// =============================================================================
+
+export type AnalysisBasis = "predicted" | "realized";
+
+export interface AnalysisContributionTerm {
+  constraint_key: string;
+  contribution: number;
+  shift_factor: number;
+}
+
+export interface AnalysisNodeResponse {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  settlement_point?: string;
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  basis?: AnalysisBasis;
+  hours?: string[];
+  total?: number;
+  n_terms?: number;
+  coverage?: number | null;
+  terms?: AnalysisContributionTerm[];
+}
+
+export interface AnalysisPathComposition {
+  top_share: number;
+  second_share: number;
+  tail_share: number;
+  n_terms: number;
+  top_constraint_key: string | null;
+  second_constraint_key: string | null;
+}
+
+export interface AnalysisPathResponse {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  source?: string;
+  sink?: string;
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  basis?: AnalysisBasis;
+  hours?: string[];
+  spread?: number;
+  n_terms?: number;
+  composition?: AnalysisPathComposition;
+  terms?: AnalysisContributionTerm[];
+}
+
+export interface AnalysisSettlementPointsResponse {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  settlement_points?: string[];
+}

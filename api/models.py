@@ -58,6 +58,77 @@ class HeroUnavailableAtHorizonResponse(HeroUnavailableResponse):
     horizon: int
 
 
+# ---- /analysis/node and /analysis/path ----------------------------------
+
+class AnalysisContributionTerm(BaseModel):
+    constraint_key: str
+    contribution: float
+    shift_factor: float
+
+
+class NodeAnalysisAvailableResponse(BaseModel):
+    available: Literal[True]
+    settlement_point: str
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["predicted", "realized"]
+    hours: list[datetime]
+    total: float
+    n_terms: int
+    coverage: float | None
+    terms: list[AnalysisContributionTerm]
+
+
+class NodeAnalysisUnavailableResponse(BaseModel):
+    available: Literal[False]
+    unavailable_reason: Literal["artifact_missing"]
+    run_id: str
+    delivery_date: date
+    horizon: int | None = None
+
+
+class PathComposition(BaseModel):
+    top_share: float
+    second_share: float
+    tail_share: float
+    n_terms: int
+    top_constraint_key: str | None
+    second_constraint_key: str | None
+
+
+class PathAnalysisAvailableResponse(BaseModel):
+    available: Literal[True]
+    source: str
+    sink: str
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["predicted", "realized"]
+    hours: list[datetime]
+    spread: float
+    n_terms: int
+    composition: PathComposition
+    terms: list[AnalysisContributionTerm]
+
+
+class PathAnalysisUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+class AnalysisSettlementPointsAvailableResponse(BaseModel):
+    """The exact settlement-point vocabulary represented by one day artifact."""
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    settlement_points: list[str]
+
+
+class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's
