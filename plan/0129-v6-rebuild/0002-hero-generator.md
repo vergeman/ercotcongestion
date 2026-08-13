@@ -120,8 +120,10 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   vocabulary. Each tier carries the raw daily Σμ and its trailing-window rank;
   a forecast-phase response marks the slot unavailable rather than reporting
   zero exceptions.
-* [ ] `where` reports south 0.546 forecast / 0.543 settled with
-  `geo_as_of "2025-12-13"`, and its verdict is `held`.
+* [x] `where` reports south 0.489 forecast / 0.545 settled with
+  `geo_as_of "2025-12-13"`, and its zone verdict is `held`. The forecast is
+  distributed while settlement is concentrated; this supersedes the prototype's
+  stale 0.546/0.543 values after the full artifact vocabulary replaced its cast.
 * [x] Every hero segment carries a `ref` resolving to a slot key; every slot
   carries the raw numbers behind its adjective.
 * [x] Unit test: a table of synthetic slot inputs → expected bucket, per ladder,
@@ -130,7 +132,7 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * [x] Historical window reads use an explicit delivery-day cutoff, never
   `now()`. A test pins the generated SQL's strict end bound, so the endpoint
   does not widen a past-day window as time passes.
-* [ ] Re-running the endpoint for an unchanged past-day data set reproduces
+* [x] Re-running the endpoint for an unchanged past-day data set reproduces
   byte-identical segments.
 * [x] A manually invoked audit renderer produces a checked-in 365-day text file
   of the generated hero segments and buckets. It is a browsable mass-review

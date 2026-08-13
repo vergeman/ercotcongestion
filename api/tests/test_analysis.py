@@ -69,3 +69,15 @@ def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
              ["schema"]["anyOf"]}
     assert names == {"HeroAvailableResponse", "HeroUnavailableResponse",
                      "HeroUnavailableAtHorizonResponse"}
+
+
+def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([{"ts": None}])
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([{"ts": None}])
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
+    monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    first = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
+    second = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
+    assert first.content == second.content
