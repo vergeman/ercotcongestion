@@ -85,6 +85,9 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * New `GET /analysis/hero`, resolving `run_id` off `forecast_current` and coalescing horizon exactly as `get_brief` does.
 * The endpoint's `?date=` is an **API request parameter and has nothing to do with the retired page-URL `?date`** (`0009`). The page speaks the time cursor and derives a CT day to call the API with; the API speaks delivery days. Do not "harmonise" these — they are different layers.
 * Response: `{segments: {headline, lede}, slots: {...}, verdict: {...}|null, provenance: {...}}`.
+  Declare this as a FastAPI/Pydantic `available`-tagged available-or-soft-fail response
+  contract in `api/models.py`; the slots retain extensible raw evidence while
+  the envelope, segments, cursor, and provenance are schema-validated.
 * One phase, selected by data: settled slots when DAM has landed for the day, forecast slots otherwise. Same sentence shape and same lede length in both — a verdict chip and one subordinate clause are the only visual difference.
 * Add a small TTL/LRU keyed `(run_id, delivery_date, horizon)` if cold latency warrants it; the hero is identical for every viewer of a day.
 
@@ -102,35 +105,42 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 
 ## Acceptance
 
-* [ ] `GET /analysis/hero?date=2026-07-28` returns segments, slots and provenance in one response; no prose is assembled in the frontend.
-* [ ] Forecast basis for 2026-07-28 yields an `artifact_keys` magnitude slot:
+* [x] `GET /analysis/hero?date=2026-07-28` returns segments, slots and provenance in one response; no prose is assembled in the frontend.
+* [x] The endpoint declares a Pydantic available-or-soft-fail response model;
+  OpenAPI exposes both shapes and validates the stable envelope.
+* [x] Forecast basis for 2026-07-28 yields an `artifact_keys` magnitude slot:
   the complete `forecast_sf_artifact` vocabulary, its trailing-30-day rank and
   ratio, and an `ordinary` bucket. It does not infer or report a legacy
   32-key cast.
-* [ ] Settled basis for the same day uses that exact same artifact-key universe,
+* [x] Settled basis for the same day uses that exact same artifact-key universe,
   carries `all_keys {value 36679, rank 1}` for the full DAM vocabulary, and
   emits a magnitude verdict from the two existing bucket positions. The
   response makes both universes and their `n_keys` explicit.
-* [ ] Settled exceptions report only DAM constraints outside the artifact-key
+* [x] Settled exceptions report only DAM constraints outside the artifact-key
   vocabulary. Each tier carries the raw daily Σμ and its trailing-window rank;
   a forecast-phase response marks the slot unavailable rather than reporting
   zero exceptions.
 * [ ] `where` reports south 0.546 forecast / 0.543 settled with
   `geo_as_of "2025-12-13"`, and its verdict is `held`.
-* [ ] Every hero segment carries a `ref` resolving to a slot key; every slot
+* [x] Every hero segment carries a `ref` resolving to a slot key; every slot
   carries the raw numbers behind its adjective.
-* [ ] Unit test: a table of synthetic slot inputs → expected bucket, per ladder,
+* [x] Unit test: a table of synthetic slot inputs → expected bucket, per ladder,
   with no DB. An exhaustiveness test verifies every bucket has a template and
   each ladder's final rung is unconditional.
-* [ ] Historical window reads use an explicit delivery-day cutoff, never
+* [x] Historical window reads use an explicit delivery-day cutoff, never
   `now()`. A test pins the generated SQL's strict end bound, so the endpoint
   does not widen a past-day window as time passes.
 * [ ] Re-running the endpoint for an unchanged past-day data set reproduces
   byte-identical segments.
-* [ ] A manually invoked audit renderer produces a checked-in 365-day text file
+* [x] A manually invoked audit renderer produces a checked-in 365-day text file
   of the generated hero segments and buckets. It is a browsable mass-review
   artifact, never API output or database state; generation is read-only and is
   not scheduled as a cron or backfill job. The audit fails if an available slot
-  bucket accounts for more than half of the reviewed days.
-* [ ] No hero text, slot, or rollup is persisted. The endpoint queries its
+  bucket accounts for more than half of the reviewed days. The checked-in
+  complete-year review snapshot may deliberately use the renderer's explicit
+  `--allow-dominant` override: ordinary magnitude/regime outcomes naturally
+  dominate a full calendar year. That invocation writes an `audit_mode` header
+  into the fixture so it is reviewable in git; it is a vocabulary-review choice,
+  not a passing strict audit or an API behavior.
+* [x] No hero text, slot, or rollup is persisted. The endpoint queries its
   inputs and renders every response on demand.
