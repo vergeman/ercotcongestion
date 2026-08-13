@@ -11,7 +11,9 @@ from statistics import median
 from typing import Any
 
 
-MAGNITUDE_RUNGS = ("quiet", "ordinary", "elevated", "near_top", "record_high")
+MAGNITUDE_RUNGS = (
+    "quiet", "ordinary_low", "ordinary", "ordinary_high", "elevated", "near_top", "record_high",
+)
 
 
 def _rank(value: float, prior: list[float]) -> tuple[int, int]:
@@ -32,6 +34,10 @@ def _magnitude_bucket(rank: int, ratio: float | None) -> str:
         return "elevated"
     if ratio is not None and ratio <= 0.5:
         return "quiet"
+    if ratio is not None and ratio < 0.75:
+        return "ordinary_low"
+    if ratio is not None and ratio >= 1.10:
+        return "ordinary_high"
     return "ordinary"
 
 

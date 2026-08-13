@@ -49,7 +49,7 @@ def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, 
     body = client.get("/analysis/hero?date=2026-07-28&run_id=run-x").json()
     assert body["provenance"]["basis"] == "settled"
     assert body["verdict"] == {
-        "magnitude": {"bucket": "under_called", "rungs": 2},
+        "magnitude": {"bucket": "under_called", "rungs": 3},
         "regime": None,
         "where": {"bucket": "held"},
         "exceptions": {"bucket": "held"},

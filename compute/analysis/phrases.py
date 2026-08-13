@@ -26,6 +26,8 @@ LADDERS: dict[str, Ladder] = {
         (_bucket("near_top"), "near_top", "a near-record congestion day"),
         (_bucket("elevated"), "elevated", "an elevated congestion day"),
         (_bucket("quiet"), "quiet", "a quiet congestion day"),
+        (_bucket("ordinary_low"), "ordinary_low", "a quieter-than-usual congestion day"),
+        (_bucket("ordinary_high"), "ordinary_high", "a busier-than-usual congestion day"),
         (lambda _slot: True, "ordinary", "an ordinary congestion day"),
     ),
     "regime": (
@@ -70,12 +72,20 @@ def _high_congestion_detail(slot: Slot) -> str | None:
     high = slot.get("high_congestion_hours")
     if not high or high.get("bucket") not in MAGNITUDE_RUNGS:
         return None
-    delta = MAGNITUDE_RUNGS.index(high["bucket"]) - MAGNITUDE_RUNGS.index(slot["bucket"])
+    # The whole-day verdict keeps fine-rung distance. This prose guard instead
+    # compares coarse bands so adding ordinary_low/high does not make a formerly
+    # one-band ordinary→elevated difference suddenly editorial-worthy.
+    coarse = {"ordinary_low": "ordinary", "ordinary_high": "ordinary"}
+    coarse_rungs = ("quiet", "ordinary", "elevated", "near_top", "record_high")
+    delta = (coarse_rungs.index(coarse.get(high["bucket"], high["bucket"]))
+             - coarse_rungs.index(coarse.get(slot["bucket"], slot["bucket"])))
     if abs(delta) < 2:
         return None
     labels = {
         "quiet": "quiet",
+        "ordinary_low": "quieter than usual",
         "ordinary": "ordinary",
+        "ordinary_high": "busier than usual",
         "elevated": "elevated",
         "near_top": "near-record",
         "record_high": "at a record high",

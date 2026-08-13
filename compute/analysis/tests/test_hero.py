@@ -13,7 +13,8 @@ from compute.analysis.phrases import LADDERS, phrase_for, render
 def test_magnitude_ladder_classifies_synthetic_daily_windows():
     prior = [100.0] * 27 + [160.0, 170.0, 180.0]
     cases = [
-        (50.0, "quiet"), (100.0, "ordinary"), (130.0, "elevated"),
+        (50.0, "quiet"), (60.0, "ordinary_low"), (100.0, "ordinary"),
+        (110.0, "ordinary_high"), (130.0, "elevated"),
         (175.0, "near_top"),
     ]
     for value, expected in cases:
@@ -50,8 +51,8 @@ def test_regime_where_and_exception_ladders_are_pure():
 def test_magnitude_verdict_is_rung_distance_not_a_new_threshold():
     forecast = {"bucket": "ordinary"}
     settled = {"bucket": "near_top"}
-    assert magnitude_verdict(forecast, settled) == {"bucket": "under_called", "rungs": 2}
-    assert MAGNITUDE_RUNGS.index("near_top") - MAGNITUDE_RUNGS.index("ordinary") == 2
+    assert magnitude_verdict(forecast, settled) == {"bucket": "under_called", "rungs": 3}
+    assert MAGNITUDE_RUNGS.index("near_top") - MAGNITUDE_RUNGS.index("ordinary") == 3
 
 
 def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
