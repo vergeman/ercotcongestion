@@ -780,3 +780,21 @@ export interface AnalysisSettlementPointsResponse {
   horizon?: number;
   settlement_points?: string[];
 }
+
+// /analysis/essp — hourly, source-explicit topology grouping.  GroupIndex is
+// only meaningful within this returned hour/source; consumers key groups by
+// their members rather than persisting it as a cross-day identity.
+export type EsspSource = "study" | "final";
+
+export interface EsspGroup {
+  group_index: number;
+  settlement_points: string[];
+}
+
+export interface AnalysisEsspGroupsResponse {
+  available: boolean;
+  unavailable_reason?: "essp_missing";
+  interval_ts: string;
+  source: EsspSource;
+  groups?: EsspGroup[];
+}

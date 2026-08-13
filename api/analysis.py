@@ -23,7 +23,8 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
                     PathComposition, AnalysisSettlementPointsAvailableResponse,
                     AnalysisSettlementPointsUnavailableResponse, ForecastMuAvailableResponse,
-                    ForecastMuUnavailableResponse, ForecastMuRow)
+                    ForecastMuUnavailableResponse, ForecastMuRow, EsspGroup,
+                    AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -407,6 +408,42 @@ def get_settlement_points(
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
+    )
+
+
+@router.get("/essp",
+            response_model=AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse,
+            summary="Hourly ERCOT electrically-similar settlement-point groups")
+def get_essp_groups(
+    interval_ts: datetime = Query(...),
+    source: str = Query("study", pattern="^(study|final)$"),
+) -> AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse:
+    """Return raw ESSP membership for one hour and vintage.
+
+    The caller chooses the hour used by its view (the v6 brief uses its peak
+    hour) and deliberately chooses the causal study or post-DAM final.  No
+    cross-day fallback is applied: membership is hourly topology data, not a
+    static node attribute.
+    """
+    if interval_ts.tzinfo is None:
+        raise HTTPException(status_code=422, detail="interval_ts must include a UTC offset.")
+    interval_ts = pd.Timestamp(interval_ts).tz_convert("UTC").to_pydatetime()
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
+            "FROM ercot_essp WHERE interval_ts = %s AND is_study = %s "
+            "GROUP BY group_index ORDER BY group_index",
+            (interval_ts, source == "study"),
+        )
+        rows = cur.fetchall()
+    if not rows:
+        return AnalysisEsspGroupsUnavailableResponse(
+            available=False, unavailable_reason="essp_missing", interval_ts=interval_ts, source=source,
+        )
+    return AnalysisEsspGroupsAvailableResponse(
+        available=True, interval_ts=interval_ts, source=source,
+        groups=[EsspGroup(group_index=int(row["group_index"]),
+                          settlement_points=list(row["settlement_points"])) for row in rows],
     )
 
 

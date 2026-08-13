@@ -17,6 +17,8 @@ import type {
   AnalysisNodeResponse,
   AnalysisPathResponse,
   AnalysisSettlementPointsResponse,
+  AnalysisEsspGroupsResponse,
+  EsspSource,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -360,5 +362,16 @@ export async function fetchAnalysisSettlementPoints(
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/settlement-points?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`analysis/settlement-points ${r.status}`);
+  return r.json();
+}
+
+export async function fetchAnalysisEsspGroups(
+  intervalTs: string,
+  source: EsspSource = "study",
+  signal?: AbortSignal,
+): Promise<AnalysisEsspGroupsResponse> {
+  const qs = new URLSearchParams({ interval_ts: intervalTs, source });
+  const r = await fetch(`${BASE}/analysis/essp?${qs.toString()}`, { signal });
+  if (!r.ok) throw new Error(`analysis/essp ${r.status}`);
   return r.json();
 }

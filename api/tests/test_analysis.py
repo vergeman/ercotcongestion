@@ -179,6 +179,38 @@ def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool,
                     "delivery_date": "2026-07-28", "horizon": 1}
 
 
+def test_essp_returns_hourly_membership_for_requested_vintage(client, fake_pool):
+    fake_pool.cursor.queue([
+        {"group_index": 7, "settlement_points": ["ALPHA", "BETA"]},
+        {"group_index": 19, "settlement_points": ["GAMMA", "OMEGA"]},
+    ])
+    body = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00Z&source=study").json()
+    assert body == {
+        "available": True, "interval_ts": "2026-07-28T16:00:00Z", "source": "study",
+        "groups": [
+            {"group_index": 7, "settlement_points": ["ALPHA", "BETA"]},
+            {"group_index": 19, "settlement_points": ["GAMMA", "OMEGA"]},
+        ],
+    }
+    sql, params = fake_pool.cursor.queries[-1]
+    assert "FROM ercot_essp" in sql
+    assert params[1] is True
+
+
+def test_essp_soft_fails_without_a_cross_day_or_cross_vintage_fallback(client, fake_pool):
+    fake_pool.cursor.queue([])
+    body = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00Z&source=final").json()
+    assert body == {"available": False, "unavailable_reason": "essp_missing",
+                    "interval_ts": "2026-07-28T16:00:00Z", "source": "final"}
+    assert fake_pool.cursor.queries[-1][1][1] is False
+
+
+def test_essp_requires_an_offset_unambiguous_hour(client):
+    response = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00")
+    assert response.status_code == 422
+    assert response.json()["detail"] == "interval_ts must include a UTC offset."
+
+
 def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, monkeypatch):
     fake_pool.cursor.queue([{"h": 1}])
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
