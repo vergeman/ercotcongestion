@@ -28,6 +28,24 @@ function Stage({ title, detail }: { title: string; detail: string }) {
   );
 }
 
+function Fact({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="an-fact">
+      <span className="an-fact__label">{label}</span>
+      <strong className="an-fact__value">{value}</strong>
+      <span className="an-fact__detail">{detail}</span>
+    </div>
+  );
+}
+
+const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
+  const value = slot?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const usd = (value: number) => `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const pct = (value: number) => `${Math.round(value * 100)}%`;
+
 // v6 is deliberately a separate composition from the legacy, precomputed
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
@@ -101,6 +119,17 @@ export default function BriefPage() {
     () => hero?.segments?.headline ?? [],
     [hero]
   );
+  const magnitude = hero?.slots?.magnitude;
+  const where = hero?.slots?.where;
+  const exceptions = hero?.slots?.exceptions;
+  const magnitudeValue = numeric(magnitude, "value");
+  const magnitudeRank = numeric(magnitude, "rank");
+  const magnitudeN = numeric(magnitude, "n");
+  const magnitudeMedian = numeric(magnitude, "med");
+  const whereShare = numeric(where, "share");
+  const whereZone = typeof where?.zone === "string" ? where.zone : null;
+  const exceptionCount = numeric(exceptions, "count");
+  const exceptionsSettled = exceptions?.available !== false;
 
   return (
     <div className="an-page">
@@ -123,6 +152,36 @@ export default function BriefPage() {
               <p className="an-eyebrow">Daily congestion brief</p>
               <h1 id="brief-title"><Segments segments={title} /></h1>
               <p className="an-lede"><Segments segments={hero.segments.lede} /></p>
+              <div className="an-facts" aria-label="Brief evidence">
+                {magnitudeValue != null && (
+                  <Fact
+                    label="Congestion total"
+                    value={usd(magnitudeValue)}
+                    detail={provenance?.basis === "settled" ? "DAM shadow-price total" : "forecast shadow-price total"}
+                  />
+                )}
+                {magnitudeRank != null && magnitudeN != null && (
+                  <Fact
+                    label="30-day rank"
+                    value={`${magnitudeRank} of ${magnitudeN}`}
+                    detail={magnitudeMedian != null ? `median ${usd(magnitudeMedian)}` : "including this delivery day"}
+                  />
+                )}
+                {whereZone && whereShare != null && (
+                  <Fact
+                    label="Where it priced"
+                    value={whereZone}
+                    detail={`${pct(whereShare)} of μ-weighted footprint`}
+                  />
+                )}
+                {exceptionsSettled && exceptionCount != null && (
+                  <Fact
+                    label="Outside forecast"
+                    value={String(exceptionCount)}
+                    detail="material DAM constraints outside the model vocabulary"
+                  />
+                )}
+              </div>
               <div className="an-hero__meta">
                 <span>Run {provenance?.run_id}</span>
                 <span>{provenance?.horizon === 1 ? "final · t+1" : "preview · t+2"}</span>
@@ -151,6 +210,10 @@ export default function BriefPage() {
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
+        .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); }
+        .an-fact { min-width: 0; padding: 11px 12px; background: var(--bg-panel); }
+        .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; }
+        .an-fact__value { display: block; overflow: hidden; margin: 4px 0 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-lg); text-overflow: ellipsis; white-space: nowrap; }
         .an-hero__meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; color: var(--text-secondary); font-size: var(--fs-sm); }
         .an-hero__meta a { color: var(--accent); text-decoration: none; }
         .an-hero__meta a:hover { text-decoration: underline; }
@@ -158,6 +221,7 @@ export default function BriefPage() {
         .an-stage h2 { margin: 0; font-size: var(--fs-xl); }
         .an-stage p { margin: 7px 0 0; color: var(--text-secondary); }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
+        @media (max-width: 700px) { .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } }
       `}</style>
     </div>
