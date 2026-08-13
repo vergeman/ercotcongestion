@@ -13,6 +13,7 @@ import type {
   ScoreboardDaily,
   MatrixFrame,
   AnalysisBrief,
+  BriefHero,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisPathResponse,
@@ -304,6 +305,20 @@ export async function fetchAnalysisBrief(
   const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
+  return r.json();
+}
+
+// v6's generated hero.  An absent artifact is a successful, explicit empty
+// state; 503 still means no published run at all.
+export async function fetchBriefHero(
+  deliveryDate: string,
+  runId?: string
+): Promise<BriefHero | null> {
+  const qs = new URLSearchParams({ date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  const r = await fetch(`${BASE}/analysis/hero?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/hero ${r.status}`);
   return r.json();
 }
 

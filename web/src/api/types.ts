@@ -718,6 +718,31 @@ export interface AnalysisBrief {
   available_dates?: string[];
 }
 
+// /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy
+// analysis brief this is composed from query-layer slots, not a stored blob.
+export interface HeroSegment {
+  text: string;
+  ref: string;
+}
+
+export interface BriefHero {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id?: string;
+  delivery_date?: string;
+  horizon?: number;
+  segments?: { headline: HeroSegment[]; lede: HeroSegment[] };
+  slots?: Record<string, Record<string, unknown>>;
+  verdict?: Record<string, Record<string, unknown> | null> | null;
+  cursor?: { t: string; ws: string; we: string };
+  provenance?: {
+    run_id: string;
+    delivery_date: string;
+    horizon: number;
+    basis: "forecast" | "settled";
+  };
+}
+
 // =============================================================================
 // /analysis/node, /analysis/path, /analysis/settlement-points — full-artifact
 // attribution. These are intentionally sparse lists, not Matrix rectangles:
