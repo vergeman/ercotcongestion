@@ -54,9 +54,10 @@ from compute.mu.score import (
 )
 from compute.sf.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.sf.eval import predict
+from compute.sf.essp import score_final_essp
 from compute.sf.fit import implied_shift_factors
 from compute.sf.panels import load_congestion_panel, load_shadow_prices
-from compute.sf.project import band_metrics
+from compute.sf.project import band_metrics, load_sf_mu
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ _COLS = (
     "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
     "coverage80", "band_width", "pinball",
     "sf_coverage", "model_coverage", "n_hours", "n_nodes",
+    "essp_precision", "essp_recall",
 )
 
 # The currency keys score_matrix emits, in table order.
@@ -127,6 +129,28 @@ def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
         w.columns.name = None
         out[q] = w
     return out
+
+
+def score_served_essp(conn, run_id: str, D: pd.Timestamp,
+                       horizon: int) -> dict[str, float | None]:
+    """Validate the persisted SF artifact actually served for ``D`` against ESSP.
+
+    The grading job separately refits a temporary SF only for baseline forecasts;
+    scoring that map would not assess the published product.  ESSP is optional
+    ingest evidence, so an absent artifact or report remains NULL without making
+    an otherwise-valid live grade fail.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT sf_npz FROM forecast_sf_artifact "
+            "WHERE run_id = %s AND delivery_date = %s AND horizon = %s",
+            (run_id, D.date(), horizon),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return {"essp_precision": None, "essp_recall": None}
+    blob = row["sf_npz"] if isinstance(row, dict) else row[0]
+    return score_final_essp(conn, D, load_sf_mu(bytes(blob)).SF)
 
 
 def grade_day(
@@ -229,7 +253,8 @@ def grade_day(
                **{k: metrics.get(k) for k in _METRICS},
                "coverage80": None, "band_width": None, "pinball": None,
                "sf_coverage": sf_coverage, "model_coverage": None,
-               "n_hours": len(hours), "n_nodes": len(N)}
+               "n_hours": len(hours), "n_nodes": len(N),
+               "essp_precision": None, "essp_recall": None}
         if bands is not None:
             row.update({k: bands.get(k) for k in _BANDS})
         return row
@@ -245,6 +270,7 @@ def grade_day(
         fc["p90"].reindex(index=hours, columns=N).to_numpy(float),
     )
     rows.append(_row("model", score_matrix(Y, Yh_model), bands=bm))
+    rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
     # --- comparators: recomputed on D, projected through the trailing-window SF -
     srcs = {

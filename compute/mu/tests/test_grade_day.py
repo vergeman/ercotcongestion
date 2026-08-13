@@ -62,6 +62,9 @@ def _install(monkeypatch, M, C, SF, fc):
     monkeypatch.setattr(gd, "load_shadow_prices", lambda conn, lo, hi: M)
     monkeypatch.setattr(gd, "load_congestion_panel", lambda conn, lo, hi: C)
     monkeypatch.setattr(gd, "implied_shift_factors", lambda *a, **k: SF)
+    monkeypatch.setattr(gd, "score_served_essp",
+                        lambda conn, run_id, D_, horizon: {
+                            "essp_precision": None, "essp_recall": None})
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +129,19 @@ def test_model_carries_live_bands_comparators_do_not(monkeypatch):
     for name in ("oracle", "persistence", "climatology", "null"):
         for k in ("coverage80", "band_width", "pinball"):
             assert by_src[name][k] is None
+
+
+def test_essp_agreement_is_stamped_on_model_row_only(monkeypatch):
+    M, C, SF, fc, _ = _scenario()
+    _install(monkeypatch, M, C, SF, fc)
+    monkeypatch.setattr(gd, "score_served_essp",
+                        lambda *args: {"essp_precision": 1.0, "essp_recall": 0.5})
+    by_src = {r["source"]: r for r in grade_rows(monkeypatch, M, C, SF, fc)}
+    assert by_src["model"]["essp_precision"] == 1.0
+    assert by_src["model"]["essp_recall"] == 0.5
+    for source in ("oracle", "persistence", "climatology", "null"):
+        assert by_src[source]["essp_precision"] is None
+        assert by_src[source]["essp_recall"] is None
 
 
 def test_null_source_cannot_manufacture_a_screening_score(monkeypatch):
