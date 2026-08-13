@@ -51,7 +51,20 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   reports the complete model vocabulary and leaves request-side below-floor
   filtering to `0005`'s panel consumers.
 * `where`: zone shares Σμ-weighted from `constraint_geo`, plus node-side zone from the geocoded layer. Stamp `geo_as_of` on the constraint half.
-* `exceptions`: count tier-0 (never bound in window) and tier-1 (top-3 of own window) above the materiality gate. Dedupe nodes by coordinate and record `"dedupe":"coordinate"` — this over-counts until `0008` lands.
+* `exceptions` is a **settled constraint-window** slot; it does not require SF.
+  Its candidate set is DAM constraints outside the artifact-key vocabulary, so
+  the prose describes a coverage fact rather than blaming a low forecast.
+  * tier-0: the constraint has a non-zero daily DAM Σμ today and no non-zero
+    daily DAM Σμ on the prior 30 delivery days;
+  * tier-1: the constraint has a non-zero daily DAM Σμ today and its value ranks
+    in the top three of its own 31-day daily Σμ series (ties use the conservative
+    last-tied rank).
+
+  Return counts and raw candidate values/ranks. There is no dollar materiality
+  gate and no node/coordinate dedupe in the hero: `$50` appears only in the
+  prototype mock, not in an established backend contract, and node materiality
+  belongs to the later Standouts work unblocked by `0003`. Before DAM lands,
+  mark this slot unavailable rather than emitting a zero count.
 * Mark slots that cannot be reconciled (`"reconcilable": false`) — load has no actual side.
 * Grade each slot independently. Do NOT blend slots into one score; signed errors net out and print "balanced" while both halves are wrong (see `0003`).
 
@@ -96,11 +109,28 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   32-key cast.
 * [ ] Settled basis for the same day uses that exact same artifact-key universe,
   carries `all_keys {value 36679, rank 1}` for the full DAM vocabulary, and
-  emits a magnitude verdict from the two existing bucket positions.
-* [ ] `where` reports south 0.546 forecast / 0.543 settled with `geo_as_of "2025-12-13"`, and its verdict is `held`.
-* [ ] Every hero segment carries a `ref` resolving to a slot key; every slot carries the raw numbers behind its adjective.
-* [ ] Unit test: a table of synthetic slot inputs → expected bucket, per ladder, with no DB.
-* [ ] Exhaustiveness test: every bucket in every ladder has a template, and every ladder's last rung is unconditional.
-* [ ] Golden test: 365 days rendered to a checked-in text file; no bucket accounts for more than half the days in any ladder.
-* [ ] Window queries filter `WHERE ts < D`; a test pins that a backfilled day does not see data published after it.
-* [ ] Re-running the endpoint for a past day reproduces byte-identical segments.
+  emits a magnitude verdict from the two existing bucket positions. The
+  response makes both universes and their `n_keys` explicit.
+* [ ] Settled exceptions report only DAM constraints outside the artifact-key
+  vocabulary. Each tier carries the raw daily Σμ and its trailing-window rank;
+  a forecast-phase response marks the slot unavailable rather than reporting
+  zero exceptions.
+* [ ] `where` reports south 0.546 forecast / 0.543 settled with
+  `geo_as_of "2025-12-13"`, and its verdict is `held`.
+* [ ] Every hero segment carries a `ref` resolving to a slot key; every slot
+  carries the raw numbers behind its adjective.
+* [ ] Unit test: a table of synthetic slot inputs → expected bucket, per ladder,
+  with no DB. An exhaustiveness test verifies every bucket has a template and
+  each ladder's final rung is unconditional.
+* [ ] Historical window reads use an explicit delivery-day cutoff, never
+  `now()`. A test pins the generated SQL's strict end bound, so the endpoint
+  does not widen a past-day window as time passes.
+* [ ] Re-running the endpoint for an unchanged past-day data set reproduces
+  byte-identical segments.
+* [ ] A manually invoked audit renderer produces a checked-in 365-day text file
+  of the generated hero segments and buckets. It is a browsable mass-review
+  artifact, never API output or database state; generation is read-only and is
+  not scheduled as a cron or backfill job. The audit fails if an available slot
+  bucket accounts for more than half of the reviewed days.
+* [ ] No hero text, slot, or rollup is persisted. The endpoint queries its
+  inputs and renders every response on demand.
