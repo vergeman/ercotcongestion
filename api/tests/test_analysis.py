@@ -4,6 +4,7 @@ import pandas as pd
 
 import analysis as analysis_module
 from compute.analysis.brief import nodal_congestion
+from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
 
 
@@ -176,6 +177,37 @@ def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool,
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": 1}
+
+
+def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"h": 1}])
+    metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
+                           timing_daily_skill=0.55, timing_hourly_skill=0.34)
+    result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
+    monkeypatch.setattr(analysis_module, "_grade_constraint_profiles", lambda *_: result)
+
+    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body["available"] is True
+    assert body["constraints"] == {
+        "graded": True, "unavailable_reason": None, "universe_size": 2,
+        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+    }
+    assert body["nodes"] == {"graded": False, "unavailable_reason": "node_grade_pending",
+                              "universe_size": None, "model": None, "persistence": None}
+    assert "grade" not in body
+
+
+def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
+    fake_pool.cursor.queue([{"h": None}])
+
+    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
+                    "delivery_date": "2026-07-28", "horizon": None}
 
 
 def test_forecast_mu_returns_requested_near_zero_fit_values(client, fake_pool, monkeypatch):

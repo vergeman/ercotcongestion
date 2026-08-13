@@ -9,14 +9,15 @@ contract so the UI can render an empty state.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
 from psycopg.rows import dict_row
 
 from db import get_pool
-from models import (AnalysisContributionTerm, HeroAvailableResponse,
+from models import (AnalysisContributionTerm, GradeAvailableResponse,
+                    GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
                     HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
@@ -29,6 +30,7 @@ from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import render
 from compute.analysis.brief import pair_contributions
 from compute.analysis.forecast_mu import forecast_mu_rows
+from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_realized_mu
 
@@ -131,6 +133,87 @@ def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
         "exceptions": {"bucket": "held" if forecast["exceptions"].get("bucket")
                        == settled["exceptions"].get("bucket") else "shifted"},
     }
+
+
+def _settled_mu_profile(cur, delivery_date: date) -> pd.DataFrame:
+    """Hourly DAM μ with absent rows preserved as NaN and published $0 intact."""
+    start, end = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
+        "interval_ts, btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+        "shadow_price FROM ercot_dam_shadow_prices "
+        "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+        "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
+        (start, end),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
+    frame = pd.DataFrame(rows)
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    # pivot, rather than a group-by sum, deliberately retains a numeric zero as
+    # an ERCOT binding label and leaves an absent row as NaN.
+    return frame.pivot(index="interval_ts", columns="constraint_key", values="shadow_price").sort_index()
+
+
+def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+    """Stitch the two UTC-date artifacts into one Chicago delivery-day profile."""
+    start, end = delivery_bounds(delivery_date)
+    today = load_daily_artifact(cur, run_id, delivery_date, horizon)
+    tomorrow = load_daily_artifact(cur, run_id, delivery_date + timedelta(days=1), horizon)
+    if today is None or tomorrow is None:
+        return None
+    profile = pd.concat([today.E_mu, tomorrow.E_mu]).sort_index()
+    profile = profile[~profile.index.duplicated(keep="first")]
+    profile.index = pd.to_datetime(profile.index, utc=True)
+    return profile.loc[(profile.index >= start) & (profile.index < end)]
+
+
+def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
+    """Put a prior delivery day's hourly values onto the target's lag-24 grid."""
+    result = profile.copy()
+    result.index = pd.RangeIndex(len(result))
+    return result.reindex(pd.RangeIndex(count))
+
+
+def _grade_vocabulary(cur, delivery_date: date) -> list[str]:
+    """Every key that settled in the prototype's trailing 30-day universe."""
+    start, end = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT DISTINCT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key "
+        "FROM ercot_dam_shadow_prices "
+        "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+        "ORDER BY constraint_key",
+        (start - timedelta(days=30), end),
+    )
+    return [str(row["constraint_key"]) for row in cur.fetchall()]
+
+
+def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
+                               horizon: int) -> GradeResult | None:
+    """Build the full-vocabulary constraint inputs for the pure v6 scorer."""
+    forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+    if forecast is None:
+        return None
+    settled = _settled_mu_profile(cur, delivery_date)
+    persistence = _settled_mu_profile(cur, delivery_date - timedelta(days=1))
+    target_index = pd.RangeIndex(len(forecast))
+    model = _ordinal_profile(forecast, len(forecast))
+    settled = _ordinal_profile(settled, len(forecast))
+    persistence = _ordinal_profile(persistence, len(forecast))
+    # The sparse settled profile carries the row-exists labels before values are
+    # zero-filled by grade_profiles; a published zero remains a positive label.
+    return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
+                          universe=_grade_vocabulary(cur, delivery_date))
+
+
+def _grade_half(result: GradeResult) -> GradeHalfResponse:
+    return GradeHalfResponse(
+        graded=True,
+        universe_size=len(result.universe),
+        model=result.model.__dict__,
+        persistence=result.persistence.__dict__,
+    )
 
 
 @router.get("/node", response_model=NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse,
@@ -263,6 +346,38 @@ def get_settlement_points(
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
+    )
+
+
+@router.get("/grade", response_model=GradeAvailableResponse | GradeUnavailableResponse,
+            summary="Prototype-defined per-day forecast grade")
+def get_grade(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+) -> GradeAvailableResponse | GradeUnavailableResponse:
+    """Score constraints without blending them with the separately exposed node half."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return GradeUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date,
+            )
+        constraints = _grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+    if constraints is None:
+        return GradeUnavailableResponse(
+            available=False, unavailable_reason="artifact_missing", run_id=run_id,
+            delivery_date=delivery_date, horizon=horizon,
+        )
+    return GradeAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        constraints=_grade_half(constraints),
+        # This is deliberately a separate, visibly ungraded half. The following
+        # batch wires the full SF-column node calculation; it must never be
+        # averaged into a flattering constraint-only headline.
+        nodes=GradeHalfResponse(graded=False, unavailable_reason="node_grade_pending"),
     )
 
 

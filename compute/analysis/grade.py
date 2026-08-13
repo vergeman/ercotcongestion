@@ -108,15 +108,17 @@ def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame,
 
 
 def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.DataFrame,
-                   *, settled_bound: pd.DataFrame | None = None) -> GradeResult:
+                   *, settled_bound: pd.DataFrame | None = None,
+                   universe: list[str] | None = None) -> GradeResult:
     """Score model and yesterday-repeated settlement on the same full universe.
 
     ``settled`` may be sparse: missing values mean no published DAM row, while a
     numeric zero is an explicit settled ``$0``.  Supply ``settled_bound`` when
     the calling query represents that distinction separately; otherwise the
-    DataFrame's non-null cells define the ERCOT binding labels.  The universe is
-    every key in the forecast vocabulary, settlement, or persistence — absent
-    values are scored as zero only *after* that universe has been formed.
+    DataFrame's non-null cells define the ERCOT binding labels.  ``universe``
+    extends the forecast/settled/persistence keys with prior-window settled
+    vocabulary. Absent values are scored as zero only *after* that universe has
+    been formed.
     """
     if not all(isinstance(value, pd.DataFrame) for value in (model, settled, persistence)):
         raise TypeError("model, settled, and persistence must be pandas DataFrames")
@@ -130,15 +132,16 @@ def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.D
     if not isinstance(settled_bound, pd.DataFrame) or not settled_bound.index.equals(hours):
         raise ValueError("settled_bound must share the target delivery-hour index")
 
-    universe = list(dict.fromkeys([*(str(key) for key in model.columns),
-                                   *(str(key) for key in settled.columns),
-                                   *(str(key) for key in persistence.columns)]))
-    model_values = _aligned(model, hours, universe)
-    settled_values = _aligned(settled, hours, universe)
-    persistence_values = _aligned(persistence, hours, universe)
-    labels = settled_bound.reindex(index=hours, columns=universe, fill_value=False).fillna(False).astype(bool)
+    score_universe = list(dict.fromkeys([*(str(key) for key in model.columns),
+                                         *(str(key) for key in settled.columns),
+                                         *(str(key) for key in persistence.columns),
+                                         *(str(key) for key in (universe or []))]))
+    model_values = _aligned(model, hours, score_universe)
+    settled_values = _aligned(settled, hours, score_universe)
+    persistence_values = _aligned(persistence, hours, score_universe)
+    labels = settled_bound.reindex(index=hours, columns=score_universe, fill_value=False).fillna(False).astype(bool)
     return GradeResult(
-        universe=tuple(universe),
+        universe=tuple(score_universe),
         model=_metrics(model_values, settled_values, labels),
         persistence=_metrics(persistence_values, settled_values, labels),
     )

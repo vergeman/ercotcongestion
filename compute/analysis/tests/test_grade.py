@@ -45,6 +45,16 @@ def test_grade_keeps_a_settled_zero_as_a_bound_label():
     assert grade.model.magnitude_overlap == pytest.approx(0.0)
 
 
+def test_grade_keeps_prior_window_keys_in_the_explicit_scoring_universe():
+    model = _profiles({"MODEL|BASE": [1.0, 0.0]})
+    settled = _profiles({"SETTLED|BASE": [1.0, None]})
+    persistence = _profiles({})
+
+    grade = grade_profiles(model, settled, persistence, universe=["HISTORY|BASE"])
+
+    assert grade.universe == ("MODEL|BASE", "SETTLED|BASE", "HISTORY|BASE")
+
+
 def test_grade_exposes_persistence_on_every_prototype_metric():
     model = _profiles({"BOUND|BASE": [0.0, 3.0], "SPURIOUS|BASE": [1.0, 0.0]})
     settled = _profiles({"BOUND|BASE": [0.0, 3.0]})

@@ -158,6 +158,38 @@ class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/grade -----------------------------------------------------
+
+class GradeMetricsResponse(BaseModel):
+    """The v6 prototype's independent daily-grade measures."""
+    detection_ap: float | None
+    magnitude_overlap: float | None
+    timing_daily_skill: float | None
+    timing_hourly_skill: float | None
+
+
+class GradeHalfResponse(BaseModel):
+    """One unblended constraint or node grade half."""
+    graded: bool
+    unavailable_reason: str | None = None
+    universe_size: int | None = None
+    model: GradeMetricsResponse | None = None
+    persistence: GradeMetricsResponse | None = None
+
+
+class GradeAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    constraints: GradeHalfResponse
+    nodes: GradeHalfResponse
+
+
+class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's
