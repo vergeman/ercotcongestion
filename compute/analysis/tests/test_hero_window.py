@@ -5,6 +5,7 @@ from compute.analysis.hero_window import (
     daily_total,
     load_constraint_days,
     load_constraint_geo,
+    load_forecast_constraint_days,
     load_load_condition,
     load_node_days,
     summarize_constraint_days,
@@ -58,6 +59,17 @@ def test_constraint_window_aggregates_in_sql_and_has_a_strict_as_of_end_bound():
     load_constraint_days(conn, date(2026, 7, 28), ct_hours=(15, 16, 17, 18))
     assert "EXTRACT(hour FROM interval_ts AT TIME ZONE 'America/Chicago') = ANY(%s)" in conn.cur.sql
     assert conn.cur.params[-1] == [15, 16, 17, 18]
+
+
+def test_forecast_constraint_window_uses_the_persisted_artifact_history_vocabulary():
+    conn = Conn([(date(2026, 7, 28), "A|B", 12.5, 3)])
+    rows = load_forecast_constraint_days(conn, "mu-v1", date(2026, 7, 28), 1,
+                                         constraint_keys=["A|B"])
+    assert rows == [{"delivery_date": date(2026, 7, 28), "constraint_key": "A|B",
+                     "value": 12.5, "binding_hours": 3}]
+    assert "FROM forecast_constraint_daily" in conn.cur.sql
+    assert "constraint_key = ANY(%s)" in conn.cur.sql
+    assert conn.cur.params == ("mu-v1", 1, date(2026, 6, 28), date(2026, 7, 28), ["A|B"])
 
 
 def test_constraint_summary_carries_series_median_and_previous_day():

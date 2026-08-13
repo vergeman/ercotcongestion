@@ -69,6 +69,32 @@ def load_constraint_days(conn, delivery_date: date, *, days: int = 30,
         return _rows(cur, ("delivery_date", "constraint_key", "value", "hours_bound"))
 
 
+def load_forecast_constraint_days(conn, run_id: str, delivery_date: date, horizon: int,
+                                  *, days: int = 30,
+                                  constraint_keys: list[str] | None = None) -> list[dict[str, Any]]:
+    """Return persisted daily forecast ``Σμ`` rows through ``delivery_date``.
+
+    The historical vocabulary is explicitly restricted to the served artifact's
+    keys.  This keeps the forecast comparison like-for-like even if a past fit
+    carried a different constraint set.
+    """
+    params: list[Any] = [run_id, horizon, delivery_date - timedelta(days=days), delivery_date]
+    key_clause = ""
+    if constraint_keys is not None:
+        key_clause = " AND constraint_key = ANY(%s)"
+        params.append(constraint_keys)
+    sql = f"""
+        SELECT delivery_date, constraint_key, forecast_mu AS value, binding_hours
+        FROM forecast_constraint_daily
+        WHERE run_id = %s AND horizon = %s
+          AND delivery_date >= %s AND delivery_date <= %s{key_clause}
+        ORDER BY delivery_date, constraint_key
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, tuple(params))
+        return _rows(cur, ("delivery_date", "constraint_key", "value", "binding_hours"))
+
+
 def summarize_constraint_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Organize aggregated constraint rows for a classifier or API response."""
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

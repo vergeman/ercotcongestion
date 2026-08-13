@@ -13,6 +13,7 @@ from compute.analysis.hero_window import (
     daily_total,
     load_constraint_days,
     load_constraint_geo,
+    load_forecast_constraint_days,
     load_load_condition,
     summarize_load_condition,
 )
@@ -148,8 +149,12 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
     if basis == "forecast":
         # Forecast μ exists for every artifact key, including keys with no prior DAM row.
         forecast_value = float(weights.sum())
-        artifact_summary = _magnitude_summary(artifact_rows, delivery_date, days=days,
-                                               basis="artifact_keys", n_keys=len(artifact_keys))
+        forecast_rows = load_forecast_constraint_days(
+            conn, run_id, delivery_date, horizon, days=days,
+            constraint_keys=artifact_keys)
+        artifact_summary = _magnitude_summary(
+            forecast_rows, delivery_date, days=days,
+            basis="forecast_history_artifact_keys", n_keys=len(artifact_keys))
         artifact_summary["value"] = forecast_value
     else:
         artifact_summary = _magnitude_summary(artifact_rows, delivery_date, days=days,
