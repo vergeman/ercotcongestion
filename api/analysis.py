@@ -28,7 +28,7 @@ from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import render
 from compute.analysis.brief import pair_contributions
-from compute.analysis.forecast_mu import DEFAULT_SERVING_FLOOR_ABS, forecast_mu_rows
+from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.sf.project import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_realized_mu
 
@@ -272,10 +272,6 @@ def get_forecast_mu(
     constraint_key: list[str] = Query(..., min_length=1,
                                       description="One or more canonical constraint|contingency keys."),
     delivery_date: date = Query(...),
-    include_below_floor: bool = Query(
-        False,
-        description="Include requested fit constraints priced below the historic serving floor.",
-    ),
     run_id: str | None = Query(None),
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> ForecastMuAvailableResponse | ForecastMuUnavailableResponse:
@@ -296,12 +292,11 @@ def get_forecast_mu(
             )
 
     requested = list(dict.fromkeys(constraint_key))
-    values = forecast_mu_rows(artifact, requested, include_below_floor=include_below_floor)
+    values = forecast_mu_rows(artifact, requested)
     fit_keys = set(str(key) for key in artifact.E_mu.columns)
     return ForecastMuAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        hours=list(values.index), include_below_floor=include_below_floor,
-        serving_floor_abs=DEFAULT_SERVING_FLOOR_ABS,
+        hours=list(values.index),
         n_fit_constraints=len(artifact.E_mu.columns),
         rows=[ForecastMuRow(constraint_key=str(key), mu=[float(v) for v in values[key]],
                             total=float(values[key].sum())) for key in values.columns],

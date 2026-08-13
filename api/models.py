@@ -149,8 +149,6 @@ class ForecastMuAvailableResponse(BaseModel):
     delivery_date: date
     horizon: int
     hours: list[datetime]
-    include_below_floor: bool
-    serving_floor_abs: float
     n_fit_constraints: int
     rows: list[ForecastMuRow]
     missing_constraint_keys: list[str]

@@ -178,7 +178,7 @@ def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool,
                     "delivery_date": "2026-07-28", "horizon": 1}
 
 
-def test_forecast_mu_requires_the_explicit_below_floor_filter(client, fake_pool, monkeypatch):
+def test_forecast_mu_returns_requested_near_zero_fit_values(client, fake_pool, monkeypatch):
     artifact = SfMuArtifact(
         SF=pd.DataFrame([[1.0], [1.0]], index=["CAST|BASE", "BRUNI_69_1|DFOAVLO5"], columns=["SP"]),
         E_mu=pd.DataFrame(
@@ -192,13 +192,9 @@ def test_forecast_mu_requires_the_explicit_below_floor_filter(client, fake_pool,
              ("horizon", "1"), ("constraint_key", "CAST|BASE"),
              ("constraint_key", "BRUNI_69_1|DFOAVLO5"), ("constraint_key", "ABSENT|BASE")]
 
-    default = client.get("/analysis/forecast-mu", params=query).json()
-    assert [row["constraint_key"] for row in default["rows"]] == ["CAST|BASE"]
-    assert default["missing_constraint_keys"] == ["ABSENT|BASE"]
-
-    all_rows = client.get("/analysis/forecast-mu", params=query + [("include_below_floor", "true")]).json()
-    assert [row["constraint_key"] for row in all_rows["rows"]] == ["CAST|BASE", "BRUNI_69_1|DFOAVLO5"]
-    assert all_rows["rows"][1] == {
+    body = client.get("/analysis/forecast-mu", params=query).json()
+    assert [row["constraint_key"] for row in body["rows"]] == ["CAST|BASE", "BRUNI_69_1|DFOAVLO5"]
+    assert body["rows"][1] == {
         "constraint_key": "BRUNI_69_1|DFOAVLO5", "mu": [0.03, 0.02], "total": 0.05,
     }
-    assert all_rows["missing_constraint_keys"] == ["ABSENT|BASE"]
+    assert body["missing_constraint_keys"] == ["ABSENT|BASE"]
