@@ -47,10 +47,12 @@ def cell_contributions(SF: pd.DataFrame, mu: pd.Series) -> pd.DataFrame:
 def nodal_congestion(SF: pd.DataFrame, mu: pd.Series) -> pd.Series:
     """Forecast congestion price at each settlement point, ``cong = -Sᵀ mu``.
 
-    Equivalent to ``cell_contributions(SF, mu).sum(axis=0)`` but formed as one
-    matrix-vector product; ``mu`` aligns to ``SF.index`` by label.
+    Formed by the same per-cell contributions exposed in a driver waterfall.
+    Besides keeping the sign convention in one place, this gives pair terms and
+    endpoint totals a deterministic float64 reduction path when artifacts store
+    their SF values as float32.
     """
-    return -(SF.T @ mu.reindex(SF.index))
+    return cell_contributions(SF, mu).sum(axis=0)
 
 
 def pair_contributions(SF: pd.DataFrame, mu: pd.Series, sink: str, source: str) -> pd.Series:
@@ -61,4 +63,9 @@ def pair_contributions(SF: pd.DataFrame, mu: pd.Series, sink: str, source: str) 
     congestion above the source's. This is the waterfall behind a node-to-node
     separation story (F5).
     """
-    return mu * (SF[source] - SF[sink])
+    # Subtract the same per-node cells that form ``nodal_congestion`` instead
+    # of first subtracting two float32 SF columns. They are algebraically
+    # identical, but this order avoids a measurable reduction-order residual
+    # when a large full artifact is summed.
+    cells = cell_contributions(SF, mu)
+    return cells[sink] - cells[source]

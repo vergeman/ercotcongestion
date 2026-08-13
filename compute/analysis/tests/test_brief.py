@@ -64,3 +64,14 @@ def test_junction_cflats_separation(june30_he17):
     top = drivers.reindex(drivers.abs().sort_values(ascending=False).index)
     assert top.index[0] == "TREADW_YELWJC1_1|DBIGKEN5"
     assert top.iloc[0] == pytest.approx(43.00, abs=0.01)
+
+
+def test_pair_terms_reconcile_to_endpoints_at_float64_precision():
+    """Dense float32 SF artifacts must not lose reconciliation in reduction order."""
+    rng = np.random.default_rng(7)
+    SF = pd.DataFrame(rng.normal(size=(1024, 2)).astype("float32"), columns=["SOURCE", "SINK"])
+    mu = pd.Series(rng.uniform(0, 10_000, size=1024), index=SF.index)
+
+    congestion = nodal_congestion(SF, mu)
+    drivers = pair_contributions(SF, mu, sink="SINK", source="SOURCE")
+    assert drivers.sum() == pytest.approx(congestion["SINK"] - congestion["SOURCE"], abs=1e-9)
