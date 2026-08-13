@@ -302,8 +302,8 @@ export default function BriefPage() {
       </main>
 
       <style>{`
-        .an-page { min-height: 100%; background: var(--bg-base); color: var(--text-primary); font-variant-numeric: tabular-nums; }
-        .an-topbar { height: var(--header-h); padding: 0 16px; display: flex; align-items: center; gap: 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+        .an-page { height: 100%; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .an-topbar { position: sticky; top: 0; z-index: 2; height: var(--header-h); padding: 0 16px; display: flex; align-items: center; gap: 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
         .an-day { margin-left: auto; font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); }
         .an-basis { padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-basis--settled { color: var(--success, var(--accent)); }
