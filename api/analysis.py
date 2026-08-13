@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
+from models import (HeroAvailableResponse, HeroUnavailableAtHorizonResponse,
+                    HeroUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -60,12 +62,14 @@ def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
     }
 
 
-@router.get("/hero", summary="Server-computed v6 daily-brief hero")
+@router.get("/hero", response_model=(HeroAvailableResponse | HeroUnavailableResponse |
+                                      HeroUnavailableAtHorizonResponse),
+            summary="Server-computed v6 daily-brief hero")
 def get_hero(
     delivery_date: date = Query(..., alias="date", description="ERCOT delivery day."),
     run_id: str | None = Query(None, description="Model version; defaults to the published run."),
     horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; final preferred."),
-) -> dict:
+) -> HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse:
     """Return prose segments, raw slots, independent verdicts, and map cursor."""
     # All window reads below share this checked-out connection.  Do not release
     # it before ``build_hero``: it performs the on-demand query layer itself.

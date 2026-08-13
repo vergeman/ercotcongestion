@@ -61,3 +61,11 @@ def test_hero_soft_fails_when_no_artifact_exists(client, fake_pool):
     body = client.get("/analysis/hero?date=2026-07-28&run_id=run-x").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing",
                     "run_id": "run-x", "delivery_date": "2026-07-28"}
+
+
+def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
+    schema = client.app.openapi()["paths"]["/analysis/hero"]["get"]["responses"]["200"]
+    names = {item["$ref"].rsplit("/", 1)[-1] for item in schema["content"]["application/json"]
+             ["schema"]["anyOf"]}
+    assert names == {"HeroAvailableResponse", "HeroUnavailableResponse",
+                     "HeroUnavailableAtHorizonResponse"}
