@@ -21,12 +21,14 @@ from models import (AnalysisContributionTerm, HeroAvailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
                     PathComposition, AnalysisSettlementPointsAvailableResponse,
-                    AnalysisSettlementPointsUnavailableResponse)
+                    AnalysisSettlementPointsUnavailableResponse, ForecastMuAvailableResponse,
+                    ForecastMuUnavailableResponse, ForecastMuRow)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import render
 from compute.analysis.brief import pair_contributions
+from compute.analysis.forecast_mu import DEFAULT_SERVING_FLOOR_ABS, forecast_mu_rows
 from compute.sf.project import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_realized_mu
 
@@ -261,6 +263,49 @@ def get_settlement_points(
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
+    )
+
+
+@router.get("/forecast-mu", response_model=ForecastMuAvailableResponse | ForecastMuUnavailableResponse,
+            summary="Hourly forecast μ for selected artifact constraints")
+def get_forecast_mu(
+    constraint_key: list[str] = Query(..., min_length=1,
+                                      description="One or more canonical constraint|contingency keys."),
+    delivery_date: date = Query(...),
+    include_below_floor: bool = Query(
+        False,
+        description="Include requested fit constraints priced below the historic serving floor.",
+    ),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+) -> ForecastMuAvailableResponse | ForecastMuUnavailableResponse:
+    """Serve a narrow, untruncated E_mu slice without altering the model fit."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return ForecastMuUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date,
+            )
+        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+        if artifact is None:
+            return ForecastMuUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date, horizon=horizon,
+            )
+
+    requested = list(dict.fromkeys(constraint_key))
+    values = forecast_mu_rows(artifact, requested, include_below_floor=include_below_floor)
+    fit_keys = set(str(key) for key in artifact.E_mu.columns)
+    return ForecastMuAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        hours=list(values.index), include_below_floor=include_below_floor,
+        serving_floor_abs=DEFAULT_SERVING_FLOOR_ABS,
+        n_fit_constraints=len(artifact.E_mu.columns),
+        rows=[ForecastMuRow(constraint_key=str(key), mu=[float(v) for v in values[key]],
+                            total=float(values[key].sum())) for key in values.columns],
+        missing_constraint_keys=[key for key in requested if key not in fit_keys],
     )
 
 

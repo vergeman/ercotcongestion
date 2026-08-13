@@ -129,6 +129,37 @@ class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableRespons
     pass
 
 
+# ---- /analysis/forecast-mu -----------------------------------------------
+
+class ForecastMuRow(BaseModel):
+    """One requested constraint's hourly forecast-μ vector.
+
+    A returned zero is evidence that the fit priced the constraint near zero.
+    A missing requested key is reported separately because it was not in the
+    artifact vocabulary at all.
+    """
+    constraint_key: str
+    mu: list[float]
+    total: float
+
+
+class ForecastMuAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    hours: list[datetime]
+    include_below_floor: bool
+    serving_floor_abs: float
+    n_fit_constraints: int
+    rows: list[ForecastMuRow]
+    missing_constraint_keys: list[str]
+
+
+class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's
