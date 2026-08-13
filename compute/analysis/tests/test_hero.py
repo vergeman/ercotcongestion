@@ -1,0 +1,66 @@
+"""Pure hero slot and phrase-book tests; query tests land with hero_window."""
+from compute.analysis.hero import (
+    MAGNITUDE_RUNGS,
+    classify_exceptions,
+    classify_magnitude,
+    classify_regime,
+    classify_where,
+    magnitude_verdict,
+)
+from compute.analysis.phrases import LADDERS, phrase_for, render
+
+
+def test_magnitude_ladder_classifies_synthetic_daily_windows():
+    prior = [100.0] * 27 + [160.0, 170.0, 180.0]
+    cases = [
+        (50.0, "quiet"), (100.0, "ordinary"), (130.0, "elevated"),
+        (175.0, "near_top"),
+    ]
+    for value, expected in cases:
+        slot = classify_magnitude({"value": value, "prior": prior,
+                                   "basis": "cast_keys", "n_keys": 32})
+        assert slot["bucket"] == expected
+        assert slot["n"] == 31
+
+    record = classify_magnitude({"value": 201.0, "prior": prior,
+                                 "basis": "cast_keys", "n_keys": 32})
+    assert record["bucket"] == "record_high" and record["rank"] == 1
+
+
+def test_regime_where_and_exception_ladders_are_pure():
+    regime = classify_regime({"series": "load.system", "today": 90, "median": 70,
+                              "pct": 100, "n": 361, "basis": "forecast"})
+    assert regime["bucket"] == "load_record_high" and not regime["reconcilable"]
+
+    where = classify_where({"zone_shares": {"north": .454, "south": .546},
+                            "geo_as_of": "2025-12-13"})
+    assert where["bucket"] == "concentrated" and where["zone"] == "south"
+
+    exceptions = classify_exceptions({"tier_0": 1, "tier_1": 2})
+    assert exceptions == {"tier_0": 1, "tier_1": 2, "count": 3,
+                          "bucket": "several", "dedupe": "coordinate"}
+
+
+def test_magnitude_verdict_is_rung_distance_not_a_new_threshold():
+    forecast = {"bucket": "ordinary"}
+    settled = {"bucket": "near_top"}
+    assert magnitude_verdict(forecast, settled) == {"bucket": "under_called", "rungs": 2}
+    assert MAGNITUDE_RUNGS.index("near_top") - MAGNITUDE_RUNGS.index("ordinary") == 2
+
+
+def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
+    for name, ladder in LADDERS.items():
+        assert ladder[-1][0]({})
+        buckets = [bucket for _, bucket, _ in ladder]
+        assert len(buckets) == len(set(buckets))
+
+    slots = {
+        "magnitude": {"bucket": "ordinary"},
+        "regime": {"bucket": "load_record_high"},
+        "where": {"bucket": "concentrated", "zone": "south"},
+        "exceptions": {"bucket": "several"},
+    }
+    assert phrase_for("magnitude", slots["magnitude"])[0] == "ordinary"
+    segments = render(slots)
+    assert {part["ref"] for group in segments.values() for part in group} <= set(slots)
+    assert all(part["text"] for group in segments.values() for part in group)
