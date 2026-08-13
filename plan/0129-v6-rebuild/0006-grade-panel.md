@@ -51,10 +51,13 @@ Depends on: `0002`, `0003`, `0004`, `0005`
   scale. If the model loses, the panel says so.
 * Constraints and nodes are two rows, not one score. The node row stays struck through
   and labelled "not graded" until `0003` lands (`NODES_GRADEABLE`).
-  Nodes do not bind: their detection and timing labels use `abs(congestion) > 1e-6`
-  $/MWh only to discard floating-point residue, not a materiality floor. Node magnitude
-  always uses the full `abs(SPP − system_lambda)` profile, so opposite signed errors
-  cannot net out.
+  Nodes do not bind: retain `abs(congestion) > 1e-6` $/MWh only as the
+  no-floating-point-residue event mask and diagnostic population. The node
+  headline grade is instead **top-decile capture**: overlap between the forecast
+  and settled top 10% of the complete, unfiltered absolute-congestion universe.
+  Its timing companion is that same capture averaged over delivery hours. Node
+  magnitude always uses the full `abs(SPP − system_lambda)` profile, so opposite
+  signed errors cannot net out.
 * Do NOT touch: the modelling path, or the scoreboard tables (`scoreboard_daily` /
   `scoreboard_weekly`) — this is the per-day panel, not the running scoreboard.
 
@@ -71,5 +74,7 @@ Depends on: `0002`, `0003`, `0004`, `0005`
   congestion, preventing signed errors from netting out.
 * [x] A published settled `$0` is retained as a binding label, distinct from an absent
   DAM row. Its v6-page formatting lands with `0009`.
-* [x] Node detection/timing use the `1e-6` $/MWh numerical-noise epsilon, not an
-  economic materiality threshold; node magnitude includes all absolute congestion.
+* [x] Node top-decile daily/hourly capture ranks the complete absolute-congestion
+  universe with no economic filter. The `1e-6` $/MWh numerical-noise epsilon is
+  retained only as a diagnostic event mask; node magnitude includes all absolute
+  congestion.
