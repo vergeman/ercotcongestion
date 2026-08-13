@@ -225,16 +225,22 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     assert body["constraints"] == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "support": None,
     }
     assert body["nodes"] == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "support": None,
     }
     assert "grade" not in body
 
@@ -272,6 +278,8 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
 
     assert grade is not None
     assert grade.model.detection_ap == 1.0
+    assert grade.model.top_decile_daily_capture == 1.0
+    assert grade.model.top_decile_hourly_capture == 1.0
     assert grade.model.timing_daily_skill == 1.0
 
 

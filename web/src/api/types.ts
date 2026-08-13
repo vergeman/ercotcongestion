@@ -750,6 +750,15 @@ export interface AnalysisGradeMetrics {
   magnitude_overlap: number | null;
   timing_daily_skill: number | null;
   timing_hourly_skill: number | null;
+  top_decile_daily_capture?: number | null;
+  top_decile_hourly_capture?: number | null;
+}
+
+export interface AnalysisGradeSupport {
+  daily_bound_count: number;
+  hourly_bound_count: number;
+  forecast_total: number;
+  settled_total: number;
 }
 
 export interface AnalysisGradeHalf {
@@ -758,6 +767,7 @@ export interface AnalysisGradeHalf {
   universe_size?: number | null;
   model?: AnalysisGradeMetrics | null;
   persistence?: AnalysisGradeMetrics | null;
+  support?: AnalysisGradeSupport | null;
 }
 
 export interface AnalysisGrade {

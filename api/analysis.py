@@ -266,7 +266,8 @@ def _grade_node_profiles(cur, run_id: str, delivery_date: date,
     # Nodes do not bind.  Their detection labels only filter floating-point
     # residue; magnitude always consumes the full absolute congestion profile.
     return grade_profiles(model, settled, persistence,
-                          settled_bound=settled.gt(NODE_CONGESTION_EPSILON))
+                          settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
+                          top_fraction=0.10)
 
 
 def _grade_half(result: GradeResult) -> GradeHalfResponse:
@@ -275,6 +276,7 @@ def _grade_half(result: GradeResult) -> GradeHalfResponse:
         universe_size=len(result.universe),
         model=result.model.__dict__,
         persistence=result.persistence.__dict__,
+        support=None if result.support is None else result.support.__dict__,
     )
 
 

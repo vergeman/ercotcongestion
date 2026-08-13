@@ -190,6 +190,15 @@ class GradeMetricsResponse(BaseModel):
     magnitude_overlap: float | None
     timing_daily_skill: float | None
     timing_hourly_skill: float | None
+    top_decile_daily_capture: float | None = None
+    top_decile_hourly_capture: float | None = None
+
+
+class GradeSupportResponse(BaseModel):
+    daily_bound_count: int
+    hourly_bound_count: int
+    forecast_total: float
+    settled_total: float
 
 
 class GradeHalfResponse(BaseModel):
@@ -199,6 +208,7 @@ class GradeHalfResponse(BaseModel):
     universe_size: int | None = None
     model: GradeMetricsResponse | None = None
     persistence: GradeMetricsResponse | None = None
+    support: GradeSupportResponse | None = None
 
 
 class GradeAvailableResponse(BaseModel):
