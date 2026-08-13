@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
 import type { BriefHero, HeroSegment } from "../api/types";
 import { fetchAnalysisBriefLatest, fetchBriefHero } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
-import { formatCT } from "../lib/time";
+import DateRangePicker from "../components/playback/DateRangePicker";
+import { CURATED_EVENTS } from "../lib/events";
+import { ctInputToUtc, formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 
 const fmtDay = (day: string) =>
@@ -46,6 +49,14 @@ const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
 const usd = (value: number) => `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
+function dateBounds(day: string) {
+  const nextDay = format(addDays(new Date(`${day}T12:00:00Z`), 1), "yyyy-MM-dd");
+  return {
+    start: ctInputToUtc(`${day}T00:00`),
+    end: ctInputToUtc(`${nextDay}T00:00`),
+  };
+}
+
 // v6 is deliberately a separate composition from the legacy, precomputed
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
@@ -57,6 +68,8 @@ export default function BriefPage() {
   const [hero, setHero] = useState<BriefHero | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
+  const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
 
   // Until the date picker lands, the legacy index is solely a discovery source
   // for the newest delivery day.  All Brief content comes from /analysis/hero.
@@ -105,13 +118,14 @@ export default function BriefPage() {
   // wider load window.
   useEffect(() => {
     if (!hero?.available || !hero.cursor) return;
-    if (cursor.t && cursor.ws && cursor.we) return;
+    if (!replaceWithHeroCursor && cursor.t && cursor.ws && cursor.we) return;
     cursor.setCoord({
       t: new Date(hero.cursor.t),
       ws: new Date(hero.cursor.ws),
       we: new Date(hero.cursor.we),
     }, { replace: true });
-  }, [hero, cursor]);
+    setReplaceWithHeroCursor(false);
+  }, [hero, cursor, replaceWithHeroCursor]);
 
   const provenance = hero?.provenance;
   const basisLabel = provenance?.basis === "settled" ? "DAM settled" : "forecast";
@@ -140,6 +154,31 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
+        {indexLoaded && (
+          <div className="an-date-picker">
+            <DateRangePicker
+              singleDate
+              selectedDate={deliveryDay}
+              onLoadDate={(day) => {
+                const { start, end } = dateBounds(day);
+                setActiveEventId(null);
+                setReplaceWithHeroCursor(true);
+                cursor.setCoord({ t: start, ws: start, we: end });
+              }}
+              onSelectEvent={(event) => {
+                setActiveEventId(event.id);
+                cursor.setCoord({
+                  t: new Date(event.cursor_ts),
+                  ws: new Date(event.window_start),
+                  we: new Date(event.window_end),
+                });
+              }}
+              events={CURATED_EVENTS}
+              activeEventId={activeEventId}
+              loading={loading}
+            />
+          </div>
+        )}
         {!indexLoaded && <p className="an-empty">Loading brief…</p>}
         {indexLoaded && !deliveryDay && <p className="an-empty">No forecast delivery day is published yet.</p>}
         {loading && <p className="an-empty">Loading brief…</p>}
@@ -205,6 +244,7 @@ export default function BriefPage() {
         .an-basis { padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-basis--settled { color: var(--success, var(--accent)); }
         .an-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 80px; }
+        .an-date-picker { display: flex; justify-content: flex-end; margin-bottom: 16px; }
         .an-hero { padding-bottom: 32px; border-bottom: 2px solid var(--text-primary); }
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
