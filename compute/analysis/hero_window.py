@@ -80,6 +80,29 @@ def summarize_constraint_days(rows: list[dict[str, Any]]) -> dict[str, dict[str,
     }
 
 
+def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -> list[float]:
+    """Sum a constraint-row result into a zero-filled daily total series."""
+    totals: dict[date, float] = defaultdict(float)
+    for row in rows:
+        totals[row["delivery_date"]] += float(row["value"])
+    first = delivery_date - timedelta(days=days)
+    return [totals[first + timedelta(days=offset)] for offset in range(days + 1)]
+
+
+def load_constraint_geo(conn) -> list[dict[str, Any]]:
+    """Read the newest persisted geography per constraint, independent of run name."""
+    sql = """
+        SELECT DISTINCT ON (constraint_key)
+               constraint_key, zone_shares, window_start::date AS geo_as_of
+        FROM constraint_geo
+        WHERE zone_shares IS NOT NULL
+        ORDER BY constraint_key, window_start DESC
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, ())
+        return _rows(cur, ("constraint_key", "zone_shares", "geo_as_of"))
+
+
 def load_node_days(conn, delivery_date: date, *, days: int = 30) -> list[dict[str, Any]]:
     """Return trailing daily mean SPP-minus-λ congestion per settlement point."""
     start, end = delivery_bounds(delivery_date)

@@ -2,7 +2,9 @@ from datetime import date
 
 from compute.analysis.hero_window import (
     delivery_bounds,
+    daily_total,
     load_constraint_days,
+    load_constraint_geo,
     load_load_condition,
     load_node_days,
     summarize_constraint_days,
@@ -62,6 +64,9 @@ def test_constraint_summary_carries_series_median_and_previous_day():
     assert summary["A|B"]["days_bound"] == 3
     assert summary["A|B"]["med"] == 6
     assert summary["A|B"]["prior_last"] == 9
+    assert daily_total([
+        {"delivery_date": date(2026, 7, 27), "constraint_key": "A|B", "value": 9},
+    ], date(2026, 7, 28), days=2) == [0.0, 9.0, 0.0]
 
 
 def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
@@ -74,6 +79,10 @@ def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
     load_load_condition(load_conn, date(2026, 7, 28))
     assert "interval_ts < %s" in load_conn.cur.sql
     assert "posted_datetime <=" in load_conn.cur.sql
+
+    geo_conn = Conn([])
+    load_constraint_geo(geo_conn)
+    assert "DISTINCT ON (constraint_key)" in geo_conn.cur.sql
 
 
 def test_node_and_condition_summaries_carry_classifier_ready_ranks_and_percentiles():
