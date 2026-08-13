@@ -125,7 +125,8 @@ sequenced first to stop the bleeding, because there is no bleeding.
    NP4-158-SG before 06:00 as a DAM study — which price identity cannot give you on the
    morning read, plus the cases coordinates cannot see (`BAFFIN_ALL` / `PENA_ALL` /
    `STELLA_RN` / `TGW_T1_T2` are one location at four coordinates). It also needs new
-   ingest and a migration (`db/migrations` stop at 38), the highest cost of the three
+   ingest and migrations (the feed table is now migration 40 and its daily score fields
+   are migration 41), the highest cost of the three
    for the narrowest unblock. Until it lands, every count that dedupes nodes is
    conservative and should say so — `0002` stamps `"dedupe":"coordinate"` for this reason.
 

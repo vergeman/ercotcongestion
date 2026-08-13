@@ -6,12 +6,13 @@ Depends on: none
 
 ## Goal
 
-* Add NP4-158-SG (DAM Electrically Similar Settlement Points) as a new ingest
-  endpoint, following the NP4-191-CD pattern end-to-end.
+* Add NP4-158-SG (DAM Electrically Similar Settlement Points) as an archive
+  ingest feed, retaining its pre-DAM study and post-DAM final vintages.
 * Land hourly settlement-point → group rows into a new `ercot_essp`
-  hypertable, keyed `(interval_ts, settlement_point)`.
-* Collapse electrically identical settlement points to one row in the daily
-  brief's node panel and constraint footprint map, **before the DAM clears**.
+  hypertable, keyed `(interval_ts, settlement_point, is_study, dst_flag)`.
+* Make the selected hourly ESSP vintage available to the v6 node panel and
+  constraint footprint map, so they can collapse electrically identical points
+  **before the DAM clears**.
 * Emit a daily implied-SF agreement score against the ESSP grouping, and log it
   per delivery day so it can be charted.
 
@@ -36,7 +37,12 @@ Depends on: none
   cannot see it — those four sit at four distinct coordinates.
 * **Membership is per-hour and moves with topology and outages.** It is a
   property of a delivery hour, not of a node, and must not be cached across
-  days. On 2026-07-28 `BAFFIN_ALL` moved from group 145 to 146 at HE19.
+  days. The original 2026-07-28 145→146 observation could not be reproduced
+  from ERCOT's currently archived study or final files: both report
+  `BAFFIN_ALL` in group 146 at HE18 and HE19. A rotating weekly sample over
+  roughly two months found membership stable for about 99.2% of comparable
+  point-hours, but not perfectly stable; that is evidence for hourly storage,
+  not a static cache.
 * Report is public, no certification. Report type ID `13058`, EMIL `np4-158-sg`,
   generation frequency "Event - Per DAM Run", first run 2011-12-09.
 * CSV columns confirmed from a downloaded file:
@@ -48,22 +54,32 @@ Depends on: none
 
 * Work in: `ercot_ingest/`, `db/migrations/`, `ops/deploy/jobs/`,
   `ops/deploy/backfills.sh`.
-* Entry point / primary change: new `load_essp` in `loaders.py`, new `essp`
-  entry in `ENDPOINTS` in `backfill.py`, new live-window fetch block in
-  `ErcotClient.py`.
+* Entry point / primary change: `load_essp` in `loaders.py` and the dedicated
+  `backfill_essp.py` archive driver. This is intentionally **not** an
+  `ENDPOINTS` entry in `backfill.py`: NP4-158-SG is a ZIP/CSV archive product
+  with two posting-time-selected documents for a delivery date, like the
+  outages driver, rather than a paged JSON feed with a reusable request body.
 
-* **Endpoint route — resolve this first.** Confirm whether the pubapi exposes
-  `/np4-158-sg/...` through `PROXY_BASE`. If it does, use it, identically to
-  `/np4-191-cd/dam_shadow_prices`. If it does not, fall back to the MIS report
-  listing, which is verified reachable unauthenticated:
+* **Transport — resolved.** The public JSON route did not provide this report;
+  use the authenticated ERCOT archive index and archive download transport.
+  The MIS report listing remains useful for product inspection:
   * list: `https://www.ercot.com/misapp/GetReports.do?reportTypeId=13058`
   * file: `https://www.ercot.com/misdownload/servlets/mirDownload?mimic_duns=000000000&doclookupId=<id>`
-  * CSV arrives zipped; two files land per day (the pre-0600 study and the
-    post-DAM final). **Prefer the post-DAM file for a settled day; the pre-0600
-    file is the one the morning brief must use.** Record which one a row came
-    from — they can disagree.
+  * CSV arrives zipped; two files land for a delivery day (the pre-0600 study
+    and the post-DAM enforced/final list), posted on D-1. The driver asks the
+    archive index for that posting day, selects the latest document before
+    10:00 CT as `essp_study` and the latest after it as `essp_final`, and reads
+    its one CSV member with `pd.read_csv`.
+  * Retain both vintages. The study is the causal forecast-only source; the
+    final is the settled validation source. Do not overwrite study with final:
+    ERCOT can add/remove points as DAM topology and outages are resolved.
+  * `ingest_log` tracks `essp_study` and `essp_final` separately. The recurring
+    15-minute `live_updater` calls the driver's self-throttling `update_recent`;
+    it does no archive request once both vintages for a day are logged. ESSP is
+    therefore not put in `LAGGED`, whose multi-day JSON-report semantics do not
+    apply.
 
-* **Migration** — `db/migrations/39_essp.sql`:
+* **Migration** — `db/migrations/40_essp.sql`:
   * Model after `db/migrations/12_dam_spp.sql` (hypertable).
   * Columns: `interval_ts TIMESTAMPTZ NOT NULL`, `dst_flag BOOLEAN NOT NULL
     DEFAULT FALSE`, `settlement_point TEXT NOT NULL`, `group_index INT NOT
@@ -73,11 +89,17 @@ Depends on: none
   * Do NOT store a derived "anchor" column. The anchor is a presentation choice
     and belongs in the serving layer, not the store.
 
-* **Serving** — add ESSP groups to the daily-brief payload for the delivery
-  day's peak hour, alongside the existing node lists. Group members and a count
-  are enough; the anchor is picked at render time as the alphabetically first
-  member *present in the panel's data*, so row identity never flips when prices
-  move or the forecast/settled toggle flips.
+* **Serving — query endpoint, not legacy blob.** `GET /analysis/essp` accepts
+  an offset-bearing `interval_ts` and explicit `source=study|final`, returning
+  all members by `group_index` for precisely that vintage/hour. It soft-fails
+  with `essp_missing`; it deliberately has no cross-day or cross-vintage
+  fallback. This follows the v6 query-endpoint architecture in the index and
+  keeps `analysis_brief` untouched.
+  * The v6 page selects its own peak hour, requests `study` in forecast mode
+    and `final` in settled mode, then picks the alphabetically first member
+    *present in the panel's data* as anchor. It draws one footprint marker and
+    one node row per returned group. This UI wiring belongs to `0009`; no
+    static `GroupIndex` identity may cross an hour or delivery day.
 
 * **Scoring the implied-SF model.** ESSP is a free labelled test set for
   `implied_shift_factors`: any two settlement points in the same ESSP group must
@@ -86,10 +108,11 @@ Depends on: none
     share that fall inside one ESSP group. Measured 2026-08-11 on one day:
     **20 of 20, zero splits**, 10 of the 20 sharing no name prefix.
   * `essp_recall` — of ESSP groups whose members all appear in the SF matrix,
-    the share the SF signature also declares identical. **Unmeasured.** This is
-    the harder and more informative number; precision alone can be gamed by
-    declaring almost nothing identical.
-  * Land both in `scoreboard_daily` (see `db/migrations/36_scoreboard_daily.sql`)
+    the share the SF signature also declares identical. This is the harder and
+    more informative number; precision alone can be gamed by declaring almost
+    nothing identical. The served 2026-07-28 artifact produced `1.0` precision
+    and `0.605555...` recall against final ESSP labels.
+  * Land both in `scoreboard_daily` (migration `41_scoreboard_daily_essp.sql`)
     so they accumulate without a new table.
   * **Open question for the user — do not decide this in implementation.** Where
     does this score belong? It is a model-accuracy metric against external
@@ -105,19 +128,32 @@ Depends on: none
 
 ## Acceptance
 
-* [ ] `ercot_essp` hypertable exists; `\d ercot_essp` matches the columns above.
-* [ ] `essp` present in `ENDPOINTS`; `--resume` backfill runs clean over
-      2025-01-01 onward and `ingest_log` records the windows.
-* [ ] Live job lands both the pre-0600 study file and the post-DAM file for a
-      delivery day, distinguished by `is_study`.
-* [ ] Spot check 2026-07-28 HE16: 483 settlement points across 180 groups;
+* [x] `ercot_essp` hypertable exists with the migration-40 columns and primary
+      key `(interval_ts, settlement_point, is_study, dst_flag)`.
+* [x] Dedicated `backfill_essp.py --resume` uses the archive ZIP/CSV driver and
+      separately records `essp_study` / `essp_final` delivery-date windows in
+      `ingest_log`. A full 2025-01-01-onward historical run remains operational
+      work, not a prerequisite for serving already ingested days.
+* [x] The repeating live updater calls the self-throttling archive driver and
+      retains both pre-0600 study and post-DAM final files via `is_study`.
+* [x] Spot check 2026-07-28 HE16: 484 settlement points across 181 groups;
       `BYP_RN`, `HEN_RN`, `WAP_WAP_G6`, `WAP_WAP_G7` share one `group_index`.
-* [ ] Spot check the intraday move: `BAFFIN_ALL` has a different `group_index`
-      at HE18 and HE19 on 2026-07-28.
-* [ ] Daily brief node panel collapses ESSP groups to one row with a member
-      count, in forecast-only mode, sourced from the pre-0600 file.
-* [ ] Constraint footprint map draws one marker per ESSP group.
-* [ ] `essp_precision` and `essp_recall` written to `scoreboard_daily` for each
-      delivery day, and both are non-null for 2026-07-28.
-* [ ] No change to `implied_shift_factors` output — diff the SF artifact for a
-      known day before and after to confirm.
+* [x] Spot check the 2026-07-28 report currently available from ERCOT:
+      `BAFFIN_ALL` is group 146 at HE18 and HE19. Retain the hourly key — this
+      check supersedes the earlier 145→146 move observation, which is not present
+      in the current archived study or post-DAM files.
+* [x] `/analysis/essp` serves explicit study/final hourly membership and typed
+      web-client contracts, with tests covering both vintages, missing data,
+      and offset-required timestamps.
+* [ ] The v6 node panel collapses ESSP groups to one row with a member count,
+      in forecast-only mode, sourced from the selected study hour. Deferred to
+      `0009-brief-page-v6`.
+* [ ] The v6 constraint footprint map draws one marker per selected ESSP group.
+      Deferred to `0009-brief-page-v6`.
+* [x] `essp_precision` and `essp_recall` are model-only `scoreboard_daily`
+      fields, calculated by the normal `daily_forecast` grading tick from the
+      persisted served SF artifact and post-DAM final labels. No separate
+      recurring score/backfill job was added. A local 2026-07-28 artifact check
+      yielded precision `1.0` and recall `0.605555...`.
+* [x] `implied_shift_factors` and SF fitting code are unchanged; ESSP is only a
+      raw display grouping and an independent validation label.
