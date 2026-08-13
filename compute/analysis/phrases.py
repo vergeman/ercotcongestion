@@ -39,10 +39,17 @@ LADDERS: dict[str, Ladder] = {
         (lambda _slot: True, "unknown", "the available geography is incomplete"),
     ),
     "exceptions": (
-        (_bucket("several"), "several", "several exceptions stand apart"),
-        (_bucket("one_or_two"), "one_or_two", "an exception stands apart"),
+        (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count") == 1,
+         "several", "{count} constraints outside the model vocabulary stand apart; one is newly active"),
+        (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count", 0) > 0,
+         "several", "{count} constraints outside the model vocabulary stand apart; "
+         "{tier_0_count} are newly active"),
+        (_bucket("several"), "several", "{count} constraints outside the model vocabulary stand apart"),
+        (lambda slot: slot.get("bucket") == "one_or_two" and slot.get("count") == 1,
+         "one", "one constraint outside the model vocabulary stands apart"),
+        (_bucket("one_or_two"), "one_or_two", "{count} constraints outside the model vocabulary stand apart"),
         (_bucket("unavailable"), "unavailable", "exceptions await DAM settlement"),
-        (lambda _slot: True, "none", "no exceptions stand apart"),
+        (lambda _slot: True, "none", "no constraints outside the model vocabulary stand apart"),
     ),
 }
 

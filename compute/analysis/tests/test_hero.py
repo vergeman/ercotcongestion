@@ -56,16 +56,16 @@ def test_magnitude_verdict_is_rung_distance_not_a_new_threshold():
 def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
     for name, ladder in LADDERS.items():
         assert ladder[-1][0]({})
-        buckets = [bucket for _, bucket, _ in ladder]
-        assert len(buckets) == len(set(buckets))
 
     slots = {
         "magnitude": {"bucket": "ordinary"},
         "regime": {"bucket": "load_record_high"},
         "where": {"bucket": "concentrated", "zone": "south"},
-        "exceptions": {"bucket": "several"},
+        "exceptions": {"bucket": "several", "count": 4, "tier_0_count": 1},
     }
     assert phrase_for("magnitude", slots["magnitude"])[0] == "ordinary"
     segments = render(slots)
     assert {part["ref"] for group in segments.values() for part in group} <= set(slots)
     assert all(part["text"] for group in segments.values() for part in group)
+    assert "4 constraints outside the model vocabulary" in segments["lede"][2]["text"]
+    assert "one is newly active" in segments["lede"][2]["text"]

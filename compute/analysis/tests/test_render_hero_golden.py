@@ -9,11 +9,11 @@ def test_line_is_stable_text_and_keeps_every_slot_bucket():
         "magnitude": {"bucket": "ordinary"},
         "regime": {"bucket": "load_record_high"},
         "where": {"bucket": "concentrated", "zone": "south"},
-        "exceptions": {"bucket": "several"},
+        "exceptions": {"bucket": "several", "count": 3, "tier_0_count": 1},
     }
     line = audit.line_for(slots)
     assert line.startswith("magnitude=ordinary regime=load_record_high")
-    assert "mag_rank=-/- mag_ratio=- regime_pct=- where_share=- tier_0=0 tier_1=0 exception_count=-" in line
+    assert "mag_rank=-/- mag_ratio=- regime_pct=- where_share=- tier_0=1 tier_1=0 exception_count=3" in line
     assert "an ordinary congestion day" in line
 
 
