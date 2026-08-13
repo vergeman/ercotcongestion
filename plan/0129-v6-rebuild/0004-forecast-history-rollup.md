@@ -53,9 +53,9 @@ Depends on: `0002` (widens its magnitude slot)
 
 ## Acceptance
 
-* [ ] Backfill produces one row per (day, constraint) over available artifact history; row count matches `n_constraints` per day, not the cast size.
-* [ ] The daily tick appends the published day, and a failure there leaves the forecast published (test by forcing an exception).
-* [ ] `0002`'s magnitude slot reports an explicit forecast-history basis over
+* [x] Backfill produces one row per (day, constraint) over available artifact history; row count matches `n_constraints` per day, not the cast size.
+* [x] The daily tick appends the published day, and a failure there leaves the forecast published (test by forcing an exception).
+* [x] `0002`'s magnitude slot reports an explicit forecast-history basis over
   `artifact_keys`, with a forecast-vs-forecast rank.
-* [ ] Re-running the backfill for a day is a no-op on the row count.
-* [ ] A day whose artifact is missing is skipped with a log line, not a crash.
+* [x] Re-running the backfill for a day is a no-op on the row count.
+* [x] A day whose artifact is missing is skipped with a log line, not a crash.
