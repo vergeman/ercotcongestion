@@ -6,16 +6,17 @@ Depends on: none
 
 ## Goal
 
+> Scope update (2026-08-13): source–sink pairs are no longer a v6 Brief panel.
+> The existing `/analysis/path` work remains an API primitive to audit at
+> teardown, but this plan has no pending Brief UI or acceptance work for it.
+
 * Serve the **untruncated SF column** for a settlement point — every constraint
   acting on it, not the ones that happened to rank top-5 somewhere — as a
   read-time slice over the already-cached day artifact.
-* Serve the same slice for a **node pair** (`β = SF[:,a] − SF[:,b]`), so a path's
-  driver decomposition reconciles exactly to its spread.
 * Serve both on a `predicted | realized` μ basis, so the brief's forecast and
   DAM-settled columns are decomposed the same way.
-* Replace the brief panel's dominant-driver, purity, and counterparty columns
-  with values computed from the full column, and record the coverage ratio that
-  proves it.
+* Replace the brief panel's dominant-driver column with values computed from the
+  full column, and record the coverage ratio that proves it.
 
 ## Context
 

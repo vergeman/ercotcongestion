@@ -189,10 +189,9 @@ export default function BriefPage() {
               </div>
             </section>
 
-            <Stage title="Standouts" detail="Unusual constraints, nodes, and paths will land with their query-backed rows." />
+            <Stage title="Standouts" detail="Unusual constraints and nodes will land with their query-backed rows." />
             <Stage title="Top Constraints by Shadow Price (μ)" detail="The untruncated constraint panel follows the query endpoint." />
             <Stage title="Top Nodal Congestion" detail="Nodal attribution will render from the full shift-factor column." />
-            <Stage title="Source–sink pairs" detail="Path composition will render when the node and pair routes are wired into this panel." />
             <Stage title="Forecast Grade" detail="Forecast-versus-settled scoring arrives with the complete scoring universe." />
             <Stage title="Context" detail="Historical grid context will follow its dedicated rollups." />
           </>

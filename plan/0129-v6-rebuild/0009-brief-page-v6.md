@@ -32,7 +32,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 
 * Work in: `web/src/pages/`, `web/src/main.tsx`
 * Build the v6 sections in the order the backend lands them — Standouts, Top
-  Constraints, Top Nodal Congestion, Paths, Forecast Grade, Context. Land panel by panel
+  Constraints, Top Nodal Congestion, Forecast Grade, Context. Source–sink pairs
+  are out of scope for v6. Land panel by panel
   behind each backend step rather than as one cutover.
 * **Scrubber — un-integrate, delete nothing:**
   * `/map` and `/matrix` keep the scrubber exactly as today — same `ExplorerScrubber`,

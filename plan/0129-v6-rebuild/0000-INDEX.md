@@ -80,13 +80,13 @@ sequenced first to stop the bleeding, because there is no bleeding.
    which exists nowhere in `compute/`.
 
 3. `0003-brief-node-rows` — routes the untruncated SF column per settlement
-   point and per pair as `/analysis/node` and `/analysis/path`. `node_drivers`
-   (`compute/sf/project.py:233`) and `pair_contributions`
-   (`compute/analysis/brief.py:56`) are already written and never routed, so the cost is
-   low against what it unblocks: driver attribution, driver share and counterparties on
-   Top Nodal Congestion; the whole Node↔node paths panel; the node row of Forecast Grade
-   (`NODES_GRADEABLE`); and the Standouts materiality gate, which currently stands in
-   with μ-hours until `Σ|SF·μ|` is servable.
+   point as `/analysis/node`. `node_drivers` (`compute/sf/project.py:233`) is
+   already written and never routed, so the cost is low against what it
+   unblocks: driver attribution on Top Nodal Congestion; the node row of
+   Forecast Grade (`NODES_GRADEABLE`); and the Standouts materiality gate, which
+   currently stands in with μ-hours until `Σ|SF·μ|` is servable. The
+   source–sink/path panel is out of scope for v6; no new Brief work depends on
+   `/analysis/path`.
 
    *The alternative ordering is `0003` before `0002`*, and it is defensible — Standouts is the
    heart of the page and the hero is a summary of it. Take it if node attribution
