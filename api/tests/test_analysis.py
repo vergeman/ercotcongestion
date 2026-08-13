@@ -185,6 +185,7 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
                            timing_daily_skill=0.55, timing_hourly_skill=0.34)
     result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
     monkeypatch.setattr(analysis_module, "_grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(analysis_module, "_grade_node_profiles", lambda *_: result)
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
@@ -196,8 +197,13 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
                         "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
     }
-    assert body["nodes"] == {"graded": False, "unavailable_reason": "node_grade_pending",
-                              "universe_size": None, "model": None, "persistence": None}
+    assert body["nodes"] == {
+        "graded": True, "unavailable_reason": None, "universe_size": 2,
+        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+    }
     assert "grade" not in body
 
 
@@ -208,6 +214,19 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
 
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": None}
+
+
+def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkeypatch):
+    hours = pd.RangeIndex(2)
+    forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)
+    settled = pd.DataFrame({"IMPORT": [-10.0, -10.0], "EXPORT": [10.0, 10.0]}, index=hours)
+    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
+
+    grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
+
+    assert grade is not None
+    assert grade.model.magnitude_overlap == 2 / 11
 
 
 def test_forecast_mu_returns_requested_near_zero_fit_values(client, fake_pool, monkeypatch):

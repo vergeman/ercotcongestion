@@ -169,6 +169,47 @@ def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) ->
     return profile.loc[(profile.index >= start) & (profile.index < end)]
 
 
+def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+    """Project each stitched forecast μ hour through its complete SF column."""
+    start, end = delivery_bounds(delivery_date)
+    artifacts = [
+        load_daily_artifact(cur, run_id, delivery_date, horizon),
+        load_daily_artifact(cur, run_id, delivery_date + timedelta(days=1), horizon),
+    ]
+    if any(artifact is None for artifact in artifacts):
+        return None
+    profiles = []
+    for artifact in artifacts:
+        assert artifact is not None
+        mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
+        profiles.append(mu.dot(-artifact.SF))
+    profile = pd.concat(profiles).sort_index()
+    profile = profile[~profile.index.duplicated(keep="first")]
+    profile.index = pd.to_datetime(profile.index, utc=True)
+    return profile.loc[(profile.index >= start) & (profile.index < end)]
+
+
+def _settled_node_profile(cur, delivery_date: date) -> pd.DataFrame:
+    """Published hourly SPP-minus-λ congestion, retaining a numeric $0 row."""
+    start, end = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT DISTINCT ON (s.interval_ts, s.settlement_point) "
+        "s.interval_ts, s.settlement_point, s.dam_spp - l.system_lambda AS congestion "
+        "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+        "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+        "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+        "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+        "ORDER BY s.interval_ts, s.settlement_point, s.dst_flag ASC",
+        (start, end),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
+    frame = pd.DataFrame(rows)
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    return frame.pivot(index="interval_ts", columns="settlement_point", values="congestion").sort_index()
+
+
 def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
     """Put a prior delivery day's hourly values onto the target's lag-24 grid."""
     result = profile.copy()
@@ -205,6 +246,28 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
     # zero-filled by grade_profiles; a published zero remains a positive label.
     return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
                           universe=_grade_vocabulary(cur, delivery_date))
+
+
+NODE_MATERIALITY_FLOOR = 0.50  # $/MWh block mean; prototype's node event definition.
+
+
+def _grade_node_profiles(cur, run_id: str, delivery_date: date,
+                         horizon: int) -> GradeResult | None:
+    """Score complete-SF nodal congestion without allowing signed error netting."""
+    forecast = _forecast_node_profile(cur, run_id, delivery_date, horizon)
+    if forecast is None:
+        return None
+    settled = _settled_node_profile(cur, delivery_date)
+    persistence = _settled_node_profile(cur, delivery_date - timedelta(days=1))
+    model = _ordinal_profile(forecast, len(forecast)).abs()
+    settled = _ordinal_profile(settled, len(forecast)).abs()
+    persistence = _ordinal_profile(persistence, len(forecast)).abs()
+    # A node event is material absolute congestion over the block. Hourly timing
+    # uses the same floor per hour; magnitude always consumes the full |price|.
+    hourly_bound = settled.ge(NODE_MATERIALITY_FLOOR)
+    daily_bound = settled.mean(axis=0).ge(NODE_MATERIALITY_FLOOR)
+    return grade_profiles(model, settled, persistence, settled_bound=hourly_bound,
+                          settled_daily_bound=daily_bound)
 
 
 def _grade_half(result: GradeResult) -> GradeHalfResponse:
@@ -366,6 +429,7 @@ def get_grade(
                 delivery_date=delivery_date,
             )
         constraints = _grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+        nodes = _grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
         return GradeUnavailableResponse(
             available=False, unavailable_reason="artifact_missing", run_id=run_id,
@@ -374,10 +438,8 @@ def get_grade(
     return GradeAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         constraints=_grade_half(constraints),
-        # This is deliberately a separate, visibly ungraded half. The following
-        # batch wires the full SF-column node calculation; it must never be
-        # averaged into a flattering constraint-only headline.
-        nodes=GradeHalfResponse(graded=False, unavailable_reason="node_grade_pending"),
+        nodes=(_grade_half(nodes) if nodes is not None else
+               GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
 
 

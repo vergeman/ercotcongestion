@@ -88,11 +88,11 @@ def _aligned(values: pd.DataFrame, hours: pd.Index, universe: list[str]) -> pd.D
     return values.reindex(index=hours, columns=universe, fill_value=0.0).fillna(0.0).astype(float)
 
 
-def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame,
-             settled_bound: pd.DataFrame) -> GradeMetrics:
+def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame, settled_bound: pd.DataFrame,
+             settled_daily_bound: pd.Series | None = None) -> GradeMetrics:
     daily_predicted = predicted.sum(axis=0)
     daily_settled = settled.sum(axis=0)
-    daily_bound = settled_bound.any(axis=0)
+    daily_bound = settled_bound.any(axis=0) if settled_daily_bound is None else settled_daily_bound
     daily_ap = expected_average_precision(daily_predicted, daily_bound)
     hourly_ap = expected_average_precision(
         pd.Series(predicted.to_numpy().ravel()), pd.Series(settled_bound.to_numpy().ravel())
@@ -109,6 +109,7 @@ def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame,
 
 def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.DataFrame,
                    *, settled_bound: pd.DataFrame | None = None,
+                   settled_daily_bound: pd.Series | None = None,
                    universe: list[str] | None = None) -> GradeResult:
     """Score model and yesterday-repeated settlement on the same full universe.
 
@@ -140,8 +141,10 @@ def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.D
     settled_values = _aligned(settled, hours, score_universe)
     persistence_values = _aligned(persistence, hours, score_universe)
     labels = settled_bound.reindex(index=hours, columns=score_universe, fill_value=False).fillna(False).astype(bool)
+    if settled_daily_bound is not None:
+        settled_daily_bound = settled_daily_bound.reindex(score_universe, fill_value=False).fillna(False).astype(bool)
     return GradeResult(
         universe=tuple(score_universe),
-        model=_metrics(model_values, settled_values, labels),
-        persistence=_metrics(persistence_values, settled_values, labels),
+        model=_metrics(model_values, settled_values, labels, settled_daily_bound),
+        persistence=_metrics(persistence_values, settled_values, labels, settled_daily_bound),
     )
