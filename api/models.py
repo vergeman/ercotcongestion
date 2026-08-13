@@ -1,9 +1,61 @@
 """Response schemas for the API."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+
+# ---- /analysis/hero ------------------------------------------------------
+
+class HeroSegment(BaseModel):
+    """One rendered phrase and the slot whose raw values explain it."""
+    text: str
+    ref: str
+
+
+class HeroSegments(BaseModel):
+    headline: list[HeroSegment]
+    lede: list[HeroSegment]
+
+
+class HeroCursor(BaseModel):
+    ws: str
+    we: str
+    t: str
+
+
+class HeroProvenance(BaseModel):
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["forecast", "settled"]
+
+
+class HeroAvailableResponse(BaseModel):
+    """On-demand hero and its evidence-bearing classified slots."""
+    available: Literal[True]
+    segments: HeroSegments
+    # Slot keys and their numeric evidence are deliberately extensible while the
+    # individual panel contracts are still being sequenced in 0003–0007.
+    slots: dict[str, dict[str, Any]]
+    verdict: dict[str, dict[str, Any] | None] | None
+    cursor: HeroCursor
+    provenance: HeroProvenance
+
+
+class HeroUnavailableResponse(BaseModel):
+    """Soft failure before a concrete artifact horizon can be resolved."""
+    model_config = ConfigDict(extra="forbid")
+    available: Literal[False]
+    unavailable_reason: Literal["artifact_missing"]
+    run_id: str
+    delivery_date: date
+
+
+class HeroUnavailableAtHorizonResponse(HeroUnavailableResponse):
+    """Soft failure for a requested or resolved artifact horizon."""
+    horizon: int
 
 
 # ---- /api/ercot_state_range ---------------------------------------------
