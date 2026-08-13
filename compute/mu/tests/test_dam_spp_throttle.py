@@ -152,7 +152,9 @@ def test_an_empty_fetch_is_retried_next_cycle(conn, endpoint, monkeypatch):
     assert client.calls == [("2026-07-27", "2026-07-27")]
 
 
-def test_dam_spp_is_the_only_endpoint_moved_off_the_rolling_window():
-    """Scope guard: the other whole-day endpoints are far smaller (dam_lambda is 24
-    rows/day), so they keep the rolling window."""
-    assert backfill.DAILY_SETTLED == ("dam_spp",)
+def test_day_published_dam_endpoints_are_moved_off_the_rolling_window():
+    """The whole-day DAM reports use the shared daily path, not the rolling window.
+
+    ESSP is deliberately absent: like NP1-346 outages it is an archive product with its
+    own driver (backfill_essp.py) and its own live refresh, not a DAILY_SETTLED entry."""
+    assert backfill.DAILY_SETTLED == ("dam_spp", "dam_shadow", "dam_lambda")

@@ -153,20 +153,32 @@ class ErcotClient:
         return {"Authorization": f"Bearer {self._get_token()}",
                 "Ocp-Apim-Subscription-Key": SUB_KEY}
 
-    def archive_index(self, product: str) -> pd.DataFrame:
+    def archive_index(self, product: str, posted_day=None) -> pd.DataFrame:
         """Every archived document for `product`: (docId, postDatetime, posted).
 
-        Paged 100 at a time; sorted oldest→newest with `posted` parsed to a datetime."""
+        Paged 100 at a time; sorted oldest→newest with `posted` parsed to a datetime.
+        `posted_day` (a date) narrows the listing to documents posted on that ERCOT-local
+        day via the archive's `postDatetimeFrom/To` filter — cheap enough for a daily
+        feed's live refresh to call each cycle, instead of paging the full product
+        history. Transport only; unzip/parse stays with the caller."""
+        params: dict[str, object] = {"size": 100}
+        if posted_day is not None:
+            start = datetime.combine(posted_day, datetime.min.time())
+            end = start + timedelta(days=1)
+            params["postDatetimeFrom"] = start.strftime("%Y-%m-%dT%H:%M:%S")
+            params["postDatetimeTo"] = end.strftime("%Y-%m-%dT%H:%M:%S")
         rows, page = [], 1
         while True:
             payload = self._request(
                 "GET", f"{BASE_URL}/archive/{product}", headers=self._archive_headers(),
-                params={"size": 100, "page": page}).json()
+                params={**params, "page": page}).json()
             rows.extend(payload.get("archives", []))
             if page >= payload["_meta"]["totalPages"]:
                 break
             page += 1
         df = pd.DataFrame(rows)
+        if df.empty:
+            return df
         df["posted"] = pd.to_datetime(df["postDatetime"])
         return df.sort_values("posted").reset_index(drop=True)
 
