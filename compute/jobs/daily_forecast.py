@@ -38,6 +38,7 @@ from compute.jobs.backfill_nodal import (
     upsert_pointer,
 )
 from compute.jobs.daily_brief import compute_brief, persist_brief
+from compute.jobs.forecast_history import load_artifact, persist_rollup
 from compute.jobs.grade_day import (
     grade_day,
     persist_grades,
@@ -558,6 +559,31 @@ def _brief_latest(conn, run_id: str, published: "pd.Timestamp", horizon: int,
                           "published for this tick)", D.date())
 
 
+def _forecast_history_latest(conn, run_id: str, published: "pd.Timestamp",
+                             horizon: int) -> None:
+    """Append the just-published day's queryable forecast history, fail-soft.
+
+    This runs only after ``persist_forecast`` has committed the artifact and
+    pointer.  Rollup failure therefore cannot retract or poison a published
+    forecast; the idempotent backfill job repairs any skipped day.
+    """
+    try:
+        artifact = load_artifact(conn, run_id, published.date(), horizon)
+        if artifact is None:
+            log.warning("forecast-history step skipped for %s: published artifact "
+                        "is unexpectedly missing (run_id=%s horizon=%d)",
+                        published.date(), run_id, horizon)
+            return
+        n = persist_rollup(conn, run_id, published.date(), horizon, artifact)
+        conn.commit()
+        log.info("forecast history: forecast_constraint_daily <- %d rows for %s "
+                 "(run_id=%s horizon=%d)", n, published.date(), run_id, horizon)
+    except Exception:
+        conn.rollback()
+        log.exception("forecast-history step failed for %s (non-fatal; forecast "
+                      "already published for this tick)", published.date())
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -654,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
             graded = None
             if not args.no_grade:
                 graded = _grade_latest(conn, args.run_id, args.horizon)
+            _forecast_history_latest(conn, args.run_id, D, args.horizon)
             # Brief in the same tick (0124): the forward brief for the day just
             # published on this horizon track, plus an after-action re-brief of the
             # day grade_latest just realized. Non-fatal, so it never sinks a publish.
