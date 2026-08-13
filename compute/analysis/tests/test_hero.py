@@ -18,12 +18,12 @@ def test_magnitude_ladder_classifies_synthetic_daily_windows():
     ]
     for value, expected in cases:
         slot = classify_magnitude({"value": value, "prior": prior,
-                                   "basis": "cast_keys", "n_keys": 32})
+                                   "basis": "artifact_keys", "n_keys": 32})
         assert slot["bucket"] == expected
         assert slot["n"] == 31
 
     record = classify_magnitude({"value": 201.0, "prior": prior,
-                                 "basis": "cast_keys", "n_keys": 32})
+                                 "basis": "artifact_keys", "n_keys": 32})
     assert record["bucket"] == "record_high" and record["rank"] == 1
 
 

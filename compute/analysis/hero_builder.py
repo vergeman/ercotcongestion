@@ -80,8 +80,8 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
                *, artifact=None, days: int = 30) -> dict[str, dict[str, Any]]:
     """Build classified hero slots for the requested forecast or settled basis.
 
-    The same artifact vocabulary defines both bases, so a settled total is always
-    compared with the matching cast-key historical series rather than every DAM
+    The same full artifact vocabulary defines both bases, so a settled total is
+    always compared with the matching model-key history rather than every DAM
     constraint in the system.
     """
     if basis not in {"forecast", "settled"}:
@@ -92,24 +92,25 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
     if artifact is None:
         raise ValueError(f"artifact missing for {run_id=} {delivery_date=} {horizon=}")
 
-    cast_keys = [str(key) for key in artifact.SF.index]
-    cast_rows = load_constraint_days(conn, delivery_date, days=days, constraint_keys=cast_keys)
+    artifact_keys = [str(key) for key in artifact.SF.index]
+    artifact_rows = load_constraint_days(
+        conn, delivery_date, days=days, constraint_keys=artifact_keys)
     all_rows = load_constraint_days(conn, delivery_date, days=days)
-    weights = _weights(artifact, basis, cast_rows, delivery_date)
+    weights = _weights(artifact, basis, artifact_rows, delivery_date)
     if basis == "forecast":
         # Forecast μ exists for every artifact key, including keys with no prior DAM row.
         forecast_value = float(weights.sum())
-        cast_summary = _magnitude_summary(cast_rows, delivery_date, days=days,
-                                           basis="cast_keys", n_keys=len(cast_keys))
-        cast_summary["value"] = forecast_value
+        artifact_summary = _magnitude_summary(artifact_rows, delivery_date, days=days,
+                                               basis="artifact_keys", n_keys=len(artifact_keys))
+        artifact_summary["value"] = forecast_value
     else:
-        cast_summary = _magnitude_summary(cast_rows, delivery_date, days=days,
-                                           basis="cast_keys", n_keys=len(cast_keys))
+        artifact_summary = _magnitude_summary(artifact_rows, delivery_date, days=days,
+                                               basis="artifact_keys", n_keys=len(artifact_keys))
     all_summary = _magnitude_summary(all_rows, delivery_date, days=days,
                                      basis="all_keys",
                                      n_keys=len({row["constraint_key"] for row in all_rows
                                                  if row["delivery_date"] == delivery_date}))
-    cast_summary["all_keys"] = all_summary
+    artifact_summary["all_keys"] = all_summary
 
     condition = summarize_load_condition(load_load_condition(conn, delivery_date))
     if condition is None:
@@ -117,7 +118,7 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
                      "pct": 0.0, "n": 0, "basis": "forecast"}
     geo = _zone_summary(weights, load_constraint_geo(conn), artifact)
     # Node-tier exceptions require untruncated node serving (0003).  Keep the
-    # slot explicitly empty instead of implying a claim from the cast alone.
+    # slot explicitly empty instead of implying a claim from the artifact alone.
     exceptions = {"tier_0": 0, "tier_1": 0, "materiality": None}
-    return classify_slots({"magnitude": cast_summary, "regime": condition,
+    return classify_slots({"magnitude": artifact_summary, "regime": condition,
                            "where": geo, "exceptions": exceptions})

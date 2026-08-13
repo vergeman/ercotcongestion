@@ -36,7 +36,7 @@ def _magnitude_bucket(rank: int, ratio: float | None) -> str:
 
 
 def classify_magnitude(summary: dict[str, Any]) -> dict[str, Any]:
-    """Classify one cast-key (or all-key) daily congestion total.
+    """Classify one artifact-key (or all-DAM-key) daily congestion total.
 
     ``prior`` must contain only days before the delivery day.  The value is
     ranked after being appended, so a trailing-30-day read reports ``of 31``.

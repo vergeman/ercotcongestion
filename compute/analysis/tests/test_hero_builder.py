@@ -13,7 +13,7 @@ def _artifact():
     )
 
 
-def test_build_hero_keeps_forecast_on_cast_keys_and_preserves_all_key_context(monkeypatch):
+def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_context(monkeypatch):
     D = date(2026, 7, 28)
 
     def shadow(_conn, _day, *, constraint_keys=None, **_kwargs):
@@ -34,7 +34,7 @@ def test_build_hero_keeps_forecast_on_cast_keys_and_preserves_all_key_context(mo
         "N1": {"load_zone": "LZ_SOUTH"}, "N2": {"load_zone": "LZ_NORTH"}})
 
     slots = hero_builder.build_hero(None, "run", D, 1, "forecast", artifact=_artifact())
-    assert slots["magnitude"]["basis"] == "cast_keys"
+    assert slots["magnitude"]["basis"] == "artifact_keys"
     assert slots["magnitude"]["n_keys"] == 2
     assert slots["magnitude"]["value"] == 210.0
     assert slots["magnitude"]["all_keys"]["value"] == 700.0
