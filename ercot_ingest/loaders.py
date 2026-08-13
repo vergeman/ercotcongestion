@@ -449,6 +449,46 @@ def load_dam_spp(conn, df: pd.DataFrame) -> int:
         return cur.rowcount
 
 
+def load_essp(conn, df: pd.DataFrame, *, is_study: bool) -> int:
+    """Load NP4-158-SG DAM Electrically Similar Settlement Points.
+
+    ERCOT ships a pre-clearing study and a final DAM run for the same delivery
+    day.  They are separate labelled vintages, not revisions to overwrite: the
+    forecast-only brief reads the study while the settled view reads the final.
+    """
+    if df.empty:
+        return 0
+
+    records = []
+    for _, r in df.iterrows():
+        delivery_date = pd.to_datetime(r["DeliveryDate"]).date()
+        hour_ending = r["HourEnding"]
+        hour = int(hour_ending.split(":")[0]) if isinstance(hour_ending, str) else int(hour_ending)
+        # NP4-158-SG uses the literal Y/N rather than the booleans emitted by
+        # several JSON public-report endpoints; bool("N") would be wrong.
+        dst_flag = str(r.get("DSTFlag", "N")).strip().upper() == "Y"
+        records.append((
+            _to_interval_ts(delivery_date, hour, 1, dst_flag),
+            dst_flag,
+            r["SettlementPoint"],
+            int(r["GroupIndex"]),
+            is_study,
+            _ercot_ts_to_utc(r.get("UpdateTime"), dst_flag),
+        ))
+
+    sql = """
+        INSERT INTO ercot_essp (
+            interval_ts, dst_flag, settlement_point, group_index, is_study, updated_at
+        ) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (interval_ts, settlement_point, is_study, dst_flag) DO UPDATE SET
+            group_index = EXCLUDED.group_index,
+            updated_at = EXCLUDED.updated_at
+    """
+    with conn.cursor() as cur:
+        cur.executemany(sql, records)
+        return cur.rowcount
+
+
 def load_dam_shadow_prices(conn, df: pd.DataFrame) -> int:
     """Load NP4-191-CD: DAM Binding/Active Constraint Shadow Prices. Hourly.
 
