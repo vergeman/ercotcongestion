@@ -36,9 +36,14 @@ def test_regime_where_and_exception_ladders_are_pure():
                             "geo_as_of": "2025-12-13"})
     assert where["bucket"] == "concentrated" and where["zone"] == "south"
 
-    exceptions = classify_exceptions({"tier_0": 1, "tier_1": 2})
-    assert exceptions == {"tier_0": 1, "tier_1": 2, "count": 3,
-                          "bucket": "several", "dedupe": "coordinate"}
+    tier_0 = {"constraint_key": "NEW|ONE", "value": 30, "rank": 1, "n": 31}
+    tier_1 = {"constraint_key": "TOP|TWO", "value": 20, "rank": 2, "n": 31}
+    exceptions = classify_exceptions({"available": True, "tier_0": [tier_0], "tier_1": [tier_0, tier_1]})
+    assert exceptions["bucket"] == "one_or_two"
+    assert exceptions["count"] == 2
+    assert exceptions["tier_0_count"] == 1 and exceptions["tier_1_count"] == 2
+    assert exceptions["tier_1"][1] == tier_1
+    assert classify_exceptions({"available": False}) == {"available": False, "bucket": "unavailable"}
 
 
 def test_magnitude_verdict_is_rung_distance_not_a_new_threshold():

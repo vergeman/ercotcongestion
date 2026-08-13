@@ -39,9 +39,10 @@ LADDERS: dict[str, Ladder] = {
         (lambda _slot: True, "unknown", "the available geography is incomplete"),
     ),
     "exceptions": (
-        (_bucket("several"), "several", "several material exceptions stand apart"),
-        (_bucket("one_or_two"), "one_or_two", "a material exception stands apart"),
-        (lambda _slot: True, "none", "no material exceptions stand apart"),
+        (_bucket("several"), "several", "several exceptions stand apart"),
+        (_bucket("one_or_two"), "one_or_two", "an exception stands apart"),
+        (_bucket("unavailable"), "unavailable", "exceptions await DAM settlement"),
+        (lambda _slot: True, "none", "no exceptions stand apart"),
     ),
 }
 

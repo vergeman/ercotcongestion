@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -76,6 +76,41 @@ def _magnitude_summary(rows: list[dict[str, Any]], delivery_date: date, *, days:
     return {"value": values[-1], "prior": values[:-1], "basis": basis, "n_keys": n_keys}
 
 
+def _exception_summary(rows: list[dict[str, Any]], delivery_date: date,
+                       artifact_keys: list[str], *, days: int) -> dict[str, Any]:
+    """Find DAM-active constraints that the day's artifact does not model.
+
+    A candidate's rank is over its own complete delivery-day series, with absent
+    DAM rows treated as zero.  This is deliberately constraint-level: node
+    materiality and coordinate de-duplication belong to the later Standouts
+    work, not to the hero's coverage signal.
+    """
+    artifact_key_set = set(artifact_keys)
+    values: dict[str, dict[date, float]] = defaultdict(dict)
+    for row in rows:
+        key = str(row["constraint_key"])
+        if key not in artifact_key_set:
+            values[key][row["delivery_date"]] = float(row["value"])
+
+    prior_days = [delivery_date - timedelta(days=offset) for offset in range(days, 0, -1)]
+    tier_0: list[dict[str, Any]] = []
+    tier_1: list[dict[str, Any]] = []
+    for key, daily in values.items():
+        value = daily.get(delivery_date, 0.0)
+        if value == 0:
+            continue
+        prior = [daily.get(day, 0.0) for day in prior_days]
+        rank = 1 + sum(other >= value for other in prior)
+        candidate = {"constraint_key": key, "value": value, "rank": rank, "n": days + 1}
+        if not any(prior):
+            tier_0.append(candidate)
+        if rank <= 3:
+            tier_1.append(candidate)
+    order = lambda item: (-abs(float(item["value"])), item["constraint_key"])
+    return {"available": True, "tier_0": sorted(tier_0, key=order),
+            "tier_1": sorted(tier_1, key=order)}
+
+
 def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
                *, artifact=None, days: int = 30) -> dict[str, dict[str, Any]]:
     """Build classified hero slots for the requested forecast or settled basis.
@@ -117,8 +152,7 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
         condition = {"series": "load.system", "today": None, "median": None,
                      "pct": 0.0, "n": 0, "basis": "forecast"}
     geo = _zone_summary(weights, load_constraint_geo(conn), artifact)
-    # Node-tier exceptions require untruncated node serving (0003).  Keep the
-    # slot explicitly empty instead of implying a claim from the artifact alone.
-    exceptions = {"tier_0": 0, "tier_1": 0, "materiality": None}
+    exceptions = (_exception_summary(all_rows, delivery_date, artifact_keys, days=days)
+                  if basis == "settled" else {"available": False})
     return classify_slots({"magnitude": artifact_summary, "regime": condition,
                            "where": geo, "exceptions": exceptions})

@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--basis", choices=("forecast", "settled"), default="settled")
     parser.add_argument("--allow-dominant", action="store_true",
-                        help="write a browsable snapshot even when the strict bucket audit fails")
+                        help="explicitly write a review snapshot despite a strict bucket-dominance finding")
     args = parser.parse_args(argv)
 
     from shared.settings import settings
@@ -111,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         lines = render_audit(conn, args.run_id,
                              available_days(conn, args.run_id, args.end_date), basis=args.basis,
                              strict=not args.allow_dominant)
-    args.output.write_text("\n".join(lines) + "\n")
+    header = "# audit_mode=allow_dominant (explicit vocabulary-review override)\n" if args.allow_dominant else ""
+    args.output.write_text(header + "\n".join(lines) + "\n")
     return 0
 
 

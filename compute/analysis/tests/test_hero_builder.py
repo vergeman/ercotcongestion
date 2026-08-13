@@ -40,3 +40,33 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
     assert slots["magnitude"]["all_keys"]["value"] == 700.0
     assert slots["where"]["zone"] == "south"
     assert slots["where"]["geo_as_of"] == "2025-12-13"
+    assert slots["exceptions"] == {"available": False, "bucket": "unavailable"}
+
+
+def test_build_hero_reports_unmodeled_dam_constraint_tiers(monkeypatch):
+    D = date(2026, 7, 28)
+
+    def shadow(_conn, _day, *, constraint_keys=None, **_kwargs):
+        artifact_rows = [{"delivery_date": D, "constraint_key": "A|B", "value": 10}]
+        all_rows = artifact_rows + [
+            {"delivery_date": D, "constraint_key": "NEW|ONE", "value": 30},
+            {"delivery_date": D, "constraint_key": "TOP|TWO", "value": 20},
+            {"delivery_date": date(2026, 7, 27), "constraint_key": "TOP|TWO", "value": 25},
+            {"delivery_date": date(2026, 7, 26), "constraint_key": "TOP|TWO", "value": 10},
+            {"delivery_date": D, "constraint_key": "LOW|RANK", "value": 5},
+            {"delivery_date": date(2026, 7, 27), "constraint_key": "LOW|RANK", "value": 9},
+            {"delivery_date": date(2026, 7, 26), "constraint_key": "LOW|RANK", "value": 8},
+            {"delivery_date": date(2026, 7, 25), "constraint_key": "LOW|RANK", "value": 7},
+        ]
+        return artifact_rows if constraint_keys else all_rows
+
+    monkeypatch.setattr(hero_builder, "load_constraint_days", shadow)
+    monkeypatch.setattr(hero_builder, "load_load_condition", lambda *_: [{"delivery_date": D, "value": 100}])
+    monkeypatch.setattr(hero_builder, "load_constraint_geo", lambda *_: [])
+    monkeypatch.setattr(hero_builder, "load_sp_metadata", lambda *_: {})
+
+    slot = hero_builder.build_hero(None, "run", D, 1, "settled", artifact=_artifact())["exceptions"]
+    assert slot["bucket"] == "one_or_two"
+    assert slot["tier_0"] == [{"constraint_key": "NEW|ONE", "value": 30.0, "rank": 1, "n": 31}]
+    assert [item["constraint_key"] for item in slot["tier_1"]] == ["NEW|ONE", "TOP|TWO"]
+    assert [item["rank"] for item in slot["tier_1"]] == [1, 2]

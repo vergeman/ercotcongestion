@@ -89,13 +89,16 @@ def classify_where(summary: dict[str, Any]) -> dict[str, Any]:
 
 
 def classify_exceptions(summary: dict[str, Any]) -> dict[str, Any]:
-    """Classify material exceptions, retaining the coordinate-dedupe caveat."""
-    tier_0 = int(summary.get("tier_0", 0))
-    tier_1 = int(summary.get("tier_1", 0))
-    count = tier_0 + tier_1
+    """Classify settled DAM constraints absent from the artifact vocabulary."""
+    if summary.get("available") is False:
+        return {**summary, "available": False, "bucket": "unavailable"}
+    tier_0 = list(summary.get("tier_0", []))
+    tier_1 = list(summary.get("tier_1", []))
+    count = len({item["constraint_key"] for item in tier_0 + tier_1})
     bucket = "none" if count == 0 else "several" if count >= 3 else "one_or_two"
-    return {**summary, "tier_0": tier_0, "tier_1": tier_1, "count": count,
-            "bucket": bucket, "dedupe": "coordinate"}
+    return {**summary, "tier_0": tier_0, "tier_1": tier_1,
+            "tier_0_count": len(tier_0), "tier_1_count": len(tier_1),
+            "count": count, "bucket": bucket}
 
 
 def classify_slots(window: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

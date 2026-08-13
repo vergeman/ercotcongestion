@@ -47,3 +47,21 @@ def test_audit_renders_all_days_when_each_available_ladder_is_varied(monkeypatch
     monkeypatch.setattr(audit, "build_hero", hero)
     lines = audit.render_audit(None, "run", days)
     assert len(lines) == 4 and lines[0].startswith("2026-01-01\t")
+
+
+def test_allow_dominant_records_the_override_in_the_written_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(audit, "available_days", lambda *_: [])
+    monkeypatch.setattr(audit, "render_audit", lambda *_args, **_kwargs: ["2026-01-01\t..."])
+    monkeypatch.setattr(audit.psycopg, "connect", lambda *_: _Connection())
+    output = tmp_path / "audit.txt"
+    assert audit.main(["--run-id", "run", "--end-date", "2026-01-01", "--output", str(output),
+                       "--allow-dominant"]) == 0
+    assert output.read_text().startswith("# audit_mode=allow_dominant")
+
+
+class _Connection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
