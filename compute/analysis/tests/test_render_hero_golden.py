@@ -13,6 +13,7 @@ def test_line_is_stable_text_and_keeps_every_slot_bucket():
     }
     line = audit.line_for(slots)
     assert line.startswith("magnitude=ordinary regime=load_record_high")
+    assert "mag_rank=-/- mag_ratio=- regime_pct=- where_share=- tier_0=0 tier_1=0 exception_count=-" in line
     assert "an ordinary congestion day" in line
 
 

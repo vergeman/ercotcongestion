@@ -45,9 +45,32 @@ def line_for(slots: dict) -> str:
     """A stable, compact row for code review rather than a browser snapshot."""
     segments = render(slots)
     buckets = " ".join(f"{name}={slots[name]['bucket']}" for name in SLOT_NAMES)
+    diagnostics = _diagnostics(slots)
     headline = "".join(part["text"] for part in segments["headline"])
     lede = "".join(part["text"] for part in segments["lede"])
-    return f"{buckets}\t{headline}\t{lede}"
+    return f"{buckets}\t{diagnostics}\t{headline}\t{lede}"
+
+
+def _diagnostics(slots: dict) -> str:
+    """Stable raw evidence beside prose, so the audit can drive vocabulary edits."""
+    magnitude = slots["magnitude"]
+    regime = slots["regime"]
+    where = slots["where"]
+    exceptions = slots["exceptions"]
+    parts = [
+        f"mag_rank={magnitude.get('rank', '-')}/{magnitude.get('n', '-')}",
+        f"mag_ratio={float(magnitude['ratio']):.2f}" if magnitude.get("ratio") is not None
+        else "mag_ratio=-",
+        f"regime_pct={float(regime['pct']):.1f}" if regime.get("pct") is not None else "regime_pct=-",
+        f"where_share={float(where['share']):.3f}" if where.get("share") is not None else "where_share=-",
+    ]
+    if exceptions.get("available") is False:
+        parts.append("exceptions=unavailable")
+    else:
+        parts.extend((f"tier_0={exceptions.get('tier_0_count', len(exceptions.get('tier_0', [])))}",
+                      f"tier_1={exceptions.get('tier_1_count', len(exceptions.get('tier_1', [])))}",
+                      f"exception_count={exceptions.get('count', '-') }"))
+    return " ".join(parts)
 
 
 def render_audit(conn, run_id: str, days: list[tuple[date, int]], *, basis: str = "settled",

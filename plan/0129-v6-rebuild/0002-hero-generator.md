@@ -80,6 +80,20 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   forecast missed". A low forecast value is a model opinion; absence from the
   artifact-key vocabulary is the distinct coverage fact the phrase describes.
 
+**Vocabulary review diagnostics** — `compute/jobs/render_hero_golden.py`
+
+* Every audit row carries compact raw diagnostics beside its bucket names:
+  magnitude rank/31-day ratio, regime percentile, leading-zone share, and
+  tier-0/tier-1/counts for exceptions. The fixture is the decision surface for
+  refining rungs; do not add synonym rotation that conceals unchanged evidence.
+* Production review over 2025-07-29–2026-07-28 found materially different
+  whole-DAM hourly medians by CT hour: 08:00–09:00 are about $328 while
+  15:00–18:00 are $1,030–$1,165. A later refinement may compare a data-declared
+  peak slice (initial candidate HE16–HE19) against its own trailing peak-slice
+  history, alongside—not instead of—the whole-day slot. Choose and validate the
+  boundary from the diagnostic audit and day-level rank changes before adding a
+  peak/off-peak bucket or phrase.
+
 **Serving** — `api/analysis.py`
 
 * New `GET /analysis/hero`, resolving `run_id` off `forecast_current` and coalescing horizon exactly as `get_brief` does.
