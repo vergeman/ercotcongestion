@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 from ErcotClient import ErcotClient, PG_DSN
-from backfill import (DAILY_SETTLED, ENDPOINTS, backfill_one_window,
-                      update_recent_daily)
+from backfill import (DAILY_SETTLED, ENDPOINTS, LAGGED, backfill_one_window,
+                      update_recent_daily, update_recent_lagged)
 from loaders import ERCOT_TZ
 from backfill_dam_close import update_recent as update_forecasts
 from backfill_outages import update_recent as update_outages
@@ -28,8 +28,10 @@ def update_recent_window(client, conn, hours_back: int = 2):
     start = end - timedelta(hours=hours_back)
     log(f"cycle start, window {start.isoformat()} → {end.isoformat()}")
     for key in ENDPOINTS:
-        # Refreshed per delivery day below instead (update_recent_daily).
-        if key in DAILY_SETTLED:
+        # Refreshed per delivery day below instead (update_recent_daily /
+        # update_recent_lagged). LAGGED reports (NP6-345 load) return 0 for the
+        # 2-hour "today" window and need a multi-day lookback, not this loop.
+        if key in DAILY_SETTLED or key in LAGGED:
             continue
         try:
             # The vintaged wind/solar reports otherwise re-pull *every* posting
@@ -52,6 +54,13 @@ def update_recent_window(client, conn, hours_back: int = 2):
         update_recent_daily(client, conn)
     except Exception as e:
         log(f"  [daily_settled] FAILED: {e}")
+        conn.rollback()
+    # Lagging daily reports (NP6-345 actual load): re-ask the last few delivery
+    # days each cycle so a late publish lands instead of stalling the series.
+    try:
+        update_recent_lagged(client, conn)
+    except Exception as e:
+        log(f"  [lagged] FAILED: {e}")
         conn.rollback()
     # Vintaged load/wind/solar DAM-close forecasts (NP3-561, NP4-742/745-CD). Moved out
     # of ENDPOINTS so the hourly over-fetch stops; refreshed here at DAM-close cadence

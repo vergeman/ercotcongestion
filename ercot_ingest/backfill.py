@@ -49,6 +49,10 @@ ENDPOINTS = {
         "from_param": "operatingDayFrom",
         "to_param": "operatingDayTo",
         "param_format": "date",  # yyyy-MM-dd
+        # Lagging report — see LAGGED. Refreshed by update_recent_lagged over a
+        # multi-day lookback, not the 2-hour live window (which only ever asks
+        # for today, always empty here).
+        "lagged": True,
     },
     # wind/solar are a rolling actual+forecast report republished ~hourly, so a
     # whole-day deliveryDate query returns day D's 24 hours from every one of the
@@ -119,6 +123,17 @@ ENDPOINTS = {
 
 # Refreshed per delivery day by update_recent_daily, not on the rolling window.
 DAILY_SETTLED = tuple(k for k, v in ENDPOINTS.items() if v.get("daily_settled"))
+
+# NP6-345-CD actual load is a *lagging* daily report: ERCOT publishes a delivery
+# day's actuals a few days late (≈4 days observed — on 2026-08-13 the newest day
+# available was 2026-08-09). The 2-hour "today" window the live loop uses for
+# every other rolling endpoint therefore always returns 0 rows for it, and
+# nothing re-asks for a day once it lands late — so the series silently froze at
+# 2026-07-22 the moment periodic manual backfills stopped. These endpoints get a
+# multi-day per-delivery-day lookback instead (update_recent_lagged), self-
+# throttled like the DAM endpoints. Lookback must exceed the publish lag.
+LAGGED = tuple(k for k, v in ENDPOINTS.items() if v.get("lagged"))
+LAGGED_LOOKBACK_DAYS = 7
 
 
 def is_completed(conn, endpoint: str, start: datetime, end: datetime) -> bool:
@@ -210,6 +225,41 @@ def update_recent_daily(client: ErcotClient, conn,
     for start, end in daily_windows(start_day, end_day):
         for key in keys:
             # Same UTC-midnight key the CLI backfill uses, so the two throttle each other.
+            if is_completed(conn, key, start, end):
+                skipped += 1
+                continue
+            try:
+                backfill_one_window(client, conn, key, start, end, resume=False)
+            except Exception as e:                       # noqa: BLE001
+                conn.rollback()
+                print(f"  [{key}] {start.date()} — FAILED: {e}")
+    if skipped:
+        print(f"  [{','.join(keys)}] {skipped} (endpoint, day) pairs already "
+              f"complete — no fetch")
+
+
+def update_recent_lagged(client: ErcotClient, conn,
+                         keys: tuple[str, ...] = LAGGED,
+                         lookback_days: int = LAGGED_LOOKBACK_DAYS) -> None:
+    """Refresh lagging daily reports (NP6-345-CD load) over a per-day lookback.
+
+    Same self-throttle as update_recent_daily: a delivery day already in
+    ``ingest_log`` with a non-empty fetch is one lookup and skipped, so on a
+    steady state this re-asks only the handful of recent days the source has not
+    published yet. A day that lands late has a prior 0-row log — `is_completed`
+    is False for a 0-row fetch — so it is retried each cycle until it lands, then
+    settles. No tomorrow bump (unlike the DAM path): actual load never leads the
+    clock. Whole-day UTC-midnight keys match the CLI backfill so the two throttle
+    each other.
+    """
+    if not keys:
+        return
+    today = datetime.now(timezone.utc).astimezone(ERCOT_TZ).date()
+    start_day = today - timedelta(days=lookback_days)
+
+    skipped = 0
+    for start, end in daily_windows(start_day, today):
+        for key in keys:
             if is_completed(conn, key, start, end):
                 skipped += 1
                 continue
