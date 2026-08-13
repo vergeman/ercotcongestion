@@ -3,6 +3,7 @@ from datetime import date
 import pandas as pd
 
 import analysis as analysis_module
+from compute.analysis.brief import nodal_congestion
 from compute.sf.project import SfMuArtifact
 
 
@@ -11,6 +12,15 @@ def _artifact():
         SF=pd.DataFrame([[1.0]], index=["A|B"], columns=["SP"]),
         E_mu=pd.DataFrame([[4.0], [9.0]], index=pd.to_datetime([
             "2026-07-28T05:00Z", "2026-07-28T06:00Z"]), columns=["A|B"]),
+    )
+
+
+def _node_artifact():
+    return SfMuArtifact(
+        SF=pd.DataFrame([[1.0, 0.2], [-0.5, 1.0], [0.0, 0.4]],
+                        index=["A|B", "C|D", "E|F"], columns=["SOURCE", "SINK"]),
+        E_mu=pd.DataFrame([[4.0, 6.0, 2.0], [1.0, 3.0, 0.0]], index=pd.to_datetime([
+            "2026-07-28T05:00Z", "2026-07-28T06:00Z"]), columns=["A|B", "C|D", "E|F"]),
     )
 
 
@@ -81,3 +91,72 @@ def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, m
     first = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
     second = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
     assert first.content == second.content
+
+
+def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    timestamps = list(artifact.E_mu.index.to_pydatetime())
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([
+        {"interval_ts": timestamps[0], "settlement_point": "SOURCE", "dam_spp": 42.0},
+        {"interval_ts": timestamps[1], "settlement_point": "SOURCE", "dam_spp": 38.0},
+    ])
+    fake_pool.cursor.queue([
+        {"interval_ts": timestamps[0], "system_lambda": 30.0},
+        {"interval_ts": timestamps[1], "system_lambda": 30.0},
+    ])
+
+    body = client.get("/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body["available"] is True
+    assert [row["constraint_key"] for row in body["terms"]] == ["A|B", "C|D"]
+    assert body["n_terms"] == 2
+    assert body["total"] == -0.5
+    assert body["coverage"] == -0.025
+
+
+def test_path_reconciles_full_terms_to_endpoint_spread(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+
+    body = client.get("/analysis/path?source=SOURCE&sink=SINK&delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body["available"] is True
+    assert body["spread"] == sum(row["contribution"] for row in body["terms"])
+    congestion = nodal_congestion(artifact.SF, artifact.E_mu.sum(axis=0))
+    assert abs(body["spread"] - (congestion["SINK"] - congestion["SOURCE"])) < 1e-6
+    # Full pair: A contributes 4.0, C contributes -13.5, E contributes -0.8.
+    assert body["n_terms"] == 3
+    assert body["composition"] == {
+        "top_share": 13.5 / 18.3,
+        "second_share": 4.0 / 18.3,
+        "tail_share": 0.8 / 18.3,
+        "n_terms": 3,
+        "top_constraint_key": "C|D",
+        "second_constraint_key": "A|B",
+    }
+
+
+def test_node_realized_basis_keeps_sf_shape_and_swaps_mu(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    timestamps = list(artifact.E_mu.index.to_pydatetime())
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([
+        {"interval_ts": timestamps[0], "constraint_name": "A", "contingency_name": "B", "shadow_price": 10.0},
+        {"interval_ts": timestamps[1], "constraint_name": "C", "contingency_name": "D", "shadow_price": 1.0},
+    ])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    body = client.get("/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+                      "&basis=realized&run_id=run-x&horizon=1").json()
+    assert {row["constraint_key"] for row in body["terms"]} == {"A|B", "C|D"}
+    assert body["total"] == -9.5
+
+
+def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    body = client.get("/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
+                    "delivery_date": "2026-07-28", "horizon": 1}
