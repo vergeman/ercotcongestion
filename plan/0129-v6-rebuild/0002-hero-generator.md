@@ -50,7 +50,14 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   low-but-real model possibilities. The rebuild is query-first, so the hero
   reports the complete model vocabulary and leaves request-side below-floor
   filtering to `0005`'s panel consumers.
-* `where`: zone shares Σμ-weighted from `constraint_geo`, plus node-side zone from the geocoded layer. Stamp `geo_as_of` on the constraint half.
+
+  Its middle ladder is data-bearing rather than a synonym pool: `ordinary_low`
+  is 50–75% of the trailing median, `ordinary` is 75–110%, and `ordinary_high`
+  is 110–125%; `quiet` remains ≤50% and `elevated` begins at 125%. The reviewed
+  year populated those bands 70 / 109 / 35 times, respectively.
+* `where`: zone shares Σμ-weighted from `constraint_geo`, plus node-side zone from the geocoded layer. Stamp `geo_as_of` on the constraint half. Its ladder is
+  `distributed` below 45%, `tilted` at 45–55%, and `concentrated` at 55% or
+  higher; this avoids presenting a 49%/51% leader flip as a qualitative change.
 * `exceptions` is a **settled constraint-window** slot; it does not require SF.
   Its candidate set is DAM constraints outside the artifact-key vocabulary, so
   the prose describes a coverage fact rather than blaming a low forecast.
@@ -89,10 +96,23 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * Production review over 2025-07-29–2026-07-28 found materially different
   whole-DAM hourly medians by CT hour: 08:00–09:00 are about $328 while
   15:00–18:00 are $1,030–$1,165. A later refinement may compare a data-declared
-  peak slice (initial candidate HE16–HE19) against its own trailing peak-slice
-  history, alongside—not instead of—the whole-day slot. Choose and validate the
+  high-congestion slice (initial candidate HE16–HE19) against its own trailing
+  slice history, alongside—not instead of—the whole-day slot. Choose and validate the
   boundary from the diagnostic audit and day-level rank changes before adding a
-  peak/off-peak bucket or phrase.
+  peak/off-peak bucket or phrase. The first implementation ships the selected
+  HE16–HE19 comparison as nested magnitude evidence (`high_congestion_hours
+  {value, rank, ratio, hours_ct}`), including in the audit, but does not yet
+  alter the primary headline rung. When it differs from whole-day magnitude by
+  two or more coarse magnitude bands, a deterministic subordinate headline
+  clause says so; fine-rung verdict distance remains intact while one-band
+  differences remain diagnostic-only. This is an empirical
+  high-congestion slice, not ERCOT's
+  contractual on-peak period; reserve `peak` / `on_peak` terminology for a
+  market-calendar-aware implementation.
+* The hero's exceptions phrase is count-bearing. For a non-empty settled slot it
+  names the number of constraints outside the artifact vocabulary and, when
+  applicable, how many are newly active (tier-0), rather than flattening every
+  day to “several.”
 
 **Serving** — `api/analysis.py`
 
@@ -136,8 +156,8 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
   zero exceptions.
 * [x] `where` reports south 0.489 forecast / 0.545 settled with
   `geo_as_of "2025-12-13"`, and its zone verdict is `held`. The forecast is
-  distributed while settlement is concentrated; this supersedes the prototype's
-  stale 0.546/0.543 values after the full artifact vocabulary replaced its cast.
+  tilted toward south in both phases; this supersedes the prototype's stale
+  0.546/0.543 values after the full artifact vocabulary replaced its cast.
 * [x] Every hero segment carries a `ref` resolving to a slot key; every slot
   carries the raw numbers behind its adjective.
 * [x] Unit test: a table of synthetic slot inputs → expected bucket, per ladder,
