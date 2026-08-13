@@ -47,11 +47,15 @@ Depends on: none — coordinate with `0004` on the constraint-key vocabulary
 
 ## Acceptance
 
-* [ ] A request can retrieve forecast μ for a constraint below the serving floor — verify with `BRUNI_69_1|DFOAVLO5` on 2026-07-28.
-* [ ] The new query is key-scoped: it returns every requested constraint represented
+* [x] A request can retrieve forecast μ for a constraint below the serving floor — verified with `BRUNI_69_1|DFOAVLO5` on 2026-07-28.
+* [x] The new query is key-scoped: it returns every requested constraint represented
   by the fit, including a near-zero forecast, and reports a requested key absent
   from the fit distinctly rather than manufacturing a zero. It has no legacy
   response shape to preserve; the v6 page is its first consumer.
-* [ ] Standouts and Top Constraints render a number where the model priced near zero, and a dash only where the constraint is absent from the fit; the two are visually distinguishable.
-* [ ] The 43 chronic-but-uncast elements have forecast values on the delivery day.
-* [ ] The prototype's data-status row for this field can be moved from `partial` to `real`.
+* [ ] `0009` wires Standouts and Top Constraints to this query: they render a number
+  where the model priced near zero, and a dash only where the constraint is absent
+  from the fit; the two are visually distinguishable.
+* [ ] Verify that all 43 chronic-but-uncast elements are represented by the
+  2026-07-28 artifact and return forecast values through the query.
+* [ ] `0009` marks this field `real` in the live v6 page's data-status UI. The
+  static prototype is not a served status source and is left unchanged.
