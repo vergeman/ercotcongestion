@@ -10,6 +10,7 @@ from backfill import (DAILY_SETTLED, ENDPOINTS, LAGGED, backfill_one_window,
 from loaders import ERCOT_TZ
 from backfill_dam_close import update_recent as update_forecasts
 from backfill_outages import update_recent as update_outages
+from backfill_essp import update_recent as update_essp
 
 INTERVAL_SECONDS = 900  # 15 min
 
@@ -78,6 +79,14 @@ def update_recent_window(client, conn, hours_back: int = 2):
         update_outages(client, conn)
     except Exception as e:
         log(f"  [resource_outages] FAILED: {e}")
+        conn.rollback()
+    # NP4-158-SG ESSP — a twice-daily archive feed (pre-DAM study + post-DAM final),
+    # same self-throttle: a delivery day with both vintages already logged is skipped
+    # with no network. See backfill_essp.update_recent.
+    try:
+        update_essp(client, conn)
+    except Exception as e:
+        log(f"  [essp] FAILED: {e}")
         conn.rollback()
     log("cycle complete")
 

@@ -129,6 +129,30 @@ class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableRespons
     pass
 
 
+# ---- /analysis/essp ------------------------------------------------------
+
+class EsspGroup(BaseModel):
+    """One ERCOT electrically-similar settlement-point group for one hour."""
+    group_index: int
+    settlement_points: list[str]
+
+
+class AnalysisEsspGroupsAvailableResponse(BaseModel):
+    """Hourly ESSP membership from one explicitly selected ERCOT vintage."""
+    available: Literal[True]
+    interval_ts: datetime
+    source: Literal["study", "final"]
+    groups: list[EsspGroup]
+
+
+class AnalysisEsspGroupsUnavailableResponse(BaseModel):
+    """Soft failure: the requested vintage has not been ingested for this hour."""
+    available: Literal[False]
+    unavailable_reason: Literal["essp_missing"]
+    interval_ts: datetime
+    source: Literal["study", "final"]
+
+
 # ---- /analysis/forecast-mu -----------------------------------------------
 
 class ForecastMuRow(BaseModel):
