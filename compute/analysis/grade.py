@@ -23,6 +23,20 @@ class GradeMetrics:
     magnitude_overlap: float | None
     timing_daily_skill: float | None
     timing_hourly_skill: float | None
+    # Node-only ranked grade.  The epsilon event mask remains available through
+    # the AP/skill fields as a diagnostic, but it is too broad to headline when
+    # almost every settlement point has non-zero congestion.
+    top_decile_daily_capture: float | None = None
+    top_decile_hourly_capture: float | None = None
+
+
+@dataclass(frozen=True)
+class GradeSupport:
+    """Evidence displayed beside a grade, never folded into its score."""
+    daily_bound_count: int
+    hourly_bound_count: int
+    forecast_total: float
+    settled_total: float
 
 
 @dataclass(frozen=True)
@@ -31,6 +45,7 @@ class GradeResult:
     universe: tuple[str, ...]
     model: GradeMetrics
     persistence: GradeMetrics
+    support: GradeSupport | None = None
 
 
 def expected_average_precision(scores: pd.Series, bound: pd.Series) -> float | None:
@@ -88,14 +103,40 @@ def _aligned(values: pd.DataFrame, hours: pd.Index, universe: list[str]) -> pd.D
     return values.reindex(index=hours, columns=universe, fill_value=0.0).fillna(0.0).astype(float)
 
 
+def _top_fraction_capture(predicted: pd.Series, settled: pd.Series,
+                          fraction: float) -> float | None:
+    """Overlap of equal-size predicted and settled top slices.
+
+    Both sets have ``ceil(fraction × universe)`` members, so this is also
+    precision and recall.  Stable sort makes the zero/tie fallback
+    deterministic; in the materially-ranked head, values are normally unique.
+    """
+    if not 0 < fraction <= 1:
+        raise ValueError("top fraction must be in (0, 1]")
+    if len(predicted) == 0:
+        return None
+    k = max(1, int(np.ceil(len(predicted) * fraction)))
+    forecast_top = set(predicted.sort_values(ascending=False, kind="stable").index[:k])
+    settled_top = set(settled.sort_values(ascending=False, kind="stable").index[:k])
+    return len(forecast_top & settled_top) / k
+
+
 def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame,
-             settled_bound: pd.DataFrame) -> GradeMetrics:
+             settled_bound: pd.DataFrame, *, top_fraction: float | None = None) -> GradeMetrics:
     daily_predicted = predicted.sum(axis=0)
     daily_settled = settled.sum(axis=0)
     daily_bound = settled_bound.any(axis=0)
     daily_ap = expected_average_precision(daily_predicted, daily_bound)
     hourly_ap = expected_average_precision(
         pd.Series(predicted.to_numpy().ravel()), pd.Series(settled_bound.to_numpy().ravel())
+    )
+    daily_capture = _top_fraction_capture(daily_predicted, daily_settled, top_fraction) if top_fraction else None
+    hourly_capture = (
+        float(np.mean([
+            _top_fraction_capture(predicted.loc[hour], settled.loc[hour], top_fraction)
+            for hour in predicted.index
+        ]))
+        if top_fraction and len(predicted.index) else None
     )
     return GradeMetrics(
         detection_ap=daily_ap,
@@ -104,12 +145,15 @@ def _metrics(predicted: pd.DataFrame, settled: pd.DataFrame,
         timing_hourly_skill=_chance_adjusted(
             hourly_ap, pd.Series(settled_bound.to_numpy().ravel())
         ),
+        top_decile_daily_capture=daily_capture,
+        top_decile_hourly_capture=hourly_capture,
     )
 
 
 def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.DataFrame,
                    *, settled_bound: pd.DataFrame | None = None,
-                   universe: list[str] | None = None) -> GradeResult:
+                   universe: list[str] | None = None,
+                   top_fraction: float | None = None) -> GradeResult:
     """Score model and yesterday-repeated settlement on the same full universe.
 
     ``settled`` may be sparse: missing values mean no published DAM row, while a
@@ -140,8 +184,16 @@ def grade_profiles(model: pd.DataFrame, settled: pd.DataFrame, persistence: pd.D
     settled_values = _aligned(settled, hours, score_universe)
     persistence_values = _aligned(persistence, hours, score_universe)
     labels = settled_bound.reindex(index=hours, columns=score_universe, fill_value=False).fillna(False).astype(bool)
+    daily_predicted = model_values.sum(axis=0)
+    daily_settled = settled_values.sum(axis=0)
     return GradeResult(
         universe=tuple(score_universe),
-        model=_metrics(model_values, settled_values, labels),
-        persistence=_metrics(persistence_values, settled_values, labels),
+        model=_metrics(model_values, settled_values, labels, top_fraction=top_fraction),
+        persistence=_metrics(persistence_values, settled_values, labels, top_fraction=top_fraction),
+        support=GradeSupport(
+            daily_bound_count=int(labels.any(axis=0).sum()),
+            hourly_bound_count=int(labels.to_numpy().sum()),
+            forecast_total=float(daily_predicted.sum()),
+            settled_total=float(daily_settled.sum()),
+        ),
     )

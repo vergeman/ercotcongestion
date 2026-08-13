@@ -68,6 +68,22 @@ def test_grade_exposes_persistence_on_every_prototype_metric():
     assert grade.model.timing_hourly_skill < grade.persistence.timing_hourly_skill
 
 
+def test_top_decile_capture_ranks_the_full_unfiltered_universe():
+    # No event/magnitude threshold participates: the model must identify the
+    # largest value, even though every node has non-zero congestion.
+    cols = [f"N{i}" for i in range(10)]
+    model = pd.DataFrame([[10.0, *range(1, 10)]], columns=cols)
+    settled = pd.DataFrame([[9.0, 10.0, *range(1, 9)]], columns=cols)
+    persistence = settled.copy()
+
+    grade = grade_profiles(model, settled, persistence, top_fraction=0.10)
+
+    assert grade.model.top_decile_daily_capture == 0.0
+    assert grade.model.top_decile_hourly_capture == 0.0
+    assert grade.persistence.top_decile_daily_capture == 1.0
+    assert grade.model.detection_ap is not None  # epsilon/event diagnostic remains.
+
+
 def test_grade_rejects_profiles_that_do_not_share_target_delivery_hours():
     model = _profiles({"A|BASE": [1.0, 0.0]})
     settled = model.copy()
