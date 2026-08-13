@@ -60,11 +60,16 @@ Depends on: `0002`, `0003`, `0004`, `0005`
 
 ## Acceptance
 
-* [ ] All three cells derive from Σμ over the union universe; none counts list membership.
-* [ ] A synthetic case — forecast one constraint, get it exactly right, miss ten that bound — scores poorly on detection. (Under the old cells it scored perfectly.)
-* [ ] A persistence baseline renders beside every metric, and the panel is legible when persistence wins.
-* [ ] Constraint and node halves are separately visible; no averaged number exists anywhere in the response.
-* [ ] Signed bias, if shown, is labelled as bias and is not an input to any accuracy figure.
-* [ ] Settled non-binding renders `$0`, not `—`.
-* [ ] Node detection/timing use the `1e-6` $/MWh numerical-noise epsilon, not an
+* [x] `/analysis/grade` derives every constraint metric from the full scoring universe;
+  none counts list membership.
+* [x] A synthetic case — forecast one constraint, get it exactly right, miss ten that bound — scores poorly on detection. (Under the old cells it scored perfectly.)
+* [x] The response provides a persistence baseline beside every model metric. Panel
+  rendering and its persistence-win treatment land with `0009`.
+* [x] Constraint and node halves are separately visible in the response; no averaged
+  number exists anywhere in the response.
+* [x] No signed bias is emitted or used by the scores; node scoring uses absolute
+  congestion, preventing signed errors from netting out.
+* [x] A published settled `$0` is retained as a binding label, distinct from an absent
+  DAM row. Its v6-page formatting lands with `0009`.
+* [x] Node detection/timing use the `1e-6` $/MWh numerical-noise epsilon, not an
   economic materiality threshold; node magnitude includes all absolute congestion.
