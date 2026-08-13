@@ -35,6 +35,7 @@ LADDERS: dict[str, Ladder] = {
     ),
     "where": (
         (_bucket("concentrated"), "concentrated", "weight is concentrated in {zone}"),
+        (_bucket("tilted"), "tilted", "weight leans toward {zone}"),
         (_bucket("distributed"), "distributed", "weight is spread across zones"),
         (lambda _slot: True, "unknown", "the available geography is incomplete"),
     ),

@@ -32,9 +32,10 @@ def test_regime_where_and_exception_ladders_are_pure():
                               "pct": 100, "n": 361, "basis": "forecast"})
     assert regime["bucket"] == "load_record_high" and not regime["reconcilable"]
 
-    where = classify_where({"zone_shares": {"north": .454, "south": .546},
+    where = classify_where({"zone_shares": {"north": .44, "south": .56},
                             "geo_as_of": "2025-12-13"})
     assert where["bucket"] == "concentrated" and where["zone"] == "south"
+    assert classify_where({"zone_shares": {"north": .511, "south": .489}})["bucket"] == "tilted"
 
     tier_0 = {"constraint_key": "NEW|ONE", "value": 30, "rank": 1, "n": 31}
     tier_1 = {"constraint_key": "TOP|TWO", "value": 20, "rank": 2, "n": 31}

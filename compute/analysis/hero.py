@@ -83,7 +83,10 @@ def classify_where(summary: dict[str, Any]) -> dict[str, Any]:
     if not shares:
         return {**summary, "zone": None, "share": None, "bucket": "unknown"}
     zone, share = sorted(shares.items(), key=lambda item: (-item[1], item[0]))[0]
-    bucket = "concentrated" if share >= 0.5 else "distributed"
+    # The 365-day audit separates a true spread (<45%) from the broad middle
+    # (45–55%): a 49% leader should not read as qualitatively unlike a 51%
+    # leader.  Reserve “concentrated” for a clear 55% majority.
+    bucket = "concentrated" if share >= 0.55 else "tilted" if share >= 0.45 else "distributed"
     return {**summary, "zone_shares": shares, "zone": zone, "share": share,
             "bucket": bucket}
 
