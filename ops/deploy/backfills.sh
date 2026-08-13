@@ -46,12 +46,16 @@ case "${1:-all}" in
   outages)
     run_job backfill_outages_job.yml backfill-outages
     ;;
+  essp)
+    run_job backfill_essp_job.yml backfill-essp
+    ;;
   all)
     run_job backfill_ingest_job.yml    backfill-ingest
     run_job backfill_outages_job.yml   backfill-outages
+    run_job backfill_essp_job.yml      backfill-essp
     ;;
   *)
-    echo "Usage: $0 [ingest|outages|all]"
+    echo "Usage: $0 [ingest|outages|essp|all]"
     exit 1
     ;;
 esac
