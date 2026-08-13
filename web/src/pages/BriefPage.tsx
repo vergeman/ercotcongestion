@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeMetrics, BriefHero, HeroSegment } from "../api/types";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment } from "../api/types";
 import { fetchAnalysisBriefLatest, fetchAnalysisGrade, fetchBriefHero } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
@@ -42,16 +42,104 @@ function Fact({ label, value, detail }: { label: string; value: string; detail: 
 }
 
 const score = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
+const scorePosition = (value: number | null | undefined) => `${Math.max(0, Math.min(100, (value ?? 0) * 100))}%`;
 
-function GradeMetricRow({ label, metrics }: { label: string; metrics: AnalysisGradeMetrics | null | undefined }) {
+function ScoreWhisker({ model, persistence }: { model: number | null | undefined; persistence: number | null | undefined }) {
+  if (model == null && persistence == null) return null;
   return (
-    <div className="an-grade__row">
-      <span>{label}</span>
-      <span>{score(metrics?.detection_ap)}</span>
-      <span>{score(metrics?.magnitude_overlap)}</span>
-      <span>{score(metrics?.timing_daily_skill)}</span>
-      <span>{score(metrics?.timing_hourly_skill)}</span>
+    <div className="an-grade-card__whisker" aria-label={`Model ${score(model)}; persistence ${score(persistence)}`}>
+      <span className="an-grade-card__whisker-line" />
+      <i className="an-grade-card__whisker-model" style={{ left: scorePosition(model) }} />
+      {persistence != null && <i className="an-grade-card__whisker-persistence" style={{ left: scorePosition(persistence) }} />}
+      <div><span>0%</span><span>100%</span></div>
     </div>
+  );
+}
+
+function GradeCard({
+  kind,
+  question,
+  detail,
+  model,
+  modelHourly,
+  persistence,
+  persistenceHourly,
+  support,
+  entity,
+  footer,
+  formula,
+  timing = false,
+}: {
+  kind: string;
+  question: string;
+  detail: string;
+  model: number | null | undefined;
+  modelHourly?: number | null | undefined;
+  persistence: number | null | undefined;
+  persistenceHourly?: number | null | undefined;
+  support: AnalysisGradeSupport | null | undefined;
+  entity: string;
+  footer: string;
+  formula: string;
+  timing?: boolean;
+}) {
+  const [formulaOpen, setFormulaOpen] = useState(false);
+  const formulaRef = useRef<HTMLDivElement>(null);
+  const modelWins = model != null && persistence != null && model >= persistence;
+  useEffect(() => {
+    if (!formulaOpen) return;
+    const closeIfOutside = (event: MouseEvent) => {
+      if (!formulaRef.current?.contains(event.target as Node)) setFormulaOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFormulaOpen(false);
+    };
+    document.addEventListener("mousedown", closeIfOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeIfOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [formulaOpen]);
+  return (
+    <article className={`an-grade-card an-grade-card--${kind.toLowerCase()}`}>
+      <span className="an-grade-card__kind">{kind}</span>
+      <h4>{question}</h4>
+      <p className="an-grade-card__detail">{detail}</p>
+      <div className="an-grade-card__value">
+        <strong>{score(model)}</strong>
+        {timing ? <><small>day</small><span>→</span><strong>{score(modelHourly)}</strong><small>hourly</small></> : <small>model</small>}
+      </div>
+      <ScoreWhisker model={model} persistence={persistence} />
+      {timing ? (
+        <div className="an-grade-card__support">
+          <div className={modelWins ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
+            <strong>{score(persistence)}</strong><span>persistence daily</span>
+          </div>
+          <div className="an-grade-card__comparison">
+            <strong>{score(persistenceHourly)}</strong><span>persistence hourly</span>
+          </div>
+        </div>
+      ) : (
+        <div className={modelWins ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
+          <strong>{score(persistence)}</strong><span>persistence (repeat yesterday)</span>
+        </div>
+      )}
+      <p className="an-grade-card__evidence">{footer}</p>
+      <p className="an-grade-card__footer">{support
+        ? entity === "node"
+          ? `${support.daily_bound_count.toLocaleString()} node-days above the numerical-noise floor · ${support.hourly_bound_count.toLocaleString()} node-hours above it`
+          : `${support.daily_bound_count.toLocaleString()} constraint-days that bind · ${support.hourly_bound_count.toLocaleString()} constraint-hours that bind`
+        : "Supporting population unavailable"}</p>
+      <div ref={formulaRef} className="an-grade-card__formula">
+        <button type="button" aria-expanded={formulaOpen} onClick={() => setFormulaOpen((open) => !open)}>
+          How it is calculated
+        </button>
+        {formulaOpen && <div className="an-grade-card__formula-popover" role="note">
+          <pre>{formula}</pre>
+        </div>}
+      </div>
+    </article>
   );
 }
 
@@ -64,15 +152,72 @@ function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | u
       </div>
     );
   }
+  const nodes = label === "Nodes";
+  const dailyRank = nodes ? half.model?.top_decile_daily_capture : half.model?.detection_ap;
+  const persistenceDailyRank = nodes ? half.persistence?.top_decile_daily_capture : half.persistence?.detection_ap;
+  const hourlyRank = nodes ? half.model?.top_decile_hourly_capture : half.model?.timing_hourly_skill;
+  const persistenceHourlyRank = nodes ? half.persistence?.top_decile_hourly_capture : half.persistence?.timing_hourly_skill;
   return (
     <div className="an-grade__half">
       <h3>{label}{half.universe_size != null && <span>{half.universe_size} scored</span>}</h3>
-      <div className="an-grade__table" role="table" aria-label={`${label} forecast grade`}>
-        <div className="an-grade__row an-grade__row--head" role="row">
-          <span>Method</span><span>Detection</span><span>Magnitude</span><span>Daily timing</span><span>Hourly timing</span>
-        </div>
-        <GradeMetricRow label="Model" metrics={half.model} />
-        <GradeMetricRow label="Persistence" metrics={half.persistence} />
+      <div className="an-grade__cards">
+        <GradeCard
+          kind="Detection"
+          question={nodes ? "Did we identify the highest-congestion nodes?" : "Did we name the right elements?"}
+          detail={nodes ? "Overlap of the forecast and settled top 10% of the complete absolute-congestion ranking." : "Ranks the full scored universe by forecast and rewards realized events near the top."}
+          model={dailyRank}
+          persistence={persistenceDailyRank}
+          support={half.support}
+          entity={nodes ? "node" : "constraint"}
+          footer={half.support ? (nodes ? `Top ${Math.ceil((half.universe_size ?? 0) * 0.1).toLocaleString()} of ${half.universe_size?.toLocaleString() ?? "—"} nodes · 10% random capture is the baseline.` : `${half.support.daily_bound_count.toLocaleString()} bound of ${half.universe_size?.toLocaleString() ?? "—"} constraints · 100% means every realized event ranked first.`) : "Measures average precision."}
+          formula={nodes
+            ? `Capture₁₀ = | Top₁₀%(forecast) ∩ Top₁₀%(settled) |
+            ───────────────────────────────────────────────
+                         ceil(0.10 × N)
+
+N = complete, unfiltered node universe`
+            : `AP  =  (1/B) · Σ  P(k)
+                         k ∈ bound
+
+P(k) = bound within top k ÷ k
+B    = constraints that bind`}
+        />
+        <GradeCard
+          kind="Magnitude"
+          question="Were the prices about right?"
+          detail="Compares the forecast and settled daily profiles without reducing them to membership alone."
+          model={half.model?.magnitude_overlap}
+          persistence={half.persistence?.magnitude_overlap}
+          support={half.support}
+          entity={label === "Constraints" ? "constraint" : "node"}
+          footer={half.support ? `${usd(half.support.forecast_total)} forecast · ${usd(half.support.settled_total)} settled.` : "Measures soft overlap of daily magnitude."}
+          formula={`2 × Σ min(forecastᵢ, settledᵢ)
+────────────────────────────────
+    Σ forecastᵢ  +  Σ settledᵢ`}
+        />
+        <GradeCard
+          kind="Timing"
+          question={nodes ? "Did the same high-congestion nodes appear in the right hours?" : "Did the right signal arrive in the right hours?"}
+          detail={nodes ? "Shows daily top-decile capture, then the same top-decile overlap averaged across delivery hours." : "Shows the delivery-day result beside the same test over individual hours."}
+          model={nodes ? dailyRank : half.model?.timing_daily_skill}
+          modelHourly={hourlyRank}
+          persistence={nodes ? persistenceDailyRank : half.persistence?.timing_daily_skill}
+          persistenceHourly={persistenceHourlyRank}
+          support={half.support}
+          entity={nodes ? "node" : "constraint"}
+          footer={nodes ? "Daily capture first, then top-decile capture averaged across delivery hours." : "Daily score first, then the same chance-adjusted ranking test over all delivery hours."}
+          formula={nodes
+            ? `Hourly capture₁₀ = (1/H) · Σ  | Top₁₀%(forecastₕ) ∩ Top₁₀%(settledₕ) |
+                                  h                 ────────────────────────────────────
+                                                   ceil(0.10 × N)
+
+N = complete node universe · H = delivery hours`
+            : `(AP − chance) ÷ (1 − chance)
+run on days, then on hours
+
+chance = share that bind`}
+          timing
+        />
       </div>
     </div>
   );
@@ -326,19 +471,42 @@ export default function BriefPage() {
         .an-grade { margin-top: 42px; }
         .an-grade h2 { margin: 0; font-size: var(--fs-xl); }
         .an-grade > p, .an-grade__half--ungraded p { margin: 7px 0 0; color: var(--text-secondary); }
-        .an-grade__halves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 12px; }
-        .an-grade__half { min-width: 0; padding: 14px; border: 1px solid var(--border); background: var(--bg-panel); }
-        .an-grade__half h3 { margin: 0 0 10px; font-size: var(--fs-md); }
+        .an-grade__halves { display: grid; gap: 18px; margin-top: 12px; }
+        .an-grade__half { min-width: 0; }
+        .an-grade__half h3 { margin: 0 0 8px; font-size: var(--fs-md); }
         .an-grade__half h3 span { margin-left: 7px; color: var(--text-muted); font-size: var(--fs-label); font-weight: normal; }
-        .an-grade__half--ungraded { border-style: dashed; }
-        .an-grade__table { overflow-x: auto; }
-        .an-grade__row { display: grid; grid-template-columns: minmax(82px, 1fr) repeat(4, minmax(58px, auto)); gap: 8px; align-items: baseline; min-width: 390px; padding: 6px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-label); text-align: right; }
-        .an-grade__row span:first-child { color: var(--text-primary); font-family: var(--font-sans); text-align: left; }
-        .an-grade__row--head { padding-top: 0; border-top: 0; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
-        .an-grade__row--head span { white-space: nowrap; }
+        .an-grade__half--ungraded { padding: 14px; border: 1px dashed var(--border-bright); background: var(--bg-panel); }
+        .an-grade__cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--border); background: var(--border); }
+        .an-grade-card { position: relative; display: flex; min-width: 0; min-height: 282px; padding: 12px; background: var(--bg-panel); flex-direction: column; }
+        .an-grade-card__kind { align-self: flex-start; padding: 2px 5px; color: var(--bg-base); font-family: var(--font-label); font-size: var(--fs-micro); font-weight: 700; letter-spacing: var(--track-title); text-transform: uppercase; }
+        .an-grade-card--detection .an-grade-card__kind { background: var(--accent); }
+        .an-grade-card--magnitude .an-grade-card__kind { background: var(--warn); }
+        .an-grade-card--timing .an-grade-card__kind { background: var(--violet); }
+        .an-grade-card h4 { margin: 5px 0 0; color: var(--text-primary); font-size: var(--fs-body); line-height: 1.35; }
+        .an-grade-card__detail { min-height: 43px; margin: 4px 0 0; color: var(--text-secondary); font-size: var(--fs-label); line-height: 1.4; }
+        .an-grade-card__value { display: flex; align-items: baseline; gap: 5px; min-height: 32px; margin: 7px 0 5px; color: var(--text-primary); font-family: var(--font-mono); }
+        .an-grade-card__value strong { font-size: 22px; font-weight: 600; }
+        .an-grade-card__value span { color: var(--text-muted); font-size: var(--fs-md); }
+        .an-grade-card__value small { color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
+        .an-grade-card__whisker { position: relative; height: 25px; margin: 0 0 5px; }
+        .an-grade-card__whisker-line { position: absolute; top: 8px; right: 0; left: 0; height: 2px; background: var(--border-bright); }
+        .an-grade-card__whisker i { position: absolute; top: 3px; width: 3px; height: 12px; transform: translateX(-50%); }
+        .an-grade-card__whisker-model { background: var(--accent); }
+        .an-grade-card__whisker-persistence { background: var(--text-muted); }
+        .an-grade-card__whisker div { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; color: var(--text-muted); font-size: var(--fs-micro); }
+        .an-grade-card__support { margin-top: 2px; }
+        .an-grade-card__comparison { display: flex; gap: 8px; align-items: baseline; min-height: 18px; color: var(--text-muted); font-size: var(--fs-micro); }
+        .an-grade-card__comparison strong { min-width: 38px; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-label); }
+        .an-grade-card__comparison--win strong { color: var(--ok); }
+        .an-grade-card__evidence { min-height: 28px; margin: 8px 0 0; color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.35; }
+        .an-grade-card__footer { min-height: 27px; margin: auto 0 0; padding-top: 8px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.35; }
+        .an-grade-card__formula { position: relative; margin-top: 6px; font-size: var(--fs-micro); }
+        .an-grade-card__formula button { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; }
+        .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
+        .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
-        @media (max-width: 700px) { .an-facts, .an-grade__halves { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-grade__halves { grid-template-columns: 1fr; } }
+        @media (max-width: 700px) { .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .an-grade__cards { grid-template-columns: 1fr; } .an-grade-card { min-height: 0; } }
+        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } }
       `}</style>
     </div>
   );
