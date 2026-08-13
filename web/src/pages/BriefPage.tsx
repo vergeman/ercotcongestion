@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { BriefHero, HeroSegment } from "../api/types";
-import { fetchAnalysisBriefLatest, fetchBriefHero } from "../api/client";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeMetrics, BriefHero, HeroSegment } from "../api/types";
+import { fetchAnalysisBriefLatest, fetchAnalysisGrade, fetchBriefHero } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -41,6 +41,57 @@ function Fact({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
+const score = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
+
+function GradeMetricRow({ label, metrics }: { label: string; metrics: AnalysisGradeMetrics | null | undefined }) {
+  return (
+    <div className="an-grade__row">
+      <span>{label}</span>
+      <span>{score(metrics?.detection_ap)}</span>
+      <span>{score(metrics?.magnitude_overlap)}</span>
+      <span>{score(metrics?.timing_daily_skill)}</span>
+      <span>{score(metrics?.timing_hourly_skill)}</span>
+    </div>
+  );
+}
+
+function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | undefined }) {
+  if (!half?.graded) {
+    return (
+      <div className="an-grade__half an-grade__half--ungraded">
+        <h3>{label}</h3>
+        <p>Not graded{half?.unavailable_reason ? ` · ${half.unavailable_reason.replaceAll("_", " ")}` : ""}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="an-grade__half">
+      <h3>{label}{half.universe_size != null && <span>{half.universe_size} scored</span>}</h3>
+      <div className="an-grade__table" role="table" aria-label={`${label} forecast grade`}>
+        <div className="an-grade__row an-grade__row--head" role="row">
+          <span>Method</span><span>Detection</span><span>Magnitude</span><span>Daily timing</span><span>Hourly timing</span>
+        </div>
+        <GradeMetricRow label="Model" metrics={half.model} />
+        <GradeMetricRow label="Persistence" metrics={half.persistence} />
+      </div>
+    </div>
+  );
+}
+
+function ForecastGrade({ grade, loading }: { grade: AnalysisGrade | null; loading: boolean }) {
+  return (
+    <section className="an-grade" aria-labelledby="forecast-grade-title">
+      <h2 id="forecast-grade-title">Forecast Grade</h2>
+      {loading && <p>Loading forecast grade…</p>}
+      {!loading && (!grade || !grade.available) && <p>Forecast grade is unavailable for this delivery day.</p>}
+      {!loading && grade?.available && <div className="an-grade__halves">
+        <GradeHalf label="Constraints" half={grade.constraints} />
+        <GradeHalf label="Nodes" half={grade.nodes} />
+      </div>}
+    </section>
+  );
+}
+
 const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
   const value = slot?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -66,7 +117,9 @@ export default function BriefPage() {
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
   const [indexLoaded, setIndexLoaded] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
+  const [grade, setGrade] = useState<AnalysisGrade | null>(null);
   const [loading, setLoading] = useState(false);
+  const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
@@ -109,6 +162,17 @@ export default function BriefPage() {
         setError("The daily brief could not be loaded.");
         setLoading(false);
       });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run]);
+
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setGradeLoading(true);
+    fetchAnalysisGrade(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setGrade(result); })
+      .catch(() => { if (live) setGrade(null); })
+      .finally(() => { if (live) setGradeLoading(false); });
     return () => { live = false; };
   }, [deliveryDay, cursor.run]);
 
@@ -231,7 +295,7 @@ export default function BriefPage() {
             <Stage title="Standouts" detail="Unusual constraints and nodes will land with their query-backed rows." />
             <Stage title="Top Constraints by Shadow Price (μ)" detail="The untruncated constraint panel follows the query endpoint." />
             <Stage title="Top Nodal Congestion" detail="Nodal attribution will render from the full shift-factor column." />
-            <Stage title="Forecast Grade" detail="Forecast-versus-settled scoring arrives with the complete scoring universe." />
+            <ForecastGrade grade={grade} loading={gradeLoading} />
             <Stage title="Context" detail="Historical grid context will follow its dedicated rollups." />
           </>
         )}
@@ -259,9 +323,22 @@ export default function BriefPage() {
         .an-stage { margin-top: 42px; }
         .an-stage h2 { margin: 0; font-size: var(--fs-xl); }
         .an-stage p { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-grade { margin-top: 42px; }
+        .an-grade h2 { margin: 0; font-size: var(--fs-xl); }
+        .an-grade > p, .an-grade__half--ungraded p { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-grade__halves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 12px; }
+        .an-grade__half { min-width: 0; padding: 14px; border: 1px solid var(--border); background: var(--bg-panel); }
+        .an-grade__half h3 { margin: 0 0 10px; font-size: var(--fs-md); }
+        .an-grade__half h3 span { margin-left: 7px; color: var(--text-muted); font-size: var(--fs-label); font-weight: normal; }
+        .an-grade__half--ungraded { border-style: dashed; }
+        .an-grade__table { overflow-x: auto; }
+        .an-grade__row { display: grid; grid-template-columns: minmax(82px, 1fr) repeat(4, minmax(58px, auto)); gap: 8px; align-items: baseline; min-width: 390px; padding: 6px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-label); text-align: right; }
+        .an-grade__row span:first-child { color: var(--text-primary); font-family: var(--font-sans); text-align: left; }
+        .an-grade__row--head { padding-top: 0; border-top: 0; color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
+        .an-grade__row--head span { white-space: nowrap; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
-        @media (max-width: 700px) { .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } }
+        @media (max-width: 700px) { .an-facts, .an-grade__halves { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-grade__halves { grid-template-columns: 1fr; } }
       `}</style>
     </div>
   );

@@ -14,6 +14,7 @@ import type {
   MatrixFrame,
   AnalysisBrief,
   BriefHero,
+  AnalysisGrade,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisPathResponse,
@@ -319,6 +320,19 @@ export async function fetchBriefHero(
   const r = await fetch(`${BASE}/analysis/hero?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/hero ${r.status}`);
+  return r.json();
+}
+
+export async function fetchAnalysisGrade(
+  deliveryDate: string,
+  { runId, horizon }: { runId?: string; horizon?: number } = {},
+): Promise<AnalysisGrade | null> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/grade?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/grade ${r.status}`);
   return r.json();
 }
 

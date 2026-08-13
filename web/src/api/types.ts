@@ -743,6 +743,33 @@ export interface BriefHero {
   };
 }
 
+// /analysis/grade — independent daily verification halves. Constraint and node
+// scores intentionally never blend into one headline value.
+export interface AnalysisGradeMetrics {
+  detection_ap: number | null;
+  magnitude_overlap: number | null;
+  timing_daily_skill: number | null;
+  timing_hourly_skill: number | null;
+}
+
+export interface AnalysisGradeHalf {
+  graded: boolean;
+  unavailable_reason?: string | null;
+  universe_size?: number | null;
+  model?: AnalysisGradeMetrics | null;
+  persistence?: AnalysisGradeMetrics | null;
+}
+
+export interface AnalysisGrade {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  constraints?: AnalysisGradeHalf;
+  nodes?: AnalysisGradeHalf;
+}
+
 // =============================================================================
 // /analysis/node, /analysis/path, /analysis/settlement-points — full-artifact
 // attribution. These are intentionally sparse lists, not Matrix rectangles:
