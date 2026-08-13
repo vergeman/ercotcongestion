@@ -69,3 +69,19 @@ def pair_contributions(SF: pd.DataFrame, mu: pd.Series, sink: str, source: str) 
     # when a large full artifact is summed.
     cells = cell_contributions(SF, mu)
     return cells[sink] - cells[source]
+
+
+def congestion_bias(forecast_cong: pd.Series, realized_cong: pd.Series,
+                    *, signed: bool = False) -> float:
+    """Mean forecast-minus-realized congestion bias, on ``|congestion|`` by default.
+
+    Node congestion is signed by shift factor, so signed errors let an
+    over-called import net against an under-called export into a spurious
+    "balanced" bias while both are wrong (the ``0003`` netting trap). Scoring
+    the magnitude matches the unsigned constraint half; ``signed=True`` exists
+    only so a test can pin the difference. Series align on shared SPs first.
+    """
+    forecast_cong, realized_cong = forecast_cong.align(realized_cong, join="inner")
+    if not signed:
+        forecast_cong, realized_cong = forecast_cong.abs(), realized_cong.abs()
+    return float((forecast_cong - realized_cong).mean())

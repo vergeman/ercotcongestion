@@ -174,6 +174,19 @@ Depends on: none
   `constraint_node_extrema`. The brief document's screening shape is deliberate
   and other consumers read it; this plan adds a second read path beside it.
 
+## Delivery split (API now, web/grade with `0009`)
+
+* **Shipped** (branch `feat/0129-0003-brief-node-rows`): the three endpoints,
+  the shared non-DST realized-μ loader, the full-column `node_contributions`
+  primitive, float64 reconciliation, and `web/src/api/{client,types}.ts`.
+* **Deferred to `0009`**: every panel/grade box below. They presuppose the v6
+  page — `AnalysisPage.tsx` is still the old page (replaced in `0009`, torn down
+  in `0012`) and `NODES_GRADEABLE` lives only in the prototype — so wiring them
+  now is throwaway. The endpoints are ready for `0009` to consume.
+* **Pulled forward**: the `|congestion|` bias convention (`congestion_bias` +
+  test), the one grade-half item assertable without the page, so `0006`
+  inherits a tested primitive.
+
 ## Acceptance
 
 * [x] `GET /analysis/node?settlement_point=MCSES_UNIT6&delivery_date=2026-07-28&basis=realized`
@@ -212,9 +225,10 @@ Depends on: none
 * [ ] Forecast Grade panel: `NODES_GRADEABLE` flips true, the node row loses its
       strikethrough and `not graded` status, and the headline tiles average both
       halves. Coverage median moves off 4% and stays displayed.
-* [ ] The node half's bias is computed on `|congestion|`, asserted by a test —
+* [x] The node half's bias is computed on `|congestion|`, asserted by a test —
       the signed form nets against the constraint half and reports "balanced"
-      when both halves are low.
+      when both halves are low. `congestion_bias` + test; grade-panel wiring
+      deferred to `0009`.
 * [ ] Same day scored before and after: record which of the three headline
       numbers moved and by how much. The node metrics are unchanged in
       definition, so any movement is the truncation being removed and should be
