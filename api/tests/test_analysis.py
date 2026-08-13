@@ -160,3 +160,11 @@ def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeyp
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": 1}
+
+
+def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _node_artifact())
+    body = client.get("/analysis/settlement-points?delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
+                    "horizon": 1, "settlement_points": ["SINK", "SOURCE"]}

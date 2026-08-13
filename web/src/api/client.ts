@@ -13,6 +13,10 @@ import type {
   ScoreboardDaily,
   MatrixFrame,
   AnalysisBrief,
+  AnalysisBasis,
+  AnalysisNodeResponse,
+  AnalysisPathResponse,
+  AnalysisSettlementPointsResponse,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -298,5 +302,63 @@ export async function fetchAnalysisBrief(
   const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
+  return r.json();
+}
+
+// Full-artifact brief attribution. Unlike `/matrix/frame`, these requests do
+// not bound the SF transpose: a selected node/path receives every nonzero term.
+export interface AnalysisAttributionRequest {
+  deliveryDate: string;
+  basis?: AnalysisBasis;
+  runId?: string;
+  horizon?: number;
+  hours?: string[];
+  minAbsSf?: number;
+  signal?: AbortSignal;
+}
+
+function attributionQuery(request: AnalysisAttributionRequest): URLSearchParams {
+  const qs = new URLSearchParams({ delivery_date: request.deliveryDate });
+  if (request.basis) qs.set("basis", request.basis);
+  if (request.runId) qs.set("run_id", request.runId);
+  if (request.horizon != null) qs.set("horizon", String(request.horizon));
+  if (request.minAbsSf != null) qs.set("min_abs_sf", String(request.minAbsSf));
+  request.hours?.forEach((hour) => qs.append("hours", hour));
+  return qs;
+}
+
+export async function fetchAnalysisNode(
+  settlementPoint: string,
+  request: AnalysisAttributionRequest,
+): Promise<AnalysisNodeResponse> {
+  const qs = attributionQuery(request);
+  qs.set("settlement_point", settlementPoint);
+  const r = await fetch(`${BASE}/analysis/node?${qs.toString()}`, { signal: request.signal });
+  if (!r.ok) throw new Error(`analysis/node ${r.status}`);
+  return r.json();
+}
+
+export async function fetchAnalysisPath(
+  source: string,
+  sink: string,
+  request: AnalysisAttributionRequest,
+): Promise<AnalysisPathResponse> {
+  const qs = attributionQuery(request);
+  qs.set("source", source);
+  qs.set("sink", sink);
+  const r = await fetch(`${BASE}/analysis/path?${qs.toString()}`, { signal: request.signal });
+  if (!r.ok) throw new Error(`analysis/path ${r.status}`);
+  return r.json();
+}
+
+export async function fetchAnalysisSettlementPoints(
+  deliveryDate: string,
+  { runId, horizon, signal }: Pick<AnalysisAttributionRequest, "runId" | "horizon" | "signal"> = {},
+): Promise<AnalysisSettlementPointsResponse> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/settlement-points?${qs.toString()}`, { signal });
+  if (!r.ok) throw new Error(`analysis/settlement-points ${r.status}`);
   return r.json();
 }

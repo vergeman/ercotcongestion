@@ -116,6 +116,19 @@ class PathAnalysisUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+class AnalysisSettlementPointsAvailableResponse(BaseModel):
+    """The exact settlement-point vocabulary represented by one day artifact."""
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    settlement_points: list[str]
+
+
+class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's

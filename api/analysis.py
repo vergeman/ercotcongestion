@@ -20,7 +20,8 @@ from models import (AnalysisContributionTerm, HeroAvailableResponse,
                     HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
-                    PathComposition)
+                    PathComposition, AnalysisSettlementPointsAvailableResponse,
+                    AnalysisSettlementPointsUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -231,6 +232,31 @@ def get_path(
             top_constraint_key=None if not len(shares) else str(shares.index[0]),
             second_constraint_key=None if len(shares) < 2 else str(shares.index[1]),
         ),
+    )
+
+
+@router.get("/settlement-points",
+            response_model=AnalysisSettlementPointsAvailableResponse | AnalysisSettlementPointsUnavailableResponse,
+            summary="Full settlement-point vocabulary for a daily SF artifact")
+def get_settlement_points(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+) -> AnalysisSettlementPointsAvailableResponse | AnalysisSettlementPointsUnavailableResponse:
+    """List all artifact columns once for counterparty discovery, never a Matrix screen."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
+                    "delivery_date": delivery_date}
+        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+        if artifact is None:
+            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
+                    "delivery_date": delivery_date, "horizon": horizon}
+    return AnalysisSettlementPointsAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
     )
 
 
