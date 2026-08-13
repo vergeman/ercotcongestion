@@ -70,3 +70,16 @@ def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
     assert all(part["text"] for group in segments.values() for part in group)
     assert "4 constraints outside the model vocabulary" in segments["lede"][2]["text"]
     assert "one is newly active" in segments["lede"][2]["text"]
+
+
+def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
+    slots = {
+        "magnitude": {"bucket": "ordinary", "high_congestion_hours": {"bucket": "near_top"}},
+        "regime": {"bucket": "ordinary"},
+        "where": {"bucket": "distributed"},
+        "exceptions": {"bucket": "none"},
+    }
+    headline = "".join(part["text"] for part in render(slots)["headline"])
+    assert headline.endswith("; though high-congestion hours were near-record")
+    slots["magnitude"]["high_congestion_hours"]["bucket"] = "elevated"
+    assert len(render(slots)["headline"]) == 3

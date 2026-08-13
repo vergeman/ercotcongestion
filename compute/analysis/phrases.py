@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from compute.analysis.hero import MAGNITUDE_RUNGS
+
 
 Slot = dict[str, Any]
 Ladder = tuple[tuple[Callable[[Slot], bool], str, str], ...]
@@ -63,18 +65,41 @@ def phrase_for(slot_name: str, slot: Slot) -> tuple[str, str]:
     raise AssertionError(f"{slot_name} phrase ladder is not exhaustive")
 
 
+def _high_congestion_detail(slot: Slot) -> str | None:
+    """Expose only a material intraday disagreement with the whole-day rung."""
+    high = slot.get("high_congestion_hours")
+    if not high or high.get("bucket") not in MAGNITUDE_RUNGS:
+        return None
+    delta = MAGNITUDE_RUNGS.index(high["bucket"]) - MAGNITUDE_RUNGS.index(slot["bucket"])
+    if abs(delta) < 2:
+        return None
+    labels = {
+        "quiet": "quiet",
+        "ordinary": "ordinary",
+        "elevated": "elevated",
+        "near_top": "near-record",
+        "record_high": "at a record high",
+    }
+    connector = "though" if delta > 0 else "but"
+    return f"; {connector} high-congestion hours were {labels[high['bucket']]}"
+
+
 def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     """Render tooltip-ready text segments; callers never parse a flat string."""
     magnitude = phrase_for("magnitude", slots["magnitude"])[1]
     regime = phrase_for("regime", slots["regime"])[1]
     where = phrase_for("where", slots["where"])[1]
     exceptions = phrase_for("exceptions", slots["exceptions"])[1]
+    detail = _high_congestion_detail(slots["magnitude"])
+    headline = [
+        {"text": magnitude, "ref": "magnitude"},
+        {"text": " — ", "ref": "where"},
+        {"text": where, "ref": "where"},
+    ]
+    if detail:
+        headline.append({"text": detail, "ref": "magnitude"})
     return {
-        "headline": [
-            {"text": magnitude, "ref": "magnitude"},
-            {"text": " — ", "ref": "where"},
-            {"text": where, "ref": "where"},
-        ],
+        "headline": headline,
         "lede": [
             {"text": regime, "ref": "regime"},
             {"text": "; ", "ref": "exceptions"},
