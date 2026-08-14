@@ -28,7 +28,7 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
                     TopConstraintsUnavailableResponse, TopNodeRow,
                     TopNodesAvailableResponse, TopNodesUnavailableResponse,
-                    StandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse)
+                    StandoutRow, NodeStandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -199,7 +199,8 @@ def _standout_rows(
     """
     baseline = {
         key: float(pd.Series(values, dtype=float).median())
-        for key, values in histories.items() if len(values) >= 10 and any(value > 0.0 for value in values)
+        for key, values in histories.items()
+        if len(values) >= 10 and (median := float(pd.Series(values, dtype=float).median())) > 0.0
     }
     elevated = [
         key for key, median in baseline.items()
@@ -233,6 +234,71 @@ def _standout_rows(
             settled_total=(float(settled_total[key]) if key in settled_total else None),
         ))
     return rows
+
+
+def _node_standout_rows(
+    forecast_total: pd.Series,
+    histories: dict[str, list[float]],
+    settled_total: pd.Series,
+    forecast_terms: pd.DataFrame,
+    *,
+    k: int,
+) -> list[NodeStandoutRow]:
+    """Select nodes whose 7x16 forecast is unusually large or small for itself."""
+    baseline = {
+        key: float(pd.Series(values, dtype=float).abs().median())
+        for key, values in histories.items()
+        if len(values) >= 10 and float(pd.Series(values, dtype=float).abs().median()) > NODE_CONGESTION_EPSILON
+    }
+    elevated = [
+        key for key, median in baseline.items()
+        if abs(float(forecast_total.get(key, 0.0))) / median >= 1.5
+    ]
+    elevated.sort(key=lambda key: (abs(float(forecast_total.get(key, 0.0))) / baseline[key],
+                                   abs(float(forecast_total.get(key, 0.0)))), reverse=True)
+    depressed = [
+        key for key, median in baseline.items()
+        if key not in elevated and abs(float(forecast_total.get(key, 0.0))) / median <= 0.5
+    ]
+    depressed.sort(key=lambda key: (abs(float(forecast_total.get(key, 0.0))) / baseline[key], key))
+    metadata = load_sp_metadata(forecast_total.index)
+    rows: list[NodeStandoutRow] = []
+    for key in elevated[:k] + depressed[:k]:
+        terms = forecast_terms[key] if key in forecast_terms else pd.Series(dtype=float)
+        gross = float(terms.abs().sum())
+        rows.append(NodeStandoutRow(
+            settlement_point=key,
+            kind="forecast_elevated" if key in elevated[:k] else "forecast_depressed",
+            zone=metadata.get(key, {}).get("load_zone"),
+            forecast_total=float(forecast_total.get(key, 0.0)),
+            forecast_history_median=baseline[key],
+            forecast_history_days=len(histories[key]),
+            settled_total=(float(settled_total[key]) if key in settled_total else None),
+            dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
+            driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+        ))
+    return rows
+
+
+def _settled_standout_keys(
+    settled_total: pd.Series,
+    histories: dict[str, list[float]],
+    excluded: set[str],
+    *,
+    k: int,
+) -> list[str]:
+    """DAM-only surprises: today's Σμ materially beyond its own settled history."""
+    candidates: list[tuple[float, float, str]] = []
+    for key, value in settled_total.items():
+        key = str(key)
+        history = [item for item in histories.get(key, []) if item > 0.0]
+        if key in excluded or len(history) < 10 or value <= 0.0:
+            continue
+        p90 = float(pd.Series(history).quantile(0.9))
+        if p90 > 0.0 and float(value) / p90 >= 1.25:
+            candidates.append((float(value) / p90, float(value), key))
+    candidates.sort(reverse=True)
+    return [key for _, _, key in candidates[:k]]
 
 
 def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
@@ -669,6 +735,7 @@ def get_top_constraints(
                 delivery_date=delivery_date, horizon=horizon,
             )
         settled = _settled_mu_profile(cur, delivery_date)
+
         cur.execute(
             "SELECT constraint_key, zone_shares, kv_max FROM constraint_geo "
             "WHERE window_start = (SELECT max(window_start) FROM constraint_geo)"
@@ -748,15 +815,98 @@ def get_standouts(
             (ws, history_end),
         )
         chronic = {str(row["constraint_key"]): int(row["days"]) for row in cur.fetchall()}
+        cur.execute(
+            "SELECT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+            "(interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date, "
+            "sum(abs(shadow_price)) AS total "
+            "FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+            "GROUP BY constraint_name, contingency_name, (interval_ts AT TIME ZONE 'America/Chicago')::date "
+            "ORDER BY delivery_date",
+            (ws, history_end),
+        )
+        settled_history_by_day: dict[str, dict[date, float]] = {}
+        for row in cur.fetchall():
+            settled_history_by_day.setdefault(str(row["constraint_key"]), {})[row["delivery_date"]] = float(row["total"])
+        history_days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
+        settled_histories = {
+            key: [values.get(day, 0.0) for day in history_days]
+            for key, values in settled_history_by_day.items()
+        }
+        cur.execute(
+            "SELECT constraint_key, zone_shares, kv_max FROM constraint_geo "
+            "WHERE window_start = (SELECT max(window_start) FROM constraint_geo)"
+        )
+        geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
         settled = _settled_mu_profile(cur, delivery_date)
+        node_result = _daily_node_contributions(
+            cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
+        node_histories: dict[str, list[float]] = {}
+        if node_result is not None:
+            for offset in range(1, 31):
+                prior = _forecast_node_profile(cur, run_id, delivery_date - timedelta(days=offset), horizon)
+                if prior is None:
+                    continue
+                prior = prior.loc[prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
+                if prior.empty:
+                    continue
+                for point, value in prior.mean(axis=0).items():
+                    node_histories.setdefault(str(point), []).append(float(value))
+            node_settled = _settled_node_profile(cur, delivery_date)
+        else:
+            node_settled = pd.DataFrame()
 
     forecast_total = forecast.abs().sum(axis=0)
     settled_total = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
     settled_available = not settled.empty
+    node_rows: list[NodeStandoutRow] = []
+    if node_result is not None:
+        node_terms, node_hours = node_result
+        node_forecast_total = node_terms.sum(axis=0) / len(node_hours)
+        node_settled_total = (node_settled.loc[
+            node_settled.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)
+        ].mean(axis=0) if not node_settled.empty else pd.Series(dtype=float))
+        node_rows = _node_standout_rows(node_forecast_total, node_histories, node_settled_total,
+                                        node_terms, k=k)
+    forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(ascending=False, kind="stable")
+    settled_ranked = settled_total[settled_total > 0.0].sort_values(ascending=False, kind="stable")
+    forecast_ranks = {str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)}
+    settled_ranks = {str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)}
+    forecast_rows = _standout_rows(forecast_total, histories, chronic, settled_total, k=k)
+    appended_keys = _settled_standout_keys(
+        settled_total, settled_histories, {row.constraint_key for row in forecast_rows}, k=3,
+    ) if settled_available else []
+    rows: list[StandoutRow] = []
+    for row in forecast_rows + [StandoutRow(
+        constraint_key=key, kind="settled_elevated", forecast_total=float(forecast_total.get(key, 0.0)),
+        forecast_history_median=float(pd.Series(histories.get(key, [])).median()),
+        forecast_history_days=len(histories.get(key, [])), chronic_bound_days=chronic.get(key),
+        settled_total=float(settled_total[key]),
+    ) for key in appended_keys]:
+        forecast_values = forecast[row.constraint_key] if row.constraint_key in forecast else pd.Series(dtype=float)
+        settled_values = settled[row.constraint_key].dropna() if row.constraint_key in settled else pd.Series(dtype=float)
+        historical = settled_histories.get(row.constraint_key, [0.0] * 30)
+        nonzero_historical = [value for value in historical if value > 0.0]
+        geo = geography.get(row.constraint_key, {})
+        shares = geo.get("zone_shares") or {}
+        rows.append(row.model_copy(update={
+            "zone": max(shares, key=shares.get) if shares else None,
+            "kv_max": geo.get("kv_max"),
+            "forecast_rank": forecast_ranks.get(row.constraint_key),
+            "forecast_peak": None if forecast_values.empty else float(forecast_values.abs().max()),
+            "forecast_hours": int(forecast_values.ne(0.0).sum()),
+            "settled_rank": settled_ranks.get(row.constraint_key),
+            "settled_peak": None if settled_values.empty else float(settled_values.abs().max()),
+            "settled_hours": None if settled.empty else int(settled_values.ne(0.0).sum()),
+            "settled_history_p10": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1)),
+            "settled_history_p90": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9)),
+            "settled_history": historical,
+        }))
     return StandoutsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         basis="settled" if settled_available else "forecast",
-        rows=_standout_rows(forecast_total, histories, chronic, settled_total, k=k),
+        rows=rows,
+        node_rows=node_rows,
     )
 
 

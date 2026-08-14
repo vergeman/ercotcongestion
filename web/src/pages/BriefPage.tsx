@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment, TopConstraints, TopNodes } from "../api/types";
-import { fetchAnalysisGrade, fetchBriefHero, fetchBriefHeroLatest, fetchTopConstraints, fetchTopNodes } from "../api/client";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
+import { fetchAnalysisGrade, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -27,6 +27,67 @@ function Stage({ title, detail }: { title: string; detail: string }) {
     <section className="an-stage">
       <h2>{title}</h2>
       <p>{detail}</p>
+    </section>
+  );
+}
+
+function HistoryWhisker({ low, high, mark }: { low: number | null; high: number | null; mark: number | null }) {
+  if (low == null || high == null || mark == null) return <span className="an-table__missing">—</span>;
+  const max = Math.max(high, mark, 1);
+  const left = `${Math.min(100, (low / max) * 100)}%`;
+  const width = `${Math.max(2, ((high - low) / max) * 100)}%`;
+  return <span className="an-history-whisker" title={`30-day settled p10 ${usd(low, 2)} · p90 ${usd(high, 2)} · today ${usd(mark, 2)}`}>
+    <i style={{ left, width }} /><b style={{ left: `${Math.min(100, (mark / max) * 100)}%` }} />
+  </span>;
+}
+
+function HistoryBars({ values }: { values: number[] }) {
+  if (!values.length) return <span className="an-table__missing">—</span>;
+  const max = Math.max(...values, 1);
+  return <span className="an-history-bars" title="Σμ on each prior settled day">{values.map((value, index) => <i key={index} style={{ height: `${Math.max(2, (value / max) * 100)}%` }} />)}</span>;
+}
+
+function StandoutsPanel({ data, loading, settled }: { data: Standouts | null; loading: boolean; settled: boolean }) {
+  const constraints = data?.rows ?? [];
+  const nodes = data?.node_rows ?? [];
+  return (
+    <section className="an-standouts" aria-labelledby="standouts-title">
+      <div className="an-section-heading">
+        <h2 id="standouts-title">Standouts</h2>
+        <p>Today’s forecast calls that depart from each element’s own trailing 30-day forecast history.</p>
+      </div>
+      {loading && <p className="an-panel-state">Finding unusual calls…</p>}
+      {!loading && (!data?.available || (!constraints.length && !nodes.length)) && <p className="an-panel-state">No calls cleared the current anomaly thresholds.</p>}
+      {!loading && data?.available && !!constraints.length && <div className="an-standouts__table">
+        <h3>Constraints</h3>
+        <div className="an-table-wrap"><table className="an-table an-table--standouts">
+          <colgroup><col className="an-standouts__constraint" /><col className="an-standouts__zone" /><col className="an-standouts__kv" /><col className="an-standouts__rank" /><col className="an-standouts__peak" /><col className="an-standouts__hours" /><col className="an-standouts__sum" />{settled && <><col className="an-standouts__rank" /><col className="an-standouts__peak" /><col className="an-standouts__hours" /><col className="an-standouts__sum" /></>}<col className="an-standouts__whisker" /><col className="an-standouts__bars" /></colgroup>
+          <thead><tr className="an-table__groups"><th colSpan={3} /><th className="an-table__forecast" colSpan={4}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={4}>DAM settled</th>}<th colSpan={2}>Settled vs its own 30 days</th></tr>
+          <tr><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Hrs bind</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th>{settled && <><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Hrs bind</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th></>}<th>Σ<span className="an-table__mu">μ</span> p10–p90, 30 d</th><th>Σ<span className="an-table__mu">μ</span> each of 30 days</th></tr></thead>
+          <tbody>{constraints.map((row) => <tr className={row.kind === "settled_elevated" ? "an-standouts__added" : undefined} key={row.constraint_key}>
+            <td>{row.kind === "settled_elevated" && <span className="an-standouts__asterisk">*</span>}<Link to={`/map${window.location.search}`}>{constraintName(row.constraint_key)}</Link></td>
+            <td>{zoneLabel(row.zone)}</td><td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
+            <td>{row.forecast_rank ?? "—"}</td><td>{row.forecast_peak == null ? "—" : usd(row.forecast_peak, 2)}</td><td>{row.forecast_hours ?? "—"}</td><td>{usd(row.forecast_total, 2)}</td>
+            {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_hours ?? "—"}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
+            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryBars values={row.settled_history} /></td>
+          </tr>)}</tbody>
+        </table></div>
+      </div>}
+      {!loading && data?.available && !!nodes.length && <div className="an-standouts__table">
+        <h3>Nodes</h3>
+        <div className="an-table-wrap"><table className="an-table an-table--standouts">
+          <thead><tr className="an-table__groups"><th colSpan={3} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled">DAM settled</th>}<th>Own 30 days</th></tr>
+          <tr><th>Node</th><th>Zone</th><th>Dominant driver</th><th>7×16 $/MWh</th><th>vs median</th>{settled && <th className="an-table__split">7×16 $/MWh</th>}<th>Median · days</th></tr></thead>
+          <tbody>{nodes.map((row) => <tr key={row.settlement_point}>
+            <td><Link to={`/map${window.location.search}`}>{row.settlement_point}</Link></td><td>{zoneLabel(row.zone)}</td>
+            <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)}</td>
+            <td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td><td>{multiple(Math.abs(row.forecast_total) / row.forecast_history_median)}</td>
+            {settled && <td className={`an-table__split ${row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}`}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>}
+            <td className="an-table__history">{usd(row.forecast_history_median, 2)} · {row.forecast_history_days}d</td>
+          </tr>)}</tbody>
+        </table></div>
+      </div>}
     </section>
   );
 }
@@ -343,10 +404,12 @@ export default function BriefPage() {
   const [indexLoaded, setIndexLoaded] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
   const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(null);
+  const [standouts, setStandouts] = useState<Standouts | null>(null);
   const [topNodes, setTopNodes] = useState<TopNodes | null>(null);
   const [grade, setGrade] = useState<AnalysisGrade | null>(null);
   const [loading, setLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
+  const [standoutsLoading, setStandoutsLoading] = useState(false);
   const [topNodesLoading, setTopNodesLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -392,6 +455,17 @@ export default function BriefPage() {
         setError("The daily brief could not be loaded.");
         setLoading(false);
       });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run]);
+
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setStandoutsLoading(true);
+    fetchStandouts(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setStandouts(result); })
+      .catch(() => { if (live) setStandouts(null); })
+      .finally(() => { if (live) setStandoutsLoading(false); });
     return () => { live = false; };
   }, [deliveryDay, cursor.run]);
 
@@ -550,7 +624,7 @@ export default function BriefPage() {
               </div>
             </section>
 
-            <Stage title="Standouts" detail="Unusual constraints and nodes will land with their query-backed rows." />
+            <StandoutsPanel data={standouts} loading={standoutsLoading} settled={settled} />
             <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} settled={settled} />
             <TopNodesPanel data={topNodes} loading={topNodesLoading} settled={settled} />
             <ForecastGrade grade={grade} loading={gradeLoading} settled={settled} />
@@ -581,6 +655,15 @@ export default function BriefPage() {
         .an-stage { margin-top: 42px; }
         .an-stage h2 { margin: 0; font-size: var(--fs-xl); }
         .an-stage p { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-standouts { margin-top: 42px; }
+        .an-standouts__table { margin-top: 18px; }
+        .an-standouts__table h3 { margin: 0; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .an-history-whisker { position: relative; display: inline-block; width: 74px; height: 18px; vertical-align: middle; }
+        .an-history-whisker::before { position: absolute; top: 8px; right: 0; left: 0; height: 1px; background: var(--border-bright); content: ""; }
+        .an-history-whisker i { position: absolute; top: 4px; height: 9px; background: color-mix(in srgb, var(--accent) 26%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+        .an-history-whisker b { position: absolute; top: 1px; width: 2px; height: 15px; background: var(--danger, #d94444); transform: translateX(-1px); }
+        .an-history-bars { display: inline-flex; width: 88px; height: 18px; gap: 1px; align-items: end; vertical-align: middle; }
+        .an-history-bars i { display: block; width: 2px; min-height: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
         .an-constraints { margin-top: 42px; }
         .an-nodes { margin-top: 42px; }
         .an-section-heading h2 { margin: 0; font-size: var(--fs-xl); }
@@ -597,6 +680,11 @@ export default function BriefPage() {
         .an-table tbody tr:last-child td { border-bottom: 0; }
         .an-table td a { color: var(--text-primary); font-family: var(--font-mono); text-decoration: none; }
         .an-table td a:hover { color: var(--accent); text-decoration: underline; }
+        .an-table--standouts th:first-child, .an-table--standouts td:first-child { text-align: left; }
+        .an-standouts__constraint { width: 20%; } .an-standouts__zone { width: 7%; } .an-standouts__kv, .an-standouts__rank, .an-standouts__hours { width: 4%; }
+        .an-standouts__peak { width: 7%; } .an-standouts__sum { width: 8%; } .an-standouts__whisker { width: 11%; } .an-standouts__bars { width: 12%; }
+        .an-standouts__asterisk { margin-right: 4px; color: var(--warn); font-weight: 700; }
+        .an-standouts__added td { background: color-mix(in srgb, var(--warn) 5%, transparent); }
         .an-table td a sup { margin-left: 3px; padding: 1px 2px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-sans); font-size: 8px; }
         .an-table__rank { color: var(--text-muted); font-family: var(--font-mono); }
         .an-table__driver { max-width: 190px; overflow: hidden; font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }

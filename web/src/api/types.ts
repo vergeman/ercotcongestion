@@ -774,6 +774,50 @@ export interface TopConstraints {
   rows?: TopConstraintRow[];
 }
 
+export interface StandoutRow {
+  constraint_key: string;
+  kind: "forecast_elevated" | "chronic_under_called" | "settled_elevated";
+  forecast_total: number;
+  forecast_history_median: number;
+  forecast_history_days: number;
+  chronic_bound_days: number | null;
+  settled_total: number | null;
+  zone: string | null;
+  kv_max: number | null;
+  forecast_rank: number | null;
+  forecast_peak: number | null;
+  forecast_hours: number | null;
+  settled_rank: number | null;
+  settled_peak: number | null;
+  settled_hours: number | null;
+  settled_history_p10: number | null;
+  settled_history_p90: number | null;
+  settled_history: number[];
+}
+
+export interface NodeStandoutRow {
+  settlement_point: string;
+  kind: "forecast_elevated" | "forecast_depressed";
+  zone: string | null;
+  forecast_total: number;
+  forecast_history_median: number;
+  forecast_history_days: number;
+  settled_total: number | null;
+  dominant_driver: string | null;
+  driver_share: number | null;
+}
+
+export interface Standouts {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  basis: "forecast" | "settled";
+  rows?: StandoutRow[];
+  node_rows?: NodeStandoutRow[];
+}
+
 export interface TopNodeRow {
   settlement_point: string;
   essp_member_count: number;

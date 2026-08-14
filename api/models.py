@@ -225,12 +225,36 @@ class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
 class StandoutRow(BaseModel):
     """One server-selected constraint compared with its own forecast history."""
     constraint_key: str
-    kind: Literal["forecast_elevated", "chronic_under_called"]
+    kind: Literal["forecast_elevated", "chronic_under_called", "settled_elevated"]
     forecast_total: float
     forecast_history_median: float
     forecast_history_days: int
     chronic_bound_days: int | None = None
     settled_total: float | None = None
+    zone: str | None = None
+    kv_max: float | None = None
+    forecast_rank: int | None = None
+    forecast_peak: float | None = None
+    forecast_hours: int | None = None
+    settled_rank: int | None = None
+    settled_peak: float | None = None
+    settled_hours: int | None = None
+    settled_history_p10: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
+
+
+class NodeStandoutRow(BaseModel):
+    """One anomaly-selected node compared with its own forecast history."""
+    settlement_point: str
+    kind: Literal["forecast_elevated", "forecast_depressed"]
+    zone: str | None = None
+    forecast_total: float
+    forecast_history_median: float
+    forecast_history_days: int
+    settled_total: float | None = None
+    dominant_driver: str | None = None
+    driver_share: float | None = None
 
 
 class StandoutsAvailableResponse(BaseModel):
@@ -240,6 +264,7 @@ class StandoutsAvailableResponse(BaseModel):
     horizon: int
     basis: Literal["forecast", "settled"]
     rows: list[StandoutRow]
+    node_rows: list[NodeStandoutRow]
 
 
 class StandoutsUnavailableResponse(NodeAnalysisUnavailableResponse):

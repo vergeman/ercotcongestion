@@ -144,6 +144,20 @@ def test_standouts_compare_forecast_to_own_forecast_history_and_keep_dam_as_evid
     assert rows[1].settled_total == 400.0
 
 
+def test_settled_standouts_append_only_dam_surprises_not_already_shown_forecasts():
+    keys = analysis_module._settled_standout_keys(
+        pd.Series({"FORECAST_ROW": 500.0, "DAM_SURPRISE": 300.0, "ORDINARY": 110.0}),
+        {
+            "FORECAST_ROW": [100.0] * 30,
+            "DAM_SURPRISE": [100.0] * 30,
+            "ORDINARY": [100.0] * 30,
+        },
+        {"FORECAST_ROW"}, k=3,
+    )
+
+    assert keys == ["DAM_SURPRISE"]
+
+
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())
