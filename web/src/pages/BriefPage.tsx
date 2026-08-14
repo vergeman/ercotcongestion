@@ -4,8 +4,10 @@ import { Link } from "react-router-dom";
 import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics, AnalysisGradeSupport, BriefContext, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
 import { fetchAnalysisGrade, fetchAnalysisGradeHistory, fetchBriefContext, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
+import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
+import { buildMapLink } from "../lib/mapLinks";
 import { ctInputToUtc, formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 
@@ -17,6 +19,26 @@ const fmtDay = (day: string) =>
     year: "numeric",
     timeZone: "America/Chicago",
   });
+
+const MOBILE_BREAKPOINT = "(max-width: 700px)";
+
+// The hero's map image is a genuine fetch (topology + an hour of nodal
+// data + the state border) with no payoff on a screen too narrow to show it
+// beside the text — skip mounting it below the breakpoint rather than
+// fetching it just to hide it with CSS.
+function useIsMobile(): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(MOBILE_BREAKPOINT).matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_BREAKPOINT);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return matches;
+}
 
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return <>{segments.map((segment, i) => <span key={`${segment.ref}-${i}`}>{segment.text}</span>)}</>;
@@ -460,6 +482,7 @@ function dateBounds(day: string) {
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
 export default function BriefPage() {
+  const isMobile = useIsMobile();
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
@@ -637,6 +660,26 @@ export default function BriefPage() {
   const magnitudeMedian = numeric(magnitude, "med");
   const whereShare = numeric(where, "share");
   const whereZone = typeof where?.zone === "string" ? where.zone : null;
+  // The hero's own map action (0131): always requests Market × LMP, playing —
+  // the layman gold standard. Pre-settlement the Map canonicalizes this to
+  // Forecast × LMP on its own, so this stays dumb rather than branching on
+  // `settled` itself. Shared by the image CTA and its mobile fallback below.
+  //
+  // `t` is deliberately `cursor.ws` (the delivery day's start), not
+  // `cursor.t` (the peak-μ hour `_cursor` computes it as). Autoplay starts
+  // wherever the scrubber's cursor lands and only rewinds if it's already at
+  // the window's end — landing mid-day would give the reader just the
+  // tail of the day to watch move, not the full arc.
+  const watchHref = hero?.cursor
+    ? buildMapLink({
+        t: new Date(hero.cursor.ws),
+        ws: new Date(hero.cursor.ws),
+        we: new Date(hero.cursor.we),
+        view: "market",
+        data: "lmp",
+        autoPlay: true,
+      })
+    : null;
   const exceptionCount = numeric(exceptions, "count");
   const exceptionsSettled = exceptions?.available !== false;
 
@@ -684,43 +727,60 @@ export default function BriefPage() {
         {!loading && hero?.available && hero.segments && (
           <>
             <section className="an-hero" aria-labelledby="brief-title">
-              <p className="an-eyebrow">Daily congestion brief</p>
-              <h1 id="brief-title"><Segments segments={title} /></h1>
-              <p className="an-lede"><Segments segments={hero.segments.lede} /></p>
-              <div className="an-facts" aria-label="Brief evidence">
-                {magnitudeValue != null && (
-                  <Fact
-                    label="Congestion total"
-                    value={usd(magnitudeValue)}
-                    detail={provenance?.basis === "settled" ? "DAM shadow-price total" : "forecast shadow-price total"}
-                  />
+              <div className="an-hero__frame">
+                {!isMobile && hero.cursor && (
+                  <HeroMapPreview cursor={hero.cursor} basis={settled ? "settled" : "forecast"} />
                 )}
-                {magnitudeRank != null && magnitudeN != null && (
-                  <Fact
-                    label="30-day rank"
-                    value={`${magnitudeRank} of ${magnitudeN}`}
-                    detail={magnitudeMedian != null ? `median ${usd(magnitudeMedian)}` : "including this delivery day"}
-                  />
+                {watchHref && (
+                  <Link to={watchHref} className="an-hero__watch">
+                    <span>Watch prices</span>
+                    <span>move across the day →</span>
+                  </Link>
                 )}
-                {whereZone && whereShare != null && (
-                  <Fact
-                    label="Where it priced"
-                    value={whereZone}
-                    detail={`${pct(whereShare)} of μ-weighted footprint`}
-                  />
-                )}
-                {settled && exceptionsSettled && exceptionCount != null && (
-                  <Fact
-                    label="Outside forecast"
-                    value={String(exceptionCount)}
-                    detail="material DAM constraints outside the model vocabulary"
-                  />
-                )}
-              </div>
-              <div className="an-hero__meta">
-                <span>Run {provenance?.run_id}</span>
-                <span>{provenance?.horizon === 1 ? "final · t+1" : "preview · t+2"}</span>
-                <Link to={`/map${window.location.search}`}>Open this day on the map →</Link>
+                <div className="an-hero__body">
+                  <p className="an-eyebrow">Daily congestion brief</p>
+                  <h1 id="brief-title"><Segments segments={title} /></h1>
+                  <p className="an-lede"><Segments segments={hero.segments.lede} /></p>
+                  <div className="an-facts" aria-label="Brief evidence">
+                    {magnitudeValue != null && (
+                      <Fact
+                        label="Congestion total"
+                        value={usd(magnitudeValue)}
+                        detail={provenance?.basis === "settled" ? "DAM shadow-price total" : "forecast shadow-price total"}
+                      />
+                    )}
+                    {magnitudeRank != null && magnitudeN != null && (
+                      <Fact
+                        label="30-day rank"
+                        value={`${magnitudeRank} of ${magnitudeN}`}
+                        detail={magnitudeMedian != null ? `median ${usd(magnitudeMedian)}` : "including this delivery day"}
+                      />
+                    )}
+                    {whereZone && whereShare != null && (
+                      <Fact
+                        label="Where it priced"
+                        value={whereZone}
+                        detail={`${pct(whereShare)} of μ-weighted footprint`}
+                      />
+                    )}
+                    {settled && exceptionsSettled && exceptionCount != null && (
+                      <Fact
+                        label="Outside forecast"
+                        value={String(exceptionCount)}
+                        detail="material DAM constraints outside the model vocabulary"
+                      />
+                    )}
+                  </div>
+                  <div className="an-hero__meta">
+                    <span>Run {provenance?.run_id}</span>
+                    <span>{provenance?.horizon === 1 ? "final · t+1" : "preview · t+2"}</span>
+                    {watchHref && (
+                      <Link to={watchHref} className="an-hero__watch-inline">
+                        Watch prices move across the day →
+                      </Link>
+                    )}
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -741,7 +801,46 @@ export default function BriefPage() {
         .an-basis--settled { color: var(--success, var(--accent)); }
         .an-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 80px; }
         .an-date-picker { display: flex; justify-content: flex-end; margin-bottom: 16px; }
-        .an-hero { padding-bottom: 32px; border-bottom: 2px solid var(--text-primary); }
+        .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
+        .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
+        .an-hero__frame::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          background: linear-gradient(
+            100deg,
+            var(--bg-base) 0%,
+            var(--bg-base) 36%,
+            color-mix(in srgb, var(--bg-base) 55%, transparent) 54%,
+            transparent 76%
+          );
+          pointer-events: none;
+        }
+        .an-hero__body { position: relative; z-index: 2; max-width: 620px; padding: 36px 34px; }
+        .an-hero__watch {
+          position: absolute;
+          top: 36px;
+          right: 34px;
+          z-index: 3;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          max-width: 132px;
+          padding: 14px;
+          border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+          border-radius: 4px;
+          background: var(--accent-dim);
+          box-shadow: var(--shadow-panel, 0 6px 18px rgb(0 0 0 / 22%));
+          color: var(--accent);
+          font: 700 var(--fs-md) var(--font-label);
+          line-height: 1.3;
+          letter-spacing: var(--track-label);
+          text-align: left;
+          text-decoration: none;
+        }
+        .an-hero__watch:hover { background: color-mix(in srgb, var(--accent-dim) 65%, var(--accent) 14%); border-color: var(--accent); }
+        .an-hero__watch-inline { display: none; }
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
@@ -866,7 +965,17 @@ export default function BriefPage() {
         .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
-        @media (max-width: 700px) { .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .an-grade__cards { grid-template-columns: 1fr; } .an-grade-card { min-height: 0; } }
+        @media (max-width: 700px) {
+          .an-hero__frame { min-height: 0; border: 0; background: transparent; }
+          .an-hero__frame::after { content: none; }
+          .an-hero__body { position: static; max-width: none; padding: 0; }
+          .an-hero__watch { display: none; }
+          .an-hero__watch-inline { display: inline; color: var(--accent); text-decoration: none; }
+          .an-hero__watch-inline:hover { text-decoration: underline; }
+          .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .an-grade__cards { grid-template-columns: 1fr; }
+          .an-grade-card { min-height: 0; }
+        }
         @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
       `}</style>
     </div>
