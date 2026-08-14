@@ -14,6 +14,7 @@ import type {
   MatrixFrame,
   AnalysisBrief,
   BriefHero,
+  BriefHeroLatest,
   TopConstraints,
   TopNodes,
   AnalysisGrade,
@@ -322,6 +323,21 @@ export async function fetchBriefHero(
   const r = await fetch(`${BASE}/analysis/hero?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/hero ${r.status}`);
+  return r.json();
+}
+
+// V6 cold-entry discovery. This intentionally does not read the legacy
+// analysis_brief index: it selects only days with both UTC artifacts required
+// to stitch the Brief's Chicago delivery-day tables.
+export async function fetchBriefHeroLatest(
+  runId?: string,
+): Promise<BriefHeroLatest | null> {
+  const qs = new URLSearchParams();
+  if (runId) qs.set("run_id", runId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/analysis/hero/latest${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/hero/latest ${r.status}`);
   return r.json();
 }
 

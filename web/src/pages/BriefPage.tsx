@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
 import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment, TopConstraints, TopNodes } from "../api/types";
-import { fetchAnalysisBriefLatest, fetchAnalysisGrade, fetchBriefHero, fetchTopConstraints, fetchTopNodes } from "../api/client";
+import { fetchAnalysisGrade, fetchBriefHero, fetchBriefHeroLatest, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -353,15 +353,15 @@ export default function BriefPage() {
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
 
-  // Until the date picker lands, the legacy index is solely a discovery source
-  // for the newest delivery day.  All Brief content comes from /analysis/hero.
+  // Cold entry remains entirely v6: newest day with both UTC artifacts needed
+  // by the Brief's Chicago delivery-day tables, never the legacy brief blob.
   useEffect(() => {
     if (cursorDay) {
       setIndexLoaded(true);
       return;
     }
     let live = true;
-    fetchAnalysisBriefLatest()
+    fetchBriefHeroLatest()
       .then((latest) => {
         if (!live) return;
         setDefaultDay(latest?.delivery_date ?? null);

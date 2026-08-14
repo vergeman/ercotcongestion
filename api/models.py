@@ -58,6 +58,14 @@ class HeroUnavailableAtHorizonResponse(HeroUnavailableResponse):
     horizon: int
 
 
+class HeroLatestResponse(BaseModel):
+    """Newest delivery day whose v6 Brief tables can stitch their CT window."""
+    available: bool
+    run_id: str
+    delivery_date: date | None = None
+    horizon: int | None = None
+
+
 # ---- /analysis/node and /analysis/path ----------------------------------
 
 class AnalysisContributionTerm(BaseModel):

@@ -743,6 +743,13 @@ export interface BriefHero {
   };
 }
 
+export interface BriefHeroLatest {
+  available: boolean;
+  run_id: string;
+  delivery_date?: string;
+  horizon?: number;
+}
+
 export interface TopConstraintRow {
   constraint_key: string;
   forecast_rank: number | null;

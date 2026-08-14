@@ -74,6 +74,25 @@ def test_hero_soft_fails_when_no_artifact_exists(client, fake_pool):
                     "run_id": "run-x", "delivery_date": "2026-07-28"}
 
 
+def test_hero_latest_uses_only_days_with_the_following_utc_artifact(client, fake_pool):
+    fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 28), "horizon": 1}])
+
+    body = client.get("/analysis/hero/latest?run_id=run-x").json()
+
+    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1}
+    sql, params = fake_pool.cursor.queries[-1]
+    assert "following.delivery_date = current.delivery_date + 1" in sql
+    assert params == ("run-x",)
+
+
+def test_hero_latest_soft_fails_without_a_complete_stitched_day(client, fake_pool):
+    fake_pool.cursor.queue([])
+
+    assert client.get("/analysis/hero/latest?run_id=run-x").json() == {
+        "available": False, "run_id": "run-x", "delivery_date": None, "horizon": None,
+    }
+
+
 def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
     schema = client.app.openapi()["paths"]["/analysis/hero"]["get"]["responses"]["200"]
     names = {item["$ref"].rsplit("/", 1)[-1] for item in schema["content"]["application/json"]

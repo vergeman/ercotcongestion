@@ -18,7 +18,7 @@ from psycopg.rows import dict_row
 from db import get_pool
 from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
-                    HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
+                    HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
                     PathComposition, AnalysisSettlementPointsAvailableResponse,
@@ -754,6 +754,38 @@ def get_top_nodes(
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
                                      horizon=horizon, rows=rows, n_ranked=len(unique_ranked))
+
+
+@router.get("/hero/latest", response_model=HeroLatestResponse,
+            summary="Newest v6 Brief delivery day with a complete stitched artifact window")
+def get_hero_latest(
+    run_id: str | None = Query(None, description="Model version; defaults to the published ERCOT run."),
+) -> HeroLatestResponse:
+    """Discover a cold-entry day without reading the legacy ``analysis_brief`` blob.
+
+    Brief tables stitch a Chicago delivery day from its UTC-day artifact and the
+    following UTC-day artifact.  Require both here so `/` does not cold-open a
+    hero whose primary tables immediately soft-fail.
+    """
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        cur.execute(
+            "SELECT current.delivery_date, current.horizon "
+            "FROM forecast_sf_artifact AS current "
+            "WHERE current.run_id = %s "
+            "AND EXISTS (SELECT 1 FROM forecast_sf_artifact AS following "
+            "            WHERE following.run_id = current.run_id "
+            "              AND following.horizon = current.horizon "
+            "              AND following.delivery_date = current.delivery_date + 1) "
+            "ORDER BY current.delivery_date DESC, current.horizon ASC LIMIT 1",
+            (run_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return HeroLatestResponse(available=False, run_id=run_id)
+    return HeroLatestResponse(
+        available=True, run_id=run_id, delivery_date=row["delivery_date"], horizon=int(row["horizon"]),
+    )
 
 
 @router.get("/hero", response_model=(HeroAvailableResponse | HeroUnavailableResponse |

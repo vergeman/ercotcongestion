@@ -138,7 +138,7 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 * [x] The brief page renders no transport control, and its URL still carries a valid `?t/?ws/?we`.
 * [x] Navigating brief → `/map` lands on the same day with no translation step.
 * [x] Unknown paths deliberately redirect to `/`.
-* [ ] Cold entry discovers a v6 available day without calling `/analysis/brief/latest`.
+* [x] Cold entry discovers a v6 available day without calling `/analysis/brief/latest`.
 * [x] The response selects one of the two documented rendering modes. Forecast-only is
       visibly slimmer and makes no settled/outcome/grade claim; post-settle renders
       same-key DAM evidence and the full grade.
