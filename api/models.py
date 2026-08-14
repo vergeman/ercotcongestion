@@ -250,6 +250,7 @@ class StandoutRow(BaseModel):
 class NodeStandoutRow(BaseModel):
     """One anomaly-selected node compared with its own forecast history."""
     settlement_point: str
+    essp_member_count: int = 1
     kind: Literal["forecast_elevated", "forecast_depressed", "settled_elevated"]
     zone: str | None = None
     forecast_total: float
@@ -306,6 +307,7 @@ class TopNodesAvailableResponse(BaseModel):
     horizon: int
     rows: list[TopNodeRow]
     n_ranked: int
+    grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
 
 
 class TopNodesUnavailableResponse(NodeAnalysisUnavailableResponse):

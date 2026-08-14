@@ -800,6 +800,7 @@ export interface StandoutRow {
 
 export interface NodeStandoutRow {
   settlement_point: string;
+  essp_member_count: number;
   kind: "forecast_elevated" | "forecast_depressed" | "settled_elevated";
   zone: string | null;
   forecast_total: number;
@@ -850,6 +851,7 @@ export interface TopNodes {
   delivery_date: string;
   horizon?: number;
   n_ranked?: number;
+  grouping?: "study_delivery_day" | "exact_settled" | "study_essp_missing";
   rows?: TopNodeRow[];
 }
 

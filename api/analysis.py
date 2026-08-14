@@ -921,8 +921,22 @@ def get_standouts(
                 for point, value in prior.mean(axis=0).items():
                     node_histories.setdefault(str(point), []).append(float(value))
             node_settled = _settled_node_profile(cur, delivery_date)
+            cur.execute(
+                "SELECT interval_ts, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
+                "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
+                "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
+                (list(node_result[1].to_pydatetime()),),
+            )
+            essp_by_signature: dict[tuple[str, ...], set[datetime]] = {}
+            for group in cur.fetchall():
+                members = tuple(sorted(str(point) for point in group["settlement_points"]))
+                if len(members) > 1:
+                    essp_by_signature.setdefault(members, set()).add(group["interval_ts"])
+            node_essp_groups = [members for members, seen in essp_by_signature.items()
+                                if len(seen) == len(node_result[1])]
         else:
             node_settled = pd.DataFrame()
+            node_essp_groups = []
 
     forecast_total = forecast.abs().sum(axis=0)
     settled_total = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
@@ -936,6 +950,23 @@ def get_standouts(
         ].mean(axis=0) if not node_settled.empty else pd.Series(dtype=float))
         node_rows = _node_standout_rows(node_forecast_total, node_histories, node_settled_total,
                                         node_terms, k=k)
+        canonical = {str(point): (str(point), 1) for point in node_forecast_total.index}
+        for members in node_essp_groups:
+            present = [point for point in members if point in canonical]
+            if present:
+                representative = present[0]
+                for point in present:
+                    canonical[point] = (representative, len(present))
+        collapsed_rows: list[NodeStandoutRow] = []
+        seen_representatives: set[str] = set()
+        for row in node_rows:
+            representative, count = canonical.get(row.settlement_point, (row.settlement_point, 1))
+            if representative not in seen_representatives:
+                collapsed_rows.append(row.model_copy(update={
+                    "settlement_point": representative, "essp_member_count": count,
+                }))
+                seen_representatives.add(representative)
+        node_rows = collapsed_rows
         node_forecast_ranks = {str(key): rank for rank, key in enumerate(
             node_forecast_total.abs().sort_values(ascending=False, kind="stable").index, start=1)}
         node_settled_ranks = {str(key): rank for rank, key in enumerate(
@@ -1050,29 +1081,23 @@ def get_top_nodes(
         realized_result = _daily_node_contributions(
             cur, run_id, delivery_date, horizon, realized=True, ct_hours=MARKET_PEAK_CT_HOURS)
         settled = _settled_congestion(cur, [str(sp) for sp in forecast_terms.columns], hours)
-        hourly_forecast = _forecast_node_profile(cur, run_id, delivery_date, horizon)
-        if hourly_forecast is not None:
-            hourly_forecast = hourly_forecast.loc[
-                hourly_forecast.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)
-            ]
-        peak_hour = None if hourly_forecast is None or hourly_forecast.empty else hourly_forecast.abs().sum(axis=1).idxmax()
         essp_groups: list[dict] = []
-        if peak_hour is not None:
-            cur.execute(
-                "SELECT group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
-                "FROM ercot_essp WHERE interval_ts = %s AND is_study = FALSE "
-                "GROUP BY group_index ORDER BY group_index",
-                (peak_hour.to_pydatetime(),),
-            )
-            essp_groups = cur.fetchall()
-            if not essp_groups:
-                cur.execute(
-                    "SELECT group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
-                    "FROM ercot_essp WHERE interval_ts = %s AND is_study = TRUE "
-                    "GROUP BY group_index ORDER BY group_index",
-                    (peak_hour.to_pydatetime(),),
-                )
-                essp_groups = cur.fetchall()
+        grouping = "study_essp_missing"
+        cur.execute(
+            "SELECT interval_ts, group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
+            "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
+            "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
+            (list(hours.to_pydatetime()),),
+        )
+        by_signature: dict[tuple[str, ...], set[datetime]] = {}
+        for group in cur.fetchall():
+            members = tuple(sorted(str(point) for point in group["settlement_points"]))
+            if len(members) > 1:
+                by_signature.setdefault(members, set()).add(group["interval_ts"])
+        essp_groups = [{"settlement_points": members} for members, seen in by_signature.items()
+                       if len(seen) == len(hours)]
+        if essp_groups:
+            grouping = "study_delivery_day"
 
     forecast_total = forecast_terms.sum(axis=0)
     ranked = forecast_total.abs().sort_values(ascending=False, kind="stable")
@@ -1129,7 +1154,7 @@ def get_top_nodes(
             settled_history=historical,
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
-                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked))
+                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), grouping=grouping)
 
 
 @router.get("/hero/latest", response_model=HeroLatestResponse,

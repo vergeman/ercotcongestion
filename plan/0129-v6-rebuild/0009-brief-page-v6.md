@@ -101,9 +101,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   expose misses. The joined result may therefore contain more than *k* rows.
 * **Top Nodal Congestion** presents top 15 *unique locations* over the market-peak
   `7×16` value window. Its grouping must be stable and documented for the delivery-day
-  display: use the pre-DAM ESSP study in forecast-only mode; after clearing, use exact
-  price identity for the settled presentation, with ESSP retained as the pre-clearing
-  relation and an explicit fallback for points absent from a selected ESSP vintage.
+  display: use delivery-day ESSP study membership in both modes to collapse equivalent
+  settlement points; retain an explicit fallback for points absent from that ESSP vintage.
   Do not silently base a daily table on one arbitrary hourly membership snapshot.
   It needs its own real trailing-history display, dominant-driver attribution, zone,
   share, coverage, and forecast/settled rank movement. Its phase ranking follows the
@@ -146,7 +145,7 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 * [x] Standouts is server-backed, anomaly-selected, and carries forecast/DAM evidence
       plus real 30-day history visuals; Context remains separately unimplemented.
 * [x] Top Constraints and Top Nodal have real trailing 30-day history, not placeholder cells.
-* [ ] Top Nodal shows 15 unique 7×16 locations using the documented pre-/post-settle
+* [x] Top Nodal shows 15 unique 7×16 locations using the documented pre-/post-settle
       grouping rules and an explicit missing-ESSP fallback.
 * [x] Forecast-only tables are forecast top-*k*. Post-settle tables are DAM top-*k*
       followed by forecast top-*k* entries absent from DAM top-*k*, ordered with DAM
