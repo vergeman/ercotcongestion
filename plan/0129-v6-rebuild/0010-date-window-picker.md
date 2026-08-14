@@ -27,7 +27,8 @@ Depends on: `0009` — **released together**, see branch note below
 
 ## Approach
 
-* Work in: `web/src/components/playback/`, `web/src/pages/`
+* Work in: `web/src/components/playback/`, `web/src/pages/`,
+  `web/src/hooks/useTimeCursor.ts`
 * Add a **single-date variant** of `DateRangePicker` — same dropdown, same events
   wiring, same CT input handling, one date instead of a start/end pair. Do not fork the
   file: Map still needs the range form. The relative presets ("Last 6h / 24h / 3d / 7d")
@@ -37,6 +38,16 @@ Depends on: `0009` — **released together**, see branch note below
 * **Selection writes all three params**: `?t` to that day's peak hour, `?ws`/`?we` to
   that day's America/Chicago bounds. The window then matches what the reader is reading
   about, and `0011`'s deep link is correct without constructing anything at link time.
+  New shared coordinates use compact, hour-precision UTC values such as
+  `2026-06-30T13Z`; `useTimeCursor` expands that URL form before parsing it. Keep `Z` —
+  an offset-less browser date is local time, not UTC.
+* While the selected day's hero is loading, its prior hero must not reclaim the URL.
+  Apply the peak-hour cursor only when the returned hero's `delivery_date` matches the
+  currently displayed delivery day. If no artifact exists, retain the selected date and
+  its day-bounds coordinate for the empty state.
+* The brief's date and curated-event controls remain selectable while a hero request is
+  in flight: a new selection supersedes that request. Preserve the Map range picker's
+  existing loading lock.
 * **Reading is one-way**: day shown = the CT day of `?t`. Arriving from the Map with a
   week-wide window works — the day comes off `?t` and `?ws`/`?we` are left alone until
   the reader picks a date.
@@ -45,13 +56,23 @@ Depends on: `0009` — **released together**, see branch note below
 * A selected day with no brief renders the empty state. **Do not silently snap the
   selection** to a nearby day that happens to have data — that hides the gap and makes
   the URL lie.
-* Do NOT touch: the range form's behaviour on Map, `useExplorerSession`, or `HeaderNav`.
+* Map's range form keeps its presets, event behavior, and `useExplorerSession` contract,
+  but its custom start/end controls are CT date + whole-hour selectors: no minute entry.
+  Do NOT touch `useExplorerSession` or `HeaderNav`.
 
 ## Acceptance
 
 * [x] `📅 Load Date` renders above the hero on the brief page and nowhere in `HeaderNav`.
 * [x] Picking a date updates `?t`, `?ws` and `?we` together; the day shown matches the CT day of `?t`.
+* [x] Newly written `t` / `ws` / `we` values are hour-precision UTC (`YYYY-MM-DDTHHZ`),
+  and the shared cursor reads that compact form correctly.
+* [x] Selecting a new date cannot be overwritten by the prior day's hero while the new
+  hero request is in flight; the matching available hero then supplies its peak-hour `t`.
+* [x] The brief date picker and its curated events remain usable while the current hero
+  is loading; Map's range picker retains its loading behavior.
 * [x] Map's Load Window is unchanged — same presets, same range behaviour, same events.
+* [x] Map's custom Load Window start/end controls select CT dates and whole hours only;
+  presets are normalized to whole-hour bounds.
 * [x] Selecting a curated event sets the day and passes its full window through.
 * [x] A date with no brief shows the empty state and the URL keeps that date.
 * [x] Brief → `/map` lands on the selected day's window with no further translation.
