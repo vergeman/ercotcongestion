@@ -3,7 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type {
   SpRow,
-  Palette,
+  MapDataMode,
   ConstraintReach,
   MapOverview,
 } from "../../api/types";
@@ -135,7 +135,7 @@ interface Props {
   // `sp_id` (the promoteId) plus sp_type / load_zone / capacity_mw.
   points: unknown | null;
   rows: SpRow[];
-  palette: Palette;
+  dataMode: MapDataMode;
   lmpStats: LmpStats | null;
   mcStats: CongestionStats | null;
   onSpHover: (
@@ -197,7 +197,7 @@ interface Props {
 export default function GridMap({
   points,
   rows,
-  palette,
+  dataMode,
   lmpStats,
   mcStats,
   onSpHover,
@@ -696,18 +696,6 @@ export default function GridMap({
       reachIdsRef.current = new Set();
     }
 
-    // Palette "off": no congestion/LMP fill — clear every node's color so the
-    // circles fall back to the base fill and the SF overlay reads alone.
-    if (palette === "off") {
-      for (const feat of fc.features) {
-        map.setFeatureState(
-          { source: "sps", id: feat.properties.sp_id },
-          { color: null }
-        );
-      }
-      return;
-    }
-
     if (!rows.length) {
       for (const feat of fc.features) {
         map.setFeatureState(
@@ -720,7 +708,7 @@ export default function GridMap({
 
     for (const row of rows) {
       let color: string;
-      if (palette === "congestion") {
+      if (dataMode === "congestion") {
         color = mcStats
           ? congestionColor(
               normalizeCongestion(row.congestion, mcStats),
@@ -736,7 +724,7 @@ export default function GridMap({
     }
   }, [
     rows,
-    palette,
+    dataMode,
     lmpStats,
     mcStats,
     points,

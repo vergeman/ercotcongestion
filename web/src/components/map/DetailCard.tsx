@@ -14,6 +14,7 @@ interface HoveredSp {
     market: number | null;
     error: number | null;
     marketSpp: number | null;
+    predictedSpp: number | null;
   } | null;
 }
 
@@ -40,6 +41,10 @@ interface Props {
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
   showDrivers?: boolean;
+  // True when the current hour's predicted LMP used the persistence-λ fallback
+  // (0130) rather than a settled DAM value — marks `Predicted LMP` below as
+  // indicative. Display only, never a graded signal.
+  lambdaIndicative?: boolean;
   mobile?: boolean;
 }
 
@@ -84,7 +89,13 @@ function fmtCong(v: number | null | undefined): string | null {
   return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
 }
 
-function SpBody({ sp }: { sp: HoveredSp }) {
+function SpBody({
+  sp,
+  lambdaIndicative = false,
+}: {
+  sp: HoveredSp;
+  lambdaIndicative?: boolean;
+}) {
   const s = sp.spState;
   return (
     <>
@@ -94,6 +105,16 @@ function SpBody({ sp }: { sp: HoveredSp }) {
       <Row label="Forecast (P50)" value={fmtCong(s?.predicted)} />
       <Row label="Realized" value={fmtCong(s?.market)} />
       <Row label="Forecast error" value={fmtCong(s?.error)} />
+      <Row
+        label="Predicted LMP"
+        value={
+          s && s.predictedSpp != null
+            ? `$${fmt(s.predictedSpp, 2)}/MWh${
+                lambdaIndicative ? " (indicative)" : ""
+              }`
+            : null
+        }
+      />
       <Row
         label="DAM SPP"
         value={
@@ -265,6 +286,7 @@ export default function DetailCard({
   onHoverMember,
   onSelectMember,
   showDrivers = true,
+  lambdaIndicative = false,
   mobile = false,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
@@ -336,7 +358,7 @@ export default function DetailCard({
           />
         ) : (
           <>
-            <SpBody sp={sp!} />
+            <SpBody sp={sp!} lambdaIndicative={lambdaIndicative} />
             {isPinned && showDrivers && (
               <div className="detail-card__section">
                 <ExposuresBody

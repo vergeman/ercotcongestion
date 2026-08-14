@@ -503,12 +503,16 @@ class ForecastSpState(BaseModel):
 class ForecastRangeEntry(BaseModel):
     """All SPs' forecast congestion at one interval, plus that hour's system-λ.
 
-    ``system_lambda`` is the DAM system-λ at ``interval_ts``; ``None`` when no λ
-    is published for the hour (LMP then falls back to unset on the prediction
-    side). Add it to each SP's congestion for the predicted LMP palette.
+    ``system_lambda`` is the DAM system-λ at ``interval_ts`` when settled;
+    on an unsettled hour it falls back to the most recent settled day's λ at
+    the same Central hour (a persistence curve — display only, never graded),
+    and ``None`` only when no settled day exists yet to persist from.
+    ``lambda_source`` says which: ``"settled"`` or ``"persisted"``. Add
+    ``system_lambda`` to each SP's congestion for the predicted LMP palette.
     """
     interval_ts: datetime
     system_lambda: float | None = None
+    lambda_source: Literal["settled", "persisted"] | None = None
     sps: list[ForecastSpState]
 
 

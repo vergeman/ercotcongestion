@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { cssVar, useTheme } from "../../lib/theme";
-import type { SpRow } from "../../api/types";
-import type { Palette } from "../../api/types";
+import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmpFromStats,
   normalizeCongestion,
@@ -12,7 +11,7 @@ import {
 } from "../../lib/colors";
 
 interface Props {
-  palette: Palette;
+  dataMode: MapDataMode;
   rows: SpRow[];
   // Cursor-day stats. Stable while playback stays within a delivery day.
   lmpStats: LmpStats | null;
@@ -34,6 +33,15 @@ interface Props {
   // (region / corridor / point) carries the constraint type, so identity never
   // rides on hue alone (dataviz a11y). Replaces `constraintOverlay` when present.
   overviewTypes?: boolean;
+  // The constraints-overlay on/off control itself (0130): rendered only on panes
+  // that draw forecast data (the overlay's home pane). Market panes never receive
+  // this prop, so they never render the control.
+  constraintsToggle?: { checked: boolean; onChange: (v: boolean) => void };
+  // True when the current hour's predicted LMP used the persistence-λ fallback
+  // (no DAM system-λ published yet for this hour) rather than a settled value —
+  // a display-only provenance marker (0130), never a graded signal. Only
+  // meaningful on a forecast pane's `lmp` legend.
+  lambdaIndicative?: boolean;
 }
 
 // The overview's type marks. Hue is validated (CVD ΔE 47+ between the three;
@@ -116,7 +124,7 @@ function formatDollar(v: number): string {
 }
 
 export default function Legend({
-  palette,
+  dataMode,
   rows,
   lmpStats,
   mcStats,
@@ -125,13 +133,14 @@ export default function Legend({
   barGradientOverride,
   constraintOverlay = false,
   overviewTypes = false,
+  constraintsToggle,
+  lambdaIndicative = false,
 }: Props) {
   // Subscribes the legend to theme flips so the cssVar() type-mark lookups below
   // re-resolve (SVG presentation attributes cannot take var()).
   useTheme();
-  const isCongestion = palette === "congestion";
-  const isLmp = palette === "lmp";
-  const isOff = palette === "off";
+  const isCongestion = dataMode === "congestion";
+  const isLmp = dataMode === "lmp";
 
   // Snapshot distribution, binned in color-space so each bar sits directly above
   // the gradient color its values fall in. Computed for BOTH palettes (LMP off
@@ -200,9 +209,6 @@ export default function Legend({
     const dot = titleOverride.indexOf(" · ");
     titleName = dot >= 0 ? titleOverride.slice(0, dot) : titleOverride;
     titleEq = dot >= 0 ? titleOverride.slice(dot + 3) : "";
-  } else if (isOff) {
-    titleName = "Palette off";
-    titleEq = "overlay only";
   } else if (isCongestion) {
     titleName = "Congestion";
     titleEq = "SPP − λ ($/MWh)";
@@ -217,9 +223,15 @@ export default function Legend({
     <div className="legend">
       <div className="legend__title label">{titleName}</div>
       {titleEq && <div className="legend__eq label">{titleEq}</div>}
+      {/* Persistence-λ provenance (0130): the predicted LMP this hour used the
+          most recent settled day's λ curve, not a settled DAM value — display
+          only, never a graded signal. */}
+      {isLmp && lambdaIndicative && (
+        <div className="legend__indicative label">Indicative — persisted λ</div>
+      )}
 
       {/* Snapshot distribution over the cursor-day bin range, on every legend. */}
-      {!isOff && hist && (
+      {hist && (
         <div className="legend__hist">
           {hist.counts.map((c, i) => (
             <div
@@ -231,9 +243,7 @@ export default function Legend({
         </div>
       )}
 
-      {!isOff && (
-        <div className="legend__bar" style={{ background: barGradient }} />
-      )}
+      <div className="legend__bar" style={{ background: barGradient }} />
 
       {/* Diverging congestion family: signed, center = 0, edges = ±p_high. */}
       {isCongestion && mcStats && (
@@ -292,6 +302,20 @@ export default function Legend({
         </div>
       )}
 
+      {/* Constraints-overlay control (0130): lives on the pane that draws the
+          overlay (a forecast-rendering pane), not the header — Market panes
+          never receive `constraintsToggle`. */}
+      {constraintsToggle && (
+        <label className="legend__toggle">
+          <input
+            type="checkbox"
+            checked={constraintsToggle.checked}
+            onChange={(e) => constraintsToggle.onChange(e.target.checked)}
+          />
+          <span className="label legend__toggle-text">Constraints overlay</span>
+        </label>
+      )}
+
       <div className="legend__types">
         {overviewTypes &&
           OVERVIEW_TYPES.map((t) => (
@@ -343,6 +367,25 @@ export default function Legend({
           font-size: var(--fs-label);
           color: var(--text-muted);
           line-height: 1.25;
+        }
+        .legend__indicative {
+          margin-top: -3px;
+          margin-bottom: 7px;
+          font-size: var(--fs-label);
+          color: var(--accent);
+        }
+        .legend__toggle {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 9px;
+          padding-top: 9px;
+          border-top: 1px solid var(--border);
+          cursor: pointer;
+        }
+        .legend__toggle-text {
+          font-size: var(--fs-label);
+          opacity: 0.85;
         }
         .legend__hist {
           height: 26px;

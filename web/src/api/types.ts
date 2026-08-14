@@ -111,21 +111,27 @@ export interface ErcotRangeResponse {
   entries: ErcotRangeEntry[];
 }
 
-// The palette selects the ERCOT quantity a map colors by. Each mode picks the
-// ERCOT quantity the pane renders:
+// The Data axis (0130): which ERCOT quantity a map pane colors by.
 //   congestion → SPP − system_λ  (diverging palette)
-//   lmp        → raw DAM SPP      (LMP palette)
-//   off        → no SP fill; the map shows the SF overlay alone (overlay-only
-//                focus). The overlay stays independently toggleable.
-export type Palette = "congestion" | "lmp" | "off";
+//   lmp        → raw DAM SPP / (for the forecast pane) P50 + system_λ, the
+//                predicted counterpart — see `ForecastRangeEntry.lambda_source`
+//                for its persistence-λ provenance pre-settlement.
+export type MapDataMode = "congestion" | "lmp";
 
-// The view axis, orthogonal to `Palette`. `forecastError` is the default landing
-// view: a single map colored by P50 forecast − realized congestion (the product
-// thesis, "where we missed the market"), SF overlay on. `dual` is the prediction
-// | ERCOT side-by-side compare, SF overlay off by default. Because both panes
-// subtract the same system-λ, LMP forecast error collapses exactly to congestion
-// forecast error — so it is congestion-based regardless of the palette selection.
-export type ViewMode = "forecastError" | "dual";
+// The View axis (0130), orthogonal to `MapDataMode`. Exactly one is active:
+//   forecast → single map, the model's own P50 prediction (the bare `/map`
+//              default landing view).
+//   market   → single map, ERCOT's realized DAM values.
+//   compare  → the prediction | ERCOT side-by-side split (formerly `dual`).
+//   error    → single map, P50 forecast − realized congestion (the product
+//              thesis, "where we missed the market"). Because both panes
+//              subtract the same system-λ, LMP forecast error collapses
+//              exactly to congestion forecast error, so this view locks
+//              `MapDataMode` to `"congestion"` regardless of the prior
+//              selection.
+// `market`, `compare`, and `error` require settled data in the loaded window;
+// pre-market they fall back to `forecast`.
+export type MapView = "forecast" | "market" | "compare" | "error";
 
 // Per-SP row for the current hour, merged from the congestion and SPP caches.
 // `sp_id` matches the topology feature's promoteId so the map can key
@@ -165,10 +171,14 @@ export interface ForecastSpState {
 
 // All SPs' forecast congestion at one interval, plus that hour's system-λ.
 // Predicted LMP = p50 + system_lambda (same reference the market side
-// subtracts). Null λ → LMP unset for the hour.
+// subtracts). On an unsettled hour `system_lambda` falls back to the most
+// recent settled day's λ at the same Central hour (0130's persistence display
+// convention — never a model input); `lambda_source` says which curve served
+// it, `null` only when no settled day exists yet to persist from.
 export interface ForecastRangeEntry {
   interval_ts: string;
   system_lambda: number | null;
+  lambda_source: "settled" | "persisted" | null;
   sps: ForecastSpState[];
 }
 

@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
-  Palette,
-  ViewMode,
+  MapDataMode,
+  MapView,
   ExposuresResponse,
   ConstraintReach,
   MapOverview,
@@ -77,6 +77,7 @@ interface HoveredSp {
     market: number | null;
     error: number | null;
     marketSpp: number | null;
+    predictedSpp: number | null;
   } | null;
 }
 
@@ -104,13 +105,22 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const target = useMemo(() => parseMapTarget(routeSearch), [routeSearch]);
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
-  // Two orthogonal axes. `viewMode` picks the layout: `forecastError` (default
-  // landing) is a single map of P50 forecast − realized congestion; `dual` is the
-  // prediction | ERCOT compare. `palette` picks the ERCOT quantity the dual panes
-  // color by; forecast error is congestion-based regardless of palette.
-  const [viewMode, setViewMode] = useState<ViewMode>("forecastError");
-  const renderedViewMode = isMobile ? "forecastError" : viewMode;
-  const [palette, setPalette] = useState<Palette>("congestion");
+  // Two orthogonal axes (0130). `view` picks the layout: `forecast` (default
+  // landing) is a single map of the model's own P50 prediction; `market` is a
+  // single map of ERCOT's realized DAM values; `compare` is the prediction |
+  // ERCOT split; `error` is a single map of P50 forecast − realized congestion.
+  // `dataMode` picks the ERCOT quantity a single/compare pane colors by; `error`
+  // is congestion-based regardless (forced below). Mobile is forced-single and
+  // always resolves to the Forecast layout, following whichever `dataMode` is
+  // active — never `market`/`compare`/`error` (no room for two panes, and the
+  // realized-only/error layouts read the operator's own vantage, not a
+  // reader's).
+  const [view, setView] = useState<MapView>("forecast");
+  const renderedView: MapView = isMobile ? "forecast" : view;
+  const [dataMode, setDataMode] = useState<MapDataMode>("congestion");
+  // Data selection held from before entering Error, so leaving it restores
+  // rather than defaulting back to congestion.
+  const prevDataModeRef = useRef<MapDataMode>("congestion");
   const {
     timestamps, currentIndex, loading, connectionState: connState,
     setConnectionState: setConnState, lastUpdated, activeEventId,
@@ -119,7 +129,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     loadCustomWindow: handleCustomLoadWindow,
   } = session;
   const handleSelectEvent = useCallback(
-    (event: CuratedEvent) => selectEvent(event, setPalette),
+    (event: CuratedEvent) => selectEvent(event, setDataMode),
     [selectEvent]
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -370,15 +380,21 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Forecast rows for the current hour: P50 → congestion (the fill), P50 + the
   // hour's system-λ → spp (predicted LMP, the same reference the market side
   // subtracts). Read from the forecast cache the prefetch filled, aligned to the
-  // same scrubber index as the realized rows above.
+  // same scrubber index as the realized rows above. `lambdaSource` (0130) tracks
+  // whether that λ was a settled DAM value or the persistence fallback, so the
+  // LMP legend/hover can mark a persisted hour's price as indicative — display
+  // only, never a graded signal.
+  const [lambdaSource, setLambdaSource] = useState<"settled" | "persisted" | null>(null);
   useEffect(() => {
     if (!timestamps.length) {
       setForecastRows([]);
+      setLambdaSource(null);
       return;
     }
     const fc = getForecastCached(timestamps[currentIndex]);
     if (!fc) {
       setForecastRows([]);
+      setLambdaSource(null);
       return;
     }
     const lam = fc.system_lambda;
@@ -389,6 +405,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         spp: s.p50 != null && lam != null ? s.p50 + lam : null,
       }))
     );
+    setLambdaSource(fc.lambda_source);
   }, [currentIndex, timestamps]);
 
   // Forecast-error rows for the current hour: P50 forecast − realized congestion
@@ -448,7 +465,13 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       const market = m?.congestion ?? null;
       const error =
         predicted != null && market != null ? predicted - market : null;
-      return { predicted, market, error, marketSpp: m?.spp ?? null };
+      return {
+        predicted,
+        market,
+        error,
+        marketSpp: m?.spp ?? null,
+        predictedSpp: f?.spp ?? null,
+      };
     },
     [forecastRows, spRows]
   );
@@ -744,14 +767,43 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     handleClearPinnedSp("actual");
   }, [handleClearPinnedSp]);
 
-  // Switch the view axis, applying that view's SF-overlay default: on in the
-  // forecast-error view (the overlay is that view's mechanism), off in dual (a
-  // per-pane explainer). The manual overlay toggle then persists until the next
-  // view switch.
-  const handleViewMode = useCallback((v: ViewMode) => {
-    setViewMode(v);
-    setShowConstraints(v === "forecastError");
-  }, []);
+  // Market/Compare/Error require settled data in the loaded window (0130); a
+  // pure-forecast window (nothing has settled yet) gates them off. Read off the
+  // cursor's delivery-day realized stats already computed by the session.
+  const hasSettledData = congestionStats != null;
+
+  // Switch the view axis, applying that view's SF-overlay default: on in
+  // Forecast and Error (the overlay is that view's own mechanism), off in
+  // Compare (a per-pane explainer) and Market (no overlay at all). The manual
+  // overlay toggle then persists until the next view switch. Entering Error
+  // locks the data axis to congestion, remembering whatever was active so
+  // leaving it restores rather than defaulting back.
+  const handleView = useCallback((v: MapView) => {
+    if (v === "error" && view !== "error") {
+      prevDataModeRef.current = dataMode;
+      setDataMode("congestion");
+    } else if (v !== "error" && view === "error") {
+      setDataMode(prevDataModeRef.current);
+    }
+    setView(v);
+    setShowConstraints(v === "forecast" || v === "error");
+  }, [view, dataMode]);
+
+  const handleDataMode = useCallback((d: MapDataMode) => {
+    if (view === "error") return; // locked; the Header disables the chip too
+    setDataMode(d);
+  }, [view]);
+
+  // Scrubbing into a pre-market window while sitting in a settled-only view
+  // (Market/Compare/Error) leaves nothing to render on at least one pane —
+  // downgrade to Forecast, the one view that's always available, mirroring the
+  // Header's own disabled-chip rule rather than stranding a broken layout.
+  useEffect(() => {
+    if (hasSettledData || view === "forecast") return;
+    if (view === "error") setDataMode(prevDataModeRef.current);
+    setView("forecast");
+    setShowConstraints(true);
+  }, [hasSettledData, view]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
@@ -786,20 +838,43 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const leftLmpStats = sppStats ?? forecastLmpStats;
 
   const litFor = (rows: SpRow[]) =>
-    rows.filter((r) => (palette === "lmp" ? r.spp != null : r.congestion != null))
+    rows.filter((r) => (dataMode === "lmp" ? r.spp != null : r.congestion != null))
       .length;
   const litCount = litFor(spRows);
-  // The pane subtitle. A bold title line names what the pane shows; the meta row
-  // reports node coverage in words — `litNoun` says what "having a value" means
-  // for this pane (forecast / priced / compared) so the count reads plainly.
+  // The cursor hour, formatted once for every pane badge's coordinate line —
+  // "view · data · timestamp" (0130), a first-class label so a reader always
+  // knows what a pane shows without cross-referencing the header.
+  const cursorLabel = timestamps[currentIndex]
+    ? `${formatCT(timestamps[currentIndex], "MMM d, HH:mm")} CT`
+    : "—";
+  const VIEW_LABELS: Record<MapView, string> = {
+    forecast: "Forecast",
+    market: "Market",
+    compare: "Compare",
+    error: "Error",
+  };
+  const DATA_LABELS: Record<MapDataMode, string> = {
+    congestion: "Congestion",
+    lmp: "Price (LMP)",
+  };
+
+  // The pane subtitle. A bold title line names what the pane shows; a coord
+  // line pins it to view · data · timestamp; the meta row reports node coverage
+  // in words — `litNoun` says what "having a value" means for this pane
+  // (forecast / priced / compared) so the count reads plainly.
   const badgeFor = (
     label: string,
+    paneView: MapView,
+    paneDataMode: MapDataMode,
     lit: number = litCount,
     litNoun = "priced",
     litHint = "Nodes with a value at this hour (colored on the map); the rest are drawn unlit"
   ) => (
     <>
       <span className="pane-badge__title">{label}</span>
+      <span className="pane-badge__coord mono">
+        {VIEW_LABELS[paneView]} · {DATA_LABELS[paneDataMode]} · {cursorLabel}
+      </span>
       <span className="pane-badge__meta">
         {spTopologyEmpty ? (
           <span className="pane-badge__stat">no nodes (rebuild topology cache)</span>
@@ -828,7 +903,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const paneProps = {
     points: spPoints,
     rows: spRows,
-    palette,
+    dataMode,
     lmpStats: sppStats,
     mcStats: congestionStats,
   };
@@ -840,7 +915,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       ? `Prediction Model: forecast ${forecastRunId}`
       : "Prediction Model: no forecast this window";
 
-  const leftPane = (
+  // The constraints-overlay control (0130): lives in the legend of every pane
+  // that draws forecast data (Forecast/Compare's prediction pane, Error) —
+  // never Market. Hidden until the overview has actually loaded, matching the
+  // old header control's own hidden-until-loaded rule.
+  const constraintsToggle = overview?.constraints.length
+    ? { checked: showConstraints, onChange: setShowConstraints }
+    : undefined;
+  // Persistence-λ provenance (0130): a property of the cursor hour, not the
+  // active view — the DetailCard's Predicted LMP row is part of the full
+  // decomposition shown in every view, so this stays independent of `dataMode`.
+  // Legend gates its own "Indicative" note on the LMP palette internally.
+  const lambdaIndicative = lambdaSource === "persisted";
+
+  const forecastPane = (
     <>
       <GridMap
         {...paneProps}
@@ -867,6 +955,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <div className="pane-badge">
         {badgeFor(
           predictionLabel,
+          "forecast",
+          dataMode,
           litFor(leftRows),
           "forecast",
           "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count."
@@ -878,17 +968,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         )}
       </div>
       <Legend
-        palette={palette}
+        dataMode={dataMode}
         rows={leftRows}
         lmpStats={leftLmpStats}
         mcStats={leftMcStats}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
+        constraintsToggle={constraintsToggle}
+        lambdaIndicative={lambdaIndicative}
       />
       {/* Prediction card: the node's forecast readout + its SF drivers. */}
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
+        lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         reach={reach}
@@ -903,7 +996,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     </>
   );
 
-  const rightPane = (
+  const marketPane = (
     <>
       <GridMap
         {...paneProps}
@@ -918,13 +1011,15 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <div className="pane-badge">
         {badgeFor(
           "ERCOT: Day Ahead Market (DAM)",
+          "market",
+          dataMode,
           litCount,
           "priced",
           "Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
         )}
       </div>
       <Legend
-        palette={palette}
+        dataMode={dataMode}
         rows={spRows}
         lmpStats={sppStats}
         mcStats={congestionStats}
@@ -956,7 +1051,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <GridMap
         points={spPoints}
         rows={errorRows}
-        palette="congestion"
+        dataMode="congestion"
         lmpStats={null}
         mcStats={errorStats}
         onMapClick={handlePredictionMapBackgroundClick}
@@ -980,13 +1075,15 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <div className="pane-badge">
         {badgeFor(
           errorLabel,
+          "error",
+          "congestion",
           errorLit,
           "compared",
           "Nodes with both a model forecast and a realized value, so an error is defined"
         )}
       </div>
       <Legend
-        palette="congestion"
+        dataMode="congestion"
         rows={errorRows}
         lmpStats={null}
         mcStats={errorStats}
@@ -995,11 +1092,13 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         barGradientOverride={forecastErrorGradientCss()}
         constraintOverlay={showConstraints && !!overview?.constraints.length}
         overviewTypes={showConstraints && !!overview?.constraints.length}
+        constraintsToggle={constraintsToggle}
       />
       {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
+        lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         reach={reach}
@@ -1043,23 +1142,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <Header
         activeWorkspace="map"
         onNavigate={onNavigate}
-        viewMode={viewMode}
-        onViewMode={handleViewMode}
-        palette={palette}
-        onPalette={setPalette}
+        view={view}
+        onView={handleView}
+        dataMode={dataMode}
+        onDataMode={handleDataMode}
+        marketAvailable={hasSettledData}
         lastUpdated={lastUpdated}
         connectionState={connState}
-        showConstraints={showConstraints}
-        onToggleConstraints={
-          overview?.constraints.length ? setShowConstraints : undefined
-        }
         mobileDrawerOpen={mobileDrawerOpen}
         onToggleMobileDrawer={() => setMobileDrawerOpen((open) => !open)}
       />
 
       <div className="app-workspace">
-        {/* Forecast error = single map of P50 forecast − realized (default
-            landing). Dual = prediction | ERCOT split, both under the active palette. */}
+        {/* Forecast/Market/Error = a single map; Compare = the prediction | ERCOT
+            split. All render under the active `dataMode` (Error forces congestion). */}
         {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
             enough that the constraint list/table don't wrap without overshooting. */}
         <div className="app-map-area">
@@ -1068,13 +1164,19 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
               Requested {target.kind === "sp" ? "settlement point" : "constraint"} <span className="mono">{target.value}</span> is not present in this map fit/window.
             </div>
           )}
-          {renderedViewMode === "forecastError" ? (
-            <div className="forecast-error-single">{errorPane}</div>
+          {renderedView === "compare" ? (
+            <CompareMap main={forecastPane} right={marketPane} />
           ) : (
-            <CompareMap main={leftPane} right={rightPane} />
+            <div className="map-view-single">
+              {renderedView === "market"
+                ? marketPane
+                : renderedView === "error"
+                ? errorPane
+                : forecastPane}
+            </div>
           )}
           <style>{`
-            .forecast-error-single {
+            .map-view-single {
               width: 100%;
               height: 100%;
               position: relative;
@@ -1111,6 +1213,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
               font-size: var(--fs-md);
               letter-spacing: var(--track-label);
               color: var(--text-primary);
+            }
+            .pane-badge__coord {
+              font-size: var(--fs-label);
+              color: var(--text-muted);
             }
             .pane-badge__meta {
               display: flex;
@@ -1156,31 +1262,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           open={mobileDrawerOpen}
           onClose={() => setMobileDrawerOpen(false)}
         >
-          <section className="mobile-drawer__section">
-            <div className="mobile-drawer__section-title label">Map</div>
-            {overview?.constraints.length ? (
-              <button
-                className={showConstraints ? "active" : ""}
-                onClick={() => setShowConstraints((shown) => !shown)}
-              >
-                Constraints overlay
-              </button>
-            ) : null}
-          </section>
+          {/* The constraints-overlay control lives in the forecast pane's own
+              Legend (0130) — mobile is forced-single onto that pane, so it's
+              already on screen; no duplicate control needed here. */}
           <SidePanel
             {...sidePanelProps}
             variant="drawer"
             loadWindow={mobileLoadWindow}
           />
-          <style>{`
-            .mobile-drawer__section { margin-bottom: 18px; }
-            .mobile-drawer__section-title {
-              display: block;
-              margin-bottom: 8px;
-              color: var(--text-secondary);
-            }
-            .mobile-drawer__section > button { min-height: 38px; }
-          `}</style>
         </MobileDrawer>
       )}
 

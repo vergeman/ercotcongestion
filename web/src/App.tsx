@@ -53,10 +53,11 @@ export default function App() {
           <Header
             activeWorkspace="matrix"
             onNavigate={navigate}
-            viewMode="forecastError"
-            onViewMode={() => {}}
-            palette="congestion"
-            onPalette={() => {}}
+            view="forecast"
+            onView={() => {}}
+            dataMode="congestion"
+            onDataMode={() => {}}
+            marketAvailable={false}
             lastUpdated={lastUpdated}
             connectionState={connectionState}
           />
