@@ -145,9 +145,11 @@ Depends on: none
 * [x] `/analysis/essp` serves explicit study/final hourly membership and typed
       web-client contracts, with tests covering both vintages, missing data,
       and offset-required timestamps.
-* [ ] The v6 node panel collapses ESSP groups to one row with a member count,
-      in forecast-only mode, sourced from the selected study hour. Deferred to
-      `0009-brief-page-v6`.
+* [ ] The v6 node panel collapses to 15 unique delivery-day locations using the
+      documented mode-specific rule: pre-DAM ESSP study for forecast-only, exact
+      price identity after clearing, and an explicit missing-ESSP fallback. The current
+      single peak-hour final/study implementation is a useful display milestone, but
+      does not satisfy this daily-table acceptance. `0009` owns the final page wiring.
 * [ ] The v6 constraint footprint map draws one marker per selected ESSP group.
       Deferred to `0009-brief-page-v6`.
 * [x] `essp_precision` and `essp_recall` are model-only `scoreboard_daily`

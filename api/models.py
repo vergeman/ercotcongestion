@@ -58,6 +58,14 @@ class HeroUnavailableAtHorizonResponse(HeroUnavailableResponse):
     horizon: int
 
 
+class HeroLatestResponse(BaseModel):
+    """Newest delivery day whose v6 Brief tables can stitch their CT window."""
+    available: bool
+    run_id: str
+    delivery_date: date | None = None
+    horizon: int | None = None
+
+
 # ---- /analysis/node and /analysis/path ----------------------------------
 
 class AnalysisContributionTerm(BaseModel):
@@ -182,6 +190,174 @@ class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/top-constraints ------------------------------------------
+
+class TopConstraintRow(BaseModel):
+    """One forecast/settled-union constraint row, ordered by the active phase."""
+    constraint_key: str
+    forecast_rank: int | None = None
+    forecast_total: float
+    forecast_peak: float
+    forecast_hours: int
+    zone: str | None = None
+    kv_max: float | None = None
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    settled_peak: float | None = None
+    settled_hours: int | None = None
+    settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
+
+
+class TopConstraintsAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    rows: list[TopConstraintRow]
+    n_ranked: int
+
+
+class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+# ---- /analysis/context ---------------------------------------------------
+
+class VoltageClassRow(BaseModel):
+    voltage_class: str
+    constraint_keys: int
+    binding_hours: int
+    average_mu: float
+    share_of_mu: float
+
+
+class ChronicElementRow(BaseModel):
+    element: str
+    contingency: str
+    days_bound: int
+    window_days: int = 30
+    usual_total: float
+
+
+class ContextAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["forecast", "settled"]
+    voltage_classes: list[VoltageClassRow]
+    chronic_elements: list[ChronicElementRow]
+
+
+class ContextUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+# ---- /analysis/standouts -------------------------------------------------
+
+class StandoutRow(BaseModel):
+    """One server-selected constraint compared with its own forecast history."""
+    constraint_key: str
+    kind: Literal["forecast_elevated", "chronic_under_called", "settled_elevated"]
+    forecast_total: float
+    forecast_history_median: float
+    forecast_history_days: int
+    chronic_bound_days: int | None = None
+    settled_total: float | None = None
+    zone: str | None = None
+    kv_max: float | None = None
+    forecast_rank: int | None = None
+    forecast_peak: float | None = None
+    forecast_hours: int | None = None
+    settled_rank: int | None = None
+    settled_peak: float | None = None
+    settled_hours: int | None = None
+    settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
+
+
+class NodeStandoutRow(BaseModel):
+    """One anomaly-selected node compared with its own forecast history."""
+    settlement_point: str
+    essp_member_count: int = 1
+    kind: Literal["forecast_elevated", "forecast_depressed", "settled_elevated"]
+    zone: str | None = None
+    forecast_total: float
+    forecast_rank: int | None = None
+    forecast_history_median: float
+    forecast_history_days: int
+    settled_total: float | None = None
+    settled_rank: int | None = None
+    dominant_driver: str | None = None
+    driver_share: float | None = None
+    settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
+
+
+class StandoutsAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["forecast", "settled"]
+    rows: list[StandoutRow]
+    node_rows: list[NodeStandoutRow]
+
+
+class StandoutsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+# ---- /analysis/top-nodes -------------------------------------------------
+
+class TopNodeRow(BaseModel):
+    """One forecast/settled-union nodal row with full-column attribution."""
+    settlement_point: str
+    essp_member_count: int = 1
+    zone: str | None = None
+    forecast_rank: int | None = None
+    forecast_total: float
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    delta: float | None = None
+    dominant_driver: str | None = None
+    driver_share: float | None = None
+    coverage: float | None = None
+    settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
+
+
+class TopNodesAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    rows: list[TopNodeRow]
+    n_ranked: int
+    grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
+
+
+class TopNodesUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /analysis/grade -----------------------------------------------------
 
 class GradeMetricsResponse(BaseModel):
@@ -190,6 +366,20 @@ class GradeMetricsResponse(BaseModel):
     magnitude_overlap: float | None
     timing_daily_skill: float | None
     timing_hourly_skill: float | None
+    top_decile_daily_capture: float | None = None
+    top_decile_hourly_capture: float | None = None
+
+
+class GradeSupportResponse(BaseModel):
+    daily_bound_count: int
+    hourly_bound_count: int
+    forecast_total: float
+    settled_total: float
+    daily_bound_rate: float
+    hourly_bound_rate: float
+    forecast_to_settled_ratio: float | None
+    magnitude_ceiling: float | None
+    magnitude_of_ceiling: float | None
 
 
 class GradeHalfResponse(BaseModel):
@@ -199,6 +389,8 @@ class GradeHalfResponse(BaseModel):
     universe_size: int | None = None
     model: GradeMetricsResponse | None = None
     persistence: GradeMetricsResponse | None = None
+    climatology: GradeMetricsResponse | None = None
+    support: GradeSupportResponse | None = None
 
 
 class GradeAvailableResponse(BaseModel):
@@ -211,6 +403,29 @@ class GradeAvailableResponse(BaseModel):
 
 
 class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+class GradeHistoryHalfResponse(BaseModel):
+    model: GradeMetricsResponse
+    persistence: GradeMetricsResponse
+
+
+class GradeHistoryDayResponse(BaseModel):
+    delivery_date: date
+    constraints: GradeHistoryHalfResponse
+    nodes: GradeHistoryHalfResponse
+
+
+class GradeHistoryAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    days: list[GradeHistoryDayResponse]
+
+
+class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 

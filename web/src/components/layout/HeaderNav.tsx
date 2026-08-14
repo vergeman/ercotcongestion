@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Tooltip from "../ui/Tooltip";
 
-type NavKey = "map" | "matrix" | "scoreboard" | "analysis";
+type NavKey = "map" | "matrix" | "scoreboard" | "brief" | "analysis";
 
 // `reload: true` opts a destination out of client-side routing — its link does a
 // full-page load instead. Everything else routes through the Router (no reload).
@@ -16,7 +16,7 @@ const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean; reload
   { key: "map", label: "Map", href: "/map" },
   { key: "matrix", label: "Matrix", href: "/matrix" },
   { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", reload: true },
-  { key: "analysis", label: "Analysis", href: "/analysis" },
+  { key: "brief", label: "Brief", href: "/" },
 ];
 
 export default function HeaderNav({

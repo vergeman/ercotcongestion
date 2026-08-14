@@ -52,9 +52,11 @@ Depends on: none — coordinate with `0004` on the constraint-key vocabulary
   by the fit, including a near-zero forecast, and reports a requested key absent
   from the fit distinctly rather than manufacturing a zero. It has no legacy
   response shape to preserve; the v6 page is its first consumer.
-* [ ] `0009` wires Standouts and Top Constraints to this query: they render a number
-  where the model priced near zero, and a dash only where the constraint is absent
-  from the fit; the two are visually distinguishable.
+* [ ] `0009` wires Standouts and Top Constraints to full-artifact query reads: they
+  render a number where the model priced near zero, and a dash only where the
+  constraint is absent from the fit; the two are visually distinguishable.
+  `GET /analysis/top-constraints` owns the table ranking while this endpoint
+  remains the key-scoped follow-up slice.
 * [ ] Verify that all 43 chronic-but-uncast elements are represented by the
   2026-07-28 artifact and return forecast values through the query.
 * [ ] `0009` marks this field `real` in the live v6 page's data-status UI. The

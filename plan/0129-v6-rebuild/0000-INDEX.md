@@ -16,8 +16,9 @@ Consequences that shape every sub-plan below:
 * `/` routes to the brief. `web/src/main.tsx` currently sends both `/` and every
   unknown path to `<App />` (the Map) via `path="*"`; that catch-all has to be
   re-pointed deliberately, not left to fall through.
-* `web/src/pages/AnalysisPage.tsx` (1,567 lines) is replaced, not refactored. Its
-  panels map to the old brief blob.
+* `web/src/pages/BriefPage.tsx` is the new entry-point surface. Keep the
+  1,567-line `AnalysisPage.tsx` legacy blob reader on `/analysis` until `0012`;
+  its panels are re-sourced into BriefPage rather than refactored in place.
 * The **`PlaybackScrubber` timeline comes off the brief page** — an hour cursor is the
   wrong control for a page whose unit is a delivery day. **The URL coordinate it reads
   must survive intact** (`0009`); the brief has to keep emitting a well-formed
@@ -79,13 +80,13 @@ sequenced first to stop the bleeding, because there is no bleeding.
    which exists nowhere in `compute/`.
 
 3. `0003-brief-node-rows` — routes the untruncated SF column per settlement
-   point and per pair as `/analysis/node` and `/analysis/path`. `node_drivers`
-   (`compute/sf/project.py:233`) and `pair_contributions`
-   (`compute/analysis/brief.py:56`) are already written and never routed, so the cost is
-   low against what it unblocks: driver attribution, driver share and counterparties on
-   Top Nodal Congestion; the whole Node↔node paths panel; the node row of Forecast Grade
-   (`NODES_GRADEABLE`); and the Standouts materiality gate, which currently stands in
-   with μ-hours until `Σ|SF·μ|` is servable.
+   point as `/analysis/node`. `node_drivers` (`compute/sf/project.py:233`) is
+   already written and never routed, so the cost is low against what it
+   unblocks: driver attribution on Top Nodal Congestion; the node row of
+   Forecast Grade (`NODES_GRADEABLE`); and the Standouts materiality gate, which
+   currently stands in with μ-hours until `Σ|SF·μ|` is servable. The
+   source–sink/path panel is out of scope for v6; no new Brief work depends on
+   `/analysis/path`.
 
    *The alternative ordering is `0003` before `0002`*, and it is defensible — Standouts is the
    heart of the page and the hero is a summary of it. Take it if node attribution
@@ -132,8 +133,8 @@ sequenced first to stop the bleeding, because there is no bleeding.
 
 **Phase 4 — the page.**
 
-9. `0009-brief-page-v6` — replace `AnalysisPage.tsx` with the v6 layout and route `/`
-   to it; un-mount the scrubber from this page only. **`/map` and `/matrix` keep the
+9. `0009-brief-page-v6` — build `BriefPage.tsx` as the v6 layout and route `/`
+   to it; un-mount the scrubber from the Brief only. **`/map` and `/matrix` keep the
    scrubber exactly as today** — this is one page's composition changing, not a
    teardown, and `0128`'s time-coordinate refactor is not touched.
 
@@ -143,13 +144,21 @@ sequenced first to stop the bleeding, because there is no bleeding.
     `?date` is retired; the cursor is the only day source.
 
 11. `0011-hero-map-deeplink` — an inline map in the hero linking into `/map` at the
-    day's window, autoplaying the forecast. Standalone because it adds three URL
-    params (`mapView`, `data`, `autoplay`) that have no reader today. This is the
-    entire product for a reader who does not know what a shadow price is.
+    day's window, autoplaying the forecast. It also provides the selected-element
+    handoff used by the Brief's detail-panel sidebar. Standalone because it adds URL
+    state (`mapView`, `data`, `autoplay`, and selected element) that has no reader
+    today. This is the entire product for a reader who does not know what a shadow
+    price is.
+
+12. `0013-brief-detail-panel` — shared sliding detail panel for Standouts and the
+    ranked tables. It gives a selected constraint/node a small abstract geolocated map,
+    mode-appropriate evidence, and the sidebar-owned element-aware Map action. Separate
+    from `0009` so page composition/data contracts can land before the interaction and
+    focus-state work.
 
 **Phase 5 — teardown.**
 
-12. `0012-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
+13. `0012-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
     reads it: `build_brief`, `after_action`, the brief jobs, `analysis_brief`, and the
     `/analysis/brief` endpoints. Keep `load_sp_metadata` and the `brief.py` primitives
     `0003` routes; audit `families.py` per function rather than deleting the file.

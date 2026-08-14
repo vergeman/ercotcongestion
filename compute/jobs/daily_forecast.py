@@ -44,6 +44,7 @@ from compute.jobs.grade_day import (
     persist_grades,
     resolve_gradeable_date,
 )
+from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
 from compute.mu.features import ERCOT_TZ, build_panel
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
@@ -514,6 +515,9 @@ def _grade_latest(conn, run_id: str, horizon: int = 1) -> "pd.Timestamp | None":
         rows = grade_day(conn, D, run_id=run_id, horizon=horizon)
         n = persist_grades(conn, run_id, D, rows, horizon)
         conn.commit()
+        if not materialize_brief_grade(conn, run_id, D.date(), horizon):
+            log.warning("live grade: Brief v6 history skipped for %s (run_id=%s horizon=%d)",
+                        D.date(), run_id, horizon)
         log.info("live grade: scoreboard_daily <- %d rows for %s (run_id=%s "
                  "horizon=%d)", n, D.date(), run_id, horizon)
         return D

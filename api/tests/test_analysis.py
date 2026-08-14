@@ -74,6 +74,25 @@ def test_hero_soft_fails_when_no_artifact_exists(client, fake_pool):
                     "run_id": "run-x", "delivery_date": "2026-07-28"}
 
 
+def test_hero_latest_uses_only_days_with_the_following_utc_artifact(client, fake_pool):
+    fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 28), "horizon": 1}])
+
+    body = client.get("/analysis/hero/latest?run_id=run-x").json()
+
+    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1}
+    sql, params = fake_pool.cursor.queries[-1]
+    assert "following.delivery_date = current.delivery_date + 1" in sql
+    assert params == ("run-x",)
+
+
+def test_hero_latest_soft_fails_without_a_complete_stitched_day(client, fake_pool):
+    fake_pool.cursor.queue([])
+
+    assert client.get("/analysis/hero/latest?run_id=run-x").json() == {
+        "available": False, "run_id": "run-x", "delivery_date": None, "horizon": None,
+    }
+
+
 def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
     schema = client.app.openapi()["paths"]["/analysis/hero"]["get"]["responses"]["200"]
     names = {item["$ref"].rsplit("/", 1)[-1] for item in schema["content"]["application/json"]
@@ -92,6 +111,65 @@ def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, m
     first = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
     second = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
     assert first.content == second.content
+
+
+def test_joined_top_keys_orders_dam_leaders_then_forecast_only_leaders():
+    forecast = pd.Index(["forecast-1", "both", "forecast-3", "forecast-4"])
+    settled = pd.Index(["settled-1", "both", "settled-3"])
+
+    assert analysis_module._joined_top_keys(
+        forecast, settled, k=3, settled_available=False,
+    ) == ["forecast-1", "both", "forecast-3"]
+    assert analysis_module._joined_top_keys(
+        forecast, settled, k=3, settled_available=True,
+    ) == ["settled-1", "both", "settled-3", "forecast-1", "forecast-3"]
+
+
+def test_standouts_compare_forecast_to_own_forecast_history_and_keep_dam_as_evidence():
+    rows = analysis_module._standout_rows(
+        pd.Series({"ELEVATED": 300.0, "CHRONIC": 10.0, "ORDINARY": 100.0}),
+        {
+            "ELEVATED": [100.0] * 30,
+            "CHRONIC": [100.0] * 30,
+            "ORDINARY": [100.0] * 30,
+        },
+        {"CHRONIC": 28},
+        pd.Series({"ELEVATED": 250.0, "CHRONIC": 400.0}),
+        k=1,
+    )
+
+    assert [row.constraint_key for row in rows] == ["ELEVATED", "CHRONIC"]
+    assert [row.kind for row in rows] == ["forecast_elevated", "chronic_under_called"]
+    assert rows[0].settled_total == 250.0
+    assert rows[1].settled_total == 400.0
+
+
+def test_settled_standouts_append_only_dam_surprises_not_already_shown_forecasts():
+    keys = analysis_module._settled_standout_keys(
+        pd.Series({"FORECAST_ROW": 500.0, "DAM_SURPRISE": 300.0, "ORDINARY": 110.0}),
+        {
+            "FORECAST_ROW": [100.0] * 30,
+            "DAM_SURPRISE": [100.0] * 30,
+            "ORDINARY": [100.0] * 30,
+        },
+        {"FORECAST_ROW"}, k=3,
+    )
+
+    assert keys == ["DAM_SURPRISE"]
+
+
+def test_settled_node_standouts_append_dam_surprises_not_forecast_rows():
+    keys = analysis_module._settled_node_standout_keys(
+        pd.Series({"FORECAST_NODE": 50.0, "DAM_NODE": -40.0, "ORDINARY": 11.0}),
+        {
+            "FORECAST_NODE": [10.0] * 30,
+            "DAM_NODE": [10.0] * 30,
+            "ORDINARY": [10.0] * 30,
+        },
+        {"FORECAST_NODE"}, k=3,
+    )
+
+    assert keys == ["DAM_NODE"]
 
 
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
@@ -225,18 +303,46 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     assert body["constraints"] == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "climatology": None,
+        "support": None,
     }
     assert body["nodes"] == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
         "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34},
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "climatology": None,
+        "support": None,
     }
     assert "grade" not in body
+
+
+def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
+    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
+    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2,
+              "model": metrics, "persistence": metrics, "climatology": None, "support": None}
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([
+        {"subject": "constraints", "detail": detail},
+        {"subject": "nodes", "detail": detail},
+    ])
+    monkeypatch.setattr(analysis_module, "_grade_constraint_profiles",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
+
+    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body["constraints"] == detail
+    assert body["nodes"] == detail
 
 
 def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
@@ -246,6 +352,56 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
 
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": None}
+
+
+def test_grade_history_returns_only_materialized_days_with_both_subjects(client, fake_pool):
+    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([
+        {"delivery_date": date(2026, 7, 26), "subject": "constraints",
+         "model": metrics, "persistence": metrics},
+        {"delivery_date": date(2026, 7, 26), "subject": "nodes",
+         "model": metrics, "persistence": metrics},
+        {"delivery_date": date(2026, 7, 27), "subject": "constraints",
+         "model": metrics, "persistence": metrics},
+    ])
+
+    body = client.get("/analysis/grade-history?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
+                    "horizon": 1, "days": [{"delivery_date": "2026-07-26",
+                    "constraints": {"model": metrics, "persistence": metrics},
+                    "nodes": {"model": metrics, "persistence": metrics}}]}
+
+
+def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):
+    hours = pd.date_range("2026-07-28T05:00Z", periods=2, freq="h")
+    forecast = pd.DataFrame({"HIGH|BASE": [3.0, 2.0], "LOW|BASE": [0.01, 0.0]}, index=hours)
+    settled = pd.DataFrame({"HIGH|BASE": [4.0, 0.0]}, index=hours)
+    fake_pool.cursor.queue([{"h": 1}])
+    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: settled)
+
+    body = client.get("/analysis/top-constraints?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body == {
+        "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
+        "n_ranked": 2,
+        "rows": [
+            {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
+             "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
+             "settled_peak": 4.0, "settled_hours": 1, "settled_history_p10": None, "settled_history_p25": None,
+             "settled_history_p50": None, "settled_history_p75": None,
+             "settled_history_p90": None, "settled_history": [0.0] * 30},
+            {"constraint_key": "LOW|BASE", "forecast_rank": 2, "forecast_total": 0.01,
+             "forecast_peak": 0.01, "forecast_hours": 1, "zone": None, "kv_max": None, "settled_rank": None, "settled_total": None,
+             "settled_peak": None, "settled_hours": None, "settled_history_p10": None, "settled_history_p25": None,
+             "settled_history_p50": None, "settled_history_p75": None,
+             "settled_history_p90": None, "settled_history": [0.0] * 30},
+        ],
+    }
 
 
 def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkeypatch):
@@ -272,6 +428,8 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
 
     assert grade is not None
     assert grade.model.detection_ap == 1.0
+    assert grade.model.top_decile_daily_capture == 1.0
+    assert grade.model.top_decile_hourly_capture == 1.0
     assert grade.model.timing_daily_skill == 1.0
 
 

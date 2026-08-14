@@ -1,30 +1,30 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import ScoreboardPage from './pages/ScoreboardPage.tsx'
 import AnalysisPage from './pages/AnalysisPage.tsx'
+import BriefPage from './pages/BriefPage.tsx'
 import { ExplorerLayout } from './hooks/useSharedExplorer'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* ExplorerLayout mounts one shared live session (ExplorerProvider) and
-            stays mounted while you navigate among its child routes — so the
-            window/cursor/data survive the Map ↔ Matrix ↔ Analysis hop instead of
-            refetching. App still hosts both Map and Matrix and switches by
-            pathname, keeping the Map mounted across /map ↔ /matrix; `*` keeps the
-            root and unknown paths on the Map. Scoreboard is a sibling, outside
-            the shared session. */}
+        {/* The Brief reads the shared URL coordinate directly, but intentionally
+            does not mount the explorer session or its playback transport. */}
+        <Route path="/" element={<BriefPage />} />
+        {/* Map and Matrix keep their shared live session and scrubber. */}
         <Route element={<ExplorerLayout />}>
           <Route path="/map" element={<App />} />
           <Route path="/matrix" element={<App />} />
+          {/* Kept intact until 0012 deletes the legacy blob reader. */}
           <Route path="/analysis" element={<AnalysisPage />} />
-          <Route path="*" element={<App />} />
         </Route>
         <Route path="/scoreboard" element={<ScoreboardPage />} />
+        {/* Unknown locations deliberately return to the product entry point. */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

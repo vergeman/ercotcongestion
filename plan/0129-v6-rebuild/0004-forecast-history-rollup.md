@@ -53,7 +53,11 @@ Depends on: `0002` (widens its magnitude slot)
 
 ## Acceptance
 
-* [x] Backfill produces one row per (day, constraint) over available artifact history; row count matches `n_constraints` per day, not the cast size.
+* [ ] Production backfill produces one row per (day, constraint) over available
+      artifact history; row count matches `n_constraints` per day, not the cast size.
+      **Progress 2026-08-13:** horizon-1 was backfilled for the 30-day Standouts
+      window, 2026-07-13 through 2026-08-11 (30,858 rows). The broader available
+      artifact history remains to be backfilled.
 * [x] The daily tick appends the published day, and a failure there leaves the forecast published (test by forcing an exception).
 * [x] `0002`'s magnitude slot reports an explicit forecast-history basis over
   `artifact_keys`, with a forecast-vs-forecast rank.

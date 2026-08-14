@@ -6,16 +6,17 @@ Depends on: none
 
 ## Goal
 
+> Scope update (2026-08-13): source–sink pairs are no longer a v6 Brief panel.
+> The existing `/analysis/path` work remains an API primitive to audit at
+> teardown, but this plan has no pending Brief UI or acceptance work for it.
+
 * Serve the **untruncated SF column** for a settlement point — every constraint
   acting on it, not the ones that happened to rank top-5 somewhere — as a
   read-time slice over the already-cached day artifact.
-* Serve the same slice for a **node pair** (`β = SF[:,a] − SF[:,b]`), so a path's
-  driver decomposition reconciles exactly to its spread.
 * Serve both on a `predicted | realized` μ basis, so the brief's forecast and
   DAM-settled columns are decomposed the same way.
-* Replace the brief panel's dominant-driver, purity, and counterparty columns
-  with values computed from the full column, and record the coverage ratio that
-  proves it.
+* Replace the brief panel's dominant-driver column with values computed from the
+  full column, and record the coverage ratio that proves it.
 
 ## Context
 
@@ -204,9 +205,11 @@ Depends on: none
 * [x] Matrix's exact-hour DAM μ and a one-hour `basis=realized` node/path read
       share one canonical-key, non-DST-preferred loader; a missing DAM key stays
       visibly unmatched in Matrix but contributes zero to full-column arithmetic.
-* [ ] Node panel's dominant-driver column changes for at least one row versus the
-      truncated derivation, and the diff is explained by a constraint that was
-      never in that node's payload.
+* [x] The v6 node panel reads full-column daily attribution: zone, dominant
+      driver, its gross-share, realized coverage, forecast/settled rank and
+      delta are server-derived rather than legacy brief-row fields. The 2026-08-12
+      local production slice, for example, reports OLNEYTN_AGR1's dominant driver
+      as `6830__B|SGRMGRS8` at 44% gross share and 98% realized coverage.
 * [ ] Driver share in the node-pair panel is recomputed over full β; the
       previously top-ranked pair either survives or the write-up records why it
       did not. `MCSES_UNIT6` no longer appears as sink in a majority of pairs

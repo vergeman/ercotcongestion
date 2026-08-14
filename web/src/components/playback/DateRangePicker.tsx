@@ -1,10 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { subDays, subHours } from "date-fns";
 import type { CuratedEvent } from "../../lib/events";
 import { ctInputToUtc, utcToCTInputString } from "../../lib/time";
 
 interface Props {
-  onLoad: (start: Date, end: Date) => void;
+  onLoad?: (start: Date, end: Date) => void;
+  // The Brief uses the same popover and curated-event list, but a delivery day
+  // is one CT calendar date rather than a rolling range.
+  singleDate?: boolean;
+  onLoadDate?: (date: string) => void;
+  selectedDate?: string | null;
   onSelectEvent?: (event: CuratedEvent) => void;
   events?: CuratedEvent[];
   activeEventId?: string | null;
@@ -37,6 +42,9 @@ const PRESETS = [
 
 export default function DateRangePicker({
   onLoad,
+  singleDate = false,
+  onLoadDate,
+  selectedDate,
   onSelectEvent,
   events,
   activeEventId,
@@ -48,18 +56,30 @@ export default function DateRangePicker({
     utcToCTInputString(subDays(new Date(), 1))
   );
   const [endStr, setEndStr] = useState(() => utcToCTInputString(new Date()));
+  const [dateStr, setDateStr] = useState(() => utcToCTInputString(new Date()).slice(0, 10));
+
+  // The Brief's selected delivery day is URL-owned. Keep its date field in
+  // step when navigation or a curated event changes that coordinate elsewhere.
+  useEffect(() => {
+    if (singleDate && selectedDate) setDateStr(selectedDate);
+  }, [singleDate, selectedDate]);
 
   const handlePreset = (start: () => Date, end: () => Date) => {
     const s = start();
     const e = end();
     setStartStr(utcToCTInputString(s));
     setEndStr(utcToCTInputString(e));
-    onLoad(s, e);
+    onLoad?.(s, e);
     setOpen(false);
   };
 
   const handleCustomLoad = () => {
-    onLoad(ctInputToUtc(startStr), ctInputToUtc(endStr));
+    onLoad?.(ctInputToUtc(startStr), ctInputToUtc(endStr));
+    setOpen(false);
+  };
+
+  const handleDateLoad = () => {
+    onLoadDate?.(dateStr);
     setOpen(false);
   };
 
@@ -69,8 +89,8 @@ export default function DateRangePicker({
   };
 
   return (
-    <div className={`drp${inline ? " drp--inline" : ""}`}>
-      {!inline && <button onClick={() => setOpen((o) => !o)}>📅 Load Window</button>}
+    <div className={`drp${inline ? " drp--inline" : ""}${singleDate ? " drp--date" : ""}`}>
+      {!inline && <button onClick={() => setOpen((o) => !o)}>📅 Load {singleDate ? "Date" : "Window"}</button>}
 
       {(inline || open) && (
         <div className="drp__dropdown">
@@ -105,39 +125,40 @@ export default function DateRangePicker({
             </div>
           )}
 
-          <div className="label drp__section-label">Recent</div>
-          <div className="drp__presets">
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                onClick={() => handlePreset(p.start, p.end)}
-                disabled={loading}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          {!singleDate && <>
+            <div className="label drp__section-label">Recent</div>
+            <div className="drp__presets">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => handlePreset(p.start, p.end)}
+                  disabled={loading}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </>}
 
-          <div className="label drp__section-label">Custom range (CT)</div>
+          <div className="label drp__section-label">{singleDate ? "Date (CT)" : "Custom range (CT)"}</div>
           <div className="drp__custom">
-            <div className="drp__row">
-              <span className="label">Start (CT)</span>
-              <input
-                type="datetime-local"
-                value={startStr}
-                onChange={(e) => setStartStr(e.target.value)}
-              />
-            </div>
-            <div className="drp__row">
-              <span className="label">End (CT)</span>
-              <input
-                type="datetime-local"
-                value={endStr}
-                onChange={(e) => setEndStr(e.target.value)}
-              />
-            </div>
+            {singleDate ? (
+              <div className="drp__row">
+                <span className="label">Delivery date (CT)</span>
+                <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} />
+              </div>
+            ) : <>
+              <div className="drp__row">
+                <span className="label">Start (CT)</span>
+                <input type="datetime-local" value={startStr} onChange={(e) => setStartStr(e.target.value)} />
+              </div>
+              <div className="drp__row">
+                <span className="label">End (CT)</span>
+                <input type="datetime-local" value={endStr} onChange={(e) => setEndStr(e.target.value)} />
+              </div>
+            </>}
             <button
-              onClick={handleCustomLoad}
+              onClick={singleDate ? handleDateLoad : handleCustomLoad}
               disabled={loading}
               className="drp__load-btn"
             >
@@ -164,6 +185,7 @@ export default function DateRangePicker({
           max-height: 90vh;
           overflow-y: auto;
         }
+        .drp--date .drp__dropdown { top: 100%; bottom: auto; margin: 4px 0 0; }
         .drp__close {
           position: absolute;
           top: 6px;
