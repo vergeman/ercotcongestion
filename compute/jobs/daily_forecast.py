@@ -37,7 +37,6 @@ from compute.jobs.backfill_nodal import (
     persist_sf_mu_artifact,
     upsert_pointer,
 )
-from compute.jobs.daily_brief import compute_brief, persist_brief
 from compute.jobs.forecast_history import load_artifact, persist_rollup
 from compute.jobs.grade_day import (
     grade_day,
@@ -528,41 +527,6 @@ def _grade_latest(conn, run_id: str, horizon: int = 1) -> "pd.Timestamp | None":
         return None
 
 
-def _brief_latest(conn, run_id: str, published: "pd.Timestamp", horizon: int,
-                  graded: "pd.Timestamp | None" = None) -> None:
-    """Build the Analysis brief in the same tick, on THIS horizon's track (0124).
-
-    Two upserts into ``analysis_brief`` (keyed run_id, delivery_date, horizon — the
-    same scope as the artifact and the scoreboard, so the h1 and h2 tracks are
-    independent and neither clobbers the other):
-
-      * ``published`` — the day this tick just forecast: the forward, forecast-basis
-        brief the Analysis home serves for the coming day (no after-action yet);
-      * ``graded`` — the realized day ``_grade_latest`` just graded: re-briefed so F6
-        after-action fills now that its DAM has landed (the same "re-run in the
-        grading tick" pattern as grade_day; the upsert makes it idempotent).
-
-    Non-fatal by contract, exactly like ``_grade_latest``: the forecast is already
-    published and committed, so a brief failure must not fail the publish or move
-    the pointer. Each day is its own transaction, so one failing can't sink the
-    other, and the next tick re-runs both (a no-op refresh when nothing changed).
-    """
-    days = [published]
-    if graded is not None and graded.date() != published.date():
-        days.append(graded)
-    for D in days:
-        try:
-            brief = compute_brief(conn, run_id, D.date(), horizon)
-            persist_brief(conn, run_id, D.date(), horizon, brief)
-            conn.commit()
-            log.info("brief: analysis_brief <- %s (run_id=%s horizon=%d)",
-                     D.date(), run_id, horizon)
-        except Exception:
-            conn.rollback()
-            log.exception("brief step failed for %s (non-fatal; forecast already "
-                          "published for this tick)", D.date())
-
-
 def _forecast_history_latest(conn, run_id: str, published: "pd.Timestamp",
                              horizon: int) -> None:
     """Append the just-published day's queryable forecast history, fail-soft.
@@ -641,11 +605,6 @@ def main(argv: list[str] | None = None) -> int:
                         "realized served day in the same run (no separate job); "
                         "pass this for a forecast-only backfill of a future/today "
                         "day whose realized has not published yet")
-    p.add_argument("--no-brief", action="store_true",
-                   help="skip the Analysis brief step that normally follows a "
-                        "--to-db publish (0124). The tick briefs the day it just "
-                        "published on this horizon track, and re-briefs the day it "
-                        "just graded to fill after-action; both are non-fatal")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -681,15 +640,9 @@ def main(argv: list[str] | None = None) -> int:
             # fit's working set first so the two peaks don't sum on a 16Gi node.
             del result
             gc.collect()
-            graded = None
             if not args.no_grade:
-                graded = _grade_latest(conn, args.run_id, args.horizon)
+                _grade_latest(conn, args.run_id, args.horizon)
             _forecast_history_latest(conn, args.run_id, D, args.horizon)
-            # Brief in the same tick (0124): the forward brief for the day just
-            # published on this horizon track, plus an after-action re-brief of the
-            # day grade_latest just realized. Non-fatal, so it never sinks a publish.
-            if not args.no_brief:
-                _brief_latest(conn, args.run_id, D, args.horizon, graded=graded)
         else:
             log.info("dry run (--to-db not set): nothing written, pointer unchanged")
     return 0
