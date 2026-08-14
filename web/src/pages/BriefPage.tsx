@@ -109,10 +109,10 @@ function TopConstraintsPanel({ data, loading, settled }: { data: TopConstraints 
       {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked forecast constraints are available for this delivery day.</p>}
       {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
         <table className="an-table an-table--constraints">
-          <colgroup><col className="an-col-rank" /><col className="an-col-constraint" /><col className="an-col-zone" /><col className="an-col-kv" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /></colgroup>
+          <colgroup><col className="an-col-rank" /><col className="an-col-constraint" /><col className="an-col-zone" /><col className="an-col-kv" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /><col className="an-col-history" /></colgroup>
           <thead>
-            <tr className="an-table__groups"><th colSpan={4} /><th className="an-table__forecast" colSpan={3}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th>30-day history</th></tr>
-            <tr><th>#</th><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th>{settled && <><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th></>}<th>Σ<span className="an-table__mu">μ</span> p10–p90</th></tr>
+            <tr className="an-table__groups"><th colSpan={4} /><th className="an-table__forecast" colSpan={3}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th colSpan={2}>30-day history</th></tr>
+            <tr><th>#</th><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th>{settled && <><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th></>}<th>Σ<span className="an-table__mu">μ</span> p10–p90</th><th>Σ<span className="an-table__mu">μ</span> each day</th></tr>
           </thead>
           <tbody>{data.rows.map((row, index) => <tr key={row.constraint_key}>
             <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
@@ -121,7 +121,8 @@ function TopConstraintsPanel({ data, loading, settled }: { data: TopConstraints 
             <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
             <td>{row.forecast_rank ?? "—"}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
-            <td className="an-table__history">—</td>
+            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table>
       </div>}
@@ -142,10 +143,10 @@ function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; load
       {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked nodal congestion is available for this delivery day.</p>}
       {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
         <table className="an-table an-table--nodes">
-          <colgroup><col className="an-col-rank" /><col className="an-col-node" /><col className="an-col-zone" /><col className="an-col-driver" /><col className="an-col-share" /><col className="an-col-share" /><col className="an-col-rank" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /></colgroup>
+          <colgroup><col className="an-col-rank" /><col className="an-col-node" /><col className="an-col-zone" /><col className="an-col-driver" /><col className="an-col-share" /><col className="an-col-share" /><col className="an-col-rank" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /><col className="an-col-history" /></colgroup>
           <thead>
-            <tr className="an-table__groups"><th colSpan={6} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th>30-day history</th></tr>
-            <tr><th>#</th><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Share</th><th>Coverage</th><th>Rank</th><th>7×16 $/MWh</th>{settled && <><th className="an-table__split">Rank</th><th>7×16 $/MWh</th><th>Δ</th></>}<th>$/MWh p10–p90</th></tr>
+            <tr className="an-table__groups"><th colSpan={6} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th colSpan={2}>30-day history</th></tr>
+            <tr><th>#</th><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Share</th><th>Coverage</th><th>Rank</th><th>7×16 $/MWh</th>{settled && <><th className="an-table__split">Rank</th><th>7×16 $/MWh</th><th>Δ</th></>}<th>$/MWh p10–p90</th><th>$/MWh each day</th></tr>
           </thead>
           <tbody>{data.rows.map((row, index) => <tr key={row.settlement_point}>
             <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
@@ -157,7 +158,8 @@ function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; load
             <td>{row.forecast_rank ?? "—"}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
             <td className={row.delta == null ? "" : row.delta >= 0 ? "an-table__positive" : "an-table__negative"}>{row.delta == null ? "—" : usd(row.delta, 2)}</td></>}
-            <td className="an-table__history">—</td>
+            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table>
       </div>}

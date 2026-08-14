@@ -762,6 +762,9 @@ export interface TopConstraintRow {
   settled_total: number | null;
   settled_peak: number | null;
   settled_hours: number | null;
+  settled_history_p10: number | null;
+  settled_history_p90: number | null;
+  settled_history: number[];
 }
 
 export interface TopConstraints {
@@ -835,6 +838,9 @@ export interface TopNodeRow {
   dominant_driver: string | null;
   driver_share: number | null;
   coverage: number | null;
+  settled_history_p10: number | null;
+  settled_history_p90: number | null;
+  settled_history: number[];
 }
 
 export interface TopNodes {

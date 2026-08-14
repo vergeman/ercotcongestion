@@ -205,6 +205,9 @@ class TopConstraintRow(BaseModel):
     settled_total: float | None = None
     settled_peak: float | None = None
     settled_hours: int | None = None
+    settled_history_p10: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
 
 
 class TopConstraintsAvailableResponse(BaseModel):
@@ -291,6 +294,9 @@ class TopNodeRow(BaseModel):
     dominant_driver: str | None = None
     driver_share: float | None = None
     coverage: float | None = None
+    settled_history_p10: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
 
 
 class TopNodesAvailableResponse(BaseModel):

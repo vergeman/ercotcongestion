@@ -323,6 +323,25 @@ def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[s
     return result
 
 
+def _settled_constraint_history(cur, delivery_date: date) -> dict[str, list[float]]:
+    """Trailing 30 Chicago delivery-day Σμ series, including quiet zero days."""
+    start, _ = delivery_bounds(delivery_date - timedelta(days=30))
+    end, _ = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+        "(interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date, sum(abs(shadow_price)) AS total "
+        "FROM ercot_dam_shadow_prices WHERE interval_ts >= %s AND interval_ts < %s "
+        "AND shadow_price IS NOT NULL "
+        "GROUP BY constraint_name, contingency_name, (interval_ts AT TIME ZONE 'America/Chicago')::date",
+        (start, end),
+    )
+    by_day: dict[str, dict[date, float]] = {}
+    for row in cur.fetchall():
+        by_day.setdefault(str(row["constraint_key"]), {})[row["delivery_date"]] = float(row["total"])
+    days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
+    return {key: [values.get(day, 0.0) for day in days] for key, values in by_day.items()}
+
+
 def _settled_node_standout_keys(
     settled_total: pd.Series,
     histories: dict[str, list[float]],
@@ -778,6 +797,7 @@ def get_top_constraints(
                 delivery_date=delivery_date, horizon=horizon,
             )
         settled = _settled_mu_profile(cur, delivery_date)
+        settled_histories = _settled_constraint_history(cur, delivery_date)
 
         cur.execute(
             "SELECT constraint_key, zone_shares, kv_max FROM constraint_geo "
@@ -800,6 +820,8 @@ def get_top_constraints(
         settled_values = settled[key].dropna() if key in settled else None
         geo = geography.get(str(key), {})
         shares = geo.get("zone_shares") or {}
+        historical = settled_histories.get(str(key), [0.0] * 30)
+        nonzero_historical = [value for value in historical if value > 0.0]
         rows.append(TopConstraintRow(
             constraint_key=str(key), forecast_rank=forecast_ranks.get(str(key)),
             forecast_total=float(forecast_mass.get(key, 0.0)),
@@ -812,6 +834,9 @@ def get_top_constraints(
             settled_peak=(None if settled_values is None or settled_values.empty
                           else float(settled_values.abs().max())),
             settled_hours=(None if settled_values is None else int(settled_values.ne(0.0).sum())),
+            settled_history_p10=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1))),
+            settled_history_p90=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9))),
+            settled_history=historical,
         ))
     return TopConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
@@ -1078,6 +1103,8 @@ def get_top_nodes(
         pd.Index([sp for _, sp, _ in unique_ranked]), pd.Index(settled_unique),
         k=k, settled_available=bool(settled),
     )
+    with get_pool().connection() as history_conn, history_conn.cursor(row_factory=dict_row) as history_cur:
+        settled_histories = _settled_node_history(history_cur, delivery_date, visible_nodes)
     group_member_counts = {sp: count for _, sp, count in unique_ranked}
     rows: list[TopNodeRow] = []
     for sp in visible_nodes:
@@ -1086,6 +1113,7 @@ def get_top_nodes(
         gross = float(terms.abs().sum())
         settled_total = settled_grouped.get(str(sp))
         realized_total = None if realized_terms is None else float(realized_terms[sp].sum())
+        historical = settled_histories.get(str(sp), [0.0] * 30)
         rows.append(TopNodeRow(
             settlement_point=str(sp), essp_member_count=essp_member_count,
             zone=metadata[str(sp)].get("load_zone"),
@@ -1096,6 +1124,9 @@ def get_top_nodes(
             dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
             driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
             coverage=(None if settled_total in (None, 0.0) else realized_total / settled_total),
+            settled_history_p10=float(pd.Series(historical).quantile(0.1)),
+            settled_history_p90=float(pd.Series(historical).quantile(0.9)),
+            settled_history=historical,
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
                                      horizon=horizon, rows=rows, n_ranked=len(unique_ranked))
