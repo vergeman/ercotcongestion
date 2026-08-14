@@ -15,14 +15,17 @@ export default function App() {
     routerNavigate({ pathname: next === "map" ? "/map" : "/matrix", search });
   }, [location.search, routerNavigate]);
   // A workspace's selection search (matrixSearch / mapTargetSearch) carries only
-  // its own keys and would otherwise clobber the shared time coordinate. Merge
-  // the coordinate (t / ws / we / span / run) from the current URL back on top
-  // of any selection change before navigating.
+  // its own keys and would otherwise clobber the shared time coordinate. Patch
+  // in the coordinate (t / ws / we / span / run) plus the Map's view/data axes
+  // (0131) from the current URL — but only where `selectionSearch` doesn't
+  // already have an opinion, so an explicit view/data change (MapWorkspace's own
+  // view-sync effect) isn't immediately overwritten by the value it's replacing.
   const withCoord = useCallback(
     (selectionSearch: string) => {
       const out = new URLSearchParams(selectionSearch);
       const cur = new URLSearchParams(location.search);
-      for (const k of ["t", "ws", "we", "span", "run"]) {
+      for (const k of ["t", "ws", "we", "span", "run", "view", "data"]) {
+        if (out.has(k)) continue;
         const v = cur.get(k);
         if (v) out.set(k, v);
       }

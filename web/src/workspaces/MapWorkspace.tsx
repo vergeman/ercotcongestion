@@ -43,7 +43,13 @@ import SidePanel, {
   type NetworkStats,
 } from "../components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
-import { type MapTarget, parseMapTarget, mapTargetSearch } from "../lib/mapLinks";
+import {
+  type MapTarget,
+  parseMapTarget,
+  mapTargetSearch,
+  parseMapViewState,
+  mapViewStateParams,
+} from "../lib/mapLinks";
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 
@@ -115,12 +121,37 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // active — never `market`/`compare`/`error` (no room for two panes, and the
   // realized-only/error layouts read the operator's own vantage, not a
   // reader's).
-  const [view, setView] = useState<MapView>("forecast");
+  // Seeded from the URL (0131): a deep link (the Brief hero, a shared /map
+  // link) lands directly on the requested view/data rather than always
+  // opening on the shipped default and reconciling after. `parseMapViewState`
+  // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
+  // congestion), so this is never an unreachable combination.
+  const [view, setView] = useState<MapView>(() => parseMapViewState(routeSearch).view);
   const renderedView: MapView = isMobile ? "forecast" : view;
-  const [dataMode, setDataMode] = useState<MapDataMode>("congestion");
+  const [dataMode, setDataMode] = useState<MapDataMode>(() => parseMapViewState(routeSearch).data);
   // Data selection held from before entering Error, so leaving it restores
   // rather than defaulting back to congestion.
   const prevDataModeRef = useRef<MapDataMode>("congestion");
+
+  // Mirror view/dataMode into the URL (0131), the same read/write-through-the-
+  // URL convention the constraint/sp selection already follows. Fires for both
+  // a manual Header click and the no-settled-data downgrade effect further
+  // below — whatever changed the local axis — and carries the current
+  // selection forward explicitly (App's `withCoord` only fills in the shared
+  // coordinate, not constraint/sp, so a selection would otherwise be dropped
+  // by a view-only change). Guarded against the URL already agreeing, so it
+  // doesn't fire redundantly on mount or fight an inbound deep link.
+  useEffect(() => {
+    const current = parseMapViewState(routeSearch);
+    if (current.view === view && current.data === dataMode) return;
+    const params = mapViewStateParams({ view, data: dataMode });
+    if (target) params.set(target.kind, target.value);
+    onSelectionRouteChange(`?${params.toString()}`);
+    // Only the axes themselves should trigger a push; routeSearch/target
+    // reflect the URL this effect writes to and reading them here isn't a
+    // signal to re-run.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, dataMode]);
   const {
     timestamps, currentIndex, loading, connectionState: connState,
     setConnectionState: setConnState, lastUpdated, activeEventId,
