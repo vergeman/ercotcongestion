@@ -116,7 +116,7 @@ function TopConstraintsPanel({ data, loading, settled }: { data: TopConstraints 
           </thead>
           <tbody>{data.rows.map((row, index) => <tr key={row.constraint_key}>
             <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
-            <td><Link to={`/map${window.location.search}`}>{row.constraint_key}</Link></td>
+            <td>{settled && (row.forecast_rank == null || row.forecast_rank > 15) && <span className="an-standouts__asterisk">*</span>}<Link to={`/map${window.location.search}`}>{row.constraint_key}</Link></td>
             <td>{zoneLabel(row.zone)}</td>
             <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
             <td>{row.forecast_rank ?? "—"}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
@@ -149,7 +149,7 @@ function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; load
           </thead>
           <tbody>{data.rows.map((row, index) => <tr key={row.settlement_point}>
             <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
-            <td><Link to={`/map${window.location.search}`}>{row.settlement_point}{row.essp_member_count > 1 && <sup>≈{row.essp_member_count}</sup>}</Link></td>
+            <td>{settled && (row.forecast_rank == null || row.forecast_rank > 15) && <span className="an-standouts__asterisk">*</span>}<Link to={`/map${window.location.search}`}>{row.settlement_point}{row.essp_member_count > 1 && <sup>≈{row.essp_member_count}</sup>}</Link></td>
             <td>{zoneLabel(row.zone)}</td>
             <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)}</td>
             <td>{percent(row.driver_share)}</td>

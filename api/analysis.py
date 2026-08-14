@@ -950,6 +950,11 @@ def get_standouts(
                                     else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.9))),
             "settled_history": node_settled_histories[row.settlement_point],
         }) for row in node_rows]
+        if settled_available:
+            node_rows.sort(key=lambda row: (
+                row.settled_rank is None, row.settled_rank if row.settled_rank is not None else float("inf"),
+                row.forecast_rank if row.forecast_rank is not None else float("inf"),
+            ))
     forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(ascending=False, kind="stable")
     settled_ranked = settled_total[settled_total > 0.0].sort_values(ascending=False, kind="stable")
     forecast_ranks = {str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)}
@@ -984,6 +989,11 @@ def get_standouts(
             "settled_history_p90": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9)),
             "settled_history": historical,
         }))
+    if settled_available:
+        rows.sort(key=lambda row: (
+            row.settled_rank is None, row.settled_rank if row.settled_rank is not None else float("inf"),
+            row.forecast_rank if row.forecast_rank is not None else float("inf"),
+        ))
     return StandoutsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         basis="settled" if settled_available else "forecast",
