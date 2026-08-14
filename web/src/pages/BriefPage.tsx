@@ -201,23 +201,40 @@ function ScoreWhisker({ model, persistence, history }: { model: number | null | 
   const low = Math.min(...values, model, persistence ?? model);
   const high = Math.max(...values, model, persistence ?? model);
   const span = Math.max(high - low, 0.01);
-  const position = (value: number) => `${((value - low) / span) * 100}%`;
+  const position = (value: number) => {
+    const fraction = (value - low) / span;
+    return `calc(${fraction * 100}% + ${12 - fraction * 24}px)`;
+  };
+  const trackWidth = (from: number, to: number) => {
+    const fraction = (to - from) / span;
+    return `calc(${fraction * 100}% - ${fraction * 24}px)`;
+  };
   const p10 = values.slice().sort((a, b) => a - b)[Math.floor((values.length - 1) * 0.1)];
   const p90 = values.slice().sort((a, b) => a - b)[Math.ceil((values.length - 1) * 0.9)];
+  const markers = [
+    { value: p10, kind: "bound", priority: 0 }, { value: p90, kind: "bound", priority: 0 },
+    { value: model, kind: "model", priority: 2 },
+    ...(persistence == null ? [] : [{ value: persistence, kind: "persistence", priority: 1 }]),
+  ].sort((a, b) => a.value - b.value);
+  // A label needs roughly one eighth of this compact track. Keep every mark,
+  // but collapse nearby labels to the most meaningful value (today, then
+  // persistence, then the percentile) rather than printing unreadable stacks.
+  const numberLabels = markers.reduce<typeof markers>((labels, marker) => {
+    const previous = labels.at(-1);
+    if (previous && (marker.value - previous.value) / span < 0.12) {
+      if (marker.priority > previous.priority) labels[labels.length - 1] = marker;
+    } else labels.push(marker);
+    return labels;
+  }, []);
   return (
     <div className="an-grade-card__whisker" aria-label={`Model ${score(model)}; trailing ${values.length}-day p10 ${score(p10)}, p90 ${score(p90)}`}>
       <span className="an-grade-card__whisker-line" />
-      <i className="an-grade-card__whisker-range" style={{ left: position(p10), width: `${((p90 - p10) / span) * 100}%` }} />
+      <i className="an-grade-card__whisker-range" style={{ left: position(p10), width: trackWidth(p10, p90) }} />
       <i className="an-grade-card__whisker-bound" style={{ left: position(p10) }} />
       <i className="an-grade-card__whisker-bound" style={{ left: position(p90) }} />
       <i className="an-grade-card__whisker-model" style={{ left: position(model) }} />
       {persistence != null && <i className="an-grade-card__whisker-persistence" style={{ left: position(persistence) }} />}
-      <div className="an-grade-card__whisker-labels">
-        <span className="an-grade-card__whisker-label--bound">p10 <b>{score(p10)}</b></span>
-        <span className="an-grade-card__whisker-label--bound">p90 <b>{score(p90)}</b></span>
-        <span className="an-grade-card__whisker-label--model">today <b>{score(model)}</b></span>
-        {persistence != null && <span className="an-grade-card__whisker-label--persistence">persistence <b>{score(persistence)}</b></span>}
-      </div>
+      {numberLabels.map((marker) => <span key={`${marker.kind}-${marker.value}`} className={`an-grade-card__whisker-number an-grade-card__whisker-number--${marker.kind}`} style={{ left: position(marker.value) }}>{score(marker.value)}</span>)}
     </div>
   );
 }
@@ -403,6 +420,7 @@ function ForecastGrade({ grade, history, loading, settled }: { grade: AnalysisGr
   return (
     <section className="an-grade" aria-labelledby="forecast-grade-title">
       <h2 id="forecast-grade-title">Forecast Grade</h2>
+      {settled && <span className="an-grade-card__whisker-legend"><span className="an-grade-card__whisker-legend--bound">● p10, p90</span><span className="an-grade-card__whisker-legend--model">● Today</span><span className="an-grade-card__whisker-legend--persistence">● Persistence</span></span>}
       {!settled && <div className="an-grade__pending"><strong>Settlement pending</strong><p>Forecast Grade appears after DAM settlement is available for this delivery day.</p></div>}
       {settled && loading && <p>Loading forecast grade…</p>}
       {settled && !loading && (!grade || !grade.available) && <p>Forecast grade is unavailable for this delivery day.</p>}
@@ -810,20 +828,22 @@ export default function BriefPage() {
         .an-grade-card__value strong { font-size: 22px; font-weight: 600; }
         .an-grade-card__value span { color: var(--text-muted); font-size: var(--fs-md); }
         .an-grade-card__value small { color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
-        .an-grade-card__whisker { position: relative; height: 49px; margin: 2px 0 7px; }
-        .an-grade-card__whisker-line { position: absolute; top: 8px; right: 0; left: 0; height: 2px; background: var(--border-bright); }
-        .an-grade-card__whisker i { position: absolute; top: 3px; width: 3px; height: 12px; transform: translateX(-50%); }
-        .an-grade-card__whisker-range { z-index: 0; top: 8px !important; height: 2px !important; transform: none !important; background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-        .an-grade-card__whisker-bound { z-index: 1; top: 6px !important; width: 5px !important; height: 5px !important; border-radius: 50%; background: var(--text-muted); }
-        .an-grade-card__whisker--missing { display: flex; align-items: center; height: 49px; color: var(--text-muted); font-size: var(--fs-micro); }
-        .an-grade-card__whisker-model { z-index: 2; background: var(--danger, #d94444); }
-        .an-grade-card__whisker-persistence { z-index: 2; background: var(--text-primary); }
-        .an-grade-card__whisker-labels { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px 8px; font-size: var(--fs-micro); line-height: 1.25; }
-        .an-grade-card__whisker-labels span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .an-grade-card__whisker-labels b { font-family: var(--font-mono); font-weight: 600; }
-        .an-grade-card__whisker-label--bound { color: var(--text-muted); }
-        .an-grade-card__whisker-label--model { color: var(--danger, #d94444); }
-        .an-grade-card__whisker-label--persistence { color: var(--text-primary); }
+        .an-grade-card__whisker { position: relative; height: 38px; margin: 2px 0 5px; }
+        .an-grade-card__whisker-line { position: absolute; top: 13px; right: 12px; left: 12px; height: 2px; background: var(--border-bright); }
+        .an-grade-card__whisker i { position: absolute; top: 8px; width: 3px; height: 12px; transform: translateX(-50%); }
+        .an-grade-card__whisker-range { z-index: 0; top: 13px !important; height: 2px !important; transform: none !important; background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+        .an-grade-card__whisker-bound { z-index: 1; top: 11px !important; width: 5px !important; height: 5px !important; border-radius: 50%; background: var(--text-muted); }
+        .an-grade-card__whisker--missing { display: flex; align-items: center; height: 38px; color: var(--text-muted); font-size: var(--fs-micro); }
+        .an-grade-card__whisker-model { z-index: 2; background: var(--text-primary); }
+        .an-grade-card__whisker-persistence { z-index: 2; background: var(--accent); }
+        .an-grade-card__whisker-number { position: absolute; top: 22px; transform: translateX(-50%); font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 600; white-space: nowrap; }
+        .an-grade-card__whisker-number--bound { color: var(--text-muted); }
+        .an-grade-card__whisker-number--model { color: var(--text-primary); }
+        .an-grade-card__whisker-number--persistence { color: var(--accent); }
+        .an-grade-card__whisker-legend { position: relative; display: flex; gap: 10px; padding: 9px 0; font: var(--fw-label) var(--fs-label) var(--font-label); letter-spacing: .02em; text-transform: uppercase; }
+        .an-grade-card__whisker-legend--bound { color: var(--text-muted); }
+        .an-grade-card__whisker-legend--model { color: var(--text-primary); }
+        .an-grade-card__whisker-legend--persistence { color: var(--accent); }
         .an-grade-card__support { margin-top: 2px; }
         .an-grade-card__comparison { display: flex; gap: 8px; align-items: baseline; min-height: 18px; color: var(--text-muted); font-size: var(--fs-micro); }
         .an-grade-card__comparison strong { min-width: 38px; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-label); }
