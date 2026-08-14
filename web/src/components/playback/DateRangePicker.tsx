@@ -52,6 +52,10 @@ export default function DateRangePicker({
   inline = false,
 }: Props) {
   const [open, setOpen] = useState(false);
+  // A Brief selection replaces the page's hero request, so it must remain
+  // available while that request is in flight. The Map's range controls keep
+  // their existing loading lock to avoid overlapping explorer window loads.
+  const disabled = singleDate ? false : loading;
   const [startStr, setStartStr] = useState(() =>
     utcToCTInputString(subDays(new Date(), 1))
   );
@@ -114,7 +118,7 @@ export default function DateRangePicker({
                       activeEventId === ev.id ? "active" : ""
                     }`}
                     onClick={() => handleEventClick(ev)}
-                    disabled={loading}
+                    disabled={disabled}
                   >
                     <div className="drp__event-label">{ev.label}</div>
                     <div className="drp__event-desc">{ev.description}</div>
@@ -132,7 +136,7 @@ export default function DateRangePicker({
                 <button
                   key={p.label}
                   onClick={() => handlePreset(p.start, p.end)}
-                  disabled={loading}
+                  disabled={disabled}
                 >
                   {p.label}
                 </button>
@@ -159,10 +163,10 @@ export default function DateRangePicker({
             </>}
             <button
               onClick={singleDate ? handleDateLoad : handleCustomLoad}
-              disabled={loading}
+              disabled={disabled}
               className="drp__load-btn"
             >
-              {loading ? "Loading…" : "Load"}
+              {loading && !singleDate ? "Loading…" : "Load"}
             </button>
           </div>
         </div>
