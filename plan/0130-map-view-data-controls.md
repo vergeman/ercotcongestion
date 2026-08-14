@@ -69,23 +69,23 @@ Branch: feat/0130-map-view-data-controls
 
 ## Acceptance
 
-* [ ] Header shows the segmented View control and Data group; every valid
+* [x] Header shows the segmented View control and Data group; every valid
       (view, data) combination renders; invalid chips are disabled with a tooltip,
       per the rules above.
-* [ ] Pre-market: Market / Compare / Error disabled with "Available after market
+* [x] Pre-market: Market / Compare / Error disabled with "Available after market
       posts"; Forecast × Congestion and Forecast × LMP (persisted λ) work.
-* [ ] Selecting Error locks Data to Congestion (tooltip explains); leaving Error
+* [x] Selecting Error locks Data to Congestion (tooltip explains); leaving Error
       restores the prior data selection.
-* [ ] Constraints toggle appears only in forecast-pane legends; header has no
+* [x] Constraints toggle appears only in forecast-pane legends; header has no
       constraints or `Off` control.
-* [ ] Unsettled-hour LMP renders with the persisted λ curve and an "indicative level"
+* [x] Unsettled-hour LMP renders with the persisted λ curve and an "indicative level"
       marker in legend/hover; settled hours use settled λ with no marker;
       `lambda_source` is present per interval in the payload.
-* [ ] Bare `/map` lands on single Forecast × Congestion; every pane is labeled with
+* [x] Bare `/map` lands on single Forecast × Congestion; every pane is labeled with
       view + data + timestamp.
-* [ ] Scoreboard, grade panel, and error view outputs are byte-identical to before
+* [x] Scoreboard, grade panel, and error view outputs are byte-identical to before
       (λ̂ touches display only).
-* [ ] `tsc --noEmit -p web/tsconfig.app.json` clean.
+* [x] `tsc --noEmit -p web/tsconfig.app.json` clean.
 
 ## Task note
 
