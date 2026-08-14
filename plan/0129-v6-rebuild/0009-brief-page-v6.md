@@ -35,6 +35,10 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   Constraints, Top Nodal Congestion, Forecast Grade, Context. Source–sink pairs
   are out of scope for v6. Land panel by panel
   behind each backend step rather than as one cutover.
+  * Top Constraints reads `/analysis/top-constraints`: the server ranks the full
+    forecast-artifact μ vocabulary and returns same-key DAM evidence. Keep
+    `/analysis/forecast-mu` key-scoped for follow-up reads; the Brief must not
+    re-rank an old truncated `analysis_brief` cast in the browser.
 * **Scrubber — un-integrate, delete nothing:**
   * `/map` and `/matrix` keep the scrubber exactly as today — same `ExplorerScrubber`,
     Load Window, play/step/sparkline, same shared session. **If a diff here deletes a

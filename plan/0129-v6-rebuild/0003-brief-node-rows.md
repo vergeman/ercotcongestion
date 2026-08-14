@@ -205,9 +205,11 @@ Depends on: none
 * [x] Matrix's exact-hour DAM μ and a one-hour `basis=realized` node/path read
       share one canonical-key, non-DST-preferred loader; a missing DAM key stays
       visibly unmatched in Matrix but contributes zero to full-column arithmetic.
-* [ ] Node panel's dominant-driver column changes for at least one row versus the
-      truncated derivation, and the diff is explained by a constraint that was
-      never in that node's payload.
+* [x] The v6 node panel reads full-column daily attribution: zone, dominant
+      driver, its gross-share, realized coverage, forecast/settled rank and
+      delta are server-derived rather than legacy brief-row fields. The 2026-08-12
+      local production slice, for example, reports OLNEYTN_AGR1's dominant driver
+      as `6830__B|SGRMGRS8` at 44% gross share and 98% realized coverage.
 * [ ] Driver share in the node-pair panel is recomputed over full β; the
       previously top-ranked pair either survives or the write-up records why it
       did not. `MCSES_UNIT6` no longer appears as sink in a majority of pairs
