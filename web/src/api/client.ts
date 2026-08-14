@@ -355,6 +355,19 @@ export async function fetchTopConstraints(
   return r.json();
 }
 
+export async function fetchBriefContext(
+  deliveryDate: string,
+  { runId, horizon }: { runId?: string; horizon?: number } = {},
+): Promise<import("./types").BriefContext | null> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/context?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/context ${r.status}`);
+  return r.json();
+}
+
 export async function fetchStandouts(
   deliveryDate: string,
   { runId, horizon, k = 4 }: { runId?: string; horizon?: number; k?: number } = {},

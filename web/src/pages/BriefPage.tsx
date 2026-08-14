@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
-import { fetchAnalysisGrade, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefContext, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
+import { fetchAnalysisGrade, fetchBriefContext, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -20,15 +20,6 @@ const fmtDay = (day: string) =>
 
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return <>{segments.map((segment, i) => <span key={`${segment.ref}-${i}`}>{segment.text}</span>)}</>;
-}
-
-function Stage({ title, detail }: { title: string; detail: string }) {
-  return (
-    <section className="an-stage">
-      <h2>{title}</h2>
-      <p>{detail}</p>
-    </section>
-  );
 }
 
 function HistoryWhisker({ low, q25, median, q75, high, mark }: { low: number | null; q25?: number | null; median?: number | null; q75?: number | null; high: number | null; mark: number | null }) {
@@ -123,7 +114,7 @@ function TopConstraintsPanel({ data, loading, settled }: { data: TopConstraints 
             <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
             <td>{row.forecast_rank ?? "—"}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
-            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryWhisker low={row.settled_history_p10} q25={row.settled_history_p25} median={row.settled_history_p50} q75={row.settled_history_p75} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
             <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table>
@@ -167,6 +158,26 @@ function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; load
       </div>}
     </section>
   );
+}
+
+function ContextPanel({ data, loading }: { data: BriefContext | null; loading: boolean }) {
+  const voltage = data?.voltage_classes ?? [];
+  const chronic = data?.chronic_elements ?? [];
+  return <section className="an-context" aria-labelledby="context-title">
+    <div className="an-section-heading"><h2 id="context-title">Context</h2><p>Structural context for this delivery day.</p></div>
+    {loading && <p className="an-panel-state">Loading grid context…</p>}
+    {!loading && !data?.available && <p className="an-panel-state">Context is unavailable for this delivery day.</p>}
+    {!loading && data?.available && <>
+      <div className="an-context__table">
+        <h3>Congestion by voltage class <span>daily {data.basis === "settled" ? "DAM μ" : "forecast μ"}</span></h3>
+        {!voltage.length ? <p className="an-panel-state">No congestion was available to classify.</p> : <div className="an-table-wrap"><table className="an-table an-table--context"><thead><tr><th>Class</th><th># constraints</th><th>Binding hours</th><th>Avg <span className="an-table__mu">μ</span></th><th>Share of Σ<span className="an-table__mu">μ</span></th></tr></thead><tbody>{voltage.map((row) => <tr key={row.voltage_class}><td>{row.voltage_class}</td><td>{row.constraint_keys.toLocaleString()}</td><td>{row.binding_hours.toLocaleString()}</td><td>{usd(row.average_mu, 2)}</td><td><span className="an-context__share"><i style={{ width: `${Math.max(2, row.share_of_mu * 100)}%` }} />{percent(row.share_of_mu)}</span></td></tr>)}</tbody></table></div>}
+      </div>
+      <div className="an-context__table">
+        <h3>Chronic elements <span>bound on at least 24 of the prior 30 days</span></h3>
+        {!chronic.length ? <p className="an-panel-state">No chronic elements were found in the trailing window.</p> : <div className="an-table-wrap"><table className="an-table an-table--context an-table--chronic"><thead><tr><th>Constraint</th><th>Contingency</th><th>Days bound</th><th>Median Σ<span className="an-table__mu">μ</span></th></tr></thead><tbody>{chronic.map((row) => <tr key={`${row.element}|${row.contingency}`}><td>{row.element}</td><td>{row.contingency || "—"}</td><td>{row.days_bound} / {row.window_days}</td><td>{usd(row.usual_total, 2)}</td></tr>)}</tbody></table></div>}
+      </div>
+    </>}
+  </section>;
 }
 
 function Fact({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -414,11 +425,13 @@ export default function BriefPage() {
   const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(null);
   const [standouts, setStandouts] = useState<Standouts | null>(null);
   const [topNodes, setTopNodes] = useState<TopNodes | null>(null);
+  const [context, setContext] = useState<BriefContext | null>(null);
   const [grade, setGrade] = useState<AnalysisGrade | null>(null);
   const [loading, setLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
   const [standoutsLoading, setStandoutsLoading] = useState(false);
   const [topNodesLoading, setTopNodesLoading] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
@@ -463,6 +476,17 @@ export default function BriefPage() {
         setError("The daily brief could not be loaded.");
         setLoading(false);
       });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run]);
+
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setContextLoading(true);
+    fetchBriefContext(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setContext(result); })
+      .catch(() => { if (live) setContext(null); })
+      .finally(() => { if (live) setContextLoading(false); });
     return () => { live = false; };
   }, [deliveryDay, cursor.run]);
 
@@ -636,7 +660,7 @@ export default function BriefPage() {
             <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} settled={settled} />
             <TopNodesPanel data={topNodes} loading={topNodesLoading} settled={settled} />
             <ForecastGrade grade={grade} loading={gradeLoading} settled={settled} />
-            <Stage title="Context" detail="Historical grid context will follow its dedicated rollups." />
+            <ContextPanel data={context} loading={contextLoading} />
           </>
         )}
       </main>
@@ -678,6 +702,14 @@ export default function BriefPage() {
         .an-history-bars i { display: block; width: 2px; min-height: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
         .an-constraints { margin-top: 42px; }
         .an-nodes { margin-top: 42px; }
+        .an-context { margin-top: 42px; }
+        .an-context__table { margin-top: 18px; }
+        .an-context__table h3 { margin: 0; color: var(--text-primary); font-size: var(--fs-md); }
+        .an-context__table h3 span { color: var(--text-muted); font-size: var(--fs-label); font-weight: normal; }
+        .an-table--context { width: 100%; }
+        .an-table--context th:first-child, .an-table--context td:first-child, .an-table--chronic th:nth-child(2), .an-table--chronic td:nth-child(2) { text-align: left; }
+        .an-context__share { display: inline-flex; gap: 6px; align-items: center; min-width: 82px; }
+        .an-context__share i { display: inline-block; height: 4px; max-width: 60px; background: var(--accent); }
         .an-section-heading h2 { margin: 0; font-size: var(--fs-xl); }
         .an-section-heading p, .an-panel-state { margin: 7px 0 0; color: var(--text-secondary); }
         .an-table-wrap { margin-top: 14px; overflow-x: auto; }

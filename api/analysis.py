@@ -28,7 +28,9 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
                     TopConstraintsUnavailableResponse, TopNodeRow,
                     TopNodesAvailableResponse, TopNodesUnavailableResponse,
-                    StandoutRow, NodeStandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse)
+                    StandoutRow, NodeStandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse,
+                    VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
+                    ContextUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -844,6 +846,89 @@ def get_top_constraints(
     return TopConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         rows=rows, n_ranked=len(ranked),
+    )
+
+
+def _voltage_class(kv_max: float | None) -> str:
+    """Use the persisted maximum element voltage; keep unknown geography explicit."""
+    if kv_max is None:
+        return "Unknown"
+    return f"{int(round(float(kv_max)))} kV"
+
+
+@router.get("/context", response_model=ContextAvailableResponse | ContextUnavailableResponse,
+            summary="Daily voltage-class distribution and trailing chronic constraints")
+def get_context(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+    chronic_limit: int = Query(14, ge=1, le=50),
+) -> ContextAvailableResponse | ContextUnavailableResponse:
+    """Serve the Brief's closing structural context without browser rollups."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
+                                              run_id=run_id, delivery_date=delivery_date)
+        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        if forecast is None:
+            return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
+                                              run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+        settled = _settled_mu_profile(cur, delivery_date)
+        histories = _settled_constraint_history(cur, delivery_date)
+        cur.execute(
+            "SELECT constraint_key, kv_max FROM constraint_geo "
+            "WHERE window_start = (SELECT max(window_start) FROM constraint_geo)"
+        )
+        voltage_by_key = {str(row["constraint_key"]): row["kv_max"] for row in cur.fetchall()}
+
+    profile = settled if not settled.empty else forecast
+    basis = "settled" if not settled.empty else "forecast"
+    totals = profile.abs().sum(axis=0)
+    total_mu = float(totals.sum())
+    classes: dict[str, dict[str, float | int]] = {}
+    for key, total in totals.items():
+        if float(total) <= 0.0:
+            continue
+        label = _voltage_class(voltage_by_key.get(str(key)))
+        values = profile[key].dropna()
+        bucket = classes.setdefault(label, {"constraint_keys": 0, "binding_hours": 0, "mu": 0.0})
+        bucket["constraint_keys"] = int(bucket["constraint_keys"]) + 1
+        bucket["binding_hours"] = int(bucket["binding_hours"]) + int(values.ne(0.0).sum())
+        bucket["mu"] = float(bucket["mu"]) + float(total)
+
+    def voltage_sort(item: tuple[str, dict[str, float | int]]) -> tuple[int, float]:
+        label, bucket = item
+        number = float(label.split()[0]) if label != "Unknown" else -1.0
+        return (label != "Unknown", number)
+
+    voltage_classes = []
+    for label, bucket in sorted(classes.items(), key=voltage_sort, reverse=True):
+        hours = int(bucket["binding_hours"])
+        mass = float(bucket["mu"])
+        voltage_classes.append(VoltageClassRow(
+            voltage_class=label,
+            constraint_keys=int(bucket["constraint_keys"]),
+            binding_hours=hours,
+            average_mu=mass / hours if hours else 0.0,
+            share_of_mu=mass / total_mu if total_mu else 0.0,
+        ))
+
+    chronic = []
+    for key, values in histories.items():
+        days_bound = sum(value > 0.0 for value in values)
+        if days_bound < 24:
+            continue
+        constraint, contingency = key.split("|", 1)
+        chronic.append(ChronicElementRow(
+            element=constraint, contingency=contingency, days_bound=days_bound,
+            usual_total=float(pd.Series(values, dtype=float).median()),
+        ))
+    chronic.sort(key=lambda row: row.usual_total, reverse=True)
+    return ContextAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon, basis=basis,
+        voltage_classes=voltage_classes, chronic_elements=chronic[:chronic_limit],
     )
 
 

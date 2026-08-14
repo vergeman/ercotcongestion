@@ -112,8 +112,11 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   small formula popover, and add real trailing grade/history whiskers rather than a
   decorative scale. The forecast-only replacement is a compact settlement-pending
   status, not zeroes or null-valued grade cards.
-* **Context** is a real, server-authored closing panel. Define its precise input and
-  reader question before implementation; it must not become frontend-owned narrative.
+* **Context** is a real, server-authored closing panel. It excludes the prototype's
+  weather/load Conditions block, which is moving elsewhere. It contains **Congestion by
+  voltage class** (how daily μ distributes across voltage classes) and **Chronic
+  Elements** (constraints bound on at least 24 of the trailing 30 delivery days). It
+  must not become frontend-owned narrative.
 * Every Standout and every selectable row in Top Constraints and Top Nodal Congestion
   exposes the stable element identity and coordinates needed by the shared detail-panel
   contract. The interactive panel itself is deliberately sequenced as `0013`, after
@@ -125,9 +128,10 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   Constraints and Top Nodal tables, and post-settle Grade cards are present.
 * Standouts is now server-backed and anomaly-selected, with forecast and DAM-only
   appended rows, full grouped table columns, and real 30-day history visuals. Top
-  Constraints and Top Nodal history columns are likewise served from DAM history.
-  Remaining work is Context, the delivery-day ESSP grouping rule, and grade-history
-  serving. The row detail panel and element-aware Map handoff are deliberately owned by
+  Constraints and Top Nodal history columns are likewise served from DAM history. Context
+  now serves voltage-class distribution and chronic elements; Conditions remains deferred
+  outside the Brief. Remaining work is grade-history serving. The row detail panel and
+  element-aware Map handoff are deliberately owned by
   `0013` and its `0011` dependency, rather than by this page plan.
 
 ## Acceptance
@@ -143,7 +147,7 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
       visibly slimmer and makes no settled/outcome/grade claim; post-settle renders
       same-key DAM evidence and the full grade.
 * [x] Standouts is server-backed, anomaly-selected, and carries forecast/DAM evidence
-      plus real 30-day history visuals; Context remains separately unimplemented.
+      plus real 30-day history visuals.
 * [x] Top Constraints and Top Nodal have real trailing 30-day history, not placeholder cells.
 * [x] Top Nodal shows 15 unique 7×16 locations using the documented pre-/post-settle
       grouping rules and an explicit missing-ESSP fallback.
@@ -152,6 +156,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
       leaders first and retaining both ranks; the joined table may exceed *k* rows.
 * [x] The shared accessible detail panel is explicitly deferred to `0013` (after `0011`'s
       typed Map handoff); it is not a completion condition for this page-only plan.
+* [x] Context is server-authored and contains daily congestion by voltage class plus
+      trailing-30-day chronic elements; the weather/load Conditions block is excluded.
 * [ ] Grade whiskers are backed by trailing grade history; forecast-only shows a
       settlement-pending replacement rather than empty grade metrics.
 * [x] `tsc --noEmit -p web/tsconfig.app.json` clean.

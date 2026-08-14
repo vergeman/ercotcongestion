@@ -226,6 +226,38 @@ class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/context ---------------------------------------------------
+
+class VoltageClassRow(BaseModel):
+    voltage_class: str
+    constraint_keys: int
+    binding_hours: int
+    average_mu: float
+    share_of_mu: float
+
+
+class ChronicElementRow(BaseModel):
+    element: str
+    contingency: str
+    days_bound: int
+    window_days: int = 30
+    usual_total: float
+
+
+class ContextAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["forecast", "settled"]
+    voltage_classes: list[VoltageClassRow]
+    chronic_elements: list[ChronicElementRow]
+
+
+class ContextUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /analysis/standouts -------------------------------------------------
 
 class StandoutRow(BaseModel):

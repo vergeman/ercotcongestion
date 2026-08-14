@@ -780,6 +780,33 @@ export interface TopConstraints {
   rows?: TopConstraintRow[];
 }
 
+export interface VoltageClassRow {
+  voltage_class: string;
+  constraint_keys: number;
+  binding_hours: number;
+  average_mu: number;
+  share_of_mu: number;
+}
+
+export interface ChronicElementRow {
+  element: string;
+  contingency: string;
+  days_bound: number;
+  window_days: number;
+  usual_total: number;
+}
+
+export interface BriefContext {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  basis?: "forecast" | "settled";
+  voltage_classes?: VoltageClassRow[];
+  chronic_elements?: ChronicElementRow[];
+}
+
 export interface StandoutRow {
   constraint_key: string;
   kind: "forecast_elevated" | "chronic_under_called" | "settled_elevated";
