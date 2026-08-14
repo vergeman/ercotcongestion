@@ -66,7 +66,7 @@ class HeroLatestResponse(BaseModel):
     horizon: int | None = None
 
 
-# ---- /analysis/node and /analysis/path ----------------------------------
+# ---- /analysis/node ------------------------------------------------------
 
 class AnalysisContributionTerm(BaseModel):
     constraint_key: str
@@ -94,34 +94,6 @@ class NodeAnalysisUnavailableResponse(BaseModel):
     run_id: str
     delivery_date: date
     horizon: int | None = None
-
-
-class PathComposition(BaseModel):
-    top_share: float
-    second_share: float
-    tail_share: float
-    n_terms: int
-    top_constraint_key: str | None
-    second_constraint_key: str | None
-
-
-class PathAnalysisAvailableResponse(BaseModel):
-    available: Literal[True]
-    source: str
-    sink: str
-    run_id: str
-    delivery_date: date
-    horizon: int
-    basis: Literal["predicted", "realized"]
-    hours: list[datetime]
-    spread: float
-    n_terms: int
-    composition: PathComposition
-    terms: list[AnalysisContributionTerm]
-
-
-class PathAnalysisUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
 
 
 class AnalysisSettlementPointsAvailableResponse(BaseModel):

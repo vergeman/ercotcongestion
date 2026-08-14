@@ -1,12 +1,4 @@
-"""GET /analysis/brief — the server-computed daily Insight Brief.
-
-Read-only surface over ``analysis_brief`` (0124): the daily_brief job computes
-one JSON brief per (run_id, delivery_date, horizon) from the served SF+μ̂
-artifact; this endpoint hands it back verbatim. The disabled Analysis nav item
-is its home (docs/last_mile.md). Nothing is computed here — a day with no brief
-yet returns ``available=false`` rather than 404, matching the Matrix's soft-fail
-contract so the UI can render an empty state.
-"""
+"""Query-backed endpoints for the daily Brief's analysis panels."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -20,8 +12,7 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
-                    PathAnalysisAvailableResponse, PathAnalysisUnavailableResponse,
-                    PathComposition, AnalysisSettlementPointsAvailableResponse,
+                    AnalysisSettlementPointsAvailableResponse,
                     AnalysisSettlementPointsUnavailableResponse, ForecastMuAvailableResponse,
                     ForecastMuUnavailableResponse, ForecastMuRow, EsspGroup,
                     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
@@ -38,7 +29,6 @@ from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import render
 from compute.analysis.metadata import load_sp_metadata
-from compute.analysis.brief import pair_contributions
 from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
@@ -582,63 +572,6 @@ def get_node(
         n_terms=int((contributions != 0.0).sum()),
         coverage=None if settled in (None, 0.0) else total / settled,
         terms=_terms(contributions, sf),
-    )
-
-
-@router.get("/path", response_model=PathAnalysisAvailableResponse | PathAnalysisUnavailableResponse,
-            summary="Full SF-pair constraint attribution for a settlement-point path")
-def get_path(
-    source: str = Query(..., min_length=1),
-    sink: str = Query(..., min_length=1),
-    delivery_date: date = Query(...),
-    basis: str = Query("predicted", pattern="^(predicted|realized)$"),
-    run_id: str | None = Query(None),
-    horizon: int | None = Query(None, ge=1, le=2),
-    hours: list[datetime] | None = Query(None),
-    min_abs_sf: float = Query(0.0, ge=0.0),
-) -> PathAnalysisAvailableResponse | PathAnalysisUnavailableResponse:
-    """Decompose ``cong[sink] - cong[source]`` over the artifact's full SF pair."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return PathAnalysisUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date,
-            )
-        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-        if artifact is None:
-            return PathAnalysisUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
-            )
-        unknown = [sp for sp in (source, sink) if sp not in artifact.SF.columns]
-        if unknown:
-            raise HTTPException(status_code=404, detail="settlement point is absent from this artifact.")
-        selected = _selected_hours(artifact, hours)
-        mu = (load_realized_mu(cur, selected, artifact.SF.index).reindex(artifact.SF.index).fillna(0.0)
-              if basis == "realized"
-              else artifact.E_mu.loc[selected].sum(axis=0))
-        beta = artifact.SF[source] - artifact.SF[sink]
-        contributions = pair_contributions(artifact.SF, mu, sink=sink, source=source)
-        contributions = contributions[beta.abs() >= min_abs_sf]
-        terms = _terms(contributions, beta)
-
-    absolute = contributions.abs().sort_values(ascending=False)
-    mass = float(absolute.sum())
-    shares = absolute / mass if mass else absolute
-    return PathAnalysisAvailableResponse(
-        available=True, source=source, sink=sink, run_id=run_id, delivery_date=delivery_date,
-        horizon=horizon, basis=basis, hours=list(selected), spread=float(contributions.sum()),
-        n_terms=int((contributions != 0.0).sum()), terms=terms,
-        composition=PathComposition(
-            top_share=float(shares.iloc[0]) if len(shares) else 0.0,
-            second_share=float(shares.iloc[1]) if len(shares) > 1 else 0.0,
-            tail_share=float(shares.iloc[2:].sum()) if len(shares) > 2 else 0.0,
-            n_terms=int((contributions != 0.0).sum()),
-            top_constraint_key=None if not len(shares) else str(shares.index[0]),
-            second_constraint_key=None if len(shares) < 2 else str(shares.index[1]),
-        ),
     )
 
 
@@ -1310,7 +1243,7 @@ def get_top_nodes(
 def get_hero_latest(
     run_id: str | None = Query(None, description="Model version; defaults to the published ERCOT run."),
 ) -> HeroLatestResponse:
-    """Discover a cold-entry day without reading the legacy ``analysis_brief`` blob.
+    """Discover a cold-entry day from the artifacts required by Brief tables.
 
     Brief tables stitch a Chicago delivery day from its UTC-day artifact and the
     following UTC-day artifact.  Require both here so `/` does not cold-open a
@@ -1386,110 +1319,3 @@ def get_hero(
             "provenance": {"run_id": run_id, "delivery_date": delivery_date,
                            "horizon": horizon, "basis": basis},
         }
-
-
-@router.get("/brief", summary="Server-computed daily Insight Brief")
-def get_brief(
-    delivery_date: date = Query(..., description="Delivery day (UTC calendar date)."),
-    run_id: str | None = Query(None, description="Model version; defaults to the "
-                               "currently published ercot run."),
-    horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; "
-                                "defaults to the served horizon (final, else preview)."),
-) -> dict:
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        if run_id is None:
-            cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
-            row = cur.fetchone()
-            if row is None:
-                raise HTTPException(status_code=503, detail="no forecast run is published yet.")
-            run_id = str(row["run_id"])
-
-        # Coalesce the horizon the same way the artifact lookup does: serve the
-        # final brief when one exists, else the preview.
-        if horizon is None:
-            cur.execute(
-                "SELECT min(horizon) AS h FROM analysis_brief "
-                "WHERE run_id = %s AND delivery_date = %s",
-                (run_id, delivery_date),
-            )
-            row = cur.fetchone()
-            if row is None or row["h"] is None:
-                return {"available": False, "unavailable_reason": "brief_missing",
-                        "run_id": run_id, "delivery_date": delivery_date}
-            horizon = int(row["h"])
-
-        cur.execute(
-            "SELECT brief, horizon, computed_at FROM analysis_brief "
-            "WHERE run_id = %s AND delivery_date = %s AND horizon = %s",
-            (run_id, delivery_date, horizon),
-        )
-        row = cur.fetchone()
-
-    if row is None:
-        return {"available": False, "unavailable_reason": "brief_missing",
-                "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
-
-    return {
-        "available": True,
-        "run_id": run_id,
-        "delivery_date": delivery_date,
-        "horizon": int(row["horizon"]),
-        "computed_at": row["computed_at"],
-        "brief": row["brief"],
-    }
-
-
-@router.get("/brief/latest", summary="Latest day's Insight Brief + the day index")
-def get_brief_latest(
-    run_id: str | None = Query(None, description="Model version; defaults to the "
-                               "currently published ercot run."),
-) -> dict:
-    """The most recent day's full brief, plus the run's ``available_dates`` index.
-
-    Resolves the run the same way ``GET /analysis/brief`` does, picks the latest
-    ``delivery_date`` that has a brief, and returns that day's brief in the same
-    envelope the per-day endpoint uses — coalescing the served horizon (final,
-    else preview) exactly as the sibling does. ``available_dates`` is the sorted
-    list of every delivery day with a brief for the run: the page derives prev/next
-    as array neighbors (gaps skipped) and fetches each day through the frozen
-    per-day endpoint. ``available=false`` (not 404) when the run has no brief yet.
-    """
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        if run_id is None:
-            cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
-            row = cur.fetchone()
-            if row is None:
-                raise HTTPException(status_code=503, detail="no forecast run is published yet.")
-            run_id = str(row["run_id"])
-
-        # The run's day index (dates only — cheap). Neighbors of this sorted list
-        # are what the page steps through, so gaps in history are skipped.
-        cur.execute(
-            "SELECT DISTINCT delivery_date FROM analysis_brief "
-            "WHERE run_id = %s ORDER BY delivery_date",
-            (run_id,),
-        )
-        available_dates = [r["delivery_date"] for r in cur.fetchall()]
-        if not available_dates:
-            return {"available": False, "unavailable_reason": "brief_missing",
-                    "run_id": run_id, "available_dates": []}
-
-        delivery_date = available_dates[-1]
-
-        # Coalesce the served horizon for the latest day: final (min horizon) wins.
-        cur.execute(
-            "SELECT brief, horizon, computed_at FROM analysis_brief "
-            "WHERE run_id = %s AND delivery_date = %s ORDER BY horizon LIMIT 1",
-            (run_id, delivery_date),
-        )
-        row = cur.fetchone()
-
-    return {
-        "available": True,
-        "run_id": run_id,
-        "delivery_date": delivery_date,
-        "horizon": int(row["horizon"]),
-        "computed_at": row["computed_at"],
-        "brief": row["brief"],
-        "available_dates": available_dates,
-    }
