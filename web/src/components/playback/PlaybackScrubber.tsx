@@ -14,6 +14,10 @@ interface Props {
   // A page-owned control in the transport's right column (e.g. the Analysis
   // whole-day toggle). Map/Matrix omit it.
   rightSlot?: ReactNode;
+  // A one-shot playback request (0131), passed straight through to the
+  // transport that owns `playing`.
+  autoPlay?: boolean;
+  onAutoPlayConsumed?: () => void;
 }
 
 // The Explorer (Map + Matrix) transport: the shared TimeTransport wired to the
@@ -31,6 +35,8 @@ export default function PlaybackScrubber({
   eventLabel,
   leftSlot,
   rightSlot,
+  autoPlay,
+  onAutoPlayConsumed,
 }: Props) {
   return (
     <TimeTransport
@@ -42,6 +48,8 @@ export default function PlaybackScrubber({
       eventLabel={eventLabel}
       leftSlot={leftSlot}
       rightSlot={rightSlot}
+      autoPlay={autoPlay}
+      onAutoPlayConsumed={onAutoPlayConsumed}
       canPlay
       playIntervalMs={400}
       stepUnit="hour"

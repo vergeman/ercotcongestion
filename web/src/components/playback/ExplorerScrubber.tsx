@@ -12,9 +12,15 @@ import type { useExplorerSession } from "../../hooks/useExplorerSession";
 export default function ExplorerScrubber({
   session,
   rightSlot,
+  autoPlay,
+  onAutoPlayConsumed,
 }: {
   session: ReturnType<typeof useExplorerSession>;
   rightSlot?: ReactNode;
+  // A one-shot playback request (0131 — the Brief hero's `autoPlay=true`
+  // link), threaded straight through to the transport that owns `playing`.
+  autoPlay?: boolean;
+  onAutoPlayConsumed?: () => void;
 }) {
   const {
     timestamps,
@@ -46,6 +52,8 @@ export default function ExplorerScrubber({
         />
       }
       rightSlot={rightSlot}
+      autoPlay={autoPlay}
+      onAutoPlayConsumed={onAutoPlayConsumed}
     />
   );
 }
