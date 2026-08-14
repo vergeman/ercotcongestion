@@ -15,7 +15,11 @@ Expanded for prediction vs ``/ercot_spp_range``: each SP carries the P10/P50/P90
 triple, and each hour carries the DAM ``system_lambda`` (NP4-523-CD) at that
 interval — ``DISTINCT ON`` keeping the ``dst_flag = FALSE`` variant, matching
 ``/ercot_state_range`` — so predicted LMP = P50 + system_λ resolves on the client
-against the same reference the market side subtracts.
+against the same reference the market side subtracts. On an unsettled hour (no
+DAM row yet) ``system_lambda`` falls back to the most recent settled day's λ at
+the same Central hour — a persistence display convention (0130), never a model
+input — and ``lambda_source`` says which curve served: ``"settled"`` or
+``"persisted"``.
 
 An empty window (no forecast hours for the current run in range, or no run
 published) returns 503, matching the realized ranges' soft-fail contract.
@@ -25,6 +29,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -40,6 +46,8 @@ from models import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+CENTRAL = ZoneInfo("America/Chicago")
 
 
 def _coerce_utc(ts: datetime) -> datetime:
@@ -187,6 +195,43 @@ def get_forecast_range(
                 (start_u, end_u),
             )
             lam_rows = cur.fetchall()
+            lam_by_ts_raw = {
+                _coerce_utc(r["interval_ts"]): (
+                    None if r["system_lambda"] is None else float(r["system_lambda"])
+                )
+                for r in lam_rows
+            }
+
+            # Persistence λ (0130): unsettled hours (the DAM hasn't posted yet) get
+            # no row above. Fill them from the most recent settled day's curve by
+            # Central hour — a display convention, not a model, so this never
+            # touches a graded surface. Only queried when the window actually needs
+            # it (a pure history scrub is fully settled and skips this).
+            unsettled = {
+                _coerce_utc(r["ts"])
+                for r in rows
+                if _coerce_utc(r["ts"]) not in lam_by_ts_raw
+            }
+            persisted_by_hour: dict[int, float] = {}
+            if unsettled:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (interval_ts) interval_ts, system_lambda
+                    FROM dam_system_lambda
+                    WHERE (interval_ts AT TIME ZONE 'America/Chicago')::date = (
+                        SELECT (interval_ts AT TIME ZONE 'America/Chicago')::date
+                        FROM dam_system_lambda
+                        ORDER BY interval_ts DESC
+                        LIMIT 1
+                    )
+                    ORDER BY interval_ts, dst_flag ASC
+                    """,
+                )
+                for r in cur.fetchall():
+                    if r["system_lambda"] is None:
+                        continue
+                    hour = _coerce_utc(r["interval_ts"]).astimezone(CENTRAL).hour
+                    persisted_by_hour.setdefault(hour, float(r["system_lambda"]))
 
     if not rows:
         # Explicit horizon with no rows → 404 (no fallback to the other track); the
@@ -200,13 +245,6 @@ def get_forecast_range(
                 "The served forecast run has no hours here."
             ),
         )
-
-    lam_by_ts: dict[datetime, float | None] = {
-        _coerce_utc(r["interval_ts"]): (
-            None if r["system_lambda"] is None else float(r["system_lambda"])
-        )
-        for r in lam_rows
-    }
 
     # Per-delivery-day horizon provenance (0123): every (ts, sp) of a day carries the
     # same coalesced horizon, so any row of the day fixes it — 1 = final, 2 = preview.
@@ -224,14 +262,28 @@ def get_forecast_range(
             )
         )
 
-    entries = [
-        ForecastRangeEntry(
-            interval_ts=ts,
-            system_lambda=lam_by_ts.get(ts),
-            sps=sps,
+    def _lambda_for(
+        ts: datetime,
+    ) -> tuple[float | None, Literal["settled", "persisted"] | None]:
+        settled = lam_by_ts_raw.get(ts)
+        if settled is not None:
+            return settled, "settled"
+        persisted = persisted_by_hour.get(ts.astimezone(CENTRAL).hour)
+        if persisted is not None:
+            return persisted, "persisted"
+        return None, None
+
+    entries = []
+    for ts, sps in sorted(by_ts.items()):
+        lam, lam_source = _lambda_for(ts)
+        entries.append(
+            ForecastRangeEntry(
+                interval_ts=ts,
+                system_lambda=lam,
+                lambda_source=lam_source,
+                sps=sps,
+            )
         )
-        for ts, sps in sorted(by_ts.items())
-    ]
 
     return ForecastRangeResponse(
         start=start_u,
