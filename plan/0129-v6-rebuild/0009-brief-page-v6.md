@@ -33,8 +33,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 * Work in: `web/src/pages/`, `web/src/main.tsx`
 * Build the v6 sections in the order the backend lands them — Standouts, Top
   Constraints, Top Nodal Congestion, Forecast Grade, Context. Source–sink pairs
-  are out of scope for v6. Land panel by panel
-  behind each backend step rather than as one cutover.
+  are out of scope for v6. Land panel by panel behind each backend step rather
+  than as one cutover.
   * Top Constraints reads `/analysis/top-constraints`: the server ranks the full
     forecast-artifact μ vocabulary and returns same-key DAM evidence. Keep
     `/analysis/forecast-mu` key-scoped for follow-up reads; the Brief must not
@@ -58,18 +58,99 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   derived a day from the cursor — two inputs for one piece of state. It dies with the
   page; the cursor is the only source.
 * Cold entry to `/` with no `?t`: default to the latest date with a brief and write the
-  cursor, so the URL is shareable from first paint.
+  cursor, so the URL is shareable from first paint. This must have a v6 discovery
+  endpoint before `0012` removes `/analysis/brief/latest`; the Brief cannot retain a
+  hidden dependency on the legacy blob reader.
 * Re-point the catch-all deliberately — decide what unknown paths do rather than letting
   the brief inherit `*`.
 * Do NOT touch: Map, Matrix, Scoreboard, `useExplorerSession`, or `0128`'s refactor in
   reverse.
 
+## Rendering modes
+
+* The page has two explicit response-driven modes. Select the mode from the
+  availability of settled evidence in the served response, never from the browser clock
+  or a guessed DAM publication time:
+  * **Forecast-only** — the lean morning brief. Show the forecast hero, forecast
+    standings and forecast-versus-forecast-history context. Do not render empty DAM
+    columns, rank movement, outcome claims, or a faux accuracy grade. Grade instead
+    states that settlement is pending and, where useful, shows only its forecast-side
+    inputs. Details and Standouts make forecast claims only.
+  * **Post-settle** — the validation brief. Render the DAM-settled columns, deltas,
+    rank movement, realized coverage, settled Standouts, and the Forecast Grade.
+* The two modes keep the same page order, selected-day coordinate, and row identity.
+  A forecast-only render is intentionally slimmer, not a second layout with a divergent
+  interaction model.
+
+## Panel contracts and interactions
+
+* **Standouts** is a real ranked, actionable panel, not a stage placeholder. Its
+  response must identify the element, whether the claim is forecast-only or settled,
+  today's forecast value, its own trailing forecast baseline, and (post-settle only)
+  same-key DAM evidence. It must include chronic/near-floor items that the old cast
+  omitted when they materially differ from their own history. `0004` and `0005` provide
+  the history and full-artifact vocabulary this needs.
+* **Top Constraints** uses the full forecast-artifact vocabulary, with same-key DAM
+  evidence when available. The history column is a real trailing-30-day visual/value,
+  not a placeholder dash. The table must preserve the prototype's compact grouped
+  Forecast / DAM SETTLED / history presentation in post-settle mode and collapse to
+  Forecast / history in forecast-only mode. In forecast-only mode it is the forecast
+  top-*k*. Post-settle it is the ordered union **DAM top-*k* followed by forecast
+  top-*k* entries not already in DAM top-*k***. Retain both ranks: the appended rows
+  make forecast calls that fell out of the actual leaders visible, while DAM-only rows
+  expose misses. The joined result may therefore contain more than *k* rows.
+* **Top Nodal Congestion** presents top 15 *unique locations* over the market-peak
+  `7×16` value window. Its grouping must be stable and documented for the delivery-day
+  display: use the pre-DAM ESSP study in forecast-only mode; after clearing, use exact
+  price identity for the settled presentation, with ESSP retained as the pre-clearing
+  relation and an explicit fallback for points absent from a selected ESSP vintage.
+  Do not silently base a daily table on one arbitrary hourly membership snapshot.
+  It needs its own real trailing-history display, dominant-driver attribution, zone,
+  share, coverage, and forecast/settled rank movement. Its phase ranking follows the
+  same rule as constraints: forecast top 15 before settlement; DAM top 15 first after
+  settlement, then forecast top-15 entries absent from that DAM set.
+* **Forecast Grade** is post-settle only. Its cards retain the served calculation and
+  small formula popover, and add real trailing grade/history whiskers rather than a
+  decorative scale. The forecast-only replacement is a compact settlement-pending
+  status, not zeroes or null-valued grade cards.
+* **Context** is a real, server-authored closing panel. Define its precise input and
+  reader question before implementation; it must not become frontend-owned narrative.
+* Every Standout and every selectable row in Top Constraints and Top Nodal Congestion
+  exposes the stable element identity and coordinates needed by the shared detail-panel
+  contract. The interactive panel itself is deliberately sequenced as `0013`, after
+  this page's data and `0011`'s element-aware Map handoff are available.
+
+## Delivery state at plan revision
+
+* The root route, Brief shell, date control, server-authored hero, compact Top
+  Constraints and Top Nodal tables, and post-settle Grade cards are present.
+* Remaining work is not cosmetic: Standouts and Context are placeholders; both table
+  history columns are unwired; no row detail panel or element-aware Map handoff exists;
+  grade history is not served; forecast-only rendering is incomplete; and node grouping
+  requires the delivery-day rule above. Treat existing completion marks in neighbouring
+  plans as implementation milestones, not as acceptance of these page behaviours.
+
 ## Acceptance
 
-* [ ] `/` renders the brief; Map and Matrix are unchanged in behaviour and appearance.
-* [ ] The scrubber still works on `/map` and `/matrix` — Load Window, play, step, sparkline — with no regression.
-* [ ] No file under `web/src/components/playback/` is deleted, and `useExplorerSession.ts` is unmodified.
-* [ ] The brief page renders no transport control, and its URL still carries a valid `?t/?ws/?we`.
-* [ ] Navigating brief → `/map` lands on the same day with no translation step.
-* [ ] Unknown paths resolve to a deliberate destination, stated in the PR.
-* [ ] `tsc --noEmit -p web/tsconfig.app.json` clean.
+* [x] `/` renders the brief; Map and Matrix are unchanged in behaviour and appearance.
+* [x] The scrubber still works on `/map` and `/matrix` — Load Window, play, step, sparkline — with no regression.
+* [x] No file under `web/src/components/playback/` is deleted, and `useExplorerSession.ts` is unmodified.
+* [x] The brief page renders no transport control, and its URL still carries a valid `?t/?ws/?we`.
+* [x] Navigating brief → `/map` lands on the same day with no translation step.
+* [x] Unknown paths deliberately redirect to `/`.
+* [ ] Cold entry discovers a v6 available day without calling `/analysis/brief/latest`.
+* [x] The response selects one of the two documented rendering modes. Forecast-only is
+      visibly slimmer and makes no settled/outcome/grade claim; post-settle renders
+      same-key DAM evidence and the full grade.
+* [ ] Standouts and Context are server-backed panels, not placeholders or frontend-owned
+      prose.
+* [ ] Top Constraints and Top Nodal have real trailing history, not placeholder cells.
+* [ ] Top Nodal shows 15 unique 7×16 locations using the documented pre-/post-settle
+      grouping rules and an explicit missing-ESSP fallback.
+* [x] Forecast-only tables are forecast top-*k*. Post-settle tables are DAM top-*k*
+      followed by forecast top-*k* entries absent from DAM top-*k*, ordered with DAM
+      leaders first and retaining both ranks; the joined table may exceed *k* rows.
+* [ ] `0013` delivers the shared accessible detail panel for Standouts and table rows.
+* [ ] Grade whiskers are backed by trailing grade history; forecast-only shows a
+      settlement-pending replacement rather than empty grade metrics.
+* [x] `tsc --noEmit -p web/tsconfig.app.json` clean.

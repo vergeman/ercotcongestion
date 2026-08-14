@@ -144,13 +144,21 @@ sequenced first to stop the bleeding, because there is no bleeding.
     `?date` is retired; the cursor is the only day source.
 
 11. `0011-hero-map-deeplink` — an inline map in the hero linking into `/map` at the
-    day's window, autoplaying the forecast. Standalone because it adds three URL
-    params (`mapView`, `data`, `autoplay`) that have no reader today. This is the
-    entire product for a reader who does not know what a shadow price is.
+    day's window, autoplaying the forecast. It also provides the selected-element
+    handoff used by the Brief's detail-panel sidebar. Standalone because it adds URL
+    state (`mapView`, `data`, `autoplay`, and selected element) that has no reader
+    today. This is the entire product for a reader who does not know what a shadow
+    price is.
+
+12. `0013-brief-detail-panel` — shared sliding detail panel for Standouts and the
+    ranked tables. It gives a selected constraint/node a small abstract geolocated map,
+    mode-appropriate evidence, and the sidebar-owned element-aware Map action. Separate
+    from `0009` so page composition/data contracts can land before the interaction and
+    focus-state work.
 
 **Phase 5 — teardown.**
 
-12. `0012-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
+13. `0012-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
     reads it: `build_brief`, `after_action`, the brief jobs, `analysis_brief`, and the
     `/analysis/brief` endpoints. Keep `load_sp_metadata` and the `brief.py` primitives
     `0003` routes; audit `families.py` per function rather than deleting the file.
