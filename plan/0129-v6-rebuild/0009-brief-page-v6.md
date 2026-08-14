@@ -7,18 +7,18 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 ## Goal
 
 * Build `web/src/pages/BriefPage.tsx` as the v6 layout and route `/` to it.
-  Keep `AnalysisPage.tsx` and `/analysis` intact until `0012` removes the
+  Keep `AnalysisPage.tsx` and `/analysis` intact until `0011` removes the
   legacy precomputed-brief reader.
 * Un-mount the playback scrubber from this page while leaving Map and Matrix untouched.
 * Keep the page reading and writing the shared URL time coordinate.
 
 ## Context
 
-* v6 is the entry point, not a fourth view. The Map becomes something the brief links
-  *into* (`0011`).
+* v6 is the entry point, not a fourth view. Future Map view/link work is owned by
+  `0130-map-views-and-link`.
 * `AnalysisPage.tsx` is the 1,567-line legacy blob reader. Leave it untouched;
   `BriefPage.tsx` replaces it at the product entry point while the legacy route
-  remains available through `0012`. Keep Brief styles inline under the `an-*`
+  remains available through `0011`. Keep Brief styles inline under the `an-*`
   prefix.
 * `web/src/main.tsx` currently sends both `/` and every unknown path to `<App />` (the
   Map) via `path="*"`. Both behaviours are in one route and have to be separated.
@@ -59,7 +59,7 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   page; the cursor is the only source.
 * Cold entry to `/` with no `?t`: default to the latest date with a brief and write the
   cursor, so the URL is shareable from first paint. This must have a v6 discovery
-  endpoint before `0012` removes `/analysis/brief/latest`; the Brief cannot retain a
+  endpoint before `0011` removes `/analysis/brief/latest`; the Brief cannot retain a
   hidden dependency on the legacy blob reader.
 * Re-point the catch-all deliberately — decide what unknown paths do rather than letting
   the brief inherit `*`.
@@ -119,8 +119,7 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   must not become frontend-owned narrative.
 * Every Standout and every selectable row in Top Constraints and Top Nodal Congestion
   exposes the stable element identity and coordinates needed by the shared detail-panel
-  contract. The interactive panel itself is deliberately sequenced as `0013`, after
-  this page's data and `0011`'s element-aware Map handoff are available.
+  contract. The interactive panel is separately deferred to `0131-brief-detail-panel`.
 
 ## Delivery state at plan revision
 
@@ -131,9 +130,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   Constraints and Top Nodal history columns are likewise served from DAM history. Context
   now serves voltage-class distribution and chronic elements; Conditions remains deferred
   outside the Brief. Grade history is materialized per settled delivery day and served as
-  a real trailing track. The row detail panel and
-  element-aware Map handoff are deliberately owned by
-  `0013` and its `0011` dependency, rather than by this page plan.
+  a real trailing track. Detail-panel interactions are deliberately owned by
+  `0131-brief-detail-panel`, rather than by this page plan.
 
 ## Acceptance
 
@@ -155,8 +153,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 * [x] Forecast-only tables are forecast top-*k*. Post-settle tables are DAM top-*k*
       followed by forecast top-*k* entries absent from DAM top-*k*, ordered with DAM
       leaders first and retaining both ranks; the joined table may exceed *k* rows.
-* [x] The shared accessible detail panel is explicitly deferred to `0013` (after `0011`'s
-      typed Map handoff); it is not a completion condition for this page-only plan.
+* [x] The shared accessible detail panel is explicitly deferred to
+      `0131-brief-detail-panel`; it is not a completion condition for this page-only plan.
 * [x] Context is server-authored and contains daily congestion by voltage class plus
       trailing-30-day chronic elements; the weather/load Conditions block is excluded.
 * [x] Grade whiskers are backed by trailing grade history; forecast-only shows a

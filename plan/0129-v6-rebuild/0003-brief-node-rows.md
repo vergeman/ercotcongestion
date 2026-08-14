@@ -182,7 +182,7 @@ Depends on: none
   primitive, float64 reconciliation, and `web/src/api/{client,types}.ts`.
 * **Deferred to `0009`**: every panel/grade box below. They presuppose the v6
   page — `AnalysisPage.tsx` is still the old page (replaced in `0009`, torn down
-  in `0012`) and `NODES_GRADEABLE` lives only in the prototype — so wiring them
+  in `0011`) and `NODES_GRADEABLE` lives only in the prototype — so wiring them
   now is throwaway. The endpoints are ready for `0009` to consume.
 * **Pulled forward**: the `|congestion|` bias convention (`congestion_bias` +
   test), the one grade-half item assertable without the page, so `0006`

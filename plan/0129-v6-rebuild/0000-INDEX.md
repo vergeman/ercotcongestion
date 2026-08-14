@@ -17,7 +17,7 @@ Consequences that shape every sub-plan below:
   unknown path to `<App />` (the Map) via `path="*"`; that catch-all has to be
   re-pointed deliberately, not left to fall through.
 * `web/src/pages/BriefPage.tsx` is the new entry-point surface. Keep the
-  1,567-line `AnalysisPage.tsx` legacy blob reader on `/analysis` until `0012`;
+  1,567-line `AnalysisPage.tsx` legacy blob reader on `/analysis` until `0011`;
   its panels are re-sourced into BriefPage rather than refactored in place.
 * The **`PlaybackScrubber` timeline comes off the brief page** — an hour cursor is the
   wrong control for a page whose unit is a delivery day. **The URL coordinate it reads
@@ -25,10 +25,10 @@ Consequences that shape every sub-plan below:
   `?t/?ws/?we` so it can hand one to the Map.
 * Everything the old page uniquely fed becomes dead code once the panels land —
   `analysis_brief`, `build_brief`, and most of `compute/analysis/`. Torn down in
-  `0012`, after nothing reads it, per the `0094` pattern.
+  `0011`, after nothing reads it, per the `0094` pattern.
 * The reader we are designing the top of the page for **does not know what a shadow
-  price is.** The hero text and the map link are what they get; everything below the
-  hero is for the reader who already stayed. That is the reason `0011` exists.
+  price is.** The hero text is their entry point; future Map views and hero links are
+  owned by `0130-map-views-and-link`.
 
 ## The architectural pivot (read first)
 
@@ -45,7 +45,7 @@ are both instances of that move; they are the pattern, not exceptions to it.
 
 `analysis_brief` and `build_brief` stay untouched and keep serving the existing
 `/analysis` page until the v6 panels replace it panel by panel. Do not widen them, and
-do not delete them mid-flight — `0012` is the teardown, and it runs last.
+do not delete them mid-flight — `0011` is the teardown, and it runs last.
 
 ## Correction to the data-status table
 
@@ -143,22 +143,9 @@ sequenced first to stop the bleeding, because there is no bleeding.
     `0009`**: un-mounting the scrubber removes the page's only way to change day.
     `?date` is retired; the cursor is the only day source.
 
-11. `0011-hero-map-deeplink` — an inline map in the hero linking into `/map` at the
-    day's window, autoplaying the forecast. It also provides the selected-element
-    handoff used by the Brief's detail-panel sidebar. Standalone because it adds URL
-    state (`mapView`, `data`, `autoplay`, and selected element) that has no reader
-    today. This is the entire product for a reader who does not know what a shadow
-    price is.
-
-12. `0013-brief-detail-panel` — shared sliding detail panel for Standouts and the
-    ranked tables. It gives a selected constraint/node a small abstract geolocated map,
-    mode-appropriate evidence, and the sidebar-owned element-aware Map action. Separate
-    from `0009` so page composition/data contracts can land before the interaction and
-    focus-state work.
-
 **Phase 5 — teardown.**
 
-13. `0012-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
+11. `0011-remove-legacy-analysis` — delete the precomputed-brief stack once nothing
     reads it: `build_brief`, `after_action`, the brief jobs, `analysis_brief`, and the
     `/analysis/brief` endpoints. Keep `load_sp_metadata` and the `brief.py` primitives
     `0003` routes; audit `families.py` per function rather than deleting the file.

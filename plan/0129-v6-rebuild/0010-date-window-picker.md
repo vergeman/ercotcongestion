@@ -37,7 +37,8 @@ Depends on: `0009` — **released together**, see branch note below
   not in `HeaderNav`, which stays a pure navigation + coordinate carrier.
 * **Selection writes all three params**: `?t` to that day's peak hour, `?ws`/`?we` to
   that day's America/Chicago bounds. The window then matches what the reader is reading
-  about, and `0011`'s deep link is correct without constructing anything at link time.
+  about, and a later Map deeplink can consume it without constructing anything at link
+  time.
   New shared coordinates use compact, hour-precision UTC values such as
   `2026-06-30T13Z`; `useTimeCursor` expands that URL form before parsing it. Keep `Z` —
   an offset-less browser date is local time, not UTC.
