@@ -161,4 +161,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
       trailing-30-day chronic elements; the weather/load Conditions block is excluded.
 * [x] Grade whiskers are backed by trailing grade history; forecast-only shows a
       settlement-pending replacement rather than empty grade metrics.
+* [x] Settled grade cards read their current snapshot plus the trailing series from
+      materialized v6-grade records; the Brief does not regrade a full artifact on
+      ordinary page load. The one-time backfill is resumable and the daily forecast
+      tick materializes each newly settled delivery day.
 * [x] `tsc --noEmit -p web/tsconfig.app.json` clean.
