@@ -40,6 +40,19 @@ const PRESETS = [
   },
 ];
 
+const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"));
+
+const floorToHour = (value: Date) => {
+  const hour = new Date(value);
+  hour.setUTCMinutes(0, 0, 0);
+  return hour;
+};
+
+const utcToCTHourInputString = (value: Date) => {
+  const local = utcToCTInputString(floorToHour(value));
+  return `${local.slice(0, 13)}:00`;
+};
+
 export default function DateRangePicker({
   onLoad,
   singleDate = false,
@@ -52,10 +65,14 @@ export default function DateRangePicker({
   inline = false,
 }: Props) {
   const [open, setOpen] = useState(false);
+  // A Brief selection replaces the page's hero request, so it must remain
+  // available while that request is in flight. The Map's range controls keep
+  // their existing loading lock to avoid overlapping explorer window loads.
+  const disabled = singleDate ? false : loading;
   const [startStr, setStartStr] = useState(() =>
-    utcToCTInputString(subDays(new Date(), 1))
+    utcToCTHourInputString(subDays(new Date(), 1))
   );
-  const [endStr, setEndStr] = useState(() => utcToCTInputString(new Date()));
+  const [endStr, setEndStr] = useState(() => utcToCTHourInputString(new Date()));
   const [dateStr, setDateStr] = useState(() => utcToCTInputString(new Date()).slice(0, 10));
 
   // The Brief's selected delivery day is URL-owned. Keep its date field in
@@ -65,10 +82,10 @@ export default function DateRangePicker({
   }, [singleDate, selectedDate]);
 
   const handlePreset = (start: () => Date, end: () => Date) => {
-    const s = start();
-    const e = end();
-    setStartStr(utcToCTInputString(s));
-    setEndStr(utcToCTInputString(e));
+    const s = floorToHour(start());
+    const e = floorToHour(end());
+    setStartStr(utcToCTHourInputString(s));
+    setEndStr(utcToCTHourInputString(e));
     onLoad?.(s, e);
     setOpen(false);
   };
@@ -114,7 +131,7 @@ export default function DateRangePicker({
                       activeEventId === ev.id ? "active" : ""
                     }`}
                     onClick={() => handleEventClick(ev)}
-                    disabled={loading}
+                    disabled={disabled}
                   >
                     <div className="drp__event-label">{ev.label}</div>
                     <div className="drp__event-desc">{ev.description}</div>
@@ -132,7 +149,7 @@ export default function DateRangePicker({
                 <button
                   key={p.label}
                   onClick={() => handlePreset(p.start, p.end)}
-                  disabled={loading}
+                  disabled={disabled}
                 >
                   {p.label}
                 </button>
@@ -150,19 +167,29 @@ export default function DateRangePicker({
             ) : <>
               <div className="drp__row">
                 <span className="label">Start (CT)</span>
-                <input type="datetime-local" value={startStr} onChange={(e) => setStartStr(e.target.value)} />
+                <div className="drp__hour-input">
+                  <input type="date" value={startStr.slice(0, 10)} onChange={(e) => setStartStr(`${e.target.value}T${startStr.slice(11, 13)}:00`)} />
+                  <select aria-label="Start hour (CT)" value={startStr.slice(11, 13)} onChange={(e) => setStartStr(`${startStr.slice(0, 10)}T${e.target.value}:00`)}>
+                    {HOURS.map((hour) => <option key={hour} value={hour}>{hour}:00</option>)}
+                  </select>
+                </div>
               </div>
               <div className="drp__row">
                 <span className="label">End (CT)</span>
-                <input type="datetime-local" value={endStr} onChange={(e) => setEndStr(e.target.value)} />
+                <div className="drp__hour-input">
+                  <input type="date" value={endStr.slice(0, 10)} onChange={(e) => setEndStr(`${e.target.value}T${endStr.slice(11, 13)}:00`)} />
+                  <select aria-label="End hour (CT)" value={endStr.slice(11, 13)} onChange={(e) => setEndStr(`${endStr.slice(0, 10)}T${e.target.value}:00`)}>
+                    {HOURS.map((hour) => <option key={hour} value={hour}>{hour}:00</option>)}
+                  </select>
+                </div>
               </div>
             </>}
             <button
               onClick={singleDate ? handleDateLoad : handleCustomLoad}
-              disabled={loading}
+              disabled={disabled}
               className="drp__load-btn"
             >
-              {loading ? "Loading…" : "Load"}
+              {loading && !singleDate ? "Loading…" : "Load"}
             </button>
           </div>
         </div>
@@ -268,7 +295,7 @@ export default function DateRangePicker({
         }
         .drp__custom { display: flex; flex-direction: column; gap: 6px; }
         .drp__row { display: flex; flex-direction: column; gap: 2px; }
-        .drp__row input {
+        .drp__row input, .drp__row select {
           background: var(--bg-surface);
           border: 1px solid var(--border);
           color: var(--text-primary);
@@ -278,6 +305,9 @@ export default function DateRangePicker({
           border-radius: 3px;
           width: 100%;
         }
+        .drp__hour-input { display: flex; gap: 6px; }
+        .drp__hour-input input { min-width: 0; }
+        .drp__hour-input select { width: 76px; flex: 0 0 76px; }
         .drp__load-btn {
           margin-top: 4px;
           background: var(--accent-dim);

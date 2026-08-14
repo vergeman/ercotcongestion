@@ -480,6 +480,10 @@ export default function BriefPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
+  // Router search params publish on the following render. This ref records a
+  // picker selection synchronously, so the current hero cannot win the brief
+  // cursor during that short handoff.
+  const pendingDeliveryDayRef = useRef<string | null>(null);
 
   // Cold entry remains entirely v6: newest day with both UTC artifacts needed
   // by the Brief's Chicago delivery-day tables, never the legacy brief blob.
@@ -602,12 +606,18 @@ export default function BriefPage() {
   // wider load window.
   useEffect(() => {
     if (!hero?.available || !hero.cursor) return;
+    const heroDay = hero.provenance?.delivery_date;
+    const expectedDay = pendingDeliveryDayRef.current ?? deliveryDay;
+    // A picker selection changes the URL before the Router and new hero have
+    // both updated. Only the requested day's hero may replace that coordinate.
+    if (heroDay !== expectedDay) return;
     if (!replaceWithHeroCursor && cursor.t && cursor.ws && cursor.we) return;
     cursor.setCoord({
       t: new Date(hero.cursor.t),
       ws: new Date(hero.cursor.ws),
       we: new Date(hero.cursor.we),
     }, { replace: true });
+    if (pendingDeliveryDayRef.current === heroDay) pendingDeliveryDayRef.current = null;
     setReplaceWithHeroCursor(false);
   }, [hero, cursor, replaceWithHeroCursor]);
 
@@ -647,6 +657,7 @@ export default function BriefPage() {
               onLoadDate={(day) => {
                 const { start, end } = dateBounds(day);
                 setActiveEventId(null);
+                pendingDeliveryDayRef.current = day;
                 setReplaceWithHeroCursor(true);
                 cursor.setCoord({ t: start, ws: start, we: end });
               }}

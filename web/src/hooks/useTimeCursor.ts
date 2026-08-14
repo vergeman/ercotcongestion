@@ -33,9 +33,19 @@ export interface TimeCursor {
 
 const parseDate = (raw: string | null): Date | null => {
   if (!raw) return null;
-  const d = new Date(raw);
+  // Compact hour coordinates keep shared links legible. JavaScript's Date
+  // parser requires minutes, so expand our URL form before parsing it.
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}Z$/.test(raw)
+    ? `${raw.slice(0, -1)}:00Z`
+    : raw;
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 };
+
+// Time-series data is hourly, so URL coordinates need no minute, second, or
+// millisecond fields. Keep the explicit Z: a zone-less ISO value is interpreted
+// as local browser time by Date, rather than UTC.
+const formatCoordinate = (value: Date) => `${value.toISOString().slice(0, 13)}Z`;
 
 // Nearest frame to an absolute instant — the projection every page runs to map
 // the shared cursor onto its own (possibly sparse) domain. This is the seam:
@@ -85,7 +95,7 @@ export function useTimeCursor(): TimeCursor {
   const setT = useCallback(
     (next: Date | null, opts?: { replace?: boolean }) =>
       patch((p) => {
-        if (next) p.set("t", next.toISOString());
+        if (next) p.set("t", formatCoordinate(next));
         else p.delete("t");
       }, opts?.replace),
     [patch]
@@ -110,7 +120,7 @@ export function useTimeCursor(): TimeCursor {
       patch((p) => {
         const apply = (k: "t" | "ws" | "we", v: Date | null | undefined) => {
           if (v === undefined) return; // key omitted → leave as-is
-          if (v) p.set(k, v.toISOString());
+          if (v) p.set(k, formatCoordinate(v));
           else p.delete(k);
         };
         apply("t", next.t);
