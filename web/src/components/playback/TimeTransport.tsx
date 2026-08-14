@@ -32,7 +32,20 @@ interface Props {
   eventLabel?: string | null;
   leftSlot?: ReactNode; // e.g. the Explorer's Load Window picker
   rightSlot?: ReactNode; // e.g. the Analysis whole-day toggle
+
+  // A one-shot playback request (0131 — the Brief hero's `autoPlay=true`
+  // link): start playing once frames are available, then report back so the
+  // caller can strip the request from wherever it came from (the URL). This
+  // is behaviour, not a durable preference — `autoPlay` flipping back to
+  // false (the caller's own doing, after consuming it) must never itself
+  // start or stop playback.
+  autoPlay?: boolean;
+  onAutoPlayConsumed?: () => void;
 }
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
 export default function TimeTransport({
   frames,
@@ -50,6 +63,8 @@ export default function TimeTransport({
   eventLabel,
   leftSlot,
   rightSlot,
+  autoPlay = false,
+  onAutoPlayConsumed,
 }: Props) {
   const [playing, setPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -86,6 +101,22 @@ export default function TimeTransport({
   useEffect(() => {
     if (!canPlay && playing) setPlaying(false);
   }, [canPlay, playing]);
+
+  // Consume a one-shot autoplay request (0131) once there are frames to play.
+  // Always reports consumption straight away — reduced motion suppresses the
+  // playback itself, not the request being spent — so the caller strips it
+  // from wherever it came from (the URL) either way, and this never fires
+  // again for the same request.
+  useEffect(() => {
+    if (!autoPlay || !canPlay || !hasData) return;
+    onAutoPlayConsumed?.();
+    if (prefersReducedMotion()) return;
+    if (index >= frames.length - 1) onSeek(0);
+    setPlaying(true);
+    // Only a fresh autoplay request (or frames finally arriving) should
+    // re-run this — not every index/frames change during normal playback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay, canPlay, hasData, onAutoPlayConsumed]);
 
   return (
     <div className="scrubber">
