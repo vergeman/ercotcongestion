@@ -130,7 +130,8 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
   appended rows, full grouped table columns, and real 30-day history visuals. Top
   Constraints and Top Nodal history columns are likewise served from DAM history. Context
   now serves voltage-class distribution and chronic elements; Conditions remains deferred
-  outside the Brief. Remaining work is grade-history serving. The row detail panel and
+  outside the Brief. Grade history is materialized per settled delivery day and served as
+  a real trailing track. The row detail panel and
   element-aware Map handoff are deliberately owned by
   `0013` and its `0011` dependency, rather than by this page plan.
 
@@ -158,6 +159,6 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
       typed Map handoff); it is not a completion condition for this page-only plan.
 * [x] Context is server-authored and contains daily congestion by voltage class plus
       trailing-30-day chronic elements; the weather/load Conditions block is excluded.
-* [ ] Grade whiskers are backed by trailing grade history; forecast-only shows a
+* [x] Grade whiskers are backed by trailing grade history; forecast-only shows a
       settlement-pending replacement rather than empty grade metrics.
 * [x] `tsc --noEmit -p web/tsconfig.app.json` clean.

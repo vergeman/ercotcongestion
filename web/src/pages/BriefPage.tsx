@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefContext, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
-import { fetchAnalysisGrade, fetchBriefContext, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics, AnalysisGradeSupport, BriefContext, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
+import { fetchAnalysisGrade, fetchAnalysisGradeHistory, fetchBriefContext, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -193,17 +193,31 @@ function Fact({ label, value, detail }: { label: string; value: string; detail: 
 const score = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}`;
 const percent = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
 const multiple = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}×`;
-const scorePosition = (value: number | null | undefined) => `${Math.max(0, Math.min(100, (value ?? 0) * 100))}%`;
 const beats = (model: number | null | undefined, comparator: number | null | undefined) => model != null && comparator != null && model >= comparator;
 
-function ScoreWhisker({ model, persistence }: { model: number | null | undefined; persistence: number | null | undefined }) {
-  if (model == null && persistence == null) return null;
+function ScoreWhisker({ model, persistence, history }: { model: number | null | undefined; persistence: number | null | undefined; history: number[] }) {
+  const values = history.filter((value): value is number => Number.isFinite(value));
+  if (model == null || !values.length) return <div className="an-grade-card__whisker an-grade-card__whisker--missing">Trailing grade history is not materialized yet.</div>;
+  const low = Math.min(...values, model, persistence ?? model);
+  const high = Math.max(...values, model, persistence ?? model);
+  const span = Math.max(high - low, 0.01);
+  const position = (value: number) => `${((value - low) / span) * 100}%`;
+  const p10 = values.slice().sort((a, b) => a - b)[Math.floor((values.length - 1) * 0.1)];
+  const p90 = values.slice().sort((a, b) => a - b)[Math.ceil((values.length - 1) * 0.9)];
   return (
-    <div className="an-grade-card__whisker" aria-label={`Model ${score(model)}; persistence ${score(persistence)}`}>
+    <div className="an-grade-card__whisker" aria-label={`Model ${score(model)}; trailing ${values.length}-day p10 ${score(p10)}, p90 ${score(p90)}`}>
       <span className="an-grade-card__whisker-line" />
-      <i className="an-grade-card__whisker-model" style={{ left: scorePosition(model) }} />
-      {persistence != null && <i className="an-grade-card__whisker-persistence" style={{ left: scorePosition(persistence) }} />}
-      <div><span>0%</span><span>100%</span></div>
+      <i className="an-grade-card__whisker-range" style={{ left: position(p10), width: `${((p90 - p10) / span) * 100}%` }} />
+      <i className="an-grade-card__whisker-bound" style={{ left: position(p10) }} />
+      <i className="an-grade-card__whisker-bound" style={{ left: position(p90) }} />
+      <i className="an-grade-card__whisker-model" style={{ left: position(model) }} />
+      {persistence != null && <i className="an-grade-card__whisker-persistence" style={{ left: position(persistence) }} />}
+      <div className="an-grade-card__whisker-labels">
+        <span className="an-grade-card__whisker-label--bound">p10 <b>{score(p10)}</b></span>
+        <span className="an-grade-card__whisker-label--bound">p90 <b>{score(p90)}</b></span>
+        <span className="an-grade-card__whisker-label--model">today <b>{score(model)}</b></span>
+        {persistence != null && <span className="an-grade-card__whisker-label--persistence">persistence <b>{score(persistence)}</b></span>}
+      </div>
     </div>
   );
 }
@@ -220,6 +234,7 @@ function GradeCard({
   footer,
   formula,
   supportRows,
+  history,
 }: {
   kind: string;
   question: string;
@@ -232,6 +247,7 @@ function GradeCard({
   footer: string;
   formula: string;
   supportRows: Array<{ value: string; label: string; win?: boolean }>;
+  history: number[];
 }) {
   const [formulaOpen, setFormulaOpen] = useState(false);
   const formulaRef = useRef<HTMLDivElement>(null);
@@ -259,7 +275,7 @@ function GradeCard({
         <strong>{score(model)}</strong>
         {modelHourly !== undefined ? <><small>day</small><span>→</span><strong>{score(modelHourly)}</strong><small>hourly</small></> : <small>model</small>}
       </div>
-      <ScoreWhisker model={model} persistence={persistence} />
+      <ScoreWhisker model={model} persistence={persistence} history={history} />
       <div className="an-grade-card__support">
         {supportRows.map((row) => <div key={row.label} className={row.win ? "an-grade-card__comparison an-grade-card__comparison--win" : "an-grade-card__comparison"}>
           <strong>{row.value}</strong><span>{row.label}</span>
@@ -283,7 +299,9 @@ function GradeCard({
   );
 }
 
-function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | undefined }) {
+const gradeMetric = (metrics: AnalysisGradeMetrics | null | undefined, key: keyof AnalysisGradeMetrics) => metrics?.[key] ?? null;
+
+function GradeHalf({ label, half, history }: { label: string; half: AnalysisGradeHalf | undefined; history: AnalysisGradeHistory | null }) {
   if (!half?.graded) {
     return (
       <div className="an-grade__half an-grade__half--ungraded">
@@ -296,6 +314,10 @@ function GradeHalf({ label, half }: { label: string; half: AnalysisGradeHalf | u
   const dailyRank = nodes ? half.model?.top_decile_daily_capture : half.model?.detection_ap;
   const persistenceDailyRank = nodes ? half.persistence?.top_decile_daily_capture : half.persistence?.detection_ap;
   const hourlyRank = nodes ? half.model?.top_decile_hourly_capture : half.model?.timing_hourly_skill;
+  const subject = nodes ? "nodes" : "constraints";
+  const historyFor = (key: keyof AnalysisGradeMetrics) => (history?.days ?? [])
+    .map((day) => gradeMetric(day[subject].model, key))
+    .filter((value): value is number => value != null && Number.isFinite(value));
   return (
     <div className="an-grade__half">
       <h3>{label}{half.universe_size != null && <span>{half.universe_size} scored</span>}</h3>
@@ -325,6 +347,7 @@ N = complete, unfiltered node universe`
 
 P(k) = bound within top k ÷ k
 B    = constraints that bind`}
+          history={historyFor(nodes ? "top_decile_daily_capture" : "detection_ap")}
         />
         <GradeCard
           kind="Magnitude"
@@ -343,6 +366,7 @@ B    = constraints that bind`}
           formula={`2 × Σ min(forecastᵢ, settledᵢ)
 ────────────────────────────────
     Σ forecastᵢ  +  Σ settledᵢ`}
+          history={historyFor("magnitude_overlap")}
         />
         <GradeCard
           kind="Timing"
@@ -368,13 +392,14 @@ N = complete node universe · H = delivery hours`
 run on days, then on hours
 
 chance = share that bind`}
+          history={historyFor(nodes ? "top_decile_daily_capture" : "timing_daily_skill")}
         />
       </div>
     </div>
   );
 }
 
-function ForecastGrade({ grade, loading, settled }: { grade: AnalysisGrade | null; loading: boolean; settled: boolean }) {
+function ForecastGrade({ grade, history, loading, settled }: { grade: AnalysisGrade | null; history: AnalysisGradeHistory | null; loading: boolean; settled: boolean }) {
   return (
     <section className="an-grade" aria-labelledby="forecast-grade-title">
       <h2 id="forecast-grade-title">Forecast Grade</h2>
@@ -382,8 +407,8 @@ function ForecastGrade({ grade, loading, settled }: { grade: AnalysisGrade | nul
       {settled && loading && <p>Loading forecast grade…</p>}
       {settled && !loading && (!grade || !grade.available) && <p>Forecast grade is unavailable for this delivery day.</p>}
       {settled && !loading && grade?.available && <div className="an-grade__halves">
-        <GradeHalf label="Constraints" half={grade.constraints} />
-        <GradeHalf label="Nodes" half={grade.nodes} />
+        <GradeHalf label="Constraints" half={grade.constraints} history={history} />
+        <GradeHalf label="Nodes" half={grade.nodes} history={history} />
       </div>}
     </section>
   );
@@ -427,6 +452,7 @@ export default function BriefPage() {
   const [topNodes, setTopNodes] = useState<TopNodes | null>(null);
   const [context, setContext] = useState<BriefContext | null>(null);
   const [grade, setGrade] = useState<AnalysisGrade | null>(null);
+  const [gradeHistory, setGradeHistory] = useState<AnalysisGradeHistory | null>(null);
   const [loading, setLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
   const [standoutsLoading, setStandoutsLoading] = useState(false);
@@ -536,6 +562,19 @@ export default function BriefPage() {
       .then((result) => { if (live) setGrade(result); })
       .catch(() => { if (live) setGrade(null); })
       .finally(() => { if (live) setGradeLoading(false); });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run, hero?.provenance?.basis]);
+
+  useEffect(() => {
+    const settled = hero?.provenance?.basis === "settled";
+    if (!deliveryDay || !settled) {
+      setGradeHistory(null);
+      return;
+    }
+    let live = true;
+    fetchAnalysisGradeHistory(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setGradeHistory(result); })
+      .catch(() => { if (live) setGradeHistory(null); });
     return () => { live = false; };
   }, [deliveryDay, cursor.run, hero?.provenance?.basis]);
 
@@ -659,7 +698,7 @@ export default function BriefPage() {
             <StandoutsPanel data={standouts} loading={standoutsLoading} settled={settled} />
             <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} settled={settled} />
             <TopNodesPanel data={topNodes} loading={topNodesLoading} settled={settled} />
-            <ForecastGrade grade={grade} loading={gradeLoading} settled={settled} />
+            <ForecastGrade grade={grade} history={gradeHistory} loading={gradeLoading} settled={settled} />
             <ContextPanel data={context} loading={contextLoading} />
           </>
         )}
@@ -771,12 +810,20 @@ export default function BriefPage() {
         .an-grade-card__value strong { font-size: 22px; font-weight: 600; }
         .an-grade-card__value span { color: var(--text-muted); font-size: var(--fs-md); }
         .an-grade-card__value small { color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
-        .an-grade-card__whisker { position: relative; height: 25px; margin: 0 0 5px; }
+        .an-grade-card__whisker { position: relative; height: 49px; margin: 2px 0 7px; }
         .an-grade-card__whisker-line { position: absolute; top: 8px; right: 0; left: 0; height: 2px; background: var(--border-bright); }
         .an-grade-card__whisker i { position: absolute; top: 3px; width: 3px; height: 12px; transform: translateX(-50%); }
-        .an-grade-card__whisker-model { background: var(--accent); }
-        .an-grade-card__whisker-persistence { background: var(--text-muted); }
-        .an-grade-card__whisker div { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; color: var(--text-muted); font-size: var(--fs-micro); }
+        .an-grade-card__whisker-range { z-index: 0; top: 8px !important; height: 2px !important; transform: none !important; background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+        .an-grade-card__whisker-bound { z-index: 1; top: 6px !important; width: 5px !important; height: 5px !important; border-radius: 50%; background: var(--text-muted); }
+        .an-grade-card__whisker--missing { display: flex; align-items: center; height: 49px; color: var(--text-muted); font-size: var(--fs-micro); }
+        .an-grade-card__whisker-model { z-index: 2; background: var(--danger, #d94444); }
+        .an-grade-card__whisker-persistence { z-index: 2; background: var(--text-primary); }
+        .an-grade-card__whisker-labels { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px 8px; font-size: var(--fs-micro); line-height: 1.25; }
+        .an-grade-card__whisker-labels span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .an-grade-card__whisker-labels b { font-family: var(--font-mono); font-weight: 600; }
+        .an-grade-card__whisker-label--bound { color: var(--text-muted); }
+        .an-grade-card__whisker-label--model { color: var(--danger, #d94444); }
+        .an-grade-card__whisker-label--persistence { color: var(--text-primary); }
         .an-grade-card__support { margin-top: 2px; }
         .an-grade-card__comparison { display: flex; gap: 8px; align-items: baseline; min-height: 18px; color: var(--text-muted); font-size: var(--fs-micro); }
         .an-grade-card__comparison strong { min-width: 38px; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-label); }

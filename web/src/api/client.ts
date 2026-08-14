@@ -407,6 +407,19 @@ export async function fetchAnalysisGrade(
   return r.json();
 }
 
+export async function fetchAnalysisGradeHistory(
+  deliveryDate: string,
+  { runId, horizon }: { runId?: string; horizon?: number } = {},
+): Promise<import("./types").AnalysisGradeHistory | null> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/grade-history?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/grade-history ${r.status}`);
+  return r.json();
+}
+
 // Full-artifact brief attribution. Unlike `/matrix/frame`, these requests do
 // not bound the SF transpose: a selected node/path receives every nonzero term.
 export interface AnalysisAttributionRequest {

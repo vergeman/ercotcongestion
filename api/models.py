@@ -406,6 +406,29 @@ class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+class GradeHistoryHalfResponse(BaseModel):
+    model: GradeMetricsResponse
+    persistence: GradeMetricsResponse
+
+
+class GradeHistoryDayResponse(BaseModel):
+    delivery_date: date
+    constraints: GradeHistoryHalfResponse
+    nodes: GradeHistoryHalfResponse
+
+
+class GradeHistoryAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    days: list[GradeHistoryDayResponse]
+
+
+class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's

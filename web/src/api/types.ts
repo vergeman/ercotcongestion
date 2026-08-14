@@ -937,6 +937,26 @@ export interface AnalysisGrade {
   nodes?: AnalysisGradeHalf;
 }
 
+export interface AnalysisGradeHistoryHalf {
+  model: AnalysisGradeMetrics;
+  persistence: AnalysisGradeMetrics;
+}
+
+export interface AnalysisGradeHistoryDay {
+  delivery_date: string;
+  constraints: AnalysisGradeHistoryHalf;
+  nodes: AnalysisGradeHistoryHalf;
+}
+
+export interface AnalysisGradeHistory {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  days?: AnalysisGradeHistoryDay[];
+}
+
 // =============================================================================
 // /analysis/node, /analysis/path, /analysis/settlement-points — full-artifact
 // attribution. These are intentionally sparse lists, not Matrix rectangles:

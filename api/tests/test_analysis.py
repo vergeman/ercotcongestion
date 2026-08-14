@@ -325,6 +325,26 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     assert "grade" not in body
 
 
+def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
+    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
+    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2,
+              "model": metrics, "persistence": metrics, "climatology": None, "support": None}
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([
+        {"subject": "constraints", "detail": detail},
+        {"subject": "nodes", "detail": detail},
+    ])
+    monkeypatch.setattr(analysis_module, "_grade_constraint_profiles",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
+
+    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body["constraints"] == detail
+    assert body["nodes"] == detail
+
+
 def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
     fake_pool.cursor.queue([{"h": None}])
 
@@ -332,6 +352,28 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
 
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": None}
+
+
+def test_grade_history_returns_only_materialized_days_with_both_subjects(client, fake_pool):
+    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([
+        {"delivery_date": date(2026, 7, 26), "subject": "constraints",
+         "model": metrics, "persistence": metrics},
+        {"delivery_date": date(2026, 7, 26), "subject": "nodes",
+         "model": metrics, "persistence": metrics},
+        {"delivery_date": date(2026, 7, 27), "subject": "constraints",
+         "model": metrics, "persistence": metrics},
+    ])
+
+    body = client.get("/analysis/grade-history?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
+                    "horizon": 1, "days": [{"delivery_date": "2026-07-26",
+                    "constraints": {"model": metrics, "persistence": metrics},
+                    "nodes": {"model": metrics, "persistence": metrics}}]}
 
 
 def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):

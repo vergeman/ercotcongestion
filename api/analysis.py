@@ -30,7 +30,9 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     TopNodesAvailableResponse, TopNodesUnavailableResponse,
                     StandoutRow, NodeStandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse,
                     VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
-                    ContextUnavailableResponse)
+                    ContextUnavailableResponse, GradeHistoryHalfResponse,
+                    GradeHistoryDayResponse, GradeHistoryAvailableResponse,
+                    GradeHistoryUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -721,6 +723,18 @@ def get_grade(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date,
             )
+        cur.execute(
+            "SELECT subject, detail FROM analysis_grade_daily "
+            "WHERE run_id = %s AND delivery_date = %s AND horizon = %s AND detail IS NOT NULL",
+            (run_id, delivery_date, horizon),
+        )
+        materialized = {str(row["subject"]): row["detail"] for row in cur.fetchall()}
+        if "constraints" in materialized and "nodes" in materialized:
+            return GradeAvailableResponse(
+                available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+                constraints=GradeHalfResponse(**materialized["constraints"]),
+                nodes=GradeHalfResponse(**materialized["nodes"]),
+            )
         constraints = _grade_constraint_profiles(cur, run_id, delivery_date, horizon)
         nodes = _grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
@@ -734,6 +748,42 @@ def get_grade(
         nodes=(_grade_half(nodes) if nodes is not None else
                GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
+
+
+@router.get("/grade-history",
+            response_model=GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse,
+            summary="Materialized trailing v6 constraint and node grade")
+def get_grade_history(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+    days: int = Query(30, ge=1, le=30),
+) -> GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return GradeHistoryUnavailableResponse(available=False, unavailable_reason="artifact_missing",
+                                                   run_id=run_id, delivery_date=delivery_date)
+        cur.execute(
+            "SELECT delivery_date, subject, model, persistence FROM analysis_grade_daily "
+            "WHERE run_id = %s AND horizon = %s AND delivery_date >= %s - %s "
+            "AND delivery_date < %s ORDER BY delivery_date, subject",
+            (run_id, horizon, delivery_date, days, delivery_date),
+        )
+        grouped: dict[date, dict[str, dict]] = {}
+        for row in cur.fetchall():
+            grouped.setdefault(row["delivery_date"], {})[str(row["subject"])] = {
+                "model": row["model"], "persistence": row["persistence"],
+            }
+    result = [GradeHistoryDayResponse(
+        delivery_date=day,
+        constraints=GradeHistoryHalfResponse(**values["constraints"]),
+        nodes=GradeHistoryHalfResponse(**values["nodes"]),
+    ) for day, values in grouped.items()
+              if "constraints" in values and "nodes" in values]
+    return GradeHistoryAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
+                                         horizon=horizon, days=result)
 
 
 @router.get("/forecast-mu", response_model=ForecastMuAvailableResponse | ForecastMuUnavailableResponse,
