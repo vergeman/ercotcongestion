@@ -3,7 +3,6 @@ from datetime import date
 import pandas as pd
 
 import analysis as analysis_module
-from compute.analysis.brief import nodal_congestion
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
 
@@ -192,28 +191,6 @@ def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatc
     assert body["n_terms"] == 2
     assert body["total"] == -0.5
     assert body["coverage"] == -0.025
-
-
-def test_path_reconciles_full_terms_to_endpoint_spread(client, fake_pool, monkeypatch):
-    artifact = _node_artifact()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
-
-    body = client.get("/analysis/path?source=SOURCE&sink=SINK&delivery_date=2026-07-28"
-                      "&run_id=run-x&horizon=1").json()
-    assert body["available"] is True
-    assert body["spread"] == sum(row["contribution"] for row in body["terms"])
-    congestion = nodal_congestion(artifact.SF, artifact.E_mu.sum(axis=0))
-    assert abs(body["spread"] - (congestion["SINK"] - congestion["SOURCE"])) < 1e-6
-    # Full pair: A contributes 4.0, C contributes -13.5, E contributes -0.8.
-    assert body["n_terms"] == 3
-    assert body["composition"] == {
-        "top_share": 13.5 / 18.3,
-        "second_share": 4.0 / 18.3,
-        "tail_share": 0.8 / 18.3,
-        "n_terms": 3,
-        "top_constraint_key": "C|D",
-        "second_constraint_key": "A|B",
-    }
 
 
 def test_node_realized_basis_keeps_sf_shape_and_swaps_mu(client, fake_pool, monkeypatch):

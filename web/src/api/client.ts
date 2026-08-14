@@ -12,7 +12,6 @@ import type {
   ScoreboardWeekly,
   ScoreboardDaily,
   MatrixFrame,
-  AnalysisBrief,
   BriefHero,
   BriefHeroLatest,
   Standouts,
@@ -21,7 +20,6 @@ import type {
   AnalysisGrade,
   AnalysisBasis,
   AnalysisNodeResponse,
-  AnalysisPathResponse,
   AnalysisSettlementPointsResponse,
   AnalysisEsspGroupsResponse,
   EsspSource,
@@ -276,43 +274,6 @@ export async function fetchScoreboardDaily(
   return r.json();
 }
 
-// =============================================================================
-// /analysis/brief[/latest] — the server-computed daily Insight Brief (0124/0125).
-// Both fetchers soft-fail to null on 503 (no forecast run published), matching
-// the scoreboard/matrix contract; a day/run with no brief is not a network
-// failure but an `available: false` envelope the page renders as an empty state.
-// =============================================================================
-
-// The latest day's full brief for the current run, plus `available_dates` — the
-// run's sorted day index the page steps prev/next through. The page's landing
-// call. Null on 503 (no forecast run published yet).
-export async function fetchAnalysisBriefLatest(
-  runId?: string
-): Promise<AnalysisBrief | null> {
-  const qs = new URLSearchParams();
-  if (runId) qs.set("run_id", runId);
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const r = await fetch(`${BASE}/analysis/brief/latest${suffix}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/brief/latest ${r.status}`);
-  return r.json();
-}
-
-// One specific day's full brief (the frozen 0124 per-day endpoint). Used for the
-// prev/next day steps once `available_dates` is known. Null on 503; a day with no
-// brief returns an `available: false` envelope (not an error).
-export async function fetchAnalysisBrief(
-  deliveryDate: string,
-  runId?: string
-): Promise<AnalysisBrief | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
-  return r.json();
-}
-
 // v6's generated hero.  An absent artifact is a successful, explicit empty
 // state; 503 still means no published run at all.
 export async function fetchBriefHero(
@@ -327,8 +288,7 @@ export async function fetchBriefHero(
   return r.json();
 }
 
-// V6 cold-entry discovery. This intentionally does not read the legacy
-// analysis_brief index: it selects only days with both UTC artifacts required
+// V6 cold-entry discovery selects only days with both UTC artifacts required
 // to stitch the Brief's Chicago delivery-day tables.
 export async function fetchBriefHeroLatest(
   runId?: string,
@@ -450,19 +410,6 @@ export async function fetchAnalysisNode(
   qs.set("settlement_point", settlementPoint);
   const r = await fetch(`${BASE}/analysis/node?${qs.toString()}`, { signal: request.signal });
   if (!r.ok) throw new Error(`analysis/node ${r.status}`);
-  return r.json();
-}
-
-export async function fetchAnalysisPath(
-  source: string,
-  sink: string,
-  request: AnalysisAttributionRequest,
-): Promise<AnalysisPathResponse> {
-  const qs = attributionQuery(request);
-  qs.set("source", source);
-  qs.set("sink", sink);
-  const r = await fetch(`${BASE}/analysis/path?${qs.toString()}`, { signal: request.signal });
-  if (!r.ok) throw new Error(`analysis/path ${r.status}`);
   return r.json();
 }
 
