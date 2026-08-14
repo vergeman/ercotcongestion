@@ -206,6 +206,9 @@ class TopConstraintRow(BaseModel):
     settled_peak: float | None = None
     settled_hours: int | None = None
     settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
     settled_history_p90: float | None = None
     settled_history: list[float] = []
 
@@ -243,6 +246,9 @@ class StandoutRow(BaseModel):
     settled_peak: float | None = None
     settled_hours: int | None = None
     settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
     settled_history_p90: float | None = None
     settled_history: list[float] = []
 
@@ -262,6 +268,9 @@ class NodeStandoutRow(BaseModel):
     dominant_driver: str | None = None
     driver_share: float | None = None
     settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
     settled_history_p90: float | None = None
     settled_history: list[float] = []
 
@@ -296,6 +305,9 @@ class TopNodeRow(BaseModel):
     driver_share: float | None = None
     coverage: float | None = None
     settled_history_p10: float | None = None
+    settled_history_p25: float | None = None
+    settled_history_p50: float | None = None
+    settled_history_p75: float | None = None
     settled_history_p90: float | None = None
     settled_history: list[float] = []
 

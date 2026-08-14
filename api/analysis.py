@@ -835,6 +835,9 @@ def get_top_constraints(
                           else float(settled_values.abs().max())),
             settled_hours=(None if settled_values is None else int(settled_values.ne(0.0).sum())),
             settled_history_p10=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1))),
+            settled_history_p25=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.25))),
+            settled_history_p50=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.5))),
+            settled_history_p75=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.75))),
             settled_history_p90=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9))),
             settled_history=historical,
         ))
@@ -1002,6 +1005,9 @@ def get_standouts(
             "settled_rank": node_settled_ranks.get(row.settlement_point),
             "settled_history_p10": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
                                     else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.1))),
+            "settled_history_p25": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.25))),
+            "settled_history_p50": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.5))),
+            "settled_history_p75": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.75))),
             "settled_history_p90": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
                                     else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.9))),
             "settled_history": node_settled_histories[row.settlement_point],
@@ -1042,6 +1048,9 @@ def get_standouts(
             "settled_peak": None if settled_values.empty else float(settled_values.abs().max()),
             "settled_hours": None if settled.empty else int(settled_values.ne(0.0).sum()),
             "settled_history_p10": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1)),
+            "settled_history_p25": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.25)),
+            "settled_history_p50": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.5)),
+            "settled_history_p75": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.75)),
             "settled_history_p90": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9)),
             "settled_history": historical,
         }))
@@ -1139,6 +1148,7 @@ def get_top_nodes(
         settled_total = settled_grouped.get(str(sp))
         realized_total = None if realized_terms is None else float(realized_terms[sp].sum())
         historical = settled_histories.get(str(sp), [0.0] * 30)
+        history_series = pd.Series(historical)
         rows.append(TopNodeRow(
             settlement_point=str(sp), essp_member_count=essp_member_count,
             zone=metadata[str(sp)].get("load_zone"),
@@ -1149,8 +1159,11 @@ def get_top_nodes(
             dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
             driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
             coverage=(None if settled_total in (None, 0.0) else realized_total / settled_total),
-            settled_history_p10=float(pd.Series(historical).quantile(0.1)),
-            settled_history_p90=float(pd.Series(historical).quantile(0.9)),
+            settled_history_p10=float(history_series.quantile(0.1)),
+            settled_history_p25=float(history_series.quantile(0.25)),
+            settled_history_p50=float(history_series.quantile(0.5)),
+            settled_history_p75=float(history_series.quantile(0.75)),
+            settled_history_p90=float(history_series.quantile(0.9)),
             settled_history=historical,
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,

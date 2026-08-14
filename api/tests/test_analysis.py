@@ -350,11 +350,13 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
         "rows": [
             {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
              "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
-             "settled_peak": 4.0, "settled_hours": 1, "settled_history_p10": None,
+             "settled_peak": 4.0, "settled_hours": 1, "settled_history_p10": None, "settled_history_p25": None,
+             "settled_history_p50": None, "settled_history_p75": None,
              "settled_history_p90": None, "settled_history": [0.0] * 30},
             {"constraint_key": "LOW|BASE", "forecast_rank": 2, "forecast_total": 0.01,
              "forecast_peak": 0.01, "forecast_hours": 1, "zone": None, "kv_max": None, "settled_rank": None, "settled_total": None,
-             "settled_peak": None, "settled_hours": None, "settled_history_p10": None,
+             "settled_peak": None, "settled_hours": None, "settled_history_p10": None, "settled_history_p25": None,
+             "settled_history_p50": None, "settled_history_p75": None,
              "settled_history_p90": None, "settled_history": [0.0] * 30},
         ],
     }

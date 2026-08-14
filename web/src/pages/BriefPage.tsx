@@ -31,15 +31,17 @@ function Stage({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function HistoryWhisker({ low, high, mark }: { low: number | null; high: number | null; mark: number | null }) {
+function HistoryWhisker({ low, q25, median, q75, high, mark }: { low: number | null; q25?: number | null; median?: number | null; q75?: number | null; high: number | null; mark: number | null }) {
   if (low == null || high == null || mark == null) return <span className="an-table__missing">—</span>;
   const min = Math.min(low, mark, 0);
   const max = Math.max(high, mark, 0);
   const span = Math.max(max - min, 1);
   const left = `${Math.min(100, ((low - min) / span) * 100)}%`;
   const width = `${Math.max(2, ((high - low) / span) * 100)}%`;
-  return <span className="an-history-whisker" title={`30-day settled p10 ${usd(low, 2)} · p90 ${usd(high, 2)} · today ${usd(mark, 2)}`}>
-    <i style={{ left, width }} /><b style={{ left: `${Math.min(100, ((mark - min) / span) * 100)}%` }} />
+  const boxLeft = q25 == null ? undefined : `${Math.min(100, ((q25 - min) / span) * 100)}%`;
+  const boxWidth = q25 == null || q75 == null ? undefined : `${Math.max(2, ((q75 - q25) / span) * 100)}%`;
+  return <span className="an-history-whisker" title={`30-day settled p10 ${usd(low, 2)} · p25 ${q25 == null ? "—" : usd(q25, 2)} · median ${median == null ? "—" : usd(median, 2)} · p75 ${q75 == null ? "—" : usd(q75, 2)} · p90 ${usd(high, 2)} · today ${usd(mark, 2)}`}>
+    <i style={{ left, width }} />{boxLeft && boxWidth && <em style={{ left: boxLeft, width: boxWidth }} />}{median != null && <strong style={{ left: `${Math.min(100, ((median - min) / span) * 100)}%` }} />}<b style={{ left: `${Math.min(100, ((mark - min) / span) * 100)}%` }} />
   </span>;
 }
 
@@ -71,7 +73,7 @@ function StandoutsPanel({ data, loading, settled }: { data: Standouts | null; lo
             <td>{zoneLabel(row.zone)}</td><td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
             <td>{row.forecast_rank ?? "—"}</td><td>{row.forecast_peak == null ? "—" : usd(row.forecast_peak, 2)}</td><td>{row.forecast_hours ?? "—"}</td><td>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_hours ?? "—"}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
-            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryWhisker low={row.settled_history_p10} q25={row.settled_history_p25} median={row.settled_history_p50} q75={row.settled_history_p75} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
             <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table></div>
@@ -87,7 +89,7 @@ function StandoutsPanel({ data, loading, settled }: { data: Standouts | null; lo
             <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)} {row.driver_share != null && <small>{percent(row.driver_share)}</small>}</td>
             <td>{row.forecast_rank ?? "—"}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
-            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryWhisker low={row.settled_history_p10} q25={row.settled_history_p25} median={row.settled_history_p50} q75={row.settled_history_p75} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
             <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table></div>
@@ -158,7 +160,7 @@ function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; load
             <td>{row.forecast_rank ?? "—"}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
             {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
             <td className={row.delta == null ? "" : row.delta >= 0 ? "an-table__positive" : "an-table__negative"}>{row.delta == null ? "—" : usd(row.delta, 2)}</td></>}
-            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryWhisker low={row.settled_history_p10} q25={row.settled_history_p25} median={row.settled_history_p50} q75={row.settled_history_p75} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
             <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table>
@@ -666,7 +668,11 @@ export default function BriefPage() {
         .an-standouts__table h3 { margin: 0; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-history-whisker { position: relative; display: inline-block; width: 74px; height: 18px; vertical-align: middle; }
         .an-history-whisker::before { position: absolute; top: 8px; right: 0; left: 0; height: 1px; background: var(--border-bright); content: ""; }
-        .an-history-whisker i { position: absolute; top: 4px; height: 9px; background: color-mix(in srgb, var(--accent) 26%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+        .an-history-whisker i { position: absolute; top: 7px; height: 3px; }
+        .an-history-whisker i::before, .an-history-whisker i::after { position: absolute; top: 0; width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); content: ""; }
+        .an-history-whisker i::before { left: 0; } .an-history-whisker i::after { right: 0; }
+        .an-history-whisker em { position: absolute; top: 5px; height: 7px; border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent); background: transparent; }
+        .an-history-whisker strong { position: absolute; top: 2px; width: 1px; height: 14px; background: var(--text-primary); transform: translateX(-.5px); }
         .an-history-whisker b { position: absolute; top: 1px; width: 2px; height: 15px; background: var(--danger, #d94444); transform: translateX(-1px); }
         .an-history-bars { display: inline-flex; width: 88px; height: 18px; gap: 1px; align-items: end; vertical-align: middle; }
         .an-history-bars i { display: block; width: 2px; min-height: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
