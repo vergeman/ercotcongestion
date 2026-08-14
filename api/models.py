@@ -247,14 +247,19 @@ class StandoutRow(BaseModel):
 class NodeStandoutRow(BaseModel):
     """One anomaly-selected node compared with its own forecast history."""
     settlement_point: str
-    kind: Literal["forecast_elevated", "forecast_depressed"]
+    kind: Literal["forecast_elevated", "forecast_depressed", "settled_elevated"]
     zone: str | None = None
     forecast_total: float
+    forecast_rank: int | None = None
     forecast_history_median: float
     forecast_history_days: int
     settled_total: float | None = None
+    settled_rank: int | None = None
     dominant_driver: str | None = None
     driver_share: float | None = None
+    settled_history_p10: float | None = None
+    settled_history_p90: float | None = None
+    settled_history: list[float] = []
 
 
 class StandoutsAvailableResponse(BaseModel):

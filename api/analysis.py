@@ -301,6 +301,49 @@ def _settled_standout_keys(
     return [key for _, _, key in candidates[:k]]
 
 
+def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[str, list[float]]:
+    """Market-peak daily DAM congestion for a small selected node set."""
+    result = {point: [] for point in points}
+    for offset in range(30, 0, -1):
+        start, end = delivery_bounds(delivery_date - timedelta(days=offset))
+        cur.execute(
+            "SELECT s.settlement_point, avg(s.dam_spp - l.system_lambda) AS congestion "
+            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+            "AND s.settlement_point = ANY(%s) "
+            "AND EXTRACT(HOUR FROM s.interval_ts AT TIME ZONE 'America/Chicago') BETWEEN 7 AND 22 "
+            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+            "GROUP BY s.settlement_point",
+            (start, end, points),
+        )
+        values = {str(row["settlement_point"]): float(row["congestion"]) for row in cur.fetchall()}
+        for point in points:
+            result[point].append(values.get(point, 0.0))
+    return result
+
+
+def _settled_node_standout_keys(
+    settled_total: pd.Series,
+    histories: dict[str, list[float]],
+    excluded: set[str],
+    *,
+    k: int,
+) -> list[str]:
+    """Return DAM node surprises relative to each node's own absolute history."""
+    candidates: list[tuple[float, float, str]] = []
+    for key, value in settled_total.items():
+        key = str(key)
+        historical = [abs(item) for item in histories.get(key, []) if abs(item) > NODE_CONGESTION_EPSILON]
+        if key in excluded or len(historical) < 10:
+            continue
+        p90 = float(pd.Series(historical).quantile(0.9))
+        if p90 > NODE_CONGESTION_EPSILON and abs(float(value)) / p90 >= 1.25:
+            candidates.append((abs(float(value)) / p90, abs(float(value)), key))
+    candidates.sort(reverse=True)
+    return [key for _, _, key in candidates[:k]]
+
+
 def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
     """Stitch the two UTC-date artifacts into one Chicago delivery-day profile."""
     start, end = delivery_bounds(delivery_date)
@@ -868,6 +911,45 @@ def get_standouts(
         ].mean(axis=0) if not node_settled.empty else pd.Series(dtype=float))
         node_rows = _node_standout_rows(node_forecast_total, node_histories, node_settled_total,
                                         node_terms, k=k)
+        node_forecast_ranks = {str(key): rank for rank, key in enumerate(
+            node_forecast_total.abs().sort_values(ascending=False, kind="stable").index, start=1)}
+        node_settled_ranks = {str(key): rank for rank, key in enumerate(
+            node_settled_total.abs().sort_values(ascending=False, kind="stable").index, start=1)}
+        forecast_points = [row.settlement_point for row in node_rows]
+        settled_candidates = [str(point) for point in node_settled_total.abs().sort_values(
+            ascending=False, kind="stable").index[:60] if str(point) not in set(forecast_points)]
+        history_points = forecast_points + settled_candidates
+        if history_points:
+            with get_pool().connection() as history_conn, history_conn.cursor(row_factory=dict_row) as history_cur:
+                node_settled_histories = _settled_node_history(history_cur, delivery_date, history_points)
+        else:
+            node_settled_histories = {}
+        appended_points = _settled_node_standout_keys(
+            node_settled_total, node_settled_histories, set(forecast_points), k=3,
+        ) if settled_available else []
+        metadata = load_sp_metadata(node_forecast_total.index)
+        for point in appended_points:
+            terms = node_terms[point] if point in node_terms else pd.Series(dtype=float)
+            gross = float(terms.abs().sum())
+            node_rows.append(NodeStandoutRow(
+                settlement_point=point, kind="settled_elevated",
+                zone=metadata.get(point, {}).get("load_zone"),
+                forecast_total=float(node_forecast_total.get(point, 0.0)),
+                forecast_history_median=float(pd.Series(node_histories.get(point, [])).abs().median()),
+                forecast_history_days=len(node_histories.get(point, [])),
+                settled_total=float(node_settled_total.get(point, 0.0)),
+                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
+                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+            ))
+        node_rows = [row.model_copy(update={
+            "forecast_rank": node_forecast_ranks.get(row.settlement_point),
+            "settled_rank": node_settled_ranks.get(row.settlement_point),
+            "settled_history_p10": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
+                                    else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.1))),
+            "settled_history_p90": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
+                                    else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.9))),
+            "settled_history": node_settled_histories[row.settlement_point],
+        }) for row in node_rows]
     forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(ascending=False, kind="stable")
     settled_ranked = settled_total[settled_total > 0.0].sort_values(ascending=False, kind="stable")
     forecast_ranks = {str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)}

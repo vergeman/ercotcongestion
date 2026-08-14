@@ -33,11 +33,13 @@ function Stage({ title, detail }: { title: string; detail: string }) {
 
 function HistoryWhisker({ low, high, mark }: { low: number | null; high: number | null; mark: number | null }) {
   if (low == null || high == null || mark == null) return <span className="an-table__missing">—</span>;
-  const max = Math.max(high, mark, 1);
-  const left = `${Math.min(100, (low / max) * 100)}%`;
-  const width = `${Math.max(2, ((high - low) / max) * 100)}%`;
+  const min = Math.min(low, mark, 0);
+  const max = Math.max(high, mark, 0);
+  const span = Math.max(max - min, 1);
+  const left = `${Math.min(100, ((low - min) / span) * 100)}%`;
+  const width = `${Math.max(2, ((high - low) / span) * 100)}%`;
   return <span className="an-history-whisker" title={`30-day settled p10 ${usd(low, 2)} · p90 ${usd(high, 2)} · today ${usd(mark, 2)}`}>
-    <i style={{ left, width }} /><b style={{ left: `${Math.min(100, (mark / max) * 100)}%` }} />
+    <i style={{ left, width }} /><b style={{ left: `${Math.min(100, ((mark - min) / span) * 100)}%` }} />
   </span>;
 }
 
@@ -76,15 +78,17 @@ function StandoutsPanel({ data, loading, settled }: { data: Standouts | null; lo
       </div>}
       {!loading && data?.available && !!nodes.length && <div className="an-standouts__table">
         <h3>Nodes</h3>
-        <div className="an-table-wrap"><table className="an-table an-table--standouts">
-          <thead><tr className="an-table__groups"><th colSpan={3} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled">DAM settled</th>}<th>Own 30 days</th></tr>
-          <tr><th>Node</th><th>Zone</th><th>Dominant driver</th><th>7×16 $/MWh</th><th>vs median</th>{settled && <th className="an-table__split">7×16 $/MWh</th>}<th>Median · days</th></tr></thead>
-          <tbody>{nodes.map((row) => <tr key={row.settlement_point}>
-            <td><Link to={`/map${window.location.search}`}>{row.settlement_point}</Link></td><td>{zoneLabel(row.zone)}</td>
-            <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)}</td>
-            <td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td><td>{multiple(Math.abs(row.forecast_total) / row.forecast_history_median)}</td>
-            {settled && <td className={`an-table__split ${row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}`}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>}
-            <td className="an-table__history">{usd(row.forecast_history_median, 2)} · {row.forecast_history_days}d</td>
+        <div className="an-table-wrap"><table className="an-table an-table--standouts an-table--standouts-nodes">
+          <colgroup><col className="an-standouts__node" /><col className="an-standouts__zone" /><col className="an-standouts__driver" /><col className="an-standouts__rank" /><col className="an-standouts__node-value" />{settled && <><col className="an-standouts__rank" /><col className="an-standouts__node-value" /></>}<col className="an-standouts__whisker" /><col className="an-standouts__bars" /></colgroup>
+          <thead><tr className="an-table__groups"><th colSpan={3} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={2}>DAM settled</th>}<th colSpan={2}>Settled vs its own 30 days</th></tr>
+          <tr><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Rank</th><th>7×16 $/MWh</th>{settled && <><th className="an-table__split">Rank</th><th>7×16 $/MWh</th></>}<th>$/MWh p10–p90, 30 d</th><th>$/MWh each of 30 days</th></tr></thead>
+          <tbody>{nodes.map((row) => <tr className={row.kind === "settled_elevated" ? "an-standouts__added" : undefined} key={row.settlement_point}>
+            <td>{row.kind === "settled_elevated" && <span className="an-standouts__asterisk">*</span>}<Link to={`/map${window.location.search}`}>{row.settlement_point}</Link></td><td>{zoneLabel(row.zone)}</td>
+            <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)} {row.driver_share != null && <small>{percent(row.driver_share)}</small>}</td>
+            <td>{row.forecast_rank ?? "—"}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
+            {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
+            <td><HistoryWhisker low={row.settled_history_p10} high={row.settled_history_p90} mark={settled ? row.settled_total : row.forecast_total} /></td>
+            <td><HistoryBars values={row.settled_history} /></td>
           </tr>)}</tbody>
         </table></div>
       </div>}
@@ -680,9 +684,16 @@ export default function BriefPage() {
         .an-table tbody tr:last-child td { border-bottom: 0; }
         .an-table td a { color: var(--text-primary); font-family: var(--font-mono); text-decoration: none; }
         .an-table td a:hover { color: var(--accent); text-decoration: underline; }
-        .an-table--standouts th:first-child, .an-table--standouts td:first-child { text-align: left; }
+        .an-table--standouts th, .an-table--standouts td { text-align: right; }
+        .an-table--standouts .an-table__groups th { text-align: center; }
+        .an-table--standouts th:first-child, .an-table--standouts td:first-child, .an-table--standouts th:nth-child(2), .an-table--standouts td:nth-child(2) { text-align: left; }
+        .an-table--standouts-nodes th:nth-child(3), .an-table--standouts-nodes td:nth-child(3) { text-align: left; }
         .an-standouts__constraint { width: 20%; } .an-standouts__zone { width: 7%; } .an-standouts__kv, .an-standouts__rank, .an-standouts__hours { width: 4%; }
         .an-standouts__peak { width: 7%; } .an-standouts__sum { width: 8%; } .an-standouts__whisker { width: 11%; } .an-standouts__bars { width: 12%; }
+        .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: visible; }
+        .an-standouts__node { width: 16%; } .an-standouts__node-value { width: 9%; } .an-standouts__driver { width: 12%; }
+        .an-table--standouts-nodes .an-table__driver { max-width: 112px; font-size: var(--fs-micro); }
+        .an-table--standouts-nodes .an-table__driver small { margin-left: 3px; color: var(--text-muted); font-size: var(--fs-micro); }
         .an-standouts__asterisk { margin-right: 4px; color: var(--warn); font-weight: 700; }
         .an-standouts__added td { background: color-mix(in srgb, var(--warn) 5%, transparent); }
         .an-table td a sup { margin-left: 3px; padding: 1px 2px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-sans); font-size: 8px; }
@@ -738,7 +749,7 @@ export default function BriefPage() {
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
         @media (max-width: 700px) { .an-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .an-grade__cards { grid-template-columns: 1fr; } .an-grade-card { min-height: 0; } }
-        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } }
+        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
       `}</style>
     </div>
   );

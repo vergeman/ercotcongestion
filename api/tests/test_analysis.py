@@ -158,6 +158,20 @@ def test_settled_standouts_append_only_dam_surprises_not_already_shown_forecasts
     assert keys == ["DAM_SURPRISE"]
 
 
+def test_settled_node_standouts_append_dam_surprises_not_forecast_rows():
+    keys = analysis_module._settled_node_standout_keys(
+        pd.Series({"FORECAST_NODE": 50.0, "DAM_NODE": -40.0, "ORDINARY": 11.0}),
+        {
+            "FORECAST_NODE": [10.0] * 30,
+            "DAM_NODE": [10.0] * 30,
+            "ORDINARY": [10.0] * 30,
+        },
+        {"FORECAST_NODE"}, k=3,
+    )
+
+    assert keys == ["DAM_NODE"]
+
+
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())

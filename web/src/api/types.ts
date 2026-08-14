@@ -797,14 +797,19 @@ export interface StandoutRow {
 
 export interface NodeStandoutRow {
   settlement_point: string;
-  kind: "forecast_elevated" | "forecast_depressed";
+  kind: "forecast_elevated" | "forecast_depressed" | "settled_elevated";
   zone: string | null;
   forecast_total: number;
+  forecast_rank: number | null;
   forecast_history_median: number;
   forecast_history_days: number;
   settled_total: number | null;
+  settled_rank: number | null;
   dominant_driver: string | null;
   driver_share: number | null;
+  settled_history_p10: number | null;
+  settled_history_p90: number | null;
+  settled_history: number[];
 }
 
 export interface Standouts {
