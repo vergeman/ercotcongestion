@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
-import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment } from "../api/types";
-import { fetchAnalysisBriefLatest, fetchAnalysisGrade, fetchBriefHero } from "../api/client";
+import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeSupport, BriefHero, HeroSegment, TopConstraints, TopNodes } from "../api/types";
+import { fetchAnalysisBriefLatest, fetchAnalysisGrade, fetchBriefHero, fetchTopConstraints, fetchTopNodes } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -27,6 +27,71 @@ function Stage({ title, detail }: { title: string; detail: string }) {
     <section className="an-stage">
       <h2>{title}</h2>
       <p>{detail}</p>
+    </section>
+  );
+}
+
+function TopConstraintsPanel({ data, loading }: { data: TopConstraints | null; loading: boolean }) {
+  return (
+    <section className="an-constraints" aria-labelledby="top-constraints-title">
+      <div className="an-section-heading">
+        <h2 id="top-constraints-title">Top Constraints by Shadow Price (μ)</h2>
+        <p>The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast.</p>
+      </div>
+      {loading && <p className="an-panel-state">Loading constraints…</p>}
+      {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked forecast constraints are available for this delivery day.</p>}
+      {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
+        <table className="an-table an-table--constraints">
+          <colgroup><col className="an-col-rank" /><col className="an-col-constraint" /><col className="an-col-zone" /><col className="an-col-kv" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-history" /></colgroup>
+          <thead>
+            <tr className="an-table__groups"><th colSpan={4} /><th className="an-table__forecast" colSpan={3}>Forecast</th><th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th><th>30-day history</th></tr>
+            <tr><th>#</th><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th><th>Σ<span className="an-table__mu">μ</span> p10–p90</th></tr>
+          </thead>
+          <tbody>{data.rows.map((row) => <tr key={row.constraint_key}>
+            <td className="an-table__rank">{row.rank}</td>
+            <td><Link to={`/map${window.location.search}`}>{row.constraint_key}</Link></td>
+            <td>{zoneLabel(row.zone)}</td>
+            <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
+            <td>{row.rank}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
+            <td className="an-table__split">{rankMovement(row.rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
+            <td className="an-table__history">—</td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+    </section>
+  );
+}
+
+function TopNodesPanel({ data, loading }: { data: TopNodes | null; loading: boolean }) {
+  return (
+    <section className="an-nodes" aria-labelledby="top-nodes-title">
+      <div className="an-section-heading">
+        <h2 id="top-nodes-title">Top Nodal Congestion</h2>
+        <p>Who separated, and what drove it—attributed across each node’s complete shift-factor column.</p>
+      </div>
+      {loading && <p className="an-panel-state">Loading nodal congestion…</p>}
+      {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked nodal congestion is available for this delivery day.</p>}
+      {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
+        <table className="an-table an-table--nodes">
+          <colgroup><col className="an-col-rank" /><col className="an-col-node" /><col className="an-col-zone" /><col className="an-col-driver" /><col className="an-col-share" /><col className="an-col-share" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-history" /></colgroup>
+          <thead>
+            <tr className="an-table__groups"><th colSpan={6} /><th className="an-table__forecast" colSpan={2}>Forecast</th><th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th><th>30-day history</th></tr>
+            <tr><th>#</th><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Share</th><th>Coverage</th><th>Rank</th><th>7×16 $/MWh</th><th className="an-table__split">Rank</th><th>7×16 $/MWh</th><th>Δ</th><th>$/MWh p10–p90</th></tr>
+          </thead>
+          <tbody>{data.rows.map((row) => <tr key={row.settlement_point}>
+            <td className="an-table__rank">{row.forecast_rank}</td>
+            <td><Link to={`/map${window.location.search}`}>{row.settlement_point}{row.essp_member_count > 1 && <sup>≈{row.essp_member_count}</sup>}</Link></td>
+            <td>{zoneLabel(row.zone)}</td>
+            <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)}</td>
+            <td>{percent(row.driver_share)}</td>
+            <td>{percent(row.coverage)}</td>
+            <td>{row.forecast_rank}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
+            <td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
+            <td className={row.delta == null ? "" : row.delta >= 0 ? "an-table__positive" : "an-table__negative"}>{row.delta == null ? "—" : usd(row.delta, 2)}</td>
+            <td className="an-table__history">—</td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
     </section>
   );
 }
@@ -244,8 +309,15 @@ const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 };
 
-const usd = (value: number) => `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const usd = (value: number, fractionDigits = 0) => `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })}`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
+const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
+const zoneLabel = (zone: string | null) => zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
+const rankMovement = (forecastRank: number, settledRank: number | null) => {
+  if (settledRank == null) return "—";
+  const movement = settledRank - forecastRank;
+  return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
+};
 
 function dateBounds(day: string) {
   const nextDay = format(addDays(new Date(`${day}T12:00:00Z`), 1), "yyyy-MM-dd");
@@ -264,8 +336,12 @@ export default function BriefPage() {
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
   const [indexLoaded, setIndexLoaded] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
+  const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(null);
+  const [topNodes, setTopNodes] = useState<TopNodes | null>(null);
   const [grade, setGrade] = useState<AnalysisGrade | null>(null);
   const [loading, setLoading] = useState(false);
+  const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
+  const [topNodesLoading, setTopNodesLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
@@ -309,6 +385,28 @@ export default function BriefPage() {
         setError("The daily brief could not be loaded.");
         setLoading(false);
       });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run]);
+
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setTopNodesLoading(true);
+    fetchTopNodes(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setTopNodes(result); })
+      .catch(() => { if (live) setTopNodes(null); })
+      .finally(() => { if (live) setTopNodesLoading(false); });
+    return () => { live = false; };
+  }, [deliveryDay, cursor.run]);
+
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setTopConstraintsLoading(true);
+    fetchTopConstraints(deliveryDay, { runId: cursor.run ?? undefined })
+      .then((result) => { if (live) setTopConstraints(result); })
+      .catch(() => { if (live) setTopConstraints(null); })
+      .finally(() => { if (live) setTopConstraintsLoading(false); });
     return () => { live = false; };
   }, [deliveryDay, cursor.run]);
 
@@ -440,8 +538,8 @@ export default function BriefPage() {
             </section>
 
             <Stage title="Standouts" detail="Unusual constraints and nodes will land with their query-backed rows." />
-            <Stage title="Top Constraints by Shadow Price (μ)" detail="The untruncated constraint panel follows the query endpoint." />
-            <Stage title="Top Nodal Congestion" detail="Nodal attribution will render from the full shift-factor column." />
+            <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} />
+            <TopNodesPanel data={topNodes} loading={topNodesLoading} />
             <ForecastGrade grade={grade} loading={gradeLoading} />
             <Stage title="Context" detail="Historical grid context will follow its dedicated rollups." />
           </>
@@ -470,6 +568,34 @@ export default function BriefPage() {
         .an-stage { margin-top: 42px; }
         .an-stage h2 { margin: 0; font-size: var(--fs-xl); }
         .an-stage p { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-constraints { margin-top: 42px; }
+        .an-nodes { margin-top: 42px; }
+        .an-section-heading h2 { margin: 0; font-size: var(--fs-xl); }
+        .an-section-heading p, .an-panel-state { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-table-wrap { margin-top: 14px; overflow-x: auto; }
+        .an-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; }
+        .an-table th { padding: 6px 8px; color: var(--text-muted); border-top: 1px solid var(--border-bright); border-bottom: 1px solid var(--border-bright); font: var(--fw-label) var(--fs-micro) var(--font-label); letter-spacing: var(--track-label); text-align: right; text-transform: uppercase; white-space: nowrap; }
+        .an-table th:nth-child(2), .an-table th:nth-child(3), .an-table th:nth-child(4) { text-align: left; }
+        .an-table__groups th { padding: 3px 8px; border-top: 0; color: var(--text-muted); font-size: 9px; text-align: center; }
+        .an-table__groups .an-table__forecast { color: var(--accent); }
+        .an-table__groups .an-table__settled { color: var(--ok); }
+        .an-table td { padding: 9px 8px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: var(--fs-label); text-align: right; vertical-align: middle; white-space: nowrap; }
+        .an-table td:nth-child(2), .an-table td:nth-child(3), .an-table td:nth-child(4) { font-family: var(--font-sans); text-align: left; }
+        .an-table tbody tr:last-child td { border-bottom: 0; }
+        .an-table td a { color: var(--text-primary); font-family: var(--font-mono); text-decoration: none; }
+        .an-table td a:hover { color: var(--accent); text-decoration: underline; }
+        .an-table td a sup { margin-left: 3px; padding: 1px 2px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-sans); font-size: 8px; }
+        .an-table__rank { color: var(--text-muted); font-family: var(--font-mono); }
+        .an-table__driver { max-width: 190px; overflow: hidden; font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+        .an-table td .an-table__missing { color: var(--text-muted); }
+        .an-table__split { border-left: 2px solid var(--border-bright) !important; }
+        .an-table__mu { text-transform: none; }
+        .an-table__history { color: var(--text-muted); font-family: var(--font-sans) !important; font-size: var(--fs-micro) !important; text-align: center !important; }
+        .an-table__positive { color: var(--danger, #d94444); }
+        .an-table__negative { color: var(--accent); }
+        .an-col-rank { width: 3%; } .an-col-constraint { width: 20%; } .an-col-node { width: 14%; }
+        .an-col-zone { width: 7%; } .an-col-kv { width: 5%; } .an-col-driver { width: 16%; }
+        .an-col-share { width: 6%; } .an-col-money { width: 8%; } .an-col-history { width: 12%; }
         .an-grade { margin-top: 42px; }
         .an-grade h2 { margin: 0; font-size: var(--fs-xl); }
         .an-grade > p, .an-grade__half--ungraded p { margin: 7px 0 0; color: var(--text-secondary); }

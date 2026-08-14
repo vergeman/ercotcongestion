@@ -256,6 +256,30 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
                     "delivery_date": "2026-07-28", "horizon": None}
 
 
+def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):
+    hours = pd.date_range("2026-07-28T05:00Z", periods=2, freq="h")
+    forecast = pd.DataFrame({"HIGH|BASE": [3.0, 2.0], "LOW|BASE": [0.01, 0.0]}, index=hours)
+    settled = pd.DataFrame({"HIGH|BASE": [4.0, 0.0]}, index=hours)
+    fake_pool.cursor.queue([{"h": 1}])
+    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: settled)
+
+    body = client.get("/analysis/top-constraints?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body == {
+        "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
+        "n_ranked": 2,
+        "rows": [
+            {"constraint_key": "HIGH|BASE", "rank": 1, "forecast_total": 5.0,
+             "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
+             "settled_peak": 4.0, "settled_hours": 1},
+            {"constraint_key": "LOW|BASE", "rank": 2, "forecast_total": 0.01,
+             "forecast_peak": 0.01, "forecast_hours": 1, "zone": None, "kv_max": None, "settled_rank": None, "settled_total": None,
+             "settled_peak": None, "settled_hours": None},
+        ],
+    }
+
+
 def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)

@@ -743,6 +743,54 @@ export interface BriefHero {
   };
 }
 
+export interface TopConstraintRow {
+  constraint_key: string;
+  rank: number;
+  forecast_total: number;
+  forecast_peak: number;
+  forecast_hours: number;
+  zone: string | null;
+  kv_max: number | null;
+  settled_rank: number | null;
+  settled_total: number | null;
+  settled_peak: number | null;
+  settled_hours: number | null;
+}
+
+export interface TopConstraints {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  n_ranked?: number;
+  rows?: TopConstraintRow[];
+}
+
+export interface TopNodeRow {
+  settlement_point: string;
+  essp_member_count: number;
+  zone: string | null;
+  forecast_rank: number;
+  forecast_total: number;
+  settled_rank: number | null;
+  settled_total: number | null;
+  delta: number | null;
+  dominant_driver: string | null;
+  driver_share: number | null;
+  coverage: number | null;
+}
+
+export interface TopNodes {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  n_ranked?: number;
+  rows?: TopNodeRow[];
+}
+
 // /analysis/grade — independent daily verification halves. Constraint and node
 // scores intentionally never blend into one headline value.
 export interface AnalysisGradeMetrics {

@@ -182,6 +182,66 @@ class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/top-constraints ------------------------------------------
+
+class TopConstraintRow(BaseModel):
+    """One untruncated artifact constraint, ranked by forecast μ mass."""
+    constraint_key: str
+    rank: int
+    forecast_total: float
+    forecast_peak: float
+    forecast_hours: int
+    zone: str | None = None
+    kv_max: float | None = None
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    settled_peak: float | None = None
+    settled_hours: int | None = None
+
+
+class TopConstraintsAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    rows: list[TopConstraintRow]
+    n_ranked: int
+
+
+class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
+# ---- /analysis/top-nodes -------------------------------------------------
+
+class TopNodeRow(BaseModel):
+    """One daily nodal-congestion row with attribution over its full SF column."""
+    settlement_point: str
+    essp_member_count: int = 1
+    zone: str | None = None
+    forecast_rank: int
+    forecast_total: float
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    delta: float | None = None
+    dominant_driver: str | None = None
+    driver_share: float | None = None
+    coverage: float | None = None
+
+
+class TopNodesAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    rows: list[TopNodeRow]
+    n_ranked: int
+
+
+class TopNodesUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /analysis/grade -----------------------------------------------------
 
 class GradeMetricsResponse(BaseModel):
