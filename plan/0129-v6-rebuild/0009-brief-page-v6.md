@@ -124,11 +124,12 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 
 * The root route, Brief shell, date control, server-authored hero, compact Top
   Constraints and Top Nodal tables, and post-settle Grade cards are present.
-* Remaining work is not cosmetic: Standouts and Context are placeholders; both table
-  history columns are unwired; no row detail panel or element-aware Map handoff exists;
-  grade history is not served; forecast-only rendering is incomplete; and node grouping
-  requires the delivery-day rule above. Treat existing completion marks in neighbouring
-  plans as implementation milestones, not as acceptance of these page behaviours.
+* Standouts is now server-backed and anomaly-selected, with forecast and DAM-only
+  appended rows, full grouped table columns, and real 30-day history visuals. Top
+  Constraints and Top Nodal history columns are likewise served from DAM history.
+  Remaining work is Context, the delivery-day ESSP grouping rule, and grade-history
+  serving. The row detail panel and element-aware Map handoff are deliberately owned by
+  `0013` and its `0011` dependency, rather than by this page plan.
 
 ## Acceptance
 
@@ -142,15 +143,16 @@ Depends on: `0002`; further panels land behind `0003`/`0005`/`0006`/`0007` as th
 * [x] The response selects one of the two documented rendering modes. Forecast-only is
       visibly slimmer and makes no settled/outcome/grade claim; post-settle renders
       same-key DAM evidence and the full grade.
-* [ ] Standouts and Context are server-backed panels, not placeholders or frontend-owned
-      prose.
-* [ ] Top Constraints and Top Nodal have real trailing history, not placeholder cells.
+* [x] Standouts is server-backed, anomaly-selected, and carries forecast/DAM evidence
+      plus real 30-day history visuals; Context remains separately unimplemented.
+* [x] Top Constraints and Top Nodal have real trailing 30-day history, not placeholder cells.
 * [ ] Top Nodal shows 15 unique 7×16 locations using the documented pre-/post-settle
       grouping rules and an explicit missing-ESSP fallback.
 * [x] Forecast-only tables are forecast top-*k*. Post-settle tables are DAM top-*k*
       followed by forecast top-*k* entries absent from DAM top-*k*, ordered with DAM
       leaders first and retaining both ranks; the joined table may exceed *k* rows.
-* [ ] `0013` delivers the shared accessible detail panel for Standouts and table rows.
+* [x] The shared accessible detail panel is explicitly deferred to `0013` (after `0011`'s
+      typed Map handoff); it is not a completion condition for this page-only plan.
 * [ ] Grade whiskers are backed by trailing grade history; forecast-only shows a
       settlement-pending replacement rather than empty grade metrics.
 * [x] `tsc --noEmit -p web/tsconfig.app.json` clean.
