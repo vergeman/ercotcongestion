@@ -31,29 +31,31 @@ function Stage({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function TopConstraintsPanel({ data, loading }: { data: TopConstraints | null; loading: boolean }) {
+function TopConstraintsPanel({ data, loading, settled }: { data: TopConstraints | null; loading: boolean; settled: boolean }) {
   return (
     <section className="an-constraints" aria-labelledby="top-constraints-title">
       <div className="an-section-heading">
         <h2 id="top-constraints-title">Top Constraints by Shadow Price (μ)</h2>
-        <p>The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast.</p>
+        <p>{settled
+          ? "The complete forecast artifact, with same-key DAM evidence—not the legacy brief cast."
+          : "The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast."}</p>
       </div>
       {loading && <p className="an-panel-state">Loading constraints…</p>}
       {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked forecast constraints are available for this delivery day.</p>}
       {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
         <table className="an-table an-table--constraints">
-          <colgroup><col className="an-col-rank" /><col className="an-col-constraint" /><col className="an-col-zone" /><col className="an-col-kv" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-history" /></colgroup>
+          <colgroup><col className="an-col-rank" /><col className="an-col-constraint" /><col className="an-col-zone" /><col className="an-col-kv" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /></colgroup>
           <thead>
-            <tr className="an-table__groups"><th colSpan={4} /><th className="an-table__forecast" colSpan={3}>Forecast</th><th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th><th>30-day history</th></tr>
-            <tr><th>#</th><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th><th>Σ<span className="an-table__mu">μ</span> p10–p90</th></tr>
+            <tr className="an-table__groups"><th colSpan={4} /><th className="an-table__forecast" colSpan={3}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th>30-day history</th></tr>
+            <tr><th>#</th><th>Constraint</th><th>Zone</th><th>kV</th><th>Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th>{settled && <><th className="an-table__split">Rank</th><th><span className="an-table__mu">μ</span> peak</th><th>Σ<span className="an-table__mu">μ</span> $/MW</th></>}<th>Σ<span className="an-table__mu">μ</span> p10–p90</th></tr>
           </thead>
-          <tbody>{data.rows.map((row) => <tr key={row.constraint_key}>
-            <td className="an-table__rank">{row.rank}</td>
+          <tbody>{data.rows.map((row, index) => <tr key={row.constraint_key}>
+            <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
             <td><Link to={`/map${window.location.search}`}>{row.constraint_key}</Link></td>
             <td>{zoneLabel(row.zone)}</td>
             <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
-            <td>{row.rank}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
-            <td className="an-table__split">{rankMovement(row.rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
+            <td>{row.forecast_rank ?? "—"}</td><td>{usd(row.forecast_peak, 2)}</td><td>{usd(row.forecast_total, 2)}</td>
+            {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td>{row.settled_peak == null ? "—" : usd(row.settled_peak, 2)}</td><td>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td></>}
             <td className="an-table__history">—</td>
           </tr>)}</tbody>
         </table>
@@ -62,32 +64,34 @@ function TopConstraintsPanel({ data, loading }: { data: TopConstraints | null; l
   );
 }
 
-function TopNodesPanel({ data, loading }: { data: TopNodes | null; loading: boolean }) {
+function TopNodesPanel({ data, loading, settled }: { data: TopNodes | null; loading: boolean; settled: boolean }) {
   return (
     <section className="an-nodes" aria-labelledby="top-nodes-title">
       <div className="an-section-heading">
         <h2 id="top-nodes-title">Top Nodal Congestion</h2>
-        <p>Who separated, and what drove it—attributed across each node’s complete shift-factor column.</p>
+        <p>{settled
+          ? "Forecast and DAM congestion, attributed across each node’s complete shift-factor column."
+          : "Forecast congestion, attributed across each node’s complete shift-factor column."}</p>
       </div>
       {loading && <p className="an-panel-state">Loading nodal congestion…</p>}
       {!loading && (!data?.available || !data.rows?.length) && <p className="an-panel-state">No ranked nodal congestion is available for this delivery day.</p>}
       {!loading && data?.available && !!data.rows?.length && <div className="an-table-wrap">
         <table className="an-table an-table--nodes">
-          <colgroup><col className="an-col-rank" /><col className="an-col-node" /><col className="an-col-zone" /><col className="an-col-driver" /><col className="an-col-share" /><col className="an-col-share" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /><col className="an-col-history" /></colgroup>
+          <colgroup><col className="an-col-rank" /><col className="an-col-node" /><col className="an-col-zone" /><col className="an-col-driver" /><col className="an-col-share" /><col className="an-col-share" /><col className="an-col-rank" /><col className="an-col-money" />{settled && <><col className="an-col-rank" /><col className="an-col-money" /><col className="an-col-money" /></>}<col className="an-col-history" /></colgroup>
           <thead>
-            <tr className="an-table__groups"><th colSpan={6} /><th className="an-table__forecast" colSpan={2}>Forecast</th><th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th><th>30-day history</th></tr>
-            <tr><th>#</th><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Share</th><th>Coverage</th><th>Rank</th><th>7×16 $/MWh</th><th className="an-table__split">Rank</th><th>7×16 $/MWh</th><th>Δ</th><th>$/MWh p10–p90</th></tr>
+            <tr className="an-table__groups"><th colSpan={6} /><th className="an-table__forecast" colSpan={2}>Forecast</th>{settled && <th className="an-table__split an-table__settled" colSpan={3}>DAM settled</th>}<th>30-day history</th></tr>
+            <tr><th>#</th><th>Node</th><th>Zone</th><th>Dominant driver</th><th>Share</th><th>Coverage</th><th>Rank</th><th>7×16 $/MWh</th>{settled && <><th className="an-table__split">Rank</th><th>7×16 $/MWh</th><th>Δ</th></>}<th>$/MWh p10–p90</th></tr>
           </thead>
-          <tbody>{data.rows.map((row) => <tr key={row.settlement_point}>
-            <td className="an-table__rank">{row.forecast_rank}</td>
+          <tbody>{data.rows.map((row, index) => <tr key={row.settlement_point}>
+            <td className="an-table__rank">{settled ? index + 1 : row.forecast_rank ?? "—"}</td>
             <td><Link to={`/map${window.location.search}`}>{row.settlement_point}{row.essp_member_count > 1 && <sup>≈{row.essp_member_count}</sup>}</Link></td>
             <td>{zoneLabel(row.zone)}</td>
             <td className="an-table__driver" title={row.dominant_driver ?? undefined}>{constraintName(row.dominant_driver)}</td>
             <td>{percent(row.driver_share)}</td>
             <td>{percent(row.coverage)}</td>
-            <td>{row.forecast_rank}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
-            <td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
-            <td className={row.delta == null ? "" : row.delta >= 0 ? "an-table__positive" : "an-table__negative"}>{row.delta == null ? "—" : usd(row.delta, 2)}</td>
+            <td>{row.forecast_rank ?? "—"}</td><td className={row.forecast_total >= 0 ? "an-table__positive" : "an-table__negative"}>{usd(row.forecast_total, 2)}</td>
+            {settled && <><td className="an-table__split">{rankMovement(row.forecast_rank, row.settled_rank)}</td><td className={row.settled_total == null ? "" : row.settled_total >= 0 ? "an-table__positive" : "an-table__negative"}>{row.settled_total == null ? "—" : usd(row.settled_total, 2)}</td>
+            <td className={row.delta == null ? "" : row.delta >= 0 ? "an-table__positive" : "an-table__negative"}>{row.delta == null ? "—" : usd(row.delta, 2)}</td></>}
             <td className="an-table__history">—</td>
           </tr>)}</tbody>
         </table>
@@ -290,13 +294,14 @@ chance = share that bind`}
   );
 }
 
-function ForecastGrade({ grade, loading }: { grade: AnalysisGrade | null; loading: boolean }) {
+function ForecastGrade({ grade, loading, settled }: { grade: AnalysisGrade | null; loading: boolean; settled: boolean }) {
   return (
     <section className="an-grade" aria-labelledby="forecast-grade-title">
       <h2 id="forecast-grade-title">Forecast Grade</h2>
-      {loading && <p>Loading forecast grade…</p>}
-      {!loading && (!grade || !grade.available) && <p>Forecast grade is unavailable for this delivery day.</p>}
-      {!loading && grade?.available && <div className="an-grade__halves">
+      {!settled && <div className="an-grade__pending"><strong>Settlement pending</strong><p>Forecast Grade appears after DAM settlement is available for this delivery day.</p></div>}
+      {settled && loading && <p>Loading forecast grade…</p>}
+      {settled && !loading && (!grade || !grade.available) && <p>Forecast grade is unavailable for this delivery day.</p>}
+      {settled && !loading && grade?.available && <div className="an-grade__halves">
         <GradeHalf label="Constraints" half={grade.constraints} />
         <GradeHalf label="Nodes" half={grade.nodes} />
       </div>}
@@ -313,8 +318,9 @@ const usd = (value: number, fractionDigits = 0) => `${value < 0 ? "−" : ""}$${
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
 const zoneLabel = (zone: string | null) => zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
-const rankMovement = (forecastRank: number, settledRank: number | null) => {
+const rankMovement = (forecastRank: number | null, settledRank: number | null) => {
   if (settledRank == null) return "—";
+  if (forecastRank == null) return `new ${settledRank}`;
   const movement = settledRank - forecastRank;
   return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
 };
@@ -374,6 +380,7 @@ export default function BriefPage() {
     let live = true;
     setLoading(true);
     setError(null);
+    setHero(null);
     fetchBriefHero(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
         if (!live) return;
@@ -411,7 +418,12 @@ export default function BriefPage() {
   }, [deliveryDay, cursor.run]);
 
   useEffect(() => {
-    if (!deliveryDay) return;
+    const settled = hero?.provenance?.basis === "settled";
+    if (!deliveryDay || !settled) {
+      setGrade(null);
+      setGradeLoading(false);
+      return;
+    }
     let live = true;
     setGradeLoading(true);
     fetchAnalysisGrade(deliveryDay, { runId: cursor.run ?? undefined })
@@ -419,7 +431,7 @@ export default function BriefPage() {
       .catch(() => { if (live) setGrade(null); })
       .finally(() => { if (live) setGradeLoading(false); });
     return () => { live = false; };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay, cursor.run, hero?.provenance?.basis]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.
@@ -437,7 +449,8 @@ export default function BriefPage() {
   }, [hero, cursor, replaceWithHeroCursor]);
 
   const provenance = hero?.provenance;
-  const basisLabel = provenance?.basis === "settled" ? "DAM settled" : "forecast";
+  const settled = provenance?.basis === "settled";
+  const basisLabel = settled ? "DAM settled" : "forecast only";
   const title = useMemo(
     () => hero?.segments?.headline ?? [],
     [hero]
@@ -522,7 +535,7 @@ export default function BriefPage() {
                     detail={`${pct(whereShare)} of μ-weighted footprint`}
                   />
                 )}
-                {exceptionsSettled && exceptionCount != null && (
+                {settled && exceptionsSettled && exceptionCount != null && (
                   <Fact
                     label="Outside forecast"
                     value={String(exceptionCount)}
@@ -538,9 +551,9 @@ export default function BriefPage() {
             </section>
 
             <Stage title="Standouts" detail="Unusual constraints and nodes will land with their query-backed rows." />
-            <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} />
-            <TopNodesPanel data={topNodes} loading={topNodesLoading} />
-            <ForecastGrade grade={grade} loading={gradeLoading} />
+            <TopConstraintsPanel data={topConstraints} loading={topConstraintsLoading} settled={settled} />
+            <TopNodesPanel data={topNodes} loading={topNodesLoading} settled={settled} />
+            <ForecastGrade grade={grade} loading={gradeLoading} settled={settled} />
             <Stage title="Context" detail="Historical grid context will follow its dedicated rollups." />
           </>
         )}
@@ -599,6 +612,9 @@ export default function BriefPage() {
         .an-grade { margin-top: 42px; }
         .an-grade h2 { margin: 0; font-size: var(--fs-xl); }
         .an-grade > p, .an-grade__half--ungraded p { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-grade__pending { margin-top: 12px; padding: 14px; border: 1px dashed var(--border-bright); background: var(--bg-panel); }
+        .an-grade__pending strong { font: var(--fw-label) var(--fs-sm) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .an-grade__pending p { margin: 5px 0 0; color: var(--text-secondary); }
         .an-grade__halves { display: grid; gap: 18px; margin-top: 12px; }
         .an-grade__half { min-width: 0; }
         .an-grade__half h3 { margin: 0 0 8px; font-size: var(--fs-md); }

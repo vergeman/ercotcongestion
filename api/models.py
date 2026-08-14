@@ -185,9 +185,9 @@ class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
 # ---- /analysis/top-constraints ------------------------------------------
 
 class TopConstraintRow(BaseModel):
-    """One untruncated artifact constraint, ranked by forecast μ mass."""
+    """One forecast/settled-union constraint row, ordered by the active phase."""
     constraint_key: str
-    rank: int
+    forecast_rank: int | None = None
     forecast_total: float
     forecast_peak: float
     forecast_hours: int
@@ -215,11 +215,11 @@ class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
 # ---- /analysis/top-nodes -------------------------------------------------
 
 class TopNodeRow(BaseModel):
-    """One daily nodal-congestion row with attribution over its full SF column."""
+    """One forecast/settled-union nodal row with full-column attribution."""
     settlement_point: str
     essp_member_count: int = 1
     zone: str | None = None
-    forecast_rank: int
+    forecast_rank: int | None = None
     forecast_total: float
     settled_rank: int | None = None
     settled_total: float | None = None

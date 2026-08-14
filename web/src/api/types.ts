@@ -745,7 +745,7 @@ export interface BriefHero {
 
 export interface TopConstraintRow {
   constraint_key: string;
-  rank: number;
+  forecast_rank: number | null;
   forecast_total: number;
   forecast_peak: number;
   forecast_hours: number;
@@ -771,7 +771,7 @@ export interface TopNodeRow {
   settlement_point: string;
   essp_member_count: number;
   zone: string | null;
-  forecast_rank: number;
+  forecast_rank: number | null;
   forecast_total: number;
   settled_rank: number | null;
   settled_total: number | null;

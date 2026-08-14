@@ -161,6 +161,28 @@ def _settled_mu_profile(cur, delivery_date: date) -> pd.DataFrame:
     return frame.pivot(index="interval_ts", columns="constraint_key", values="shadow_price").sort_index()
 
 
+def _joined_top_keys(
+    forecast_keys: pd.Index,
+    settled_keys: pd.Index,
+    *,
+    k: int,
+    settled_available: bool,
+) -> list[str]:
+    """Return the visible ranking for one Brief phase.
+
+    Before settlement the brief is simply the forecast top-k.  After settlement,
+    DAM owns the leading order and the forecast top-k survivors are appended as
+    comparison rows.  This deliberately produces up to 2k rows: a missed DAM
+    leader must not displace a forecast leader that readers need to inspect.
+    """
+    forecast_top = [str(key) for key in forecast_keys[:k]]
+    if not settled_available:
+        return forecast_top
+    settled_top = [str(key) for key in settled_keys[:k]]
+    settled_set = set(settled_top)
+    return settled_top + [key for key in forecast_top if key not in settled_set]
+
+
 def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
     """Stitch the two UTC-date artifacts into one Chicago delivery-day profile."""
     start, end = delivery_bounds(delivery_date)
@@ -604,18 +626,21 @@ def get_top_constraints(
     forecast_mass = forecast.abs().sum(axis=0)
     ranked = forecast_mass[forecast_mass > 0.0].sort_values(ascending=False, kind="stable")
     settled_mass = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
-    settled_ranks = {str(key): rank for rank, key in enumerate(
-        settled_mass[settled_mass > 0.0].sort_values(ascending=False, kind="stable").index, start=1
-    )}
+    settled_ranked = settled_mass[settled_mass > 0.0].sort_values(ascending=False, kind="stable")
+    forecast_ranks = {str(key): rank for rank, key in enumerate(ranked.index, start=1)}
+    settled_ranks = {str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)}
+    visible_keys = _joined_top_keys(
+        ranked.index, settled_ranked.index, k=k, settled_available=not settled.empty,
+    )
     rows: list[TopConstraintRow] = []
-    for rank, key in enumerate(ranked.index[:k], start=1):
-        forecast_values = forecast[key]
+    for key in visible_keys:
+        forecast_values = forecast[key] if key in forecast else pd.Series(0.0, index=forecast.index)
         settled_values = settled[key].dropna() if key in settled else None
         geo = geography.get(str(key), {})
         shares = geo.get("zone_shares") or {}
         rows.append(TopConstraintRow(
-            constraint_key=str(key), rank=rank,
-            forecast_total=float(forecast_mass.loc[key]),
+            constraint_key=str(key), forecast_rank=forecast_ranks.get(str(key)),
+            forecast_total=float(forecast_mass.get(key, 0.0)),
             forecast_peak=float(forecast_values.abs().max()),
             forecast_hours=int(forecast_values.ne(0.0).sum()),
             zone=max(shares, key=shares.get) if shares else None,
@@ -694,21 +719,33 @@ def get_top_nodes(
         if representative not in grouped:
             grouped[representative] = (float(value), representative, count)
     unique_ranked = list(grouped.values())
+    forecast_group_ranks = {sp: rank for rank, (_, sp, _) in enumerate(unique_ranked, start=1)}
     realized_terms = None if realized_result is None else realized_result[0]
     metadata = load_sp_metadata(forecast_terms.columns)
     settled_ranked = pd.Series(settled, dtype=float).abs().sort_values(ascending=False, kind="stable")
-    settled_ranks = {str(sp): rank for rank, sp in enumerate(settled_ranked.index, start=1)}
+    settled_grouped: dict[str, float] = {}
+    for sp in settled_ranked.index:
+        representative, _ = canonical.get(str(sp), (str(sp), 1))
+        settled_grouped.setdefault(representative, float(settled[str(sp)]))
+    settled_unique = list(settled_grouped)
+    settled_group_ranks = {sp: rank for rank, sp in enumerate(settled_unique, start=1)}
+    visible_nodes = _joined_top_keys(
+        pd.Index([sp for _, sp, _ in unique_ranked]), pd.Index(settled_unique),
+        k=k, settled_available=bool(settled),
+    )
+    group_member_counts = {sp: count for _, sp, count in unique_ranked}
     rows: list[TopNodeRow] = []
-    for rank, (_, sp, essp_member_count) in enumerate(unique_ranked[:k], start=1):
+    for sp in visible_nodes:
+        essp_member_count = group_member_counts.get(sp, 1)
         terms = forecast_terms[sp]
         gross = float(terms.abs().sum())
-        settled_total = settled.get(str(sp))
+        settled_total = settled_grouped.get(str(sp))
         realized_total = None if realized_terms is None else float(realized_terms[sp].sum())
         rows.append(TopNodeRow(
             settlement_point=str(sp), essp_member_count=essp_member_count,
             zone=metadata[str(sp)].get("load_zone"),
-            forecast_rank=rank, forecast_total=float(forecast_total.loc[sp] / len(hours)),
-            settled_rank=settled_ranks.get(str(sp)),
+            forecast_rank=forecast_group_ranks.get(str(sp)), forecast_total=float(forecast_total.loc[sp] / len(hours)),
+            settled_rank=settled_group_ranks.get(str(sp)),
             settled_total=None if settled_total is None else float(settled_total / len(hours)),
             delta=None if settled_total is None else float((settled_total - forecast_total.loc[sp]) / len(hours)),
             dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),

@@ -94,6 +94,18 @@ def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, m
     assert first.content == second.content
 
 
+def test_joined_top_keys_orders_dam_leaders_then_forecast_only_leaders():
+    forecast = pd.Index(["forecast-1", "both", "forecast-3", "forecast-4"])
+    settled = pd.Index(["settled-1", "both", "settled-3"])
+
+    assert analysis_module._joined_top_keys(
+        forecast, settled, k=3, settled_available=False,
+    ) == ["forecast-1", "both", "forecast-3"]
+    assert analysis_module._joined_top_keys(
+        forecast, settled, k=3, settled_available=True,
+    ) == ["settled-1", "both", "settled-3", "forecast-1", "forecast-3"]
+
+
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())
@@ -270,10 +282,10 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
         "n_ranked": 2,
         "rows": [
-            {"constraint_key": "HIGH|BASE", "rank": 1, "forecast_total": 5.0,
+            {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
              "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
              "settled_peak": 4.0, "settled_hours": 1},
-            {"constraint_key": "LOW|BASE", "rank": 2, "forecast_total": 0.01,
+            {"constraint_key": "LOW|BASE", "forecast_rank": 2, "forecast_total": 0.01,
              "forecast_peak": 0.01, "forecast_hours": 1, "zone": None, "kv_max": None, "settled_rank": None, "settled_total": None,
              "settled_peak": None, "settled_hours": None},
         ],
