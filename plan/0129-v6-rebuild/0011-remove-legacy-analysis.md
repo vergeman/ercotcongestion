@@ -56,10 +56,10 @@ Depends on: `0009`, `0010`
 
 ## Acceptance
 
-* [ ] `grep -rn "build_brief\|analysis_brief\|get_brief"` over `compute/ api/ web/src` returns nothing outside the deletion itself.
-* [ ] `/analysis` and `AnalysisPage.tsx` are gone; `/` remains the Brief entry point.
-* [ ] `load_sp_metadata`, `nodal_congestion` and `cell_contributions` still exist and still have callers; `pair_contributions` and `/analysis/path` have either a remaining caller or are removed.
+* [x] `grep -rn "build_brief\|analysis_brief\|get_brief"` over `compute/ api/ web/src` returns nothing outside the deletion itself.
+* [x] `/analysis` and `AnalysisPage.tsx` are gone; `/` remains the Brief entry point.
+* [x] `load_sp_metadata`, `nodal_congestion` and `cell_contributions` still exist and still have callers; `pair_contributions` and `/analysis/path` have either a remaining caller or are removed.
 * [ ] The daily tick runs clean with `_brief_latest` removed, and the forecast still publishes.
-* [ ] `compute/analysis/tests/` passes with only blob-specific tests removed.
+* [x] `compute/analysis/tests/` passes with only blob-specific tests removed.
 * [ ] The new forward migration drops no table that a live job still writes to.
-* [ ] `tsc --noEmit -p web/tsconfig.app.json` clean.
+* [x] `tsc --noEmit -p web/tsconfig.app.json` clean.
