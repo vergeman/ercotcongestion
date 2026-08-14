@@ -4,7 +4,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import ScoreboardPage from './pages/ScoreboardPage.tsx'
-import AnalysisPage from './pages/AnalysisPage.tsx'
 import BriefPage from './pages/BriefPage.tsx'
 import { ExplorerLayout } from './hooks/useSharedExplorer'
 
@@ -19,8 +18,6 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<ExplorerLayout />}>
           <Route path="/map" element={<App />} />
           <Route path="/matrix" element={<App />} />
-          {/* Kept intact until 0012 deletes the legacy blob reader. */}
-          <Route path="/analysis" element={<AnalysisPage />} />
         </Route>
         <Route path="/scoreboard" element={<ScoreboardPage />} />
         {/* Unknown locations deliberately return to the product entry point. */}
