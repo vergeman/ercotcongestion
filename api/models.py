@@ -220,6 +220,32 @@ class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/standouts -------------------------------------------------
+
+class StandoutRow(BaseModel):
+    """One server-selected constraint compared with its own forecast history."""
+    constraint_key: str
+    kind: Literal["forecast_elevated", "chronic_under_called"]
+    forecast_total: float
+    forecast_history_median: float
+    forecast_history_days: int
+    chronic_bound_days: int | None = None
+    settled_total: float | None = None
+
+
+class StandoutsAvailableResponse(BaseModel):
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    basis: Literal["forecast", "settled"]
+    rows: list[StandoutRow]
+
+
+class StandoutsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /analysis/top-nodes -------------------------------------------------
 
 class TopNodeRow(BaseModel):

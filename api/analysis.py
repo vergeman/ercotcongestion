@@ -27,7 +27,8 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
                     TopConstraintsUnavailableResponse, TopNodeRow,
-                    TopNodesAvailableResponse, TopNodesUnavailableResponse)
+                    TopNodesAvailableResponse, TopNodesUnavailableResponse,
+                    StandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -181,6 +182,57 @@ def _joined_top_keys(
     settled_top = [str(key) for key in settled_keys[:k]]
     settled_set = set(settled_top)
     return settled_top + [key for key in forecast_top if key not in settled_set]
+
+
+def _standout_rows(
+    forecast_total: pd.Series,
+    histories: dict[str, list[float]],
+    chronic_bound_days: dict[str, int],
+    settled_total: pd.Series,
+    *,
+    k: int,
+) -> list[StandoutRow]:
+    """Select forecast calls that are unusual relative to their own history.
+
+    This intentionally compares forecast to forecast.  DAM, if it has landed,
+    is attached as evidence only; it is not smuggled into the forecast baseline.
+    """
+    baseline = {
+        key: float(pd.Series(values, dtype=float).median())
+        for key, values in histories.items() if len(values) >= 10 and any(value > 0.0 for value in values)
+    }
+    elevated = [
+        key for key, median in baseline.items()
+        if float(forecast_total.get(key, 0.0)) > 0.0 and float(forecast_total.get(key, 0.0)) / median >= 1.5
+    ]
+    elevated.sort(key=lambda key: (float(forecast_total.get(key, 0.0)) / baseline[key],
+                                   float(forecast_total.get(key, 0.0))), reverse=True)
+    selected = elevated[:k]
+
+    # A chronic constraint that the forecast prices unusually low is a distinct
+    # useful callout. It survives even when it sat below the legacy serving floor.
+    under_called = [
+        key for key, days in chronic_bound_days.items()
+        if key in baseline and key not in selected
+        and float(forecast_total.get(key, 0.0)) <= baseline[key] * 0.25
+        and days >= 24
+    ]
+    under_called.sort(key=lambda key: (baseline[key] - float(forecast_total.get(key, 0.0)),
+                                       chronic_bound_days[key]), reverse=True)
+    selected.extend(under_called[:k])
+
+    rows: list[StandoutRow] = []
+    for key in selected:
+        rows.append(StandoutRow(
+            constraint_key=key,
+            kind="forecast_elevated" if key in elevated[:k] else "chronic_under_called",
+            forecast_total=float(forecast_total.get(key, 0.0)),
+            forecast_history_median=baseline[key],
+            forecast_history_days=len(histories[key]),
+            chronic_bound_days=chronic_bound_days.get(key),
+            settled_total=(float(settled_total[key]) if key in settled_total else None),
+        ))
+    return rows
 
 
 def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
@@ -654,6 +706,57 @@ def get_top_constraints(
     return TopConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         rows=rows, n_ranked=len(ranked),
+    )
+
+
+@router.get("/standouts", response_model=StandoutsAvailableResponse | StandoutsUnavailableResponse,
+            summary="Forecast standouts against each constraint's own trailing forecast history")
+def get_standouts(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+    k: int = Query(4, ge=1, le=20),
+) -> StandoutsAvailableResponse | StandoutsUnavailableResponse:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
+                                                run_id=run_id, delivery_date=delivery_date)
+        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        if forecast is None:
+            return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
+                                                run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+        cur.execute(
+            "SELECT constraint_key, array_agg(forecast_mu ORDER BY delivery_date) AS values "
+            "FROM forecast_constraint_daily "
+            "WHERE run_id = %s AND horizon = %s "
+            "AND delivery_date >= %s - 30 AND delivery_date < %s "
+            "GROUP BY constraint_key",
+            (run_id, horizon, delivery_date, delivery_date),
+        )
+        histories = {str(row["constraint_key"]): [float(value) for value in row["values"]]
+                     for row in cur.fetchall()}
+        ws, _ = delivery_bounds(delivery_date - timedelta(days=30))
+        history_end, _ = delivery_bounds(delivery_date)
+        cur.execute(
+            "SELECT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+            "count(DISTINCT (interval_ts AT TIME ZONE 'America/Chicago')::date) AS days "
+            "FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+            "AND abs(shadow_price) > 0 GROUP BY constraint_name, contingency_name",
+            (ws, history_end),
+        )
+        chronic = {str(row["constraint_key"]): int(row["days"]) for row in cur.fetchall()}
+        settled = _settled_mu_profile(cur, delivery_date)
+
+    forecast_total = forecast.abs().sum(axis=0)
+    settled_total = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
+    settled_available = not settled.empty
+    return StandoutsAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        basis="settled" if settled_available else "forecast",
+        rows=_standout_rows(forecast_total, histories, chronic, settled_total, k=k),
     )
 
 

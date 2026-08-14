@@ -125,6 +125,25 @@ def test_joined_top_keys_orders_dam_leaders_then_forecast_only_leaders():
     ) == ["settled-1", "both", "settled-3", "forecast-1", "forecast-3"]
 
 
+def test_standouts_compare_forecast_to_own_forecast_history_and_keep_dam_as_evidence():
+    rows = analysis_module._standout_rows(
+        pd.Series({"ELEVATED": 300.0, "CHRONIC": 10.0, "ORDINARY": 100.0}),
+        {
+            "ELEVATED": [100.0] * 30,
+            "CHRONIC": [100.0] * 30,
+            "ORDINARY": [100.0] * 30,
+        },
+        {"CHRONIC": 28},
+        pd.Series({"ELEVATED": 250.0, "CHRONIC": 400.0}),
+        k=1,
+    )
+
+    assert [row.constraint_key for row in rows] == ["ELEVATED", "CHRONIC"]
+    assert [row.kind for row in rows] == ["forecast_elevated", "chronic_under_called"]
+    assert rows[0].settled_total == 250.0
+    assert rows[1].settled_total == 400.0
+
+
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())
