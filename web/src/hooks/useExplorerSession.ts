@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Palette } from "../api/types";
+import type { MapDataMode } from "../api/types";
 import {
   getAvailableTimestamps,
   getErcotCached,
@@ -71,9 +71,9 @@ export function useExplorerSession(opts?: {
     }
   }, []);
 
-  const selectEvent = useCallback((event: CuratedEvent, onSuggestedPalette?: (palette: Palette) => void) => {
+  const selectEvent = useCallback((event: CuratedEvent, onSuggestedData?: (dataMode: MapDataMode) => void) => {
     setActiveEventId(event.id);
-    if (event.suggested_view) onSuggestedPalette?.(event.suggested_view);
+    if (event.suggested_view) onSuggestedData?.(event.suggested_view);
     void loadWindow(new Date(event.window_start), new Date(event.window_end), new Date(event.cursor_ts));
   }, [loadWindow]);
 

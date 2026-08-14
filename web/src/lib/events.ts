@@ -1,4 +1,4 @@
-import type { Palette } from "../api/types";
+import type { MapDataMode } from "../api/types";
 
 /**
  * Curated demo events. Each entry defines a time window worth loading,
@@ -20,7 +20,7 @@ export interface CuratedEvent {
   window_start: string;
   window_end: string;
   cursor_ts: string;
-  suggested_view?: Palette;
+  suggested_view?: MapDataMode;
 }
 
 export const CURATED_EVENTS: CuratedEvent[] = [
