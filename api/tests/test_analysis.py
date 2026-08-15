@@ -5,6 +5,7 @@ import pandas as pd
 import analysis as analysis_module
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
+from services.sf_artifacts import ArtifactTail
 
 
 def _artifact():
@@ -22,6 +23,68 @@ def _node_artifact():
         E_mu=pd.DataFrame([[4.0, 6.0, 2.0], [1.0, 3.0, 0.0]], index=pd.to_datetime([
             "2026-07-28T05:00Z", "2026-07-28T06:00Z"]), columns=["A|B", "C|D", "E|F"]),
     )
+
+
+def _tail(*, tomorrow=None, tail_horizon=None, hours_covered=24, hours_expected=24):
+    return ArtifactTail(today=_artifact(), tomorrow=tomorrow, tail_horizon=tail_horizon,
+                        hours_covered=hours_covered, hours_expected=hours_expected)
+
+
+def test_forecast_mu_profile_stitches_in_a_cross_horizon_preview_tail(monkeypatch):
+    """0132: a mixed-vintage D+1 tail lands in the profile and is reported as-is."""
+    tomorrow = SfMuArtifact(
+        SF=pd.DataFrame([[1.0]], index=["A|B"], columns=["SP"]),
+        E_mu=pd.DataFrame([[2.0]], index=pd.to_datetime(["2026-07-29T00:00Z"]), columns=["A|B"]),
+    )
+    tail = _tail(tomorrow=tomorrow, tail_horizon=2, hours_covered=3, hours_expected=24)
+    monkeypatch.setattr(analysis_module, "load_daily_artifact_tail", lambda *_: tail)
+
+    result = analysis_module._forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1)
+
+    assert result is not None
+    assert list(result.profile.index) == list(pd.to_datetime(
+        ["2026-07-28T05:00Z", "2026-07-28T06:00Z", "2026-07-29T00:00Z"], utc=True))
+    assert result.tail_horizon == 2
+    assert result.hours_covered == 3
+    assert result.hours_expected == 24
+
+
+def test_forecast_mu_profile_truncates_to_todays_own_hours_when_tail_is_absent(monkeypatch):
+    """0132: no D+1 artifact at any horizon → serve D alone, not artifact_missing."""
+    tail = _tail(tomorrow=None, tail_horizon=None, hours_covered=2, hours_expected=24)
+    monkeypatch.setattr(analysis_module, "load_daily_artifact_tail", lambda *_: tail)
+
+    result = analysis_module._forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1)
+
+    assert result is not None
+    assert list(result.profile.index) == list(pd.to_datetime(
+        ["2026-07-28T05:00Z", "2026-07-28T06:00Z"], utc=True))
+    assert result.tail_horizon is None
+    assert result.hours_covered == 2
+    assert result.hours_expected == 24
+
+
+def test_forecast_mu_profile_is_none_when_todays_own_artifact_is_missing(monkeypatch):
+    monkeypatch.setattr(analysis_module, "load_daily_artifact_tail", lambda *_: None)
+
+    assert analysis_module._forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1) is None
+
+
+def test_grade_constraint_profiles_stays_unavailable_when_the_tail_is_incomplete(monkeypatch):
+    """0132: grading must not score a truncated forecast against a full settled day."""
+    incomplete = analysis_module.StitchedProfile(pd.DataFrame(index=pd.to_datetime(
+        ["2026-07-28T05:00Z"])), None, 19, 24)
+    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: incomplete)
+
+    assert analysis_module._grade_constraint_profiles(None, "run-x", date(2026, 7, 28), 1) is None
+
+
+def test_grade_node_profiles_stays_unavailable_when_the_tail_is_incomplete(monkeypatch):
+    incomplete = analysis_module.StitchedProfile(pd.DataFrame(index=pd.to_datetime(
+        ["2026-07-28T05:00Z"])), None, 19, 24)
+    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: incomplete)
+
+    assert analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1) is None
 
 
 def _slots(basis):
@@ -358,14 +421,15 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
     forecast = pd.DataFrame({"HIGH|BASE": [3.0, 2.0], "LOW|BASE": [0.01, 0.0]}, index=hours)
     settled = pd.DataFrame({"HIGH|BASE": [4.0, 0.0]}, index=hours)
     fake_pool.cursor.queue([{"h": 1}])
-    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_forecast_mu_profile",
+                        lambda *_: analysis_module.StitchedProfile(forecast, None, 24, 24))
     monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: settled)
 
     body = client.get("/analysis/top-constraints?delivery_date=2026-07-28&run_id=run-x").json()
 
     assert body == {
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
-        "n_ranked": 2,
+        "n_ranked": 2, "tail_horizon": None, "hours_covered": 24,
         "rows": [
             {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
              "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
@@ -381,11 +445,29 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
     }
 
 
+def test_top_constraints_serves_a_truncated_day_instead_of_artifact_missing(client, fake_pool, monkeypatch):
+    """0132: no D+1 artifact at any horizon still serves D's own 19 CT hours."""
+    hours = pd.date_range("2026-07-28T05:00Z", periods=2, freq="h")
+    forecast = pd.DataFrame({"HIGH|BASE": [3.0, 2.0]}, index=hours)
+    settled = pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
+    fake_pool.cursor.queue([{"h": 1}])
+    monkeypatch.setattr(analysis_module, "_forecast_mu_profile",
+                        lambda *_: analysis_module.StitchedProfile(forecast, None, 19, 24))
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: settled)
+
+    body = client.get("/analysis/top-constraints?delivery_date=2026-07-28&run_id=run-x").json()
+
+    assert body["available"] is True
+    assert body["tail_horizon"] is None
+    assert body["hours_covered"] == 19
+
+
 def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)
     settled = pd.DataFrame({"IMPORT": [-10.0, -10.0], "EXPORT": [10.0, 10.0]}, index=hours)
-    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_forecast_node_profile",
+                        lambda *_: analysis_module.StitchedProfile(forecast, None, 2, 2))
     monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
 
     grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
@@ -398,7 +480,8 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [0.0, 0.0]}, index=hours)
     settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
-    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(analysis_module, "_forecast_node_profile",
+                        lambda *_: analysis_module.StitchedProfile(forecast, None, 2, 2))
     monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
 
     grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)

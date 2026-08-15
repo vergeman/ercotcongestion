@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
@@ -32,7 +33,7 @@ from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
-from services.sf_artifacts import load_daily_artifact, load_realized_mu
+from services.sf_artifacts import load_daily_artifact, load_daily_artifact_tail, load_realized_mu
 
 router = APIRouter(prefix="/analysis")
 
@@ -357,50 +358,78 @@ def _settled_node_standout_keys(
     return [key for _, _, key in candidates[:k]]
 
 
-def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    """Stitch the two UTC-date artifacts into one Chicago delivery-day profile."""
+class StitchedProfile(NamedTuple):
+    """A Chicago delivery-day profile stitched from D's artifact + D+1's tail (0132).
+
+    ``tail_horizon`` is set only when D+1 served a different horizon than D's own
+    (a mixed-vintage stitch); ``hours_covered`` vs. ``hours_expected`` says whether
+    the tail is complete, missing evening hours, or entirely absent.
+    """
+    profile: pd.DataFrame
+    tail_horizon: int | None
+    hours_covered: int
+    hours_expected: int
+
+
+class NodeContributions(NamedTuple):
+    """Stitched constraint × node attribution over a (possibly filtered) hour set."""
+    terms: pd.DataFrame
+    hours: pd.DatetimeIndex
+    tail_horizon: int | None
+    hours_covered: int
+    hours_expected: int
+
+
+def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> StitchedProfile | None:
+    """Stitch D's mandatory artifact with D+1's degrading tail into one CT profile."""
     start, end = delivery_bounds(delivery_date)
-    today = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    tomorrow = load_daily_artifact(cur, run_id, delivery_date + timedelta(days=1), horizon)
-    if today is None or tomorrow is None:
+    tail = load_daily_artifact_tail(cur, run_id, delivery_date, horizon)
+    if tail is None:
         return None
-    profile = pd.concat([today.E_mu, tomorrow.E_mu]).sort_index()
+    frames = [tail.today.E_mu] if tail.tomorrow is None else [tail.today.E_mu, tail.tomorrow.E_mu]
+    profile = pd.concat(frames).sort_index()
     profile = profile[~profile.index.duplicated(keep="first")]
     profile.index = pd.to_datetime(profile.index, utc=True)
-    return profile.loc[(profile.index >= start) & (profile.index < end)]
+    profile = profile.loc[(profile.index >= start) & (profile.index < end)]
+    return StitchedProfile(profile, tail.tail_horizon, tail.hours_covered, tail.hours_expected)
 
 
-def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> StitchedProfile | None:
     """Project each stitched forecast μ hour through its complete SF column."""
     start, end = delivery_bounds(delivery_date)
-    artifacts = [
-        load_daily_artifact(cur, run_id, delivery_date, horizon),
-        load_daily_artifact(cur, run_id, delivery_date + timedelta(days=1), horizon),
-    ]
-    if any(artifact is None for artifact in artifacts):
+    tail = load_daily_artifact_tail(cur, run_id, delivery_date, horizon)
+    if tail is None:
         return None
+    artifacts = [tail.today] if tail.tomorrow is None else [tail.today, tail.tomorrow]
     profiles = []
     for artifact in artifacts:
-        assert artifact is not None
         mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
         profiles.append(mu.dot(-artifact.SF))
     profile = pd.concat(profiles).sort_index()
     profile = profile[~profile.index.duplicated(keep="first")]
     profile.index = pd.to_datetime(profile.index, utc=True)
-    return profile.loc[(profile.index >= start) & (profile.index < end)]
+    profile = profile.loc[(profile.index >= start) & (profile.index < end)]
+    return StitchedProfile(profile, tail.tail_horizon, tail.hours_covered, tail.hours_expected)
 
 
 def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: int,
                               *, realized: bool = False,
-                              ct_hours: tuple[int, ...] | None = None) -> tuple[pd.DataFrame, pd.DatetimeIndex] | None:
-    """Full-day constraint × node attribution, stitched across the CT day."""
+                              ct_hours: tuple[int, ...] | None = None) -> NodeContributions | None:
+    """Full-day constraint × node attribution, stitched across the CT day.
+
+    ``hours``/``terms`` cover only the (optionally ``ct_hours``-filtered) hours
+    used for ranking; ``hours_covered``/``hours_expected``/``tail_horizon`` always
+    describe the *whole* CT day's stitch, independent of that filter, so every
+    caller reports coverage on the same 0132 scale.
+    """
     start, end = delivery_bounds(delivery_date)
+    tail = load_daily_artifact_tail(cur, run_id, delivery_date, horizon)
+    if tail is None:
+        return None
+    artifacts = [tail.today] if tail.tomorrow is None else [tail.today, tail.tomorrow]
     terms: pd.DataFrame | None = None
     hours: list[pd.Timestamp] = []
-    for artifact_day in (delivery_date, delivery_date + timedelta(days=1)):
-        artifact = load_daily_artifact(cur, run_id, artifact_day, horizon)
-        if artifact is None:
-            return None
+    for artifact in artifacts:
         index = pd.DatetimeIndex(pd.to_datetime(artifact.E_mu.index, utc=True))
         selected = index[(index >= start) & (index < end)]
         if ct_hours is not None:
@@ -412,7 +441,10 @@ def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: in
               if realized else artifact.E_mu.loc[selected].sum(axis=0))
         contribution = artifact.SF.mul(-mu, axis=0)
         terms = contribution if terms is None else terms.add(contribution, fill_value=0.0)
-    return None if terms is None else (terms.fillna(0.0), pd.DatetimeIndex(hours).sort_values())
+    if terms is None:
+        return None
+    return NodeContributions(terms.fillna(0.0), pd.DatetimeIndex(hours).sort_values(),
+                             tail.tail_horizon, tail.hours_covered, tail.hours_expected)
 
 
 def _settled_node_profile(cur, delivery_date: date) -> pd.DataFrame:
@@ -473,17 +505,22 @@ def _grade_vocabulary(cur, delivery_date: date) -> list[str]:
 
 def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
                                horizon: int) -> GradeResult | None:
-    """Build the full-vocabulary constraint inputs for the pure v6 scorer."""
+    """Build the full-vocabulary constraint inputs for the pure v6 scorer.
+
+    Grading stays strict (0132): a degraded, evening-truncated forecast profile
+    must not be scored against a full settled day, so an incomplete D+1 tail is
+    treated the same as a fully missing artifact — the existing unavailable shape.
+    """
     forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
-    if forecast is None:
+    if forecast is None or forecast.hours_covered < forecast.hours_expected:
         return None
+    profile = forecast.profile
     settled = _settled_mu_profile(cur, delivery_date)
     persistence = _settled_mu_profile(cur, delivery_date - timedelta(days=1))
-    target_index = pd.RangeIndex(len(forecast))
-    model = _ordinal_profile(forecast, len(forecast))
-    settled = _ordinal_profile(settled, len(forecast))
-    persistence = _ordinal_profile(persistence, len(forecast))
-    climatology = _trailing_settled_average(cur, delivery_date, len(forecast), _settled_mu_profile)
+    model = _ordinal_profile(profile, len(profile))
+    settled = _ordinal_profile(settled, len(profile))
+    persistence = _ordinal_profile(persistence, len(profile))
+    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_mu_profile)
     # The sparse settled profile carries the row-exists labels before values are
     # zero-filled by grade_profiles; a published zero remains a positive label.
     return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
@@ -497,16 +534,21 @@ MARKET_PEAK_CT_HOURS = tuple(range(7, 23))  # 7×16, every delivery day.
 
 def _grade_node_profiles(cur, run_id: str, delivery_date: date,
                          horizon: int) -> GradeResult | None:
-    """Score complete-SF nodal congestion without allowing signed error netting."""
+    """Score complete-SF nodal congestion without allowing signed error netting.
+
+    Grading stays strict (0132): see ``_grade_constraint_profiles`` — an
+    incomplete D+1 tail is graded the same as a fully missing artifact.
+    """
     forecast = _forecast_node_profile(cur, run_id, delivery_date, horizon)
-    if forecast is None:
+    if forecast is None or forecast.hours_covered < forecast.hours_expected:
         return None
+    profile = forecast.profile
     settled = _settled_node_profile(cur, delivery_date)
     persistence = _settled_node_profile(cur, delivery_date - timedelta(days=1))
-    model = _ordinal_profile(forecast, len(forecast)).abs()
-    settled = _ordinal_profile(settled, len(forecast)).abs()
-    persistence = _ordinal_profile(persistence, len(forecast)).abs()
-    climatology = _trailing_settled_average(cur, delivery_date, len(forecast), _settled_node_profile)
+    model = _ordinal_profile(profile, len(profile)).abs()
+    settled = _ordinal_profile(settled, len(profile)).abs()
+    persistence = _ordinal_profile(persistence, len(profile)).abs()
+    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_node_profile)
     if climatology is not None:
         climatology = climatology.abs()
     # Nodes do not bind.  Their detection labels only filter floating-point
@@ -775,8 +817,8 @@ def get_top_constraints(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date,
             )
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
-        if forecast is None:
+        stitched = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        if stitched is None:
             return TopConstraintsUnavailableResponse(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date, horizon=horizon,
@@ -790,6 +832,7 @@ def get_top_constraints(
         )
         geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
 
+    forecast = stitched.profile
     forecast_mass = forecast.abs().sum(axis=0)
     ranked = forecast_mass[forecast_mass > 0.0].sort_values(ascending=False, kind="stable")
     settled_mass = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
@@ -829,6 +872,7 @@ def get_top_constraints(
     return TopConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         rows=rows, n_ranked=len(ranked),
+        tail_horizon=stitched.tail_horizon, hours_covered=stitched.hours_covered,
     )
 
 
@@ -854,8 +898,8 @@ def get_context(
         if horizon is None:
             return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                               run_id=run_id, delivery_date=delivery_date)
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
-        if forecast is None:
+        stitched = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        if stitched is None:
             return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                               run_id=run_id, delivery_date=delivery_date, horizon=horizon)
         settled = _settled_mu_profile(cur, delivery_date)
@@ -866,7 +910,7 @@ def get_context(
         )
         voltage_by_key = {str(row["constraint_key"]): row["kv_max"] for row in cur.fetchall()}
 
-    profile = settled if not settled.empty else forecast
+    profile = settled if not settled.empty else stitched.profile
     basis = "settled" if not settled.empty else "forecast"
     totals = profile.abs().sum(axis=0)
     total_mu = float(totals.sum())
@@ -912,6 +956,7 @@ def get_context(
     return ContextAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon, basis=basis,
         voltage_classes=voltage_classes, chronic_elements=chronic[:chronic_limit],
+        tail_horizon=stitched.tail_horizon, hours_covered=stitched.hours_covered,
     )
 
 
@@ -929,10 +974,11 @@ def get_standouts(
         if horizon is None:
             return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                                 run_id=run_id, delivery_date=delivery_date)
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
-        if forecast is None:
+        stitched = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        if stitched is None:
             return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                                 run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+        forecast = stitched.profile
         cur.execute(
             "SELECT constraint_key, array_agg(forecast_mu ORDER BY delivery_date) AS values "
             "FROM forecast_constraint_daily "
@@ -986,17 +1032,18 @@ def get_standouts(
                 prior = _forecast_node_profile(cur, run_id, delivery_date - timedelta(days=offset), horizon)
                 if prior is None:
                     continue
-                prior = prior.loc[prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
-                if prior.empty:
+                prior_profile = prior.profile.loc[
+                    prior.profile.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
+                if prior_profile.empty:
                     continue
-                for point, value in prior.mean(axis=0).items():
+                for point, value in prior_profile.mean(axis=0).items():
                     node_histories.setdefault(str(point), []).append(float(value))
             node_settled = _settled_node_profile(cur, delivery_date)
             cur.execute(
                 "SELECT interval_ts, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
                 "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
                 "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
-                (list(node_result[1].to_pydatetime()),),
+                (list(node_result.hours.to_pydatetime()),),
             )
             essp_by_signature: dict[tuple[str, ...], set[datetime]] = {}
             for group in cur.fetchall():
@@ -1004,7 +1051,7 @@ def get_standouts(
                 if len(members) > 1:
                     essp_by_signature.setdefault(members, set()).add(group["interval_ts"])
             node_essp_groups = [members for members, seen in essp_by_signature.items()
-                                if len(seen) == len(node_result[1])]
+                                if len(seen) == len(node_result.hours)]
         else:
             node_settled = pd.DataFrame()
             node_essp_groups = []
@@ -1014,7 +1061,7 @@ def get_standouts(
     settled_available = not settled.empty
     node_rows: list[NodeStandoutRow] = []
     if node_result is not None:
-        node_terms, node_hours = node_result
+        node_terms, node_hours = node_result.terms, node_result.hours
         node_forecast_total = node_terms.sum(axis=0) / len(node_hours)
         node_settled_total = (node_settled.loc[
             node_settled.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)
@@ -1132,6 +1179,7 @@ def get_standouts(
         basis="settled" if settled_available else "forecast",
         rows=rows,
         node_rows=node_rows,
+        tail_horizon=stitched.tail_horizon, hours_covered=stitched.hours_covered,
     )
 
 
@@ -1154,7 +1202,7 @@ def get_top_nodes(
         if forecast_result is None:
             return TopNodesUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                                run_id=run_id, delivery_date=delivery_date, horizon=horizon)
-        forecast_terms, hours = forecast_result
+        forecast_terms, hours = forecast_result.terms, forecast_result.hours
         realized_result = _daily_node_contributions(
             cur, run_id, delivery_date, horizon, realized=True, ct_hours=MARKET_PEAK_CT_HOURS)
         settled = _settled_congestion(cur, [str(sp) for sp in forecast_terms.columns], hours)
@@ -1192,7 +1240,7 @@ def get_top_nodes(
             grouped[representative] = (float(value), representative, count)
     unique_ranked = list(grouped.values())
     forecast_group_ranks = {sp: rank for rank, (_, sp, _) in enumerate(unique_ranked, start=1)}
-    realized_terms = None if realized_result is None else realized_result[0]
+    realized_terms = None if realized_result is None else realized_result.terms
     metadata = load_sp_metadata(forecast_terms.columns)
     settled_ranked = pd.Series(settled, dtype=float).abs().sort_values(ascending=False, kind="stable")
     settled_grouped: dict[str, float] = {}
@@ -1235,7 +1283,9 @@ def get_top_nodes(
             settled_history=historical,
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
-                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), grouping=grouping)
+                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), grouping=grouping,
+                                     tail_horizon=forecast_result.tail_horizon,
+                                     hours_covered=forecast_result.hours_covered)
 
 
 @router.get("/hero/latest", response_model=HeroLatestResponse,
