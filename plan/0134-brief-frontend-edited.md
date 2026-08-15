@@ -63,21 +63,26 @@ Branch: feat/0134-brief-frontend-edited
 
 ## Acceptance
 
-* [ ] Primary navigation reads `Brief`, `Map`, `Matrix`, `Scoreboard` in that order.
-* [ ] Initial Brief load renders all available Brief sections and issues the needed
+* [x] Primary navigation reads `Brief`, `Map`, `Matrix`, `Scoreboard` in that order.
+* [x] Initial Brief load renders all available Brief sections and issues the needed
       data requests; settled days show grade/history and unsettled days show pending
       state without fabricated grade values.
-* [ ] Brief → Map → Matrix → Brief changes the rendered route without a document
+* [x] Brief → Map → Matrix → Brief changes the rendered route without a document
       reload, and returning to the same day reuses loaded Brief data rather than
       issuing duplicate requests.
-* [ ] The 30-day fact identifies the congestion/shadow-price Σμ quantity and the
-      population represented by its median/rank.
+* [~] The fact cards now use a consistent two-stat structure: Total Congestion
+      carries its median; the rank is labelled 30-Day Congestion; and the load
+      card states actual versus forecast provenance. Remaining: decide whether the
+      final reader-facing wording must explicitly name Σμ and its comparison
+      population.
 * [ ] Hero headline and lede use capitalized sentence starts, contain no em-dash
       joins, and explain the measured conditions, μ-weighting, and DAM-only
       exceptions in plain language.
-* [ ] Both Watch prices CTA lines have consistent vertical spacing across desktop
+* [x] Both Watch prices CTA lines have consistent vertical spacing across desktop
       and mobile layouts.
-* [ ] The Brief day control exposes previous/next carets, a prominent CT date, and
-      Load Window in one integrated placement; selecting a day updates the URL
-      and renders the corresponding cached/requested data.
-* [ ] `tsc --noEmit -p web/tsconfig.app.json` and focused hero/frontend tests pass.
+* [~] Run and horizon provenance now precede the existing Load Window picker.
+      Remaining: expose previous/next carets, make the CT date prominent, and
+      combine them into one integrated day control that preserves the cached URL
+      update path.
+* [~] The web production build (including TypeScript compilation) passes. Remaining:
+      run and record the focused hero/frontend tests for this plan.
