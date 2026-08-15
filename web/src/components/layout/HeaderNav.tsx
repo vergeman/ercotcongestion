@@ -13,10 +13,10 @@ type NavKey = "map" | "matrix" | "scoreboard" | "brief" | "analysis";
 // full-page load instead. Everything else routes through the Router (no reload).
 // Scoreboard is the deliberate exception.
 const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean; reload?: boolean }[] = [
+  { key: "brief", label: "Brief", href: "/" },
   { key: "map", label: "Map", href: "/map" },
   { key: "matrix", label: "Matrix", href: "/matrix" },
   { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", reload: true },
-  { key: "brief", label: "Brief", href: "/" },
 ];
 
 export default function HeaderNav({
