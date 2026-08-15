@@ -529,12 +529,6 @@ export interface TopConstraints {
   horizon?: number;
   n_ranked?: number;
   rows?: TopConstraintRow[];
-  // 0132: the D+1 tail this profile stitched in. `tail_horizon` is set only when
-  // it came from a different horizon than `horizon` (a mixed-vintage stitch);
-  // `hours_covered` is the CT day's stitched hour count (< 24 when D+1 was
-  // absent and the day was truncated to D's own UTC-day hours).
-  tail_horizon?: number | null;
-  hours_covered?: number;
 }
 
 export interface VoltageClassRow {
@@ -562,9 +556,6 @@ export interface BriefContext {
   basis?: "forecast" | "settled";
   voltage_classes?: VoltageClassRow[];
   chronic_elements?: ChronicElementRow[];
-  // 0132: see TopConstraints.
-  tail_horizon?: number | null;
-  hours_covered?: number;
 }
 
 export interface StandoutRow {
@@ -621,9 +612,6 @@ export interface Standouts {
   basis: "forecast" | "settled";
   rows?: StandoutRow[];
   node_rows?: NodeStandoutRow[];
-  // 0132: see TopConstraints.
-  tail_horizon?: number | null;
-  hours_covered?: number;
 }
 
 export interface TopNodeRow {
@@ -655,9 +643,6 @@ export interface TopNodes {
   n_ranked?: number;
   grouping?: "study_delivery_day" | "exact_settled" | "study_essp_missing";
   rows?: TopNodeRow[];
-  // 0132: see TopConstraints.
-  tail_horizon?: number | null;
-  hours_covered?: number;
 }
 
 // /analysis/grade — independent daily verification halves. Constraint and node

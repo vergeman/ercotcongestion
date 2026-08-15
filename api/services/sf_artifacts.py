@@ -16,12 +16,10 @@ for a day that has since been finalized.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 
-from compute.analysis.hero_window import delivery_bounds
 from compute.sf.project import SfMuArtifact, load_sf_mu
 
 
@@ -158,59 +156,3 @@ def load_daily_artifact(cur, run_id: str, delivery_date: date,
     if row is None:
         return None
     return _ARTIFACT_CACHE.put(key, load_sf_mu(bytes(row["sf_npz"])))
-
-
-@dataclass(frozen=True)
-class ArtifactTail:
-    """One delivery day's mandatory artifact plus its degrading D+1 tail (0132).
-
-    ``today`` is the exact resolved-``horizon`` artifact for ``delivery_date`` —
-    still non-negotiable. ``tomorrow`` (the next UTC day, which carries the CT
-    day's evening hours) coalesces across horizons: final preferred, preview a
-    fallback, ``None`` when the next UTC day has no artifact at any horizon yet.
-    ``tail_horizon`` is set only when ``tomorrow`` served a *different* horizon
-    than ``today`` — the signal a caller reports as a mixed-vintage stitch.
-    ``hours_covered``/``hours_expected`` count the CT delivery day's hours
-    actually present across ``today`` (+ ``tomorrow``) vs. how many the day has
-    (23/24/25 across a DST transition).
-    """
-    today: SfMuArtifact
-    tomorrow: SfMuArtifact | None
-    tail_horizon: int | None
-    hours_covered: int
-    hours_expected: int
-
-
-def load_daily_artifact_tail(cur, run_id: str, delivery_date: date, horizon: int) -> ArtifactTail | None:
-    """Load one CT delivery day's mandatory artifact plus its degrading D+1 tail.
-
-    Every endpoint that stitches a Chicago delivery day from two UTC-day artifacts
-    goes through here. ``delivery_date`` (D) must have an artifact at the exact
-    resolved ``horizon`` or this returns ``None`` outright. D+1 is best-effort: a
-    coalesced (``horizon=None``) lookup borrows whichever track exists, and is
-    simply absent when the next UTC day has no artifact at all — the caller then
-    serves D alone, truncated to its own UTC-day hours (0132).
-    """
-    today = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    if today is None:
-        return None
-    tomorrow_date = delivery_date + timedelta(days=1)
-    resolved_tail_horizon = resolve_daily_horizon(cur, run_id, tomorrow_date)
-    tomorrow = (load_daily_artifact(cur, run_id, tomorrow_date, resolved_tail_horizon)
-                if resolved_tail_horizon is not None else None)
-
-    start, end = delivery_bounds(delivery_date)
-    hours = pd.DatetimeIndex(pd.to_datetime(today.E_mu.index, utc=True))
-    if tomorrow is not None:
-        hours = hours.union(pd.DatetimeIndex(pd.to_datetime(tomorrow.E_mu.index, utc=True)))
-    covered = hours[(hours >= start) & (hours < end)]
-    hours_expected = round((end - start) / timedelta(hours=1))
-
-    return ArtifactTail(
-        today=today,
-        tomorrow=tomorrow,
-        tail_horizon=(resolved_tail_horizon
-                      if tomorrow is not None and resolved_tail_horizon != horizon else None),
-        hours_covered=len(covered),
-        hours_expected=hours_expected,
-    )
