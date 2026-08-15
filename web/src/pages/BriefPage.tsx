@@ -1503,6 +1503,10 @@ export default function BriefPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
+  const [adjacentDays, setAdjacentDays] = useState<{
+    previous: string | null;
+    next: string | null;
+  }>({ previous: null, next: null });
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
   // cursor during that short handoff.
@@ -1531,6 +1535,40 @@ export default function BriefPage() {
   }, [cursorDay]);
 
   const deliveryDay = cursorDay ?? defaultDay;
+
+  // Probe the two neighboring CT delivery days before enabling their carets.
+  // The hero endpoint returns a successful explicit unavailable state for a
+  // missing artifact, and the shared cache makes the successful probe the
+  // navigation request's data source as well.
+  useEffect(() => {
+    if (!deliveryDay) {
+      setAdjacentDays({ previous: null, next: null });
+      return;
+    }
+    const toDay = (offset: number) =>
+      format(addDays(new Date(`${deliveryDay}T12:00:00Z`), offset), "yyyy-MM-dd");
+    const previous = toDay(-1);
+    const next = toDay(1);
+    let live = true;
+    setAdjacentDays({ previous: null, next: null });
+    Promise.all([
+      fetchBriefHeroCached(previous, cursor.run ?? undefined),
+      fetchBriefHeroCached(next, cursor.run ?? undefined),
+    ])
+      .then(([previousHero, nextHero]) => {
+        if (!live) return;
+        setAdjacentDays({
+          previous: previousHero?.available ? previous : null,
+          next: nextHero?.available ? next : null,
+        });
+      })
+      .catch(() => {
+        if (live) setAdjacentDays({ previous: null, next: null });
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run]);
 
   useEffect(() => {
     if (!deliveryDay) return;
@@ -1760,11 +1798,17 @@ export default function BriefPage() {
         autoPlay: true,
       })
     : null;
+  const selectDeliveryDay = (day: string) => {
+    const { start, end } = dateBounds(day);
+    setActiveEventId(null);
+    pendingDeliveryDayRef.current = day;
+    setReplaceWithHeroCursor(true);
+    cursor.setCoord({ t: start, ws: start, we: end });
+  };
   return (
     <div className="an-page">
       <header className="an-topbar">
         <HeaderNav active="brief" />
-        {deliveryDay && <span className="an-day">{fmtDay(deliveryDay)}</span>}
         {provenance && (
           <span className={`an-basis an-basis--${provenance.basis}`}>
             {basisLabel}
@@ -1783,28 +1827,48 @@ export default function BriefPage() {
                 </span>
               </div>
             )}
-            <DateRangePicker
-              singleDate
-              selectedDate={deliveryDay}
-              onLoadDate={(day) => {
-                const { start, end } = dateBounds(day);
-                setActiveEventId(null);
-                pendingDeliveryDayRef.current = day;
-                setReplaceWithHeroCursor(true);
-                cursor.setCoord({ t: start, ws: start, we: end });
-              }}
-              onSelectEvent={(event) => {
-                setActiveEventId(event.id);
-                cursor.setCoord({
-                  t: new Date(event.cursor_ts),
-                  ws: new Date(event.window_start),
-                  we: new Date(event.window_end),
-                });
-              }}
-              events={CURATED_EVENTS}
-              activeEventId={activeEventId}
-              loading={loading}
-            />
+            <div className="an-day-controls" aria-label="Delivery day controls">
+              <button
+                type="button"
+                className="an-day-controls__caret"
+                onClick={() =>
+                  adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
+                }
+                disabled={!adjacentDays.previous}
+                aria-label="Previous available delivery day"
+              >
+                ‹
+              </button>
+              <span className="an-day-controls__date">
+                {deliveryDay ? fmtDay(deliveryDay) : "Loading date…"}
+              </span>
+              <button
+                type="button"
+                className="an-day-controls__caret"
+                onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
+                disabled={!adjacentDays.next}
+                aria-label="Next available delivery day"
+              >
+                ›
+              </button>
+              <DateRangePicker
+                singleDate
+                showLabel={false}
+                selectedDate={deliveryDay}
+                onLoadDate={selectDeliveryDay}
+                onSelectEvent={(event) => {
+                  setActiveEventId(event.id);
+                  cursor.setCoord({
+                    t: new Date(event.cursor_ts),
+                    ws: new Date(event.window_start),
+                    we: new Date(event.window_end),
+                  });
+                }}
+                events={CURATED_EVENTS}
+                activeEventId={activeEventId}
+                loading={loading}
+              />
+            </div>
           </div>
         )}
         {!indexLoaded && <p className="an-empty">Loading brief…</p>}
@@ -1921,12 +1985,16 @@ export default function BriefPage() {
       <style>{`
         .an-page { height: 100%; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); font-variant-numeric: tabular-nums; }
         .an-topbar { position: sticky; top: 0; z-index: 2; height: var(--header-h); padding: 0 16px; display: flex; align-items: center; gap: 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
-        .an-day { margin-left: auto; font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); }
-        .an-basis { padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .an-basis { margin-left: auto; padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-basis--settled { color: var(--success, var(--accent)); }
         .an-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 80px; }
         .an-date-picker { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
         .an-brief-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-secondary); font-size: var(--fs-sm); }
+        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; }
+        .an-day-controls__date { font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; }
+        .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
+        .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
         .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
         .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
         .an-hero__frame::after {
@@ -2106,7 +2174,7 @@ export default function BriefPage() {
           .an-grade__cards { grid-template-columns: 1fr; }
           .an-grade-card { min-height: 0; }
         }
-        @media (max-width: 640px) { .an-day { display: none; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
+        @media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
       `}</style>
     </div>
   );
