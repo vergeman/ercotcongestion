@@ -192,6 +192,12 @@ class TopConstraintsAvailableResponse(BaseModel):
     horizon: int
     rows: list[TopConstraintRow]
     n_ranked: int
+    # 0132: the D+1 tail this profile stitched in. `tail_horizon` is set only when
+    # it came from a different horizon than `horizon` (a mixed-vintage stitch);
+    # `hours_covered` is the CT day's stitched hour count (< 24 when D+1 was
+    # absent and the day was truncated to D's own UTC-day hours).
+    tail_horizon: int | None = None
+    hours_covered: int
 
 
 class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
@@ -224,6 +230,10 @@ class ContextAvailableResponse(BaseModel):
     basis: Literal["forecast", "settled"]
     voltage_classes: list[VoltageClassRow]
     chronic_elements: list[ChronicElementRow]
+    # 0132: see TopConstraintsAvailableResponse. Describes the forecast stitch
+    # used to build this response, regardless of which `basis` ultimately served.
+    tail_horizon: int | None = None
+    hours_covered: int
 
 
 class ContextUnavailableResponse(NodeAnalysisUnavailableResponse):
@@ -287,6 +297,9 @@ class StandoutsAvailableResponse(BaseModel):
     basis: Literal["forecast", "settled"]
     rows: list[StandoutRow]
     node_rows: list[NodeStandoutRow]
+    # 0132: see TopConstraintsAvailableResponse.
+    tail_horizon: int | None = None
+    hours_covered: int
 
 
 class StandoutsUnavailableResponse(NodeAnalysisUnavailableResponse):
@@ -324,6 +337,9 @@ class TopNodesAvailableResponse(BaseModel):
     rows: list[TopNodeRow]
     n_ranked: int
     grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
+    # 0132: see TopConstraintsAvailableResponse.
+    tail_horizon: int | None = None
+    hours_covered: int
 
 
 class TopNodesUnavailableResponse(NodeAnalysisUnavailableResponse):

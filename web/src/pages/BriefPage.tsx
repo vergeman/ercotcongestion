@@ -668,6 +668,17 @@ export default function BriefPage() {
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
   const basisLabel = settled ? "DAM settled" : "forecast only";
+  // 0132: the tables stitch a Chicago delivery day from two UTC-day artifacts.
+  // topConstraints is the primary table, so its coverage stands in for the
+  // whole page rather than tracking four endpoints' coverage separately — do
+  // not invent a second horizon badge system here.
+  const tailNote = !topConstraints?.available
+    ? null
+    : topConstraints.hours_covered != null && topConstraints.hours_covered < 24
+      ? "Evening hours arrive with the next run."
+      : topConstraints.tail_horizon != null
+        ? "Evening hours are preview-vintage — tonight's final run hasn't landed yet."
+        : null;
   const title = useMemo(
     () => hero?.segments?.headline ?? [],
     [hero]
@@ -795,6 +806,7 @@ export default function BriefPage() {
                   <div className="an-hero__meta">
                     <span>Run {provenance?.run_id}</span>
                     <span>{provenance?.horizon === 1 ? "final · t+1" : "preview · t+2"}</span>
+                    {tailNote && <span className="an-hero__tail-note">{tailNote}</span>}
                     {watchHref && (
                       <Link to={watchHref} className="an-hero__watch-inline">
                         Watch prices move across the day →
@@ -872,6 +884,7 @@ export default function BriefPage() {
         .an-hero__meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; color: var(--text-secondary); font-size: var(--fs-sm); }
         .an-hero__meta a { color: var(--accent); text-decoration: none; }
         .an-hero__meta a:hover { text-decoration: underline; }
+        .an-hero__tail-note { color: var(--warn); }
         .an-stage { margin-top: 42px; }
         .an-stage h2 { margin: 0; font-size: var(--fs-xl); }
         .an-stage p { margin: 7px 0 0; color: var(--text-secondary); }
