@@ -110,17 +110,44 @@ Branch: fix/0133-ct-delivery-day-blocks
 
 * [ ] Every re-backfilled `(run_id, delivery_date, horizon)` spans exactly
       `delivery_bounds(delivery_date)`: 05:00Z→04:00Z+1 in CDT, 06:00Z→05:00Z+1 in CST,
-      23/24/25 distinct hours matching the CT calendar.
-* [ ] No train window contains any interval of its scored CT day (test asserts the cut
-      at CT midnight, including both DST transition days).
+      23/24/25 distinct hours matching the CT calendar. Code path ready
+      (`daily_forecast.forecast_day` builds `forward_hours` from `ct_day_bounds`,
+      `backfill_artifacts.py` supports `--horizon`); the runbook backfill itself
+      (step 3) has not been run yet — nothing re-backfilled on prod so far.
+* [x] No train window contains any interval of its scored CT day (test asserts the cut
+      at CT midnight, including both DST transition days). `predict_day`'s CT anchor
+      + `test_predict_day_score_block_is_dst_aware`/`test_score_block_is_dst_aware`
+      (spring-forward 23h, fall-back 25h) plus
+      `test_reads_and_propagation_touch_no_interval_at_or_after_D` pin this.
 * [ ] Brief t+1 renders fully at ~17:05Z and t+2 at ~20:20Z from single artifacts; no
-      request loads two artifacts for one day.
-* [ ] 0132's partial-coverage fields and fallback paths are deleted; API tests updated.
+      request loads two artifacts for one day. The "no request loads two artifacts"
+      half is true by construction now (`load_daily_artifact_tail` deleted, every
+      API path reads one `load_daily_artifact` call) — but this line is really a
+      claim about the live cron's timing once deployed (runbook step 2), not yet
+      observed in prod.
+* [x] 0132's partial-coverage fields and fallback paths are deleted; API tests updated.
+      `ArtifactTail`/`load_daily_artifact_tail`/`StitchedProfile` and every
+      `tail_horizon`/`hours_covered`/`hours_expected` field removed from
+      `api/services/sf_artifacts.py`, `api/analysis.py`, `api/models.py`,
+      `web/src/api/types.ts`, `web/src/pages/BriefPage.tsx`; `get_hero_latest`'s
+      D+1 `EXISTS` join simplified too (a third stitch site the plan didn't
+      originally name). Tests updated in `api/tests/test_analysis.py` and
+      `api/tests/test_sf_artifacts.py`.
 * [ ] `analysis_grade_daily` and scoreboards regenerated over the full span; run log
-      records the grade delta attributable to the evening-hour fix.
+      records the grade delta attributable to the evening-hour fix. Not started —
+      runbook step 5, gated on the backfill (step 3) completing first.
 * [ ] Regenerated h2 rows carry covariate vintages a live run could have seen: every
       `vintage_load`/`vintage_wind`/`vintage_solar`/`vintage_outage` ≤ that day's
       20:15Z D−2 fire instant (spot-check against the 18 live-emitted days before
       overwriting them). h1 rows are unchanged by the cutoff cap (no-op assertion).
-* [ ] A backtest fold and a served day with the same D produce identically-phased
-      train/score windows.
+      Code path ready (`vintage_cutoff`/`LEAST(...)` threaded through all four
+      vintaged reads in `features.py`, verified against real dev-DB rows; h1/h2
+      fire-time computation unit-tested in `test_backfill_artifacts.py`) — the
+      actual regenerated rows and live-day spot-check don't exist until the
+      backfill (step 3) runs.
+* [x] A backtest fold and a served day with the same D produce identically-phased
+      train/score windows. `predict_day`'s CT-midnight re-anchor plus the CLI's
+      `score_from_ts` tz fix (was `tz="UTC"` against the read-floor's
+      `tz="America/Chicago"` for the same `origin` string — a real desync);
+      `test_predict_day_reconciles_with_walk_forward` now pins bit-identical
+      output at a real CT-midnight `D` passed as `score_from` to both.
