@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from compute.mu.features import ERCOT_TZ
+from compute.mu.features import ERCOT_TZ, ct_day_bounds
 from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.sf.project import (
     DRIVERS_K,
@@ -137,6 +137,19 @@ def nodal_to_db(npz_path: str, conn, *, run_id: str,
     the CT-local date of `ts`, so the same PK never both survives and reappears —
     collisions replace, not duplicate.
 
+    The single-day delete is scoped by `ts` range (`ct_day_bounds`), not by the
+    stored `delivery_date` column (0133b). During the 0133 CT-day cutover a `ts`
+    can carry a *different* `delivery_date` label depending on when the row still
+    sitting in the table was written: an old row from before the cutover was
+    labeled by the UTC calendar day, this call's label is the CT calendar day, and
+    for the ~5 seam hours per day those disagree. A delivery_date-scoped delete
+    then misses the stale row (it's labeled the *adjacent* day) and the COPY
+    collides with it on the real primary key, `(run_id, ts, settlement_point,
+    horizon)` — which was never delivery_date-scoped to begin with. Deleting by
+    the exact `ts` window this call is about to (re)write is correct regardless of
+    what label any existing row carries, and is a no-op change once every day has
+    been reprocessed under one convention.
+
     `horizon` scopes both the delete and the written rows (1 = final/t+1, 2 =
     preview/t+2; 0123). It is part of the idempotency key, so a horizon-2 re-run
     never touches the horizon-1 rows for the same day and vice versa — the two
@@ -154,9 +167,10 @@ def nodal_to_db(npz_path: str, conn, *, run_id: str,
 
     with conn.cursor() as cur:
         if target is not None:
+            ts_lo, ts_hi = ct_day_bounds(target)
             cur.execute(
-                "DELETE FROM forecast_nodal WHERE run_id = %s "
-                "AND delivery_date = %s AND horizon = %s", (run_id, target, horizon))
+                "DELETE FROM forecast_nodal WHERE run_id = %s AND horizon = %s "
+                "AND ts >= %s AND ts < %s", (run_id, horizon, ts_lo, ts_hi))
         else:
             cur.execute("DELETE FROM forecast_nodal WHERE run_id = %s "
                         "AND horizon = %s", (run_id, horizon))
