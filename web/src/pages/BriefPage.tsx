@@ -1775,6 +1775,14 @@ export default function BriefPage() {
       <main className="an-main">
         {indexLoaded && (
           <div className="an-date-picker">
+            {provenance && (
+              <div className="an-brief-meta">
+                <span>Run {provenance.run_id}</span>
+                <span>
+                  {provenance.horizon === 1 ? "final · t+1" : "preview · t+2"}
+                </span>
+              </div>
+            )}
             <DateRangePicker
               singleDate
               selectedDate={deliveryDay}
@@ -1870,19 +1878,13 @@ export default function BriefPage() {
                       />
                     )}
                   </div>
-                  <div className="an-hero__meta">
-                    <span>Run {provenance?.run_id}</span>
-                    <span>
-                      {provenance?.horizon === 1
-                        ? "final · t+1"
-                        : "preview · t+2"}
-                    </span>
-                    {watchHref && (
+                  {watchHref && (
+                    <div className="an-hero__meta">
                       <Link to={watchHref} className="an-hero__watch-inline">
                         Watch prices move across the day →
                       </Link>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -1923,7 +1925,8 @@ export default function BriefPage() {
         .an-basis { padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-basis--settled { color: var(--success, var(--accent)); }
         .an-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 80px; }
-        .an-date-picker { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+        .an-date-picker { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+        .an-brief-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-secondary); font-size: var(--fs-sm); }
         .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
         .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
         .an-hero__frame::after {
