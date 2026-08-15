@@ -810,7 +810,7 @@ export default function BriefPage() {
                     )}
                     {magnitudeValue != null && (
                       <Fact
-                        label="Congestion total"
+                        label="Total Congestion"
                         value={usd(magnitudeValue)}
                         detail={provenance?.basis === "settled" ? "DAM shadow-price total" : "forecast shadow-price total"}
                       />
@@ -818,13 +818,13 @@ export default function BriefPage() {
                     {magnitudeRank != null && magnitudeN != null && (
                       <Fact
                         label="30-day rank"
-                        value={`${magnitudeRank} of ${magnitudeN}`}
+                        value={`#${magnitudeRank}`}
                         detail={magnitudeMedian != null ? `median ${usd(magnitudeMedian)}` : "including this delivery day"}
                       />
                     )}
                     {whereZone && whereShare != null && (
                       <Fact
-                        label="Where it priced"
+                        label="Congested Region"
                         value={whereZone}
                         detail={`${pct(whereShare)} of μ-weighted footprint`}
                       />
