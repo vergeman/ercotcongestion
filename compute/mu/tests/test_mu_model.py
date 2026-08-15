@@ -451,8 +451,13 @@ def test_predict_day_reconciles_with_walk_forward():
     single failure this branch exists to prevent).
     """
     panel = _panel(n_days=60)
-    D = refit_boundaries(panel, train_days=30, refit_days=7)[0]
-    preds, _ = walk_forward(panel, train_days=30, refit_days=7)
+    # A real CT-midnight instant (0133): `predict_day` now anchors D onto its own
+    # CT calendar day, so D must already BE that boundary for its fold to line up
+    # bit-for-bit with `walk_forward`'s fold at the same `score_from` — the plain
+    # UTC-midnight grid point `refit_boundaries` falls back to without one would
+    # get bucketed onto the PREVIOUS CT day and silently shift the windows.
+    D = pd.Timestamp("2025-02-01", tz="America/Chicago").tz_convert("UTC")
+    preds, _ = walk_forward(panel, train_days=30, refit_days=7, score_from=D)
 
     wp = predict_day(panel, D, train_days=30)
 
@@ -470,13 +475,25 @@ def test_predict_day_reconciles_with_walk_forward():
         np.testing.assert_allclose(a["mu_gbm"].to_numpy(), b["mu_gbm"].to_numpy())
 
 
+@pytest.mark.parametrize("day, hours", [("2025-03-09", 23),    # spring forward
+                                        ("2025-11-02", 25)])   # fall back
+def test_predict_day_score_block_is_dst_aware(day, hours):
+    """The score block is D's CT calendar day (0133): 23h on spring-forward, 25h
+    on fall-back — never a flat 24, which a UTC-midnight cut could never see since
+    UTC has no DST fold."""
+    panel = _panel(n_days=320)
+    D = pd.Timestamp(day, tz="America/Chicago").tz_convert("UTC")
+    wp = predict_day(panel, D, train_days=30)
+    assert wp["interval_ts"].nunique() == hours
+
+
 def test_predict_day_drops_historyless_key_and_counts_novelty():
     """A constraint with no binding history gets no row, and is counted — not
     silently zeroed. In the fixture B binds never but is enforced (present) every
     day, so it is the coverage gap: absent from the scored `wp`, surfaced as novelty.
     """
     panel = _panel(n_days=60)
-    D = refit_boundaries(panel, train_days=30, refit_days=7)[0]
+    D = pd.Timestamp("2025-02-01", tz="America/Chicago").tz_convert("UTC")
 
     wp = predict_day(panel, D, train_days=30)
 
