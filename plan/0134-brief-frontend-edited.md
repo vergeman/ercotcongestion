@@ -64,25 +64,24 @@ Branch: feat/0134-brief-frontend-edited
 ## Acceptance
 
 * [x] Primary navigation reads `Brief`, `Map`, `Matrix`, `Scoreboard` in that order.
-* [x] Initial Brief load renders all available Brief sections and issues the needed
-      data requests; settled days show grade/history and unsettled days show pending
-      state without fabricated grade values.
+* [~] Initial Brief load requests and renders all available Brief sections; settled
+      days use grade/history and unsettled days retain a pending state without
+      fabricated grade values. Remaining: exercise and record both states.
 * [x] Brief → Map → Matrix → Brief changes the rendered route without a document
       reload, and returning to the same day reuses loaded Brief data rather than
       issuing duplicate requests.
-* [~] The fact cards now use a consistent two-stat structure: Total Congestion
-      carries its median; the rank is labelled 30-Day Congestion; and the load
-      card states actual versus forecast provenance. Remaining: decide whether the
-      final reader-facing wording must explicitly name Σμ and its comparison
-      population.
-* [ ] Hero headline and lede use capitalized sentence starts, contain no em-dash
-      joins, and explain the measured conditions, μ-weighting, and DAM-only
-      exceptions in plain language.
+* [x] The preferred reader-facing fact-card wording is retained: Total Congestion
+      carries its median, the rank is labelled 30-Day Congestion, and the load
+      card states actual versus forecast provenance.
+* [~] Hero headlines now use capitalized, separate sentences without em-dash joins;
+      direct LZ/HB benchmark splits provide a varied regional story, and DAM-only
+      exceptions use plain language. Remaining: capitalize and tighten the lede,
+      including its conditions and μ-weighting explanation.
 * [x] Both Watch prices CTA lines have consistent vertical spacing across desktop
       and mobile layouts.
-* [~] Run and horizon provenance now precede the existing Load Window picker.
-      Remaining: expose previous/next carets, make the CT date prominent, and
-      combine them into one integrated day control that preserves the cached URL
-      update path.
-* [~] The web production build (including TypeScript compilation) passes. Remaining:
-      run and record the focused hero/frontend tests for this plan.
+* [x] Run and horizon provenance precede the integrated day control: a prominent
+      CT date, availability-aware previous/next carets, and Load Window all use
+      the cached URL update path.
+* [~] The Docker Compose web production build (including TypeScript compilation)
+      and focused hero tests pass. Remaining: run and record the focused frontend
+      tests for this plan.

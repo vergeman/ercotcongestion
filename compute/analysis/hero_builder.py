@@ -21,6 +21,32 @@ from compute.analysis.metadata import load_sp_metadata
 from compute.sf.project import load_sf_mu
 
 
+BENCHMARK_SP_FAMILIES = (
+    (
+        "load zones",
+        ("LZ_HOUSTON", "LZ_NORTH", "LZ_SOUTH", "LZ_WEST"),
+    ),
+    (
+        "hubs",
+        ("HB_HOUSTON", "HB_NORTH", "HB_SOUTH", "HB_WEST"),
+    ),
+)
+BENCHMARK_LABELS = {
+    "LZ_HOUSTON": "Houston LZ",
+    "LZ_NORTH": "North LZ",
+    "LZ_SOUTH": "South LZ",
+    "LZ_WEST": "West LZ",
+    "HB_HOUSTON": "Houston Hub",
+    "HB_NORTH": "North Hub",
+    "HB_SOUTH": "South Hub",
+    "HB_WEST": "West Hub",
+}
+# A $1/MWh mean over the established 15–18 CT congestion slice keeps numerical
+# residue and insignificant opposite signs from replacing the broader regional
+# description.
+BENCHMARK_SPLIT_MIN = 1.0
+
+
 def _artifact(cur, run_id: str, delivery_date: date, horizon: int):
     cur.execute(
         "SELECT sf_npz FROM forecast_sf_artifact "
@@ -40,6 +66,35 @@ def _weights(artifact, basis: str, settled_rows: list[dict[str, Any]], delivery_
     values = {row["constraint_key"]: float(row["value"]) for row in settled_rows
               if row["delivery_date"] == delivery_date}
     return pd.Series(values, dtype=float).reindex(artifact.SF.index).fillna(0.0)
+
+
+def _benchmark_split(artifact) -> dict[str, Any] | None:
+    """Return a material 15–18 CT opposing-sign pair among direct LZ/HB SPPs."""
+    hourly = -(artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0) @ artifact.SF)
+    index = pd.DatetimeIndex(hourly.index)
+    if index.tz is not None:
+        peak = hourly.loc[index.tz_convert("America/Chicago").hour.isin(HIGH_CONGESTION_CT_HOURS)]
+        if not peak.empty:
+            hourly = peak
+    for family, candidates in BENCHMARK_SP_FAMILIES:
+        available = [sp for sp in candidates if sp in hourly.columns]
+        if len(available) < 2:
+            continue
+        daily_mean = hourly[available].mean(axis=0)
+        positive = str(daily_mean.idxmax())
+        negative = str(daily_mean.idxmin())
+        if (float(daily_mean[positive]) >= BENCHMARK_SPLIT_MIN
+                and float(daily_mean[negative]) <= -BENCHMARK_SPLIT_MIN):
+            return {
+                "family": family,
+                "positive": positive,
+                "negative": negative,
+                "positive_label": BENCHMARK_LABELS[positive],
+                "negative_label": BENCHMARK_LABELS[negative],
+                "positive_value": float(daily_mean[positive]),
+                "negative_value": float(daily_mean[negative]),
+            }
+    return None
 
 
 def _zone_summary(weights: pd.Series, geo_rows: list[dict[str, Any]], artifact) -> dict[str, Any]:
@@ -68,6 +123,7 @@ def _zone_summary(weights: pd.Series, geo_rows: list[dict[str, Any]], artifact) 
         "zone_shares": shares,
         "node_zone_shares": ({z: value / node_total for z, value in node_zones.items()}
                              if node_total else {}),
+        "benchmark_split": _benchmark_split(artifact),
         "geo_as_of": next(iter(stamps)) if len(stamps) == 1 else None,
     }
 

@@ -93,6 +93,10 @@ def classify_where(summary: dict[str, Any]) -> dict[str, Any]:
     if not shares:
         return {**summary, "zone": None, "share": None, "bucket": "unknown"}
     zone, share = sorted(shares.items(), key=lambda item: (-item[1], item[0]))[0]
+    split = summary.get("benchmark_split")
+    if split:
+        return {**summary, "zone_shares": shares, "zone": zone, "share": share,
+                **split, "bucket": "split"}
     # The 365-day audit separates a true spread (<45%) from the broad middle
     # (45–55%): a 49% leader should not read as qualitatively unlike a 51%
     # leader.  Reserve “concentrated” for a clear 55% majority.

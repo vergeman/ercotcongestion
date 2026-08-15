@@ -37,6 +37,18 @@ def test_regime_where_and_exception_ladders_are_pure():
                             "geo_as_of": "2025-12-13"})
     assert where["bucket"] == "concentrated" and where["zone"] == "south"
     assert classify_where({"zone_shares": {"north": .511, "south": .489}})["bucket"] == "tilted"
+    split = classify_where({
+        "zone_shares": {"north": .44, "south": .56},
+        "benchmark_split": {
+            "positive_label": "North LZ",
+            "negative_label": "South LZ",
+        },
+    })
+    assert split["bucket"] == "split"
+    assert split["zone"] == "south" and split["share"] == .56
+    assert phrase_for("where", split)[1] == (
+        "afternoon splits: North LZ prices higher than South LZ"
+    )
 
     tier_0 = {"constraint_key": "NEW|ONE", "value": 30, "rank": 1, "n": 31}
     tier_1 = {"constraint_key": "TOP|TWO", "value": 20, "rank": 2, "n": 31}
@@ -69,10 +81,10 @@ def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
     segments = render(slots)
     assert {part["ref"] for group in segments.values() for part in group} <= set(slots)
     assert all(part["text"] for group in segments.values() for part in group)
-    assert "4 constraints outside the model vocabulary" in segments["lede"][2]["text"]
+    assert "4 constraints not included in the model" in segments["lede"][2]["text"]
     assert "one is newly active" in segments["lede"][2]["text"]
     headline = "".join(part["text"] for part in segments["headline"])
-    assert headline == "An ordinary congestion day. Weight is concentrated in south"
+    assert headline == "An ordinary congestion day. Weight is concentrated in south."
     assert "—" not in headline
 
 
@@ -84,6 +96,6 @@ def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
         "exceptions": {"bucket": "none"},
     }
     headline = "".join(part["text"] for part in render(slots)["headline"])
-    assert headline.endswith("; though high-congestion hours were near-record")
+    assert headline.endswith("; though high-congestion hours were near-record.")
     slots["magnitude"]["high_congestion_hours"]["bucket"] = "elevated"
-    assert len(render(slots)["headline"]) == 2
+    assert len(render(slots)["headline"]) == 3

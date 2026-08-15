@@ -38,6 +38,8 @@ LADDERS: dict[str, Ladder] = {
         (lambda _slot: True, "ordinary", "conditions are in their usual range"),
     ),
     "where": (
+        (_bucket("split"), "split",
+         "afternoon splits: {positive_label} prices higher than {negative_label}"),
         (_bucket("concentrated"), "concentrated", "weight is concentrated in {zone}"),
         (_bucket("tilted"), "tilted", "weight leans toward {zone}"),
         (_bucket("distributed"), "distributed", "weight is spread across zones"),
@@ -45,16 +47,16 @@ LADDERS: dict[str, Ladder] = {
     ),
     "exceptions": (
         (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count") == 1,
-         "several", "{count} constraints outside the model vocabulary stand apart; one is newly active"),
+         "several", "{count} constraints not included in the model stand apart; one is newly active"),
         (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count", 0) > 0,
-         "several", "{count} constraints outside the model vocabulary stand apart; "
+         "several", "{count} constraints not included in the model stand apart; "
          "{tier_0_count} are newly active"),
-        (_bucket("several"), "several", "{count} constraints outside the model vocabulary stand apart"),
+        (_bucket("several"), "several", "{count} constraints not included in the model stand apart"),
         (lambda slot: slot.get("bucket") == "one_or_two" and slot.get("count") == 1,
-         "one", "one constraint outside the model vocabulary stands apart"),
-        (_bucket("one_or_two"), "one_or_two", "{count} constraints outside the model vocabulary stand apart"),
+         "one", "one constraint not included in the model stands apart"),
+        (_bucket("one_or_two"), "one_or_two", "{count} constraints not included in the model stand apart"),
         (_bucket("unavailable"), "unavailable", "exceptions await DAM settlement"),
-        (lambda _slot: True, "none", "no constraints outside the model vocabulary stand apart"),
+        (lambda _slot: True, "none", "no constraints not included in the model stand apart"),
     ),
 }
 
@@ -112,6 +114,7 @@ def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     ]
     if detail:
         headline.append({"text": detail, "ref": "magnitude"})
+    headline.append({"text": ".", "ref": "where"})
     return {
         "headline": headline,
         "lede": [
