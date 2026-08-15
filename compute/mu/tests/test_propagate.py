@@ -538,6 +538,55 @@ def test_delivery_date_scope_replaces_only_that_day(pg, tmp_path):
     assert _count(conn, run_id) == before             # other days survived
 
 
+def test_seam_hour_from_a_pre_cutover_row_is_replaced_not_collided(pg, tmp_path):
+    """0133b: a stale row from before the CT-day cutover, still labeled by the
+    OLD UTC-calendar-day convention, must be cleanly replaced — not collide —
+    when the CT day that now legitimately owns that `ts` is (re)written.
+
+    This reproduces a real production crash: `nodal_to_db` used to scope its
+    DELETE by the `delivery_date` column, but the real primary key is
+    `(run_id, ts, settlement_point, horizon)`, which has no such scope. A `ts`
+    in the ~5 CT-evening seam hours per day carries a *different*
+    `delivery_date` label depending on which convention wrote it, so a
+    delivery_date-scoped DELETE misses the stale row and the COPY hits a
+    UniqueViolation on it instead of replacing it.
+    """
+    conn, run_id, _ = pg
+    seam_ts = pd.Timestamp("2026-07-31 00:00:00", tz="UTC")  # CT 19:00 on 07-30
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forecast_nodal "
+            "(run_id, delivery_date, ts, settlement_point, p10, p50, p90, point, horizon) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (run_id, "2026-07-31", seam_ts, "SP0", 1.0, 1.0, 1.0, 1.0, 1))
+    conn.commit()
+
+    # 2026-07-30's OWN CT-day block legitimately covers seam_ts too (its 19:00
+    # CT hour) — the exact overlap that used to collide.
+    ts = pd.date_range(pd.Timestamp("2026-07-30", tz="America/Chicago").tz_convert("UTC"),
+                       periods=24, freq="h")
+    assert seam_ts in ts
+    a = np.random.default_rng(3).normal(0, 5, (24, 1)).astype("f4")
+    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(["SP0"]),
+                       p10=a - 1, p50=a, p90=a + 1, point=a + 0.5, sf_r2=None)
+    sink = _NodalAccumulator()
+    sink.add(panel, ts[0])
+    path = str(tmp_path / "seam.npz")
+    sink.save(path)
+
+    n = nodal_to_db(path, conn, run_id=run_id, delivery_date="2026-07-30", horizon=1)
+    conn.commit()
+    assert n == 24
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT delivery_date, point FROM forecast_nodal "
+                    "WHERE run_id = %s AND ts = %s", (run_id, seam_ts))
+        rows = cur.fetchall()
+    assert len(rows) == 1                        # replaced, not duplicated
+    assert str(rows[0][0]) == "2026-07-30"        # now correctly CT-labeled
+    assert rows[0][1] != pytest.approx(1.0)       # the stale value is gone
+
+
 def test_pointer_flips_after_rows_and_stays_one_row(pg, tmp_path):
     """`upsert_pointer` writes exactly one row per layer and updates in place —
     the atomic flip the reader resolves through. It is called only after rows land
