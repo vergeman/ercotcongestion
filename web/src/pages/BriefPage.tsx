@@ -233,6 +233,24 @@ function Fact({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
+function LoadFact({ total, net, totalLabel, netLabel, detail }: {
+  total: number;
+  net: number;
+  totalLabel: string;
+  netLabel: string;
+  detail: string;
+}) {
+  return (
+    <div className="an-fact an-fact--load">
+      <span className="an-fact__label">{totalLabel}</span>
+      <strong className="an-fact__value an-fact__value--primary">{gw(total)}</strong>
+      <span className="an-fact__label an-fact__secondary">{netLabel}</span>
+      <strong className="an-fact__value">{gw(net)}</strong>
+      <span className="an-fact__detail">{detail}</span>
+    </div>
+  );
+}
+
 const score = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}`;
 const percent = (value: number | null | undefined) => value == null ? "—" : `${Math.round(value * 100)}%`;
 const multiple = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}×`;
@@ -481,6 +499,7 @@ const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
 };
 
 const usd = (value: number, fractionDigits = 0) => `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })}`;
+const gw = (value: number) => `${(value / 1000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GW`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
 const zoneLabel = (zone: string | null) => zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
@@ -672,9 +691,30 @@ export default function BriefPage() {
     () => hero?.segments?.headline ?? [],
     [hero]
   );
+  const regime = hero?.slots?.regime;
   const magnitude = hero?.slots?.magnitude;
   const where = hero?.slots?.where;
   const exceptions = hero?.slots?.exceptions;
+  const forecastLoadTotal = numeric(regime, "today");
+  const forecastLoadNet = numeric(regime, "net_load");
+  const actualLoadTotal = numeric(regime, "actual_today");
+  const actualLoadNet = numeric(regime, "actual_net_load");
+  // T+2 is always the DAM-close forecast. On settled T+1, prefer the complete
+  // realized pair, falling back to the complete forecast pair when actual load
+  // data has not landed yet. Never mix the two sources within this card.
+  const hasActualLoadPair = actualLoadTotal != null && actualLoadNet != null;
+  const loadSource = provenance?.horizon == null
+    ? null
+    : provenance.horizon === 1 && settled && hasActualLoadPair
+      ? "actual"
+      : "forecast";
+  const loadTotal = loadSource === "actual" ? actualLoadTotal
+    : loadSource === "forecast" ? forecastLoadTotal : null;
+  const loadNet = loadSource === "actual" ? actualLoadNet
+    : loadSource === "forecast" ? forecastLoadNet : null;
+  const loadTotalLabel = loadSource === "actual" ? "Total Load" : "Total Load Forecast";
+  const loadNetLabel = loadSource === "actual" ? "Net Load" : "Net Load Forecast";
+  const loadDetail = "";
   const magnitudeValue = numeric(magnitude, "value");
   const magnitudeRank = numeric(magnitude, "rank");
   const magnitudeN = numeric(magnitude, "n");
@@ -763,6 +803,15 @@ export default function BriefPage() {
                   <h1 id="brief-title"><Segments segments={title} /></h1>
                   <p className="an-lede"><Segments segments={hero.segments.lede} /></p>
                   <div className="an-facts" aria-label="Brief evidence">
+                    {loadTotal != null && loadNet != null && (
+                      <LoadFact
+                        total={loadTotal}
+                        net={loadNet}
+                        totalLabel={loadTotalLabel}
+                        netLabel={loadNetLabel}
+                        detail={loadDetail}
+                      />
+                    )}
                     {magnitudeValue != null && (
                       <Fact
                         label="Congestion total"
@@ -870,6 +919,11 @@ export default function BriefPage() {
         .an-fact { min-width: 0; padding: 11px 12px; background: var(--bg-panel); }
         .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; }
         .an-fact__value { display: block; overflow: hidden; margin: 4px 0 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-lg); text-overflow: ellipsis; white-space: nowrap; }
+        .an-fact--load { min-height: 82px; padding: 11px 10px; }
+        .an-fact--load .an-fact__label { overflow-wrap: anywhere; }
+        .an-fact--load .an-fact__value { margin-top: 2px; margin-bottom: 6px; }
+        .an-fact--load .an-fact__value--primary { font-size: var(--fs-xl); }
+        .an-fact--load .an-fact__secondary { margin-top: 9px; }
         .an-hero__meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 20px; color: var(--text-secondary); font-size: var(--fs-sm); }
         .an-hero__meta a { color: var(--accent); text-decoration: none; }
         .an-hero__meta a:hover { text-decoration: underline; }
