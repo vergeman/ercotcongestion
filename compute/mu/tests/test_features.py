@@ -17,9 +17,9 @@ import pandas as pd
 import pytest
 
 from compute.mu.features import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
-                                 binding_history, calendar_features, dam_close,
-                                 delivery_day_of, history_cutoff, net_load_regime,
-                                 _attach_refit_features)
+                                 binding_history, calendar_features, ct_day_bounds,
+                                 dam_close, delivery_day_of, history_cutoff,
+                                 net_load_regime, _attach_refit_features)
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
@@ -68,6 +68,34 @@ def test_history_cutoff_admits_all_of_the_previous_day():
     first_hour_of_D = pd.Timestamp("2025-08-02 00:00",
                                    tz="America/Chicago").tz_convert("UTC")
     assert first_hour_of_D >= cut               # day D itself is OUT — that is the target
+
+
+def test_ct_day_bounds_matches_hero_window_across_dst():
+    """Same DST-aware [start, end) hero_window.delivery_bounds computes, from the
+    pandas side: 23h/24h/25h across spring-forward/fall-back, and ordinary days
+    keep the plain 24h span."""
+    from compute.analysis.hero_window import delivery_bounds
+
+    for day, hours in [("2025-08-02", 24), ("2026-03-08", 23), ("2026-11-01", 25)]:
+        start, end = ct_day_bounds(pd.Timestamp(day).date())
+        assert (end - start) == pd.Timedelta(hours=hours)
+        want_start, want_end = delivery_bounds(pd.Timestamp(day).date())
+        assert start == pd.Timestamp(want_start)
+        assert end == pd.Timestamp(want_end)
+
+
+def test_ct_day_bounds_naive_date_names_the_ct_day_directly():
+    start, _ = ct_day_bounds(pd.Timestamp("2025-08-02"))
+    assert start == pd.Timestamp("2025-08-02 05:00", tz="UTC")   # CDT
+
+
+def test_ct_day_bounds_is_idempotent_on_an_already_anchored_instant():
+    """Re-deriving bounds from the CT-midnight instant they produced is a no-op —
+    the property every block-boundary caller in the pipeline relies on."""
+    start, _ = ct_day_bounds(pd.Timestamp("2025-08-02"))
+    start2, end2 = ct_day_bounds(start)
+    assert start2 == start
+    assert end2 - start2 == pd.Timedelta(hours=24)
 
 
 # ------------------------------------------------------------- the leak audit

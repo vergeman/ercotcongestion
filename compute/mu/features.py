@@ -109,6 +109,25 @@ def delivery_day_of(ts: pd.Timestamp | pd.DatetimeIndex):
     return pd.DatetimeIndex(pd.to_datetime(ts)).tz_convert(ERCOT_TZ).normalize().tz_localize(None)
 
 
+def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The UTC `[start, end)` instants bounding one CT delivery day.
+
+    DST-aware: `end - start` is 23h/24h/25h across a spring-forward/fall-back day.
+    `DateOffset`, not `Timedelta`, crosses the boundary — pandas `Timedelta`
+    arithmetic on a tz-aware `Timestamp` is absolute-time and ignores DST, so
+    `start + pd.Timedelta(days=1)` lands an hour off on either transition day.
+
+    A tz-naive `delivery_day` names the CT calendar date directly (the DB label);
+    a tz-aware instant is first mapped to its own CT calendar date, so re-deriving
+    bounds from an already-CT-midnight instant is a no-op — the property that lets
+    every block-boundary caller in the pipeline share this one function.
+    """
+    ts = pd.Timestamp(delivery_day)
+    start = (ts.tz_convert(ERCOT_TZ) if ts.tzinfo is not None
+             else ts.tz_localize(ERCOT_TZ)).normalize()
+    return start.tz_convert("UTC"), (start + pd.DateOffset(days=1)).tz_convert("UTC")
+
+
 # --------------------------------------------------------------------------
 # System covariates: the as-of vintaged reads
 # --------------------------------------------------------------------------
