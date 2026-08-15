@@ -326,6 +326,21 @@ def test_score_from_is_a_grid_point_not_just_a_filter():
     assert sf_week not in inferred
 
 
+def test_refit_grid_stays_on_ct_midnight_across_dst():
+    """A CT-anchored `score_from` must stay at CT midnight after crossing a DST
+    transition (0133a). `refit_boundaries` used to convert `score_from` to the
+    panel's UTC tz before generating the grid, which drifted every boundary an
+    hour off true CT midnight past the fold."""
+    panel = _panel(n_days=400)      # UTC-indexed synthetic panel, starts 2025-01-01
+    score_from = pd.Timestamp("2025-02-01", tz="America/Chicago")  # crosses 2025-03-09
+
+    starts = refit_boundaries(panel, train_days=30, refit_days=7, score_from=score_from)
+    ct = starts.tz_convert("America/Chicago")
+
+    assert (ct.hour == 0).all() and (ct.minute == 0).all()
+    assert starts.tz == panel.index.get_level_values("interval_ts").tz  # still the panel's tz
+
+
 def test_short_first_window_is_refused_not_silently_scored():
     """A scored week whose training window runs off the front of the panel would
     train on less history than every other week and be reported beside them as an
@@ -402,6 +417,21 @@ def test_score_chunks_preserve_the_scored_grid_and_bound_each_group():
                                                              inclusive="left")]
     assert starts == list(pd.date_range(start, end, freq="7D", inclusive="left"))
     assert all((hi - lo) <= pd.Timedelta(days=14) for lo, hi in chunks)
+
+
+def test_score_chunks_stay_on_ct_midnight_across_dst():
+    """A CT-anchored `score_from` must stay at CT midnight through a DST
+    transition (0133a) — `score_chunks` used a `Timedelta` step, which is
+    absolute-time (DST-oblivious) even when generated in the origin's own tz."""
+    start = pd.Timestamp("2025-02-01", tz="America/Chicago")
+    end = pd.Timestamp("2025-05-01", tz="America/Chicago")  # crosses 2025-03-09
+
+    chunks = score_chunks(start, end, refit_days=7, chunk_weeks=4)
+
+    for lo, hi in chunks:
+        for ts in (lo, hi):
+            ct = ts.tz_convert("America/Chicago")
+            assert ct.hour == 0 and ct.minute == 0, ts
 
 
 def test_chunked_walk_matches_one_panel_walk(tmp_path):

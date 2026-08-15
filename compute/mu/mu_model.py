@@ -425,24 +425,39 @@ def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
     `sf/eval` week start, which pins the phase exactly with nothing left to infer.
     `anchor` remains only for the no-`score_from` case (tests, standalone use),
     where there is no week to lock onto.
+
+    **Generate in the origin's own tz, with a `DateOffset` step, convert after
+    (0133a).** Two independent traps, both silent: (1) converting `origin` to the
+    panel's tz (UTC) *before* calling `date_range` locks the grid onto UTC's wall
+    clock instead of the origin's, so a CT-anchored `score_from` drifts an hour
+    off true CT midnight after crossing a DST transition; (2) a `Timedelta`
+    `freq` is a fixed physical duration (absolute-time stepping, DST-oblivious)
+    — only a calendar-aware step (`DateOffset`, or the `"7D"` string form)
+    preserves wall-clock time across a transition. Both must be right together:
+    neither alone is enough, and getting this wrong still produces tidy-looking
+    weekly rows, just phased an hour off for every boundary past the fold.
     """
     days = pd.DatetimeIndex(
         panel.index.get_level_values("interval_ts").normalize().unique()).sort_values()
+    step = pd.DateOffset(days=refit_days)
 
     if score_from is not None:
-        origin = pd.Timestamp(score_from).tz_convert(days.tz)
-        if origin - pd.Timedelta(days=train_days) < days[0]:
+        origin = pd.Timestamp(score_from)
+        floor = origin - pd.Timedelta(days=train_days)
+        if floor < pd.Timestamp(days[0]).tz_convert(origin.tz):
             raise ValueError(
                 f"score_from={origin.date()} needs {train_days}d of history back to "
-                f"{(origin - pd.Timedelta(days=train_days)).date()}, but the panel "
-                f"starts {days[0].date()}. The first week would train on a short "
-                f"window and score anyway — refusing.")
-        return pd.date_range(origin, days[-1], freq=pd.Timedelta(days=refit_days),
-                             inclusive="left")
+                f"{floor.date()}, but the panel starts {days[0].date()}. The first "
+                f"week would train on a short window and score anyway — refusing.")
+        end = pd.Timestamp(days[-1]).tz_convert(origin.tz)
+        starts = pd.date_range(origin, end, freq=step, inclusive="left")
+        return starts.tz_convert(days.tz)
 
-    origin = pd.Timestamp(anchor).tz_convert(days.tz) if anchor is not None else days[0]
-    return pd.date_range(origin + pd.Timedelta(days=train_days), days[-1],
-                         freq=pd.Timedelta(days=refit_days), inclusive="left")
+    origin = pd.Timestamp(anchor) if anchor is not None else pd.Timestamp(days[0])
+    start = origin + pd.DateOffset(days=train_days)   # wall-clock-preserving add
+    end = pd.Timestamp(days[-1]).tz_convert(origin.tz)
+    starts = pd.date_range(start, end, freq=step, inclusive="left")
+    return starts.tz_convert(days.tz)
 
 
 def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
@@ -909,13 +924,19 @@ def spill_panel_features(panel: pd.DataFrame, spill_dir: str) -> pd.DataFrame:
 
 def score_chunks(score_from: pd.Timestamp, end: pd.Timestamp, refit_days: int,
                  chunk_weeks: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    """Partition the fixed scored grid into exclusive-end chunk windows."""
+    """Partition the fixed scored grid into exclusive-end chunk windows.
+
+    `DateOffset`, not `Timedelta`, for the step — a `Timedelta` `freq` is fixed
+    physical duration (DST-oblivious absolute-time stepping); `score_from` is
+    generated in its own tz below with no prior conversion, so a CT-anchored
+    origin needs a calendar-aware step to actually stay on CT midnight across a
+    DST transition (0133a — the same trap `refit_boundaries` had).
+    """
     if chunk_weeks < 1:
         raise ValueError("chunk_weeks must be positive")
     end = pd.Timestamp(end).tz_convert(score_from.tz)
-    starts = pd.date_range(score_from, end, freq=pd.Timedelta(days=refit_days),
-                           inclusive="left")
-    step = pd.Timedelta(days=refit_days)
+    step = pd.DateOffset(days=refit_days)
+    starts = pd.date_range(score_from, end, freq=step, inclusive="left")
     return [(block[0], block[-1] + step)
             for block in (starts[i:i + chunk_weeks]
                           for i in range(0, len(starts), chunk_weeks)) if len(block)]
