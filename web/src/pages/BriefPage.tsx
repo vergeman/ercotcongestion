@@ -694,7 +694,6 @@ export default function BriefPage() {
   const regime = hero?.slots?.regime;
   const magnitude = hero?.slots?.magnitude;
   const where = hero?.slots?.where;
-  const exceptions = hero?.slots?.exceptions;
   const forecastLoadTotal = numeric(regime, "today");
   const forecastLoadNet = numeric(regime, "net_load");
   const actualLoadTotal = numeric(regime, "actual_today");
@@ -741,9 +740,6 @@ export default function BriefPage() {
         autoPlay: true,
       })
     : null;
-  const exceptionCount = numeric(exceptions, "count");
-  const exceptionsSettled = exceptions?.available !== false;
-
   return (
     <div className="an-page">
       <header className="an-topbar">
@@ -831,13 +827,6 @@ export default function BriefPage() {
                         label="Where it priced"
                         value={whereZone}
                         detail={`${pct(whereShare)} of μ-weighted footprint`}
-                      />
-                    )}
-                    {settled && exceptionsSettled && exceptionCount != null && (
-                      <Fact
-                        label="Outside forecast"
-                        value={String(exceptionCount)}
-                        detail="material DAM constraints outside the model vocabulary"
                       />
                     )}
                   </div>
