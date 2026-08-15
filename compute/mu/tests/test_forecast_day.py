@@ -27,10 +27,14 @@ import pytest
 
 import compute.jobs.daily_forecast as fd
 from compute.jobs.daily_forecast import ForecastResult, forecast_day, persist_forecast
+from compute.mu.features import ct_day_bounds
 from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
 from compute.sf.project import NodalPanel, build_sf_mu_artifact, load_sf_mu
 
-D = pd.Timestamp("2025-09-15", tz="UTC")      # an arbitrary UTC-midnight delivery day
+# An arbitrary CT-midnight delivery day, expressed in UTC (0133) — not a DST
+# transition day, so it is 24 hours and `D + pd.Timedelta(days=1)` coincides with
+# its true CT block end; DST-transition days get their own dedicated tests below.
+D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")
 
 
 # ----------------------------------------------------------------------------
@@ -60,6 +64,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     def fake_build_panel(conn, M, start, end, **kw):
         seen["panel_window"] = (start, end)
         seen["score_from"] = kw.get("score_from")
+        seen["vintage_cutoff"] = kw.get("vintage_cutoff")
         if build_raises:
             raise ValueError("simulated loader failure")
         if build_empty:
@@ -150,35 +155,77 @@ def test_reads_and_propagation_touch_no_interval_at_or_after_D(monkeypatch):
     assert seen["prop_M_max"] < D                 # nothing ≥ D reaches the fit
     # D's forecast hours are the score block; those reads are DAM-close-vintage-
     # pinned in features.py, and no shadow-price/congestion read crossed D above.
-    assert seen["panel_window"][1] == D + pd.Timedelta(days=1)
+    assert seen["panel_window"][1] == fd._ct_block_end(D)
 
 
-def test_score_block_is_exactly_Ds_utc_day(monkeypatch):
-    """Forward hours are D's 24 UTC hours (a UTC day has no DST fold), and the
-    propagation window is [D, D+1) — the score block, not a 7-day backtest week."""
+def test_score_block_is_exactly_Ds_ct_day(monkeypatch):
+    """Forward hours are D's CT calendar day (24h here — not a DST transition —
+    see the DST-specific test below), and the propagation window is
+    [D, next CT midnight) — the score block, not a 7-day backtest week."""
     seen = _install_fakes(monkeypatch)
     forecast_day(None, D, run_id="t")
 
     fh = seen["forward_hours"]
+    block_end = fd._ct_block_end(D)
     assert len(fh) == 24
-    assert list(fh) == list(pd.date_range(D, periods=24, freq="h", tz="UTC"))
-    assert seen["prop_end"] == D + pd.Timedelta(days=1)
+    assert list(fh) == list(pd.date_range(D, block_end, freq="h", inclusive="left"))
+    assert seen["prop_end"] == block_end
 
 
-def test_delivery_day_must_be_utc_midnight(monkeypatch):
-    """A non-midnight instant is rejected rather than silently forecasting a block
-    offset from the UTC day."""
-    _install_fakes(monkeypatch)
-    with pytest.raises(ValueError, match="UTC midnight"):
-        forecast_day(None, pd.Timestamp("2025-09-15 05:00", tz="UTC"), run_id="t")
+@pytest.mark.parametrize("day, hours", [("2026-03-08", 23),    # spring forward
+                                        ("2026-11-01", 25)])   # fall back
+def test_score_block_is_dst_aware(monkeypatch, day, hours):
+    """A spring-forward CT day scores 23 hours, a fall-back day 25 — never a flat
+    24 (0133's whole point: a UTC-midnight cut never saw this because UTC has no
+    DST fold)."""
+    Dd = pd.Timestamp(day, tz="America/Chicago").tz_convert("UTC")
+    seen = _install_fakes(monkeypatch)
+    forecast_day(None, Dd, run_id="t")
+    assert len(seen["forward_hours"]) == hours
+    assert seen["prop_end"] - Dd == pd.Timedelta(hours=hours)
 
 
-def test_delivery_date_and_result_are_utc(monkeypatch):
+def test_delivery_day_buckets_to_its_ct_calendar_day(monkeypatch):
+    """A non-midnight instant is not rejected — it is bucketed to its own CT
+    calendar day's midnight, the same way `ct_day_bounds` normalizes any instant
+    (0133: the day boundary is now derived, not merely validated)."""
+    seen = _install_fakes(monkeypatch)
+    # 05:00 UTC on 2025-09-15 IS D (CDT) — passing it should be a no-op.
+    forecast_day(None, pd.Timestamp("2025-09-15 05:00", tz="UTC"), run_id="t")
+    assert seen["prop_s"] == D
+
+
+def test_delivery_date_and_result_are_ct(monkeypatch):
     _install_fakes(monkeypatch)
     r = forecast_day(None, "2025-09-15", run_id="mu-all-v1")
     assert r.delivery_date == D.date()
     assert len(r.panel.ts) == 24
     assert r.run_id == "mu-all-v1"
+
+
+# ----------------------------------------------------------------------------
+# Vintage-faithful preview backfill (0133) — fire_time -> build_panel's cutoff
+# ----------------------------------------------------------------------------
+
+def test_fire_time_defaults_to_the_wall_clock(monkeypatch):
+    """Live serving passes no `fire_time` — it defaults to `now`, well after any
+    D's DAM close, so the vintage cap is a no-op in production (spec: 0133)."""
+    seen = _install_fakes(monkeypatch)
+    before = pd.Timestamp.now(tz="UTC")
+    forecast_day(None, D, run_id="t")
+    after = pd.Timestamp.now(tz="UTC")
+    cutoff = seen["vintage_cutoff"]
+    assert cutoff is not None
+    assert before <= cutoff <= after
+
+
+def test_explicit_fire_time_reaches_build_panel(monkeypatch):
+    """A caller's `fire_time` (the historical backfill path) is threaded straight
+    through to `build_panel`'s `vintage_cutoff` — unmodified."""
+    seen = _install_fakes(monkeypatch)
+    fire_time = pd.Timestamp("2025-09-13 20:15", tz="UTC")
+    forecast_day(None, D, run_id="t", fire_time=fire_time)
+    assert seen["vintage_cutoff"] == fire_time
 
 
 # ----------------------------------------------------------------------------
@@ -257,21 +304,20 @@ def test_tomorrow_is_the_same_day_all_day_long(day):
         assert _tomorrow_at(f"{day} {hour}") == expect
 
 
-def test_explicit_date_is_parsed_as_the_utc_day_label():
-    """An explicit `YYYY-MM-DD` is unchanged by the CT fix — it names the UTC day
-    label directly, which is what the backfill recipe and every stored
-    `delivery_date` mean."""
-    assert fd._resolve_delivery_date("2026-07-27") == pd.Timestamp("2026-07-27",
-                                                                   tz="UTC")
+def test_explicit_date_is_parsed_as_the_ct_day_label():
+    """An explicit `YYYY-MM-DD` names the CT day label directly (0133) — what the
+    backfill recipe and every stored `delivery_date` mean."""
+    assert fd._resolve_delivery_date("2026-07-27") == pd.Timestamp(
+        "2026-07-27", tz="America/Chicago").tz_convert("UTC")
 
 
 def test_ct_span_reports_the_delivery_blocks_wall_clock():
-    """The logged span shows the block is 19:00 → 18:00 CT (CDT), not midnight to
-    midnight — the line that would have made the skipped day obvious."""
-    span = fd._ct_span(pd.Timestamp("2026-07-27", tz="UTC"))
-    assert "2026-07-26 19:00" in span and "2026-07-27 18:00" in span
-    # Winter shifts the whole block an hour earlier in CT.
-    assert "2026-01-14 18:00" in fd._ct_span(pd.Timestamp("2026-01-15", tz="UTC"))
+    """The logged span is CT midnight to midnight (0133) — D IS the CT day now, so
+    this is mostly a regression tripwire: a drifted D would stop reading 00:00."""
+    span = fd._ct_span(fd._resolve_delivery_date("2026-07-27"))
+    assert "2026-07-27 00:00" in span and "2026-07-27 23:00" in span and "CDT" in span
+    # Winter still tags the block with the correct DST offset.
+    assert "CST" in fd._ct_span(fd._resolve_delivery_date("2026-01-15"))
 
 
 # ----------------------------------------------------------------------------
@@ -297,11 +343,11 @@ def test_horizon_2_tomorrow_is_two_ct_days_out(day):
 
 
 def test_explicit_date_ignores_horizon():
-    """An explicit `YYYY-MM-DD` names the UTC day directly — horizon does not shift
+    """An explicit `YYYY-MM-DD` names the CT day directly — horizon does not shift
     it (only `tomorrow` is horizon-relative)."""
+    want = pd.Timestamp("2026-07-27", tz="America/Chicago").tz_convert("UTC")
     for h in (1, 2):
-        assert fd._resolve_delivery_date("2026-07-27", horizon=h) == pd.Timestamp(
-            "2026-07-27", tz="UTC")
+        assert fd._resolve_delivery_date("2026-07-27", horizon=h) == want
 
 
 class _GateCur:
@@ -318,14 +364,20 @@ class _GateCur:
         self._conn.sql, self._conn.params = sql, params
 
     def fetchone(self):
-        return (1,) if self._conn.has_row else None
+        # A SELECT max(...) aggregate always returns exactly one row (NULL when
+        # nothing matched) — never zero rows. `(1,)`/`None` (this stub's original
+        # shape) desynced from real cursor behavior and from `pd.Timestamp`
+        # comparisons in `dam_shadow_covers_window`; both pre-existing stub bugs,
+        # fixed alongside 0133 since this function is being touched anyway.
+        return (self._conn.ts_max,)
 
 
 class _GateConn:
-    """Minimal fake conn for the DAM gate: `has_row` decides whether D−1's DAM has
-    published. Records the executed query so the window can be asserted."""
-    def __init__(self, has_row):
-        self.has_row = has_row
+    """Minimal fake conn for the DAM gate: `ts_max` is what the probed window's
+    `max(interval_ts)` would return — `None` when nothing published. Records the
+    executed query so the window can be asserted."""
+    def __init__(self, ts_max):
+        self.ts_max = ts_max
         self.sql = None
         self.params = None
 
@@ -334,18 +386,30 @@ class _GateConn:
 
 
 def test_horizon_2_gate_passes_when_freshest_day_published():
-    """D−1 has shadow-price rows → the gate is silent, and it probed exactly D−1's
-    UTC-day window [D−1, D)."""
-    conn = _GateConn(True)
+    """D−1 has shadow-price rows spanning its window → the gate is silent, and it
+    probed exactly D−1's CT-day window [D−1, D)."""
+    conn = _GateConn(D - pd.Timedelta(hours=1))      # D−1's own late-evening row
     fd._assert_freshest_history_published(conn, D)      # no raise
     assert conn.params == (D - pd.Timedelta(days=1), D)
+
+
+def test_horizon_2_gate_probes_the_true_ct_day_before_across_dst():
+    """D−1's window is `ct_day_bounds(D−1)`, not a flat `D − 1 day` — the two only
+    coincide off a DST transition. D = the day AFTER spring-forward, so D−1 IS the
+    23-hour transition day itself — the case where they diverge."""
+    Dd = pd.Timestamp("2026-03-09", tz="America/Chicago").tz_convert("UTC")
+    conn = _GateConn(Dd - pd.Timedelta(hours=1))
+    fd._assert_freshest_history_published(conn, Dd)
+    want_lo, _ = ct_day_bounds(pd.Timestamp("2026-03-08").date())
+    assert conn.params == (want_lo, Dd)
+    assert want_lo != Dd - pd.Timedelta(days=1)      # the naive form would be wrong here
 
 
 def test_horizon_2_gate_fails_loud_when_freshest_day_missing():
     """D−1 has no shadow-price rows (late ERCOT post) → RuntimeError, before any
     fit; nothing is written because the caller never reaches persistence."""
     with pytest.raises(RuntimeError, match="horizon-2 gate"):
-        fd._assert_freshest_history_published(_GateConn(False), D)
+        fd._assert_freshest_history_published(_GateConn(None), D)
 
 
 def test_forecast_day_horizon_2_gates_before_fit_and_labels_result(monkeypatch):
@@ -367,7 +431,7 @@ def test_forecast_day_horizon_2_gate_stops_before_any_read(monkeypatch):
     """When the gate fails, the fit never starts — no shadow-price/panel read runs."""
     seen = _install_fakes(monkeypatch)
     with pytest.raises(RuntimeError, match="horizon-2 gate"):
-        forecast_day(_GateConn(False), D, run_id="t", horizon=2)
+        forecast_day(_GateConn(None), D, run_id="t", horizon=2)
     assert "sp_window" not in seen and "panel_window" not in seen
 
 
@@ -615,14 +679,15 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     weeks = weeks[(weeks >= weeks.min() + pd.Timedelta(days=240))
                   & (weeks <= weeks.max() - pd.Timedelta(days=7))]
     assert len(weeks), "no interior scored week to reconcile against"
-    Dr = fd._as_utc_day(pd.Timestamp(weeks[len(weeks) // 2]))
+    Dr = fd._as_ct_day(pd.Timestamp(weeks[len(weeks) // 2]))
+    prop_end = fd._ct_block_end(Dr)      # Dr's next CT midnight — DST-aware (0133)
 
     # Build SOME valid wp (data < Dr). Both modes share it, so its provenance is
     # irrelevant to whether they agree; a 240d read window keeps the fit in memory.
     read_start = Dr - pd.Timedelta(days=240)
     M_hon = load_shadow_prices(conn, read_start, Dr)
     C_hon = load_congestion_panel(conn, read_start, Dr)
-    panel = build_panel(conn, M_hon, read_start, Dr + pd.Timedelta(days=1),
+    panel = build_panel(conn, M_hon, read_start, prop_end,
                         C=C_hon, score_from=Dr, with_weather=True, with_outage=False)
     wp = predict_day(panel, Dr, train_days=240, arms=("lag", "geo", "wx"), seed=0)
     del panel, M_hon, C_hon
@@ -631,13 +696,12 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     # Propagation inputs: the fit window [Dr−WINDOW_DAYS, Dr) plus a REALIZED score
     # block at Dr, so backtest mode has C_score to intersect (forward mode ignores it).
     prop_start = Dr - pd.Timedelta(days=WINDOW_DAYS)
-    prop_end = Dr + pd.Timedelta(days=1)
     M = load_shadow_prices(conn, prop_start, prop_end)
     C = load_congestion_panel(conn, prop_start, prop_end)
     eps = residual_pool(preds[preds["week"] < Dr], rng=np.random.default_rng(0))
 
-    # forward mode: hours = D's 24h calendar; no realized Y read.
-    fwd_hours = pd.date_range(Dr, periods=24, freq="h", tz="UTC")
+    # forward mode: hours = D's CT calendar day; no realized Y read.
+    fwd_hours = pd.date_range(Dr, prop_end, freq="h", inclusive="left")
     _, p_fwd, SF_f, _ = propagate_window(
         s=Dr, end=prop_end, M=M, C=C, wp=wp, eps=eps,
         n_draws=N_DRAWS, rng=np.random.default_rng(0),

@@ -37,6 +37,7 @@ import logging
 import os
 import time
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
@@ -45,7 +46,7 @@ from sklearn.ensemble import (HistGradientBoostingClassifier,
                               HistGradientBoostingRegressor)
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
-from compute.mu.features import BIND_DEADBAND
+from compute.mu.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 
 log = logging.getLogger("compute.mu.mu_model")
 
@@ -658,7 +659,17 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
         raise ValueError("panel must be sorted by interval_ts")
     D = pd.Timestamp(D)
     D = D.tz_localize(ts.tz) if D.tz is None else D.tz_convert(ts.tz)
-    D = D.normalize()
+    # Anchor on D's own CT calendar day (0133), not a blind UTC `.normalize()`,
+    # which would smash an already-correct CT-midnight instant (e.g. 05:00Z CDT)
+    # back to UTC midnight — a caller passing the real block boundary would then
+    # silently score an hour-shifted day. Re-deriving from `ct_day_bounds` is a
+    # no-op on an already-anchored D (idempotent), and the score-block end (`hi`)
+    # and the D−1 boundary come out DST-aware for free — `D + 24h`/`D − 24h` would
+    # each land an hour off on a spring-forward/fall-back day.
+    ct_date = D.tz_convert(ERCOT_TZ).date()
+    D, hi = (pd.Timestamp(b).tz_convert(ts.tz) for b in ct_day_bounds(ct_date))
+    dm1, _ = ct_day_bounds(ct_date - timedelta(days=1))
+    dm1 = pd.Timestamp(dm1).tz_convert(ts.tz)
 
     def _empty(novel_keys: list[str]) -> pd.DataFrame:
         out = pd.DataFrame(columns=["interval_ts", "key", "p_bind", "mu_gbm"])
@@ -666,9 +677,8 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
         out.attrs["novel_keys"] = novel_keys
         return out
 
-    lo, hi = D - pd.Timedelta(days=train_days), D + pd.Timedelta(days=1)
-    p_lo, p_dm1, p_d, p_hi = ts.searchsorted(
-        [lo, D - pd.Timedelta(days=1), D, hi], side="left")
+    lo = D - pd.Timedelta(days=train_days)
+    p_lo, p_dm1, p_d, p_hi = ts.searchsorted([lo, dm1, D, hi], side="left")
     train, score = panel.iloc[p_lo:p_d], panel.iloc[p_d:p_hi]
     if train.empty or score.empty:
         return _empty([])
@@ -1011,7 +1021,12 @@ def main(argv: list[str] | None = None) -> int:
     origin = args.score_from or args.start
     if origin is None:
         p.error("pass --start (the series origin / first scored week)")
-    score_from_ts = pd.Timestamp(origin, tz="UTC")
+    # CT, matching `lo`/`hi` below and `predict_day`'s CT anchor (0133) — `origin`
+    # is a bare `YYYY-MM-DD` naming a CT calendar date, and `tz="UTC"` here used to
+    # read the SAME string as a different instant (UTC midnight, not CT midnight)
+    # than the read-floor did, desyncing the refit grid's phase from the CT day
+    # boundary `predict_day`/`forecast_day` now score on.
+    score_from_ts = pd.Timestamp(origin, tz="America/Chicago")
     if args.chunk_weeks < 0:
         p.error("--chunk-weeks must be non-negative")
     if args.chunk_weeks and not args.preds_out:

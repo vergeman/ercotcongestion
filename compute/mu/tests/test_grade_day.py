@@ -26,7 +26,7 @@ from compute.mu.score import mu_climatology, mu_null, mu_persistence, score_matr
 from compute.sf.eval import predict
 from compute.sf.project import band_metrics
 
-D = pd.Timestamp("2025-09-15", tz="UTC")      # an arbitrary UTC-midnight delivery day
+D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")  # a CT-midnight day
 SPS = [f"SP{i}" for i in range(30)]
 KEYS = ["K0|c", "K1|c", "K2|c"]
 
@@ -223,7 +223,7 @@ class _FakeConn:
         return _FakeCur(self)
 
 
-def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_utc_midnight(caplog):
+def test_resolve_gradeable_date_returns_the_newest_gradeable_day_as_ct_midnight(caplog):
     import datetime as _dt
     conn = _FakeConn((_dt.date(2025, 9, 15),))
     with caplog.at_level(logging.INFO, logger=gd.__name__):
@@ -285,8 +285,8 @@ def test_resolve_gradeable_date_selector_checks_expected_final_hour_not_nodal_ma
 
     sql = " ".join(conn.sql.split()).lower()
     assert "select max(ts) from forecast_nodal" not in sql
-    assert "(c.delivery_date::timestamp at time zone 'utc')" in sql
-    assert "interval '23 hours'" in sql
+    assert "((c.delivery_date + 1)::timestamp at time zone 'america/chicago')" in sql
+    assert "interval '1 hour'" in sql
     assert "order by c.delivery_date desc" in sql
     assert "limit 1" in sql
 

@@ -520,20 +520,20 @@ def test_re_run_overwrites_prior_values_not_appends(pg, tmp_path):
 
 
 def test_delivery_date_scope_replaces_only_that_day(pg, tmp_path):
-    """With `delivery_date` set, only that UTC day is cleared and written —
+    """With `delivery_date` set, only that CT day (0133) is cleared and written —
     the single-day production path — leaving other days for the run untouched."""
     conn, run_id, _ = pg
     path = _panel_npz(tmp_path)
     df = load_nodal(path)
-    days = sorted(set(df["ts"].dt.tz_convert("UTC").dt.date))
-    assert len(days) >= 2                             # the panel spans >1 UTC day
+    days = sorted(set(df["ts"].dt.tz_convert("America/Chicago").dt.date))
+    assert len(days) >= 2                             # the panel spans >1 CT day
 
     nodal_to_db(path, conn, run_id=run_id); conn.commit()   # all days
     before = _count(conn, run_id)
     n = nodal_to_db(path, conn, run_id=run_id,
                     delivery_date=str(days[0]))       # rewrite just day 0
     conn.commit()
-    day0 = int((df["ts"].dt.tz_convert("UTC").dt.date == days[0]).sum())
+    day0 = int((df["ts"].dt.tz_convert("America/Chicago").dt.date == days[0]).sum())
     assert n == day0 < before
     assert _count(conn, run_id) == before             # other days survived
 

@@ -109,6 +109,25 @@ def delivery_day_of(ts: pd.Timestamp | pd.DatetimeIndex):
     return pd.DatetimeIndex(pd.to_datetime(ts)).tz_convert(ERCOT_TZ).normalize().tz_localize(None)
 
 
+def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The UTC `[start, end)` instants bounding one CT delivery day.
+
+    DST-aware: `end - start` is 23h/24h/25h across a spring-forward/fall-back day.
+    `DateOffset`, not `Timedelta`, crosses the boundary — pandas `Timedelta`
+    arithmetic on a tz-aware `Timestamp` is absolute-time and ignores DST, so
+    `start + pd.Timedelta(days=1)` lands an hour off on either transition day.
+
+    A tz-naive `delivery_day` names the CT calendar date directly (the DB label);
+    a tz-aware instant is first mapped to its own CT calendar date, so re-deriving
+    bounds from an already-CT-midnight instant is a no-op — the property that lets
+    every block-boundary caller in the pipeline share this one function.
+    """
+    ts = pd.Timestamp(delivery_day)
+    start = (ts.tz_convert(ERCOT_TZ) if ts.tzinfo is not None
+             else ts.tz_localize(ERCOT_TZ)).normalize()
+    return start.tz_convert("UTC"), (start + pd.DateOffset(days=1)).tz_convert("UTC")
+
+
 # --------------------------------------------------------------------------
 # System covariates: the as-of vintaged reads
 # --------------------------------------------------------------------------
@@ -127,6 +146,28 @@ def _dam_close_expr(ts_col: str) -> str:
     return _DAM_CLOSE_SQL.format(ts=ts_col, tz=ERCOT_TZ, hour=DAM_CLOSE_HOUR)
 
 
+def _vintage_cutoff_expr(ts_col: str,
+                         vintage_cutoff: pd.Timestamp | None) -> tuple[str, tuple]:
+    """The vintage predicate's admissibility instant: DAM close, capped by
+    `vintage_cutoff` (a run's fire instant) when one is given (0133).
+
+    A live run's fire instant is always after DAM close, so the cap is a no-op
+    for the final (h1) track and for ordinary live serving; a backfilled preview
+    (h2) run passes its *historical* fire instant, which sits well before D's DAM
+    close, so the cap genuinely restricts which vintage a backfilled preview can
+    see — reproducing what the live h2 run actually could have known instead of
+    reading the DAM-close-vintage default and silently re-labeling a final as a
+    preview. `vintage_cutoff=None` (the default for every caller that has no
+    notion of a fire instant, e.g. the backtest) returns the bare DAM-close
+    expression with no bound parameter, so an uncapped caller's query text and
+    plan are unchanged.
+    """
+    close = _dam_close_expr(ts_col)
+    if vintage_cutoff is None:
+        return close, ()
+    return f"LEAST({close}, %s)", (pd.Timestamp(vintage_cutoff),)
+
+
 def _read(conn, sql: str, params, index_col: str | None = None) -> pd.DataFrame:
     """Run a query straight off the psycopg cursor.
 
@@ -141,8 +182,12 @@ def _read(conn, sql: str, params, index_col: str | None = None) -> pd.DataFrame:
     return df.set_index(index_col) if index_col else df
 
 
-def load_forecast_panel(conn, start, end) -> pd.DataFrame:
-    """Zonal load forecast, at the vintage standing at DAM close."""
+def load_forecast_panel(conn, start, end,
+                        vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Zonal load forecast, at the vintage standing at DAM close (optionally capped
+    earlier by `vintage_cutoff` — a backfilled preview's historical fire instant,
+    0133)."""
+    cutoff_expr, cutoff_params = _vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts)
                interval_ts, posted_datetime,
@@ -150,15 +195,17 @@ def load_forecast_panel(conn, start, end) -> pd.DataFrame:
                south_central, southern, west, system_total
           FROM load_forecast_zonal
          WHERE interval_ts >= %s AND interval_ts < %s
-           AND posted_datetime <= {_dam_close_expr('interval_ts')}
+           AND posted_datetime <= {cutoff_expr}
          ORDER BY interval_ts, posted_datetime DESC
     """
-    df = _read(conn, sql, (start, end), index_col="interval_ts")
+    df = _read(conn, sql, (start, end) + cutoff_params, index_col="interval_ts")
     return df.add_prefix("load_").rename(
         columns={"load_posted_datetime": "vintage_load"})
 
 
-def wind_forecast_panel(conn, start, end) -> pd.DataFrame:
+def wind_forecast_panel(conn, start, end,
+                        vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
+    cutoff_expr, cutoff_params = _vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts)
                interval_ts, posted_datetime,
@@ -167,14 +214,16 @@ def wind_forecast_panel(conn, start, end) -> pd.DataFrame:
                wgrpp_system_wide
           FROM wind_forecast_regional
          WHERE interval_ts >= %s AND interval_ts < %s
-           AND posted_datetime <= {_dam_close_expr('interval_ts')}
+           AND posted_datetime <= {cutoff_expr}
          ORDER BY interval_ts, posted_datetime DESC
     """
-    df = _read(conn, sql, (start, end), index_col="interval_ts")
+    df = _read(conn, sql, (start, end) + cutoff_params, index_col="interval_ts")
     return df.rename(columns={"posted_datetime": "vintage_wind"})
 
 
-def solar_forecast_panel(conn, start, end) -> pd.DataFrame:
+def solar_forecast_panel(conn, start, end,
+                         vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
+    cutoff_expr, cutoff_params = _vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts)
                interval_ts, posted_datetime,
@@ -183,15 +232,17 @@ def solar_forecast_panel(conn, start, end) -> pd.DataFrame:
                pvgrpp_system_wide
           FROM solar_forecast_regional
          WHERE interval_ts >= %s AND interval_ts < %s
-           AND posted_datetime <= {_dam_close_expr('interval_ts')}
+           AND posted_datetime <= {cutoff_expr}
          ORDER BY interval_ts, posted_datetime DESC
     """
-    df = _read(conn, sql, (start, end), index_col="interval_ts")
+    df = _read(conn, sql, (start, end) + cutoff_params, index_col="interval_ts")
     return df.rename(columns={"posted_datetime": "vintage_solar"})
 
 
-def outage_panel(conn, start, end) -> pd.DataFrame:
-    """Zonal outage MW at the DAM-close vintage.
+def outage_panel(conn, start, end,
+                 vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Zonal outage MW at the DAM-close vintage (optionally capped earlier by
+    `vintage_cutoff` — a backfilled preview's historical fire instant, 0133).
 
     This is the R4 fallback (plan/0085 commit 1): ERCOT publishes no
     transmission-outage feed reachable on our access path, so the outage covariate
@@ -203,6 +254,8 @@ def outage_panel(conn, start, end) -> pd.DataFrame:
     hourly), so it is genuinely knowable at DAM close — the one thing that goes
     right about it.
     """
+    cutoff_expr, cutoff_params = _vintage_cutoff_expr(
+        "(operating_date::timestamp AT TIME ZONE '" + ERCOT_TZ + "')", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (operating_date, hour_ending)
                operating_date, hour_ending, posted_datetime,
@@ -210,12 +263,11 @@ def outage_panel(conn, start, end) -> pd.DataFrame:
                irr_mw_south, irr_mw_north, irr_mw_west, irr_mw_houston
           FROM outages_zonal
          WHERE operating_date >= %s AND operating_date < %s
-           AND posted_datetime <= {_dam_close_expr(
-               "(operating_date::timestamp AT TIME ZONE '" + ERCOT_TZ + "')")}
+           AND posted_datetime <= {cutoff_expr}
          ORDER BY operating_date, hour_ending, posted_datetime DESC
     """
     df = _read(conn, sql, (pd.Timestamp(start).date(),
-                          pd.Timestamp(end).date()))
+                          pd.Timestamp(end).date()) + cutoff_params)
     if df.empty:
         return pd.DataFrame()
 
@@ -253,17 +305,19 @@ def calendar_features(idx: pd.DatetimeIndex) -> pd.DataFrame:
     return out
 
 
-def system_panel(conn, start, end) -> pd.DataFrame:
+def system_panel(conn, start, end,
+                 vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
     """The hourly covariate frame: forecasts, net load, outages, calendar.
 
     Every column is knowable at DAM close, and every vintaged source keeps its
     `vintage_*` column so `audit_leakage` can prove it from the data rather than
-    take this docstring's word for it.
+    take this docstring's word for it. `vintage_cutoff`, when given, caps every
+    read at that instant too (a backfilled preview's historical fire time, 0133).
     """
-    parts = [load_forecast_panel(conn, start, end),
-             wind_forecast_panel(conn, start, end),
-             solar_forecast_panel(conn, start, end),
-             outage_panel(conn, start, end)]
+    parts = [load_forecast_panel(conn, start, end, vintage_cutoff),
+             wind_forecast_panel(conn, start, end, vintage_cutoff),
+             solar_forecast_panel(conn, start, end, vintage_cutoff),
+             outage_panel(conn, start, end, vintage_cutoff)]
     panel = pd.concat([p for p in parts if not p.empty], axis=1).sort_index()
 
     # Net load — the physical driver of congestion, and the reason the wind/solar
@@ -498,7 +552,8 @@ def build_panel(conn, M: pd.DataFrame, start, end,
                 C: pd.DataFrame | None = None,
                 score_from: pd.Timestamp | None = None,
                 with_weather: bool = False,
-                with_outage: bool = False) -> pd.DataFrame:
+                with_outage: bool = False,
+                vintage_cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
     """The design matrix: one row per (delivery hour, candidate constraint).
 
     Columns are the system covariates (same for every constraint in an hour) plus
@@ -542,12 +597,19 @@ def build_panel(conn, M: pd.DataFrame, start, end,
                         authoritative crosswalk to place units onto settlement points.
       ``score_from``    phase-locks both arms' refit grids to the scoring harness's.
                         It selects nothing and gates nothing.
+      ``vintage_cutoff`` caps every vintaged read at this instant too (0133): a
+                        backfilled preview (h2) run passes its historical fire
+                        time so a re-backfilled day sees only what the live h2
+                        run actually could have, instead of the DAM-close-vintage
+                        default silently re-labeling a final as a preview. `None`
+                        (the default — live serving, h1, and the backtest) is a
+                        no-op that leaves the DAM-close cutoff alone.
 
     The ablation (commit 5) builds this **once** with every arm on, then selects
     arms by column-name prefix. These flags exist so a single-arm run can skip work
     it does not need, never so that an arm can be measured on a different panel.
     """
-    sys_panel = system_panel(conn, start, end)
+    sys_panel = system_panel(conn, start, end, vintage_cutoff)
     if sys_panel.empty:
         return pd.DataFrame()
 

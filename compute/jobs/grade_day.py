@@ -45,6 +45,7 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
+from compute.mu.features import ERCOT_TZ, ct_day_bounds
 from compute.mu.score import (
     STD_FLOOR,
     mu_climatology,
@@ -80,14 +81,12 @@ _METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
 _BANDS = ("coverage80", "band_width", "pinball")
 
 
-def _as_utc_day(D) -> pd.Timestamp:
-    """Normalize any date-ish `D` to a tz-aware UTC midnight — the day boundary the
-    whole pipeline slices on (matches `daily_forecast._as_utc_day`)."""
-    ts = pd.Timestamp(D)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
-    if ts != ts.normalize():
-        raise ValueError(f"delivery day must be a UTC midnight boundary, got {ts}")
-    return ts.normalize()
+def _as_ct_day(D) -> pd.Timestamp:
+    """Normalize any date-ish `D` to the UTC instant marking CT midnight — the
+    delivery-day block boundary the whole pipeline slices on (matches
+    `daily_forecast._as_ct_day`; single-sourced in `ct_day_bounds`, 0133)."""
+    start, _ = ct_day_bounds(D)
+    return start
 
 
 def _v(x) -> float | None:
@@ -163,7 +162,7 @@ def grade_day(
     lam: float = LAM,
     min_hours: int = MIN_HOURS,
 ) -> list[dict]:
-    """Grade the served forecast for UTC delivery day D; return one row per source.
+    """Grade the served forecast for CT delivery day D; return one row per source.
 
     `horizon` selects the track to grade (1 = final/t+1, 2 = preview/t+2; 0123) —
     each horizon is graded against the same realized C on its own served rows, so
@@ -173,7 +172,7 @@ def grade_day(
     Fails loud when there is nothing to grade — no served panel, no realized
     congestion, or a degenerate SF fit — rather than writing a hollow row.
     """
-    D = _as_utc_day(D)
+    D = _as_ct_day(D)
     started = perf_counter()
     log.info("grade_day start: delivery_date=%s run_id=%s horizon=%d",
              D.date(), run_id, horizon)
@@ -187,11 +186,13 @@ def grade_day(
             f"for D first).")
 
     # --- realized congestion + shadow prices over the fit+score window ------
-    # `end = D + 1 day` so the score block is D's 24 UTC hours; the fit window is
-    # [D − window_days, D). M reaches back for the SF fit AND the persistence lag
-    # (yesterday's μ), C for the fit and D's realized Y.
+    # `hi` is D's next CT midnight, so the score block is D's CT calendar day
+    # (23/24/25 hours across a DST transition, 0133) — not a flat `D + 1 day`,
+    # which would land an hour off on a spring-forward/fall-back day. The fit
+    # window is [D − window_days, D). M reaches back for the SF fit AND the
+    # persistence lag (yesterday's μ), C for the fit and D's realized Y.
     lo = D - pd.Timedelta(days=window_days)
-    hi = D + pd.Timedelta(days=1)
+    _, hi = ct_day_bounds(D)
     M = load_shadow_prices(conn, lo, hi)
     C = load_congestion_panel(conn, lo, hi)
     if M.empty or C.empty:
@@ -304,7 +305,7 @@ def persist_grades(conn, run_id: str, D, rows: list[dict], horizon: int = 1) -> 
     (run_id, delivery_date, horizon) — each horizon is its own track, so re-grading
     one never clears the other (0123); does NOT commit — the caller owns the
     transaction. Returns rows written."""
-    D = _as_utc_day(D)
+    D = _as_ct_day(D)
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM scoreboard_daily WHERE run_id = %s AND delivery_date = %s "
@@ -332,17 +333,20 @@ def resolve_gradeable_date(conn, run_id: str, horizon: int = 1) -> pd.Timestamp 
     independently — the final tick never skips a day just because the preview track
     already graded it.
 
-    A UTC delivery day ends at 23:00, so this checks directly for the system-lambda
-    price at that known hour. If it exists, the day is ready to grade; if not, the
-    selector waits. It deliberately does not search the forecast table for each
-    day's latest timestamp, which became slow as forecast history grew. Returning
-    ``None`` simply means there is nothing ready to grade yet.
+    A CT delivery day's last hour starts one hour before the next CT midnight —
+    DST-aware, so this checks directly for the system-lambda price at that instant
+    (`(delivery_date + 1) AT TIME ZONE 'America/Chicago' − 1h`, not a flat `+23
+    hours` off UTC midnight, which was the pre-0133 UTC-day convention). If it
+    exists, the day is ready to grade; if not, the selector waits. It deliberately
+    does not search the forecast table for each day's latest timestamp, which
+    became slow as forecast history grew. Returning ``None`` simply means there is
+    nothing ready to grade yet.
     """
     started = perf_counter()
     log.info("grade selection start: run_id=%s horizon=%d", run_id, horizon)
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT c.delivery_date
             FROM (SELECT DISTINCT delivery_date FROM forecast_nodal
                   WHERE run_id = %(run_id)s AND horizon = %(horizon)s) c
@@ -354,15 +358,15 @@ def resolve_gradeable_date(conn, run_id: str, horizon: int = 1) -> pd.Timestamp 
               AND EXISTS (
                     SELECT 1 FROM dam_system_lambda l
                     WHERE l.interval_ts =
-                        (c.delivery_date::timestamp AT TIME ZONE 'UTC')
-                        + INTERVAL '23 hours')
+                        ((c.delivery_date + 1)::timestamp AT TIME ZONE '{ERCOT_TZ}')
+                        - INTERVAL '1 hour')
             ORDER BY c.delivery_date DESC
             LIMIT 1
             """,
             {"run_id": run_id, "horizon": horizon},
         )
         row = cur.fetchone()
-    D = None if row is None else _as_utc_day(row[0])
+    D = None if row is None else _as_ct_day(row[0])
     log.info("grade selection complete: run_id=%s horizon=%d delivery_date=%s "
              "elapsed_s=%.3f", run_id, horizon, D.date() if D is not None else None,
              perf_counter() - started)
@@ -411,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
                          "fully-realized served day)", args.run_id, args.horizon)
                 return 0
         else:
-            D = _as_utc_day(args.delivery_date)
+            D = _as_ct_day(args.delivery_date)
 
         rows = grade_day(conn, D, run_id=args.run_id, horizon=args.horizon,
                          window_days=args.window_days, lam=args.lam)

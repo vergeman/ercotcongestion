@@ -1,6 +1,6 @@
 """The `forecast_day` production job — fit-then-predict for one delivery day D.
 
-At/after DAM close on D−1, produce the forecast for UTC delivery day D: the nodal
+At/after DAM close on D−1, produce the forecast for CT delivery day D: the nodal
 P10/P50/P90 + point panel and the per-day SF+μ artifact. This module is stage-1 +
 stage-2 wired end to end **in memory**; persistence and the self-owned pointer flip
 are added in the next commit (spec-phase2b §6).
@@ -11,12 +11,19 @@ file to serve. `forecast_day` refits the heads at run time on the trailing windo
 cheap, and honest by construction: `features.py` reads every covariate at its
 DAM-close vintage, so tomorrow's panel is fully buildable today (spec §1).
 
-**UTC throughout.** Every `interval_ts` in the DB is a true UTC instant (migration
-17), the API speaks UTC, and the model slices the UTC-normalized index — so a
-"delivery day" here is a **UTC calendar day** `[D, D+1)` (24 hours, no DST folds),
-and `delivery_date = D.date()` (UTC). The DAM-close vintage cutoff in `features.py`
-stays a CT wall-clock event; it pins each covariate's publication time per interval
-and is independent of this day label (spec §5).
+**UTC storage, CT delivery day.** Every `interval_ts` in the DB is a true UTC
+instant (migration 17) and the model slices the UTC-normalized index, but a
+"delivery day" here is the **CT calendar day**: `[ct_day_bounds(D)]`, DST-aware
+(23/24/25 hours), not a fixed 24-hour UTC block (0133). `delivery_date = D.date()`
+is that CT calendar date — CT midnight, expressed in UTC, always falls within the
+same UTC calendar date (Chicago sits behind UTC), so the label and the DB's UTC
+storage never disagree. One DAM auction clears all 24 hours of a CT day, so
+cutting the block on CT midnight (not UTC midnight) is also what keeps every
+served hour on the causal side of its own auction — a UTC-midnight cut split five
+CT-evening hours into the following block, which then leaked (0133). The DAM-close
+vintage cutoff in `features.py` stays a CT wall-clock event; it pins each
+covariate's publication time per interval and is independent of this day label
+(spec §5).
 """
 from __future__ import annotations
 
@@ -25,7 +32,7 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +51,7 @@ from compute.jobs.grade_day import (
     resolve_gradeable_date,
 )
 from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
-from compute.mu.features import ERCOT_TZ, build_panel
+from compute.mu.features import ERCOT_TZ, build_panel, ct_day_bounds
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
@@ -128,16 +135,22 @@ class ForecastResult:
     sf_window_end: date | None = None   # its window close — pins the SF vintage used
 
 
-def _as_utc_day(D) -> pd.Timestamp:
-    """Normalize any date-ish `D` to a tz-aware UTC midnight — the day boundary the
-    whole pipeline slices on (`refit_boundaries`/`predict_day` normalize the same
-    way). Rejects a non-midnight instant so a caller can't silently forecast a
-    24-hour block offset from the UTC day."""
-    ts = pd.Timestamp(D)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
-    if ts != ts.normalize():
-        raise ValueError(f"delivery day must be a UTC midnight boundary, got {ts}")
-    return ts.normalize()
+def _as_ct_day(D) -> pd.Timestamp:
+    """Normalize any date-ish `D` to the UTC instant marking CT midnight — the
+    delivery-day block boundary the whole pipeline slices on (`predict_day`
+    anchors the same way, 0133). A tz-naive `D` (or a plain `YYYY-MM-DD` string)
+    names the CT calendar date directly, matching the stored `delivery_date`
+    label; a tz-aware instant is first mapped to its own CT calendar date, so
+    re-anchoring an already-anchored `D` is a no-op — `ct_day_bounds`."""
+    start, _ = ct_day_bounds(D)
+    return start
+
+
+def _ct_block_end(D: pd.Timestamp) -> pd.Timestamp:
+    """The exclusive upper bound of D's CT delivery-day block — D's next CT
+    midnight. Not `D + 24h`: DST transition days are 23/25 hours (0133)."""
+    _, end = ct_day_bounds(D)
+    return end
 
 
 def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
@@ -147,9 +160,11 @@ def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
     CT); the fit's freshest history day is D−1 (= T+1). A late ERCOT post would let
     the fit run with that day silently missing — a quietly degraded forecast. So
     before the fit, assert D−1's DAM has published (spec §8 pattern: fail, write
-    nothing, prior rows intact). D−1's 24 UTC hours are `[D − 1 day, D)`.
+    nothing, prior rows intact). D−1's CT hours are `ct_day_bounds(D−1)` — one CT
+    calendar day before D; `D − 1 day` as a `Timedelta` would land an hour off
+    D−1's own CT midnight on a spring-forward/fall-back day (0133).
     """
-    lo = D - pd.Timedelta(days=1)
+    lo, _ = ct_day_bounds(D.tz_convert(ERCOT_TZ).date() - timedelta(days=1))
     with conn.cursor() as cur:
         cur.execute(
             "SELECT max(interval_ts) FROM ercot_dam_shadow_prices "
@@ -181,8 +196,9 @@ def forecast_day(
     map_run_id: str = MAP_RUN_ID,
     max_sf_age_days: int = MAX_SF_AGE_DAYS,
     min_sf_coverage: float = MIN_SF_COVERAGE,
+    fire_time: pd.Timestamp | None = None,
 ) -> ForecastResult:
-    """Fit the heads on the trailing window and forecast UTC delivery day D.
+    """Fit the heads on the trailing window and forecast CT delivery day D.
 
     Two stages (spec §3), reusing the validated fit path and the shared window
     propagator:
@@ -199,11 +215,25 @@ def forecast_day(
          low-coverage map. The residual pool is the validated backtest's OOS errors,
          strictly before D.
 
+    `fire_time` is this run's instant, standing in for "now" — the covariate
+    vintage cutoff (`build_panel`'s `vintage_cutoff`, 0133). It defaults to the
+    actual wall clock (`pd.Timestamp.now`), which for every live tick is already
+    well after D's DAM close, so the cap is a no-op there and for the CLI's
+    default single-day backfill (horizon 1). It matters for a **historical h2
+    backfill**: passed the day's real historical fire instant (20:15Z on D−2, the
+    live h2 cron's own schedule), it reproduces exactly what that live run could
+    have seen — one daily load/wind/solar snapshot and up to a day of outage
+    snapshots earlier than the DAM-close default would read — so a re-backfilled
+    preview stays a genuinely disadvantaged preview instead of collapsing into a
+    re-labeled final (`compute/jobs/backfill_artifacts.py` computes it).
+
     Reads only; writes nothing and does not touch the pointer (the next commit adds
     persistence). Every read — `M`/`C` end at D exclusive, and the SF window is
     causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
     """
-    D = _as_utc_day(D)
+    D = _as_ct_day(D)
+    fire_time = fire_time if fire_time is not None else pd.Timestamp.now(tz="UTC")
+    block_end = _ct_block_end(D)      # D's next CT midnight — DST-aware (0133)
     # Horizon-2 (preview) fires while D−1's DAM is still landing; gate before the fit
     # so a late ERCOT post fails loud rather than fitting on a missing freshest day
     # (0123). Horizon 1 fires two hours after D−1 closed — no gate needed.
@@ -223,8 +253,10 @@ def forecast_day(
     # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
     # rows are built only to give the arms their history and are then sliced off.
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
-    log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  preds=%s",
-             D.date(), run_id, horizon, ",".join(arms), train_days, preds_path)
+    log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  "
+             "fire_time=%s  preds=%s",
+             D.date(), run_id, horizon, ",".join(arms), train_days, fire_time,
+             preds_path)
 
     # --- stage 1: μ inference ------------------------------------------------
     # M and C end at D (exclusive): the SF fit window and every covariate see only
@@ -233,10 +265,11 @@ def forecast_day(
     try:
         M = load_shadow_prices(conn, read_start, D)
         C = load_congestion_panel(conn, read_start, D) if "geo" in arms else None
-        panel = build_panel(conn, M, read_start, D + pd.Timedelta(days=1),
+        panel = build_panel(conn, M, read_start, block_end,
                             C=C, score_from=D,
                             with_weather="wx" in arms,
-                            with_outage="outage" in arms)
+                            with_outage="outage" in arms,
+                            vintage_cutoff=fire_time)
     except Exception as e:
         # Any failure assembling the inputs (a covariate source empty, ingest late)
         # is fatal — an honest forecast can't be built, so fail and keep the prior
@@ -316,10 +349,12 @@ def forecast_day(
     preds = load_preds(preds_path)
     eps = residual_pool(preds[preds["week"] < D], rng=rng)      # OOS, strictly < D
 
-    # A UTC day is always 24 hours (no DST in UTC). These are D's score-block hours.
-    forward_hours = pd.date_range(D, periods=24, freq="h", tz="UTC")
+    # D's score-block hours — D's CT calendar day, 23/24/25 hours across a DST
+    # transition (0133). Absolute-time hourly steps between two true UTC instants
+    # land on the correct count either way: CT wall-clock jumps, UTC does not.
+    forward_hours = pd.date_range(D, block_end, freq="h", inclusive="left")
     _, panel_out, SF, E_mu = propagate_window(     # forward mode → no metrics row
-        s=D, end=D + pd.Timedelta(days=1), M=M, C=C, wp=wp, eps=eps,
+        s=D, end=block_end, M=M, C=C, wp=wp, eps=eps,
         n_draws=n_draws, rng=rng, sf=SF_map,
         want_panel=True, want_sf_mu=True, forward_hours=forward_hours)
     if panel_out is None:
@@ -369,7 +404,7 @@ def persist_forecast(conn, result: ForecastResult, *,
     no degraded day written (spec §8).
 
     Idempotent per `(run_id, delivery_date, horizon)`: `nodal_to_db`/
-    `persist_sf_mu_artifact` both replace-in-place scoped to the UTC delivery date and
+    `persist_sf_mu_artifact` both replace-in-place scoped to the CT delivery date and
     horizon, so a re-run of D under the same `run_id` overwrites only that horizon's
     rows and blob — a horizon-1 (final) publish never touches the preserved horizon-2
     (preview) rows and vice versa (0123) — and leaves the pointer where it is.
@@ -415,38 +450,36 @@ def persist_forecast(conn, result: ForecastResult, *,
 
 def _resolve_delivery_date(spec: str, *, horizon: int = 1,
                            now: pd.Timestamp | None = None) -> pd.Timestamp:
-    """`tomorrow` → the CT day `horizon` days ahead; else parse `YYYY-MM-DD` as a UTC
-    day. Both go through `_as_utc_day`, so the CLI and the daily cron share one code
-    path.
+    """`tomorrow` → the CT day `horizon` days ahead; else parse `YYYY-MM-DD` as the
+    CT day directly. Both go through `_as_ct_day`, so the CLI and the daily cron
+    share one code path.
 
     `tomorrow` means what an operator standing in Texas means: horizon 1 (final) is
     the CT calendar date after today's (T+1, the classic next day); horizon 2
     (preview) is two CT days out (T+2 — the run lands inside D's decision window,
-    before D's DAM closes). Both are the UTC-day *label* the rest of the pipeline
-    slices on. Resolving off the UTC clock instead is a live footgun — after 19:00 CT
-    (18:00 CST) the UTC date has already rolled, so an evening hand-run silently
-    resolved a day late and skipped one entirely (a real prod hole on 2026-07-27). An
-    explicit `YYYY-MM-DD` names the day directly and ignores horizon. The CT date is
-    normalized *before* the offset is added, so the arithmetic is naive and a
-    23-/25-hour DST day cannot shift the answer.
+    before D's DAM closes). Resolving off the UTC clock instead is a live footgun —
+    after 19:00 CT (18:00 CST) the UTC date has already rolled, so an evening
+    hand-run silently resolved a day late and skipped one entirely (a real prod
+    hole on 2026-07-27). An explicit `YYYY-MM-DD` names the day directly and
+    ignores horizon. The CT date is normalized *before* the offset is added, so
+    the arithmetic is naive and a 23-/25-hour DST day cannot shift the answer.
     """
     if spec == "tomorrow":
         now = now if now is not None else pd.Timestamp.now(tz="UTC")
         today_ct = now.tz_convert(ERCOT_TZ).normalize().tz_localize(None)
-        return _as_utc_day(today_ct + pd.Timedelta(days=horizon))
-    return _as_utc_day(spec)
+        return _as_ct_day(today_ct + pd.Timedelta(days=horizon))
+    return _as_ct_day(spec)
 
 
 def _ct_span(D: pd.Timestamp) -> str:
-    """`D`'s 24 UTC delivery hours rendered as their CT wall-clock span.
+    """D's CT delivery-day span, wall clock and DST tag.
 
-    The delivery day is a UTC calendar day, so in CT it runs 19:00 → 18:00 (CDT) /
-    18:00 → 17:00 (CST) — not midnight to midnight. Logging the span alongside the
-    date makes an off-by-one day self-evident in the run log instead of something
-    you discover by scrubbing onto a hole.
+    D is already CT midnight (0133), so this always reads 00:00 -> 23:00 CT;
+    logging it anyway keeps a regression (an off-CT-midnight D) self-evident in
+    the run log instead of something discovered by scrubbing onto a hole.
     """
     lo = D.tz_convert(ERCOT_TZ)
-    hi = (D + pd.Timedelta(hours=23)).tz_convert(ERCOT_TZ)
+    hi = (_ct_block_end(D) - pd.Timedelta(hours=1)).tz_convert(ERCOT_TZ)
     return f"CT {lo:%Y-%m-%d %H:%M} -> {hi:%Y-%m-%d %H:%M} {hi:%Z}"
 
 
@@ -561,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--delivery-date", required=True,
                    help="'tomorrow' (the daily tick — the next CT calendar date) "
                         "or 'YYYY-MM-DD' (single-day backfill on the identical "
-                        "path; names the UTC day label directly)")
+                        "path; names the CT day label directly)")
     p.add_argument("--run-id", required=True,
                    help="model version, e.g. mu-all-v1 — NOT the day (spec §4)")
     p.add_argument("--horizon", type=int, choices=(1, 2), default=1,
@@ -605,6 +638,13 @@ def main(argv: list[str] | None = None) -> int:
                         "realized served day in the same run (no separate job); "
                         "pass this for a forecast-only backfill of a future/today "
                         "day whose realized has not published yet")
+    p.add_argument("--fire-time", default=None,
+                   help="the run's covariate-vintage cutoff (ISO instant, any tz — "
+                        "0133); defaults to the actual wall clock (live behavior). "
+                        "Pass a historical h2 run's real fire instant (20:15Z on "
+                        "D−2, the live cron's own schedule) for a vintage-faithful "
+                        "single-day preview backfill — see backfill_artifacts.py, "
+                        "which computes this automatically for a date range")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -613,6 +653,11 @@ def main(argv: list[str] | None = None) -> int:
     D = _resolve_delivery_date(args.delivery_date, horizon=args.horizon)
     log.info("delivery_date=%s (%s) from --delivery-date %s (horizon %d)",
              D.date(), _ct_span(D), args.delivery_date, args.horizon)
+    fire_time = None
+    if args.fire_time is not None:
+        fire_time = pd.Timestamp(args.fire_time)
+        if fire_time.tzinfo is None:      # a bare instant with no offset is UTC
+            fire_time = fire_time.tz_localize("UTC")
     arms = arms_for(args.features)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
@@ -632,7 +677,8 @@ def main(argv: list[str] | None = None) -> int:
                               preds_path=args.preds,
                               map_run_id=args.map_run_id,
                               max_sf_age_days=args.max_sf_age_days,
-                              min_sf_coverage=args.min_sf_coverage)
+                              min_sf_coverage=args.min_sf_coverage,
+                              fire_time=fire_time)
         log.info(_summary(result))
         if args.to_db:
             persist_forecast(conn, result, npz_dir=args.npz_dir)
