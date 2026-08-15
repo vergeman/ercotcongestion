@@ -1,6 +1,6 @@
 """Backfill the per-day SF+μ artifact over a date range (runbook Step 4, looped).
 
-For each UTC delivery date in ``[--start, --end]`` this refits the daily μ heads and
+For each CT delivery date in ``[--start, --end]`` this refits the daily μ heads and
 writes that day's ``forecast_nodal`` rows + ``forecast_sf_artifact`` blob through the
 SAME ``forecast_day``/``persist_forecast`` path the live daily job uses — so a
 backfilled day is production-equivalent (byte-identical to what the live job would
@@ -37,7 +37,7 @@ from compute.jobs.daily_forecast import (
     MAX_SF_AGE_DAYS,
     MIN_SF_COVERAGE,
     N_DRAWS,
-    _as_utc_day,
+    _as_ct_day,
     arms_for,
     forecast_day,
     persist_forecast,
@@ -70,8 +70,8 @@ def _current_pointer(dsn: str) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--start", required=True, help="first UTC delivery date (inclusive)")
-    p.add_argument("--end", required=True, help="last UTC delivery date (inclusive)")
+    p.add_argument("--start", required=True, help="first CT delivery date (inclusive)")
+    p.add_argument("--end", required=True, help="last CT delivery date (inclusive)")
     p.add_argument("--run-id", required=True)
     p.add_argument("--map-run-id", default=MAP_RUN_ID)
     p.add_argument("--to-db", action="store_true",
@@ -97,10 +97,16 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    lo, hi = _as_utc_day(args.start), _as_utc_day(args.end)
+    lo, hi = _as_ct_day(args.start), _as_ct_day(args.end)
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
-    days = pd.date_range(lo, hi, freq="D")     # UTC midnights, inclusive both ends
+    # Calendar dates, not the tz-aware CT-midnight instants themselves: `lo`/`hi`
+    # carry a UTC offset that changes across a DST transition, and stepping by
+    # `freq="D"` on THOSE (fixed-offset) timestamps would silently drift off CT
+    # midnight the day after the transition. Iterating tz-naive dates and letting
+    # `forecast_day` (via `_as_ct_day`) re-derive each day's own CT-midnight
+    # instant keeps every day exact (0133).
+    days = pd.date_range(lo.date(), hi.date(), freq="D")
     arms = arms_for(args.features)
     dsn = _dsn()
 

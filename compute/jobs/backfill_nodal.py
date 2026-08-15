@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from compute.mu.features import ERCOT_TZ
 from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.sf.project import (
     DRIVERS_K,
@@ -108,18 +109,20 @@ def resolve_walk_paths(run_id: str | None, preds: str | None, scores: str | None
 
 
 def _delivery_dates(ts: pd.Series) -> pd.Series:
-    """UTC calendar date of each tz-aware UTC hour — the `forecast_nodal`/
-    `forecast_sf_artifact` `delivery_date` and the idempotency scope for a re-run.
+    """CT calendar date of each tz-aware UTC hour — the `forecast_nodal`/
+    `forecast_sf_artifact` `delivery_date` and the idempotency scope for a re-run
+    (0133).
 
-    The whole stack below the API speaks UTC instants: every `interval_ts` is a
-    true UTC instant (migration 17 repaired the CT-as-UTC drift), the API coerces
-    to UTC, and the model slices the UTC-normalized index. `delivery_date` is
-    therefore the UTC date, not the ERCOT CT operating day — a UTC day's 24 hours
-    share one `delivery_date`, so a single-day write/scope is clean. (The DAM-close
-    vintage cutoff in `features.py` stays a CT wall-clock event; that pins each
-    covariate's *publication time* per interval and is independent of this label.)
+    Every `interval_ts` is a true UTC instant (migration 17), but the delivery
+    day a bidder reasons about — and the block one DAM auction clears — is the CT
+    calendar day: `[ct_day_bounds(D)]`, DST-aware. Bucketing by UTC date instead
+    would split a CT day's evening hours onto the following `delivery_date`,
+    silently dropping them from a single-day write/idempotency scope (the exact
+    bug this function used to have). The DAM-close vintage cutoff in `features.py`
+    stays a CT wall-clock event regardless; that pins each covariate's
+    *publication time* per interval and is independent of this label.
     """
-    return ts.dt.tz_convert("UTC").dt.date
+    return ts.dt.tz_convert(ERCOT_TZ).dt.date
 
 
 def nodal_to_db(npz_path: str, conn, *, run_id: str,

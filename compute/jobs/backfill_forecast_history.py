@@ -1,7 +1,7 @@
 """Backfill queryable daily forecast μ history from existing SF artifacts.
 
 This does not refit or alter ``forecast_sf_artifact``.  It decodes one existing
-artifact per requested UTC delivery day and upserts its complete E_mu vocabulary.
+artifact per requested CT delivery day and upserts its complete E_mu vocabulary.
 Missing artifacts are expected holes and are logged rather than treated as errors.
 
   python -m compute.jobs.backfill_forecast_history --run-id mu-all-v1 \\
@@ -16,7 +16,7 @@ import os
 import pandas as pd
 import psycopg
 
-from compute.jobs.daily_forecast import _as_utc_day
+from compute.jobs.daily_forecast import _as_ct_day
 from compute.jobs.forecast_history import load_artifact, persist_rollup, rollup_rows
 
 
@@ -30,8 +30,8 @@ def _dsn() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--start", required=True, help="first UTC delivery date (inclusive)")
-    p.add_argument("--end", required=True, help="last UTC delivery date (inclusive)")
+    p.add_argument("--start", required=True, help="first CT delivery date (inclusive)")
+    p.add_argument("--end", required=True, help="last CT delivery date (inclusive)")
     p.add_argument("--run-id", required=True, help="artifact model version to roll up")
     p.add_argument("--horizon", type=int, choices=(1, 2), default=1,
                    help="artifact horizon to roll up (default: final horizon 1)")
@@ -41,11 +41,15 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    lo, hi = _as_utc_day(args.start), _as_utc_day(args.end)
+    lo, hi = _as_ct_day(args.start), _as_ct_day(args.end)
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
 
-    days = pd.date_range(lo, hi, freq="D")
+    # Calendar dates, not the tz-aware CT-midnight instants: only `.date()` is
+    # used below, but stepping `freq="D"` on the fixed-UTC-offset instants
+    # themselves would drift across a DST transition (0133) — see the identical
+    # note in backfill_artifacts.py.
+    days = pd.date_range(lo.date(), hi.date(), freq="D")
     written = missing = 0
     with psycopg.connect(_dsn()) as conn:
         for D in days:
