@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
 import type { AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics, AnalysisGradeSupport, BriefContext, BriefHero, HeroSegment, Standouts, TopConstraints, TopNodes } from "../api/types";
-import { fetchAnalysisGrade, fetchAnalysisGradeHistory, fetchBriefContext, fetchBriefHero, fetchBriefHeroLatest, fetchStandouts, fetchTopConstraints, fetchTopNodes } from "../api/client";
+import { fetchAnalysisGradeCached, fetchAnalysisGradeHistoryCached, fetchBriefContextCached, fetchBriefHeroCached, fetchBriefHeroLatestCached, fetchStandoutsCached, fetchTopConstraintsCached, fetchTopNodesCached } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
@@ -537,7 +537,7 @@ export default function BriefPage() {
       return;
     }
     let live = true;
-    fetchBriefHeroLatest()
+    fetchBriefHeroLatestCached()
       .then((latest) => {
         if (!live) return;
         setDefaultDay(latest?.delivery_date ?? null);
@@ -557,7 +557,7 @@ export default function BriefPage() {
     setLoading(true);
     setError(null);
     setHero(null);
-    fetchBriefHero(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
         if (!live) return;
         setHero(result);
@@ -575,7 +575,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setContextLoading(true);
-    fetchBriefContext(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchBriefContextCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setContext(result); })
       .catch(() => { if (live) setContext(null); })
       .finally(() => { if (live) setContextLoading(false); });
@@ -586,7 +586,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setStandoutsLoading(true);
-    fetchStandouts(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchStandoutsCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setStandouts(result); })
       .catch(() => { if (live) setStandouts(null); })
       .finally(() => { if (live) setStandoutsLoading(false); });
@@ -597,7 +597,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setTopNodesLoading(true);
-    fetchTopNodes(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchTopNodesCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setTopNodes(result); })
       .catch(() => { if (live) setTopNodes(null); })
       .finally(() => { if (live) setTopNodesLoading(false); });
@@ -608,7 +608,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setTopConstraintsLoading(true);
-    fetchTopConstraints(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchTopConstraintsCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setTopConstraints(result); })
       .catch(() => { if (live) setTopConstraints(null); })
       .finally(() => { if (live) setTopConstraintsLoading(false); });
@@ -624,7 +624,7 @@ export default function BriefPage() {
     }
     let live = true;
     setGradeLoading(true);
-    fetchAnalysisGrade(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchAnalysisGradeCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setGrade(result); })
       .catch(() => { if (live) setGrade(null); })
       .finally(() => { if (live) setGradeLoading(false); });
@@ -638,7 +638,7 @@ export default function BriefPage() {
       return;
     }
     let live = true;
-    fetchAnalysisGradeHistory(deliveryDay, { runId: cursor.run ?? undefined })
+    fetchAnalysisGradeHistoryCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => { if (live) setGradeHistory(result); })
       .catch(() => { if (live) setGradeHistory(null); });
     return () => { live = false; };

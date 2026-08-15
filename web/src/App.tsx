@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import Header from "./components/layout/Header";
 import ExplorerScrubber from "./components/playback/ExplorerScrubber";
 import { useSharedExplorer } from "./hooks/useSharedExplorer";
@@ -7,8 +7,13 @@ import { hasAutoPlayRequest, stripAutoPlay } from "./lib/mapLinks";
 import MapWorkspace from "./workspaces/MapWorkspace";
 import MatrixWorkspace from "./workspaces/MatrixWorkspace";
 
-/** Persistent live-data shell shared by the Map and Matrix workspaces. */
+/** Persistent route shell shared by the Brief, Map, and Matrix pages. */
 export default function App() {
+  return <Outlet />;
+}
+
+/** Persistent live-data shell shared by the Map and Matrix workspaces. */
+export function ExplorerApp() {
   const location = useLocation();
   const routerNavigate = useNavigate();
   const workspace = location.pathname.startsWith("/matrix") ? "matrix" : "map";
