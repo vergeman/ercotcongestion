@@ -71,6 +71,9 @@ def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
     assert all(part["text"] for group in segments.values() for part in group)
     assert "4 constraints outside the model vocabulary" in segments["lede"][2]["text"]
     assert "one is newly active" in segments["lede"][2]["text"]
+    headline = "".join(part["text"] for part in segments["headline"])
+    assert headline == "An ordinary congestion day. Weight is concentrated in south"
+    assert "—" not in headline
 
 
 def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
@@ -83,4 +86,4 @@ def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
     headline = "".join(part["text"] for part in render(slots)["headline"])
     assert headline.endswith("; though high-congestion hours were near-record")
     slots["magnitude"]["high_congestion_hours"]["bucket"] = "elevated"
-    assert len(render(slots)["headline"]) == 3
+    assert len(render(slots)["headline"]) == 2

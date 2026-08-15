@@ -94,6 +94,11 @@ def _high_congestion_detail(slot: Slot) -> str | None:
     return f"; {connector} high-congestion hours were {labels[high['bucket']]}"
 
 
+def _sentence_start(text: str) -> str:
+    """Capitalize a template when it begins a rendered sentence."""
+    return text[:1].upper() + text[1:]
+
+
 def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     """Render tooltip-ready text segments; callers never parse a flat string."""
     magnitude = phrase_for("magnitude", slots["magnitude"])[1]
@@ -102,9 +107,8 @@ def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     exceptions = phrase_for("exceptions", slots["exceptions"])[1]
     detail = _high_congestion_detail(slots["magnitude"])
     headline = [
-        {"text": magnitude, "ref": "magnitude"},
-        {"text": " — ", "ref": "where"},
-        {"text": where, "ref": "where"},
+        {"text": f"{_sentence_start(magnitude)}. ", "ref": "magnitude"},
+        {"text": _sentence_start(where), "ref": "where"},
     ]
     if detail:
         headline.append({"text": detail, "ref": "magnitude"})
