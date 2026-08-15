@@ -19,7 +19,8 @@ import pytest
 from compute.mu.features import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
                                  binding_history, calendar_features, ct_day_bounds,
                                  dam_close, delivery_day_of, history_cutoff,
-                                 net_load_regime, _attach_refit_features)
+                                 net_load_regime, _attach_refit_features,
+                                 _dam_close_expr, _vintage_cutoff_expr)
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
@@ -96,6 +97,21 @@ def test_ct_day_bounds_is_idempotent_on_an_already_anchored_instant():
     start2, end2 = ct_day_bounds(start)
     assert start2 == start
     assert end2 - start2 == pd.Timedelta(hours=24)
+
+
+def test_vintage_cutoff_expr_is_a_no_op_without_one():
+    """No `vintage_cutoff` → the bare DAM-close expression, no bound param — an
+    uncapped caller's query text and plan are unchanged (0133)."""
+    expr, params = _vintage_cutoff_expr("interval_ts", None)
+    assert expr == _dam_close_expr("interval_ts")
+    assert params == ()
+
+
+def test_vintage_cutoff_expr_wraps_dam_close_in_least_with_one():
+    cutoff = pd.Timestamp("2025-05-31 12:00", tz="UTC")
+    expr, params = _vintage_cutoff_expr("interval_ts", cutoff)
+    assert expr == f"LEAST({_dam_close_expr('interval_ts')}, %s)"
+    assert params == (cutoff,)
 
 
 # ------------------------------------------------------------- the leak audit

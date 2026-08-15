@@ -64,6 +64,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     def fake_build_panel(conn, M, start, end, **kw):
         seen["panel_window"] = (start, end)
         seen["score_from"] = kw.get("score_from")
+        seen["vintage_cutoff"] = kw.get("vintage_cutoff")
         if build_raises:
             raise ValueError("simulated loader failure")
         if build_empty:
@@ -200,6 +201,31 @@ def test_delivery_date_and_result_are_ct(monkeypatch):
     assert r.delivery_date == D.date()
     assert len(r.panel.ts) == 24
     assert r.run_id == "mu-all-v1"
+
+
+# ----------------------------------------------------------------------------
+# Vintage-faithful preview backfill (0133) — fire_time -> build_panel's cutoff
+# ----------------------------------------------------------------------------
+
+def test_fire_time_defaults_to_the_wall_clock(monkeypatch):
+    """Live serving passes no `fire_time` — it defaults to `now`, well after any
+    D's DAM close, so the vintage cap is a no-op in production (spec: 0133)."""
+    seen = _install_fakes(monkeypatch)
+    before = pd.Timestamp.now(tz="UTC")
+    forecast_day(None, D, run_id="t")
+    after = pd.Timestamp.now(tz="UTC")
+    cutoff = seen["vintage_cutoff"]
+    assert cutoff is not None
+    assert before <= cutoff <= after
+
+
+def test_explicit_fire_time_reaches_build_panel(monkeypatch):
+    """A caller's `fire_time` (the historical backfill path) is threaded straight
+    through to `build_panel`'s `vintage_cutoff` — unmodified."""
+    seen = _install_fakes(monkeypatch)
+    fire_time = pd.Timestamp("2025-09-13 20:15", tz="UTC")
+    forecast_day(None, D, run_id="t", fire_time=fire_time)
+    assert seen["vintage_cutoff"] == fire_time
 
 
 # ----------------------------------------------------------------------------
