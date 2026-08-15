@@ -846,7 +846,7 @@ export default function BriefPage() {
           z-index: 3;
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 0;
           max-width: 132px;
           padding: 14px;
           border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
@@ -860,8 +860,9 @@ export default function BriefPage() {
           text-align: left;
           text-decoration: none;
         }
+        .an-hero__watch span { display: block; line-height: 1.3; }
         .an-hero__watch:hover { background: color-mix(in srgb, var(--accent-dim) 65%, var(--accent) 14%); border-color: var(--accent); }
-        .an-hero__watch-inline { display: none; }
+        .an-hero__watch-inline { display: none; line-height: 1.3; }
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
