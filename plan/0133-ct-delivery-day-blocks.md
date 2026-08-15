@@ -63,29 +63,100 @@ Branch: fix/0133-ct-delivery-day-blocks
   filter. Remove the 0132 `tail_horizon`/`hours_covered`/truncation logic and response
   fields — one artifact now fully covers its day.
 * **Rollout runbook** (live cutover — crons switch first, backfill converges behind):
-  1. Ship `0132-brief-day-stitch-tail` first: with the D+1 artifact optional, a
-     new-cut day renders fully through the *old* API path (concat + dedupe + CT-window
-     filter already covers it), so the cron cutover needs no synchronized API deploy.
+  1. Ship `0132-brief-day-stitch-tail` first *(done — #203)*: with the D+1 artifact
+     optional, a new-cut day rendered fully through the *old* API path (concat +
+     dedupe + CT-window filter already covered it), so the cron cutover needed no
+     synchronized API deploy.
   2. Deploy the new compute image to `ercot-forecast` / `ercot-forecast-preview` and
      let them run — no suspension. Overwrites are keyed by
      `(run_id, delivery_date, horizon)` and `forecast_day` is deterministic, so a day
      emitted live and later re-backfilled converges to the same artifact (h2 included:
      the fire-time vintage cap uses the same historical instant either way).
-  3. `backfill_artifacts --no-skip-existing`, **newest chunks first** (reverse date
-     order): h2 2026-07-30→present, then h1 in reverse chunks back to 2025-01-01.
+  3. Backfill the artifact, per horizon, **newest chunks first** (reverse date order):
+     h2 2026-07-30→present, then h1 in reverse chunks back to 2025-01-01.
+     `--no-skip-existing` is required — every historical day already carries an
+     *old*-cut artifact, so without it the skip-existing check skips everything.
      Newest-first heals the one **seam day** quickly — the last old-cut day's CT
      evening exists in neither artifact until that day is regenerated — and converges
      the dates users browse within hours; deep history grinds for days behind the
-     scenes (≈8 min / 16 GiB per day, resumable). Pause chunks over the 17:00Z/20:15Z
-     cron windows unless the node fits two ~16 GiB fits at once.
-  4. Web/API work may continue throughout (separate pods; the backfill only talks to
-     postgres). Do not run DB migrations or restart `postgres-0` mid-backfill. Ship
-     the API stitch deletion (removing 0132's fallback) any time after the backfill
-     has passed the dates users can reach.
-  5. Last, after the full span is regenerated: re-materialize `analysis_grade_daily`
-     (`materialize_brief_grade`) and rerun `load_scoreboard`. On-the-fly grade
-     endpoints will drift day-by-day during the backfill as history flips to the new
-     cut — expected, self-resolving.
+     scenes (≈8 min / 16 GiB per day, resumable; memory doesn't stack across days, so
+     chunk size is a monitoring/cron-collision choice, not a hard limit — ~7–14 days
+     per invocation near the dates users browse, larger once past that). Pause chunks
+     over the 17:00Z/20:15Z cron windows unless the node fits two ~16 GiB fits at once.
+
+     ```
+     nohup python ... > /compute/runs/backfill.log 2>&1 </dev/null &
+
+     # h2 (preview) — the small track, do it first
+     python -m compute.jobs.backfill_artifacts --run-id mu-all-v1 --map-run-id map-v1 \
+         --horizon 2 --no-skip-existing --to-db \
+         --start 2026-07-30 --end 2026-08-14
+
+     # h1 (final) — reverse chunks back to 2025-01-01, newest first
+     python -m compute.jobs.backfill_artifacts --run-id mu-all-v1 --map-run-id map-v1 \
+         --horizon 1 --no-skip-existing --to-db \
+         --start 2026-08-01 --end 2026-08-14
+
+     # h1 continuation
+     python -m compute.jobs.backfill_artifacts --run-id mu-all-v1 --map-run-id map-v1 \
+         --horizon 1 --no-skip-existing --to-db \
+         --start 2026-07-18 --end 2026-07-31
+     # ...continue in reverse-date chunks back to --start 2025-01-01
+     ```
+
+  4. Roll up each freshly-backfilled range into queryable constraint history — same
+     `run_id`/horizon/date range as step 3, run right behind it. This job only
+     decodes `forecast_sf_artifact` (never refits), so it is cheap and fast; without
+     it the constraint-explorer panel (`/map/constraints/ranked`) keeps showing
+     pre-0133 history for any day step 3 already re-backfilled. Not called out in
+     earlier drafts of this runbook — added here because it is a real dependency.
+
+     ```
+     python -m compute.jobs.backfill_forecast_history --run-id mu-all-v1 --to-db \
+         --horizon 2 --start 2026-07-30 --end 2026-08-14
+     python -m compute.jobs.backfill_forecast_history --run-id mu-all-v1 --to-db \
+         --horizon 1 --start 2026-08-01 --end 2026-08-14
+     # ...same chunk boundaries as step 3, horizon 1
+     ```
+
+  5. Web/API work may continue throughout (separate pods; the backfill only talks to
+     postgres). Do not run DB migrations or restart `postgres-0` mid-backfill. The
+     API stitch deletion (removing 0132's fallback) *(done — this branch)* is safe to
+     ship any time after the backfill (steps 3–4) has passed the dates users can
+     reach; shipping it earlier would 404 pages for days not yet re-backfilled.
+  6. Last, after the full span (steps 3–4) is regenerated: re-materialize
+     `analysis_grade_daily` via `materialize_brief_grade`, in 30-day batches ending at
+     the newest settled day and walking backward — the job counts days *backward*
+     from `--delivery-date`, so move the end date back exactly `--days` each batch
+     (its own docstring has the worked example):
+
+     ```
+     python -m compute.jobs.materialize_brief_grade \
+         --run-id mu-all-v1 --horizon 1 --delivery-date 2026-08-14 --days 30
+     python -m compute.jobs.materialize_brief_grade \
+         --run-id mu-all-v1 --horizon 1 --delivery-date 2026-07-15 --days 30
+     # ...continue back to 2025-01-01; repeat the same batches with --horizon 2
+     # for the ~18 h2 days (2026-07-30→present)
+     ```
+
+     `load_scoreboard` (→ `scoreboard_weekly`) transcribes the **offline backtest's**
+     `mu_score_weekly.csv`/`mu_bands_weekly.csv` — it never reads `forecast_nodal` or
+     `forecast_sf_artifact`, so rerunning it (`python -m compute.jobs.load_scoreboard
+     --run-id mu-all-v1`) picks up nothing from this backfill unless the backtest
+     walk is also re-run (out of scope here). Treat it as optional hygiene, not a
+     dependency of this rollout.
+
+     `scoreboard_daily` (the **live** per-day board, `grade_day.py`) has no bulk
+     date-range CLI — only `--delivery-date auto|YYYY-MM-DD`, one day at a time — and
+     nothing above refreshes its history. Decide deliberately whether stale
+     pre-0133 historical rows there are acceptable (it is framed as a forward-looking
+     live metric that grades "yesterday" each tick, not an archive) rather than
+     assuming; if not, each historical day needs its own
+     `python -m compute.jobs.grade_day --run-id mu-all-v1 --horizon <1|2>
+     --delivery-date <YYYY-MM-DD> --to-db`.
+
+     On-the-fly grade endpoints will drift day-by-day during the backfill as history
+     flips to the new cut — expected, self-resolving.
 * Record before/after grade deltas in the run log: evening-hour grades are expected to
   *worsen* slightly — that is the leak being removed, not a regression.
 * **Vintage-faithful preview backfill**: a backfilled h2 with the plain DAM-close
