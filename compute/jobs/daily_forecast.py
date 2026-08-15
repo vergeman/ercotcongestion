@@ -196,6 +196,7 @@ def forecast_day(
     map_run_id: str = MAP_RUN_ID,
     max_sf_age_days: int = MAX_SF_AGE_DAYS,
     min_sf_coverage: float = MIN_SF_COVERAGE,
+    fire_time: pd.Timestamp | None = None,
 ) -> ForecastResult:
     """Fit the heads on the trailing window and forecast CT delivery day D.
 
@@ -214,11 +215,24 @@ def forecast_day(
          low-coverage map. The residual pool is the validated backtest's OOS errors,
          strictly before D.
 
+    `fire_time` is this run's instant, standing in for "now" — the covariate
+    vintage cutoff (`build_panel`'s `vintage_cutoff`, 0133). It defaults to the
+    actual wall clock (`pd.Timestamp.now`), which for every live tick is already
+    well after D's DAM close, so the cap is a no-op there and for the CLI's
+    default single-day backfill (horizon 1). It matters for a **historical h2
+    backfill**: passed the day's real historical fire instant (20:15Z on D−2, the
+    live h2 cron's own schedule), it reproduces exactly what that live run could
+    have seen — one daily load/wind/solar snapshot and up to a day of outage
+    snapshots earlier than the DAM-close default would read — so a re-backfilled
+    preview stays a genuinely disadvantaged preview instead of collapsing into a
+    re-labeled final (`compute/jobs/backfill_artifacts.py` computes it).
+
     Reads only; writes nothing and does not touch the pointer (the next commit adds
     persistence). Every read — `M`/`C` end at D exclusive, and the SF window is
     causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
     """
     D = _as_ct_day(D)
+    fire_time = fire_time if fire_time is not None else pd.Timestamp.now(tz="UTC")
     block_end = _ct_block_end(D)      # D's next CT midnight — DST-aware (0133)
     # Horizon-2 (preview) fires while D−1's DAM is still landing; gate before the fit
     # so a late ERCOT post fails loud rather than fitting on a missing freshest day
@@ -239,8 +253,10 @@ def forecast_day(
     # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
     # rows are built only to give the arms their history and are then sliced off.
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
-    log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  preds=%s",
-             D.date(), run_id, horizon, ",".join(arms), train_days, preds_path)
+    log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  "
+             "fire_time=%s  preds=%s",
+             D.date(), run_id, horizon, ",".join(arms), train_days, fire_time,
+             preds_path)
 
     # --- stage 1: μ inference ------------------------------------------------
     # M and C end at D (exclusive): the SF fit window and every covariate see only
@@ -252,7 +268,8 @@ def forecast_day(
         panel = build_panel(conn, M, read_start, block_end,
                             C=C, score_from=D,
                             with_weather="wx" in arms,
-                            with_outage="outage" in arms)
+                            with_outage="outage" in arms,
+                            vintage_cutoff=fire_time)
     except Exception as e:
         # Any failure assembling the inputs (a covariate source empty, ingest late)
         # is fatal — an honest forecast can't be built, so fail and keep the prior
@@ -621,6 +638,13 @@ def main(argv: list[str] | None = None) -> int:
                         "realized served day in the same run (no separate job); "
                         "pass this for a forecast-only backfill of a future/today "
                         "day whose realized has not published yet")
+    p.add_argument("--fire-time", default=None,
+                   help="the run's covariate-vintage cutoff (ISO instant, any tz — "
+                        "0133); defaults to the actual wall clock (live behavior). "
+                        "Pass a historical h2 run's real fire instant (20:15Z on "
+                        "D−2, the live cron's own schedule) for a vintage-faithful "
+                        "single-day preview backfill — see backfill_artifacts.py, "
+                        "which computes this automatically for a date range")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -629,6 +653,11 @@ def main(argv: list[str] | None = None) -> int:
     D = _resolve_delivery_date(args.delivery_date, horizon=args.horizon)
     log.info("delivery_date=%s (%s) from --delivery-date %s (horizon %d)",
              D.date(), _ct_span(D), args.delivery_date, args.horizon)
+    fire_time = None
+    if args.fire_time is not None:
+        fire_time = pd.Timestamp(args.fire_time)
+        if fire_time.tzinfo is None:      # a bare instant with no offset is UTC
+            fire_time = fire_time.tz_localize("UTC")
     arms = arms_for(args.features)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
@@ -648,7 +677,8 @@ def main(argv: list[str] | None = None) -> int:
                               preds_path=args.preds,
                               map_run_id=args.map_run_id,
                               max_sf_age_days=args.max_sf_age_days,
-                              min_sf_coverage=args.min_sf_coverage)
+                              min_sf_coverage=args.min_sf_coverage,
+                              fire_time=fire_time)
         log.info(_summary(result))
         if args.to_db:
             persist_forecast(conn, result, npz_dir=args.npz_dir)
