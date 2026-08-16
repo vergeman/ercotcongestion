@@ -1738,7 +1738,6 @@ export default function BriefPage() {
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
-  const basisLabel = settled ? "DAM settled" : "forecast only";
   const title = useMemo(() => hero?.segments?.headline ?? [], [hero]);
   const regime = hero?.slots?.regime;
   const magnitude = hero?.slots?.magnitude;
@@ -1809,11 +1808,6 @@ export default function BriefPage() {
     <div className="an-page">
       <header className="an-topbar">
         <HeaderNav active="brief" />
-        {provenance && (
-          <span className={`an-basis an-basis--${provenance.basis}`}>
-            {basisLabel}
-          </span>
-        )}
       </header>
 
       <main className="an-main">
@@ -1821,9 +1815,16 @@ export default function BriefPage() {
           <div className="an-date-picker">
             {provenance && (
               <div className="an-brief-meta">
-                <span>Run {provenance.run_id}</span>
-                <span>
-                  {provenance.horizon === 1 ? "final · t+1" : "preview · t+2"}
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Model Run</span>
+                  <span className="an-brief-meta__val">{provenance.run_id}</span>
+                </span>
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Status</span>
+                  <span className="an-brief-meta__val">
+                    {settled ? "DAM Settled" : "Forecast"} · t+
+                    {provenance.horizon}
+                  </span>
                 </span>
               </div>
             )}
@@ -1985,11 +1986,12 @@ export default function BriefPage() {
       <style>{`
         .an-page { height: 100%; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); font-variant-numeric: tabular-nums; }
         .an-topbar { position: sticky; top: 0; z-index: 2; height: var(--header-h); padding: 0 16px; display: flex; align-items: center; gap: 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
-        .an-basis { margin-left: auto; padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
-        .an-basis--settled { color: var(--success, var(--accent)); }
         .an-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 80px; }
         .an-date-picker { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-        .an-brief-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-secondary); font-size: var(--fs-sm); }
+        .an-brief-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; font-size: var(--fs-sm); }
+        .an-brief-meta__item { display: flex; align-items: baseline; gap: 6px; }
+        .an-brief-meta__label { color: var(--text-muted); }
+        .an-brief-meta__val { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
         .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; }
         .an-day-controls__date { font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; }
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
