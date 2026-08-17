@@ -34,7 +34,7 @@ from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
-from services.sf_artifacts import load_daily_artifact, load_realized_mu
+from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
 
 router = APIRouter(prefix="/analysis")
 
@@ -383,16 +383,21 @@ def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) ->
     return profile.loc[(profile.index >= start) & (profile.index < end)]
 
 
-def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    """Project D's forecast μ hours through the day's complete SF column."""
+def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
+    """Project a decoded artifact's forecast μ through its SF column into a
+    per-node congestion profile, clipped to D's CT day. Shared by the single-day
+    path and the batched trailing-history load (0137)."""
     start, end = delivery_bounds(delivery_date)
-    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    if artifact is None:
-        return None
     mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
     profile = mu.dot(-artifact.SF)
     profile.index = pd.to_datetime(profile.index, utc=True)
     return profile.loc[(profile.index >= start) & (profile.index < end)]
+
+
+def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+    """Project D's forecast μ hours through the day's complete SF column."""
+    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+    return None if artifact is None else _project_node_profile(artifact, delivery_date)
 
 
 def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: int,
@@ -1076,10 +1081,13 @@ def get_standouts(
             cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
         node_histories: dict[str, list[float]] = {}
         if node_result is not None:
-            for offset in range(1, 31):
-                prior = _forecast_node_profile(cur, run_id, delivery_date - timedelta(days=offset), horizon)
-                if prior is None:
+            history_days = [delivery_date - timedelta(days=offset) for offset in range(1, 31)]
+            prior_artifacts = load_daily_artifacts(cur, run_id, history_days, horizon)
+            for day in history_days:
+                artifact = prior_artifacts.get(day)
+                if artifact is None:
                     continue
+                prior = _project_node_profile(artifact, day)
                 prior_profile = prior.loc[
                     prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
                 if prior_profile.empty:

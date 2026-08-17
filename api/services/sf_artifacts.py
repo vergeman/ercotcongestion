@@ -23,9 +23,11 @@ import pandas as pd
 from compute.sf.project import SfMuArtifact, load_sf_mu
 
 
-# A typical decoded daily artifact is roughly 10--20 MiB (dense float32 SF,
-# hourly float32 E_mu, and their labels). Keep at most 128 MiB per API worker.
-ARTIFACT_CACHE_MAX_BYTES = 128 * 1024 * 1024
+# A typical decoded daily artifact is roughly 5 MiB (dense float32 SF, hourly
+# float32 E_mu, and their labels). Sized so a single request's trailing-30-day
+# node-history window (31 artifacts ~= 150 MiB) fits without thrashing, which is
+# what let /analysis/standouts warm across a multi-day Brief page load (0137).
+ARTIFACT_CACHE_MAX_BYTES = 256 * 1024 * 1024
 
 
 def normalize_constraint_key(constraint_name: str, contingency_name: str) -> str:
@@ -156,3 +158,34 @@ def load_daily_artifact(cur, run_id: str, delivery_date: date,
     if row is None:
         return None
     return _ARTIFACT_CACHE.put(key, load_sf_mu(bytes(row["sf_npz"])))
+
+
+def load_daily_artifacts(cur, run_id: str, delivery_dates: list[date],
+                         horizon: int) -> dict[date, SfMuArtifact]:
+    """Cache-aware batch load of several days' artifacts at an explicit horizon.
+
+    Replaces a per-day ``load_daily_artifact`` loop's N single-row round trips
+    with one windowed fetch of the cache misses (0137). Unlike the coalescing
+    single-day path this takes an explicit ``horizon`` only — callers pass an
+    already-resolved horizon — so a day lacking that track is simply absent from
+    the result (the SELECT skips it), matching the loop's ``None`` -> skip.
+    """
+    result: dict[date, SfMuArtifact] = {}
+    missing: list[date] = []
+    for day in delivery_dates:
+        cached = _ARTIFACT_CACHE.get((run_id, day, horizon))
+        if cached is not None:
+            result[day] = cached
+        else:
+            missing.append(day)
+    if missing:
+        cur.execute(
+            "SELECT delivery_date, sf_npz FROM forecast_sf_artifact "
+            "WHERE run_id = %s AND horizon = %s AND delivery_date = ANY(%s)",
+            (run_id, horizon, missing),
+        )
+        for row in cur.fetchall():
+            day = row["delivery_date"]
+            result[day] = _ARTIFACT_CACHE.put(
+                (run_id, day, horizon), load_sf_mu(bytes(row["sf_npz"])))
+    return result
