@@ -237,7 +237,16 @@ def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[d
                MAX(l.system_total) AS value,
                MAX(l.system_total - w.stwpf_system_wide - s.stppf_system_wide) AS net_load,
                MAX(a.actual_value) AS actual_value,
-               MAX(a.actual_net_load) AS actual_net_load
+               MAX(a.actual_net_load) AS actual_net_load,
+               -- Wind/solar averaged over the empirical high-congestion CT window
+               -- (HIGH_CONGESTION_CT_HOURS): the renewable supply into the peak,
+               -- ranked later to explain a congestion day the load level alone cannot.
+               AVG(w.stwpf_system_wide) FILTER (
+                 WHERE EXTRACT(hour FROM l.interval_ts AT TIME ZONE 'America/Chicago') IN (15, 16, 17, 18)
+               ) AS wind_peak,
+               AVG(s.stppf_system_wide) FILTER (
+                 WHERE EXTRACT(hour FROM l.interval_ts AT TIME ZONE 'America/Chicago') IN (15, 16, 17, 18)
+               ) AS solar_peak
         FROM load_vintaged l
         LEFT JOIN wind_vintaged w USING (interval_ts, dst_flag)
         LEFT JOIN solar_vintaged s USING (interval_ts, dst_flag)
@@ -250,26 +259,54 @@ def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[d
     with conn.cursor() as cur:
         params = (start, end, start, end, start, end, start, end)
         cur.execute(sql, params)
-        return _rows(cur, ("delivery_date", "value", "net_load", "actual_value", "actual_net_load"))
+        return _rows(cur, ("delivery_date", "value", "net_load", "actual_value",
+                           "actual_net_load", "wind_peak", "solar_peak"))
+
+
+def _trailing_pct(series: list[float | None], value: float | None) -> float | None:
+    """Percentile rank of ``value`` within the non-null trailing series."""
+    observed = [v for v in series if v is not None]
+    if value is None or not observed:
+        return None
+    return 100.0 * sum(v <= value for v in observed) / len(observed)
 
 
 def summarize_load_condition(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the raw condition values consumed by the regime classifier."""
+    """Return the raw condition values consumed by the regime classifier.
+
+    Beyond the load percentile the regime slot carries the peak-window renewable
+    supply percentiles and the settled forecast miss.  These do not change the
+    regime bucket; they feed the lede's driver clause (see ``phrases.py``).
+    """
     if not rows:
         return None
     values = [float(row["value"]) for row in rows]
     today = values[-1]
+    last = rows[-1]
+
+    def _series(column: str) -> list[float | None]:
+        return [float(r[column]) if r.get(column) is not None else None for r in rows]
+
+    wind_series, solar_series = _series("wind_peak"), _series("solar_peak")
+    forecast = today
+    actual = float(last["actual_value"]) if last.get("actual_value") is not None else None
+    load_miss = (100.0 * (actual - forecast) / forecast
+                 if actual is not None and forecast else None)
     return {
         "series": "load.system",
         "today": today,
-        "net_load": (float(rows[-1]["net_load"])
-                      if rows[-1].get("net_load") is not None else None),
-        "actual_today": (float(rows[-1]["actual_value"])
-                          if rows[-1].get("actual_value") is not None else None),
-        "actual_net_load": (float(rows[-1]["actual_net_load"])
-                             if rows[-1].get("actual_net_load") is not None else None),
+        "net_load": (float(last["net_load"]) if last.get("net_load") is not None else None),
+        "actual_today": actual,
+        "actual_net_load": (float(last["actual_net_load"])
+                             if last.get("actual_net_load") is not None else None),
         "median": float(median(values)),
         "pct": 100.0 * sum(value <= today for value in values) / len(values),
+        "wind_peak": wind_series[-1],
+        "solar_peak": solar_series[-1],
+        "wind_pct": _trailing_pct(wind_series, wind_series[-1]),
+        "solar_pct": _trailing_pct(solar_series, solar_series[-1]),
+        "load_miss_pct": load_miss,
+        "load_miss_abs": abs(load_miss) if load_miss is not None else None,
         "n": len(values),
         "basis": "forecast",
     }

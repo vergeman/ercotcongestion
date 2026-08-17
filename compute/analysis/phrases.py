@@ -20,6 +20,19 @@ def _bucket(name: str) -> Callable[[Slot], bool]:
     return lambda slot: slot.get("bucket") == name
 
 
+def _num(slot: Slot, key: str) -> float | None:
+    value = slot.get(key)
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+# Driver-clause thresholds. Wind/solar are ranked over the trailing year on the
+# peak CT window; a settled forecast miss is a percent of the DAM-close call.
+WIND_LOW_PCT = 15.0
+WIND_HIGH_PCT = 85.0
+SOLAR_HIGH_PCT = 85.0
+LOAD_MISS_MIN_PCT = 3.0
+
+
 LADDERS: dict[str, Ladder] = {
     "magnitude": (
         (_bucket("record_high"), "record_high", "a record-high congestion day"),
@@ -46,18 +59,23 @@ LADDERS: dict[str, Ladder] = {
         (_bucket("distributed"), "distributed", "weight is spread across zones"),
         (lambda _slot: True, "unknown", "the available geography is incomplete"),
     ),
-    "exceptions": (
-        (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count") == 1,
-         "several", "{count} constraints not included in the model stand apart; one is newly active"),
-        (lambda slot: slot.get("bucket") == "several" and slot.get("tier_0_count", 0) > 0,
-         "several", "{count} constraints not included in the model stand apart; "
-         "{tier_0_count} are newly active"),
-        (_bucket("several"), "several", "{count} constraints not included in the model stand apart"),
-        (lambda slot: slot.get("bucket") == "one_or_two" and slot.get("count") == 1,
-         "one", "one constraint not included in the model stands apart"),
-        (_bucket("one_or_two"), "one_or_two", "{count} constraints not included in the model stand apart"),
-        (_bucket("unavailable"), "unavailable", "exceptions await DAM settlement"),
-        (lambda _slot: True, "none", "no constraints not included in the model stand apart"),
+    # The lede's first clause: the single most salient grid driver behind the
+    # day, or nothing.  Renewable supply into the peak leads (it explains a
+    # congestion day the boxed load level cannot); a settled forecast miss and
+    # strong midday solar follow.  Load level/rank/region are already in the
+    # stat boxes, so the lede deliberately never restates them.
+    "driver": (
+        (lambda s: (_num(s, "wind_pct") or 100.0) <= WIND_LOW_PCT,
+         "wind_light", "wind running light into the afternoon peak"),
+        (lambda s: (_num(s, "wind_pct") or 0.0) >= WIND_HIGH_PCT,
+         "wind_strong", "wind running strong into the afternoon peak"),
+        (lambda s: (_num(s, "load_miss_pct") or 0.0) >= LOAD_MISS_MIN_PCT,
+         "load_over", "load landed {load_miss_pct:.0f}% above the DAM forecast"),
+        (lambda s: (_num(s, "load_miss_pct") or 0.0) <= -LOAD_MISS_MIN_PCT,
+         "load_under", "load landed {load_miss_abs:.0f}% below the DAM forecast"),
+        (lambda s: (_num(s, "solar_pct") or 0.0) >= SOLAR_HIGH_PCT,
+         "solar_strong", "solar running strong into the afternoon peak"),
+        (lambda _slot: True, "none", ""),
     ),
 }
 
@@ -102,12 +120,46 @@ def _sentence_start(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+def _coverage_clause(slots: dict[str, Slot]) -> tuple[str, str]:
+    """The always-present lede tail: how much of the day the model spoke to.
+
+    Before DAM settlement there is no system total to divide by, so the clause
+    reports the pending state instead of a number.  When settled it reframes the
+    old constraint-count caveat as a coverage share of realized congestion.
+    """
+    exceptions = slots.get("exceptions", {})
+    if exceptions.get("available") is False or exceptions.get("bucket") == "unavailable":
+        return "exceptions", "awaiting DAM settlement"
+    magnitude = slots["magnitude"]
+    total = _num(magnitude.get("all_keys") or {}, "value")
+    modeled = _num(magnitude, "value")
+    if not total or total <= 0 or modeled is None:
+        return "magnitude", "system congestion was negligible"
+    share = max(0.0, min(1.0, modeled / total))
+    return "magnitude", f"modeled constraints captured {share * 100:.0f}% of system congestion"
+
+
+def _lede_segments(slots: dict[str, Slot]) -> list[dict[str, str]]:
+    """Optional driver clause, then the always-present coverage clause."""
+    driver = phrase_for("driver", slots["regime"])[1]
+    coverage_ref, coverage = _coverage_clause(slots)
+    if driver:
+        return [
+            {"text": _sentence_start(driver), "ref": "regime"},
+            {"text": "; ", "ref": coverage_ref},
+            {"text": coverage, "ref": coverage_ref},
+            {"text": ".", "ref": coverage_ref},
+        ]
+    return [
+        {"text": _sentence_start(coverage), "ref": coverage_ref},
+        {"text": ".", "ref": coverage_ref},
+    ]
+
+
 def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     """Render tooltip-ready text segments; callers never parse a flat string."""
     magnitude = phrase_for("magnitude", slots["magnitude"])[1]
-    regime = phrase_for("regime", slots["regime"])[1]
     where = phrase_for("where", slots["where"])[1]
-    exceptions = phrase_for("exceptions", slots["exceptions"])[1]
     detail = _high_congestion_detail(slots["magnitude"])
     headline = [
         {"text": f"{_sentence_start(magnitude)}. ", "ref": "magnitude"},
@@ -116,12 +168,4 @@ def render(slots: dict[str, Slot]) -> dict[str, list[dict[str, str]]]:
     if detail:
         headline.append({"text": detail, "ref": "magnitude"})
     headline.append({"text": ".", "ref": "where"})
-    return {
-        "headline": headline,
-        "lede": [
-            {"text": regime, "ref": "regime"},
-            {"text": "; ", "ref": "exceptions"},
-            {"text": exceptions, "ref": "exceptions"},
-            {"text": ".", "ref": "magnitude"},
-        ],
-    }
+    return {"headline": headline, "lede": _lede_segments(slots)}
