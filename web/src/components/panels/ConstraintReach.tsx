@@ -145,7 +145,7 @@ export function MemberList({
               className="cr-mem-sf mono"
               style={{ color: shiftFactorColor(s.sf) }}
             >
-              {imp ? "import" : "export"} {s.sf.toFixed(2)}
+              {imp ? "import" : "export"} {s.sf.toFixed(3)}
             </span>
           </li>
         );

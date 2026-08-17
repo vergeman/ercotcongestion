@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
 import type {
   NodeStandoutRow,
   StandoutRow,
@@ -14,7 +19,6 @@ import {
   type BriefSelection,
 } from "../../lib/briefSelection";
 import {
-  HistoryBars,
   HistoryWhisker,
   constraintName,
   percent,
@@ -56,8 +60,9 @@ interface Props {
 
 const TITLE_ID = "brief-detail-title";
 
-// A labelled figure in the evidence grid. `tone` colors node dollars by sign the
-// way the tables do; a missing value renders an em dash, never a fabricated 0.
+// One label→value row of the evidence table (rendered as a two-column
+// definition list; each Fact is a dt/dd pair). `tone` colors node dollars by
+// sign the way the tables do; a missing value renders an em dash, never a 0.
 function Fact({
   label,
   value,
@@ -68,15 +73,15 @@ function Fact({
   tone?: "positive" | "negative";
 }) {
   return (
-    <div className="bdp-fact">
-      <span className="bdp-fact__label">{label}</span>
+    <div className="bdp-kv__row">
+      <span className="bdp-kv__label">{label}</span>
       <span
         className={
           tone === "positive"
-            ? "bdp-fact__value bdp-fact__value--pos"
+            ? "bdp-kv__value bdp-kv__value--pos"
             : tone === "negative"
-            ? "bdp-fact__value bdp-fact__value--neg"
-            : "bdp-fact__value"
+            ? "bdp-kv__value bdp-kv__value--neg"
+            : "bdp-kv__value"
         }
       >
         {value}
@@ -90,8 +95,20 @@ function dollarTone(value: number | null | undefined) {
   return value >= 0 ? "positive" : ("negative" as const);
 }
 
+// Compact currency for the axis/scale labels: $1.1k for large Σμ, decimals for
+// small $/MWh, so a number never runs wider than its tick.
+const compactMoney = (v: number) => {
+  const a = Math.abs(v);
+  const s = v < 0 ? "−" : "";
+  if (a >= 1000) return `${s}$${(a / 1000).toFixed(1)}k`;
+  if (a >= 100) return `${s}$${Math.round(a)}`;
+  return `${s}$${a < 10 ? a.toFixed(1) : Math.round(a)}`;
+};
+
 // The trailing-30-day block (whisker + per-day bars) shared by every kind, with
 // the mark placed on the settled total once settled, else the forecast total.
+// The panel has room, so both glyphs are full-width and carry real numbers: the
+// whisker prints p10 / today / p90 under their marks, the bars a left y-axis.
 function HistoryBlock({
   low,
   q25,
@@ -111,21 +128,158 @@ function HistoryBlock({
   values: number[];
   unit: string;
 }) {
+  // Today's mark is what drives the whisker; the p10–p90 band is optional (an
+  // element with no settled history still shows today). The label math mirrors
+  // HistoryWhisker so each label sits over its true point.
+  const hasBand = low != null && high != null;
+  const scale =
+    mark != null
+      ? (() => {
+          const min = Math.min(hasBand ? low : mark, mark, 0);
+          const max = Math.max(hasBand ? high : mark, mark, 0);
+          const span = Math.max(max - min, 1);
+          const pos = (v: number) =>
+            Math.min(100, Math.max(0, ((v - min) / span) * 100));
+          return {
+            p10: hasBand ? pos(low) : null,
+            p90: hasBand ? pos(high) : null,
+            mark: pos(mark),
+          };
+        })()
+      : null;
+  // Near the ends, shift the label to the point's inner side instead of moving
+  // the anchor: keeps it over the point without clipping the panel edge.
+  const tickShift = (p: number) => (p <= 6 ? "0" : p >= 94 ? "-100%" : "-50%");
   return (
     <div className="bdp-history">
-      <span className="bdp-fact__label">
-        {unit} vs its own 30 days · each of 30 days
-      </span>
-      <div className="bdp-history__glyphs">
-        <HistoryWhisker
-          low={low}
-          q25={q25}
-          median={median}
-          q75={q75}
-          high={high}
-          mark={mark}
-        />
-        <HistoryBars values={values} />
+      <span className="bdp-section-title">30-day history</span>
+      <div className="bdp-history__row">
+        <span className="bdp-history__cap">{unit} vs its own 30 days</span>
+        <div className="bdp-whisker">
+          {/* p10 / p90 sit ABOVE the number line, today BELOW it, so a value
+              landing near p90 no longer prints on top of it. p10/p90 appear only
+              when the element has a settled band. */}
+          {scale && scale.p10 != null && scale.p90 != null && (
+            <div className="bdp-whisker__top">
+              <span
+                className="bdp-whisker__tick"
+                style={{ left: `${scale.p10}%`, transform: `translateX(${tickShift(scale.p10)})` }}
+              >
+                <em>p10</em>
+                {compactMoney(low!)}
+              </span>
+              <span
+                className="bdp-whisker__tick"
+                style={{ left: `${scale.p90}%`, transform: `translateX(${tickShift(scale.p90)})` }}
+              >
+                <em>p90</em>
+                {compactMoney(high!)}
+              </span>
+            </div>
+          )}
+          <HistoryWhisker
+            low={low}
+            q25={q25}
+            median={median}
+            q75={q75}
+            high={high}
+            mark={mark}
+          />
+          {scale && (
+            <div className="bdp-whisker__bottom">
+              <span
+                className="bdp-whisker__tick bdp-whisker__tick--mark"
+                style={{ left: `${scale.mark}%`, transform: `translateX(${tickShift(scale.mark)})` }}
+              >
+                {compactMoney(mark!)}
+                <em>today</em>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="bdp-history__row">
+        <span className="bdp-history__cap">
+          {unit} each of the last 30 days, then today
+          {!values.length && (
+            <em className="bdp-history__none"> — no prior settled days</em>
+          )}
+        </span>
+        <SignedBars values={values} today={mark} fmt={compactMoney} />
+      </div>
+    </div>
+  );
+}
+
+// A diverging bar chart for the trailing daily series: each bar grows up
+// (positive / export) or down (negative / import) from a zero baseline, so an
+// import node's negative days render as real bars instead of collapsing to the
+// floor. Today's value is appended as a highlighted final bar; the y-axis shows
+// the true min/max and marks zero when the range crosses it.
+function SignedBars({
+  values,
+  today,
+  fmt,
+}: {
+  values: number[];
+  today: number | null;
+  fmt: (n: number) => string;
+}) {
+  const series = [
+    ...values.map((v) => ({ v, today: false })),
+    ...(today != null ? [{ v: today, today: true }] : []),
+  ];
+  if (!series.length) return <span className="an-table__missing">—</span>;
+  const nums = series.map((s) => s.v);
+  const maxV = Math.max(...nums, 0);
+  const minV = Math.min(...nums, 0);
+  const range = maxV - minV || 1;
+  const zeroPct = (maxV / range) * 100; // % from the top where 0 sits
+  const crossesZero = minV < 0 && maxV > 0;
+  return (
+    <div className="bdp-sbars">
+      <div className="bdp-sbars__axis" aria-hidden="true">
+        <span className="bdp-sbars__ax bdp-sbars__ax--top">{fmt(maxV)}</span>
+        {crossesZero && (
+          <span
+            className="bdp-sbars__ax bdp-sbars__ax--zero"
+            style={{ top: `${zeroPct}%` }}
+          >
+            0
+          </span>
+        )}
+        <span className="bdp-sbars__ax bdp-sbars__ax--bot">{fmt(minV)}</span>
+      </div>
+      <div
+        className="bdp-sbars__plot"
+        style={{ ["--zero" as string]: `${zeroPct}%` }}
+      >
+        <span className="bdp-sbars__zline" />
+        {series.map((s, i) => {
+          const barStyle: CSSProperties =
+            s.v >= 0
+              ? {
+                  bottom: "calc(100% - var(--zero))",
+                  height: `${Math.max(1.5, (s.v / range) * 100)}%`,
+                }
+              : {
+                  top: "var(--zero)",
+                  height: `${Math.max(1.5, (-s.v / range) * 100)}%`,
+                };
+          if (s.today)
+            barStyle.background =
+              s.v >= 0 ? "var(--danger, #d94444)" : "var(--accent)";
+          return (
+            <span key={i} className="bdp-sbars__col">
+              <span
+                className={
+                  s.today ? "bdp-sbars__bar bdp-sbars__bar--today" : "bdp-sbars__bar"
+                }
+                style={barStyle}
+              />
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -161,7 +315,7 @@ function ConstraintEvidence({
   const { imp, exp } = dipoleCounts(reach);
   return (
     <>
-      <div className="bdp-grid">
+      <div className="bdp-kv">
         <Fact label="Zone" value={zoneLabel(row.zone)} />
         <Fact label="kV" value={row.kv_max == null ? "—" : Math.round(row.kv_max)} />
         <Fact
@@ -199,9 +353,9 @@ function ConstraintEvidence({
       </div>
       {standout && (
         <div className="bdp-why">
-          <span className="bdp-fact__label">Why it stood out</span>
+          <span className="bdp-section-title">Why it stood out</span>
           <p>{STANDOUT_CONSTRAINT_KIND[standout.kind] ?? standout.kind}</p>
-          <div className="bdp-grid bdp-grid--why">
+          <div className="bdp-kv">
             <Fact
               label="Σμ, today"
               value={usd(standout.forecast_total, 2)}
@@ -234,7 +388,7 @@ function ConstraintEvidence({
         unit="Σμ"
       />
       <div className="bdp-reach">
-        <span className="bdp-fact__label">
+        <span className="bdp-section-title">
           Grid reach · import ↔ export{" "}
           {reach && !loading && <em>{reach.sps.length} located</em>}
         </span>
@@ -273,7 +427,7 @@ function NodeEvidence({
   const history = ranked ?? standout;
   return (
     <>
-      <div className="bdp-grid">
+      <div className="bdp-kv">
         <Fact label="Zone" value={zoneLabel(zone)} />
         <Fact
           label="Dominant driver"
@@ -321,9 +475,9 @@ function NodeEvidence({
       </div>
       {standout && (
         <div className="bdp-why">
-          <span className="bdp-fact__label">Why it stood out</span>
+          <span className="bdp-section-title">Why it stood out</span>
           <p>{STANDOUT_NODE_KIND[standout.kind] ?? standout.kind}</p>
-          <div className="bdp-grid bdp-grid--why">
+          <div className="bdp-kv">
             <Fact label="Today" value={usd(standout.forecast_total, 2)} />
             <Fact
               label="30-day median"
@@ -418,6 +572,10 @@ export default function BriefDetailPanel({
   const geo = rendered ? selectionGeo(rendered) : "constraint";
   const key = rendered ? selectionKey(rendered) : "";
   const title = geo === "constraint" ? constraintName(key) : key;
+  // The contingency is the second half of a constraint key; shown after the name
+  // in lighter grey (no "|"). Nodes have none.
+  const contingency =
+    geo === "constraint" && key.includes("|") ? key.split("|")[1] : "";
   const eyebrow = !rendered
     ? ""
     : rendered.kind === "standout-constraint"
@@ -454,14 +612,24 @@ export default function BriefDetailPanel({
         {rendered && (
           <>
             <div className="bdp__head">
-              <div>
+              <div className="bdp__head-main">
                 <p className="bdp__eyebrow">{eyebrow}</p>
                 <h2 id={TITLE_ID} className="bdp__title">
                   {title}
+                  {contingency && (
+                    <span className="bdp__contingency"> {contingency}</span>
+                  )}
                 </h2>
-                {geo === "constraint" && key.includes("|") && (
-                  <p className="bdp__subtitle">{key}</p>
-                )}
+                {/* Basis: "DAM settled" once settled, else "Forecast" — which is
+                    also what a t+2 preview horizon shows (basis stays forecast
+                    until DAM clears). Sits in the name's left column. */}
+                <span
+                  className={
+                    settled ? "bdp__chip bdp__chip--settled" : "bdp__chip"
+                  }
+                >
+                  {settled ? "DAM settled" : "Forecast"}
+                </span>
               </div>
               <button
                 type="button"
@@ -474,18 +642,8 @@ export default function BriefDetailPanel({
               </button>
             </div>
 
-            <div className="bdp__mode">
-              <span
-                className={
-                  settled ? "bdp__chip bdp__chip--settled" : "bdp__chip"
-                }
-              >
-                {settled ? "DAM settled" : "Forecast"}
-              </span>
-            </div>
-
             <div className="bdp__body">
-              <BriefFootprintMap selection={rendered} />
+              <BriefFootprintMap selection={rendered} mapHref={mapHref} />
               {rendered.kind === "standout-constraint" ? (
                 <ConstraintEvidence
                   row={rendered.row}
@@ -503,17 +661,6 @@ export default function BriefDetailPanel({
               ) : (
                 <NodeEvidence ranked={rendered.row} standout={null} settled={settled} />
               )}
-            </div>
-
-            <div className="bdp__foot">
-              <Link className="bdp__map" to={mapHref}>
-                Open in Map →
-              </Link>
-              <p className="bdp__foot-note">
-                Opens the full interactive Map with this{" "}
-                {geo === "constraint" ? "constraint" : "node"} selected on the
-                Forecast × Congestion view.
-              </p>
             </div>
           </>
         )}
@@ -544,36 +691,68 @@ export default function BriefDetailPanel({
         @media (prefers-reduced-motion: reduce) {
           .bdp__scrim, .bdp__panel { transition: none; }
         }
-        .bdp__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 12px; border-bottom: 1px solid var(--border); }
+        .bdp__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 14px; border-bottom: 1px solid var(--border); }
+        .bdp__head-main { min-width: 0; }
         .bdp__eyebrow { margin: 0 0 6px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .bdp__title { margin: 0; font-family: var(--font-mono); font-size: var(--fs-xl); line-height: 1.2; overflow-wrap: anywhere; }
-        .bdp__subtitle { margin: 4px 0 0; color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-micro); overflow-wrap: anywhere; }
+        .bdp__contingency { color: var(--text-muted); font-weight: 400; }
         .bdp__close { width: 34px; height: 34px; flex: 0 0 auto; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-base); color: var(--text-primary); font-size: 15px; cursor: pointer; }
         .bdp__close:hover { border-color: var(--accent); color: var(--accent); }
         .bdp__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-        .bdp__mode { padding: 12px 18px 0; }
-        .bdp__chip { display: inline-block; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 3px; background: var(--accent-dim); color: var(--accent); font: var(--fw-label) var(--fs-micro) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .bdp__chip { display: inline-block; margin-top: 10px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 3px; background: var(--accent-dim); color: var(--accent); font: var(--fw-label) var(--fs-micro) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; white-space: nowrap; }
         .bdp__chip--settled { border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
         .bdp__body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 18px 18px; }
-        .bdp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin-top: 8px; border: 1px solid var(--border); background: var(--border); }
-        .bdp-fact { min-width: 0; padding: 9px 10px; background: var(--bg-panel); }
-        .bdp-fact__label { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.3; overflow-wrap: anywhere; }
-        .bdp-fact__value { display: block; margin-top: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); overflow-wrap: anywhere; }
-        .bdp-fact__value--pos { color: var(--danger, #d94444); }
-        .bdp-fact__value--neg { color: var(--accent); }
+        /* A section heading inside the panel — title-sized (bigger than the kv
+           labels) so history / reach / why read as their own blocks. */
+        .bdp-section-title { display: block; margin-bottom: 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .bdp-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
+        /* Evidence as a minimal, headerless label→value list: label in a fixed
+           column, value left-aligned right after it (not pushed to the edge). */
+        .bdp-kv { display: flex; flex-direction: column; margin: 0; }
+        .bdp-kv__row { display: flex; gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+        .bdp-kv__row:last-child { border-bottom: 0; }
+        .bdp-kv__label { flex: 0 0 118px; color: var(--text-muted); font-size: var(--fs-label); }
+        .bdp-kv__value { flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); text-align: left; overflow-wrap: anywhere; }
+        .bdp-kv__value--pos { color: var(--danger, #d94444); }
+        .bdp-kv__value--neg { color: var(--accent); }
         .bdp-share { color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
-        .bdp-why { margin-top: 16px; padding: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--warn) 5%, transparent); }
-        .bdp-why p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--fs-label); line-height: 1.4; }
-        .bdp-grid--why { grid-template-columns: repeat(2, minmax(0, 1fr)); border-color: var(--border); }
-        .bdp-history { margin-top: 16px; }
-        .bdp-reach { margin-top: 16px; }
-        .bdp-reach .bdp-fact__label em { font-style: normal; color: var(--text-muted); }
-        .bdp-reach__dipole { width: 160px; margin: 8px 0 10px; }
-        .bdp-history__glyphs { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
-        .bdp__foot { padding: 14px 18px 18px; border-top: 1px solid var(--border); }
-        .bdp__map { display: inline-block; padding: 8px 14px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 4px; background: var(--accent-dim); color: var(--accent); font: 700 var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-decoration: none; }
-        .bdp__map:hover { background: color-mix(in srgb, var(--accent-dim) 65%, var(--accent) 14%); border-color: var(--accent); }
-        .bdp__foot-note { margin: 8px 0 0; color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.4; }
+        .bdp-why { margin-top: 18px; padding: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--warn) 5%, transparent); }
+        .bdp-why p { margin: 0 0 4px; color: var(--text-secondary); font-size: var(--fs-label); line-height: 1.4; }
+        /* A separator + space above the history block (below the kv table). */
+        .bdp-history { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--border); }
+        .bdp-history__row { margin-top: 22px; }
+        .bdp-history__cap { display: block; margin-bottom: 12px; color: var(--text-secondary); font-size: var(--fs-body); }
+        .bdp-history__none { font-style: normal; color: var(--text-muted); }
+        /* Each glyph gets its own full-width line. */
+        .bdp-history .an-history-whisker { display: block; width: 100%; height: 20px; }
+        /* Whisker value scale: p10 / p90 ABOVE the number line, today BELOW. */
+        .bdp-whisker { position: relative; }
+        .bdp-whisker__top { position: relative; height: 26px; margin-bottom: 4px; }
+        .bdp-whisker__bottom { position: relative; height: 26px; margin-top: 4px; }
+        .bdp-whisker__tick { position: absolute; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; line-height: 1.15; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); white-space: nowrap; }
+        .bdp-whisker__top .bdp-whisker__tick { bottom: 0; }
+        .bdp-whisker__bottom .bdp-whisker__tick { top: 0; }
+        .bdp-whisker__tick em { font-style: normal; color: var(--text-muted); font-family: var(--font-sans); font-size: 9px; letter-spacing: .02em; text-transform: uppercase; }
+        .bdp-whisker__tick--mark { color: var(--danger, #d94444); font-weight: 700; }
+        /* Signed daily bars — up (positive/export) / down (negative/import) from
+           a zero baseline, with a left y-axis and today highlighted. */
+        .bdp-sbars { display: flex; align-items: stretch; gap: 8px; }
+        .bdp-sbars__axis { position: relative; width: 42px; height: 56px; flex: 0 0 auto; border-right: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-mono); font-size: 9px; }
+        .bdp-sbars__ax { position: absolute; right: 6px; white-space: nowrap; }
+        .bdp-sbars__ax--top { top: 0; }
+        .bdp-sbars__ax--bot { bottom: 0; }
+        .bdp-sbars__ax--zero { transform: translateY(-50%); }
+        .bdp-sbars__plot { position: relative; flex: 1 1 auto; min-width: 0; height: 56px; display: flex; align-items: stretch; gap: 1px; }
+        .bdp-sbars__zline { position: absolute; left: 0; right: 0; top: var(--zero); height: 1px; background: var(--border-bright); }
+        .bdp-sbars__col { position: relative; flex: 1 1 0; min-width: 0; }
+        .bdp-sbars__bar { position: absolute; left: 0; right: 0; min-height: 1px; border-radius: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+        .bdp-sbars__bar--today { z-index: 1; box-shadow: 0 0 0 1px var(--bg-panel); }
+        /* A subtle divider before the reach block, to separate it from history. */
+        .bdp-reach { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--border); }
+        .bdp-reach__dipole { width: 100%; margin: 8px 0 10px; }
+        /* Legend: one colour per line, no larger than the section titles. */
+        .bdp-reach .cr-legend { flex-direction: column; gap: 4px; margin-top: 10px; }
+        .bdp-reach .cr-legend-item { font-size: var(--fs-label); }
       `}</style>
     </>,
     document.body

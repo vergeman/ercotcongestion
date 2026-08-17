@@ -622,13 +622,13 @@ function TopNodesPanel({
                 <th>Zone</th>
                 <th>Dominant driver</th>
                 <th>Share</th>
-                <th>Coverage</th>
+                <th>Cov</th>
                 <th>Rank</th>
-                <th>7×16 $/MWh</th>
+                <th>Peak</th>
                 {settled && (
                   <>
                     <th className="an-table__split">Rank</th>
-                    <th>7×16 $/MWh</th>
+                    <th>Peak</th>
                     <th>Δ</th>
                   </>
                 )}
@@ -2000,8 +2000,10 @@ export default function BriefPage() {
         .an-history-whisker em { position: absolute; top: 5px; height: 7px; border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent); background: transparent; }
         .an-history-whisker strong { position: absolute; top: 2px; width: 1px; height: 14px; background: var(--text-primary); transform: translateX(-.5px); }
         .an-history-whisker b { position: absolute; top: 1px; width: 2px; height: 15px; background: var(--danger, #d94444); transform: translateX(-1px); }
-        .an-history-bars { display: inline-flex; width: 88px; height: 18px; gap: 1px; align-items: end; vertical-align: middle; }
-        .an-history-bars i { display: block; width: 2px; min-height: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+        .an-history-bars { position: relative; display: inline-flex; width: 88px; height: 18px; gap: 1px; vertical-align: middle; }
+        .an-history-bars::before { content: ""; position: absolute; left: 0; right: 0; top: var(--zero, 100%); height: 1px; background: var(--border); }
+        .an-history-bars__col { position: relative; flex: 1 1 0; min-width: 0; }
+        .an-history-bars i { position: absolute; left: 0; right: 0; min-height: 1px; background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
         .an-constraints { margin-top: 42px; }
         .an-nodes { margin-top: 42px; }
         .an-context { margin-top: 42px; }

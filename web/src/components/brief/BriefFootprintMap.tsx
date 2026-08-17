@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { fetchTopology } from "../../api/client";
 import { shiftFactorColor } from "../../lib/colors";
 import {
@@ -38,8 +39,12 @@ const isPoint = (
 
 export default function BriefFootprintMap({
   selection,
+  mapHref,
 }: {
   selection: BriefSelection;
+  // The Map deep link for this element — rendered as a control ON the map
+  // (bottom-right), the deliberate handoff to the full interactive Map.
+  mapHref: string;
 }) {
   const geo = selectionGeo(selection);
   const key = selectionKey(selection);
@@ -138,7 +143,7 @@ export default function BriefFootprintMap({
 
   return (
     <div className="bfm">
-      <span className="bdp-fact__label">Grid footprint</span>
+      <span className="bdp-section-title">Grid footprint</span>
       <div className="bfm__frame">
         {loading ? (
           <div className="bfm__skeleton" />
@@ -184,16 +189,23 @@ export default function BriefFootprintMap({
           </svg>
         )}
         {unavailable && <div className="bfm__unavailable">{unavailable}</div>}
+        <Link className="bfm__map-btn" to={mapHref}>
+          Open in Map →
+        </Link>
       </div>
 
       <style>{`
-        .bfm { margin-top: 16px; }
+        .bfm { margin-top: 12px; margin-bottom: 22px; }
         .bfm__frame { position: relative; margin-top: 8px; border: 1px solid var(--border); background: var(--bg-base); }
         .bfm__svg { display: block; width: 100%; height: auto; }
         .bfm__border { fill: var(--map-outline-fill); stroke: var(--map-outline); stroke-width: 1; }
         .bfm__focus-ring { fill: none; stroke: var(--accent); stroke-width: 1.2; opacity: 0.6; }
         .bfm__skeleton { width: 100%; aspect-ratio: ${VIEW_W} / ${VIEW_H}; background: linear-gradient(90deg, var(--bg-panel) 25%, var(--bg-surface) 50%, var(--bg-panel) 75%); background-size: 200% 100%; animation: bfm-pulse 1.6s ease-in-out infinite; }
         .bfm__unavailable { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; color: var(--text-muted); font-size: var(--fs-micro); text-align: center; }
+        /* Open-in-Map sits as a control ON the map, bottom-right. */
+        .bfm__map-btn { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: inline-block; padding: 5px 10px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 3px; background: color-mix(in srgb, var(--bg-panel) 82%, transparent); color: var(--accent); font: 700 var(--fs-label) var(--font-label); letter-spacing: var(--track-label); text-decoration: none; backdrop-filter: blur(2px); box-shadow: 0 1px 6px rgb(0 0 0 / 18%); }
+        .bfm__map-btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+        .bfm__map-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
         @keyframes bfm-pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         @media (prefers-reduced-motion: reduce) { .bfm__skeleton { animation: none; } }
       `}</style>
