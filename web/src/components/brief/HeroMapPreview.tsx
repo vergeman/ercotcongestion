@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchTopology, fetchErcotRange, fetchForecastRange } from "../../api/client";
 import { computeLmpStats, normalizeLmpFromStats, lmpColor, type LmpStats } from "../../lib/colors";
+import { loadTexasBorderRings } from "../../lib/texasOutline";
 import { useTheme } from "../../lib/theme";
 
 interface NodePoint {
@@ -86,25 +87,6 @@ async function loadHourValues(
   return values.size ? values : fallback(t, windowEnd);
 }
 
-// The same state-boundary reference GridMap draws under the full interactive
-// map (plan/0131 reuses it rather than hand-rolling a second outline).
-async function loadBorderRings(): Promise<[number, number][][]> {
-  const r = await fetch("/texas.geojson");
-  if (!r.ok) return [];
-  const geojson = (await r.json()) as GeoJSON.FeatureCollection;
-  const rings: [number, number][][] = [];
-  for (const feature of geojson.features) {
-    const g = feature.geometry;
-    const polygons = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-    for (const polygon of polygons) {
-      for (const ring of polygon) {
-        rings.push(ring.map(([lng, lat]) => [lng, lat]));
-      }
-    }
-  }
-  return rings;
-}
-
 const VIEW_H = 300;
 const PAD = 14;
 
@@ -130,7 +112,7 @@ export default function HeroMapPreview({ cursor, basis }: Props) {
     setFailed(false);
     const t = new Date(cursor.t);
 
-    Promise.all([fetchTopology(), loadHourValues(t, basis), loadBorderRings()])
+    Promise.all([fetchTopology(), loadHourValues(t, basis), loadTexasBorderRings()])
       .then(([topology, values, borderRings]) => {
         if (!live) return;
         const points: NodePoint[] = (
