@@ -42,12 +42,13 @@ def test_regime_where_and_exception_ladders_are_pure():
         "benchmark_split": {
             "positive_label": "North LZ",
             "negative_label": "South LZ",
+            "spread": 12.0,
         },
     })
     assert split["bucket"] == "split"
     assert split["zone"] == "south" and split["share"] == .56
     assert phrase_for("where", split)[1] == (
-        "afternoon splits: North LZ prices higher than South LZ"
+        "afternoon splits: North LZ prices above South LZ by $12/MWh"
     )
 
     tier_0 = {"constraint_key": "NEW|ONE", "value": 30, "rank": 1, "n": 31}

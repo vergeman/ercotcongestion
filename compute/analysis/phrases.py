@@ -39,7 +39,8 @@ LADDERS: dict[str, Ladder] = {
     ),
     "where": (
         (_bucket("split"), "split",
-         "afternoon splits: {positive_label} prices higher than {negative_label}"),
+         "afternoon splits: {positive_label} prices above {negative_label} "
+         "by ${spread:.0f}/MWh"),
         (_bucket("concentrated"), "concentrated", "weight is concentrated in {zone}"),
         (_bucket("tilted"), "tilted", "weight leans toward {zone}"),
         (_bucket("distributed"), "distributed", "weight is spread across zones"),

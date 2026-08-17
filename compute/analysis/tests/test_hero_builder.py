@@ -75,6 +75,7 @@ def test_benchmark_split_uses_direct_load_zone_spps_before_hubs():
         "negative_label": "North LZ",
         "positive_value": 9.0,
         "negative_value": -9.0,
+        "spread": 18.0,
     }
 
 

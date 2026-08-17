@@ -93,6 +93,7 @@ def _benchmark_split(artifact) -> dict[str, Any] | None:
                 "negative_label": BENCHMARK_LABELS[negative],
                 "positive_value": float(daily_mean[positive]),
                 "negative_value": float(daily_mean[negative]),
+                "spread": float(daily_mean[positive]) - float(daily_mean[negative]),
             }
     return None
 
