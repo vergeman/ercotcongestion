@@ -986,8 +986,8 @@ def get_standouts(
                 prior = _forecast_node_profile(cur, run_id, delivery_date - timedelta(days=offset), horizon)
                 if prior is None:
                     continue
-                prior_profile = prior.profile.loc[
-                    prior.profile.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
+                prior_profile = prior.loc[
+                    prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
                 if prior_profile.empty:
                     continue
                 for point, value in prior_profile.mean(axis=0).items():
