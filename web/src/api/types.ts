@@ -528,6 +528,7 @@ export interface TopConstraints {
   delivery_date: string;
   horizon?: number;
   n_ranked?: number;
+  k?: number; // served forecast top-k; rows outside it get the post-settlement asterisk.
   rows?: TopConstraintRow[];
 }
 
@@ -641,6 +642,7 @@ export interface TopNodes {
   delivery_date: string;
   horizon?: number;
   n_ranked?: number;
+  k?: number; // served forecast top-k; rows outside it get the post-settlement asterisk.
   grouping?: "study_delivery_day" | "exact_settled" | "study_essp_missing";
   rows?: TopNodeRow[];
 }

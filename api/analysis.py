@@ -195,7 +195,7 @@ def _standout_rows(
     baseline = {
         key: float(pd.Series(values, dtype=float).median())
         for key, values in histories.items()
-        if len(values) >= 10 and (median := float(pd.Series(values, dtype=float).median())) > 0.0
+        if len(values) >= MIN_STANDOUT_HISTORY_DAYS and (median := float(pd.Series(values, dtype=float).median())) > 0.0
     }
     elevated = [
         key for key, median in baseline.items()
@@ -243,7 +243,7 @@ def _node_standout_rows(
     baseline = {
         key: float(pd.Series(values, dtype=float).abs().median())
         for key, values in histories.items()
-        if len(values) >= 10 and float(pd.Series(values, dtype=float).abs().median()) > NODE_CONGESTION_EPSILON
+        if len(values) >= MIN_STANDOUT_HISTORY_DAYS and float(pd.Series(values, dtype=float).abs().median()) > NODE_CONGESTION_EPSILON
     }
     elevated = [
         key for key, median in baseline.items()
@@ -287,7 +287,7 @@ def _settled_standout_keys(
     for key, value in settled_total.items():
         key = str(key)
         history = [item for item in histories.get(key, []) if item > 0.0]
-        if key in excluded or len(history) < 10 or value <= 0.0:
+        if key in excluded or len(history) < MIN_STANDOUT_HISTORY_DAYS or value <= 0.0:
             continue
         p90 = float(pd.Series(history).quantile(0.9))
         if p90 > 0.0 and float(value) / p90 >= 1.25:
@@ -349,7 +349,7 @@ def _settled_node_standout_keys(
     for key, value in settled_total.items():
         key = str(key)
         historical = [abs(item) for item in histories.get(key, []) if abs(item) > NODE_CONGESTION_EPSILON]
-        if key in excluded or len(historical) < 10:
+        if key in excluded or len(historical) < MIN_STANDOUT_HISTORY_DAYS:
             continue
         p90 = float(pd.Series(historical).quantile(0.9))
         if p90 > NODE_CONGESTION_EPSILON and abs(float(value)) / p90 >= 1.25:
@@ -489,6 +489,10 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
 
 NODE_CONGESTION_EPSILON = 1e-6  # $/MWh; suppresses float residue, not economics.
 MARKET_PEAK_CT_HOURS = tuple(range(7, 23))  # 7×16, every delivery day.
+# Minimum trailing days an element needs before its history yields a trustworthy
+# standout baseline.  Unrelated to the top-k row cap — this gates eligibility,
+# not row count.
+MIN_STANDOUT_HISTORY_DAYS = 10
 
 
 def _grade_node_profiles(cur, run_id: str, delivery_date: date,
@@ -656,6 +660,16 @@ def get_grade(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date,
             )
+        # An unsettled delivery day has no DAM μ to grade against.  Report both
+        # halves as settlement-pending rather than a real-looking zero score:
+        # the grade scorer would otherwise return magnitude_overlap 0.0 with
+        # null APs, and a materialization run before DAM lands would persist it.
+        if _settled_mu_profile(cur, delivery_date).empty:
+            pending = GradeHalfResponse(graded=False, unavailable_reason="settlement_pending")
+            return GradeAvailableResponse(
+                available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+                constraints=pending, nodes=pending,
+            )
         cur.execute(
             "SELECT subject, detail FROM analysis_grade_daily "
             "WHERE run_id = %s AND delivery_date = %s AND horizon = %s AND detail IS NOT NULL",
@@ -764,7 +778,7 @@ def get_top_constraints(
     delivery_date: date = Query(...),
     run_id: str | None = Query(None),
     horizon: int | None = Query(None, ge=1, le=2),
-    k: int = Query(10, ge=1, le=100),
+    k: int = Query(10, ge=1, le=15),
 ) -> TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse:
     """Rank the complete artifact vocabulary; do not reuse the legacy brief cast."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -828,7 +842,7 @@ def get_top_constraints(
         ))
     return TopConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        rows=rows, n_ranked=len(ranked),
+        rows=rows, n_ranked=len(ranked), k=k,
     )
 
 
@@ -904,9 +918,13 @@ def get_context(
         if days_bound < 24:
             continue
         constraint, contingency = key.split("|", 1)
+        # Median over binding days only, matching the Top Constraints whisker's
+        # nonzero-day p50 (both read the same trailing series) so one element
+        # shows a single "median Σμ" everywhere on the Brief.
+        nonzero = [value for value in values if value > 0.0]
         chronic.append(ChronicElementRow(
             element=constraint, contingency=contingency, days_bound=days_bound,
-            usual_total=float(pd.Series(values, dtype=float).median()),
+            usual_total=float(pd.Series(nonzero, dtype=float).median()),
         ))
     chronic.sort(key=lambda row: row.usual_total, reverse=True)
     return ContextAvailableResponse(
@@ -1142,7 +1160,7 @@ def get_top_nodes(
     delivery_date: date = Query(...),
     run_id: str | None = Query(None),
     horizon: int | None = Query(None, ge=1, le=2),
-    k: int = Query(15, ge=1, le=100),
+    k: int = Query(10, ge=1, le=15),
 ) -> TopNodesAvailableResponse | TopNodesUnavailableResponse:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run_id)
@@ -1236,7 +1254,8 @@ def get_top_nodes(
             settled_history=historical,
         ))
     return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
-                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), grouping=grouping)
+                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), k=k,
+                                     grouping=grouping)
 
 
 @router.get("/hero/latest", response_model=HeroLatestResponse,

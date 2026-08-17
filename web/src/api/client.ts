@@ -304,9 +304,11 @@ export async function fetchBriefHeroLatest(
 
 export async function fetchTopConstraints(
   deliveryDate: string,
-  { runId, horizon, k = 10 }: { runId?: string; horizon?: number; k?: number } = {},
+  { runId, horizon }: { runId?: string; horizon?: number } = {},
 ): Promise<TopConstraints | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate, k: String(k) });
+  // The server owns the row cap and echoes it back as `k`; the client never
+  // sets it, so the asterisk threshold can't desync from the served count.
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
   if (runId) qs.set("run_id", runId);
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/top-constraints?${qs.toString()}`);
@@ -343,9 +345,10 @@ export async function fetchStandouts(
 
 export async function fetchTopNodes(
   deliveryDate: string,
-  { runId, horizon, k = 15 }: { runId?: string; horizon?: number; k?: number } = {},
+  { runId, horizon }: { runId?: string; horizon?: number } = {},
 ): Promise<TopNodes | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate, k: String(k) });
+  // Server-owned row cap, echoed back as `k` (see fetchTopConstraints).
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
   if (runId) qs.set("run_id", runId);
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/top-nodes?${qs.toString()}`);

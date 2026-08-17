@@ -192,6 +192,7 @@ class TopConstraintsAvailableResponse(BaseModel):
     horizon: int
     rows: list[TopConstraintRow]
     n_ranked: int
+    k: int  # served forecast top-k; the client marks rows outside it after settlement.
 
 
 class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
@@ -323,6 +324,7 @@ class TopNodesAvailableResponse(BaseModel):
     horizon: int
     rows: list[TopNodeRow]
     n_ranked: int
+    k: int  # served forecast top-k; the client marks rows outside it after settlement.
     grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
 
 

@@ -409,6 +409,10 @@ function TopConstraintsPanel({
   settled: boolean;
   onSelect: (selection: BriefSelection) => void;
 }) {
+  // Post-settlement, a row absent from the forecast top-k is marked. The
+  // threshold is the k the server actually served (a required field on the
+  // available response) — never a client-side constant that could desync.
+  const forecastK = data?.k;
   return (
     <section className="an-constraints" aria-labelledby="top-constraints-title">
       <div className="an-section-heading">
@@ -498,7 +502,9 @@ function TopConstraintsPanel({
                   </td>
                   <td>
                     {settled &&
-                      (row.forecast_rank == null || row.forecast_rank > 15) && (
+                      forecastK != null &&
+                      (row.forecast_rank == null ||
+                        row.forecast_rank > forecastK) && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
                     <button
@@ -565,6 +571,8 @@ function TopNodesPanel({
   settled: boolean;
   onSelect: (selection: BriefSelection) => void;
 }) {
+  // Same served-k derivation as the constraints table.
+  const forecastK = data?.k;
   return (
     <section className="an-nodes" aria-labelledby="top-nodes-title">
       <div className="an-section-heading">
@@ -644,7 +652,9 @@ function TopNodesPanel({
                   </td>
                   <td>
                     {settled &&
-                      (row.forecast_rank == null || row.forecast_rank > 15) && (
+                      forecastK != null &&
+                      (row.forecast_rank == null ||
+                        row.forecast_rank > forecastK) && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
                     <button
@@ -823,7 +833,8 @@ function ContextPanel({
                       <th>Contingency</th>
                       <th>Days bound</th>
                       <th>
-                        Median Σ<span className="an-table__mu">μ</span>
+                        Median Σ<span className="an-table__mu">μ</span>, binding
+                        days
                       </th>
                     </tr>
                   </thead>
