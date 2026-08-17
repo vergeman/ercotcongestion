@@ -49,6 +49,8 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
     assert slots["magnitude"]["high_congestion_hours"]["value"] == 210.0
     assert slots["magnitude"]["high_congestion_hours"]["hours_ct"] == [15, 16, 17, 18]
     assert slots["where"]["zone"] == "south"
+    # N1 (LZ_SOUTH) carries -(SF.T @ Σμ) = -195 → the leading zone reads negative.
+    assert slots["where"]["zone_congestion"] == -195.0
     assert slots["where"]["geo_as_of"] == "2025-12-13"
     assert slots["exceptions"] == {"available": False, "bucket": "unavailable"}
 

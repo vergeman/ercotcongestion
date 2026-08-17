@@ -114,16 +114,26 @@ def _zone_summary(weights: pd.Series, geo_rows: list[dict[str, Any]], artifact) 
     shares = {zone: value / total for zone, value in zones.items()} if total else {}
 
     # Node geography is supporting context, not a hand-authored place label.
+    # ``nodal`` is the signed congestion (SPP − λ) contribution per settlement
+    # point: > 0 is scarcity that lifts local price, < 0 is export/oversupply
+    # that depresses it.  Shares keep the magnitude; ``node_zone_net`` keeps the
+    # sign so the leading zone can be reported as above/below the system price.
     nodal = -(artifact.SF.T @ weights.reindex(artifact.SF.index).fillna(0.0))
     node_zones: dict[str, float] = defaultdict(float)
+    node_net: dict[str, float] = defaultdict(float)
+    node_count: dict[str, int] = defaultdict(int)
     for sp, meta in load_sp_metadata(artifact.SF.columns).items():
         if meta.get("load_zone"):
-            node_zones[str(meta["load_zone"]).lower().removeprefix("lz_")] += abs(float(nodal[sp]))
+            zone = str(meta["load_zone"]).lower().removeprefix("lz_")
+            node_zones[zone] += abs(float(nodal[sp]))
+            node_net[zone] += float(nodal[sp])
+            node_count[zone] += 1
     node_total = sum(node_zones.values())
     return {
         "zone_shares": shares,
         "node_zone_shares": ({z: value / node_total for z, value in node_zones.items()}
                              if node_total else {}),
+        "node_zone_net": {z: node_net[z] / node_count[z] for z in node_net},
         "benchmark_split": _benchmark_split(artifact),
         "geo_as_of": next(iter(stamps)) if len(stamps) == 1 else None,
     }

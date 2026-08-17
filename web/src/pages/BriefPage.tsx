@@ -1450,6 +1450,17 @@ const gw = (value: number) =>
     maximumFractionDigits: 1,
   })} GW`;
 const pct = (value: number) => `${Math.round(value * 100)}%`;
+// The leading zone's signed congestion sense, for the Zone Price pair. The
+// default reading of congestion is scarcity that lifts price; a negative zone
+// (export/oversupply) sits below the system price, which is worth calling out.
+// Sign only — the mean magnitude is node-sampling sensitive. A ±$1/MWh dead band
+// leaves a flat zone unlabelled.
+const priceDirection = (congestion: number | null) =>
+  congestion == null || Math.abs(congestion) < 1
+    ? "—"
+    : congestion < 0
+    ? "Below system"
+    : "Above system";
 const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
 const zoneLabel = (zone: string | null) =>
   zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
@@ -1777,6 +1788,7 @@ export default function BriefPage() {
   const magnitudeMedian = numeric(magnitude, "med");
   const whereShare = numeric(where, "share");
   const whereZone = typeof where?.zone === "string" ? where.zone : null;
+  const whereCongestion = numeric(where, "zone_congestion");
   // The hero's own map action (0131): always requests Market × LMP, playing —
   // the layman gold standard. Pre-settlement the Map canonicalizes this to
   // Forecast × LMP on its own, so this stays dumb rather than branching on
@@ -1930,16 +1942,18 @@ export default function BriefPage() {
                       <DualStatBox
                         firstLabel="30-Day Congestion"
                         firstValue={`#${magnitudeRank}`}
+                        secondLabel={whereZone ? "Congested Region" : undefined}
+                        secondValue={
+                          whereZone ? zoneLabel(whereZone) : undefined
+                        }
                       />
                     )}
                     {whereZone && whereShare != null && (
                       <DualStatBox
-                        firstLabel="Congested Region"
-                        firstValue={whereZone}
-                        secondLabel={`${pct(
-                          whereShare
-                        )} of μ-weighted footprint`}
-                        secondValue=""
+                        firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
+                        firstValue={pct(whereShare)}
+                        secondLabel={`${zoneLabel(whereZone)} Price`}
+                        secondValue={priceDirection(whereCongestion)}
                       />
                     )}
                   </div>

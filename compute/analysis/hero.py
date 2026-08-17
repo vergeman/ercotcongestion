@@ -91,18 +91,23 @@ def classify_where(summary: dict[str, Any]) -> dict[str, Any]:
     """Name the largest μ-weighted zone share without inventing place names."""
     shares = {str(k): float(v) for k, v in summary["zone_shares"].items()}
     if not shares:
-        return {**summary, "zone": None, "share": None, "bucket": "unknown"}
+        return {**summary, "zone": None, "share": None, "zone_congestion": None,
+                "bucket": "unknown"}
     zone, share = sorted(shares.items(), key=lambda item: (-item[1], item[0]))[0]
+    # Signed congestion of the leading zone (> 0 lifts local price, < 0 depresses
+    # it).  The magnitude is node-sampling sensitive, so consumers use the sign.
+    net = summary.get("node_zone_net") or {}
+    zone_congestion = float(net[zone]) if zone in net else None
+    common = {**summary, "zone_shares": shares, "zone": zone, "share": share,
+              "zone_congestion": zone_congestion}
     split = summary.get("benchmark_split")
     if split:
-        return {**summary, "zone_shares": shares, "zone": zone, "share": share,
-                **split, "bucket": "split"}
+        return {**common, **split, "bucket": "split"}
     # The 365-day audit separates a true spread (<45%) from the broad middle
     # (45–55%): a 49% leader should not read as qualitatively unlike a 51%
     # leader.  Reserve “concentrated” for a clear 55% majority.
     bucket = "concentrated" if share >= 0.55 else "tilted" if share >= 0.45 else "distributed"
-    return {**summary, "zone_shares": shares, "zone": zone, "share": share,
-            "bucket": bucket}
+    return {**common, "bucket": bucket}
 
 
 def classify_exceptions(summary: dict[str, Any]) -> dict[str, Any]:

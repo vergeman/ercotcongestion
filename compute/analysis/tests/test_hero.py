@@ -36,6 +36,10 @@ def test_regime_where_and_exception_ladders_are_pure():
     where = classify_where({"zone_shares": {"north": .44, "south": .56},
                             "geo_as_of": "2025-12-13"})
     assert where["bucket"] == "concentrated" and where["zone"] == "south"
+    assert where["zone_congestion"] is None  # no node_zone_net provided
+    signed = classify_where({"zone_shares": {"north": .3, "south": .7},
+                             "node_zone_net": {"south": -50.0, "north": 5.0}})
+    assert signed["zone"] == "south" and signed["zone_congestion"] == -50.0
     assert classify_where({"zone_shares": {"north": .511, "south": .489}})["bucket"] == "tilted"
     split = classify_where({
         "zone_shares": {"north": .44, "south": .56},
