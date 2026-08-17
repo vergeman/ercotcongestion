@@ -42,10 +42,31 @@ Branch: refactor/0137-unify-page-requests
 * `standouts` (the next-slowest section, ~3.7s) has similar 30-iteration-loop shapes (`_settled_node_history`, a 30x artifact-decode loop) — flagged as a follow-up.
 
 ### Commit 5 — Batch `_settled_node_history` (standouts / top-nodes)
-* `_settled_node_history` still looped 30 trailing days, one DB round-trip per day, while its sibling `_settled_constraint_history` was already a single windowed query. Called by both `/analysis/standouts` and `/analysis/top-nodes`, so the fan-out hit two Brief sections.
-* Fixed: collapsed to one window query grouped by `(settlement_point, CT delivery day)` — same partition the sibling uses (established delivery-day-cut convention) — then reshaped to the per-day list in Python. 30 round trips → 1.
-* Behavior-preserving: every requested point is still present in the result (quiet days fill `0.0`), since callers index the dict directly; day ordering is oldest→newest as before. Compose/analysis tests unchanged (32 pass; 3 pre-existing failures in `grade`/`top-constraints` are unrelated).
-* Deferred: the 30x artifact-decode loop in `standouts` (lines ~1072-1081) is a decode-CPU cost (one npz per prior day), not primarily a query-count one — batching the `SELECT sf_npz` fetch saves round trips but not the 30 decodes. Left for a separate pass if standouts is still the bottleneck.
+* Collapsed the 30-round-trip per-day loop into one window query grouped by `(settlement_point, CT delivery day)`, mirroring its already-batched sibling `_settled_constraint_history`. Behavior-preserving (all points present, quiet days `0.0`, oldest→newest).
+
+### Commit 6 — Standouts artifact loop: cache budget + batched fetch (Option 2)
+* After Commit 5, `standouts` was the sole slow section: **3.86s, never warms** (combined `/brief` ~5.6s). cProfile: the 30x prior-day `_forecast_node_profile` loop = 2.9s (~0.7s round trips + ~1.4s npz decode). It never warms because a call touches 31 artifacts against a 128 MiB LRU (~28 slots) → thrash.
+* Fix (api-only): raised `ARTIFACT_CACHE_MAX_BYTES` 128→256 MiB (31-artifact window now fits), and added `load_daily_artifacts` — one windowed `SELECT ... = ANY(%s)` for cache misses vs. 30 round trips (`_project_node_profile` factored out to share the projection).
+* Result: standouts cold ~3.8s, **warm ~1.3s** (was 3.86s flat); combined `/brief` ~4.3s. Behavior-preserving; tests unchanged (same 3 pre-existing failures).
+
+### Concurrency finding — the real reload cost
+* Commit 6 helped the single warm request, but a browser **reload fires 3 `/brief` concurrently** (current + prev/next prefetch). Each brief runs 7 sections × 1 connection in a threadpool; 3 briefs = 21 checkouts against a `max_size=8` pool + GIL-bound pandas → reload 10–17s (measured 8/9/15s, and the "warm" retry *worse*). Per-request query tuning can't touch this.
+
+### Commit 7 — Defer neighbor prefetch (frontend, #1)
+* `BriefPage.tsx` fired the prev/next full-`/brief` prefetch **concurrently** with the current day (two effects, same deps), so the visible day raced two heavy prefetches. Moved the prefetch into the current-day fetch's `.finally` so it runs **after** the day resolves — current day renders on a clear critical path; neighbors warm the cache/enable carets in the background. Reload critical path ~15s → ~current-day-solo (~4–5s).
+
+### Commit 8 — Thread-safe artifact cache (backend, #2)
+* `SfArtifactCache` (`OrderedDict`) had no lock; concurrent `standouts` across the composed threadpool(s) raced `get`/`put`/evict → redundant decodes and inconsistent hits (why the warm retry was slower). Guard the ops with a `threading.Lock`.
+
+### Commit 9 — Settled-day `/brief` response cache
+* Cache the composed `BriefDayResponse` by `(run_id, day, horizon)` to skip the per-section pandas (~4s) the artifact cache can't touch. In-process count-bounded LRU (small payloads), lock-guarded. Settled `/brief` **~4.4s → ~6ms**.
+* Gate `_brief_is_final`: the Brief reads only day-ahead DAM (never revised), so a day is immutable once `horizon == 1`, strictly past in CT, and `_dam_landed`. Live/preview/DAM-pending days recompute — nothing live is served stale. Two tests added.
+* Dev caveat: dev DAM is stale (~5 days back), so the newest 1–2 days aren't cached there; prod DAM tracks day-ahead → whole history caches.
+
+### Deferred
+* Option 1 (parallel decode) was prototyped (cold ~2.7s) but **cut** — Option 3 supersedes it.
+* Uncached (live/newest) days stay decode-floored; the real fix is precompute — see `plan/0138-forecast-nodal-live-daily.md` (daily `forecast_nodal` table; standouts → ~0.3s, so even a cold brief is ~1s).
+* Optional: in-flight decode dedup (coalesce concurrent cold loads of the same artifact) for the rare case that duplicate cold requests still race.
 
 * Do NOT change Matrix; do NOT merge interaction fetches into any bootstrap payload.
 * Keep the superseded single-section endpoints available until consumers are cut over, then remove in the same commit.
