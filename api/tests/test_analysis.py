@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
 import analysis as analysis_module
+from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
 
@@ -53,6 +54,50 @@ def test_grade_node_profiles_stays_unavailable_when_the_artifact_is_missing(monk
     monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: None)
 
     assert analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1) is None
+
+
+def test_windowed_mu_profiles_batches_the_trailing_window_into_per_day_frames(fake_pool):
+    """0137: the trailing-window climatology fetch used to be one query per
+    day (30 round trips); this asserts the batched replacement issues exactly
+    one query and still splits the result into the same per-CT-day frames a
+    30x loop of ``_settled_mu_profile`` would have produced."""
+    fake_pool.cursor.queue([
+        (pd.Timestamp("2026-07-26T05:00Z"), "A|B", 1.0),
+        (pd.Timestamp("2026-07-26T06:00Z"), "A|B", 2.0),
+        (pd.Timestamp("2026-07-27T05:00Z"), "A|B", 3.0),
+        (pd.Timestamp("2026-07-27T06:00Z"), "A|B", 4.0),
+    ])
+    with fake_pool.connection() as conn:
+        cur = conn.cursor(row_factory=None)
+        by_day = analysis_module._windowed_mu_profiles(cur, date(2026, 7, 28), 2)
+
+    assert len(fake_pool.cursor.queries) == 1
+    assert set(by_day) == {date(2026, 7, 26), date(2026, 7, 27)}
+    assert list(by_day[date(2026, 7, 26)]["A|B"]) == [1.0, 2.0]
+    assert list(by_day[date(2026, 7, 27)]["A|B"]) == [3.0, 4.0]
+
+
+def test_windowed_node_profiles_batches_the_trailing_window_into_per_day_frames(fake_pool):
+    fake_pool.cursor.queue([
+        (pd.Timestamp("2026-07-26T05:00Z"), "SP1", 1.0),
+        (pd.Timestamp("2026-07-27T05:00Z"), "SP1", -2.0),
+    ])
+    with fake_pool.connection() as conn:
+        cur = conn.cursor(row_factory=None)
+        by_day = analysis_module._windowed_node_profiles(cur, date(2026, 7, 28), 2)
+
+    assert len(fake_pool.cursor.queries) == 1
+    assert set(by_day) == {date(2026, 7, 26), date(2026, 7, 27)}
+    assert list(by_day[date(2026, 7, 26)]["SP1"]) == [1.0]
+    assert list(by_day[date(2026, 7, 27)]["SP1"]) == [-2.0]
+
+
+def test_trailing_settled_average_returns_none_when_a_trailing_day_is_missing():
+    """A gap anywhere in the trailing window keeps the whole climatology
+    unavailable — a partial baseline is not reported as a real one."""
+    by_day = {date(2026, 7, 27): pd.DataFrame({"A|B": [1.0]})}  # day -1 only; -2 missing
+
+    assert analysis_module._trailing_settled_average(date(2026, 7, 28), 1, by_day) is None
 
 
 def _slots(basis):
@@ -122,6 +167,110 @@ def test_hero_latest_soft_fails_without_any_published_day(client, fake_pool):
     assert client.get("/analysis/hero/latest?run_id=run-x").json() == {
         "available": False, "run_id": "run-x", "delivery_date": None, "horizon": None,
     }
+
+
+def test_brief_day_composes_all_sections_from_one_resolved_run_and_horizon(client, fake_pool, monkeypatch):
+    """0137: the bundled endpoint resolves run/horizon once, then delegates to
+    each section's own handler — never re-derives their query logic.
+
+    Each handler is called in-process, bypassing FastAPI's dependency
+    injection, so any parameter left to its declared default would instead
+    receive that default's raw ``Query(...)`` object. This asserts the exact
+    positional args every handler receives, so a call missing an explicit
+    literal (as `get_context`'s `chronic_limit` once did) fails loudly instead
+    of silently handing a `Query` sentinel to `chronic[:chronic_limit]`.
+
+    The handlers run on a thread pool (not sequentially), so `calls` below is
+    keyed by name rather than compared in submission order.
+    """
+    fake_pool.cursor.queue([{"run_id": "run-x"}])  # resolve run
+    fake_pool.cursor.queue([{"h": 2}])              # resolve horizon
+
+    calls: dict[str, tuple] = {}
+
+    def _handler(name):
+        def _fake(delivery_date, run_id, horizon, *rest):
+            calls[name] = (delivery_date, run_id, horizon, rest)
+            return {"available": False, "unavailable_reason": "artifact_missing",
+                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+        return _fake
+
+    # (handler name, expected trailing positional args — each must be a
+    # literal, matching that endpoint's own Query(...) default exactly).
+    expected = (
+        ("get_hero", ()),
+        ("get_context", (14,)),
+        ("get_standouts", (4,)),
+        ("get_top_nodes", (10,)),
+        ("get_top_constraints", (10,)),
+        ("get_grade", ()),
+        ("get_grade_history", (30,)),
+    )
+    for name, _ in expected:
+        monkeypatch.setattr(analysis_module, name, _handler(name))
+
+    response = client.get("/analysis/brief?day=2026-07-28")
+
+    assert response.status_code == 200
+    assert calls == {
+        name: (date(2026, 7, 28), "run-x", 2, rest) for name, rest in expected
+    }
+    for _, _, _, rest in calls.values():
+        assert all(isinstance(value, int) for value in rest), \
+            "a trailing arg fell through to its raw Query(...) default"
+    body = response.json()
+    assert set(body.keys()) == {"hero", "context", "standouts", "top_nodes",
+                                "top_constraints", "grade", "grade_history"}
+
+
+def _brief_section_counter(monkeypatch):
+    """Monkeypatch the seven /brief section handlers to count invocations."""
+    calls = {"n": 0}
+
+    def _handler():
+        def _fake(delivery_date, run_id, horizon, *rest):
+            calls["n"] += 1
+            return {"available": False, "unavailable_reason": "artifact_missing",
+                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+        return _fake
+
+    for name in ("get_hero", "get_context", "get_standouts", "get_top_nodes",
+                 "get_top_constraints", "get_grade", "get_grade_history"):
+        monkeypatch.setattr(analysis_module, name, _handler())
+    return calls
+
+
+def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
+    """A past final day (horizon 1, DAM landed) composes once, then serves from
+    the response cache — the sections are not re-invoked."""
+    _, we = delivery_bounds(date(2026, 7, 28))  # DAM ts past the day's midpoint
+    calls = _brief_section_counter(monkeypatch)
+    for _ in range(2):  # run + horizon + dam-landed probe, per request
+        fake_pool.cursor.queue([{"run_id": "run-x"}])
+        fake_pool.cursor.queue([{"h": 1}])
+        fake_pool.cursor.queue([{"ts": we}])
+
+    first = client.get("/analysis/brief?day=2026-07-28")
+    second = client.get("/analysis/brief?day=2026-07-28")
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.content == second.content
+    assert calls["n"] == 7, "settled day should compose once, then hit the cache"
+
+
+def test_brief_recomputes_an_unsettled_day(client, fake_pool, monkeypatch):
+    """A day whose DAM has not landed is never cached, so it is never served
+    stale before its inputs settle."""
+    calls = _brief_section_counter(monkeypatch)
+    for _ in range(2):
+        fake_pool.cursor.queue([{"run_id": "run-x"}])
+        fake_pool.cursor.queue([{"h": 1}])
+        fake_pool.cursor.queue([{"ts": None}])  # DAM not landed -> not final
+
+    client.get("/analysis/brief?day=2026-07-28")
+    client.get("/analysis/brief?day=2026-07-28")
+
+    assert calls["n"] == 14, "unsettled day recomputes every request (7 sections x 2)"
 
 
 def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
@@ -413,12 +562,22 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
     }
 
 
+def _repeated_window(delivery_date, frame) -> dict:
+    """The climatology window a mocked ``_settled_node_profile``/``_settled_mu_profile``
+    used to produce implicitly (30 identical trailing days) — now built explicitly
+    since the batched ``_windowed_*_profiles`` fetch (0137) isn't covered by
+    mocking those single-day loaders anymore."""
+    return {delivery_date - timedelta(days=offset): frame for offset in range(1, 31)}
+
+
 def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)
     settled = pd.DataFrame({"IMPORT": [-10.0, -10.0], "EXPORT": [10.0, 10.0]}, index=hours)
     monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
     monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(analysis_module, "_windowed_node_profiles",
+                        lambda *_: _repeated_window(date(2026, 7, 28), settled))
 
     grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
 
@@ -432,6 +591,8 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
     settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
     monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
     monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(analysis_module, "_windowed_node_profiles",
+                        lambda *_: _repeated_window(date(2026, 7, 28), settled))
 
     grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
 

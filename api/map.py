@@ -27,7 +27,9 @@ returns an empty result, not an error.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_t
+from typing import Callable, TypeVar
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
@@ -40,13 +42,16 @@ from models import (
     ExposuresResponse,
     MapMeta,
     MapOverview,
+    MapSummaryResponse,
     OverviewConstraint,
     RankedConstraint,
     RankedConstraints,
     ReachSp,
     SpExposure,
 )
+from scoreboard import get_scoreboard_headline
 from services.sf_artifacts import load_daily_artifact, normalize_constraint_key
+from services.topology_builder import get_or_build_topology
 from shared.settings import settings
 
 log = logging.getLogger(__name__)
@@ -506,3 +511,61 @@ def get_map_constraints_ranked(
         n_ranked=int((contribution > 0.0).sum()),
         constraints=out,
     )
+
+
+# --------------------------------------------------------------------------
+# /map/summary — the Map workspace's load-time quartet in one call (0137)
+# --------------------------------------------------------------------------
+
+_T = TypeVar("_T")
+
+
+def _soft_fail(build: Callable[[], _T]) -> _T | None:
+    """Run one section's builder; a 503 (nothing built/loaded for it yet)
+    becomes ``None`` here instead of failing the whole bundle — the same
+    soft-fail the client already applies per single-section endpoint."""
+    try:
+        return build()
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return None
+        raise
+
+
+@router.get(
+    "/summary",
+    response_model=MapSummaryResponse,
+    summary="One bundled payload for the Map workspace summary (0137)",
+)
+def get_map_summary() -> MapSummaryResponse:
+    """Compose the Map workspace's four load-time requests behind one call.
+
+    ``overview``/``meta`` resolve the same SF map run+window
+    (``_resolve()``'s own logic, unchanged); ``headline`` reads the separate
+    backtest board. None of the three is forced onto a shared value — that
+    matches what today's three independent requests already do. Params match
+    exactly what ``MapWorkspace.tsx`` requests today: overview at
+    ``n=70, k=6`` (its own override of the single-section endpoint's default
+    ``k=16``), headline at the default regime.
+
+    Each handler is called directly as a plain function, bypassing FastAPI's
+    request-time dependency injection, so every parameter is passed an
+    explicit literal (see ``get_brief_day``'s docstring for why). Interaction
+    endpoints (``/map/reach``, ``/map/exposures``, ``/map/constraints/ranked``)
+    are untouched — they fire on hover/click/navigation, not load.
+
+    Topology, being both the largest and the least likely to fail, runs
+    synchronously on this thread while the other three run on a pool — a free
+    fourth concurrent path without a fourth pool slot.
+    """
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        overview = pool.submit(_soft_fail, lambda: get_map_overview(70, 6, 0.15))
+        meta = pool.submit(_soft_fail, get_map_meta)
+        headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, "all"))
+        topology = get_or_build_topology()
+        return MapSummaryResponse(
+            topology=topology,
+            overview=overview.result(),
+            meta=meta.result(),
+            headline=headline.result(),
+        )

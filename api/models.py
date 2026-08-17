@@ -403,6 +403,24 @@ class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/brief ------------------------------------------------------
+
+class BriefDayResponse(BaseModel):
+    """One bundled payload for a Brief delivery day (0137).
+
+    Replaces the eight-request per-day fan-out with a single call; each field
+    keeps the exact response shape its single-section endpoint already served,
+    so consumers built against those shapes are untouched.
+    """
+    hero: HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse
+    context: ContextAvailableResponse | ContextUnavailableResponse
+    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse
+    top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
+    top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
+    grade: GradeAvailableResponse | GradeUnavailableResponse
+    grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's
@@ -965,3 +983,42 @@ class ScoreboardDaily(BaseModel):
     since: date | None = None
     primary_source: str
     points: list[DailyPoint]
+
+
+# ---- /scoreboard/summary --------------------------------------------------
+
+class ScoreboardSummaryResponse(BaseModel):
+    """One bundled payload for the Scoreboard page summary (0137).
+
+    Each field keeps the exact shape its single-section endpoint already
+    served. ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` reads
+    the separate ``scoreboard_daily`` live board, so it is not forced onto the
+    same ``run_id`` the other two resolve. A field is ``null`` exactly when its
+    single-section endpoint would 503 (that board has no rows yet) — the same
+    soft-fail the client already handles per section, just carried inside one
+    response instead of three.
+    """
+    weekly: ScoreboardWeekly | None
+    headline: ScoreboardHeadline | None
+    daily: ScoreboardDaily | None
+
+
+# ---- /map/summary -----------------------------------------------------------
+
+class MapSummaryResponse(BaseModel):
+    """One bundled payload for the Map workspace summary (0137).
+
+    ``topology`` is the raw settlement-point GeoJSON — the unchanged shape
+    ``GET /topology`` already serves, not a typed model (topology never was
+    one). ``overview``/``meta``/``headline`` keep their own single-section
+    shape and are ``null`` exactly when that section's endpoint would 503 (no
+    SF window built yet / no scoreboard loaded) — the same soft-fail the
+    client already applies per section. ``topology`` itself is not soft-failed:
+    a build failure there was never a null-and-continue case for the client
+    (``fetchTopology`` has always thrown on a non-503 failure), so this
+    composition preserves that rather than inventing a new empty state.
+    """
+    topology: dict[str, Any]
+    overview: MapOverview | None
+    meta: MapMeta | None
+    headline: ScoreboardHeadline | None

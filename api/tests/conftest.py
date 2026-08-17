@@ -41,6 +41,7 @@ class FakeCursor:
     def __init__(self):
         self.queries: list[tuple[str, tuple]] = []
         self.responses: list[list[tuple]] = []
+        self.connection: "FakeConn | None" = None
 
     def queue(self, rows: list[tuple]) -> None:
         self.responses.append(rows)
@@ -69,11 +70,16 @@ class FakeCursor:
 class FakeConn:
     def __init__(self, cursor: FakeCursor):
         self._cursor = cursor
+        # Some routes open a second cursor directly off ``cur.connection``
+        # (e.g. a tuple_row bulk fetch alongside the request's shared
+        # dict_row cursor, 0137) — point back so that resolves to the same
+        # fake cursor rather than raising AttributeError.
+        cursor.connection = self
 
     def cursor(self, *args, **kwargs):
         # Accept and ignore row_factory= and other psycopg cursor kwargs;
         # tests queue rows as whatever shape the production code expects
-        # (dicts, since routes use dict_row).
+        # (dicts for dict_row cursors, tuples for an explicit tuple_row one).
         return self._cursor
 
     def __enter__(self):
@@ -100,6 +106,8 @@ def fake_pool(monkeypatch):
     # tests without changing the production cache lifetime.
     from services.sf_artifacts import _ARTIFACT_CACHE
     _ARTIFACT_CACHE.clear()
+    import analysis
+    analysis._BRIEF_CACHE.clear()
     pool = FakePool()
     monkeypatch.setattr(db_module, 'pool', pool)
     return pool

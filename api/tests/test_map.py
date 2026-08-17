@@ -15,8 +15,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import HTTPException
 
 import map as map_module
+from models import MapMeta, MapOverview, ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
 WE = datetime(2026, 7, 2, tzinfo=timezone.utc)
@@ -336,3 +338,91 @@ def test_overview_types_and_node_field(real_client):
         assert all(abs(n["sf"]) >= 0.15 * c["max_abs_sf"] - 1e-9 for n in c["nodes"])
         # the client positions the mark from these coords
         assert all(n["lat"] is not None and n["lon"] is not None for n in c["nodes"])
+
+
+# --------------------------------------------------------------------------
+# /map/summary (0137) — mirrors test_analysis.py's brief-day composition
+# test and test_scoreboard_summary.py: monkeypatch the section handlers
+# directly rather than threading fake rows through their own (already
+# separately tested) query logic. `MapSummaryResponse(...)` is constructed
+# — and so validated by Pydantic — inside `get_map_summary` itself, so the
+# fakes must return real (if minimal) instances of each section's model.
+# --------------------------------------------------------------------------
+
+TOPOLOGY = {"type": "FeatureCollection", "features": []}
+OVERVIEW = MapOverview(run_id="map-v1", window_start=WS, window_end=WE, n=70, k=6, constraints=[])
+META = MapMeta(run_id="map-v1", window_start=WS, window_end=WE)
+HEADLINE = ScoreboardHeadline(run_id="r", regime="all", as_of_week=WS.date(), windows=[])
+
+
+def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypatch):
+    """Each handler is called in-process, bypassing FastAPI's dependency
+    injection, so any omitted parameter would receive its raw ``Query(...)``
+    object instead of the literal default. Assert the exact args every
+    section receives — overview at (70, 6, 0.15), matching MapWorkspace.tsx's
+    own override of the single-section endpoint's k=16 default; headline at
+    (None, "all"). Keyed by name since overview/meta/headline run on a thread
+    pool (not in submission order)."""
+    calls: dict[str, tuple] = {}
+
+    def _fake(name, result):
+        def _handler(*args):
+            calls[name] = args
+            return result
+        return _handler
+
+    monkeypatch.setattr(map_module, "get_map_overview", _fake("overview", OVERVIEW))
+    monkeypatch.setattr(map_module, "get_map_meta", _fake("meta", META))
+    monkeypatch.setattr(map_module, "get_scoreboard_headline", _fake("headline", HEADLINE))
+    monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
+
+    body = map_module.get_map_summary()
+
+    assert calls == {
+        "overview": (70, 6, 0.15),
+        "meta": (),
+        "headline": (None, "all"),
+    }
+    assert body.topology == TOPOLOGY
+    assert body.overview == OVERVIEW
+    assert body.meta == META
+    assert body.headline == HEADLINE
+
+
+def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest(
+    monkeypatch,
+):
+    """No SF window built yet must not take down the sections that do have
+    data — same soft-fail the client already applies per single-section
+    endpoint (503 -> null)."""
+    def _unavailable(*args):
+        raise HTTPException(status_code=503, detail="no window built")
+
+    monkeypatch.setattr(map_module, "get_map_overview", _unavailable)
+    monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
+    monkeypatch.setattr(map_module, "get_scoreboard_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
+
+    body = map_module.get_map_summary()
+
+    assert body.overview is None
+    assert body.meta == META
+    assert body.headline == HEADLINE
+    assert body.topology == TOPOLOGY
+
+
+def test_summary_does_not_soft_fail_a_topology_build_error(monkeypatch):
+    """Topology was never a null-and-continue case for the client
+    (`fetchTopology` always threw on non-503 failure) — the bundle preserves
+    that instead of inventing a new empty state for it."""
+    monkeypatch.setattr(map_module, "get_map_overview", lambda *a: OVERVIEW)
+    monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
+    monkeypatch.setattr(map_module, "get_scoreboard_headline", lambda *a: HEADLINE)
+
+    def _broken():
+        raise RuntimeError("topology cache build failed")
+
+    monkeypatch.setattr(map_module, "get_or_build_topology", _broken)
+
+    with pytest.raises(RuntimeError):
+        map_module.get_map_summary()

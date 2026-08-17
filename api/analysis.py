@@ -1,12 +1,16 @@
 """Query-backed endpoints for the daily Brief's analysis panels."""
 from __future__ import annotations
 
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+from threading import Lock
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from db import get_pool
 from models import (AnalysisContributionTerm, GradeAvailableResponse,
@@ -24,7 +28,7 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
                     ContextUnavailableResponse, GradeHistoryHalfResponse,
                     GradeHistoryDayResponse, GradeHistoryAvailableResponse,
-                    GradeHistoryUnavailableResponse)
+                    GradeHistoryUnavailableResponse, BriefDayResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -33,7 +37,7 @@ from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
-from services.sf_artifacts import load_daily_artifact, load_realized_mu
+from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
 
 router = APIRouter(prefix="/analysis")
 
@@ -297,25 +301,32 @@ def _settled_standout_keys(
 
 
 def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[str, list[float]]:
-    """Market-peak daily DAM congestion for a small selected node set."""
-    result = {point: [] for point in points}
-    for offset in range(30, 0, -1):
-        start, end = delivery_bounds(delivery_date - timedelta(days=offset))
-        cur.execute(
-            "SELECT s.settlement_point, avg(s.dam_spp - l.system_lambda) AS congestion "
-            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
-            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
-            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
-            "AND s.settlement_point = ANY(%s) "
-            "AND EXTRACT(HOUR FROM s.interval_ts AT TIME ZONE 'America/Chicago') BETWEEN 7 AND 22 "
-            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
-            "GROUP BY s.settlement_point",
-            (start, end, points),
-        )
-        values = {str(row["settlement_point"]): float(row["congestion"]) for row in cur.fetchall()}
-        for point in points:
-            result[point].append(values.get(point, 0.0))
-    return result
+    """Market-peak daily DAM congestion for a small selected node set.
+
+    One window query grouped by (point, CT delivery day) — mirrors
+    ``_settled_constraint_history``, replacing the former 30-round-trip
+    per-day loop (0137). Every requested point is present in the result
+    (quiet days fill 0.0), since callers index the dict directly."""
+    start, _ = delivery_bounds(delivery_date - timedelta(days=30))
+    end, _ = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT s.settlement_point, "
+        "(s.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date, "
+        "avg(s.dam_spp - l.system_lambda) AS congestion "
+        "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+        "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+        "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+        "AND s.settlement_point = ANY(%s) "
+        "AND EXTRACT(HOUR FROM s.interval_ts AT TIME ZONE 'America/Chicago') BETWEEN 7 AND 22 "
+        "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+        "GROUP BY s.settlement_point, (s.interval_ts AT TIME ZONE 'America/Chicago')::date",
+        (start, end, points),
+    )
+    by_day: dict[str, dict[date, float]] = {}
+    for row in cur.fetchall():
+        by_day.setdefault(str(row["settlement_point"]), {})[row["delivery_date"]] = float(row["congestion"])
+    days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
+    return {point: [by_day.get(point, {}).get(day, 0.0) for day in days] for point in points}
 
 
 def _settled_constraint_history(cur, delivery_date: date) -> dict[str, list[float]]:
@@ -375,16 +386,21 @@ def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) ->
     return profile.loc[(profile.index >= start) & (profile.index < end)]
 
 
-def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    """Project D's forecast μ hours through the day's complete SF column."""
+def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
+    """Project a decoded artifact's forecast μ through its SF column into a
+    per-node congestion profile, clipped to D's CT day. Shared by the single-day
+    path and the batched trailing-history load (0137)."""
     start, end = delivery_bounds(delivery_date)
-    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    if artifact is None:
-        return None
     mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
     profile = mu.dot(-artifact.SF)
     profile.index = pd.to_datetime(profile.index, utc=True)
     return profile.loc[(profile.index >= start) & (profile.index < end)]
+
+
+def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+    """Project D's forecast μ hours through the day's complete SF column."""
+    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+    return None if artifact is None else _project_node_profile(artifact, delivery_date)
 
 
 def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: int,
@@ -436,12 +452,78 @@ def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
     return result.reindex(pd.RangeIndex(count))
 
 
-def _trailing_settled_average(cur, delivery_date: date, count: int, loader) -> pd.DataFrame | None:
-    """A complete trailing-30-day settled baseline on the target's ordinal hours."""
+def _windowed_mu_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
+    """Batched trailing-window counterpart to ``_settled_mu_profile``: one query
+    over the whole window, split by CT delivery day, instead of one round trip
+    per day (0137) — ``_trailing_settled_average``'s dominant cost.
+
+    Fetches via a plain ``tuple_row`` cursor rather than the request's shared
+    ``dict_row`` one: a wide trailing window is tens of thousands of rows, and
+    building one dict per row (vs. a tuple) measurably dominates fetch time at
+    that volume (0137 profiling: ~30% faster fetch+frame-construction)."""
+    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
+    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
+    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
+        bulk_cur.execute(
+            "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
+            "interval_ts, btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+            "shadow_price FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+            "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
+            (window_start, window_end),
+        )
+        rows = bulk_cur.fetchall()
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows, columns=["interval_ts", "constraint_key", "shadow_price"])
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
+    return {
+        day: day_frame.pivot(index="interval_ts", columns="constraint_key",
+                             values="shadow_price").sort_index()
+        for day, day_frame in frame.groupby("delivery_date")
+    }
+
+
+def _windowed_node_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
+    """Batched trailing-window counterpart to ``_settled_node_profile`` — see
+    ``_windowed_mu_profiles`` (including why this uses a ``tuple_row`` cursor)."""
+    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
+    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
+    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
+        bulk_cur.execute(
+            "SELECT DISTINCT ON (s.interval_ts, s.settlement_point) "
+            "s.interval_ts, s.settlement_point, s.dam_spp - l.system_lambda AS congestion "
+            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+            "ORDER BY s.interval_ts, s.settlement_point, s.dst_flag ASC",
+            (window_start, window_end),
+        )
+        rows = bulk_cur.fetchall()
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows, columns=["interval_ts", "settlement_point", "congestion"])
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
+    return {
+        day: day_frame.pivot(index="interval_ts", columns="settlement_point",
+                             values="congestion").sort_index()
+        for day, day_frame in frame.groupby("delivery_date")
+    }
+
+
+def _trailing_settled_average(delivery_date: date, count: int,
+                              by_day: dict[date, pd.DataFrame]) -> pd.DataFrame | None:
+    """A complete trailing-30-day settled baseline on the target's ordinal hours.
+
+    ``by_day`` is pre-fetched by ``_windowed_mu_profiles``/``_windowed_node_profiles``
+    (one query for the whole window) rather than looked up one query per day."""
     profiles = []
     for offset in range(1, 31):
-        profile = loader(cur, delivery_date - timedelta(days=offset))
-        if profile.empty:
+        profile = by_day.get(delivery_date - timedelta(days=offset))
+        if profile is None or profile.empty:
             return None
         profiles.append(_ordinal_profile(profile, count))
     universe = list(dict.fromkeys(str(key) for profile in profiles for key in profile.columns))
@@ -479,7 +561,8 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(profile, len(profile))
     settled = _ordinal_profile(settled, len(profile))
     persistence = _ordinal_profile(persistence, len(profile))
-    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_mu_profile)
+    climatology = _trailing_settled_average(
+        delivery_date, len(profile), _windowed_mu_profiles(cur, delivery_date, 30))
     # The sparse settled profile carries the row-exists labels before values are
     # zero-filled by grade_profiles; a published zero remains a positive label.
     return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
@@ -510,7 +593,8 @@ def _grade_node_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(profile, len(profile)).abs()
     settled = _ordinal_profile(settled, len(profile)).abs()
     persistence = _ordinal_profile(persistence, len(profile)).abs()
-    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_node_profile)
+    climatology = _trailing_settled_average(
+        delivery_date, len(profile), _windowed_node_profiles(cur, delivery_date, 30))
     if climatology is not None:
         climatology = climatology.abs()
     # Nodes do not bind.  Their detection labels only filter floating-point
@@ -1000,10 +1084,13 @@ def get_standouts(
             cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
         node_histories: dict[str, list[float]] = {}
         if node_result is not None:
-            for offset in range(1, 31):
-                prior = _forecast_node_profile(cur, run_id, delivery_date - timedelta(days=offset), horizon)
-                if prior is None:
+            history_days = [delivery_date - timedelta(days=offset) for offset in range(1, 31)]
+            prior_artifacts = load_daily_artifacts(cur, run_id, history_days, horizon)
+            for day in history_days:
+                artifact = prior_artifacts.get(day)
+                if artifact is None:
                     continue
+                prior = _project_node_profile(artifact, day)
                 prior_profile = prior.loc[
                     prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
                 if prior_profile.empty:
@@ -1333,3 +1420,97 @@ def get_hero(
             "provenance": {"run_id": run_id, "delivery_date": delivery_date,
                            "horizon": horizon, "basis": basis},
         }
+
+
+_CT = ZoneInfo("America/Chicago")
+
+# A settled delivery day's Brief is immutable: a past day's final artifact and
+# its day-ahead DAM inputs no longer change, so the whole composed payload —
+# decode and all the section pandas — can be memoized (0137). Payloads are small
+# JSON, so this is bounded by count, not bytes. Keyed by (run_id, day, horizon).
+_BRIEF_CACHE_MAX = 512
+_BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDict()
+_BRIEF_CACHE_LOCK = Lock()
+
+
+def _brief_cache_get(key: tuple[str, date, int]) -> "BriefDayResponse | None":
+    with _BRIEF_CACHE_LOCK:
+        response = _BRIEF_CACHE.get(key)
+        if response is not None:
+            _BRIEF_CACHE.move_to_end(key)
+        return response
+
+
+def _brief_cache_put(key: tuple[str, date, int], response: "BriefDayResponse") -> None:
+    with _BRIEF_CACHE_LOCK:
+        _BRIEF_CACHE[key] = response
+        _BRIEF_CACHE.move_to_end(key)
+        while len(_BRIEF_CACHE) > _BRIEF_CACHE_MAX:
+            _BRIEF_CACHE.popitem(last=False)
+
+
+def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
+    """A day whose Brief can no longer change. The Brief reads only day-ahead
+    DAM data (shadow prices, SPP) — published before the delivery day and never
+    revised — so it is fixed once (a) the final artifact has landed
+    (``horizon == 1``, not a preview), (b) the day is strictly past in CT, so its
+    DAM is fully ingested (no partial-ingestion race), and (c) that DAM is
+    actually present (guards a stalled feed). Today/preview days recompute."""
+    if horizon != 1 or delivery_date >= datetime.now(_CT).date():
+        return False
+    return _dam_landed(cur, delivery_date)
+
+
+@router.get("/brief", response_model=BriefDayResponse,
+            summary="One bundled payload for a Brief delivery day (0137)")
+def get_brief_day(
+    day: date = Query(..., description="ERCOT delivery day."),
+    run: str | None = Query(None, description="Model version; defaults to the published run."),
+) -> BriefDayResponse:
+    """Compose the Brief's eight per-day requests behind one call.
+
+    Resolves run/horizon once so every section reads the same artifact, then
+    delegates to each section's own handler — pure composition, no duplicated
+    query logic to drift out of sync with the single-section endpoints.
+
+    Each handler is called directly as a plain function, bypassing FastAPI's
+    request-time dependency injection — so every one of its parameters must be
+    passed an explicit literal value. A parameter left to its declared default
+    would instead receive that default's raw ``Query(...)`` sentinel object,
+    since resolving ``Query(...)`` into its literal is normally FastAPI's job.
+
+    The seven handlers run on a thread pool, not sequentially. Each is a sync,
+    DB-bound function that opens its own connection (the pool budgets
+    ``max_size=8``, so 7 concurrent checkouts fit); run one after another they
+    would cost ``sum(sections)`` wall-clock instead of ``max(sections)`` —
+    strictly worse than the 7 parallel requests this endpoint replaces.
+    """
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run)
+        horizon = _resolve_horizon(cur, run_id, day, None)
+        final = horizon is not None and _brief_is_final(cur, day, horizon)
+    key = (run_id, day, horizon)
+    if final:
+        cached = _brief_cache_get(key)
+        if cached is not None:
+            return cached
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        hero = pool.submit(get_hero, day, run_id, horizon)
+        context = pool.submit(get_context, day, run_id, horizon, 14)
+        standouts = pool.submit(get_standouts, day, run_id, horizon, 4)
+        top_nodes = pool.submit(get_top_nodes, day, run_id, horizon, 10)
+        top_constraints = pool.submit(get_top_constraints, day, run_id, horizon, 10)
+        grade = pool.submit(get_grade, day, run_id, horizon)
+        grade_history = pool.submit(get_grade_history, day, run_id, horizon, 30)
+        response = BriefDayResponse(
+            hero=hero.result(),
+            context=context.result(),
+            standouts=standouts.result(),
+            top_nodes=top_nodes.result(),
+            top_constraints=top_constraints.result(),
+            grade=grade.result(),
+            grade_history=grade_history.result(),
+        )
+    if final:
+        _brief_cache_put(key, response)
+    return response

@@ -3,21 +3,14 @@ import type {
   ErcotSppRangeResponse,
   ErcotRangeResponse,
   ForecastRangeResponse,
-  MapMeta,
   ExposuresResponse,
   ConstraintReach,
-  MapOverview,
+  MapSummary,
   RankedConstraints,
-  ScoreboardHeadline,
-  ScoreboardWeekly,
-  ScoreboardDaily,
+  ScoreboardSummary,
   MatrixFrame,
-  BriefHero,
   BriefHeroLatest,
-  Standouts,
-  TopConstraints,
-  TopNodes,
-  AnalysisGrade,
+  BriefDay,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
@@ -132,11 +125,17 @@ export async function fetchErcotRange(
 // These are not time-indexed — one resolved (run_id, window_start) per request.
 // =============================================================================
 
-// The refit being served (run + window + confidence). Null on 503.
-export async function fetchMapMeta(): Promise<MapMeta | null> {
-  const r = await fetch(`${BASE}/map/meta`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`map/meta ${r.status}`);
+// One bundled payload for the Map workspace's load-time requests (0137) —
+// replaces the topology + overview + meta + headline fan-out with a single
+// request. Each
+// field keeps its prior section shape; overview/meta/headline are null
+// exactly when that section's own endpoint would 503 (nothing built/loaded
+// for it yet). Interaction endpoints (map/reach, map/exposures,
+// map/constraints/ranked) are untouched — they fire on hover/click/
+// navigation, not load, so they stay their own calls.
+export async function fetchMapSummary(): Promise<MapSummary> {
+  const r = await fetch(`${BASE}/map/summary`);
+  if (!r.ok) throw new Error(`map/summary ${r.status}`);
   return r.json();
 }
 
@@ -192,20 +191,6 @@ export async function fetchMapReach(
   return r.json();
 }
 
-// The de-piled overview: top-`n` constraints by binding hours, each at its |SF|²
-// core with its type and signed top-`k` field. One bulk payload for the initial
-// all-constraints presentation (replaces the /map/constraints centroid pile).
-// Null on 503.
-export async function fetchMapOverview(
-  n = 70,
-  k = 16
-): Promise<MapOverview | null> {
-  const r = await fetch(`${BASE}/map/overview?n=${n}&k=${k}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`map/overview ${r.status}`);
-  return r.json();
-}
-
 // The per-day ranked constraint list — "which constraints drive today's
 // congestion", the list companion to the overview marker pile. `basis` picks the
 // μ series (predicted E_mu vs realized DAM shadow prices); the server owns the
@@ -225,66 +210,22 @@ export async function fetchMapConstraintsRanked(
   return r.json();
 }
 
-// The rolling backtest headline (30/90-day tiles) for the side-panel scorecard.
-// Same soft-fail contract: 503 (no board loaded / regime has no rows) returns
-// null so the panel renders its network stats without the scorecard rather than
-// erroring. Reads the backtest board — independent of the forecast run.
-export async function fetchScoreboardHeadline(
+// One bundled payload for the Scoreboard page's load-time requests (0137) —
+// replaces the
+// weekly + headline + daily fan-out with a single request. Each field keeps
+// its prior section shape; null exactly when that section's own endpoint
+// would 503 (that board has no rows yet), so the page can still render the
+// sections that do have data. `source`/`since` are fixed server-side to match
+// what the Scoreboard page always requested (`model`, full history) — only
+// `regime` varies from the client.
+export async function fetchScoreboardSummary(
   regime = "all"
-): Promise<ScoreboardHeadline | null> {
+): Promise<ScoreboardSummary | null> {
   const r = await fetch(
-    `${BASE}/scoreboard/headline?regime=${encodeURIComponent(regime)}`
+    `${BASE}/scoreboard/summary?regime=${encodeURIComponent(regime)}`
   );
   if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/headline ${r.status}`);
-  return r.json();
-}
-
-// The full weekly backtest series + pooled pre/post-RTC+B summary for the
-// scoreboard page. All sources ride along regardless of `source` (the page's
-// foregrounded series). Same soft-fail contract: 503 (no board / regime empty)
-// returns null. Reads the backtest board — independent of the forecast run.
-export async function fetchScoreboardWeekly(
-  source = "model",
-  regime = "all"
-): Promise<ScoreboardWeekly | null> {
-  const qs = new URLSearchParams({ source, regime });
-  const r = await fetch(`${BASE}/scoreboard/weekly?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/weekly ${r.status}`);
-  return r.json();
-}
-
-// The LIVE per-delivery-day grade series — grades of the SERVED forecast, the
-// live counterpart to the weekly backtest board. All sources ride along
-// regardless of `source` (the page's foregrounded series). Resolves its own
-// run_id (the run with the most recent graded day), independent of the board.
-// Same soft-fail contract: 503 (no live grade has run yet / no rows since the
-// date) returns null so the page renders the backtest board alone rather than
-// erroring.
-export async function fetchScoreboardDaily(
-  source = "model",
-  since?: string
-): Promise<ScoreboardDaily | null> {
-  const qs = new URLSearchParams({ source });
-  if (since) qs.set("since", since);
-  const r = await fetch(`${BASE}/scoreboard/daily?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/daily ${r.status}`);
-  return r.json();
-}
-
-// v6's generated hero.  An absent artifact is a successful, explicit empty
-// state; 503 still means no published run at all.
-export async function fetchBriefHero(
-  deliveryDate: string,
-  runId?: string
-): Promise<BriefHero | null> {
-  const qs = new URLSearchParams({ date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  const r = await fetch(`${BASE}/analysis/hero?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/hero ${r.status}`);
+  if (!r.ok) throw new Error(`scoreboard/summary ${r.status}`);
   return r.json();
 }
 
@@ -302,84 +243,18 @@ export async function fetchBriefHeroLatest(
   return r.json();
 }
 
-export async function fetchTopConstraints(
+// One bundled payload for a Brief delivery day (0137) — replaces the
+// hero/context/standouts/top-nodes/top-constraints/grade/grade-history
+// fan-out with a single request. Each field keeps its prior section shape.
+export async function fetchBriefDay(
   deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<TopConstraints | null> {
-  // The server owns the row cap and echoes it back as `k`; the client never
-  // sets it, so the asterisk threshold can't desync from the served count.
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/top-constraints?${qs.toString()}`);
+  runId?: string,
+): Promise<BriefDay | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/top-constraints ${r.status}`);
-  return r.json();
-}
-
-export async function fetchBriefContext(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<import("./types").BriefContext | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/context?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/context ${r.status}`);
-  return r.json();
-}
-
-export async function fetchStandouts(
-  deliveryDate: string,
-  { runId, horizon, k = 4 }: { runId?: string; horizon?: number; k?: number } = {},
-): Promise<Standouts | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate, k: String(k) });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/standouts?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/standouts ${r.status}`);
-  return r.json();
-}
-
-export async function fetchTopNodes(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<TopNodes | null> {
-  // Server-owned row cap, echoed back as `k` (see fetchTopConstraints).
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/top-nodes?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/top-nodes ${r.status}`);
-  return r.json();
-}
-
-export async function fetchAnalysisGrade(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<AnalysisGrade | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/grade?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/grade ${r.status}`);
-  return r.json();
-}
-
-export async function fetchAnalysisGradeHistory(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<import("./types").AnalysisGradeHistory | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/grade-history?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/grade-history ${r.status}`);
+  if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
   return r.json();
 }
 

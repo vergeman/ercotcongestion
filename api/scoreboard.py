@@ -21,7 +21,9 @@ rows, matching the realized ranges' soft-fail contract.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from typing import Callable, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
@@ -33,6 +35,7 @@ from models import (
     HeadlineWindow,
     ScoreboardDaily,
     ScoreboardHeadline,
+    ScoreboardSummaryResponse,
     ScoreboardWeekly,
     SourcePooled,
     WeeklyPoint,
@@ -412,3 +415,59 @@ def get_scoreboard_daily(
         primary_source=source,
         points=[DailyPoint(**r) for r in rows],
     )
+
+
+# --------------------------------------------------------------------------
+# /scoreboard/summary — the Scoreboard page's load-time trio in one call (0137)
+# --------------------------------------------------------------------------
+
+_T = TypeVar("_T")
+
+
+def _soft_fail(build: Callable[[], _T]) -> _T | None:
+    """Run one section's builder; a 503 (that board has no rows yet) becomes
+    ``None`` here instead of failing the whole bundle — the same soft-fail the
+    client already applies per single-section endpoint, just moved server-side."""
+    try:
+        return build()
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return None
+        raise
+
+
+@router.get(
+    "/scoreboard/summary",
+    response_model=ScoreboardSummaryResponse,
+    summary="One bundled payload for the Scoreboard page summary (0137)",
+)
+def get_scoreboard_summary(
+    regime: str = Query(
+        "all",
+        description="Regime slice — `all` or a net-load quintile / named regime.",
+    ),
+) -> ScoreboardSummaryResponse:
+    """Compose the Scoreboard's three load-time requests behind one call.
+
+    ``weekly``/``headline`` both resolve their own latest ``run_id`` from
+    ``scoreboard_weekly``; ``daily`` resolves independently from the separate
+    ``scoreboard_daily`` live board. Unlike the Brief's per-day sections, these
+    are not forced onto one shared run — that already-independent resolution
+    is exactly what today's three separate requests do, so this composition
+    preserves it rather than unifying it.
+
+    Each handler is called directly as a plain function, bypassing FastAPI's
+    request-time dependency injection, so every parameter is passed an
+    explicit literal (see ``get_brief_day``'s docstring for why) — and the
+    three run on a thread pool so one slow section can't serialize behind
+    another.
+    """
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        weekly = pool.submit(_soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
+        headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, regime))
+        daily = pool.submit(_soft_fail, lambda: get_scoreboard_daily(None, "model", None))
+        return ScoreboardSummaryResponse(
+            weekly=weekly.result(),
+            headline=headline.result(),
+            daily=daily.result(),
+        )
