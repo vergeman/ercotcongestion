@@ -92,6 +92,54 @@ def test_windowed_node_profiles_batches_the_trailing_window_into_per_day_frames(
     assert list(by_day[date(2026, 7, 27)]["SP1"]) == [-2.0]
 
 
+def _peak_hour_artifact(day: str):
+    """A one-constraint artifact whose two hours land inside CT 7×16 (18:00Z ->
+    13:00 CT, 19:00Z -> 14:00 CT), so ``_project_node_profile`` keeps both."""
+    ts = pd.to_datetime([f"{day}T18:00Z", f"{day}T19:00Z"])
+    return SfMuArtifact(
+        SF=pd.DataFrame([[1.0, 0.2]], index=["A|B"], columns=["SOURCE", "SINK"]),
+        E_mu=pd.DataFrame([[4.0], [6.0]], index=ts, columns=["A|B"]),
+    )
+
+
+def test_forecast_node_history_reads_forecast_nodal_in_one_query(fake_pool, monkeypatch):
+    """0138: the trailing forecast node history is one ``forecast_nodal`` query
+    (peak-hour mean per point/day) instead of decoding 30 prior-day artifacts.
+    With every present day covered by the table, the artifact fallback finds
+    nothing to add and no extra query is issued."""
+    monkeypatch.setattr(analysis_module, "load_daily_artifacts", lambda *a, **k: {})
+    fake_pool.cursor.queue([
+        {"settlement_point": "SP1", "delivery_date": date(2026, 7, 26), "peak_mean": 3.0},
+        {"settlement_point": "SP1", "delivery_date": date(2026, 7, 27), "peak_mean": 5.0},
+        {"settlement_point": "SP2", "delivery_date": date(2026, 7, 27), "peak_mean": -2.0},
+    ])
+    with fake_pool.connection() as conn:
+        cur = conn.cursor(row_factory=None)
+        histories = analysis_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
+
+    assert len(fake_pool.cursor.queries) == 1
+    assert sorted(histories["SP1"]) == [3.0, 5.0]
+    assert histories["SP2"] == [-2.0]
+
+
+def test_forecast_node_history_falls_back_to_artifact_for_absent_days(fake_pool, monkeypatch):
+    """A trailing day missing from ``forecast_nodal`` degrades to projecting that
+    day's artifact the old way (0138), so a coverage hole never silently drops a
+    day from every node's baseline."""
+    monkeypatch.setattr(
+        analysis_module, "load_daily_artifacts",
+        lambda cur, run_id, days, horizon: {date(2026, 7, 27): _peak_hour_artifact("2026-07-27")})
+    fake_pool.cursor.queue([])  # forecast_nodal empty -> all 30 trailing days missing
+
+    with fake_pool.connection() as conn:
+        cur = conn.cursor(row_factory=None)
+        histories = analysis_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
+
+    # -SF projection: SOURCE = -1.0*[4,6] -> mean -5.0; SINK = -0.2*[4,6] -> mean -1.0.
+    assert histories["SOURCE"] == [-5.0]
+    assert histories["SINK"] == [-1.0]
+
+
 def test_trailing_settled_average_returns_none_when_a_trailing_day_is_missing():
     """A gap anywhere in the trailing window keeps the whole climatology
     unavailable — a partial baseline is not reported as a real one."""

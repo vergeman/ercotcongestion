@@ -329,6 +329,59 @@ def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[s
     return {point: [by_day.get(point, {}).get(day, 0.0) for day in days] for point in points}
 
 
+def _forecast_node_history(cur, run_id: str, delivery_date: date,
+                           horizon: int) -> dict[str, list[float]]:
+    """Trailing-30-day forecast peak-hour congestion per node, read from
+    ``forecast_nodal`` in one query instead of decoding 30 daily SF+μ artifacts
+    (0138).
+
+    ``forecast_nodal.point`` is the same ``−(E[μ]·SF)`` the artifact path projects
+    (``compute/sf/project.py``), so this is numerically equivalent to the old
+    ``_project_node_profile`` loop within the table's float32 storage. Grouping on
+    the stored ``delivery_date`` label (not the CT date of ``ts``) reproduces the
+    artifact path's per-day binning exactly — including for days still on the
+    pre-0133 UTC-day cut — while the ``MARKET_PEAK_CT_HOURS`` filter matches the CT
+    7×16 window the loop applied.
+
+    Any prior day absent from ``forecast_nodal`` falls back to decoding that day's
+    artifact (belt-and-suspenders: prod nodal coverage tracks the artifacts in
+    lockstep, since ``persist_forecast`` writes both atomically). Values are
+    one-per-present-day and unordered; the standout selectors consume only each
+    series' length and median."""
+    cur.execute(
+        "SELECT settlement_point, delivery_date, avg(point) AS peak_mean "
+        "FROM forecast_nodal WHERE run_id = %s AND horizon = %s "
+        "AND delivery_date >= %s - 30 AND delivery_date < %s AND point IS NOT NULL "
+        "AND EXTRACT(HOUR FROM ts AT TIME ZONE 'America/Chicago')::int = ANY(%s) "
+        "GROUP BY settlement_point, delivery_date",
+        (run_id, horizon, delivery_date, delivery_date, list(MARKET_PEAK_CT_HOURS)),
+    )
+    histories: dict[str, list[float]] = {}
+    present: set[date] = set()
+    for row in cur.fetchall():
+        histories.setdefault(str(row["settlement_point"]), []).append(float(row["peak_mean"]))
+        present.add(row["delivery_date"])
+    # Fallback: any trailing day with no forecast_nodal rows is projected the old
+    # way from its artifact, so a coverage hole degrades to the prior behaviour
+    # rather than silently dropping a day from every node's baseline.
+    missing = [delivery_date - timedelta(days=offset) for offset in range(1, 31)
+               if delivery_date - timedelta(days=offset) not in present]
+    if missing:
+        prior_artifacts = load_daily_artifacts(cur, run_id, missing, horizon)
+        for day in missing:
+            artifact = prior_artifacts.get(day)
+            if artifact is None:
+                continue
+            prior = _project_node_profile(artifact, day)
+            prior_profile = prior.loc[
+                prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
+            if prior_profile.empty:
+                continue
+            for point, value in prior_profile.mean(axis=0).items():
+                histories.setdefault(str(point), []).append(float(value))
+    return histories
+
+
 def _settled_constraint_history(cur, delivery_date: date) -> dict[str, list[float]]:
     """Trailing 30 Chicago delivery-day Σμ series, including quiet zero days."""
     start, _ = delivery_bounds(delivery_date - timedelta(days=30))
@@ -1084,19 +1137,10 @@ def get_standouts(
             cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
         node_histories: dict[str, list[float]] = {}
         if node_result is not None:
-            history_days = [delivery_date - timedelta(days=offset) for offset in range(1, 31)]
-            prior_artifacts = load_daily_artifacts(cur, run_id, history_days, horizon)
-            for day in history_days:
-                artifact = prior_artifacts.get(day)
-                if artifact is None:
-                    continue
-                prior = _project_node_profile(artifact, day)
-                prior_profile = prior.loc[
-                    prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
-                if prior_profile.empty:
-                    continue
-                for point, value in prior_profile.mean(axis=0).items():
-                    node_histories.setdefault(str(point), []).append(float(value))
+            # Trailing forecast node history now reads forecast_nodal in one query
+            # (0138) instead of decoding 30 prior-day artifacts; artifact fallback
+            # for any absent day lives inside the helper.
+            node_histories = _forecast_node_history(cur, run_id, delivery_date, horizon)
             node_settled = _settled_node_profile(cur, delivery_date)
             cur.execute(
                 "SELECT interval_ts, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
