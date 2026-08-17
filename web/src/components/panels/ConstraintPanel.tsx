@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
-import type {
-  RankedConstraints,
-  ConstraintReach,
-} from "../../api/types";
-import { fetchMapReach } from "../../api/client";
-import { SF_EXPORT_COLOR, SF_IMPORT_COLOR, shiftFactorColor } from "../../lib/colors";
+import { useState } from "react";
+import type { RankedConstraints } from "../../api/types";
 import Tooltip from "../ui/Tooltip";
+import {
+  ConstraintReachStyles,
+  Dipole,
+  Membership,
+  SfDipoleLegend,
+  fmtMag,
+} from "./ConstraintReach";
 
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
 // driving congestion — the list-shaped companion to the map's marker pile, which
@@ -15,14 +17,9 @@ import Tooltip from "../ui/Tooltip";
 // overlay (via `onHover`), the same way the map itself is navigated. The server
 // owns the order — this component never re-ranks.
 //
-// Colour: import/export is a structural polarity (docs/SF.md), distinct from
-// signed metric maps. Import (SF<0, receiving/expensive) is soft magenta;
-// export (SF>0, trapped/cheap) is teal.
-
-// One /map/reach lookup per constraint is stable for the session (same map run),
-// so cache it module-side: hovering down the list is then instant and never spams
-// the endpoint.
-const reachCache = new Map<string, ConstraintReach | null>();
+// The reach fetch/cache, the Dipole/Membership glyphs, and the SF legend are the
+// shared constraint-structure primitives (./ConstraintReach) — the same evidence
+// the Brief detail panel renders (plan/0135), so they live once, not per page.
 
 interface Props {
   ranked: RankedConstraints | null;
@@ -40,95 +37,6 @@ interface Props {
   onSelect?: (id: string) => void;
   // A constituent SP hovered in an expanded row → ring that node on the map.
   onMemberHover?: (sp: string | null) => void;
-}
-
-// Compact magnitude for the contribution figure (a relative $·SF·h score):
-// 1.2k / 3.4M so the number stays one glance wide.
-function fmtMag(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
-  return v.toFixed(0);
-}
-
-// One constraint's expanded membership — the signed reach, import ends (SF<0) then
-// export ends (SF>0), each coloured by its pole. Reads the module cache first, so a
-// re-hover paints instantly; only a cache miss hits /map/reach.
-function Membership({
-  id,
-  onMemberHover,
-}: {
-  id: string;
-  onMemberHover?: (sp: string | null) => void;
-}) {
-  const [reach, setReach] = useState<ConstraintReach | null>(
-    reachCache.has(id) ? reachCache.get(id)! : null
-  );
-  const [loading, setLoading] = useState(!reachCache.has(id));
-  useEffect(() => {
-    // A membership row is keyed by constraint id, so its initial state already
-    // reflects a cache hit. Only cache misses need an asynchronous update.
-    if (reachCache.has(id)) return;
-    let live = true;
-    fetchMapReach(id, 20)
-      .then((r) => {
-        reachCache.set(id, r);
-        if (live) setReach(r);
-      })
-      .catch(() => {
-        reachCache.set(id, null);
-        if (live) setReach(null);
-      })
-      .finally(() => live && setLoading(false));
-    return () => {
-      live = false;
-    };
-  }, [id]);
-
-  if (loading) return <div className="cp-mem-msg">loading members…</div>;
-  if (!reach || reach.sps.length === 0)
-    return <div className="cp-mem-msg">no located members</div>;
-
-  return (
-    <ul
-      className="cp-mem"
-      role="list"
-      onMouseLeave={() => onMemberHover?.(null)}
-    >
-      {reach.sps.map((s) => {
-        const imp = s.sf < 0;
-        return (
-          <li
-            key={s.settlement_point}
-            className="cp-mem-row"
-            onMouseEnter={() => onMemberHover?.(s.settlement_point)}
-          >
-            <span className="cp-dot" style={{ background: shiftFactorColor(s.sf) }} />
-            <span className="cp-mem-sp mono">{s.settlement_point}</span>
-            <span className="cp-mem-sf mono" style={{ color: shiftFactorColor(s.sf) }}>
-              {imp ? "import" : "export"} {s.sf.toFixed(2)}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-// The import↔export dipole as a compact bicolor gauge: soft magenta (import,
-// SF<0) vs teal (export, SF>0), split by located-node share, so the row shows at a glance which
-// way the constraint pushes congestion. (`imp` is the server's n_import — the
-// SF<0 node count; `exp` its n_export — the SF>0 node count.)
-function Dipole({ imp, exp }: { imp: number; exp: number }) {
-  const s = imp;
-  const k = exp;
-  const tot = s + k || 1;
-  return (
-    <span className="cp-dip">
-      <span className="cp-dip-seg" style={{ width: `${(s / tot) * 100}%`, background: SF_IMPORT_COLOR }} />
-      <span className="cp-dip-seg" style={{ width: `${(k / tot) * 100}%`, background: SF_EXPORT_COLOR }} />
-    </span>
-  );
 }
 
 export default function ConstraintPanel({
@@ -161,6 +69,7 @@ export default function ConstraintPanel({
 
   return (
     <div className="cp">
+      <ConstraintReachStyles />
       <div className="np-section__header cp-header">
         <span className="label">Constraints</span>
         <div className="cp-header-actions">
@@ -198,23 +107,16 @@ export default function ConstraintPanel({
         constraint drives the day's congestion). The bar is its share of the top
         constraint. Hover a row to isolate it on the map; click to expand its
         member nodes.
-        <span className="cp-key-legend">
-          <span className="cp-key-item">
-            <span className="cp-dot" style={{ background: SF_IMPORT_COLOR }} /> SF&nbsp;&lt;&nbsp;0 · import (price ↑)
-          </span>
-          <span className="cp-key-item">
-            <span className="cp-dot" style={{ background: SF_EXPORT_COLOR }} /> SF&nbsp;&gt;&nbsp;0 · export (price ↓)
-          </span>
-        </span>
+        <SfDipoleLegend />
       </div>
 
       {!loading && !ranked && (
-        <div className="cp-mem-msg">
+        <div className="cr-mem-msg">
           no ranking for this day{basis === "realized" ? " (DAM not published yet)" : ""}
         </div>
       )}
       {!loading && ranked && rows.length === 0 && (
-        <div className="cp-mem-msg">no constraints carried contribution</div>
+        <div className="cr-mem-msg">no constraints carried contribution</div>
       )}
 
       {rows.length > 0 && (
@@ -287,15 +189,6 @@ export default function ConstraintPanel({
           margin-bottom: 10px;
         }
         .cp-caption b { color: var(--text-secondary); font-weight: 600; }
-        /* Compact import/export key — the SF-sign convention (docs/SF.md), inline
-           so it reads next to the ranked list it explains. */
-        .cp-key-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }
-        .cp-key-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-        .cp-mem-msg {
-          font-size: 12px; color: var(--text-muted);
-          padding: 8px 2px; font-family: var(--font-label);
-          letter-spacing: normal;
-        }
         /* One shared grid so the header labels sit exactly over the row cells.
            Columns are px (not em) because the header and data rows have different
            font-sizes — em would resolve to different widths and drift apart. */
@@ -342,22 +235,6 @@ export default function ConstraintPanel({
           position: relative; font-size: 10px; color: var(--text-primary);
           padding-right: 4px;
         }
-        .cp-dip {
-          display: inline-flex; height: 12px; width: 100%;
-          border-radius: 2px; overflow: hidden; gap: 1.5px;
-          background: var(--bg-panel);
-        }
-        .cp-dip-seg { height: 100%; }
-        .cp-mem { list-style: none; margin: 0 0 6px; padding: 2px 0 4px 20px; }
-        .cp-mem-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px;
-          border-radius: 3px; cursor: default; }
-        .cp-mem-row:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-        .cp-dot { width: 7px; height: 7px; border-radius: 2px; flex: 0 0 auto; }
-        .cp-mem-sp {
-          flex: 1; font-size: 11px; color: var(--text-secondary);
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .cp-mem-sf { font-size: 11px; font-weight: 700; white-space: nowrap; }
       `}</style>
     </div>
   );
