@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from db import get_pool
 from models import (AnalysisContributionTerm, GradeAvailableResponse,
@@ -437,12 +437,78 @@ def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
     return result.reindex(pd.RangeIndex(count))
 
 
-def _trailing_settled_average(cur, delivery_date: date, count: int, loader) -> pd.DataFrame | None:
-    """A complete trailing-30-day settled baseline on the target's ordinal hours."""
+def _windowed_mu_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
+    """Batched trailing-window counterpart to ``_settled_mu_profile``: one query
+    over the whole window, split by CT delivery day, instead of one round trip
+    per day (0137) — ``_trailing_settled_average``'s dominant cost.
+
+    Fetches via a plain ``tuple_row`` cursor rather than the request's shared
+    ``dict_row`` one: a wide trailing window is tens of thousands of rows, and
+    building one dict per row (vs. a tuple) measurably dominates fetch time at
+    that volume (0137 profiling: ~30% faster fetch+frame-construction)."""
+    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
+    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
+    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
+        bulk_cur.execute(
+            "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
+            "interval_ts, btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
+            "shadow_price FROM ercot_dam_shadow_prices "
+            "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
+            "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
+            (window_start, window_end),
+        )
+        rows = bulk_cur.fetchall()
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows, columns=["interval_ts", "constraint_key", "shadow_price"])
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
+    return {
+        day: day_frame.pivot(index="interval_ts", columns="constraint_key",
+                             values="shadow_price").sort_index()
+        for day, day_frame in frame.groupby("delivery_date")
+    }
+
+
+def _windowed_node_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
+    """Batched trailing-window counterpart to ``_settled_node_profile`` — see
+    ``_windowed_mu_profiles`` (including why this uses a ``tuple_row`` cursor)."""
+    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
+    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
+    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
+        bulk_cur.execute(
+            "SELECT DISTINCT ON (s.interval_ts, s.settlement_point) "
+            "s.interval_ts, s.settlement_point, s.dam_spp - l.system_lambda AS congestion "
+            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+            "ORDER BY s.interval_ts, s.settlement_point, s.dst_flag ASC",
+            (window_start, window_end),
+        )
+        rows = bulk_cur.fetchall()
+    if not rows:
+        return {}
+    frame = pd.DataFrame(rows, columns=["interval_ts", "settlement_point", "congestion"])
+    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
+    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
+    return {
+        day: day_frame.pivot(index="interval_ts", columns="settlement_point",
+                             values="congestion").sort_index()
+        for day, day_frame in frame.groupby("delivery_date")
+    }
+
+
+def _trailing_settled_average(delivery_date: date, count: int,
+                              by_day: dict[date, pd.DataFrame]) -> pd.DataFrame | None:
+    """A complete trailing-30-day settled baseline on the target's ordinal hours.
+
+    ``by_day`` is pre-fetched by ``_windowed_mu_profiles``/``_windowed_node_profiles``
+    (one query for the whole window) rather than looked up one query per day."""
     profiles = []
     for offset in range(1, 31):
-        profile = loader(cur, delivery_date - timedelta(days=offset))
-        if profile.empty:
+        profile = by_day.get(delivery_date - timedelta(days=offset))
+        if profile is None or profile.empty:
             return None
         profiles.append(_ordinal_profile(profile, count))
     universe = list(dict.fromkeys(str(key) for profile in profiles for key in profile.columns))
@@ -480,7 +546,8 @@ def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(profile, len(profile))
     settled = _ordinal_profile(settled, len(profile))
     persistence = _ordinal_profile(persistence, len(profile))
-    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_mu_profile)
+    climatology = _trailing_settled_average(
+        delivery_date, len(profile), _windowed_mu_profiles(cur, delivery_date, 30))
     # The sparse settled profile carries the row-exists labels before values are
     # zero-filled by grade_profiles; a published zero remains a positive label.
     return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
@@ -511,7 +578,8 @@ def _grade_node_profiles(cur, run_id: str, delivery_date: date,
     model = _ordinal_profile(profile, len(profile)).abs()
     settled = _ordinal_profile(settled, len(profile)).abs()
     persistence = _ordinal_profile(persistence, len(profile)).abs()
-    climatology = _trailing_settled_average(cur, delivery_date, len(profile), _settled_node_profile)
+    climatology = _trailing_settled_average(
+        delivery_date, len(profile), _windowed_node_profiles(cur, delivery_date, 30))
     if climatology is not None:
         climatology = climatology.abs()
     # Nodes do not bind.  Their detection labels only filter floating-point
