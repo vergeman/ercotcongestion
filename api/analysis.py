@@ -1,6 +1,7 @@
 """Query-backed endpoints for the daily Brief's analysis panels."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import NamedTuple
 
@@ -24,7 +25,7 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
                     ContextUnavailableResponse, GradeHistoryHalfResponse,
                     GradeHistoryDayResponse, GradeHistoryAvailableResponse,
-                    GradeHistoryUnavailableResponse)
+                    GradeHistoryUnavailableResponse, BriefDayResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -1333,3 +1334,49 @@ def get_hero(
             "provenance": {"run_id": run_id, "delivery_date": delivery_date,
                            "horizon": horizon, "basis": basis},
         }
+
+
+@router.get("/brief", response_model=BriefDayResponse,
+            summary="One bundled payload for a Brief delivery day (0137)")
+def get_brief_day(
+    day: date = Query(..., description="ERCOT delivery day."),
+    run: str | None = Query(None, description="Model version; defaults to the published run."),
+) -> BriefDayResponse:
+    """Compose the Brief's eight per-day requests behind one call.
+
+    Resolves run/horizon once so every section reads the same artifact, then
+    delegates to each section's own handler — pure composition, no duplicated
+    query logic to drift out of sync with the single-section endpoints.
+
+    Each handler is called directly as a plain function, bypassing FastAPI's
+    request-time dependency injection — so every one of its parameters must be
+    passed an explicit literal value. A parameter left to its declared default
+    would instead receive that default's raw ``Query(...)`` sentinel object,
+    since resolving ``Query(...)`` into its literal is normally FastAPI's job.
+
+    The seven handlers run on a thread pool, not sequentially. Each is a sync,
+    DB-bound function that opens its own connection (the pool budgets
+    ``max_size=8``, so 7 concurrent checkouts fit); run one after another they
+    would cost ``sum(sections)`` wall-clock instead of ``max(sections)`` —
+    strictly worse than the 7 parallel requests this endpoint replaces.
+    """
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run)
+        horizon = _resolve_horizon(cur, run_id, day, None)
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        hero = pool.submit(get_hero, day, run_id, horizon)
+        context = pool.submit(get_context, day, run_id, horizon, 14)
+        standouts = pool.submit(get_standouts, day, run_id, horizon, 4)
+        top_nodes = pool.submit(get_top_nodes, day, run_id, horizon, 10)
+        top_constraints = pool.submit(get_top_constraints, day, run_id, horizon, 10)
+        grade = pool.submit(get_grade, day, run_id, horizon)
+        grade_history = pool.submit(get_grade_history, day, run_id, horizon, 30)
+        return BriefDayResponse(
+            hero=hero.result(),
+            context=context.result(),
+            standouts=standouts.result(),
+            top_nodes=top_nodes.result(),
+            top_constraints=top_constraints.result(),
+            grade=grade.result(),
+            grade_history=grade_history.result(),
+        )

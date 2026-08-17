@@ -403,6 +403,24 @@ class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
     pass
 
 
+# ---- /analysis/brief ------------------------------------------------------
+
+class BriefDayResponse(BaseModel):
+    """One bundled payload for a Brief delivery day (0137).
+
+    Replaces the eight-request per-day fan-out with a single call; each field
+    keeps the exact response shape its single-section endpoint already served,
+    so consumers built against those shapes are untouched.
+    """
+    hero: HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse
+    context: ContextAvailableResponse | ContextUnavailableResponse
+    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse
+    top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
+    top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
+    grade: GradeAvailableResponse | GradeUnavailableResponse
+    grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
+
+
 # ---- /api/ercot_state_range ---------------------------------------------
 #
 # Per-hour ERCOT settlement-point congestion, read from the active run's

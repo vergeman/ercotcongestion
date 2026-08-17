@@ -124,6 +124,60 @@ def test_hero_latest_soft_fails_without_any_published_day(client, fake_pool):
     }
 
 
+def test_brief_day_composes_all_sections_from_one_resolved_run_and_horizon(client, fake_pool, monkeypatch):
+    """0137: the bundled endpoint resolves run/horizon once, then delegates to
+    each section's own handler — never re-derives their query logic.
+
+    Each handler is called in-process, bypassing FastAPI's dependency
+    injection, so any parameter left to its declared default would instead
+    receive that default's raw ``Query(...)`` object. This asserts the exact
+    positional args every handler receives, so a call missing an explicit
+    literal (as `get_context`'s `chronic_limit` once did) fails loudly instead
+    of silently handing a `Query` sentinel to `chronic[:chronic_limit]`.
+
+    The handlers run on a thread pool (not sequentially), so `calls` below is
+    keyed by name rather than compared in submission order.
+    """
+    fake_pool.cursor.queue([{"run_id": "run-x"}])  # resolve run
+    fake_pool.cursor.queue([{"h": 2}])              # resolve horizon
+
+    calls: dict[str, tuple] = {}
+
+    def _handler(name):
+        def _fake(delivery_date, run_id, horizon, *rest):
+            calls[name] = (delivery_date, run_id, horizon, rest)
+            return {"available": False, "unavailable_reason": "artifact_missing",
+                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+        return _fake
+
+    # (handler name, expected trailing positional args — each must be a
+    # literal, matching that endpoint's own Query(...) default exactly).
+    expected = (
+        ("get_hero", ()),
+        ("get_context", (14,)),
+        ("get_standouts", (4,)),
+        ("get_top_nodes", (10,)),
+        ("get_top_constraints", (10,)),
+        ("get_grade", ()),
+        ("get_grade_history", (30,)),
+    )
+    for name, _ in expected:
+        monkeypatch.setattr(analysis_module, name, _handler(name))
+
+    response = client.get("/analysis/brief?day=2026-07-28")
+
+    assert response.status_code == 200
+    assert calls == {
+        name: (date(2026, 7, 28), "run-x", 2, rest) for name, rest in expected
+    }
+    for _, _, _, rest in calls.values():
+        assert all(isinstance(value, int) for value in rest), \
+            "a trailing arg fell through to its raw Query(...) default"
+    body = response.json()
+    assert set(body.keys()) == {"hero", "context", "standouts", "top_nodes",
+                                "top_constraints", "grade", "grade_history"}
+
+
 def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
     schema = client.app.openapi()["paths"]["/analysis/hero"]["get"]["responses"]["200"]
     names = {item["$ref"].rsplit("/", 1)[-1] for item in schema["content"]["application/json"]
