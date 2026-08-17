@@ -12,13 +12,10 @@ import type {
   ScoreboardHeadline,
 } from "../api/types";
 import {
-  fetchTopology,
+  fetchMapSummary,
   fetchMapExposures,
   fetchMapReach,
-  fetchMapOverview,
-  fetchMapMeta,
   fetchMapConstraintsRanked,
-  fetchScoreboardHeadline,
 } from "../api/client";
 import { formatCT } from "../lib/time";
 import {
@@ -313,38 +310,24 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [rearmSync]
   );
 
-  // Topology load
+  // One bundled load-time request (0137): topology, the constraint overview,
+  // the SF-refit meta, and the scorecard headline all load together, once,
+  // independent of the playback window (each is fixed per refit / static).
+  // overview/meta/headline are independently null on their own soft-fail
+  // (nothing built/loaded for that section yet); topology failing is still
+  // the harder error it always was (connection state flips to "error").
   useEffect(() => {
-    fetchTopology()
-      .then((t) => {
-        setTopology(t);
+    fetchMapSummary()
+      .then((b) => {
+        setTopology(b.topology);
         setConnState("ok");
+        setOverview(b.overview);
+        setMapMeta(b.meta);
+        setHeadline(b.headline);
       })
       .catch(() => setConnState("error"))
       .finally(() => setTopologyReady(true));
   }, [setConnState]);
-
-  // Constraint overview load — once, independent of the playback window (the SF
-  // structure is fixed per refit). Soft-fails to null (no overlay) on 503.
-  useEffect(() => {
-    fetchMapOverview(70, 6)
-      .then((o) => setOverview(o))
-      .catch(() => setOverview(null));
-  }, []);
-
-  useEffect(() => {
-    fetchMapMeta()
-      .then((m) => setMapMeta(m))
-      .catch(() => setMapMeta(null));
-  }, []);
-
-  // Scorecard headline — once; the backtest board is static and independent of
-  // the forecast/playback window. Soft-fails to null (scorecard hidden) on 503.
-  useEffect(() => {
-    fetchScoreboardHeadline()
-      .then((h) => setHeadline(h))
-      .catch(() => setHeadline(null));
-  }, []);
 
   // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
   // from the current frame's Central date (ERCOT operates on Central), so the

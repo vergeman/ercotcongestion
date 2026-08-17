@@ -469,13 +469,25 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
-// /scoreboard/summary — one bundled payload for the Scoreboard page bootstrap
-// (0137). Each field keeps its single-section shape; null exactly when that
-// section's own endpoint would 503 (that board has no rows yet).
+// /scoreboard/summary — one bundled payload for the Scoreboard page's
+// load-time requests (0137). Each field keeps its single-section shape; null
+// exactly when that section's own endpoint would 503 (that board has no rows
+// yet).
 export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
   headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
+}
+
+// /map/summary — one bundled payload for the Map workspace's load-time
+// requests (0137). `topology` is the raw settlement-point GeoJSON (unchanged
+// shape from GET /topology); the other three keep their single-section shape
+// and are null exactly when that section's own endpoint would 503.
+export interface MapSummary {
+  topology: unknown;
+  overview: MapOverview | null;
+  meta: MapMeta | null;
+  headline: ScoreboardHeadline | null;
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

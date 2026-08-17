@@ -3,12 +3,10 @@ import type {
   ErcotSppRangeResponse,
   ErcotRangeResponse,
   ForecastRangeResponse,
-  MapMeta,
   ExposuresResponse,
   ConstraintReach,
-  MapOverview,
+  MapSummary,
   RankedConstraints,
-  ScoreboardHeadline,
   ScoreboardSummary,
   MatrixFrame,
   BriefHeroLatest,
@@ -127,11 +125,17 @@ export async function fetchErcotRange(
 // These are not time-indexed — one resolved (run_id, window_start) per request.
 // =============================================================================
 
-// The refit being served (run + window + confidence). Null on 503.
-export async function fetchMapMeta(): Promise<MapMeta | null> {
-  const r = await fetch(`${BASE}/map/meta`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`map/meta ${r.status}`);
+// One bundled payload for the Map workspace's load-time requests (0137) —
+// replaces the topology + overview + meta + headline fan-out with a single
+// request. Each
+// field keeps its prior section shape; overview/meta/headline are null
+// exactly when that section's own endpoint would 503 (nothing built/loaded
+// for it yet). Interaction endpoints (map/reach, map/exposures,
+// map/constraints/ranked) are untouched — they fire on hover/click/
+// navigation, not load, so they stay their own calls.
+export async function fetchMapSummary(): Promise<MapSummary> {
+  const r = await fetch(`${BASE}/map/summary`);
+  if (!r.ok) throw new Error(`map/summary ${r.status}`);
   return r.json();
 }
 
@@ -187,20 +191,6 @@ export async function fetchMapReach(
   return r.json();
 }
 
-// The de-piled overview: top-`n` constraints by binding hours, each at its |SF|²
-// core with its type and signed top-`k` field. One bulk payload for the initial
-// all-constraints presentation (replaces the /map/constraints centroid pile).
-// Null on 503.
-export async function fetchMapOverview(
-  n = 70,
-  k = 16
-): Promise<MapOverview | null> {
-  const r = await fetch(`${BASE}/map/overview?n=${n}&k=${k}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`map/overview ${r.status}`);
-  return r.json();
-}
-
 // The per-day ranked constraint list — "which constraints drive today's
 // congestion", the list companion to the overview marker pile. `basis` picks the
 // μ series (predicted E_mu vs realized DAM shadow prices); the server owns the
@@ -220,22 +210,8 @@ export async function fetchMapConstraintsRanked(
   return r.json();
 }
 
-// The rolling backtest headline (30/90-day tiles) for the side-panel scorecard.
-// Same soft-fail contract: 503 (no board loaded / regime has no rows) returns
-// null so the panel renders its network stats without the scorecard rather than
-// erroring. Reads the backtest board — independent of the forecast run.
-export async function fetchScoreboardHeadline(
-  regime = "all"
-): Promise<ScoreboardHeadline | null> {
-  const r = await fetch(
-    `${BASE}/scoreboard/headline?regime=${encodeURIComponent(regime)}`
-  );
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/headline ${r.status}`);
-  return r.json();
-}
-
-// One bundled payload for the Scoreboard page bootstrap (0137) — replaces the
+// One bundled payload for the Scoreboard page's load-time requests (0137) —
+// replaces the
 // weekly + headline + daily fan-out with a single request. Each field keeps
 // its prior section shape; null exactly when that section's own endpoint
 // would 503 (that board has no rows yet), so the page can still render the
