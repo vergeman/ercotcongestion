@@ -29,6 +29,7 @@ import {
   dipoleCounts,
   useConstraintReach,
 } from "../panels/ConstraintReach";
+import BriefFootprintMap from "./BriefFootprintMap";
 
 // One shared sliding detail panel for every selectable Brief row (plan/0135). A
 // row is an inspection action, not a link: clicking it opens this right-side
@@ -461,6 +462,7 @@ export default function BriefDetailPanel({
         </div>
 
         <div className="bdp__body">
+          <BriefFootprintMap selection={selection} />
           {selection.kind === "standout-constraint" ? (
             <ConstraintEvidence
               row={selection.row}
