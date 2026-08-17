@@ -298,25 +298,32 @@ def _settled_standout_keys(
 
 
 def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[str, list[float]]:
-    """Market-peak daily DAM congestion for a small selected node set."""
-    result = {point: [] for point in points}
-    for offset in range(30, 0, -1):
-        start, end = delivery_bounds(delivery_date - timedelta(days=offset))
-        cur.execute(
-            "SELECT s.settlement_point, avg(s.dam_spp - l.system_lambda) AS congestion "
-            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
-            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
-            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
-            "AND s.settlement_point = ANY(%s) "
-            "AND EXTRACT(HOUR FROM s.interval_ts AT TIME ZONE 'America/Chicago') BETWEEN 7 AND 22 "
-            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
-            "GROUP BY s.settlement_point",
-            (start, end, points),
-        )
-        values = {str(row["settlement_point"]): float(row["congestion"]) for row in cur.fetchall()}
-        for point in points:
-            result[point].append(values.get(point, 0.0))
-    return result
+    """Market-peak daily DAM congestion for a small selected node set.
+
+    One window query grouped by (point, CT delivery day) — mirrors
+    ``_settled_constraint_history``, replacing the former 30-round-trip
+    per-day loop (0137). Every requested point is present in the result
+    (quiet days fill 0.0), since callers index the dict directly."""
+    start, _ = delivery_bounds(delivery_date - timedelta(days=30))
+    end, _ = delivery_bounds(delivery_date)
+    cur.execute(
+        "SELECT s.settlement_point, "
+        "(s.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date, "
+        "avg(s.dam_spp - l.system_lambda) AS congestion "
+        "FROM ercot_dam_spp s JOIN dam_system_lambda l "
+        "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
+        "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
+        "AND s.settlement_point = ANY(%s) "
+        "AND EXTRACT(HOUR FROM s.interval_ts AT TIME ZONE 'America/Chicago') BETWEEN 7 AND 22 "
+        "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
+        "GROUP BY s.settlement_point, (s.interval_ts AT TIME ZONE 'America/Chicago')::date",
+        (start, end, points),
+    )
+    by_day: dict[str, dict[date, float]] = {}
+    for row in cur.fetchall():
+        by_day.setdefault(str(row["settlement_point"]), {})[row["delivery_date"]] = float(row["congestion"])
+    days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
+    return {point: [by_day.get(point, {}).get(day, 0.0) for day in days] for point in points}
 
 
 def _settled_constraint_history(cur, delivery_date: date) -> dict[str, list[float]]:

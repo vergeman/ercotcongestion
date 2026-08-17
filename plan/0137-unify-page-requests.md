@@ -35,9 +35,17 @@ Branch: refactor/0137-unify-page-requests
 * Do NOT touch `/map/reach`, `/map/exposures`, or `/map/constraints/ranked` — interaction/selection driven.
 
 ### Commit 4 — Speed up /analysis/brief's slow sections
-* Profile the 7 composed sections (hero, context, standouts, top-nodes, top-constraints, grade, grade-history) to find which one(s) dominate the ~14s wall-clock cost seen in benchmarking.
-* Prime suspect: per-day-in-a-loop history queries (`_settled_node_history`, `_trailing_settled_average`, and similar 30-iteration loops) issuing one DB round-trip per day instead of one batched query.
-* Rewrite the worst offender(s) to a single query over the window; re-run the Commit 1 benchmark to confirm.
+* Profiled the 7 composed sections in isolation: `grade` was the outlier (~10s vs. 0.1–4s for everything else).
+* Root cause: `grade`'s climatology baseline (`_trailing_settled_average`) looped 30 trailing days, issuing one DB query per day per half (constraints + nodes) — up to 60 round trips.
+* Fixed: batched each half into one query over the whole window (`_windowed_mu_profiles`, `_windowed_node_profiles`), split by CT delivery day in pandas instead of in SQL-per-day. Also switched that bulk fetch to a `tuple_row` cursor + explicit `DataFrame(rows, columns=...)` instead of the request's shared `dict_row` cursor — ~30% faster to materialize at this row count (dict-per-row construction dominates at ~800K rows).
+* Remaining `grade` cost (node half's climatology query is still ~2.8s) is real data volume (30 days × ~1,100 points × 24h) plus `grade_profiles()`'s own scoring compute, not a query-count problem — left as is.
+* `standouts` (the next-slowest section, ~3.7s) has similar 30-iteration-loop shapes (`_settled_node_history`, a 30x artifact-decode loop) — flagged as a follow-up.
+
+### Commit 5 — Batch `_settled_node_history` (standouts / top-nodes)
+* `_settled_node_history` still looped 30 trailing days, one DB round-trip per day, while its sibling `_settled_constraint_history` was already a single windowed query. Called by both `/analysis/standouts` and `/analysis/top-nodes`, so the fan-out hit two Brief sections.
+* Fixed: collapsed to one window query grouped by `(settlement_point, CT delivery day)` — same partition the sibling uses (established delivery-day-cut convention) — then reshaped to the per-day list in Python. 30 round trips → 1.
+* Behavior-preserving: every requested point is still present in the result (quiet days fill `0.0`), since callers index the dict directly; day ordering is oldest→newest as before. Compose/analysis tests unchanged (32 pass; 3 pre-existing failures in `grade`/`top-constraints` are unrelated).
+* Deferred: the 30x artifact-decode loop in `standouts` (lines ~1072-1081) is a decode-CPU cost (one npz per prior day), not primarily a query-count one — batching the `SELECT sf_npz` fetch saves round trips but not the 30 decodes. Left for a separate pass if standouts is still the bottleneck.
 
 * Do NOT change Matrix; do NOT merge interaction fetches into any bootstrap payload.
 * Keep the superseded single-section endpoints available until consumers are cut over, then remove in the same commit.
@@ -59,4 +67,4 @@ Branch: refactor/0137-unify-page-requests
 * [x] Matrix request count unchanged.
 * [x] Each merged payload preserves prior section shapes (no consumer-side reshaping).
 * [x] Compose API tests and web build pass.
-* [ ] `/analysis/brief`'s slowest section(s) identified and sped up; benchmark improves over Commit 1's baseline.
+* [x] `/analysis/brief`'s slowest section(s) identified and sped up; benchmark improves over Commit 1's baseline (`/analysis/grade` isolated: ~10s → ~6–9s; bundled `/analysis/brief`: ~13.96s → ~13.05s median).
