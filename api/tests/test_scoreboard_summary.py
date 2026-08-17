@@ -1,4 +1,4 @@
-"""Tests for GET /scoreboard/summary — the bundled bootstrap trio (0137).
+"""Tests for GET /scoreboard/summary — the bundled load-time trio (0137).
 
 Mirrors test_analysis.py's brief-day composition test: monkeypatch the three
 section handlers directly rather than threading fake rows through their own

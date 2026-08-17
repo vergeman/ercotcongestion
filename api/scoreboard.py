@@ -418,7 +418,7 @@ def get_scoreboard_daily(
 
 
 # --------------------------------------------------------------------------
-# /scoreboard/summary — the Scoreboard page's bootstrap trio in one call (0137)
+# /scoreboard/summary — the Scoreboard page's load-time trio in one call (0137)
 # --------------------------------------------------------------------------
 
 _T = TypeVar("_T")
@@ -439,7 +439,7 @@ def _soft_fail(build: Callable[[], _T]) -> _T | None:
 @router.get(
     "/scoreboard/summary",
     response_model=ScoreboardSummaryResponse,
-    summary="One bundled payload for the Scoreboard page bootstrap (0137)",
+    summary="One bundled payload for the Scoreboard page summary (0137)",
 )
 def get_scoreboard_summary(
     regime: str = Query(
@@ -447,7 +447,7 @@ def get_scoreboard_summary(
         description="Regime slice — `all` or a net-load quintile / named regime.",
     ),
 ) -> ScoreboardSummaryResponse:
-    """Compose the Scoreboard's three bootstrap requests behind one call.
+    """Compose the Scoreboard's three load-time requests behind one call.
 
     ``weekly``/``headline`` both resolve their own latest ``run_id`` from
     ``scoreboard_weekly``; ``daily`` resolves independently from the separate
