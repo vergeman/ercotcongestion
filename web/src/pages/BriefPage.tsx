@@ -14,6 +14,7 @@ import type {
   TopConstraints,
   TopNodes,
 } from "../api/types";
+import type { BriefSelection } from "../lib/briefSelection";
 import {
   fetchAnalysisGradeCached,
   fetchAnalysisGradeHistoryCached,
@@ -28,30 +29,19 @@ import HeaderNav from "../components/layout/HeaderNav";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
-import { buildMapLink, mapLinkTo, type MapTarget } from "../lib/mapLinks";
+import { buildMapLink } from "../lib/mapLinks";
 import { ctInputToUtc, formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
-
-// A table row's Map action (0131 task note): select the row's own element —
-// never carry autoPlay (that's the hero's "watch it move" action alone) and
-// land on the default Forecast × Congestion view, since inspecting one
-// element's own SF structure is the point, not the settled price. Falls back
-// to the bare selection link (no coordinate) if the hero's cursor hasn't
-// loaded yet — still a valid, working link, just without the day's window.
-function elementMapHref(
-  heroCursor: { t: string; ws: string; we: string } | null | undefined,
-  target: MapTarget
-): string {
-  if (!heroCursor) return mapLinkTo(target);
-  return buildMapLink({
-    t: new Date(heroCursor.t),
-    ws: new Date(heroCursor.ws),
-    we: new Date(heroCursor.we),
-    view: "forecast",
-    data: "congestion",
-    target,
-  });
-}
+import BriefDetailPanel from "../components/brief/BriefDetailPanel";
+import {
+  HistoryBars,
+  HistoryWhisker,
+  constraintName,
+  percent,
+  rankMovement,
+  usd,
+  zoneLabel,
+} from "../components/brief/briefFormat";
 
 const fmtDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
@@ -94,80 +84,16 @@ function Segments({ segments }: { segments: HeroSegment[] }) {
   );
 }
 
-function HistoryWhisker({
-  low,
-  q25,
-  median,
-  q75,
-  high,
-  mark,
-}: {
-  low: number | null;
-  q25?: number | null;
-  median?: number | null;
-  q75?: number | null;
-  high: number | null;
-  mark: number | null;
-}) {
-  if (low == null || high == null || mark == null)
-    return <span className="an-table__missing">—</span>;
-  const min = Math.min(low, mark, 0);
-  const max = Math.max(high, mark, 0);
-  const span = Math.max(max - min, 1);
-  const left = `${Math.min(100, ((low - min) / span) * 100)}%`;
-  const width = `${Math.max(2, ((high - low) / span) * 100)}%`;
-  const boxLeft =
-    q25 == null ? undefined : `${Math.min(100, ((q25 - min) / span) * 100)}%`;
-  const boxWidth =
-    q25 == null || q75 == null
-      ? undefined
-      : `${Math.max(2, ((q75 - q25) / span) * 100)}%`;
-  return (
-    <span
-      className="an-history-whisker"
-      title={`30-day settled p10 ${usd(low, 2)} · p25 ${
-        q25 == null ? "—" : usd(q25, 2)
-      } · median ${median == null ? "—" : usd(median, 2)} · p75 ${
-        q75 == null ? "—" : usd(q75, 2)
-      } · p90 ${usd(high, 2)} · today ${usd(mark, 2)}`}
-    >
-      <i style={{ left, width }} />
-      {boxLeft && boxWidth && <em style={{ left: boxLeft, width: boxWidth }} />}
-      {median != null && (
-        <strong
-          style={{ left: `${Math.min(100, ((median - min) / span) * 100)}%` }}
-        />
-      )}
-      <b style={{ left: `${Math.min(100, ((mark - min) / span) * 100)}%` }} />
-    </span>
-  );
-}
-
-function HistoryBars({ values }: { values: number[] }) {
-  if (!values.length) return <span className="an-table__missing">—</span>;
-  const max = Math.max(...values, 1);
-  return (
-    <span className="an-history-bars" title="Σμ on each prior settled day">
-      {values.map((value, index) => (
-        <i
-          key={index}
-          style={{ height: `${Math.max(2, (value / max) * 100)}%` }}
-        />
-      ))}
-    </span>
-  );
-}
-
 function StandoutsPanel({
   data,
   loading,
   settled,
-  heroCursor,
+  onSelect,
 }: {
   data: Standouts | null;
   loading: boolean;
   settled: boolean;
-  heroCursor: { t: string; ws: string; we: string } | null | undefined;
+  onSelect: (selection: BriefSelection) => void;
 }) {
   const constraints = data?.rows ?? [];
   const nodes = data?.node_rows ?? [];
@@ -273,14 +199,15 @@ function StandoutsPanel({
                       {row.kind === "settled_elevated" && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
-                      <Link
-                        to={elementMapHref(heroCursor, {
-                          kind: "constraint",
-                          value: row.constraint_key,
-                        })}
+                      <button
+                        type="button"
+                        className="an-row-link"
+                        onClick={() =>
+                          onSelect({ kind: "standout-constraint", row })
+                        }
                       >
                         {constraintName(row.constraint_key)}
-                      </Link>
+                      </button>
                     </td>
                     <td>{zoneLabel(row.zone)}</td>
                     <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
@@ -396,17 +323,16 @@ function StandoutsPanel({
                       {row.kind === "settled_elevated" && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
-                      <Link
-                        to={elementMapHref(heroCursor, {
-                          kind: "sp",
-                          value: row.settlement_point,
-                        })}
+                      <button
+                        type="button"
+                        className="an-row-link"
+                        onClick={() => onSelect({ kind: "standout-node", row })}
                       >
                         {row.settlement_point}
                         {row.essp_member_count > 1 && (
                           <sup>≈{row.essp_member_count}</sup>
                         )}
-                      </Link>
+                      </button>
                     </td>
                     <td>{zoneLabel(row.zone)}</td>
                     <td
@@ -476,12 +402,12 @@ function TopConstraintsPanel({
   data,
   loading,
   settled,
-  heroCursor,
+  onSelect,
 }: {
   data: TopConstraints | null;
   loading: boolean;
   settled: boolean;
-  heroCursor: { t: string; ws: string; we: string } | null | undefined;
+  onSelect: (selection: BriefSelection) => void;
 }) {
   return (
     <section className="an-constraints" aria-labelledby="top-constraints-title">
@@ -575,14 +501,13 @@ function TopConstraintsPanel({
                       (row.forecast_rank == null || row.forecast_rank > 15) && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
-                    <Link
-                      to={elementMapHref(heroCursor, {
-                        kind: "constraint",
-                        value: row.constraint_key,
-                      })}
+                    <button
+                      type="button"
+                      className="an-row-link"
+                      onClick={() => onSelect({ kind: "constraint", row })}
                     >
                       {row.constraint_key}
-                    </Link>
+                    </button>
                   </td>
                   <td>{zoneLabel(row.zone)}</td>
                   <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
@@ -633,12 +558,12 @@ function TopNodesPanel({
   data,
   loading,
   settled,
-  heroCursor,
+  onSelect,
 }: {
   data: TopNodes | null;
   loading: boolean;
   settled: boolean;
-  heroCursor: { t: string; ws: string; we: string } | null | undefined;
+  onSelect: (selection: BriefSelection) => void;
 }) {
   return (
     <section className="an-nodes" aria-labelledby="top-nodes-title">
@@ -722,17 +647,16 @@ function TopNodesPanel({
                       (row.forecast_rank == null || row.forecast_rank > 15) && (
                         <span className="an-standouts__asterisk">*</span>
                       )}
-                    <Link
-                      to={elementMapHref(heroCursor, {
-                        kind: "sp",
-                        value: row.settlement_point,
-                      })}
+                    <button
+                      type="button"
+                      className="an-row-link"
+                      onClick={() => onSelect({ kind: "node", row })}
                     >
                       {row.settlement_point}
                       {row.essp_member_count > 1 && (
                         <sup>≈{row.essp_member_count}</sup>
                       )}
-                    </Link>
+                    </button>
                   </td>
                   <td>{zoneLabel(row.zone)}</td>
                   <td
@@ -956,8 +880,6 @@ function DualStatBox({
 
 const score = (value: number | null | undefined) =>
   value == null ? "—" : `${value.toFixed(2)}`;
-const percent = (value: number | null | undefined) =>
-  value == null ? "—" : `${Math.round(value * 100)}%`;
 const multiple = (value: number | null | undefined) =>
   value == null ? "—" : `${value.toFixed(2)}×`;
 const beats = (
@@ -1439,11 +1361,6 @@ const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 };
 
-const usd = (value: number, fractionDigits = 0) =>
-  `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  })}`;
 const gw = (value: number) =>
   `${(value / 1000).toLocaleString(undefined, {
     minimumFractionDigits: 1,
@@ -1461,18 +1378,6 @@ const priceDirection = (congestion: number | null) =>
     : congestion < 0
     ? "Below system"
     : "Above system";
-const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
-const zoneLabel = (zone: string | null) =>
-  zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
-const rankMovement = (
-  forecastRank: number | null,
-  settledRank: number | null
-) => {
-  if (settledRank == null) return "—";
-  if (forecastRank == null) return `new ${settledRank}`;
-  const movement = settledRank - forecastRank;
-  return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
-};
 
 function dateBounds(day: string) {
   const nextDay = format(
@@ -1513,6 +1418,9 @@ export default function BriefPage() {
   const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
+  // The row a reader opened the shared detail panel over (plan/0135); null when
+  // closed. Purely UI state — it never touches the Brief's time coordinate.
+  const [selection, setSelection] = useState<BriefSelection | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
   const [adjacentDays, setAdjacentDays] = useState<{
     previous: string | null;
@@ -1546,6 +1454,12 @@ export default function BriefPage() {
   }, [cursorDay]);
 
   const deliveryDay = cursorDay ?? defaultDay;
+
+  // The detail panel is opened over a specific day's row; close it whenever the
+  // delivery day changes so a stale selection can't survive into another day.
+  useEffect(() => {
+    setSelection(null);
+  }, [deliveryDay]);
 
   // Probe the two neighboring CT delivery days before enabling their carets.
   // The hero endpoint returns a successful explicit unavailable state for a
@@ -1972,19 +1886,19 @@ export default function BriefPage() {
               data={standouts}
               loading={standoutsLoading}
               settled={settled}
-              heroCursor={hero.cursor}
+              onSelect={setSelection}
             />
             <TopConstraintsPanel
               data={topConstraints}
               loading={topConstraintsLoading}
               settled={settled}
-              heroCursor={hero.cursor}
+              onSelect={setSelection}
             />
             <TopNodesPanel
               data={topNodes}
               loading={topNodesLoading}
               settled={settled}
-              heroCursor={hero.cursor}
+              onSelect={setSelection}
             />
             <ForecastGrade
               grade={grade}
@@ -1996,6 +1910,13 @@ export default function BriefPage() {
           </>
         )}
       </main>
+
+      <BriefDetailPanel
+        selection={selection}
+        settled={settled}
+        heroCursor={hero?.cursor}
+        onClose={() => setSelection(null)}
+      />
 
       <style>{`
         .an-page { height: 100%; overflow-y: auto; background: var(--bg-base); color: var(--text-primary); font-variant-numeric: tabular-nums; }
@@ -2105,6 +2026,11 @@ export default function BriefPage() {
         .an-table tbody tr:last-child td { border-bottom: 0; }
         .an-table td a { color: var(--text-primary); font-family: var(--font-mono); text-decoration: none; }
         .an-table td a:hover { color: var(--accent); text-decoration: underline; }
+        /* A row opens the detail panel (plan/0135): a button styled as the inline
+           link it replaced, but an inspection action, not navigation. */
+        .an-table td button.an-row-link { padding: 0; border: 0; background: none; color: var(--text-primary); font-family: var(--font-mono); font-size: inherit; text-align: left; cursor: pointer; }
+        .an-table td button.an-row-link:hover { color: var(--accent); text-decoration: underline; }
+        .an-table td button.an-row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         .an-table--standouts th, .an-table--standouts td { text-align: right; }
         .an-table--standouts .an-table__groups th { text-align: center; }
         .an-table--standouts th:first-child, .an-table--standouts td:first-child, .an-table--standouts th:nth-child(2), .an-table--standouts td:nth-child(2) { text-align: left; }
@@ -2117,7 +2043,7 @@ export default function BriefPage() {
         .an-table--standouts-nodes .an-table__driver small { margin-left: 3px; color: var(--text-muted); font-size: var(--fs-micro); }
         .an-standouts__asterisk { margin-right: 4px; color: var(--warn); font-weight: 700; }
         .an-standouts__added td { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-        .an-table td a sup { margin-left: 3px; padding: 1px 2px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-sans); font-size: 8px; }
+        .an-table td a sup, .an-table td button.an-row-link sup { margin-left: 3px; padding: 1px 2px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 2px; font-family: var(--font-sans); font-size: 8px; }
         .an-table__rank { color: var(--text-muted); font-family: var(--font-mono); }
         .an-table__driver { max-width: 190px; overflow: hidden; font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
         .an-table td .an-table__missing { color: var(--text-muted); }
