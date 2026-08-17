@@ -983,3 +983,21 @@ class ScoreboardDaily(BaseModel):
     since: date | None = None
     primary_source: str
     points: list[DailyPoint]
+
+
+# ---- /scoreboard/summary --------------------------------------------------
+
+class ScoreboardSummaryResponse(BaseModel):
+    """One bundled payload for the Scoreboard page bootstrap (0137).
+
+    Each field keeps the exact shape its single-section endpoint already
+    served. ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` reads
+    the separate ``scoreboard_daily`` live board, so it is not forced onto the
+    same ``run_id`` the other two resolve. A field is ``null`` exactly when its
+    single-section endpoint would 503 (that board has no rows yet) — the same
+    soft-fail the client already handles per section, just carried inside one
+    response instead of three.
+    """
+    weekly: ScoreboardWeekly | None
+    headline: ScoreboardHeadline | None
+    daily: ScoreboardDaily | None
