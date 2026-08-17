@@ -36,7 +36,24 @@ def test_regime_where_and_exception_ladders_are_pure():
     where = classify_where({"zone_shares": {"north": .44, "south": .56},
                             "geo_as_of": "2025-12-13"})
     assert where["bucket"] == "concentrated" and where["zone"] == "south"
+    assert where["zone_congestion"] is None  # no node_zone_net provided
+    signed = classify_where({"zone_shares": {"north": .3, "south": .7},
+                             "node_zone_net": {"south": -50.0, "north": 5.0}})
+    assert signed["zone"] == "south" and signed["zone_congestion"] == -50.0
     assert classify_where({"zone_shares": {"north": .511, "south": .489}})["bucket"] == "tilted"
+    split = classify_where({
+        "zone_shares": {"north": .44, "south": .56},
+        "benchmark_split": {
+            "positive_label": "North LZ",
+            "negative_label": "South LZ",
+            "spread": 12.0,
+        },
+    })
+    assert split["bucket"] == "split"
+    assert split["zone"] == "south" and split["share"] == .56
+    assert phrase_for("where", split)[1] == (
+        "afternoon splits: North LZ prices above South LZ by $12/MWh"
+    )
 
     tier_0 = {"constraint_key": "NEW|ONE", "value": 30, "rank": 1, "n": 31}
     tier_1 = {"constraint_key": "TOP|TWO", "value": 20, "rank": 2, "n": 31}
@@ -60,8 +77,8 @@ def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
         assert ladder[-1][0]({})
 
     slots = {
-        "magnitude": {"bucket": "ordinary"},
-        "regime": {"bucket": "load_record_high"},
+        "magnitude": {"bucket": "ordinary", "value": 740.0, "all_keys": {"value": 1000.0}},
+        "regime": {"bucket": "ordinary", "wind_pct": 8.0},
         "where": {"bucket": "concentrated", "zone": "south"},
         "exceptions": {"bucket": "several", "count": 4, "tier_0_count": 1},
     }
@@ -69,8 +86,39 @@ def test_phrase_ladders_are_exhaustive_and_render_referenced_segments():
     segments = render(slots)
     assert {part["ref"] for group in segments.values() for part in group} <= set(slots)
     assert all(part["text"] for group in segments.values() for part in group)
-    assert "4 constraints outside the model vocabulary" in segments["lede"][2]["text"]
-    assert "one is newly active" in segments["lede"][2]["text"]
+    lede = "".join(part["text"] for part in segments["lede"])
+    assert lede == (
+        "Wind running light into the afternoon peak; "
+        "modeled constraints captured 74% of system congestion."
+    )
+    headline = "".join(part["text"] for part in segments["headline"])
+    assert headline == "An ordinary congestion day. Weight is concentrated in south."
+    assert "—" not in headline
+
+
+def test_driver_clause_leads_with_renewable_supply_then_forecast_miss():
+    assert phrase_for("driver", {"wind_pct": 10.0})[0] == "wind_light"
+    assert phrase_for("driver", {"wind_pct": 92.0})[0] == "wind_strong"
+    # Renewable supply outranks a settled forecast miss when both are present.
+    assert phrase_for("driver", {"wind_pct": 8.0, "load_miss_pct": 5.0})[0] == "wind_light"
+    assert phrase_for("driver", {"load_miss_pct": 4.0})[1] == "load landed 4% above the DAM forecast"
+    assert phrase_for("driver", {"load_miss_pct": -6.0, "load_miss_abs": 6.0})[1] == (
+        "load landed 6% below the DAM forecast")
+    assert phrase_for("driver", {"solar_pct": 90.0})[0] == "solar_strong"
+    assert phrase_for("driver", {})[0] == "none" and phrase_for("driver", {})[1] == ""
+
+
+def test_coverage_clause_reframes_settlement_and_awaits_it():
+    settled = {
+        "magnitude": {"bucket": "ordinary", "value": 600.0, "all_keys": {"value": 800.0}},
+        "regime": {"bucket": "ordinary"},
+        "where": {"bucket": "distributed"},
+        "exceptions": {"bucket": "several", "count": 3},
+    }
+    assert "".join(part["text"] for part in render(settled)["lede"]) == (
+        "Modeled constraints captured 75% of system congestion.")
+    pending = {**settled, "exceptions": {"available": False, "bucket": "unavailable"}}
+    assert "".join(part["text"] for part in render(pending)["lede"]) == "Awaiting DAM settlement."
 
 
 def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
@@ -81,6 +129,6 @@ def test_magnitude_adds_high_congestion_detail_only_for_a_material_rung_gap():
         "exceptions": {"bucket": "none"},
     }
     headline = "".join(part["text"] for part in render(slots)["headline"])
-    assert headline.endswith("; though high-congestion hours were near-record")
+    assert headline.endswith("; though high-congestion hours were near-record.")
     slots["magnitude"]["high_congestion_hours"]["bucket"] = "elevated"
     assert len(render(slots)["headline"]) == 3

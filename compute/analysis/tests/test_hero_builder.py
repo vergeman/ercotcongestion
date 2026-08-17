@@ -49,8 +49,36 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
     assert slots["magnitude"]["high_congestion_hours"]["value"] == 210.0
     assert slots["magnitude"]["high_congestion_hours"]["hours_ct"] == [15, 16, 17, 18]
     assert slots["where"]["zone"] == "south"
+    # N1 (LZ_SOUTH) carries -(SF.T @ Σμ) = -195 → the leading zone reads negative.
+    assert slots["where"]["zone_congestion"] == -195.0
     assert slots["where"]["geo_as_of"] == "2025-12-13"
     assert slots["exceptions"] == {"available": False, "bucket": "unavailable"}
+
+
+def test_benchmark_split_uses_direct_load_zone_spps_before_hubs():
+    artifact = SfMuArtifact(
+        SF=pd.DataFrame([[1.0, -1.0]], index=["A|B"],
+                        columns=["LZ_NORTH", "LZ_SOUTH"]),
+        E_mu=pd.DataFrame(
+            [[1.0], [1.0], [10.0], [8.0]],
+            index=pd.to_datetime([
+                "2026-07-28T14:00Z", "2026-07-28T15:00Z",
+                "2026-07-28T20:00Z", "2026-07-28T21:00Z",
+            ]),
+            columns=["A|B"],
+        ),
+    )
+
+    assert hero_builder._benchmark_split(artifact) == {
+        "family": "load zones",
+        "positive": "LZ_SOUTH",
+        "negative": "LZ_NORTH",
+        "positive_label": "South LZ",
+        "negative_label": "North LZ",
+        "positive_value": 9.0,
+        "negative_value": -9.0,
+        "spread": 18.0,
+    }
 
 
 def test_build_hero_reports_unmodeled_dam_constraint_tiers(monkeypatch):

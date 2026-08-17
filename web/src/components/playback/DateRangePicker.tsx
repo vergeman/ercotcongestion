@@ -15,6 +15,7 @@ interface Props {
   activeEventId?: string | null;
   loading: boolean;
   inline?: boolean;
+  showLabel?: boolean;
 }
 
 const PRESETS = [
@@ -63,6 +64,7 @@ export default function DateRangePicker({
   activeEventId,
   loading,
   inline = false,
+  showLabel = true,
 }: Props) {
   const [open, setOpen] = useState(false);
   // A Brief selection replaces the page's hero request, so it must remain
@@ -107,7 +109,16 @@ export default function DateRangePicker({
 
   return (
     <div className={`drp${inline ? " drp--inline" : ""}${singleDate ? " drp--date" : ""}`}>
-      {!inline && <button onClick={() => setOpen((o) => !o)}>📅 Load {singleDate ? "Date" : "Window"}</button>}
+      {!inline && (
+        <button
+          className={showLabel ? undefined : "drp__trigger--icon"}
+          onClick={() => setOpen((o) => !o)}
+          aria-label={`Load ${singleDate ? "date" : "window"}`}
+          title={`Load ${singleDate ? "date" : "window"}`}
+        >
+          📅{showLabel && ` Load ${singleDate ? "Date" : "Window"}`}
+        </button>
+      )}
 
       {(inline || open) && (
         <div className="drp__dropdown">
@@ -197,6 +208,7 @@ export default function DateRangePicker({
 
       <style>{`
         .drp { position: relative; }
+        .drp__trigger--icon { width: 28px; height: 28px; padding: 0; font-size: 15px; line-height: 1; }
         .drp__dropdown {
           position: absolute;
           bottom: 100%;
