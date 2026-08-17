@@ -1,9 +1,12 @@
 """Query-backed endpoints for the daily Brief's analysis panels."""
 from __future__ import annotations
 
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+from threading import Lock
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
@@ -1419,6 +1422,45 @@ def get_hero(
         }
 
 
+_CT = ZoneInfo("America/Chicago")
+
+# A settled delivery day's Brief is immutable: a past day's final artifact and
+# its day-ahead DAM inputs no longer change, so the whole composed payload —
+# decode and all the section pandas — can be memoized (0137). Payloads are small
+# JSON, so this is bounded by count, not bytes. Keyed by (run_id, day, horizon).
+_BRIEF_CACHE_MAX = 512
+_BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDict()
+_BRIEF_CACHE_LOCK = Lock()
+
+
+def _brief_cache_get(key: tuple[str, date, int]) -> "BriefDayResponse | None":
+    with _BRIEF_CACHE_LOCK:
+        response = _BRIEF_CACHE.get(key)
+        if response is not None:
+            _BRIEF_CACHE.move_to_end(key)
+        return response
+
+
+def _brief_cache_put(key: tuple[str, date, int], response: "BriefDayResponse") -> None:
+    with _BRIEF_CACHE_LOCK:
+        _BRIEF_CACHE[key] = response
+        _BRIEF_CACHE.move_to_end(key)
+        while len(_BRIEF_CACHE) > _BRIEF_CACHE_MAX:
+            _BRIEF_CACHE.popitem(last=False)
+
+
+def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
+    """A day whose Brief can no longer change. The Brief reads only day-ahead
+    DAM data (shadow prices, SPP) — published before the delivery day and never
+    revised — so it is fixed once (a) the final artifact has landed
+    (``horizon == 1``, not a preview), (b) the day is strictly past in CT, so its
+    DAM is fully ingested (no partial-ingestion race), and (c) that DAM is
+    actually present (guards a stalled feed). Today/preview days recompute."""
+    if horizon != 1 or delivery_date >= datetime.now(_CT).date():
+        return False
+    return _dam_landed(cur, delivery_date)
+
+
 @router.get("/brief", response_model=BriefDayResponse,
             summary="One bundled payload for a Brief delivery day (0137)")
 def get_brief_day(
@@ -1446,6 +1488,12 @@ def get_brief_day(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run)
         horizon = _resolve_horizon(cur, run_id, day, None)
+        final = horizon is not None and _brief_is_final(cur, day, horizon)
+    key = (run_id, day, horizon)
+    if final:
+        cached = _brief_cache_get(key)
+        if cached is not None:
+            return cached
     with ThreadPoolExecutor(max_workers=7) as pool:
         hero = pool.submit(get_hero, day, run_id, horizon)
         context = pool.submit(get_context, day, run_id, horizon, 14)
@@ -1454,7 +1502,7 @@ def get_brief_day(
         top_constraints = pool.submit(get_top_constraints, day, run_id, horizon, 10)
         grade = pool.submit(get_grade, day, run_id, horizon)
         grade_history = pool.submit(get_grade_history, day, run_id, horizon, 30)
-        return BriefDayResponse(
+        response = BriefDayResponse(
             hero=hero.result(),
             context=context.result(),
             standouts=standouts.result(),
@@ -1463,3 +1511,6 @@ def get_brief_day(
             grade=grade.result(),
             grade_history=grade_history.result(),
         )
+    if final:
+        _brief_cache_put(key, response)
+    return response

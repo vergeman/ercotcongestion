@@ -106,6 +106,8 @@ def fake_pool(monkeypatch):
     # tests without changing the production cache lifetime.
     from services.sf_artifacts import _ARTIFACT_CACHE
     _ARTIFACT_CACHE.clear()
+    import analysis
+    analysis._BRIEF_CACHE.clear()
     pool = FakePool()
     monkeypatch.setattr(db_module, 'pool', pool)
     return pool

@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 import analysis as analysis_module
+from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
 
@@ -220,6 +221,56 @@ def test_brief_day_composes_all_sections_from_one_resolved_run_and_horizon(clien
     body = response.json()
     assert set(body.keys()) == {"hero", "context", "standouts", "top_nodes",
                                 "top_constraints", "grade", "grade_history"}
+
+
+def _brief_section_counter(monkeypatch):
+    """Monkeypatch the seven /brief section handlers to count invocations."""
+    calls = {"n": 0}
+
+    def _handler():
+        def _fake(delivery_date, run_id, horizon, *rest):
+            calls["n"] += 1
+            return {"available": False, "unavailable_reason": "artifact_missing",
+                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+        return _fake
+
+    for name in ("get_hero", "get_context", "get_standouts", "get_top_nodes",
+                 "get_top_constraints", "get_grade", "get_grade_history"):
+        monkeypatch.setattr(analysis_module, name, _handler())
+    return calls
+
+
+def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
+    """A past final day (horizon 1, DAM landed) composes once, then serves from
+    the response cache — the sections are not re-invoked."""
+    _, we = delivery_bounds(date(2026, 7, 28))  # DAM ts past the day's midpoint
+    calls = _brief_section_counter(monkeypatch)
+    for _ in range(2):  # run + horizon + dam-landed probe, per request
+        fake_pool.cursor.queue([{"run_id": "run-x"}])
+        fake_pool.cursor.queue([{"h": 1}])
+        fake_pool.cursor.queue([{"ts": we}])
+
+    first = client.get("/analysis/brief?day=2026-07-28")
+    second = client.get("/analysis/brief?day=2026-07-28")
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.content == second.content
+    assert calls["n"] == 7, "settled day should compose once, then hit the cache"
+
+
+def test_brief_recomputes_an_unsettled_day(client, fake_pool, monkeypatch):
+    """A day whose DAM has not landed is never cached, so it is never served
+    stale before its inputs settle."""
+    calls = _brief_section_counter(monkeypatch)
+    for _ in range(2):
+        fake_pool.cursor.queue([{"run_id": "run-x"}])
+        fake_pool.cursor.queue([{"h": 1}])
+        fake_pool.cursor.queue([{"ts": None}])  # DAM not landed -> not final
+
+    client.get("/analysis/brief?day=2026-07-28")
+    client.get("/analysis/brief?day=2026-07-28")
+
+    assert calls["n"] == 14, "unsettled day recomputes every request (7 sections x 2)"
 
 
 def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
