@@ -9,8 +9,7 @@ import type {
   MapOverview,
   RankedConstraints,
   ScoreboardHeadline,
-  ScoreboardWeekly,
-  ScoreboardDaily,
+  ScoreboardSummary,
   MatrixFrame,
   BriefHeroLatest,
   BriefDay,
@@ -236,37 +235,21 @@ export async function fetchScoreboardHeadline(
   return r.json();
 }
 
-// The full weekly backtest series + pooled pre/post-RTC+B summary for the
-// scoreboard page. All sources ride along regardless of `source` (the page's
-// foregrounded series). Same soft-fail contract: 503 (no board / regime empty)
-// returns null. Reads the backtest board — independent of the forecast run.
-export async function fetchScoreboardWeekly(
-  source = "model",
+// One bundled payload for the Scoreboard page bootstrap (0137) — replaces the
+// weekly + headline + daily fan-out with a single request. Each field keeps
+// its prior section shape; null exactly when that section's own endpoint
+// would 503 (that board has no rows yet), so the page can still render the
+// sections that do have data. `source`/`since` are fixed server-side to match
+// what the Scoreboard page always requested (`model`, full history) — only
+// `regime` varies from the client.
+export async function fetchScoreboardSummary(
   regime = "all"
-): Promise<ScoreboardWeekly | null> {
-  const qs = new URLSearchParams({ source, regime });
-  const r = await fetch(`${BASE}/scoreboard/weekly?${qs.toString()}`);
+): Promise<ScoreboardSummary | null> {
+  const r = await fetch(
+    `${BASE}/scoreboard/summary?regime=${encodeURIComponent(regime)}`
+  );
   if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/weekly ${r.status}`);
-  return r.json();
-}
-
-// The LIVE per-delivery-day grade series — grades of the SERVED forecast, the
-// live counterpart to the weekly backtest board. All sources ride along
-// regardless of `source` (the page's foregrounded series). Resolves its own
-// run_id (the run with the most recent graded day), independent of the board.
-// Same soft-fail contract: 503 (no live grade has run yet / no rows since the
-// date) returns null so the page renders the backtest board alone rather than
-// erroring.
-export async function fetchScoreboardDaily(
-  source = "model",
-  since?: string
-): Promise<ScoreboardDaily | null> {
-  const qs = new URLSearchParams({ source });
-  if (since) qs.set("since", since);
-  const r = await fetch(`${BASE}/scoreboard/daily?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`scoreboard/daily ${r.status}`);
+  if (!r.ok) throw new Error(`scoreboard/summary ${r.status}`);
   return r.json();
 }
 

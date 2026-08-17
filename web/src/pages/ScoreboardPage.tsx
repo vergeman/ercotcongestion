@@ -6,11 +6,7 @@ import type {
   WeeklyPoint,
   DailyPoint,
 } from "../api/types";
-import {
-  fetchScoreboardWeekly,
-  fetchScoreboardHeadline,
-  fetchScoreboardDaily,
-} from "../api/client";
+import { fetchScoreboardSummary } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import Tooltip from "../components/ui/Tooltip";
 
@@ -806,34 +802,28 @@ export default function ScoreboardPage() {
   const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // One bundled request per regime change (0137) — weekly, headline, and the
+  // live per-day board all arrive together. The live board isn't actually
+  // sliced by `regime` (the server ignores it for that section), so this
+  // re-fetches an unchanged `daily` alongside `weekly`/`headline` on every
+  // regime change; that's the accepted cost of one request replacing three.
+  // Each field is independently null on a 503 (that board has no rows yet),
+  // so e.g. an absent live board still lets the backtest board render.
   useEffect(() => {
     let live = true;
     setLoading(true);
-    Promise.all([
-      fetchScoreboardWeekly("model", regime),
-      fetchScoreboardHeadline(regime),
-    ])
-      .then(([w, h]) => {
+    fetchScoreboardSummary(regime)
+      .then((result) => {
         if (!live) return;
-        setWeekly(w);
-        setHeadline(h);
+        setWeekly(result?.weekly ?? null);
+        setHeadline(result?.headline ?? null);
+        setDaily(result?.daily ?? null);
       })
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
   }, [regime]);
-
-  // The live per-day board is a run-level surface, not sliced by the regime
-  // selector — fetch it once. 503 → null so the panel is gracefully absent
-  // before any live grade exists (the backtest board still renders).
-  useEffect(() => {
-    let live = true;
-    fetchScoreboardDaily("model").then((d) => live && setDaily(d));
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;

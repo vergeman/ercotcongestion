@@ -469,6 +469,15 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
+// /scoreboard/summary — one bundled payload for the Scoreboard page bootstrap
+// (0137). Each field keeps its single-section shape; null exactly when that
+// section's own endpoint would 503 (that board has no rows yet).
+export interface ScoreboardSummary {
+  weekly: ScoreboardWeekly | null;
+  headline: ScoreboardHeadline | null;
+  daily: ScoreboardDaily | null;
+}
+
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy
 // analysis brief this is composed from query-layer slots, not a stored blob.
 export interface HeroSegment {
