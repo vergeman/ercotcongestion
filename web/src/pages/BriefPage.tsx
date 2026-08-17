@@ -16,14 +16,8 @@ import type {
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
 import {
-  fetchAnalysisGradeCached,
-  fetchAnalysisGradeHistoryCached,
-  fetchBriefContextCached,
-  fetchBriefHeroCached,
+  fetchBriefDayCached,
   fetchBriefHeroLatestCached,
-  fetchStandoutsCached,
-  fetchTopConstraintsCached,
-  fetchTopNodesCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
@@ -1488,14 +1482,14 @@ export default function BriefPage() {
     let live = true;
     setAdjacentDays({ previous: null, next: null });
     Promise.all([
-      fetchBriefHeroCached(previous, cursor.run ?? undefined),
-      fetchBriefHeroCached(next, cursor.run ?? undefined),
+      fetchBriefDayCached(previous, cursor.run ?? undefined),
+      fetchBriefDayCached(next, cursor.run ?? undefined),
     ])
-      .then(([previousHero, nextHero]) => {
+      .then(([previousDay, nextDay]) => {
         if (!live) return;
         setAdjacentDays({
-          previous: previousHero?.available ? previous : null,
-          next: nextHero?.available ? next : null,
+          previous: previousDay?.hero.available ? previous : null,
+          next: nextDay?.hero.available ? next : null,
         });
       })
       .catch(() => {
@@ -1506,146 +1500,47 @@ export default function BriefPage() {
     };
   }, [deliveryDay, cursor.run]);
 
+  // One bundled request per rendered day (0137) — hero, context, standouts,
+  // top-nodes, top-constraints, grade, and grade-history all arrive together,
+  // so every section-loading flag starts and clears in lockstep.
   useEffect(() => {
     if (!deliveryDay) return;
     let live = true;
     setLoading(true);
     setError(null);
     setHero(null);
-    fetchBriefHeroCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (!live) return;
-        setHero(result);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!live) return;
-        setError("The daily brief could not be loaded.");
-        setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run]);
-
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
     setContextLoading(true);
-    fetchBriefContextCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (live) setContext(result);
-      })
-      .catch(() => {
-        if (live) setContext(null);
-      })
-      .finally(() => {
-        if (live) setContextLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run]);
-
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
     setStandoutsLoading(true);
-    fetchStandoutsCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (live) setStandouts(result);
-      })
-      .catch(() => {
-        if (live) setStandouts(null);
-      })
-      .finally(() => {
-        if (live) setStandoutsLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run]);
-
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
     setTopNodesLoading(true);
-    fetchTopNodesCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (live) setTopNodes(result);
-      })
-      .catch(() => {
-        if (live) setTopNodes(null);
-      })
-      .finally(() => {
-        if (live) setTopNodesLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run]);
-
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
     setTopConstraintsLoading(true);
-    fetchTopConstraintsCached(deliveryDay, cursor.run ?? undefined)
+    setGradeLoading(true);
+    fetchBriefDayCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
-        if (live) setTopConstraints(result);
+        if (!live) return;
+        setHero(result?.hero ?? null);
+        setContext(result?.context ?? null);
+        setStandouts(result?.standouts ?? null);
+        setTopNodes(result?.top_nodes ?? null);
+        setTopConstraints(result?.top_constraints ?? null);
+        setGrade(result?.grade ?? null);
+        setGradeHistory(result?.grade_history ?? null);
       })
       .catch(() => {
-        if (live) setTopConstraints(null);
+        if (live) setError("The daily brief could not be loaded.");
       })
       .finally(() => {
-        if (live) setTopConstraintsLoading(false);
+        if (!live) return;
+        setLoading(false);
+        setContextLoading(false);
+        setStandoutsLoading(false);
+        setTopNodesLoading(false);
+        setTopConstraintsLoading(false);
+        setGradeLoading(false);
       });
     return () => {
       live = false;
     };
   }, [deliveryDay, cursor.run]);
-
-  useEffect(() => {
-    const settled = hero?.provenance?.basis === "settled";
-    if (!deliveryDay || !settled) {
-      setGrade(null);
-      setGradeLoading(false);
-      return;
-    }
-    let live = true;
-    setGradeLoading(true);
-    fetchAnalysisGradeCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (live) setGrade(result);
-      })
-      .catch(() => {
-        if (live) setGrade(null);
-      })
-      .finally(() => {
-        if (live) setGradeLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run, hero?.provenance?.basis]);
-
-  useEffect(() => {
-    const settled = hero?.provenance?.basis === "settled";
-    if (!deliveryDay || !settled) {
-      setGradeHistory(null);
-      return;
-    }
-    let live = true;
-    fetchAnalysisGradeHistoryCached(deliveryDay, cursor.run ?? undefined)
-      .then((result) => {
-        if (live) setGradeHistory(result);
-      })
-      .catch(() => {
-        if (live) setGradeHistory(null);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run, hero?.provenance?.basis]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.

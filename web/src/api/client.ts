@@ -12,12 +12,8 @@ import type {
   ScoreboardWeekly,
   ScoreboardDaily,
   MatrixFrame,
-  BriefHero,
   BriefHeroLatest,
-  Standouts,
-  TopConstraints,
-  TopNodes,
-  AnalysisGrade,
+  BriefDay,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
@@ -274,20 +270,6 @@ export async function fetchScoreboardDaily(
   return r.json();
 }
 
-// v6's generated hero.  An absent artifact is a successful, explicit empty
-// state; 503 still means no published run at all.
-export async function fetchBriefHero(
-  deliveryDate: string,
-  runId?: string
-): Promise<BriefHero | null> {
-  const qs = new URLSearchParams({ date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  const r = await fetch(`${BASE}/analysis/hero?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/hero ${r.status}`);
-  return r.json();
-}
-
 // V6 cold-entry discovery selects only days with both UTC artifacts required
 // to stitch the Brief's Chicago delivery-day tables.
 export async function fetchBriefHeroLatest(
@@ -302,84 +284,18 @@ export async function fetchBriefHeroLatest(
   return r.json();
 }
 
-export async function fetchTopConstraints(
+// One bundled payload for a Brief delivery day (0137) — replaces the
+// hero/context/standouts/top-nodes/top-constraints/grade/grade-history
+// fan-out with a single request. Each field keeps its prior section shape.
+export async function fetchBriefDay(
   deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<TopConstraints | null> {
-  // The server owns the row cap and echoes it back as `k`; the client never
-  // sets it, so the asterisk threshold can't desync from the served count.
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/top-constraints?${qs.toString()}`);
+  runId?: string,
+): Promise<BriefDay | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/top-constraints ${r.status}`);
-  return r.json();
-}
-
-export async function fetchBriefContext(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<import("./types").BriefContext | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/context?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/context ${r.status}`);
-  return r.json();
-}
-
-export async function fetchStandouts(
-  deliveryDate: string,
-  { runId, horizon, k = 4 }: { runId?: string; horizon?: number; k?: number } = {},
-): Promise<Standouts | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate, k: String(k) });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/standouts?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/standouts ${r.status}`);
-  return r.json();
-}
-
-export async function fetchTopNodes(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<TopNodes | null> {
-  // Server-owned row cap, echoed back as `k` (see fetchTopConstraints).
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/top-nodes?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/top-nodes ${r.status}`);
-  return r.json();
-}
-
-export async function fetchAnalysisGrade(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<AnalysisGrade | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/grade?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/grade ${r.status}`);
-  return r.json();
-}
-
-export async function fetchAnalysisGradeHistory(
-  deliveryDate: string,
-  { runId, horizon }: { runId?: string; horizon?: number } = {},
-): Promise<import("./types").AnalysisGradeHistory | null> {
-  const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
-  if (horizon != null) qs.set("horizon", String(horizon));
-  const r = await fetch(`${BASE}/analysis/grade-history?${qs.toString()}`);
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`analysis/grade-history ${r.status}`);
+  if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
   return r.json();
 }
 

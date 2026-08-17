@@ -710,6 +710,19 @@ export interface AnalysisGradeHistory {
   days?: AnalysisGradeHistoryDay[];
 }
 
+// /analysis/brief — one bundled payload for a Brief delivery day (0137).
+// Each field keeps the exact shape its single-section endpoint already
+// served, so section consumers built against those shapes are untouched.
+export interface BriefDay {
+  hero: BriefHero;
+  context: BriefContext;
+  standouts: Standouts;
+  top_nodes: TopNodes;
+  top_constraints: TopConstraints;
+  grade: AnalysisGrade;
+  grade_history: AnalysisGradeHistory;
+}
+
 // =============================================================================
 // /analysis/node and /analysis/settlement-points — full-artifact attribution.
 // These are intentionally sparse lists, not Matrix rectangles: every nonzero
