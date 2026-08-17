@@ -1466,45 +1466,15 @@ export default function BriefPage() {
     setSelection(null);
   }, [deliveryDay]);
 
-  // Probe the two neighboring CT delivery days before enabling their carets.
-  // The hero endpoint returns a successful explicit unavailable state for a
-  // missing artifact, and the shared cache makes the successful probe the
-  // navigation request's data source as well.
+  // One bundled request per rendered day (0137). Neighbors are probed only after
+  // the current day resolves — three concurrent /brief payloads (current + prev +
+  // next) contend on the API pool + GIL, so deferring keeps the visible day on a
+  // clear critical path while neighbors warm the cache for navigation.
   useEffect(() => {
     if (!deliveryDay) {
       setAdjacentDays({ previous: null, next: null });
       return;
     }
-    const toDay = (offset: number) =>
-      format(addDays(new Date(`${deliveryDay}T12:00:00Z`), offset), "yyyy-MM-dd");
-    const previous = toDay(-1);
-    const next = toDay(1);
-    let live = true;
-    setAdjacentDays({ previous: null, next: null });
-    Promise.all([
-      fetchBriefDayCached(previous, cursor.run ?? undefined),
-      fetchBriefDayCached(next, cursor.run ?? undefined),
-    ])
-      .then(([previousDay, nextDay]) => {
-        if (!live) return;
-        setAdjacentDays({
-          previous: previousDay?.hero.available ? previous : null,
-          next: nextDay?.hero.available ? next : null,
-        });
-      })
-      .catch(() => {
-        if (live) setAdjacentDays({ previous: null, next: null });
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, cursor.run]);
-
-  // One bundled request per rendered day (0137) — hero, context, standouts,
-  // top-nodes, top-constraints, grade, and grade-history all arrive together,
-  // so every section-loading flag starts and clears in lockstep.
-  useEffect(() => {
-    if (!deliveryDay) return;
     let live = true;
     setLoading(true);
     setError(null);
@@ -1514,6 +1484,9 @@ export default function BriefPage() {
     setTopNodesLoading(true);
     setTopConstraintsLoading(true);
     setGradeLoading(true);
+    setAdjacentDays({ previous: null, next: null });
+    const toDay = (offset: number) =>
+      format(addDays(new Date(`${deliveryDay}T12:00:00Z`), offset), "yyyy-MM-dd");
     fetchBriefDayCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
         if (!live) return;
@@ -1536,6 +1509,23 @@ export default function BriefPage() {
         setTopNodesLoading(false);
         setTopConstraintsLoading(false);
         setGradeLoading(false);
+        // Deferred neighbor prefetch: enable carets, warm the cache for nav.
+        const previous = toDay(-1);
+        const next = toDay(1);
+        Promise.all([
+          fetchBriefDayCached(previous, cursor.run ?? undefined),
+          fetchBriefDayCached(next, cursor.run ?? undefined),
+        ])
+          .then(([previousDay, nextDay]) => {
+            if (!live) return;
+            setAdjacentDays({
+              previous: previousDay?.hero.available ? previous : null,
+              next: nextDay?.hero.available ? next : null,
+            });
+          })
+          .catch(() => {
+            if (live) setAdjacentDays({ previous: null, next: null });
+          });
       });
     return () => {
       live = false;
