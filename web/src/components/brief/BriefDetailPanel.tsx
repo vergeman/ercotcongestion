@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import type {
   NodeStandoutRow,
@@ -355,12 +356,22 @@ export default function BriefDetailPanel({
   onClose,
 }: Props) {
   const panelRef = useRef<HTMLElement>(null);
+  const open = selection != null;
+
+  // The drawer + scrim stay mounted permanently and slide via a class toggle,
+  // never a mount-time animation (that races React's first paint and flashes the
+  // panel's final frame — the FOUT). `rendered` retains the last selection so the
+  // panel keeps its content while it slides OUT, after `selection` has gone null.
+  // Derived during render (not in an effect) so the first open paints its content
+  // and closed transform in the same frame — no empty first frame.
+  const [rendered, setRendered] = useState<BriefSelection | null>(null);
+  if (selection && selection !== rendered) setRendered(selection);
 
   // Dialog focus contract (matches MobileDrawer): focus the close control on
   // open, trap Tab within the panel, close on Escape, and return focus to the
-  // triggering row when the panel unmounts.
+  // triggering row on close.
   useEffect(() => {
-    if (!selection) return;
+    if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     const focusable = () =>
@@ -393,120 +404,145 @@ export default function BriefDetailPanel({
       }
     };
     document.addEventListener("keydown", onKeyDown);
+    // Lock the page scroll behind the modal so the dimmed Brief can't scroll
+    // under it; restore the prior value on close.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus();
     };
   }, [selection, onClose]);
 
-  if (!selection) return null;
-
-  const geo = selectionGeo(selection);
-  const key = selectionKey(selection);
+  const geo = rendered ? selectionGeo(rendered) : "constraint";
+  const key = rendered ? selectionKey(rendered) : "";
   const title = geo === "constraint" ? constraintName(key) : key;
-  const eyebrow =
-    selection.kind === "standout-constraint"
-      ? "Standout · Constraint"
-      : selection.kind === "standout-node"
-      ? "Standout · Node"
-      : selection.kind === "constraint"
-      ? "Top constraint"
-      : "Top nodal congestion";
-  const mapHref = briefElementMapHref(heroCursor, selection);
+  const eyebrow = !rendered
+    ? ""
+    : rendered.kind === "standout-constraint"
+    ? "Standout · Constraint"
+    : rendered.kind === "standout-node"
+    ? "Standout · Node"
+    : rendered.kind === "constraint"
+    ? "Top constraint"
+    : "Top nodal congestion";
+  const mapHref = rendered ? briefElementMapHref(heroCursor, rendered) : "#";
 
-  return (
-    <div className="bdp" role="presentation">
+  // Portal to <body> and keep the scrim + panel permanently mounted (see the
+  // `rendered` note above). Both are `position: fixed` siblings — NOT nested in a
+  // full-viewport wrapper — so when closed (scrim visibility:hidden, panel slid
+  // off-screen) nothing intercepts clicks on the page beneath. The `--on` class
+  // drives a CSS *transition* from the pre-existing closed state, so the slide is
+  // smooth in and out with no mount-time flash.
+  return createPortal(
+    <>
       <ConstraintReachStyles />
-      <button
-        type="button"
-        className="bdp__backdrop"
-        aria-label="Close detail panel"
+      <div
+        className={`bdp__scrim${open ? " bdp__scrim--on" : ""}`}
+        aria-hidden="true"
         onClick={onClose}
       />
       <aside
         ref={panelRef}
-        className="bdp__panel"
+        className={`bdp__panel${open ? " bdp__panel--on" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={TITLE_ID}
+        aria-hidden={!open}
       >
-        <div className="bdp__head">
-          <div>
-            <p className="bdp__eyebrow">{eyebrow}</p>
-            <h2 id={TITLE_ID} className="bdp__title">
-              {title}
-            </h2>
-            {geo === "constraint" && key.includes("|") && (
-              <p className="bdp__subtitle">{key}</p>
-            )}
-          </div>
-          <button
-            type="button"
-            data-panel-close
-            className="bdp__close"
-            aria-label="Close detail panel"
-            onClick={onClose}
-          >
-            ✕
-          </button>
-        </div>
+        {rendered && (
+          <>
+            <div className="bdp__head">
+              <div>
+                <p className="bdp__eyebrow">{eyebrow}</p>
+                <h2 id={TITLE_ID} className="bdp__title">
+                  {title}
+                </h2>
+                {geo === "constraint" && key.includes("|") && (
+                  <p className="bdp__subtitle">{key}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                data-panel-close
+                className="bdp__close"
+                aria-label="Close detail panel"
+                onClick={onClose}
+              >
+                ✕
+              </button>
+            </div>
 
-        <div className="bdp__mode">
-          <span
-            className={
-              settled ? "bdp__chip bdp__chip--settled" : "bdp__chip"
-            }
-          >
-            {settled ? "DAM settled" : "Forecast"}
-          </span>
-        </div>
+            <div className="bdp__mode">
+              <span
+                className={
+                  settled ? "bdp__chip bdp__chip--settled" : "bdp__chip"
+                }
+              >
+                {settled ? "DAM settled" : "Forecast"}
+              </span>
+            </div>
 
-        <div className="bdp__body">
-          <BriefFootprintMap selection={selection} />
-          {selection.kind === "standout-constraint" ? (
-            <ConstraintEvidence
-              row={selection.row}
-              standout={selection.row}
-              settled={settled}
-            />
-          ) : selection.kind === "constraint" ? (
-            <ConstraintEvidence
-              row={selection.row}
-              standout={null}
-              settled={settled}
-            />
-          ) : selection.kind === "standout-node" ? (
-            <NodeEvidence ranked={null} standout={selection.row} settled={settled} />
-          ) : (
-            <NodeEvidence ranked={selection.row} standout={null} settled={settled} />
-          )}
-        </div>
+            <div className="bdp__body">
+              <BriefFootprintMap selection={rendered} />
+              {rendered.kind === "standout-constraint" ? (
+                <ConstraintEvidence
+                  row={rendered.row}
+                  standout={rendered.row}
+                  settled={settled}
+                />
+              ) : rendered.kind === "constraint" ? (
+                <ConstraintEvidence
+                  row={rendered.row}
+                  standout={null}
+                  settled={settled}
+                />
+              ) : rendered.kind === "standout-node" ? (
+                <NodeEvidence ranked={null} standout={rendered.row} settled={settled} />
+              ) : (
+                <NodeEvidence ranked={rendered.row} standout={null} settled={settled} />
+              )}
+            </div>
 
-        <div className="bdp__foot">
-          <Link className="bdp__map" to={mapHref}>
-            Open in Map →
-          </Link>
-          <p className="bdp__foot-note">
-            Opens the full interactive Map with this{" "}
-            {geo === "constraint" ? "constraint" : "node"} selected on the
-            Forecast × Congestion view.
-          </p>
-        </div>
+            <div className="bdp__foot">
+              <Link className="bdp__map" to={mapHref}>
+                Open in Map →
+              </Link>
+              <p className="bdp__foot-note">
+                Opens the full interactive Map with this{" "}
+                {geo === "constraint" ? "constraint" : "node"} selected on the
+                Forecast × Congestion view.
+              </p>
+            </div>
+          </>
+        )}
       </aside>
 
       <style>{`
-        .bdp { position: fixed; inset: 0; z-index: 90; display: flex; justify-content: flex-end; }
-        .bdp__backdrop { position: absolute; inset: 0; border: 0; border-radius: 0; padding: 0; background: rgba(0,0,0,0.5); cursor: pointer; }
+        .bdp__scrim {
+          position: fixed; inset: 0; z-index: 89;
+          background: rgba(0,0,0,0.5);
+          opacity: 0; visibility: hidden; cursor: pointer;
+          transition: opacity 180ms ease, visibility 0s linear 180ms;
+        }
+        .bdp__scrim--on { opacity: 1; visibility: visible; transition: opacity 180ms ease, visibility 0s; }
         .bdp__panel {
-          position: relative;
+          position: fixed; top: 0; right: 0; bottom: 0; z-index: 90;
           width: min(94vw, 440px);
-          height: 100%;
           display: flex;
           flex-direction: column;
           background: var(--bg-panel);
           border-left: 1px solid var(--border-bright);
           box-shadow: var(--shadow-panel, 0 8px 30px rgb(0 0 0 / 32%));
           font-variant-numeric: tabular-nums;
+          transform: translateX(100%);
+          visibility: hidden;
+          transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0s linear 200ms;
+        }
+        .bdp__panel--on { transform: none; visibility: visible; transition: transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0s; }
+        @media (prefers-reduced-motion: reduce) {
+          .bdp__scrim, .bdp__panel { transition: none; }
         }
         .bdp__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 12px; border-bottom: 1px solid var(--border); }
         .bdp__eyebrow { margin: 0 0 6px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
@@ -539,6 +575,7 @@ export default function BriefDetailPanel({
         .bdp__map:hover { background: color-mix(in srgb, var(--accent-dim) 65%, var(--accent) 14%); border-color: var(--accent); }
         .bdp__foot-note { margin: 8px 0 0; color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.4; }
       `}</style>
-    </div>
+    </>,
+    document.body
   );
 }
