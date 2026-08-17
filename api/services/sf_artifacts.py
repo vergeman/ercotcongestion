@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from datetime import date
+from threading import Lock
 
 import pandas as pd
 
@@ -77,35 +78,44 @@ def _artifact_size_bytes(artifact: SfMuArtifact) -> int:
 
 
 class SfArtifactCache:
-    """Byte-bounded LRU cache for decoded immutable daily artifacts."""
+    """Byte-bounded LRU cache for decoded immutable daily artifacts.
+
+    Lock-guarded: composed endpoints run their sections in a thread pool, and a
+    reload fires several such requests at once, so ``get``/``put``/evict are
+    touched concurrently — an unguarded ``OrderedDict`` corrupts its byte
+    accounting and links under that (0137)."""
 
     def __init__(self, max_bytes: int = ARTIFACT_CACHE_MAX_BYTES) -> None:
         self.max_bytes = max_bytes
         self._items: OrderedDict[tuple[str, date, int], tuple[SfMuArtifact, int]] = OrderedDict()
         self._bytes = 0
+        self._lock = Lock()
 
     def get(self, key: tuple[str, date, int]) -> SfMuArtifact | None:
-        item = self._items.get(key)
-        if item is None:
-            return None
-        self._items.move_to_end(key)
-        return item[0]
+        with self._lock:
+            item = self._items.get(key)
+            if item is None:
+                return None
+            self._items.move_to_end(key)
+            return item[0]
 
     def put(self, key: tuple[str, date, int], artifact: SfMuArtifact) -> SfMuArtifact:
         size = _artifact_size_bytes(artifact)
-        old = self._items.pop(key, None)
-        if old is not None:
-            self._bytes -= old[1]
-        self._items[key] = (artifact, size)
-        self._bytes += size
-        while self._bytes > self.max_bytes and len(self._items) > 1:
-            _, (_, evicted_size) = self._items.popitem(last=False)
-            self._bytes -= evicted_size
+        with self._lock:
+            old = self._items.pop(key, None)
+            if old is not None:
+                self._bytes -= old[1]
+            self._items[key] = (artifact, size)
+            self._bytes += size
+            while self._bytes > self.max_bytes and len(self._items) > 1:
+                _, (_, evicted_size) = self._items.popitem(last=False)
+                self._bytes -= evicted_size
         return artifact
 
     def clear(self) -> None:
-        self._items.clear()
-        self._bytes = 0
+        with self._lock:
+            self._items.clear()
+            self._bytes = 0
 
 
 _ARTIFACT_CACHE = SfArtifactCache()
