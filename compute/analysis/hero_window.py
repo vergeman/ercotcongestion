@@ -180,15 +180,16 @@ def summarize_node_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
 
 
 def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[dict[str, Any]]:
-    """Return each day's DAM-close-vintaged peak system-load forecast.
+    """Return each day's DAM-close-vintaged peak total and net-load forecasts.
 
-    The daily peak is an intelligible system-load condition and the query keeps
-    only forecasts published by that delivery day's 10:00 CT DAM close.
+    The daily peaks are intelligible system-load conditions and the query keeps
+    only forecasts published by that delivery day's 10:00 CT DAM close. Net load
+    is total load minus ERCOT's system-wide wind and solar point forecasts.
     """
     start, end = delivery_bounds(delivery_date)
     start -= timedelta(days=days)
     sql = """
-        WITH vintaged AS (
+        WITH load_vintaged AS (
             SELECT DISTINCT ON (interval_ts, dst_flag)
                    interval_ts, dst_flag, system_total
             FROM load_forecast_zonal
@@ -199,30 +200,113 @@ def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[d
                 AT TIME ZONE 'America/Chicago'
               )
             ORDER BY interval_ts, dst_flag, posted_datetime DESC
+        ), wind_vintaged AS (
+            SELECT DISTINCT ON (interval_ts, dst_flag)
+                   interval_ts, dst_flag, stwpf_system_wide
+            FROM wind_forecast_regional
+            WHERE interval_ts >= %s AND interval_ts < %s
+              AND posted_datetime <= (
+                (date_trunc('day', interval_ts AT TIME ZONE 'America/Chicago')
+                  - interval '1 day' + interval '10 hours')
+                AT TIME ZONE 'America/Chicago'
+              )
+            ORDER BY interval_ts, dst_flag, posted_datetime DESC
+        ), solar_vintaged AS (
+            SELECT DISTINCT ON (interval_ts, dst_flag)
+                   interval_ts, dst_flag, stppf_system_wide
+            FROM solar_forecast_regional
+            WHERE interval_ts >= %s AND interval_ts < %s
+              AND posted_datetime <= (
+                (date_trunc('day', interval_ts AT TIME ZONE 'America/Chicago')
+                  - interval '1 day' + interval '10 hours')
+                AT TIME ZONE 'America/Chicago'
+              )
+            ORDER BY interval_ts, dst_flag, posted_datetime DESC
+        ), actual_daily AS (
+            SELECT (l.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
+                   MAX(l.total) AS actual_value,
+                   MAX(l.total - w.gen_system_wide - s.gen_system_wide) AS actual_net_load
+            FROM load_by_zone l
+            LEFT JOIN wind_hourly_regional w USING (interval_ts, dst_flag)
+            LEFT JOIN solar_hourly_regional s USING (interval_ts, dst_flag)
+            WHERE l.interval_ts >= %s AND l.interval_ts < %s
+              AND l.total IS NOT NULL
+            GROUP BY 1
         )
-        SELECT (interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
-               MAX(system_total) AS value
-        FROM vintaged
-        WHERE system_total IS NOT NULL
+        SELECT (l.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
+               MAX(l.system_total) AS value,
+               MAX(l.system_total - w.stwpf_system_wide - s.stppf_system_wide) AS net_load,
+               MAX(a.actual_value) AS actual_value,
+               MAX(a.actual_net_load) AS actual_net_load,
+               -- Wind/solar averaged over the empirical high-congestion CT window
+               -- (HIGH_CONGESTION_CT_HOURS): the renewable supply into the peak,
+               -- ranked later to explain a congestion day the load level alone cannot.
+               AVG(w.stwpf_system_wide) FILTER (
+                 WHERE EXTRACT(hour FROM l.interval_ts AT TIME ZONE 'America/Chicago') IN (15, 16, 17, 18)
+               ) AS wind_peak,
+               AVG(s.stppf_system_wide) FILTER (
+                 WHERE EXTRACT(hour FROM l.interval_ts AT TIME ZONE 'America/Chicago') IN (15, 16, 17, 18)
+               ) AS solar_peak
+        FROM load_vintaged l
+        LEFT JOIN wind_vintaged w USING (interval_ts, dst_flag)
+        LEFT JOIN solar_vintaged s USING (interval_ts, dst_flag)
+        LEFT JOIN actual_daily a ON a.delivery_date =
+          (l.interval_ts AT TIME ZONE 'America/Chicago')::date
+        WHERE l.system_total IS NOT NULL
         GROUP BY 1
         ORDER BY 1
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (start, end))
-        return _rows(cur, ("delivery_date", "value"))
+        params = (start, end, start, end, start, end, start, end)
+        cur.execute(sql, params)
+        return _rows(cur, ("delivery_date", "value", "net_load", "actual_value",
+                           "actual_net_load", "wind_peak", "solar_peak"))
+
+
+def _trailing_pct(series: list[float | None], value: float | None) -> float | None:
+    """Percentile rank of ``value`` within the non-null trailing series."""
+    observed = [v for v in series if v is not None]
+    if value is None or not observed:
+        return None
+    return 100.0 * sum(v <= value for v in observed) / len(observed)
 
 
 def summarize_load_condition(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the raw condition values consumed by the regime classifier."""
+    """Return the raw condition values consumed by the regime classifier.
+
+    Beyond the load percentile the regime slot carries the peak-window renewable
+    supply percentiles and the settled forecast miss.  These do not change the
+    regime bucket; they feed the lede's driver clause (see ``phrases.py``).
+    """
     if not rows:
         return None
     values = [float(row["value"]) for row in rows]
     today = values[-1]
+    last = rows[-1]
+
+    def _series(column: str) -> list[float | None]:
+        return [float(r[column]) if r.get(column) is not None else None for r in rows]
+
+    wind_series, solar_series = _series("wind_peak"), _series("solar_peak")
+    forecast = today
+    actual = float(last["actual_value"]) if last.get("actual_value") is not None else None
+    load_miss = (100.0 * (actual - forecast) / forecast
+                 if actual is not None and forecast else None)
     return {
         "series": "load.system",
         "today": today,
+        "net_load": (float(last["net_load"]) if last.get("net_load") is not None else None),
+        "actual_today": actual,
+        "actual_net_load": (float(last["actual_net_load"])
+                             if last.get("actual_net_load") is not None else None),
         "median": float(median(values)),
         "pct": 100.0 * sum(value <= today for value in values) / len(values),
+        "wind_peak": wind_series[-1],
+        "solar_peak": solar_series[-1],
+        "wind_pct": _trailing_pct(wind_series, wind_series[-1]),
+        "solar_pct": _trailing_pct(solar_series, solar_series[-1]),
+        "load_miss_pct": load_miss,
+        "load_miss_abs": abs(load_miss) if load_miss is not None else None,
         "n": len(values),
         "basis": "forecast",
     }

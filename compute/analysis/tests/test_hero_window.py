@@ -96,6 +96,12 @@ def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
     load_load_condition(load_conn, date(2026, 7, 28))
     assert "interval_ts < %s" in load_conn.cur.sql
     assert "posted_datetime <=" in load_conn.cur.sql
+    assert "FROM wind_forecast_regional" in load_conn.cur.sql
+    assert "FROM solar_forecast_regional" in load_conn.cur.sql
+    assert "FROM load_by_zone" in load_conn.cur.sql
+    assert "JOIN wind_hourly_regional" in load_conn.cur.sql
+    assert "JOIN solar_hourly_regional" in load_conn.cur.sql
+    assert "l.dst_flag = FALSE" not in load_conn.cur.sql
 
     geo_conn = Conn([])
     load_constraint_geo(geo_conn)
@@ -110,9 +116,13 @@ def test_node_and_condition_summaries_carry_classifier_ready_ranks_and_percentil
     assert nodes["A"]["rank"] == 2 and nodes["A"]["n"] == 2
 
     condition = summarize_load_condition([
-        {"delivery_date": date(2026, 7, 26), "value": 80},
-        {"delivery_date": date(2026, 7, 27), "value": 90},
-        {"delivery_date": date(2026, 7, 28), "value": 100},
+        {"delivery_date": date(2026, 7, 26), "value": 80,
+         "actual_value": 78, "actual_net_load": 60},
+        {"delivery_date": date(2026, 7, 27), "value": 90,
+         "actual_value": 88, "actual_net_load": 68},
+        {"delivery_date": date(2026, 7, 28), "value": 100, "net_load": 70,
+         "actual_value": 98, "actual_net_load": 75},
     ])
-    assert condition == {"series": "load.system", "today": 100.0, "median": 90.0,
+    assert condition == {"series": "load.system", "today": 100.0, "net_load": 70.0,
+                         "actual_today": 98.0, "actual_net_load": 75.0, "median": 90.0,
                          "pct": 100.0, "n": 3, "basis": "forecast"}
