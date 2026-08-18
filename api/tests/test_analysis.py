@@ -439,6 +439,46 @@ def test_node_realized_basis_keeps_sf_shape_and_swaps_mu(client, fake_pool, monk
     assert body["total"] == -9.5
 
 
+def test_node_single_hour_predicted_uses_only_that_hours_forecast_mu(client, fake_pool, monkeypatch):
+    """The scrubbed hour (05:00Z = CT midnight on the summer boundary — the
+    artifact's first hour, mirroring ``matrix.py::_delivery_date``) must
+    resolve to exactly its own ``E_mu`` row, not the whole-day sum."""
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # settled congestion: SPP
+    fake_pool.cursor.queue([])  # settled congestion: system lambda
+
+    body = client.get(f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+                      f"&basis=predicted&run_id=run-x&horizon=1&hours={ts0.isoformat().replace('+00:00', 'Z')}").json()
+
+    assert body["available"] is True
+    assert body["hours"] == ["2026-07-28T05:00:00Z"]
+    assert [row["constraint_key"] for row in body["terms"]] == ["A|B", "C|D"]
+    assert body["n_terms"] == 2
+    assert body["total"] == -1.0
+
+
+def test_node_single_hour_realized_uses_only_that_hours_dam_mu(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([
+        {"interval_ts": ts0, "constraint_name": "C", "contingency_name": "D", "shadow_price": 8.0},
+    ])
+    fake_pool.cursor.queue([])  # settled congestion: SPP
+    fake_pool.cursor.queue([])  # settled congestion: system lambda
+
+    body = client.get(f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+                      f"&basis=realized&run_id=run-x&horizon=1&hours={ts0.isoformat().replace('+00:00', 'Z')}").json()
+
+    assert body["available"] is True
+    assert body["hours"] == ["2026-07-28T05:00:00Z"]
+    assert [row["constraint_key"] for row in body["terms"]] == ["C|D"]
+    assert body["n_terms"] == 1
+    assert body["total"] == 4.0
+
+
 def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeypatch):
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
     body = client.get("/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
@@ -458,6 +498,41 @@ def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(c
 def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool, monkeypatch):
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
     body = client.get("/analysis/settlement-points?delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+    assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
+                    "delivery_date": "2026-07-28", "horizon": 1}
+
+
+def test_constraints_returns_the_full_vocabulary_ranked_by_mu_mass(client, fake_pool, monkeypatch):
+    """Every artifact constraint is returned — not a top-k Brief cast — ordered
+    by Σ|E_mu| with best-effort constraint_geo metadata folded in per key."""
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _node_artifact())
+    fake_pool.cursor.queue([
+        {"constraint_key": "A|B", "ctype": "radial", "zone_shares": {"south": 0.6, "north": 0.4},
+         "kv_max": 345.0},
+    ])
+
+    body = client.get("/analysis/constraints?delivery_date=2026-07-28"
+                      "&run_id=run-x&horizon=1").json()
+
+    assert body["available"] is True
+    assert body["n_total"] == 3
+    assert body["rows"] == [
+        {"constraint_key": "C|D", "name": "C", "contingency": "D", "ctype": None,
+         "zone": None, "kv_max": None, "binding_hours": 2, "daily_mu_rank": 1,
+         "daily_mu_sum": 9.0},
+        {"constraint_key": "A|B", "name": "A", "contingency": "B", "ctype": "radial",
+         "zone": "south", "kv_max": 345.0, "binding_hours": 2, "daily_mu_rank": 2,
+         "daily_mu_sum": 5.0},
+        {"constraint_key": "E|F", "name": "E", "contingency": "F", "ctype": None,
+         "zone": None, "kv_max": None, "binding_hours": 1, "daily_mu_rank": 3,
+         "daily_mu_sum": 2.0},
+    ]
+
+
+def test_constraints_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    body = client.get("/analysis/constraints?delivery_date=2026-07-28"
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
                     "delivery_date": "2026-07-28", "horizon": 1}

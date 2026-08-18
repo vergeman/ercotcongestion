@@ -18,7 +18,9 @@ from models import (AnalysisContributionTerm, GradeAvailableResponse,
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     AnalysisSettlementPointsAvailableResponse,
-                    AnalysisSettlementPointsUnavailableResponse, ForecastMuAvailableResponse,
+                    AnalysisSettlementPointsUnavailableResponse,
+                    AnalysisConstraintRow, AnalysisConstraintsAvailableResponse,
+                    AnalysisConstraintsUnavailableResponse, ForecastMuAvailableResponse,
                     ForecastMuUnavailableResponse, ForecastMuRow, EsspGroup,
                     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
@@ -118,6 +120,36 @@ def _settled_congestion(cur, settlement_points: list[str], timestamps: pd.Dateti
             else:
                 out[sp] += float(spp[(ts, sp)]) - float(lam[ts])
     return {sp: out[sp] for sp in settlement_points if complete[sp]}
+
+
+def _split_constraint_key(key: str) -> tuple[str, str | None]:
+    """Mirrors ``matrix.py::_split_constraint_key`` for the search index row."""
+    name, sep, contingency = str(key).partition("|")
+    return name, contingency if sep else None
+
+
+def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
+    """Best-effort ctype/zone/kv_max per key; absent geography is null, never
+    an error. Mirrors ``matrix.py::_constraint_types``'s per-key latest-window
+    lookup, extended with the zone/kv_max fields ``/analysis/top-constraints``
+    already derives the same way (max zone_shares mass)."""
+    if not keys:
+        return {}
+    cur.execute(
+        "SELECT DISTINCT ON (constraint_key) constraint_key, ctype, zone_shares, kv_max "
+        "FROM constraint_geo WHERE constraint_key = ANY(%s) "
+        "ORDER BY constraint_key, window_start DESC",
+        (keys,),
+    )
+    result: dict[str, dict] = {}
+    for row in cur.fetchall():
+        shares = row["zone_shares"] or {}
+        result[str(row["constraint_key"])] = {
+            "ctype": row["ctype"],
+            "zone": max(shares, key=shares.get) if shares else None,
+            "kv_max": row["kv_max"],
+        }
+    return result
 
 
 def _terms(contributions: pd.Series, shift_factors: pd.Series) -> list[AnalysisContributionTerm]:
@@ -742,6 +774,54 @@ def get_settlement_points(
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
+    )
+
+
+@router.get("/constraints",
+            response_model=AnalysisConstraintsAvailableResponse | AnalysisConstraintsUnavailableResponse,
+            summary="Full constraint vocabulary for a daily SF artifact")
+def get_constraints(
+    delivery_date: date = Query(...),
+    run_id: str | None = Query(None),
+    horizon: int | None = Query(None, ge=1, le=2),
+) -> AnalysisConstraintsAvailableResponse | AnalysisConstraintsUnavailableResponse:
+    """List every constraint in one day's artifact for search, ranked by
+    Σ|E_mu| — the full universe, never a Brief top-k."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+        if horizon is None:
+            return AnalysisConstraintsUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date,
+            )
+        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+        if artifact is None:
+            return AnalysisConstraintsUnavailableResponse(
+                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                delivery_date=delivery_date, horizon=horizon,
+            )
+        keys = [str(key) for key in artifact.E_mu.columns]
+        geography = _constraint_geo(cur, keys)
+
+    mu_mass = artifact.E_mu.abs().sum(axis=0)
+    ranked = mu_mass.sort_values(ascending=False, kind="stable")
+    binding_hours = artifact.E_mu.ne(0.0).sum(axis=0)
+
+    rows: list[AnalysisConstraintRow] = []
+    for rank, key in enumerate(ranked.index, start=1):
+        key = str(key)
+        name, contingency = _split_constraint_key(key)
+        geo = geography.get(key, {})
+        rows.append(AnalysisConstraintRow(
+            constraint_key=key, name=name, contingency=contingency,
+            ctype=geo.get("ctype"), zone=geo.get("zone"), kv_max=geo.get("kv_max"),
+            binding_hours=int(binding_hours.loc[key]),
+            daily_mu_rank=rank, daily_mu_sum=float(mu_mass.loc[key]),
+        ))
+    return AnalysisConstraintsAvailableResponse(
+        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        rows=rows, n_total=len(rows),
     )
 
 
