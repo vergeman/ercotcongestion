@@ -12,7 +12,6 @@ import { fetchAnalysisEsspGroups } from "../../api/client";
 import {
   ConstraintReachStyles,
   Dipole,
-  SfDipoleLegend,
   dipoleCounts,
   useFullConstraintReach,
 } from "../panels/ConstraintReach";
@@ -101,11 +100,11 @@ function ConstraintRead({
 
   return (
     <>
-      <header className="mrd__head">
-        <span className="mrd__eyebrow">Constraint</span>
-        <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
-      </header>
-      <div className="mrd-top">
+      <div className="mrd__main">
+        <header className="mrd__head">
+          <span className="mrd__eyebrow">Constraint</span>
+          <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
+        </header>
         <div className="mrd-kv">
           <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} />
           <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} />
@@ -113,24 +112,25 @@ function ConstraintRead({
           <Fact label="Daily Σμ" value={row ? usd(row.daily_mu_sum, 2) : "—"} />
           <Fact label="Binding hours" value={row?.binding_hours ?? "—"} />
         </div>
-        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
-      </div>
 
-      <div className="mrd-reach">
-        <span className="mrd-section-title">
-          Grid reach · import ↔ export{" "}
-          {reach && !loading && <em>{reach.sps.length} located{reach.truncated ? " · truncated" : ""}</em>}
-        </span>
-        <div className="mrd-reach__dipole"><Dipole imp={imp} exp={exp} /></div>
-        {loading ? (
-          <div className="cr-mem-msg">loading members…</div>
-        ) : (
-          <div className="mrd-lobes">
-            <MemberLobe title="Import · SF < 0" members={importLobe} />
-            <MemberLobe title="Export · SF ≥ 0" members={exportLobe} />
-          </div>
-        )}
-        <SfDipoleLegend />
+        <div className="mrd-reach">
+          <span className="mrd-section-title">
+            Grid reach · import ↔ export{" "}
+            {reach && !loading && <em>{reach.sps.length} located{reach.truncated ? " · truncated" : ""}</em>}
+          </span>
+          <div className="mrd-reach__dipole"><Dipole imp={imp} exp={exp} /></div>
+          {loading ? (
+            <div className="cr-mem-msg">loading members…</div>
+          ) : (
+            <div className="mrd-lobes">
+              <MemberLobe title="Import · SF < 0" members={importLobe} />
+              <MemberLobe title="Export · SF ≥ 0" members={exportLobe} />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mrd__map">
+        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
       </div>
     </>
   );
@@ -204,49 +204,51 @@ function NodeRead({
 
   return (
     <>
-      <header className="mrd__head">
-        <span className="mrd__eyebrow">Settlement point</span>
-        <h2 className="mrd__title">{point}</h2>
-      </header>
-      <div className="mrd-top">
+      <div className="mrd__main">
+        <header className="mrd__head">
+          <span className="mrd__eyebrow">Settlement point</span>
+          <h2 className="mrd__title">{point}</h2>
+        </header>
         <div className="mrd-kv">
           <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} />
           <Fact label="Type" value={meta?.type ?? "—"} />
           {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
         </div>
+
+        {damPendingBlock && (
+          <div className="mrd-notice">ERCOT DAM μ has not been published for this delivery day — unavailable, not zero.</div>
+        )}
+        {!damPendingBlock && basis === "realized" && damStatus === "partial" && (
+          <div className="mrd-notice">ERCOT DAM μ is only partially published for this day; unmatched constraints read as zero here.</div>
+        )}
+        {!damPendingBlock && loading && !node && <div className="mrd-loading">Loading node column…</div>}
+        {!damPendingBlock && !loading && node && !node.available && (
+          <div className="mrd-notice">No forecast artifact for this node on this delivery day.</div>
+        )}
+        {!damPendingBlock && node?.available && (
+          <>
+            <div className="mrd-kv mrd-kv--stats">
+              <Fact
+                label={basis === "realized" ? "DAM 7×16 $/MWh" : "Forecast 7×16 $/MWh"}
+                value={usd(node.total ?? 0, 2)}
+                tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
+              />
+              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} />
+              <Fact label="Drivers" value={`${node.n_terms ?? terms.length} of the artifact's constraints`} />
+            </div>
+            <div className="mrd-drivers">
+              <span className="mrd-section-title">Congestion drivers <em>full column · −SF·μ</em></span>
+              <table className="mrd-drv">
+                <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
+                <tbody>{terms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="mrd__map">
         <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
       </div>
-
-      {damPendingBlock && (
-        <div className="mrd-notice">ERCOT DAM μ has not been published for this delivery day — unavailable, not zero.</div>
-      )}
-      {!damPendingBlock && basis === "realized" && damStatus === "partial" && (
-        <div className="mrd-notice">ERCOT DAM μ is only partially published for this day; unmatched constraints read as zero here.</div>
-      )}
-      {!damPendingBlock && loading && !node && <div className="mrd-loading">Loading node column…</div>}
-      {!damPendingBlock && !loading && node && !node.available && (
-        <div className="mrd-notice">No forecast artifact for this node on this delivery day.</div>
-      )}
-      {!damPendingBlock && node?.available && (
-        <>
-          <div className="mrd-kv mrd-kv--stats">
-            <Fact
-              label={basis === "realized" ? "DAM 7×16 $/MWh" : "Forecast 7×16 $/MWh"}
-              value={usd(node.total ?? 0, 2)}
-              tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
-            />
-            <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} />
-            <Fact label="Drivers" value={`${node.n_terms ?? terms.length} of the artifact's constraints`} />
-          </div>
-          <div className="mrd-drivers">
-            <span className="mrd-section-title">Congestion drivers <em>full column · −SF·μ</em></span>
-            <table className="mrd-drv">
-              <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
-              <tbody>{terms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
-            </table>
-          </div>
-        </>
-      )}
     </>
   );
 }
@@ -264,8 +266,19 @@ export default function MatrixReadDetail({
         ? <ConstraintRead selectionKey={selection.key} row={constraintRow} onNavigateToMap={onNavigateToMap} />
         : <NodeRead point={selection.point} meta={nodeMeta} timestamp={timestamp} val={val} deliveryDate={deliveryDate} runId={runId} damStatus={damStatus} onNavigateToMap={onNavigateToMap} />}
       <style>{`
-        .mrd { padding: 4px 2px 20px; }
+        /* Two columns: a scrolling evidence column on the left and the grid
+           footprint pinned full-height on the right. The pane's own
+           .matrix-workspace__read container owns the height; the left column
+           scrolls within it while the map stays put. */
+        .mrd { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
         .mrd--empty { color: var(--text-secondary); display: grid; place-items: center; padding: 40px 20px; text-align: center; }
+        .mrd__main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px 2px; }
+        .mrd__map { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
+        /* Fill the column height with the footprint, overriding the Brief
+           default's fixed aspect box — the map centres (xMidYMid meet) inside. */
+        .mrd__map .bfm { margin: 0; height: 100%; display: flex; flex-direction: column; }
+        .mrd__map .bfm__frame { flex: 1; min-height: 0; margin-top: 0; }
+        .mrd__map .bfm__svg { height: 100%; }
         .mrd__head { margin-bottom: 12px; }
         .mrd__title { margin: 2px 0 0; font-family: var(--font-mono); font-size: var(--fs-xl); line-height: 1.2; overflow-wrap: anywhere; }
         .mrd__eyebrow { color: var(--text-secondary); font: 600 var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
@@ -274,10 +287,11 @@ export default function MatrixReadDetail({
         .mrd-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
         .mrd-kv { display: flex; flex-direction: column; margin: 0 0 4px; }
         .mrd-kv--stats { margin-top: 16px; }
-        .mrd-top { display: flex; align-items: flex-start; gap: 20px; }
-        .mrd-top .mrd-kv { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
-        .mrd-top .bfm { flex: 0 0 180px; width: 180px; margin: 0; }
-        @media (max-width: 640px) { .mrd-top { flex-direction: column; } .mrd-top .bfm { width: 100%; flex: 0 0 auto; } }
+        @media (max-width: 760px) {
+          .mrd { grid-template-columns: 1fr; height: auto; }
+          .mrd__main { overflow-y: visible; padding-right: 2px; }
+          .mrd__map { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 16px; margin-top: 4px; height: 320px; }
+        }
         .mrd-kv__row { display: flex; gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
         .mrd-kv__row:last-child { border-bottom: 0; }
         .mrd-kv__label { flex: 0 0 140px; color: var(--text-muted); font-size: var(--fs-label); }
