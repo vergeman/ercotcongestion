@@ -110,6 +110,52 @@ export function matrixCellMetadata(
   };
 }
 
+// One entity on a visual axis of the grid. The wire is always constraint-major,
+// so each item carries its native wire index (into `frame.rows` for a
+// constraint, `frame.columns` for a settlement point); the grid resolves a
+// cell's SF from the constraint and node indices regardless of which is drawn
+// as the row. `kind` is reused directly as a `MatrixSelection` discriminator.
+export type MatrixAxisKind = "constraint" | "settlementPoint";
+
+export type MatrixAxisItem =
+  | { kind: "constraint"; key: string; index: number; row: MatrixRow }
+  | { kind: "settlementPoint"; key: string; index: number; column: MatrixColumn };
+
+export interface MatrixDisplayAxes {
+  transposed: boolean;
+  rowKind: MatrixAxisKind;
+  columnKind: MatrixAxisKind;
+  displayRows: MatrixAxisItem[];
+  displayColumns: MatrixAxisItem[];
+}
+
+// Single source of truth for the grid's visual orientation. `constraints`
+// draws constraints as rows / nodes as columns (today's layout); `nodes`
+// transposes — nodes as rows, constraints as columns — over the same
+// already-correct constraint-major rectangle.
+export function matrixDisplayAxes(frame: MatrixFrame): MatrixDisplayAxes {
+  const constraintItems: MatrixAxisItem[] = frame.rows.map((row, index) => ({
+    kind: "constraint", key: row.constraint_key, index, row,
+  }));
+  const nodeItems: MatrixAxisItem[] = frame.columns.map((column, index) => ({
+    kind: "settlementPoint", key: column.settlement_point, index, column,
+  }));
+  if (frame.orientation === "nodes") {
+    return { transposed: true, rowKind: "settlementPoint", columnKind: "constraint", displayRows: nodeItems, displayColumns: constraintItems };
+  }
+  return { transposed: false, rowKind: "constraint", columnKind: "settlementPoint", displayRows: constraintItems, displayColumns: nodeItems };
+}
+
+// Resolve a cell's implied SF from one row-axis and one column-axis item,
+// whichever orientation they came from: exactly one is the constraint and one
+// the node, and the wire lookup is always SF[constraintIndex, nodeIndex].
+export function matrixAxisCellSf(frame: MatrixFrame, a: MatrixAxisItem, b: MatrixAxisItem): number | null {
+  const constraint = a.kind === "constraint" ? a : b.kind === "constraint" ? b : null;
+  const node = a.kind === "settlementPoint" ? a : b.kind === "settlementPoint" ? b : null;
+  if (!constraint || !node) return null;
+  return matrixCellSf(frame.sf.values, constraint.index, node.index, frame.columns.length);
+}
+
 export function matrixColumnContributionSum(
   frame: MatrixFrame,
   columnIndex: number,

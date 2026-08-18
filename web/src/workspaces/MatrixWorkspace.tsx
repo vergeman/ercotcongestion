@@ -81,7 +81,12 @@ function stateFromSearch(search: string): WorkspaceState {
 
 function searchFromState(state: WorkspaceState): string {
   const params = new URLSearchParams();
-  if (state.tab !== "constraints") params.set("tab", state.tab);
+  // Always emit tab. Omitting it for the "constraints" default let the read-back
+  // in stateFromSearch re-infer the tab from a lingering `sp`/`constraint`
+  // selection, which flipped a Nodes→Constraints toggle straight back to Nodes
+  // whenever a node was still selected. Old links without `tab` still resolve
+  // via that inference; new writes are explicit so the round-trip is stable.
+  params.set("tab", state.tab);
   if (state.lens !== "read") params.set("lens", state.lens);
   if (state.val !== "sf") params.set("val", state.val);
   if (state.query) params.set("q", state.query);

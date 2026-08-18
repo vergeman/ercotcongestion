@@ -27,6 +27,11 @@ export interface ErcotStateRangeResponse {
 
 export type MatrixDamStatus = "pending" | "partial" | "available";
 
+// Which axis the backend gave the primary ranked/searched list. The wire shape
+// is unchanged (`rows` are always constraints, `columns` always settlement
+// points); the client transposes `nodes` at draw time.
+export type MatrixOrientation = "constraints" | "nodes";
+
 export interface MatrixRow {
   constraint_key: string;
   constraint_name: string;
@@ -60,6 +65,7 @@ export interface MatrixFrame {
   interval_ts: string;
   fit_window_start: string | null;
   fit_window_end: string | null;
+  orientation: MatrixOrientation;
   dam_status: MatrixDamStatus;
   row_ordering: string;
   column_ordering: string;

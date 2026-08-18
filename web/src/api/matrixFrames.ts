@@ -13,6 +13,7 @@ export interface MatrixFrameBounds {
   pinnedConstraints?: string[];
   pinnedSettlementPoints?: string[];
   columnSet?: "core" | "anchors" | "pinned" | "core_pinned";
+  orientation?: "constraints" | "nodes";
 }
 
 interface CachedFrame {
@@ -39,6 +40,7 @@ function normalizedBounds(bounds: MatrixFrameBounds = {}) {
     pinnedConstraints: bounds.pinnedConstraints ?? [],
     pinnedSettlementPoints: bounds.pinnedSettlementPoints ?? [],
     columnSet: bounds.columnSet ?? "core",
+    orientation: bounds.orientation ?? "constraints",
   } as const;
 }
 
@@ -55,6 +57,7 @@ function requestKey(intervalTs: Date, bounds: MatrixFrameBounds = {}): string {
     normalized.pinnedSettlementPoints.join(","),
     normalized.columnSet,
     normalized.columnLimit,
+    normalized.orientation,
   ].join("|");
 }
 
@@ -76,6 +79,7 @@ export function matrixFrameCacheKey(
     normalized.pinnedSettlementPoints.join(","),
     normalized.columnSet,
     normalized.columnLimit,
+    normalized.orientation,
   ].join("|");
 }
 

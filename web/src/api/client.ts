@@ -37,6 +37,7 @@ export interface MatrixFrameRequest {
   pinnedConstraints?: string[];
   pinnedSettlementPoints?: string[];
   columnSet?: "core" | "anchors" | "pinned" | "core_pinned";
+  orientation?: "constraints" | "nodes";
   signal?: AbortSignal;
 }
 
@@ -56,6 +57,7 @@ export async function fetchMatrixFrame(
     pinnedConstraints = [],
     pinnedSettlementPoints = [],
     columnSet = "core",
+    orientation = "constraints",
     signal,
   }: MatrixFrameRequest = {}
 ): Promise<MatrixFrame> {
@@ -65,6 +67,7 @@ export async function fetchMatrixFrame(
     column_limit: String(columnLimit),
     column_set: columnSet,
     row_preset: rowPreset,
+    orientation,
   });
   if (constraintType) qs.set("constraint_type", constraintType);
   if (constraintSearch) qs.set("constraint_search", constraintSearch);
