@@ -56,5 +56,10 @@ Source prototype: `docs/matrix_index_prototype.html`
   Brief components, add the map, track the scrubber. Needs 0001 + 0002.
 * `0004-history-window.md` — (api) OPTIONAL: extend the trailing history window if cheap,
   else document the cap. No deps; 0003 works without it.
+* `0005-augmented-design.md` — (api + web) SF-lens prototype parity: `orientation` param so the
+  tab rotates the grid axes, ≤5 rows/cols + hub/max-μ default seeds, one pin model shared across
+  sidebar and grid headers, and sidebar↔grid selection scroll-sync (which also resolves the
+  reported "matrix constraints missing from the sidebar" confusion — a UI ordering/locator issue,
+  not a data fault). Builds on 0001–0003.
 
-Build straight down: 0001 → 0002 → 0003. 0004 any time (or skip).
+Build straight down: 0001 → 0002 → 0003. 0004 any time (or skip). 0005 after 0003.

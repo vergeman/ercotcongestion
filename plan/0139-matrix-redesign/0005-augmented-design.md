@@ -7,24 +7,33 @@ Prototype: `docs/matrix_index_prototype.html` (the **SF lens** is the target thi
 Depends on: 0001 (`/analysis/*`), 0002 (sidebar + lens), 0003 (Read detail). Builds on the
 shipped 0139 stack; no new plan depends on this one.
 
-## Goal
+## Goal (as shipped)
 
-Make the **SF lens** behave like the prototype:
+The SF lens is a **working set** the user curates, not an auto-ranked grid:
 
-1. **Rotate the grid axes with the tab.** Constraints tab → constraints are rows, pinned
-   *nodes* are columns. Nodes tab → nodes are rows, pinned *constraints* are columns. The
-   active toggle names the row axis.
-2. **Start small.** Open with ≤ 5 rows and ≤ 5 columns (plus any pins), not 30×40. Seed the
-   column axis with a sensible default so the grid is never empty: a **hub** when columns are
-   nodes, the **max-ERCOT-μ constraint at the cursor** when columns are constraints.
-3. **One pin model across sidebar and grid.** A pin targets whichever axis the entity lives on
-   in the current view; both row and column headers carry a pin star so an item can be added or
-   removed *from the grid itself*, and the star state is shared with the sidebar.
-4. **Selection scroll-sync.** Clicking a sidebar entry scrolls the grid to that row/column, and
-   selecting in the grid scrolls the sidebar to that entry.
+1. **One stable rotation set, transposed in the client.** A single frame holds the working set
+   (rows=constraints, cols=nodes on the wire). The `Constraints | Nodes` tab transposes it
+   client-side (`matrixDisplayAxes(frame, orientation)`); it **never refetches or re-selects**.
+2. **Seed once, then user-owned.** First load seeds the working set from the defaults —
+   constraints ranked by **anchor contribution** (`|μ_cursor| × Σ|SF| over anchors`, blank-anchor
+   rows dropped) × the curated **`DEFAULT_ANCHORS`** hubs/zones — and pins them to
+   `ercotstress.matrix-pins.v1` with a `seeded` marker. Thereafter the frame is pin-driven
+   (`row_preset=pinned`, `column_set=pinned`). Emptying the set by hand stays empty on reload
+   (respect-empty); **Reset to defaults** clears `seeded` and re-seeds.
+3. **Top row = live preview.** Clicking a sidebar entry selects it and hoists it to row 1; if not
+   pinned it rides in via **`peek`** (a forced row/column beyond the pin cap) with a dashed
+   header + hollow star. Pinning **prepends** it to the top of the working set (no re-sort); the
+   next preview pushes it to row 2. The hoist is coupled to the displayed frame (`frameTopKey`
+   fallback) so a still-loading preview never drops to the bottom and shifts the grid.
+4. **Pins are localStorage-only** (dropped from the URL to keep links short; old links with
+   `pinned_*` are still read). Grid header stars and sidebar stars share the same two pin sets;
+   a star targets the entity's own kind, correct in either orientation.
 
-…and record the resolution of the reported "missing constraints" bug (§Background), which is a
-UI discoverability problem, not a data fault.
+Recorded resolution of the "missing constraints" bug (§Background): a discoverability problem,
+now moot — every entity is reachable by search/preview, and selecting one previews it directly.
+
+Backend also carries an unused-by-UI `orientation=nodes` node-major branch + hub seed (kept as a
+tested capability; the client transposes instead).
 
 ## Background — the "constraints in the matrix don't exist in the sidebar" report
 
@@ -183,17 +192,16 @@ Keep those two sets; make **both** the sidebar star and new **grid header stars*
 
 ## Steps (build order)
 
-1. [ ] Backend: `orientation` param + `MatrixFrame.orientation`; refactor constraint-major branch
-       and add the node-major branch with node-row ranking + both default seeds. Unit tests.
-2. [ ] Frontend plumbing: types, client, `matrixFrames` cache keys, `matrixDisplayAxes` helper.
-3. [ ] `MatrixGrid`: orientation-aware render/transpose + tooltip-by-kind; ids follow axis.
-4. [ ] Pin stars in the grid (row + column) sharing the workspace pin sets; sidebar stars unchanged.
-5. [ ] `MatrixWorkspace`: tab→orientation, `rowLimit/columnLimit=5`, pin routing by tab, legend
-       axis wording.
-6. [ ] Sidebar scroll-to-selected; verify grid↔sidebar scroll-sync both directions.
-7. [ ] Manual pass against the prototype on a live hour: toggle rotates axes, ≤5+pins, hub/max-μ
-       seeds, grid stars add/remove columns and rows, selecting a matrix row reveals it in the
-       sidebar.
+1. [x] Backend: `orientation` param + `MatrixFrame.orientation`; constraint-/node-major branches,
+       node-row ranking, hub + max-μ seeds. (node-major branch shipped but unused by the UI.)
+2. [x] Frontend plumbing: types, client, `matrixFrames` cache keys, `matrixDisplayAxes` helper.
+3. [x] `MatrixGrid`: orientation-aware transpose + tooltip-by-kind; ids follow axis; pin stars.
+4. [x] Sidebar scroll-to-selected; grid↔sidebar scroll-sync.
+5. [x] Pivot to the working-set model: `DEFAULT_ANCHORS` column set + `anchor_contribution` row
+       order + `peek` param (backend, tested); seed-once + localStorage `seeded` + Reset-to-defaults,
+       top-row preview, prepend-on-pin, frame-coupled hoist, pins out of URL (frontend).
+6. [ ] Manual browser pass: seed on fresh load; preview→pin lands at top with no shift; unpin/reload
+       respects empty; Reset re-seeds; tab transposes without refetch.
 
 ## Do NOT touch
 
@@ -204,17 +212,16 @@ Keep those two sets; make **both** the sidebar star and new **grid header stars*
 
 ## Acceptance
 
-* [ ] Toggling Constraints/Nodes rotates the SF grid: constraints tab shows constraints as rows /
-      nodes as columns; nodes tab shows nodes as rows / constraints as columns. The active toggle
+* [ ] Toggling Constraints/Nodes transposes the same frame client-side (no refetch); the corner
       names the row axis.
-* [ ] The SF grid opens with ≤ 5 rows and ≤ 5 columns plus any pins; it is never empty — columns
-      seed to a hub (nodes-as-columns) or the max-ERCOT-μ-at-cursor constraint (constraints-as-columns),
-      and the seed is replaced once the user pins on that axis.
-* [ ] Pin stars appear on both row and column headers in the grid and remove/add that entity;
-      star state is shared with the sidebar; the axis a pin targets follows the current view.
-* [ ] Clicking a sidebar entry scrolls the grid to its row/column; selecting in the grid scrolls
-      the sidebar to that entry (resolving the "missing constraint" confusion).
-* [ ] Default (no `orientation`) `/matrix/frame` requests are unchanged; existing matrix tests pass.
+* [ ] Fresh load seeds the working set from the defaults (`anchor_contribution` × `DEFAULT_ANCHORS`,
+      no blank-anchor rows) and persists it; unpinning to empty stays empty on reload; **Reset to
+      defaults** re-seeds.
+* [ ] Clicking a sidebar entry previews it at row 1 (dashed/hollow-star) with no grid shift while it
+      loads; pinning prepends it to the top (no re-sort); the next preview pushes it to row 2.
+* [ ] Grid + sidebar stars share the two pin sets; a star targets the entity's own kind in either
+      orientation. Pins are localStorage-only; the URL stays short; old `pinned_*` links still resolve.
+* [x] Default (no `orientation`) `/matrix/frame` requests unchanged; `test_matrix.py` passes (21).
 
 ## Optional (only if cheap; else defer)
 
