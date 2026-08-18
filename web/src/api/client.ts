@@ -14,6 +14,7 @@ import type {
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
+  AnalysisConstraintsResponse,
   AnalysisEsspGroupsResponse,
   EsspSource,
 } from "./types";
@@ -35,7 +36,11 @@ export interface MatrixFrameRequest {
   settlementPointSearch?: string;
   pinnedConstraints?: string[];
   pinnedSettlementPoints?: string[];
-  columnSet?: "core" | "anchors" | "pinned" | "core_pinned";
+  columnSet?: "core" | "anchors" | "pinned" | "core_pinned" | "default_anchors";
+  orientation?: "constraints" | "nodes";
+  rowOrder?: "contribution" | "cursor_mu" | "anchor_contribution";
+  peekConstraint?: string | null;
+  peekSettlementPoint?: string | null;
   signal?: AbortSignal;
 }
 
@@ -55,6 +60,10 @@ export async function fetchMatrixFrame(
     pinnedConstraints = [],
     pinnedSettlementPoints = [],
     columnSet = "core",
+    orientation = "constraints",
+    rowOrder = "contribution",
+    peekConstraint,
+    peekSettlementPoint,
     signal,
   }: MatrixFrameRequest = {}
 ): Promise<MatrixFrame> {
@@ -64,10 +73,14 @@ export async function fetchMatrixFrame(
     column_limit: String(columnLimit),
     column_set: columnSet,
     row_preset: rowPreset,
+    orientation,
+    row_order: rowOrder,
   });
   if (constraintType) qs.set("constraint_type", constraintType);
   if (constraintSearch) qs.set("constraint_search", constraintSearch);
   if (settlementPointSearch) qs.set("settlement_point_search", settlementPointSearch);
+  if (peekConstraint) qs.set("peek_constraint", peekConstraint);
+  if (peekSettlementPoint) qs.set("peek_settlement_point", peekSettlementPoint);
   pinnedConstraints.forEach((key) => qs.append("pinned_constraint", key));
   pinnedSettlementPoints.forEach((point) => qs.append("pinned_settlement_point", point));
   const r = await fetch(`${BASE}/matrix/frame?${qs.toString()}`, { signal });
@@ -177,15 +190,27 @@ export async function fetchMapExposures(
   return r.json();
 }
 
-// Top-k nodes a constraint drives, by |sf| — the constraint click. Signed `sf`
-// carries the import/export dipole. Null on 503.
+export interface MapReachOptions {
+  k?: number;
+  minFrac?: number;
+  // 0139/0001: drops the row LIMIT entirely (bounded only by minFrac) — the
+  // matrix Read pane's "give me everything" call, as opposed to `k`'s
+  // display-oriented top-k (map click, brief).
+  full?: boolean;
+}
+
+// Top-k (or, with `full: true`, the complete) nodes a constraint drives, by
+// |sf| — the constraint click. Signed `sf` carries the import/export dipole.
+// Null on 503.
 export async function fetchMapReach(
   constraint: string,
-  k = 15
+  { k = 15, minFrac, full }: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
-  const r = await fetch(
-    `${BASE}/map/reach?constraint=${encodeURIComponent(constraint)}&k=${k}`
-  );
+  const qs = new URLSearchParams({ constraint });
+  if (full) qs.set("full", "true");
+  else qs.set("k", String(k));
+  if (minFrac != null) qs.set("min_frac", String(minFrac));
+  const r = await fetch(`${BASE}/map/reach?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/reach ${r.status}`);
   return r.json();
@@ -300,6 +325,20 @@ export async function fetchAnalysisSettlementPoints(
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/settlement-points?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`analysis/settlement-points ${r.status}`);
+  return r.json();
+}
+
+// The full constraint vocabulary for one day's artifact (plan/0139-0001) —
+// the Matrix sidebar's search index, not a Brief top-k.
+export async function fetchAnalysisConstraints(
+  deliveryDate: string,
+  { runId, horizon, signal }: Pick<AnalysisAttributionRequest, "runId" | "horizon" | "signal"> = {},
+): Promise<AnalysisConstraintsResponse> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/constraints?${qs.toString()}`, { signal });
+  if (!r.ok) throw new Error(`analysis/constraints ${r.status}`);
   return r.json();
 }
 

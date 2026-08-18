@@ -1,48 +1,36 @@
-import { useEffect, useRef, useState } from "react";
-import type { MatrixFrame } from "../api/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AnalysisConstraintsResponse, AnalysisSettlementPointsResponse, MatrixFrame } from "../api/types";
 import { getMatrixFrame } from "../api/matrixFrames";
+import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints, fetchTopology } from "../api/client";
 import MatrixGrid from "../components/matrix/MatrixGrid";
-import MatrixLegend from "../components/matrix/MatrixLegend";
-import MatrixInspector from "../components/matrix/MatrixInspector";
+import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLegend";
+import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
+import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
 import {
-  type MatrixMuSource,
+  matrixMuSourceForVal,
+  matrixValueModeForVal,
+  type MatrixEntitySelection,
+  type MatrixLens,
   type MatrixSelection,
-  type MatrixValueMode,
+  type MatrixTab,
+  type MatrixValTab,
 } from "../lib/matrix";
 import { formatCT } from "../lib/time";
 
-let rememberedValueMode: MatrixValueMode = "sf";
-let rememberedMuSource: MatrixMuSource = "forecast";
-let rememberedInspectorCollapsed = true;
-let rememberedSelection: MatrixSelection = null;
+let rememberedTab: MatrixTab = "constraints";
+let rememberedLens: MatrixLens = "read";
+let rememberedVal: MatrixValTab = "sf";
+let rememberedSelection: MatrixEntitySelection = null;
 let rememberedFrame: MatrixFrame | null = null;
 
 const PIN_STORAGE_KEY = "ercotstress.matrix-pins.v1";
 const MAX_PINS = 20;
 
-type RowPreset = "top30" | "top100" | "pinned";
-type ColumnSet = "core" | "anchors" | "pinned" | "core_pinned";
-type ConstraintType = "gtc" | "transmission" | "radial";
-
-interface DiscoveryState {
-  rowPreset: RowPreset;
-  constraintType: ConstraintType | "";
-  constraintSearch: string;
-  settlementPointSearch: string;
-  columnSet: ColumnSet;
-  pinnedConstraints: string[];
-  pinnedSettlementPoints: string[];
-}
-
-const DEFAULT_DISCOVERY: Omit<DiscoveryState, "pinnedConstraints" | "pinnedSettlementPoints"> = {
-  rowPreset: "top30", constraintType: "", constraintSearch: "", settlementPointSearch: "", columnSet: "core",
-};
-
 function boundedPins(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, MAX_PINS);
 }
 
-function storedPins(): Pick<DiscoveryState, "pinnedConstraints" | "pinnedSettlementPoints"> {
+function storedPins(): { pinnedConstraints: string[]; pinnedSettlementPoints: string[] } {
   try {
     const value = JSON.parse(window.localStorage.getItem(PIN_STORAGE_KEY) ?? "null") as { version?: number; constraints?: string[]; settlementPoints?: string[] } | null;
     if (value?.version === 1) return {
@@ -50,26 +38,80 @@ function storedPins(): Pick<DiscoveryState, "pinnedConstraints" | "pinnedSettlem
       pinnedSettlementPoints: boundedPins(value.settlementPoints ?? []),
     };
   } catch {
-    // A malformed old value is recoverable through Reset view.
+    // A malformed old value is recoverable through Reset.
   }
   return { pinnedConstraints: [], pinnedSettlementPoints: [] };
 }
 
-function discoveryFromSearch(search: string): DiscoveryState {
+// The working set is seeded from the defaults exactly once. This marker records
+// that it happened, so emptying the set by hand stays empty on reload (the user
+// chose "respect empty + Reset button") — only an explicit reset re-seeds.
+function storedSeeded(): boolean {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(PIN_STORAGE_KEY) ?? "null") as { seeded?: boolean } | null;
+    return value?.seeded === true;
+  } catch {
+    return false;
+  }
+}
+
+interface WorkspaceState {
+  tab: MatrixTab;
+  lens: MatrixLens;
+  val: MatrixValTab;
+  query: string;
+  fType: string;
+  fZone: string;
+  selection: MatrixEntitySelection;
+  pinnedConstraints: string[];
+  pinnedSettlementPoints: string[];
+}
+
+function stateFromSearch(search: string): WorkspaceState {
   const params = new URLSearchParams(search);
   const stored = storedPins();
-  const rowPreset = params.get("rows");
-  const columnSet = params.get("columns");
-  const type = params.get("ctype");
+  const constraintKey = params.get("constraint");
+  const sp = params.get("sp");
+  const tabParam = params.get("tab");
+  const tab: MatrixTab = tabParam === "nodes" || tabParam === "constraints"
+    ? tabParam
+    : sp && !constraintKey ? "nodes" : "constraints";
+  const lensParam = params.get("lens");
+  const valParam = params.get("val");
   return {
-    rowPreset: rowPreset === "top100" || rowPreset === "pinned" ? rowPreset : "top30",
-    columnSet: columnSet === "anchors" || columnSet === "pinned" || columnSet === "core_pinned" ? columnSet : "core",
-    constraintType: type === "gtc" || type === "transmission" || type === "radial" ? type : "",
-    constraintSearch: params.get("constraint_search")?.slice(0, 64) ?? "",
-    settlementPointSearch: params.get("sp_search")?.slice(0, 64) ?? "",
+    tab,
+    lens: lensParam === "sf" ? "sf" : "read",
+    val: valParam === "fmu" || valParam === "dmu" ? valParam : "sf",
+    query: (params.get("q") ?? params.get("constraint_search") ?? "").slice(0, 64),
+    fType: params.get("type") ?? "",
+    fZone: params.get("zone") ?? "",
+    selection: constraintKey ? { kind: "constraint", key: constraintKey } : sp ? { kind: "node", point: sp } : null,
     pinnedConstraints: params.has("pinned_constraint") ? boundedPins(params.getAll("pinned_constraint")) : stored.pinnedConstraints,
     pinnedSettlementPoints: params.has("pinned_sp") ? boundedPins(params.getAll("pinned_sp")) : stored.pinnedSettlementPoints,
   };
+}
+
+function searchFromState(state: WorkspaceState): string {
+  const params = new URLSearchParams();
+  // Always emit tab. Omitting it for the "constraints" default let the read-back
+  // in stateFromSearch re-infer the tab from a lingering `sp`/`constraint`
+  // selection, which flipped a Nodes→Constraints toggle straight back to Nodes
+  // whenever a node was still selected. Old links without `tab` still resolve
+  // via that inference; new writes are explicit so the round-trip is stable.
+  params.set("tab", state.tab);
+  if (state.lens !== "read") params.set("lens", state.lens);
+  if (state.val !== "sf") params.set("val", state.val);
+  if (state.query) params.set("q", state.query);
+  if (state.fType) params.set("type", state.fType);
+  if (state.fZone) params.set("zone", state.fZone);
+  // The working set (pins) is a personal saved board, persisted in localStorage
+  // — deliberately NOT written to the URL, which kept the link short. Old links
+  // that still carry `pinned_constraint`/`pinned_sp` are read back in
+  // stateFromSearch for backward compatibility; we just stop emitting them.
+  if (state.selection?.kind === "constraint") params.set("constraint", state.selection.key);
+  if (state.selection?.kind === "node") params.set("sp", state.selection.point);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 interface Props {
@@ -79,28 +121,8 @@ interface Props {
   onNavigateToMap: (search: string) => void;
 }
 
-function selectionFromSearch(search: string): MatrixSelection {
-  const params = new URLSearchParams(search);
-  const constraintKey = params.get("constraint");
-  const settlementPoint = params.get("sp");
-  if (constraintKey && settlementPoint) return { kind: "cell", constraintKey, settlementPoint };
-  if (constraintKey) return { kind: "constraint", constraintKey };
-  return settlementPoint ? { kind: "settlementPoint", settlementPoint } : null;
-}
-
-function matrixSearch(discovery: DiscoveryState, selection: MatrixSelection): string {
-  const params = new URLSearchParams();
-  if (discovery.rowPreset !== "top30") params.set("rows", discovery.rowPreset);
-  if (discovery.columnSet !== "core") params.set("columns", discovery.columnSet);
-  if (discovery.constraintType) params.set("ctype", discovery.constraintType);
-  if (discovery.constraintSearch) params.set("constraint_search", discovery.constraintSearch);
-  if (discovery.settlementPointSearch) params.set("sp_search", discovery.settlementPointSearch);
-  discovery.pinnedConstraints.forEach((key) => params.append("pinned_constraint", key));
-  discovery.pinnedSettlementPoints.forEach((point) => params.append("pinned_sp", point));
-  if (selection?.kind === "constraint" || selection?.kind === "cell") params.set("constraint", selection.constraintKey);
-  if (selection?.kind === "settlementPoint" || selection?.kind === "cell") params.set("sp", selection.settlementPoint);
-  const query = params.toString();
-  return query ? `?${query}` : "";
+function moneyLabel(value: number): string {
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRouteChange, onNavigateToMap }: Props) {
@@ -110,12 +132,34 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
-  const [valueMode, setValueMode] = useState<MatrixValueMode>(rememberedValueMode);
-  const [muSource, setMuSource] = useState<MatrixMuSource>(rememberedMuSource);
-  const [selection, setSelection] = useState<MatrixSelection>(() => selectionFromSearch(routeSearch) ?? rememberedSelection);
-  const [discovery, setDiscovery] = useState<DiscoveryState>(() => discoveryFromSearch(routeSearch));
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(rememberedInspectorCollapsed);
+  const [state, setState] = useState<WorkspaceState>(() => {
+    const params = new URLSearchParams(routeSearch);
+    const fromRoute = stateFromSearch(routeSearch);
+    return {
+      ...fromRoute,
+      tab: params.has("tab") || params.has("sp") || params.has("constraint") ? fromRoute.tab : rememberedTab,
+      lens: params.has("lens") ? fromRoute.lens : rememberedLens,
+      val: params.has("val") ? fromRoute.val : rememberedVal,
+      selection: fromRoute.selection ?? rememberedSelection,
+    };
+  });
+  const [constraintsResp, setConstraintsResp] = useState<AnalysisConstraintsResponse | null>(null);
+  const [nodeMeta, setNodeMeta] = useState<Map<string, { type: string | null; zone: string | null }>>(new Map());
+  const [settlementPointsResp, setSettlementPointsResp] = useState<AnalysisSettlementPointsResponse | null>(null);
+  const [seeded, setSeeded] = useState<boolean>(() => storedSeeded());
+  // The preview key the *currently displayed* frame is hoisted by. It lags the
+  // live selection during a peek fetch so the grid never un-hoists the old
+  // preview (dropping it to the bottom) before the new one's data has arrived.
+  const [frameTopKey, setFrameTopKey] = useState<string | null>(null);
   const requestId = useRef(0);
+
+  // The current preview (the "top row"): the explicitly selected sidebar entity.
+  // When it is not already in the working set it rides in via `peek` — a forced
+  // row/column beyond the pin cap — and is rendered un-pinned until pinned.
+  const previewConstraintKey = state.selection?.kind === "constraint" ? state.selection.key : null;
+  const previewNodeKey = state.selection?.kind === "node" ? state.selection.point : null;
+  const peekConstraint = previewConstraintKey && !state.pinnedConstraints.includes(previewConstraintKey) ? previewConstraintKey : null;
+  const peekSettlementPoint = previewNodeKey && !state.pinnedSettlementPoints.includes(previewNodeKey) ? previewNodeKey : null;
 
   useEffect(() => {
     if (!timestamp) return;
@@ -123,19 +167,39 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     const id = ++requestId.current;
     setLoading(true);
     setError(null);
-    void getMatrixFrame(timestamp, {
-      rowPreset: discovery.rowPreset,
-      constraintType: discovery.constraintType || undefined,
-      constraintSearch: discovery.constraintSearch,
-      settlementPointSearch: discovery.settlementPointSearch,
-      columnSet: discovery.columnSet,
-      pinnedConstraints: discovery.pinnedConstraints,
-      pinnedSettlementPoints: discovery.pinnedSettlementPoints,
-    }, controller.signal)
+
+    // Two fetch modes. SEED (first load, never seeded, empty set): rank the
+    // default anchor board once so we can adopt it as the working set. WORKING
+    // SET (thereafter): fetch exactly the pinned entities, plus the previewed
+    // top row via peek. The Constraints/Nodes tab transposes the WORKING SET
+    // frame client-side, so a toggle never refetches.
+    const workingSetEmpty = state.pinnedConstraints.length === 0 && state.pinnedSettlementPoints.length === 0;
+    const seeding = !seeded && workingSetEmpty;
+    const request = seeding
+      ? {
+          rowPreset: "top30" as const, rowLimit: 8, columnLimit: 30,
+          columnSet: "default_anchors" as const, rowOrder: "anchor_contribution" as const,
+        }
+      : {
+          rowPreset: "pinned" as const, columnSet: "pinned" as const, rowLimit: 8, columnLimit: 30,
+          pinnedConstraints: state.pinnedConstraints,
+          pinnedSettlementPoints: state.pinnedSettlementPoints,
+          peekConstraint, peekSettlementPoint,
+        };
+
+    void getMatrixFrame(timestamp, request, controller.signal)
       .then((nextFrame) => {
-        if (id === requestId.current) {
-          rememberedFrame = nextFrame;
-          setFrame(nextFrame);
+        if (id !== requestId.current) return;
+        rememberedFrame = nextFrame;
+        setFrame(nextFrame);
+        // Adopt the seed as the working set exactly once; from here the set is
+        // user-owned and the fetch flips to WORKING SET mode.
+        if (seeding && nextFrame.available && (nextFrame.rows.length > 0 || nextFrame.columns.length > 0)) {
+          setSeeded(true);
+          update({
+            pinnedConstraints: boundedPins(nextFrame.rows.map((row) => row.constraint_key)),
+            pinnedSettlementPoints: boundedPins(nextFrame.columns.map((column) => column.settlement_point)),
+          });
         }
       })
       .catch((requestError: unknown) => {
@@ -148,135 +212,232 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         if (id === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [discovery, requestVersion, timestamp]);
+    // Deliberately NOT keyed on state.tab: the tab transposes the fetched frame
+    // client-side, so a toggle must reuse the same frame, not refetch a new one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints, peekConstraint, peekSettlementPoint, requestVersion, timestamp]);
+
+  // The preview entity of the current row axis, and whether it is actually
+  // present in the frame on screen. A freshly clicked, not-yet-fetched preview
+  // is absent until its peek resolves.
+  const liveTopKey = state.tab === "nodes" ? previewNodeKey : previewConstraintKey;
+  const liveInFrame = Boolean(liveTopKey && (state.tab === "nodes"
+    ? frame?.columns.some((column) => column.settlement_point === liveTopKey)
+    : frame?.rows.some((row) => row.constraint_key === liveTopKey)));
+  // Record the preview only once it is in the frame, so during the next peek's
+  // load we keep hoisting the still-present previous preview instead of dropping
+  // it — the grid stays put and the new preview lands directly at the top.
+  useEffect(() => {
+    if (liveInFrame && liveTopKey) setFrameTopKey(liveTopKey);
+  }, [liveInFrame, liveTopKey]);
+  const topRowKey = liveInFrame ? liveTopKey : frameTopKey;
+  const topRowPinned = topRowKey
+    ? (state.tab === "nodes" ? state.pinnedSettlementPoints : state.pinnedConstraints).includes(topRowKey)
+    : false;
+  const previewKey = topRowKey && !topRowPinned ? topRowKey : null;
+
+  // The topology's sp_type/load_zone properties are the only source of node
+  // type/zone metadata — /analysis/settlement-points is deliberately a bare
+  // vocabulary list. Fetched once; it does not vary with the current run.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTopology()
+      .then((topology) => {
+        if (cancelled) return;
+        const collection = (topology as { settlement_points?: { features?: Array<{ properties?: Record<string, unknown> }> } }).settlement_points;
+        const next = new Map<string, { type: string | null; zone: string | null }>();
+        for (const feature of collection?.features ?? []) {
+          const props = feature.properties ?? {};
+          const spId = props.sp_id;
+          if (typeof spId !== "string") continue;
+          next.set(spId, {
+            type: typeof props.sp_type === "string" ? props.sp_type : null,
+            zone: typeof props.load_zone === "string" ? props.load_zone : null,
+          });
+        }
+        setNodeMeta(next);
+      })
+      .catch(() => { /* Node type/zone filters degrade to empty, not an error. */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // The sidebar's full vocabulary depends on which day's artifact the frame
+  // resolved to, so it follows the frame rather than the raw timestamp.
+  useEffect(() => {
+    if (!frame?.available) { setConstraintsResp(null); setSettlementPointsResp(null); return; }
+    let cancelled = false;
+    void fetchAnalysisConstraints(frame.delivery_date, { runId: frame.run_id })
+      .then((response) => { if (!cancelled) setConstraintsResp(response); })
+      .catch(() => { if (!cancelled) setConstraintsResp(null); });
+    void fetchAnalysisSettlementPoints(frame.delivery_date, { runId: frame.run_id })
+      .then((response) => { if (!cancelled) setSettlementPointsResp(response); })
+      .catch(() => { if (!cancelled) setSettlementPointsResp(null); });
+    return () => { cancelled = true; };
+  }, [frame?.delivery_date, frame?.run_id, frame?.available]);
 
   useEffect(() => {
     try {
       window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify({
-        version: 1, constraints: discovery.pinnedConstraints, settlementPoints: discovery.pinnedSettlementPoints,
+        version: 1, seeded, constraints: state.pinnedConstraints, settlementPoints: state.pinnedSettlementPoints,
       }));
     } catch {
       // Local persistence is deliberately optional; URL state remains usable.
     }
-  }, [discovery.pinnedConstraints, discovery.pinnedSettlementPoints]);
+  }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints]);
 
-  const setMode = (mode: MatrixValueMode) => {
-    rememberedValueMode = mode;
-    setValueMode(mode);
-  };
-  const setSource = (source: MatrixMuSource) => {
-    rememberedMuSource = source;
-    setMuSource(source);
+  const update = (patch: Partial<WorkspaceState>) => {
+    setState((current) => {
+      const next = { ...current, ...patch };
+      rememberedTab = next.tab; rememberedLens = next.lens; rememberedVal = next.val;
+      rememberedSelection = next.selection;
+      onSelectionRouteChange(searchFromState(next));
+      return next;
+    });
   };
 
   const damPending = frame?.dam_status === "pending";
   useEffect(() => {
-    if (valueMode === "contribution" && muSource === "ercotDam" && damPending) {
-      rememberedMuSource = "forecast";
-      setMuSource("forecast");
-    }
-  }, [damPending, muSource, valueMode]);
+    if (state.val === "dmu" && damPending) update({ val: "fmu" });
+    // `update` is stable across renders; including it would fire on every
+    // selection/filter change, not just the DAM-availability flip this
+    // effect exists to react to.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [damPending]);
 
-  // Selection and discovery controls are URL-addressable. A hidden selection
+  // Selection and filter state are URL-addressable. A hidden selection
   // remains explicit instead of being erased when a filter changes its frame.
   useEffect(() => {
-    const nextSelection = selectionFromSearch(routeSearch);
-    rememberedSelection = nextSelection;
-    setSelection(nextSelection);
-    setDiscovery(discoveryFromSearch(routeSearch));
+    const next = stateFromSearch(routeSearch);
+    rememberedTab = next.tab; rememberedLens = next.lens; rememberedVal = next.val;
+    rememberedSelection = next.selection;
+    setState(next);
   }, [routeSearch]);
 
-  // These are artifact-wide, day-stable scales—not the current filtered
-  // rectangle—so a cell keeps the same color while discovery controls change.
+  const isPinned = (value: string, kind: "constraint" | "sp") =>
+    (kind === "constraint" ? state.pinnedConstraints : state.pinnedSettlementPoints).includes(value);
+  const togglePin = (value: string, kind: "constraint" | "sp") => {
+    const key = kind === "constraint" ? "pinnedConstraints" : "pinnedSettlementPoints";
+    const values = state[key];
+    // New pins prepend to the TOP of the working set and nothing re-sorts — so a
+    // just-pinned item stays where it was previewed (top), and the next preview
+    // pushes it to row #2 rather than banishing it to the bottom of the list.
+    update({ [key]: isPinned(value, kind) ? values.filter((item) => item !== value) : boundedPins([value, ...values]) });
+  };
+
+  const constraintItems = useMemo<MatrixSidebarItem[]>(() => {
+    const rows = constraintsResp?.available ? constraintsResp.rows ?? [] : [];
+    return [...rows]
+      .sort((a, b) => a.daily_mu_rank - b.daily_mu_rank)
+      .map((row) => ({
+        id: row.constraint_key,
+        label: row.name,
+        sub: row.contingency,
+        type: row.ctype,
+        zone: row.zone,
+        sizeLabel: moneyLabel(row.daily_mu_sum),
+        pinned: isPinned(row.constraint_key, "constraint"),
+      }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [constraintsResp, state.pinnedConstraints]);
+
+  const nodeItems = useMemo<MatrixSidebarItem[]>(() => {
+    const points = settlementPointsResp?.available ? settlementPointsResp.settlement_points ?? [] : [];
+    return [...points].sort((a, b) => a.localeCompare(b)).map((point) => {
+      const meta = nodeMeta.get(point);
+      return {
+        id: point,
+        label: point,
+        sub: null,
+        type: meta?.type ?? null,
+        zone: meta?.zone ?? null,
+        sizeLabel: null,
+        pinned: isPinned(point, "sp"),
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settlementPointsResp, nodeMeta, state.pinnedSettlementPoints]);
+
+  const fullItems = state.tab === "constraints" ? constraintItems : nodeItems;
+  const typeOptions = useMemo(
+    () => [...new Set(fullItems.map((item) => item.type).filter((t): t is string => Boolean(t)))].sort(),
+    [fullItems]
+  );
+  const zoneOptions = useMemo(
+    () => [...new Set(fullItems.map((item) => item.zone).filter((z): z is string => Boolean(z)))].sort(),
+    [fullItems]
+  );
+  const filteredItems = useMemo(() => {
+    const q = state.query.trim().toLowerCase();
+    return fullItems.filter((item) => {
+      if (state.fType && item.type !== state.fType) return false;
+      if (state.fZone && item.zone !== state.fZone) return false;
+      if (q) {
+        const haystack = `${item.id} ${item.label} ${item.sub ?? ""}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [fullItems, state.query, state.fType, state.fZone]);
+
+  const effectiveSelection: MatrixEntitySelection = state.selection ?? (fullItems.length
+    ? (state.tab === "constraints" ? { kind: "constraint", key: fullItems[0].id } : { kind: "node", point: fullItems[0].id })
+    : null);
+
+  const selectedIdForSidebar = state.tab === "constraints"
+    ? (effectiveSelection?.kind === "constraint" ? effectiveSelection.key : null)
+    : (effectiveSelection?.kind === "node" ? effectiveSelection.point : null);
+
+  const selectedConstraintRow = effectiveSelection?.kind === "constraint"
+    ? constraintsResp?.available ? constraintsResp.rows?.find((row) => row.constraint_key === effectiveSelection.key) ?? null : null
+    : null;
+  const selectedNodeMeta = effectiveSelection?.kind === "node" ? nodeMeta.get(effectiveSelection.point) ?? null : null;
+
+  const selectId = (id: string) => update({
+    selection: state.tab === "constraints" ? { kind: "constraint", key: id } : { kind: "node", point: id },
+  });
+  const handleGridSelect = (gridSelection: MatrixSelection) => {
+    if (!gridSelection) return;
+    if (gridSelection.kind === "constraint") { update({ selection: { kind: "constraint", key: gridSelection.constraintKey } }); return; }
+    if (gridSelection.kind === "settlementPoint") { update({ selection: { kind: "node", point: gridSelection.settlementPoint } }); return; }
+    update({ selection: state.tab === "nodes" ? { kind: "node", point: gridSelection.settlementPoint } : { kind: "constraint", key: gridSelection.constraintKey } });
+  };
+  // Clearing `seeded` puts the fetch back into SEED mode, so the defaults are
+  // re-adopted as a fresh working set. (Emptying the set item-by-item leaves
+  // `seeded` true, so a hand-emptied set stays empty on reload — the user's
+  // "respect empty + Reset button" choice.)
+  const resetToDefaults = () => {
+    setSeeded(false);
+    update({ query: "", fType: "", fZone: "", selection: null, pinnedConstraints: [], pinnedSettlementPoints: [] });
+  };
+
+  const valueMode = matrixValueModeForVal(state.val);
+  const muSource = matrixMuSourceForVal(state.val);
   const legendMax = frame?.available
     ? (valueMode === "sf" ? frame.sf_day_max_abs : frame.contribution_day_max_abs)
     : 0;
 
-  const activeTimestamp = timestamp;
+  // The grid highlights and previews only the EXPLICIT selection (the current
+  // sidebar/grid click), not the Read lens's first-item fallback — an explicit
+  // selection is always peeked into the frame, so it is the top row, never
+  // "hidden". Nothing is highlighted until the user actually picks something.
+  const gridSelection: MatrixSelection = state.selection?.kind === "constraint"
+    ? { kind: "constraint", constraintKey: state.selection.key }
+    : state.selection?.kind === "node"
+      ? { kind: "settlementPoint", settlementPoint: state.selection.point }
+      : null;
+
   const isUsable = frame?.available && frame.rows.length > 0 && frame.columns.length > 0;
   const isUnavailable = frame && !frame.available;
   const isEmpty = frame?.available && !isUsable;
   const damUnmatchedRows = frame?.rows.filter((row) => row.ercot_dam_mu == null).length ?? 0;
-  const setCollapsed = (collapsed: boolean) => {
-    rememberedInspectorCollapsed = collapsed;
-    setInspectorCollapsed(collapsed);
-  };
-  const select = (nextSelection: MatrixSelection) => {
-    rememberedSelection = nextSelection;
-    setSelection(nextSelection);
-    // An explicit table selection is the moment the inspector becomes useful.
-    rememberedInspectorCollapsed = false;
-    setInspectorCollapsed(false);
-    onSelectionRouteChange(matrixSearch(discovery, nextSelection));
-  };
-  const updateDiscovery = (next: DiscoveryState, nextSelection = selection) => {
-    setDiscovery(next);
-    onSelectionRouteChange(matrixSearch(next, nextSelection));
-  };
-  const isPinned = (value: string, kind: "constraint" | "sp") =>
-    (kind === "constraint" ? discovery.pinnedConstraints : discovery.pinnedSettlementPoints).includes(value);
-  const togglePin = (value: string, kind: "constraint" | "sp") => {
-    const key = kind === "constraint" ? "pinnedConstraints" : "pinnedSettlementPoints";
-    const values = discovery[key];
-    updateDiscovery({ ...discovery, [key]: isPinned(value, kind)
-      ? values.filter((item) => item !== value)
-      : boundedPins([...values, value]) });
-  };
-  const selectedRowVisible = !selection || selection.kind === "settlementPoint" || Boolean(frame?.rows.some((row) => row.constraint_key === selection.constraintKey));
-  const selectedColumnVisible = !selection || selection.kind === "constraint" || Boolean(frame?.columns.some((column) => column.settlement_point === selection.settlementPoint));
-  const selectionHidden = Boolean(selection && (!selectedRowVisible || !selectedColumnVisible));
-  const revealSelection = () => {
-    if (!selection) return;
-    let next = discovery;
-    if (selection.kind === "constraint" || selection.kind === "cell") next = { ...next, pinnedConstraints: boundedPins([...next.pinnedConstraints, selection.constraintKey]) };
-    if (selection.kind === "settlementPoint" || selection.kind === "cell") next = { ...next, pinnedSettlementPoints: boundedPins([...next.pinnedSettlementPoints, selection.settlementPoint]) };
-    updateDiscovery(next);
-  };
-  const resetView = () => {
-    try { window.localStorage.removeItem(PIN_STORAGE_KEY); } catch { /* Reset still works in memory. */ }
-    rememberedSelection = null;
-    setSelection(null);
-    updateDiscovery({ ...DEFAULT_DISCOVERY, pinnedConstraints: [], pinnedSettlementPoints: [] }, null);
-  };
 
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
-      <section className="matrix-workspace__toolbar">
-        <div className="matrix-workspace__heading">
-          <span className="label">Explorer / matrix</span>
-          <div className="matrix-workspace__title-row">
-            <h1 id="matrix-title">Constraint × settlement point</h1>
-            <div className="matrix-workspace__controls matrix-workspace__controls--header" aria-label="Matrix value controls">
-              <div className="matrix-workspace__toggle">
-                <button type="button" className={valueMode === "sf" ? "is-active" : ""} onClick={() => setMode("sf")}>Shift Factor</button>
-                <button type="button" className={valueMode === "contribution" ? "is-active" : ""} onClick={() => setMode("contribution")}>Contribution</button>
-              </div>
-              {valueMode === "contribution" && <div className="matrix-workspace__toggle">
-                <button type="button" className={muSource === "forecast" ? "is-active" : ""} onClick={() => setSource("forecast")}>Forecast μ</button>
-                <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={muSource === "ercotDam" ? "is-active" : ""} onClick={() => setSource("ercotDam")}>ERCOT DAM μ</button>
-              </div>}
-            </div>
-          </div>
-          <p>{activeTimestamp ? `${formatCT(activeTimestamp, "MMM d, yyyy HH:mm")} CT` : "Waiting for playback data"}</p>
-        </div>
-        <div className="matrix-workspace__control-row">
-          <div className="matrix-workspace__discovery" aria-label="Matrix discovery controls">
-            <label>Constraints <input value={discovery.constraintSearch} onChange={(event) => updateDiscovery({ ...discovery, constraintSearch: event.target.value.slice(0, 64) })} placeholder="Search name or contingency" /></label>
-            <label>Settlement points <input value={discovery.settlementPointSearch} onChange={(event) => updateDiscovery({ ...discovery, settlementPointSearch: event.target.value.slice(0, 64) })} placeholder="Search settlement point" /></label>
-            <label>Rows <select value={discovery.rowPreset} onChange={(event) => updateDiscovery({ ...discovery, rowPreset: event.target.value as RowPreset })}>
-              <option value="top30">Top 30 forecast contribution</option><option value="top100">Top 100</option><option value="pinned">Pinned constraints</option>
-            </select></label>
-            <label>Type <select value={discovery.constraintType} onChange={(event) => updateDiscovery({ ...discovery, constraintType: event.target.value as ConstraintType | "" })}>
-              <option value="">All types</option><option value="gtc">GTC</option><option value="transmission">Transmission</option><option value="radial">Radial</option>
-            </select></label>
-            <label>Columns <select value={discovery.columnSet} onChange={(event) => updateDiscovery({ ...discovery, columnSet: event.target.value as ColumnSet })}>
-              <option value="core">Core exposures</option><option value="anchors">Hubs / load zones</option><option value="pinned">Pinned settlement points</option><option value="core_pinned">Core + pinned</option>
-            </select></label>
-            <button type="button" onClick={resetView}>Reset view</button>
-          </div>
-          {isUsable && frame && <MatrixLegend mode={valueMode} maxAbs={legendMax} />}
-        </div>
-      </section>
+      <div className="matrix-workspace__heading">
+        <span className="label">Explorer / matrix</span>
+        <h1 id="matrix-title">Constraint × settlement point</h1>
+        <p>{timestamp ? `${formatCT(timestamp, "MMM d, yyyy HH:mm")} CT` : "Waiting for playback data"}</p>
+      </div>
 
       {loading && !frame && !error && <div className="matrix-workspace__loading" role="status">Loading matrix frame…</div>}
       {error && (
@@ -298,27 +459,94 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           <p>The selected artifact contains no rows or settlement-point columns for this bounded view.</p>
         </section>
       )}
+
       {!error && isUsable && frame && (
-        <section className="matrix-workspace__surface" aria-busy={loading}>
-          <div className="matrix-workspace__meta">
-            <span>Run {frame.run_id}</span>
-            <span>Delivery day {frame.delivery_date}</span>
-            <span>{frame.rows.length} of {frame.total_constraint_count} constraints</span>
-            <span>{frame.columns.length} of {frame.total_settlement_point_count} settlement points</span>
-            {loading && <span>Updating frame…</span>}
-          </div>
-          <div className={`matrix-workspace__notices${selectionHidden || (valueMode === "contribution" && frame.dam_status !== "available") ? " has-notices" : ""}`}>
-            {selectionHidden && <div className="matrix-workspace__notice" role="status">The selected item is hidden by the current discovery view. <button type="button" onClick={revealSelection}>Reveal it</button></div>}
-            {valueMode === "contribution" && frame.dam_status === "pending" && (
-              <div className="matrix-workspace__notice" role="status">ERCOT DAM μ is pending; Contribution uses Forecast μ.</div>
+        <div className="matrix-workspace__body">
+          <MatrixSidebar
+            tab={state.tab}
+            items={filteredItems}
+            totalCount={fullItems.length}
+            selectedId={selectedIdForSidebar}
+            onSelect={selectId}
+            onTab={(tab) => update({ tab })}
+            query={state.query}
+            onQuery={(query) => update({ query })}
+            fType={state.fType}
+            fZone={state.fZone}
+            typeOptions={typeOptions}
+            zoneOptions={zoneOptions}
+            onFilter={(next) => update(next)}
+            onTogglePin={(id) => togglePin(id, state.tab === "constraints" ? "constraint" : "sp")}
+            onReset={resetToDefaults}
+          />
+          <section className="matrix-workspace__stage" aria-busy={loading}>
+            <header className="matrix-workspace__stage-header">
+              <div className="matrix-workspace__toggle" role="tablist" aria-label="Lens">
+                <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Detail</button>
+                <button type="button" role="tab" aria-selected={state.lens === "sf"} className={state.lens === "sf" ? "is-active" : ""} onClick={() => update({ lens: "sf" })}>SF</button>
+              </div>
+              {state.lens === "sf" && (
+                <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Value">
+                  <span className="label matrix-workspace__toggle-label">Data</span>
+                  <button type="button" className={state.val === "sf" ? "is-active" : ""} onClick={() => update({ val: "sf" })}>Shift Factor</button>
+                  <button type="button" className={state.val === "fmu" ? "is-active" : ""} onClick={() => update({ val: "fmu" })}>Forecast μ</button>
+                  <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
+                </div>
+              )}
+              {state.lens === "read" && <MatrixReachLegend />}
+              {state.lens === "sf" && <MatrixLegend mode={valueMode} maxAbs={legendMax} />}
+            </header>
+
+            {state.lens === "read" && (
+              <div className="matrix-workspace__read">
+                <MatrixReadDetail
+                  selection={effectiveSelection}
+                  timestamp={timestamp}
+                  val={state.val}
+                  deliveryDate={frame.delivery_date}
+                  runId={frame.run_id}
+                  damStatus={frame.dam_status}
+                  constraintRow={selectedConstraintRow}
+                  nodeMeta={selectedNodeMeta}
+                  onNavigateToMap={onNavigateToMap}
+                />
+              </div>
             )}
-            {valueMode === "contribution" && frame.dam_status === "partial" && (
-              <div className="matrix-workspace__notice" role="status">DAM μ: {frame.rows.length - damUnmatchedRows}/{frame.rows.length} constraints matched; unmatched cells are unavailable.</div>
+
+            {state.lens === "sf" && (
+              <>
+                <div className="matrix-workspace__meta">
+                  <span>Run {frame.run_id}</span>
+                  <span>Delivery day {frame.delivery_date}</span>
+                  <span>{frame.rows.length} of {frame.total_constraint_count} constraints</span>
+                  <span>{frame.columns.length} of {frame.total_settlement_point_count} settlement points</span>
+                  {loading && <span>Updating frame…</span>}
+                </div>
+                <div className={`matrix-workspace__notices${valueMode === "contribution" && frame.dam_status !== "available" ? " has-notices" : ""}`}>
+                  {valueMode === "contribution" && frame.dam_status === "pending" && (
+                    <div className="matrix-workspace__notice" role="status">ERCOT DAM μ is pending; Contribution uses Forecast μ.</div>
+                  )}
+                  {valueMode === "contribution" && frame.dam_status === "partial" && (
+                    <div className="matrix-workspace__notice" role="status">DAM μ: {frame.rows.length - damUnmatchedRows}/{frame.rows.length} constraints matched; unmatched cells are unavailable.</div>
+                  )}
+                </div>
+                <MatrixGrid
+                  frame={frame}
+                  orientation={state.tab === "nodes" ? "nodes" : "constraints"}
+                  topRowKey={topRowKey}
+                  previewKey={previewKey}
+                  mode={valueMode}
+                  muSource={muSource}
+                  selection={gridSelection}
+                  maxAbs={legendMax}
+                  onSelect={handleGridSelect}
+                  isPinned={(item) => isPinned(item.key, item.kind === "constraint" ? "constraint" : "sp")}
+                  onTogglePin={(item) => togglePin(item.key, item.kind === "constraint" ? "constraint" : "sp")}
+                />
+              </>
             )}
-          </div>
-          <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={selection} maxAbs={legendMax} onSelect={select} />
-          <MatrixInspector frame={frame} selection={selection} collapsed={inspectorCollapsed} onCollapsedChange={setCollapsed} onNavigateToMap={onNavigateToMap} pinnedConstraints={discovery.pinnedConstraints} pinnedSettlementPoints={discovery.pinnedSettlementPoints} onToggleConstraintPin={(key) => togglePin(key, "constraint")} onToggleSettlementPointPin={(point) => togglePin(point, "sp")} />
-        </section>
+          </section>
+        </div>
       )}
 
       {!timestamp && !loading && (
@@ -330,22 +558,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
 
       <style>{`
         .matrix-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px; gap: 12px; background: var(--bg-base); }
-        .matrix-workspace__toolbar { display: flex; align-items: stretch; flex-direction: column; gap: 10px; }
-        .matrix-workspace__heading { min-width: 0; }
-        .matrix-workspace__title-row { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
+        .matrix-workspace__heading { min-width: 0; flex: 0 0 auto; }
         .matrix-workspace h1 { margin: 3px 0; font: 600 var(--fs-xl)/1.2 var(--font-label); color: var(--text-primary); }
-        .matrix-workspace p, .matrix-workspace__meta { color: var(--text-secondary); font-size: var(--fs-label); }
-        .matrix-workspace__control-row { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
-        .matrix-workspace__controls { align-items: end; display: flex; gap: 10px; flex-wrap: wrap; }
-        .matrix-workspace__controls--header { gap: 12px; margin-left: 8px; }
-        .matrix-workspace__toggle { display: flex; gap: 7px; }
-        .matrix-workspace__discovery { align-items: end; display: flex; flex: 1; flex-wrap: wrap; gap: 8px; }
-        .matrix-workspace__discovery label { color: var(--text-secondary); display: grid; font-size: var(--fs-micro); gap: 3px; }
-        .matrix-workspace__discovery input, .matrix-workspace__discovery select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font: var(--fs-label) var(--font-sans); min-height: 30px; padding: 4px 6px; }
-        .matrix-workspace__discovery input { min-width: 175px; }
+        .matrix-workspace p { color: var(--text-secondary); font-size: var(--fs-label); margin: 0; }
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
-        .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); }
-        .matrix-workspace__controls--header button { font-weight: 600; padding: 7px 11px; }
+        .matrix-workspace__toggle { display: flex; align-items: center; gap: 7px; }
+        .matrix-workspace__toggle--data { gap: 4px; }
+        .matrix-workspace__toggle-label { margin-right: 4px; }
+        .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; padding: 7px 11px; }
         .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
         .matrix-workspace button:disabled { cursor: not-allowed; color: var(--text-muted); }
         .matrix-workspace__loading { display: grid; flex: 1; place-items: center; color: var(--text-secondary); }
@@ -353,12 +573,20 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace__state h2 { font: 600 var(--fs-lg) var(--font-label); margin: 0 0 8px; }
         .matrix-workspace__state p { line-height: 1.45; }
         .matrix-workspace__state button { background: var(--accent-dim); color: var(--accent); margin-top: 14px; }
-        .matrix-workspace__surface { display: grid; min-height: 0; flex: 1; grid-template-rows: auto auto minmax(180px, 1fr) auto; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
-        .matrix-workspace__meta { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        .matrix-workspace__body { display: flex; flex: 1; min-height: 0; gap: 0; }
+        .matrix-workspace__stage { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
+        .matrix-workspace__stage-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; }
+        .matrix-workspace__read { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 0 18px; }
+        .matrix-workspace__meta { color: var(--text-secondary); display: flex; flex-wrap: wrap; font-size: var(--fs-label); gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
         .matrix-workspace__notices { min-height: 0; }
         .matrix-workspace__notices.has-notices { border-bottom: 1px solid var(--border); display: grid; gap: 1px; }
         .matrix-workspace__notice { background: var(--accent-dim); color: var(--text-secondary); font-size: var(--fs-label); padding: 5px 10px; }
-        .matrix-grid { overflow: auto; min-height: 0; outline: none; }
+        .matrix-legend { flex: 0 0 240px; width: 240px; margin-left: auto; }
+        .matrix-legend__title { color: var(--text-secondary); margin-bottom: 4px; }
+        .matrix-legend__bar { height: 8px; }
+        .matrix-legend__ticks, .matrix-legend__signs { display: flex; justify-content: space-between; font-size: 9px; margin-top: 3px; }
+        .matrix-legend__signs { color: var(--text-secondary); }
+        .matrix-grid { overflow: auto; min-height: 0; flex: 1; outline: none; }
         .matrix-grid:focus-visible, .matrix-grid [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; position: relative; z-index: 3; }
         .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-micro); width: max-content; }
         .matrix-grid th, .matrix-grid td { border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
@@ -375,24 +603,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
         .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
-        .matrix-inspector { background: var(--bg-surface); border-top: 1px solid var(--border); min-height: 42px; position: relative; z-index: 4; }
-        .matrix-inspector h3 { color: var(--text-primary); font: 600 var(--fs-md) var(--font-label); margin: 0; }
-        .matrix-workspace .matrix-inspector__collapse { align-items: center; background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; display: flex; height: 38px; justify-content: center; line-height: 1; margin: 0; padding: 0; position: absolute; right: 4px; top: 2px; width: 38px; z-index: 1; }
-        .matrix-workspace .matrix-inspector__collapse:hover { color: var(--accent); }
-        .matrix-inspector__collapse svg { display: block; fill: none; height: 24px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; transition: transform 160ms ease; width: 24px; }
-        .matrix-inspector__collapse svg.is-collapsed { transform: rotate(180deg); }
-        .matrix-inspector__collapsed-title { align-items: center; color: var(--text-secondary); display: flex; font: 500 var(--fs-label) var(--font-label); min-height: 42px; padding: 0 50px 0 10px; }
-        .matrix-inspector__body { color: var(--text-secondary); font-size: var(--fs-md); line-height: 1.45; max-height: 320px; overflow: auto; padding: 14px 42px 16px 12px; }
-        .matrix-inspector__body > p { margin: 0; }
-        .matrix-inspector__table-wrap { width: 100%; }.matrix-inspector__table-wrap h3 { margin: 0 0 8px; text-transform: uppercase; }
-        .matrix-inspector__table { border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; width: 100%; }.matrix-inspector__table th, .matrix-inspector__table td { border-bottom: 1px solid var(--border); padding: 5px 6px; text-align: left; vertical-align: top; }.matrix-inspector__table thead th { color: var(--text-muted); font: 600 var(--fs-micro) var(--font-label); letter-spacing: .04em; text-transform: uppercase; }.matrix-inspector__table thead th:nth-child(1) { width: 15%; }.matrix-inspector__table thead th:nth-child(2) { width: 21%; }.matrix-inspector__table thead th:nth-child(3) { width: 20%; }.matrix-inspector__table thead th:nth-child(4) { width: 44%; }.matrix-inspector__table th[scope="row"] { color: var(--text-secondary); font-weight: 500; }.matrix-inspector__table td { color: var(--text-primary); font: 500 var(--fs-label) var(--font-mono); overflow-wrap: anywhere; }.matrix-inspector__table tr:last-child > * { border-bottom: 0; }
-        .matrix-inspector__table a { color: var(--accent); font-family: var(--font-sans); }.matrix-inspector__pin { accent-color: var(--accent); cursor: pointer; height: 15px; margin: 0; width: 15px; }
-        .matrix-legend { flex: 0 0 240px; width: 240px; }
-        .matrix-legend__title { color: var(--text-secondary); margin-bottom: 4px; }
-        .matrix-legend__bar { height: 8px; }
-        .matrix-legend__ticks, .matrix-legend__signs { display: flex; justify-content: space-between; font-size: 9px; margin-top: 3px; }
-        .matrix-legend__signs { color: var(--text-secondary); }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__control-row { align-items: start; flex-direction: column; } .matrix-inspector__metrics div { grid-template-columns: minmax(0, 1fr) auto; }.matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
+        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__body { flex-direction: column; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
       `}</style>
     </main>
   );

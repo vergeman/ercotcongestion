@@ -27,6 +27,11 @@ export interface ErcotStateRangeResponse {
 
 export type MatrixDamStatus = "pending" | "partial" | "available";
 
+// Which axis the backend gave the primary ranked/searched list. The wire shape
+// is unchanged (`rows` are always constraints, `columns` always settlement
+// points); the client transposes `nodes` at draw time.
+export type MatrixOrientation = "constraints" | "nodes";
+
 export interface MatrixRow {
   constraint_key: string;
   constraint_name: string;
@@ -60,6 +65,7 @@ export interface MatrixFrame {
   interval_ts: string;
   fit_window_start: string | null;
   fit_window_end: string | null;
+  orientation: MatrixOrientation;
   dam_status: MatrixDamStatus;
   row_ordering: string;
   column_ordering: string;
@@ -266,6 +272,9 @@ export interface ConstraintReach {
   peak_offrail: number | null;
   binding_hours: number | null;
   available: boolean;
+  // 0139/0001: reports whether a bounded (`k`-limited) call was cut short of
+  // the constraint's complete reach — always `false` for a `full=true` call.
+  truncated: boolean;
   sps: ReachSp[];
 }
 
@@ -780,6 +789,31 @@ export interface AnalysisSettlementPointsResponse {
   delivery_date: string;
   horizon?: number;
   settlement_points?: string[];
+}
+
+// /analysis/constraints — the full constraint vocabulary for one day's
+// artifact (plan/0139-0001), the search index behind the Matrix sidebar
+// (0139-0002). Never a Brief top-k.
+export interface AnalysisConstraintRow {
+  constraint_key: string;
+  name: string;
+  contingency: string | null;
+  ctype: string | null;
+  zone: string | null;
+  kv_max: number | null;
+  binding_hours: number;
+  daily_mu_rank: number;
+  daily_mu_sum: number;
+}
+
+export interface AnalysisConstraintsResponse {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  rows?: AnalysisConstraintRow[];
+  n_total?: number;
 }
 
 // /analysis/essp — hourly, source-explicit topology grouping.  GroupIndex is

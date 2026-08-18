@@ -7,11 +7,7 @@ import {
   loadTexasBorderRings,
   type BorderRing,
 } from "../../lib/texasOutline";
-import {
-  selectionGeo,
-  selectionKey,
-  type BriefSelection,
-} from "../../lib/briefSelection";
+import type { BriefSelectionGeo } from "../../lib/briefSelection";
 import { useConstraintReach } from "../panels/ConstraintReach";
 
 // The detail panel's abstract footprint (plan/0135): a small, non-interactive
@@ -37,17 +33,38 @@ const isPoint = (
   f: GeoJSON.Feature
 ): f is GeoJSON.Feature<GeoJSON.Point> => f.geometry?.type === "Point";
 
+// The minimal geographic identity the footprint actually needs — a
+// constraint's reach or a node's single point. `BriefSelection`'s row union
+// carries far more (rank, μ, history…) than this ever reads, so callers with
+// no such row (the Matrix Read pane, 0139-0003) can build this directly
+// instead of manufacturing a fake Brief row just to satisfy the old prop type.
+export interface FootprintTarget {
+  geo: BriefSelectionGeo;
+  key: string;
+}
+
 export default function BriefFootprintMap({
   selection,
   mapHref,
+  onNavigate,
+  showTitle = true,
 }: {
-  selection: BriefSelection;
+  selection: FootprintTarget;
   // The Map deep link for this element — rendered as a control ON the map
   // (bottom-right), the deliberate handoff to the full interactive Map.
   mapHref: string;
+  // When set, a plain left-click is intercepted and routed through this
+  // in-app navigate instead of the bare <Link> (so the Matrix Read pane can
+  // carry the shared scrubber coordinate via its own onNavigateToMap);
+  // modified/middle clicks still fall through to the real href. Omitted by
+  // Brief, which is content with plain react-router navigation.
+  onNavigate?: (search: string) => void;
+  // The "Grid footprint" section label. Brief keeps it (default); the Matrix
+  // Read pane (0139-0003) renders the map inline next to its own kv facts,
+  // where a second section title would be redundant.
+  showTitle?: boolean;
 }) {
-  const geo = selectionGeo(selection);
-  const key = selectionKey(selection);
+  const { geo, key } = selection;
 
   // A constraint's members come from the shared reach (already warm if the
   // evidence list fetched it); a node is located from the topology instead.
@@ -143,7 +160,7 @@ export default function BriefFootprintMap({
 
   return (
     <div className="bfm">
-      <span className="bdp-section-title">Grid footprint</span>
+      {showTitle && <span className="bdp-section-title">Grid footprint</span>}
       <div className="bfm__frame">
         {loading ? (
           <div className="bfm__skeleton" />
@@ -189,7 +206,15 @@ export default function BriefFootprintMap({
           </svg>
         )}
         {unavailable && <div className="bfm__unavailable">{unavailable}</div>}
-        <Link className="bfm__map-btn" to={mapHref}>
+        <Link
+          className="bfm__map-btn"
+          to={mapHref}
+          onClick={onNavigate ? (event) => {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onNavigate(new URL(mapHref, window.location.origin).search);
+          } : undefined}
+        >
           Open in Map →
         </Link>
       </div>

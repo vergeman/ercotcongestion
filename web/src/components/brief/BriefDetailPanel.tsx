@@ -643,7 +643,7 @@ export default function BriefDetailPanel({
             </div>
 
             <div className="bdp__body">
-              <BriefFootprintMap selection={rendered} mapHref={mapHref} />
+              <BriefFootprintMap selection={{ geo, key }} mapHref={mapHref} />
               {rendered.kind === "standout-constraint" ? (
                 <ConstraintEvidence
                   row={rendered.row}

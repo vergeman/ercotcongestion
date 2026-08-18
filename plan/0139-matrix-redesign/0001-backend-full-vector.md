@@ -15,7 +15,8 @@ verifies two. History-window work is split into 0004.
 * `GET /analysis/node` — full ranked driver column for a node (`terms`, `total`, `coverage`,
   `basis=predicted|realized`, `hours=[...]`). This is the node Read detail.
 * `GET /map/reach` — a constraint's node reach (import/export). Params: `k` (default 15, max
-  500) and `min_frac` (default 0.05 = relative noise floor at `min_frac × peak |SF|`).
+  500), `min_frac` (default 0.05 = relative noise floor at `min_frac × peak |SF|`), and now
+  `full` (default false) — see step 3.
 * `GET /analysis/settlement-points` — full node vocabulary.
 
 ## The gap
@@ -25,7 +26,8 @@ for search. Build one.
 
 ## Files
 
-* Edit: `api/analysis.py` (new endpoint + verify `/node`), `api/models.py` (response model).
+* Edit: `api/analysis.py` (new endpoint + verify `/node`), `api/models.py` (response models),
+  `api/map.py` (`/map/reach` full-reach mode, step 3).
 * Edit: `api/tests/` (add tests).
 
 ## Steps
@@ -43,10 +45,18 @@ for search. Build one.
    Confirm the client passes the Central-time `delivery_date` derived from `interval_ts`
    (do not break the summer-midnight boundary — mirror `matrix.py::_delivery_date`). Add a
    single-hour test for both bases. Only change plumbing if a case is wrong.
-3. **Record the reach call for the Read pane.** No code change to `/map/reach`. Document that
-   the constraint Read view must call it with `min_frac=0` and a high `k` (e.g. 500) so both
-   import and export lobes come back complete; the UI folds the sub-threshold tail. Note if
-   any real constraint exceeds `k=500` (then raise the max).
+3. **Give `/map/reach` an explicit full-reach mode.** `k` is a display knob (map click, brief) —
+   a dev-DB audit found ~half the constraint universe (519/1044, median 495, p95 957, max 1097
+   nodes at a 5%-of-peak floor) has real reach past 500 nodes, so raising `k`'s ceiling to cover
+   that would conflate "top-k for display" with "give me everything," and still be a guess that
+   goes stale as the node universe grows (~1100-1200 settlement points today). Instead: added a
+   `full: bool = False` param that drops the `LIMIT` entirely (bounded only by `min_frac`) when
+   true, leaving `k` (default 15, max 500 — unchanged) as the map/brief click's own knob. Added
+   `truncated: bool` to `ConstraintReach` (mirrors `MatrixFrame.rows_truncated`/`columns_truncated`)
+   so any bounded (`full=False`) caller can tell whether more nodes existed above the floor than
+   were returned, independent of which mode was used — computed by fetching `k+1` rows and
+   trimming, no second `COUNT` query; always `False` when `full=True`. The Read pane must call
+   `min_frac=0, full=true`.
 
 ## Do NOT touch
 
@@ -55,11 +65,13 @@ for search. Build one.
 
 ## Acceptance
 
-* [ ] `GET /analysis/constraints` returns the complete constraint universe (not k-capped) with
+* [x] `GET /analysis/constraints` returns the complete constraint universe (not k-capped) with
       `constraint_key, name, contingency, ctype, zone, kv_max, binding_hours, daily_mu_rank,
       daily_mu_sum`; a test asserts count == artifact constraint count.
-* [ ] `/analysis/node` returns the full driver column for a single `interval_ts` under both
+* [x] `/analysis/node` returns the full driver column for a single `interval_ts` under both
       `predicted` and `realized`, with correct CT delivery-date resolution — test covers both.
-* [ ] The `/map/reach` full-reach call (`min_frac=0`, `k=500`) is documented; `k` max raised if
-      any constraint needs it.
+* [x] `/map/reach` has a `full` mode (`min_frac=0, full=true`) that drops the row limit entirely
+      for the Read pane, and a `truncated` flag so a bounded (`k`-limited) call can tell it was
+      cut short — `k`'s own ceiling (500) is unchanged, since it stays the map/brief click's
+      display knob, not the matrix's completeness contract.
 * [ ] No `web/` changes; `/matrix/frame` unchanged.

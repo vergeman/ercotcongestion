@@ -109,6 +109,36 @@ class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableRespons
     pass
 
 
+# ---- /analysis/constraints ------------------------------------------------
+
+class AnalysisConstraintRow(BaseModel):
+    """One constraint's identity, best-effort geography, and this day's
+    Σ|E_mu| rank — the full search index, never a Brief top-k."""
+    constraint_key: str
+    name: str
+    contingency: str | None
+    ctype: str | None = None
+    zone: str | None = None
+    kv_max: float | None = None
+    binding_hours: int
+    daily_mu_rank: int
+    daily_mu_sum: float
+
+
+class AnalysisConstraintsAvailableResponse(BaseModel):
+    """The exact constraint vocabulary represented by one day's artifact."""
+    available: Literal[True]
+    run_id: str
+    delivery_date: date
+    horizon: int
+    rows: list[AnalysisConstraintRow]
+    n_total: int
+
+
+class AnalysisConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
+    pass
+
+
 # ---- /analysis/essp ------------------------------------------------------
 
 class EsspGroup(BaseModel):
@@ -635,6 +665,13 @@ class ConstraintReach(BaseModel):
     ``sps`` carries the signed reach so the client can glow the positive- and
     negative-SF ends opposite (spec §4), placing each end from the per-node
     coords. Signed detail, caveated by ``oos_r2``/``sf_stability``.
+
+    ``full=True`` switches the query to the unbounded reach (bounded only by
+    ``min_frac``) the matrix Read pane needs (plan/0139-0001) instead of a
+    display top-k; ``truncated`` reports whether a bounded (``full=False``)
+    call was cut short of the complete reach, independent of which mode was
+    used — always ``False`` when ``full=True``, since that mode is complete by
+    construction.
     """
     constraint_key: str
     ctype: str | None = None
@@ -651,6 +688,7 @@ class ConstraintReach(BaseModel):
     # False means the requested key has no represented SF reach in the active
     # fit/window; callers can distinguish it from an empty visual selection.
     available: bool = True
+    truncated: bool = False
     sps: list[ReachSp]
 
 
@@ -778,6 +816,11 @@ class MatrixFrame(BaseModel):
     interval_ts: datetime
     fit_window_start: datetime | None = None
     fit_window_end: datetime | None = None
+    # Which axis got the "primary list" (ranked + searched + bounded) treatment.
+    # The wire shape is unchanged — ``rows`` are always constraints and
+    # ``columns`` always settlement points — but the client reads this to decide
+    # the visual orientation (``nodes`` renders nodes as rows by transposing).
+    orientation: Literal['constraints', 'nodes'] = 'constraints'
     dam_status: Literal['pending', 'partial', 'available'] = 'pending'
     row_ordering: str = 'daily_abs_forecast_contribution_desc_then_constraint_key'
     column_ordering: str = 'max_abs_sf_desc_then_settlement_point'
