@@ -136,17 +136,31 @@ export interface MatrixDisplayAxes {
 // choice, decoupled from how the frame was fetched: the SF-lens rotation set is
 // one stable rectangle the tab flips client-side without any refetch. Defaults
 // to the frame's own `orientation` for callers that don't drive it explicitly.
-export function matrixDisplayAxes(frame: MatrixFrame, orientation: MatrixOrientation = frame.orientation): MatrixDisplayAxes {
+export function matrixDisplayAxes(
+  frame: MatrixFrame,
+  orientation: MatrixOrientation = frame.orientation,
+  // The previewed entity's key — hoisted to the first display row so the
+  // "top row = current selection" reads regardless of the underlying order.
+  topRowKey?: string | null,
+): MatrixDisplayAxes {
   const constraintItems: MatrixAxisItem[] = frame.rows.map((row, index) => ({
     kind: "constraint", key: row.constraint_key, index, row,
   }));
   const nodeItems: MatrixAxisItem[] = frame.columns.map((column, index) => ({
     kind: "settlementPoint", key: column.settlement_point, index, column,
   }));
-  if (orientation === "nodes") {
-    return { transposed: true, rowKind: "settlementPoint", columnKind: "constraint", displayRows: nodeItems, displayColumns: constraintItems };
-  }
-  return { transposed: false, rowKind: "constraint", columnKind: "settlementPoint", displayRows: constraintItems, displayColumns: nodeItems };
+  const displayRows = orientation === "nodes" ? nodeItems : constraintItems;
+  const displayColumns = orientation === "nodes" ? constraintItems : nodeItems;
+  hoistToFront(displayRows, topRowKey);
+  return orientation === "nodes"
+    ? { transposed: true, rowKind: "settlementPoint", columnKind: "constraint", displayRows, displayColumns }
+    : { transposed: false, rowKind: "constraint", columnKind: "settlementPoint", displayRows, displayColumns };
+}
+
+function hoistToFront(items: MatrixAxisItem[], key: string | null | undefined): void {
+  if (!key) return;
+  const at = items.findIndex((item) => item.key === key);
+  if (at > 0) items.unshift(items.splice(at, 1)[0]);
 }
 
 // Resolve a cell's implied SF from one row-axis and one column-axis item,

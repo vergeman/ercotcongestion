@@ -23,6 +23,11 @@ interface Props {
   // The display orientation, driven by the sidebar tab — a pure client-side
   // transpose of the same fetched rectangle, so toggling never refetches.
   orientation: MatrixOrientation;
+  // The previewed entity hoisted to the first display row (the "current
+  // selection" top row). `previewKey` is that key only when it is *not* pinned —
+  // the un-saved preview — so its header can read as a preview.
+  topRowKey?: string | null;
+  previewKey?: string | null;
   mode: MatrixValueMode;
   muSource: MatrixMuSource;
   selection: MatrixSelection;
@@ -202,11 +207,11 @@ function AxisHeaderBody({ frame, item, isContribution, sourceLabel, muSource }: 
   </>;
 }
 
-export default function MatrixGrid({ frame, orientation, mode, muSource, selection, maxAbs, onSelect, isPinned, onTogglePin }: Props) {
+export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, mode, muSource, selection, maxAbs, onSelect, isPinned, onTogglePin }: Props) {
   const [tooltip, setTooltip] = useState<MatrixTooltipTarget | null>(null);
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
-  const axes = useMemo(() => matrixDisplayAxes(frame, orientation), [frame, orientation]);
+  const axes = useMemo(() => matrixDisplayAxes(frame, orientation, topRowKey), [frame, orientation, topRowKey]);
   const axesRef = useRef(axes);
   axesRef.current = axes;
 
@@ -266,7 +271,7 @@ export default function MatrixGrid({ frame, orientation, mode, muSource, selecti
             {axes.displayColumns.map((item, columnIndex) => (
               <th
                 key={item.key}
-                className="matrix-grid__column"
+                className={`matrix-grid__column${item.key === previewKey ? " matrix-grid__head--preview" : ""}`}
                 scope="col"
                 tabIndex={0}
                 id={selectionElementId(axisSelection(item))}
@@ -288,7 +293,7 @@ export default function MatrixGrid({ frame, orientation, mode, muSource, selecti
           {axes.displayRows.map((rowItem, rowIndex) => (
             <tr key={rowItem.key}>
               <th
-                className="matrix-grid__row"
+                className={`matrix-grid__row${rowItem.key === previewKey ? " matrix-grid__head--preview" : ""}`}
                 scope="row"
                 tabIndex={0}
                 id={selectionElementId(axisSelection(rowItem))}
@@ -350,6 +355,11 @@ export default function MatrixGrid({ frame, orientation, mode, muSource, selecti
         .matrix-grid__pin:hover { color: var(--accent); }
         .matrix-grid__row .matrix-grid__pin { right: 3px; top: 50%; transform: translateY(-50%); }
         .matrix-grid__column .matrix-grid__pin { right: 3px; top: 3px; }
+        /* The un-pinned preview header — a dashed accent edge that reads as
+           "viewing, not saved" until the star is filled. */
+        .matrix-grid__head--preview { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+        .matrix-grid__row.matrix-grid__head--preview { border-left: 2px dashed var(--accent); }
+        .matrix-grid__column.matrix-grid__head--preview { border-top: 2px dashed var(--accent); }
       `}</style>
     </div>
   );

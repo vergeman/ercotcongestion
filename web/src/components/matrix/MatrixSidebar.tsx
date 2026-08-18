@@ -78,7 +78,7 @@ export default function MatrixSidebar({
       </div>
       <div className="matrix-sidebar__count">
         <span>{items.length} of {totalCount} {tab}</span>
-        <button type="button" onClick={onReset}>Reset</button>
+        <button type="button" onClick={onReset} title="Discard the working set and re-seed the default anchors">Reset to defaults</button>
       </div>
       <div className="matrix-sidebar__list" role="listbox" aria-label={tab === "constraints" ? "Constraints" : "Settlement points"}>
         {items.length === 0 && <p className="matrix-sidebar__empty">No {tab} match this search.</p>}

@@ -43,6 +43,18 @@ function storedPins(): { pinnedConstraints: string[]; pinnedSettlementPoints: st
   return { pinnedConstraints: [], pinnedSettlementPoints: [] };
 }
 
+// The working set is seeded from the defaults exactly once. This marker records
+// that it happened, so emptying the set by hand stays empty on reload (the user
+// chose "respect empty + Reset button") — only an explicit reset re-seeds.
+function storedSeeded(): boolean {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(PIN_STORAGE_KEY) ?? "null") as { seeded?: boolean } | null;
+    return value?.seeded === true;
+  } catch {
+    return false;
+  }
+}
+
 interface WorkspaceState {
   tab: MatrixTab;
   lens: MatrixLens;
@@ -92,8 +104,10 @@ function searchFromState(state: WorkspaceState): string {
   if (state.query) params.set("q", state.query);
   if (state.fType) params.set("type", state.fType);
   if (state.fZone) params.set("zone", state.fZone);
-  state.pinnedConstraints.forEach((key) => params.append("pinned_constraint", key));
-  state.pinnedSettlementPoints.forEach((point) => params.append("pinned_sp", point));
+  // The working set (pins) is a personal saved board, persisted in localStorage
+  // — deliberately NOT written to the URL, which kept the link short. Old links
+  // that still carry `pinned_constraint`/`pinned_sp` are read back in
+  // stateFromSearch for backward compatibility; we just stop emitting them.
   if (state.selection?.kind === "constraint") params.set("constraint", state.selection.key);
   if (state.selection?.kind === "node") params.set("sp", state.selection.point);
   const query = params.toString();
@@ -132,7 +146,16 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const [constraintsResp, setConstraintsResp] = useState<AnalysisConstraintsResponse | null>(null);
   const [nodeMeta, setNodeMeta] = useState<Map<string, { type: string | null; zone: string | null }>>(new Map());
   const [settlementPointsResp, setSettlementPointsResp] = useState<AnalysisSettlementPointsResponse | null>(null);
+  const [seeded, setSeeded] = useState<boolean>(() => storedSeeded());
   const requestId = useRef(0);
+
+  // The current preview (the "top row"): the explicitly selected sidebar entity.
+  // When it is not already in the working set it rides in via `peek` — a forced
+  // row/column beyond the pin cap — and is rendered un-pinned until pinned.
+  const previewConstraintKey = state.selection?.kind === "constraint" ? state.selection.key : null;
+  const previewNodeKey = state.selection?.kind === "node" ? state.selection.point : null;
+  const peekConstraint = previewConstraintKey && !state.pinnedConstraints.includes(previewConstraintKey) ? previewConstraintKey : null;
+  const peekSettlementPoint = previewNodeKey && !state.pinnedSettlementPoints.includes(previewNodeKey) ? previewNodeKey : null;
 
   useEffect(() => {
     if (!timestamp) return;
@@ -140,25 +163,39 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     const id = ++requestId.current;
     setLoading(true);
     setError(null);
-    void getMatrixFrame(timestamp, {
-      // One stable rotation set: the constraints that most drive the curated
-      // ERCOT anchors at the cursor (μ × shift-factor reach into those hubs/
-      // zones, blank-anchor rows dropped), against those anchors, plus any pins.
-      // The Constraints/Nodes tab transposes this SAME rectangle in the client
-      // (see MatrixGrid `orientation`), so toggling never refetches or reselects
-      // — the elements stay put, they just swap axes.
-      rowPreset: "top30",
-      rowLimit: 8,
-      columnLimit: 30,
-      columnSet: "default_anchors",
-      rowOrder: "anchor_contribution",
-      pinnedConstraints: state.pinnedConstraints,
-      pinnedSettlementPoints: state.pinnedSettlementPoints,
-    }, controller.signal)
+
+    // Two fetch modes. SEED (first load, never seeded, empty set): rank the
+    // default anchor board once so we can adopt it as the working set. WORKING
+    // SET (thereafter): fetch exactly the pinned entities, plus the previewed
+    // top row via peek. The Constraints/Nodes tab transposes the WORKING SET
+    // frame client-side, so a toggle never refetches.
+    const workingSetEmpty = state.pinnedConstraints.length === 0 && state.pinnedSettlementPoints.length === 0;
+    const seeding = !seeded && workingSetEmpty;
+    const request = seeding
+      ? {
+          rowPreset: "top30" as const, rowLimit: 8, columnLimit: 30,
+          columnSet: "default_anchors" as const, rowOrder: "anchor_contribution" as const,
+        }
+      : {
+          rowPreset: "pinned" as const, columnSet: "pinned" as const, rowLimit: 8, columnLimit: 30,
+          pinnedConstraints: state.pinnedConstraints,
+          pinnedSettlementPoints: state.pinnedSettlementPoints,
+          peekConstraint, peekSettlementPoint,
+        };
+
+    void getMatrixFrame(timestamp, request, controller.signal)
       .then((nextFrame) => {
-        if (id === requestId.current) {
-          rememberedFrame = nextFrame;
-          setFrame(nextFrame);
+        if (id !== requestId.current) return;
+        rememberedFrame = nextFrame;
+        setFrame(nextFrame);
+        // Adopt the seed as the working set exactly once; from here the set is
+        // user-owned and the fetch flips to WORKING SET mode.
+        if (seeding && nextFrame.available && (nextFrame.rows.length > 0 || nextFrame.columns.length > 0)) {
+          setSeeded(true);
+          update({
+            pinnedConstraints: boundedPins(nextFrame.rows.map((row) => row.constraint_key)),
+            pinnedSettlementPoints: boundedPins(nextFrame.columns.map((column) => column.settlement_point)),
+          });
         }
       })
       .catch((requestError: unknown) => {
@@ -173,7 +210,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     return () => controller.abort();
     // Deliberately NOT keyed on state.tab: the tab transposes the fetched frame
     // client-side, so a toggle must reuse the same frame, not refetch a new one.
-  }, [state.pinnedConstraints, state.pinnedSettlementPoints, requestVersion, timestamp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints, peekConstraint, peekSettlementPoint, requestVersion, timestamp]);
 
   // The topology's sp_type/load_zone properties are the only source of node
   // type/zone metadata — /analysis/settlement-points is deliberately a bare
@@ -217,12 +255,12 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   useEffect(() => {
     try {
       window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify({
-        version: 1, constraints: state.pinnedConstraints, settlementPoints: state.pinnedSettlementPoints,
+        version: 1, seeded, constraints: state.pinnedConstraints, settlementPoints: state.pinnedSettlementPoints,
       }));
     } catch {
       // Local persistence is deliberately optional; URL state remains usable.
     }
-  }, [state.pinnedConstraints, state.pinnedSettlementPoints]);
+  }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints]);
 
   const update = (patch: Partial<WorkspaceState>) => {
     setState((current) => {
@@ -337,8 +375,12 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     if (gridSelection.kind === "settlementPoint") { update({ selection: { kind: "node", point: gridSelection.settlementPoint } }); return; }
     update({ selection: state.tab === "nodes" ? { kind: "node", point: gridSelection.settlementPoint } : { kind: "constraint", key: gridSelection.constraintKey } });
   };
-  const resetView = () => {
-    try { window.localStorage.removeItem(PIN_STORAGE_KEY); } catch { /* Reset still works in memory. */ }
+  // Clearing `seeded` puts the fetch back into SEED mode, so the defaults are
+  // re-adopted as a fresh working set. (Emptying the set item-by-item leaves
+  // `seeded` true, so a hand-emptied set stays empty on reload — the user's
+  // "respect empty + Reset button" choice.)
+  const resetToDefaults = () => {
+    setSeeded(false);
     update({ query: "", fType: "", fZone: "", selection: null, pinnedConstraints: [], pinnedSettlementPoints: [] });
   };
 
@@ -348,25 +390,20 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     ? (valueMode === "sf" ? frame.sf_day_max_abs : frame.contribution_day_max_abs)
     : 0;
 
-  const gridSelection: MatrixSelection = effectiveSelection?.kind === "constraint"
-    ? { kind: "constraint", constraintKey: effectiveSelection.key }
-    : effectiveSelection?.kind === "node"
-      ? { kind: "settlementPoint", settlementPoint: effectiveSelection.point }
+  // The grid highlights and previews only the EXPLICIT selection (the current
+  // sidebar/grid click), not the Read lens's first-item fallback — an explicit
+  // selection is always peeked into the frame, so it is the top row, never
+  // "hidden". Nothing is highlighted until the user actually picks something.
+  const gridSelection: MatrixSelection = state.selection?.kind === "constraint"
+    ? { kind: "constraint", constraintKey: state.selection.key }
+    : state.selection?.kind === "node"
+      ? { kind: "settlementPoint", settlementPoint: state.selection.point }
       : null;
 
   const isUsable = frame?.available && frame.rows.length > 0 && frame.columns.length > 0;
   const isUnavailable = frame && !frame.available;
   const isEmpty = frame?.available && !isUsable;
   const damUnmatchedRows = frame?.rows.filter((row) => row.ercot_dam_mu == null).length ?? 0;
-
-  const selectedRowVisible = !effectiveSelection || effectiveSelection.kind === "node" || Boolean(frame?.rows.some((row) => row.constraint_key === effectiveSelection.key));
-  const selectedColumnVisible = !effectiveSelection || effectiveSelection.kind === "constraint" || Boolean(frame?.columns.some((column) => column.settlement_point === effectiveSelection.point));
-  const selectionHidden = Boolean(effectiveSelection && frame?.available && (!selectedRowVisible || !selectedColumnVisible));
-  const revealSelection = () => {
-    if (!effectiveSelection) return;
-    if (effectiveSelection.kind === "constraint") togglePin(effectiveSelection.key, "constraint");
-    else togglePin(effectiveSelection.point, "sp");
-  };
 
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
@@ -414,7 +451,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             zoneOptions={zoneOptions}
             onFilter={(next) => update(next)}
             onTogglePin={(id) => togglePin(id, state.tab === "constraints" ? "constraint" : "sp")}
-            onReset={resetView}
+            onReset={resetToDefaults}
           />
           <section className="matrix-workspace__stage" aria-busy={loading}>
             <header className="matrix-workspace__stage-header">
@@ -459,8 +496,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                   <span>{frame.columns.length} of {frame.total_settlement_point_count} settlement points</span>
                   {loading && <span>Updating frame…</span>}
                 </div>
-                <div className={`matrix-workspace__notices${selectionHidden || (valueMode === "contribution" && frame.dam_status !== "available") ? " has-notices" : ""}`}>
-                  {selectionHidden && <div className="matrix-workspace__notice" role="status">The selected item is hidden by the current view. <button type="button" onClick={revealSelection}>Pin it</button></div>}
+                <div className={`matrix-workspace__notices${valueMode === "contribution" && frame.dam_status !== "available" ? " has-notices" : ""}`}>
                   {valueMode === "contribution" && frame.dam_status === "pending" && (
                     <div className="matrix-workspace__notice" role="status">ERCOT DAM μ is pending; Contribution uses Forecast μ.</div>
                   )}
@@ -471,6 +507,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                 <MatrixGrid
                   frame={frame}
                   orientation={state.tab === "nodes" ? "nodes" : "constraints"}
+                  topRowKey={state.tab === "nodes" ? previewNodeKey : previewConstraintKey}
+                  previewKey={state.tab === "nodes" ? peekSettlementPoint : peekConstraint}
                   mode={valueMode}
                   muSource={muSource}
                   selection={gridSelection}
