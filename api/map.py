@@ -212,6 +212,12 @@ def get_map_exposures(
 def get_map_reach(
     constraint: str = Query(..., description="Constraint key to trace"),
     k: int = Query(15, ge=1, le=500, description="Number of top nodes"),
+    full: bool = Query(
+        False,
+        description="Ignore k and return every node above min_frac — the "
+        "unbounded reach the matrix Read pane needs (plan/0139-0001), not a "
+        "display top-k. k stays the map/brief click's own knob.",
+    ),
     min_frac: float = Query(
         0.05, ge=0.0, le=1.0,
         description="Noise floor: drop nodes whose |SF| is below this fraction "
@@ -238,17 +244,40 @@ def get_map_reach(
         peak = geo.get("max_abs_sf")
         floor = min_frac * peak if peak else 0.0
 
-        cur.execute(
-            "SELECT settlement_point, sf FROM implied_shift_factors "
-            "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
-            "AND abs(sf) >= %s "
-            "ORDER BY abs(sf) DESC LIMIT %s",
-            (run_id, window_start, constraint, floor, k),
-        )
+        if full:
+            # No LIMIT at all: a dev-DB audit (plan/0139-0001) found ~half the
+            # constraint universe has real reach past 500 nodes at even a
+            # 5%-of-peak floor, so any fixed k is a guess that can go stale as
+            # the node universe grows. truncated is always False here — full
+            # means complete by construction, bounded only by min_frac.
+            cur.execute(
+                "SELECT settlement_point, sf FROM implied_shift_factors "
+                "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
+                "AND abs(sf) >= %s "
+                "ORDER BY abs(sf) DESC",
+                (run_id, window_start, constraint, floor),
+            )
+            fetched = cur.fetchall()
+            truncated = False
+        else:
+            # Fetch one extra row to detect a cutoff without a second COUNT
+            # query: k+1 rows back means more existed above the floor than k
+            # let through.
+            cur.execute(
+                "SELECT settlement_point, sf FROM implied_shift_factors "
+                "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
+                "AND abs(sf) >= %s "
+                "ORDER BY abs(sf) DESC LIMIT %s",
+                (run_id, window_start, constraint, floor, k + 1),
+            )
+            fetched = cur.fetchall()
+            truncated = len(fetched) > k
+            fetched = fetched[:k]
+
         coords = _sp_coords()
         metadata = _sp_metadata()
         sps = []
-        for r in cur.fetchall():
+        for r in fetched:
             lat, lon = coords.get(r["settlement_point"], (None, None))
             settlement_point_type, load_zone = metadata.get(r["settlement_point"], (None, None))
             sps.append(ReachSp(settlement_point=r["settlement_point"],
@@ -270,6 +299,7 @@ def get_map_reach(
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=geo.get("binding_hours"),
         available=bool(sps),
+        truncated=truncated,
         sps=sps,
     )
 

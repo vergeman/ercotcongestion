@@ -135,6 +135,62 @@ def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch
     assert sps[1]["load_zone"] == "north"
 
 
+def test_reach_full_mode_drops_the_limit_and_is_never_truncated(client, fake_pool, configured_run):
+    """0139/0001: the matrix Read pane needs the constraint's complete reach
+    (bounded only by min_frac), not a top-k display slice — a fixed k ceiling
+    is a guess that can go stale as the node universe grows. full=True issues
+    no LIMIT at all; k stays untouched for the map/brief click's own use."""
+    fake_pool.cursor.queue([{"ws": WS}])
+    fake_pool.cursor.queue([_meta_row()])
+    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
+    fake_pool.cursor.queue([
+        {"settlement_point": f"SP{i}", "sf": 0.1} for i in range(600)
+    ])
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "full": True, "min_frac": 0})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["sps"]) == 600
+    assert body["truncated"] is False
+
+    sql, params = fake_pool.cursor.queries[-1]
+    assert "LIMIT" not in sql
+    assert params == ("map-v1", WS, "CONSTR_A", 0.0)
+
+
+def test_reach_bounded_mode_flags_truncation_when_more_nodes_exist(client, fake_pool, configured_run):
+    """A k-bounded call fetches k+1 rows to detect a cutoff without a second
+    COUNT query; the extra row is trimmed before it reaches the client."""
+    fake_pool.cursor.queue([{"ws": WS}])
+    fake_pool.cursor.queue([_meta_row()])
+    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
+    fake_pool.cursor.queue([  # k+1 = 3 rows queued for a k=2 request
+        {"settlement_point": "A", "sf": 0.5},
+        {"settlement_point": "B", "sf": 0.4},
+        {"settlement_point": "C", "sf": 0.3},
+    ])
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 2})
+    body = r.json()
+    assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
+    assert body["truncated"] is True
+
+    _, params = fake_pool.cursor.queries[-1]
+    assert params[-1] == 3  # k + 1
+
+
+def test_reach_bounded_mode_is_not_truncated_when_exactly_k_nodes_exist(client, fake_pool, configured_run):
+    fake_pool.cursor.queue([{"ws": WS}])
+    fake_pool.cursor.queue([_meta_row()])
+    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
+    fake_pool.cursor.queue([{"settlement_point": "A", "sf": 0.5}])
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 5})
+    body = r.json()
+    assert len(body["sps"]) == 1
+    assert body["truncated"] is False
+
+
 # ---- /map/overview -------------------------------------------------------
 
 def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
