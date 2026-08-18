@@ -147,6 +147,10 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const [nodeMeta, setNodeMeta] = useState<Map<string, { type: string | null; zone: string | null }>>(new Map());
   const [settlementPointsResp, setSettlementPointsResp] = useState<AnalysisSettlementPointsResponse | null>(null);
   const [seeded, setSeeded] = useState<boolean>(() => storedSeeded());
+  // The preview key the *currently displayed* frame is hoisted by. It lags the
+  // live selection during a peek fetch so the grid never un-hoists the old
+  // preview (dropping it to the bottom) before the new one's data has arrived.
+  const [frameTopKey, setFrameTopKey] = useState<string | null>(null);
   const requestId = useRef(0);
 
   // The current preview (the "top row"): the explicitly selected sidebar entity.
@@ -212,6 +216,25 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     // client-side, so a toggle must reuse the same frame, not refetch a new one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints, peekConstraint, peekSettlementPoint, requestVersion, timestamp]);
+
+  // The preview entity of the current row axis, and whether it is actually
+  // present in the frame on screen. A freshly clicked, not-yet-fetched preview
+  // is absent until its peek resolves.
+  const liveTopKey = state.tab === "nodes" ? previewNodeKey : previewConstraintKey;
+  const liveInFrame = Boolean(liveTopKey && (state.tab === "nodes"
+    ? frame?.columns.some((column) => column.settlement_point === liveTopKey)
+    : frame?.rows.some((row) => row.constraint_key === liveTopKey)));
+  // Record the preview only once it is in the frame, so during the next peek's
+  // load we keep hoisting the still-present previous preview instead of dropping
+  // it — the grid stays put and the new preview lands directly at the top.
+  useEffect(() => {
+    if (liveInFrame && liveTopKey) setFrameTopKey(liveTopKey);
+  }, [liveInFrame, liveTopKey]);
+  const topRowKey = liveInFrame ? liveTopKey : frameTopKey;
+  const topRowPinned = topRowKey
+    ? (state.tab === "nodes" ? state.pinnedSettlementPoints : state.pinnedConstraints).includes(topRowKey)
+    : false;
+  const previewKey = topRowKey && !topRowPinned ? topRowKey : null;
 
   // The topology's sp_type/load_zone properties are the only source of node
   // type/zone metadata — /analysis/settlement-points is deliberately a bare
@@ -295,7 +318,10 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const togglePin = (value: string, kind: "constraint" | "sp") => {
     const key = kind === "constraint" ? "pinnedConstraints" : "pinnedSettlementPoints";
     const values = state[key];
-    update({ [key]: isPinned(value, kind) ? values.filter((item) => item !== value) : boundedPins([...values, value]) });
+    // New pins prepend to the TOP of the working set and nothing re-sorts — so a
+    // just-pinned item stays where it was previewed (top), and the next preview
+    // pushes it to row #2 rather than banishing it to the bottom of the list.
+    update({ [key]: isPinned(value, kind) ? values.filter((item) => item !== value) : boundedPins([value, ...values]) });
   };
 
   const constraintItems = useMemo<MatrixSidebarItem[]>(() => {
@@ -507,8 +533,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                 <MatrixGrid
                   frame={frame}
                   orientation={state.tab === "nodes" ? "nodes" : "constraints"}
-                  topRowKey={state.tab === "nodes" ? previewNodeKey : previewConstraintKey}
-                  previewKey={state.tab === "nodes" ? peekSettlementPoint : peekConstraint}
+                  topRowKey={topRowKey}
+                  previewKey={previewKey}
                   mode={valueMode}
                   muSource={muSource}
                   selection={gridSelection}
