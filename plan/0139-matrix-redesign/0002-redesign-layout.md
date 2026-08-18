@@ -79,16 +79,24 @@ pinnedSettlementPoints: string[]
 
 ## Acceptance
 
-* [ ] Landing shows the sidebar + Read lens with today's top constraint selected — no random
-      constraint, no inspector drawer.
-* [ ] `Constraints | Nodes` tab flips the sidebar list (and the SF grid axis).
-* [ ] One search box + `All types` + `All zones` filter the full list from
+* [x] Landing shows the sidebar + Read lens with today's top constraint selected — no random
+      constraint, no inspector drawer. (No URL selection ⇒ the first item of the sorted list —
+      constraints by `daily_mu_rank`, nodes by name — is used as the display default without a
+      route write; an explicit click/URL selection always wins.)
+* [x] `Constraints | Nodes` tab flips the sidebar list. The tab does not transpose the
+      `/matrix/frame` rectangle (rows stay constraints, columns stay settlement points, per the
+      "do not touch the grid contract" constraint below) — it flips which axis the *selection*
+      targets, so a node pick highlights a grid column and a constraint pick highlights a row.
+* [x] One search box + `All types` + `All zones` filter the full list from
       `/analysis/settlement-points` and `/analysis/constraints`. Old dual-search and
-      Rows/Type/Columns controls are gone.
-* [ ] `Read | SF` toggles; SF shows the preserved grid; Read shows the 0003 stub.
-* [ ] Under SF only, `SF | Forecast μ | ERCOT DAM μ` appear; DAM disabled + falls back when
+      Rows/Type/Columns controls are gone. Node type/zone (`/analysis/settlement-points` is a
+      bare vocabulary list) come from a client-side merge with `/topology`'s `sp_type`/
+      `load_zone`, fetched once — no backend change.
+* [x] `Read | SF` toggles; SF shows the preserved grid; Read shows the 0003 stub.
+* [x] Under SF only, `SF | Forecast μ | ERCOT DAM μ` appear; DAM disabled + falls back when
       `dam_status==="pending"`.
-* [ ] `tab/lens/val/q/type/zone/constraint/sp` + pins round-trip through the URL; an old
-      `?constraint=…&constraint_search=…` link still resolves; the bottom scrubber still drives
-      the hour and `t/ws/we` survive every state change.
-* [ ] `MatrixInspector.tsx` is deleted and unreferenced.
+* [x] `tab/lens/val/q/type/zone/constraint/sp` + pins round-trip through the URL; an old
+      `?constraint=…&constraint_search=…` link still resolves (`constraint_search` folds into
+      `q`); the bottom scrubber still drives the hour and `t/ws/we` survive every state change
+      (unchanged `withCoord` merge in `App.tsx`, not touched).
+* [x] `MatrixInspector.tsx` is deleted and unreferenced.
