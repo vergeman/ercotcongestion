@@ -32,7 +32,9 @@ interface Props {
   muSource: MatrixMuSource;
   selection: MatrixSelection;
   maxAbs: number;
-  onSelect: (selection: MatrixSelection) => void;
+  // `opts.shift` reports a shift/⌘-click so the workspace can route a node click
+  // into the basis tray's slot B (0139/0006) instead of moving the selection.
+  onSelect: (selection: MatrixSelection, opts?: { shift?: boolean }) => void;
   isPinned: (item: MatrixAxisItem) => boolean;
   onTogglePin: (item: MatrixAxisItem) => void;
 }
@@ -280,7 +282,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 aria-describedby={tooltipId}
                 data-matrix-tooltip="column"
                 data-matrix-column={columnIndex}
-                onClick={() => onSelect(axisSelection(item))}
+                onClick={(event) => onSelect(axisSelection(item), { shift: event.shiftKey || event.metaKey })}
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(item)))}
               >
                 <PinStar pinned={isPinned(item)} label={`${isPinned(item) ? "Unpin" : "Pin"} ${item.key}`} onToggle={() => onTogglePin(item)} />
@@ -302,7 +304,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 aria-describedby={tooltipId}
                 data-matrix-tooltip="row"
                 data-matrix-row={rowIndex}
-                onClick={() => onSelect(axisSelection(rowItem))}
+                onClick={(event) => onSelect(axisSelection(rowItem), { shift: event.shiftKey || event.metaKey })}
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(rowItem)))}
               >
                 <PinStar pinned={isPinned(rowItem)} label={`${isPinned(rowItem) ? "Unpin" : "Pin"} ${rowItem.key}`} onToggle={() => onTogglePin(rowItem)} />
@@ -331,7 +333,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                     data-matrix-tooltip="cell"
                     data-matrix-row={rowIndex}
                     data-matrix-column={columnIndex}
-                    onClick={() => { if (constraint && node) onSelect({ kind: "cell", constraintKey: constraint.key, settlementPoint: node.key }); }}
+                    onClick={(event) => { if (constraint && node) onSelect({ kind: "cell", constraintKey: constraint.key, settlementPoint: node.key }, { shift: event.shiftKey || event.metaKey }); }}
                     onKeyDown={(event) => selectOnKey(event, () => { if (constraint && node) onSelect({ kind: "cell", constraintKey: constraint.key, settlementPoint: node.key }); })}
                   >
                     {formatMatrixValue(value, mode)}
