@@ -782,6 +782,31 @@ export interface AnalysisSettlementPointsResponse {
   settlement_points?: string[];
 }
 
+// /analysis/constraints — the full constraint vocabulary for one day's
+// artifact (plan/0139-0001), the search index behind the Matrix sidebar
+// (0139-0002). Never a Brief top-k.
+export interface AnalysisConstraintRow {
+  constraint_key: string;
+  name: string;
+  contingency: string | null;
+  ctype: string | null;
+  zone: string | null;
+  kv_max: number | null;
+  binding_hours: number;
+  daily_mu_rank: number;
+  daily_mu_sum: number;
+}
+
+export interface AnalysisConstraintsResponse {
+  available: boolean;
+  unavailable_reason?: "artifact_missing";
+  run_id: string;
+  delivery_date: string;
+  horizon?: number;
+  rows?: AnalysisConstraintRow[];
+  n_total?: number;
+}
+
 // /analysis/essp — hourly, source-explicit topology grouping.  GroupIndex is
 // only meaningful within this returned hour/source; consumers key groups by
 // their members rather than persisting it as a cross-day identity.

@@ -9,6 +9,29 @@ export type MatrixSelection =
   | { kind: "cell"; constraintKey: string; settlementPoint: string }
   | null;
 
+// 0139/0002: the sidebar index tab.
+export type MatrixTab = "constraints" | "nodes";
+// The stage lens — Read (detail, 0003) vs SF (the grid kept from before).
+export type MatrixLens = "read" | "sf";
+// The SF-lens value sub-toggle. Maps onto the existing (mode, muSource) pair
+// below rather than replacing it, so MatrixGrid/MatrixLegend stay unchanged.
+export type MatrixValTab = "sf" | "fmu" | "dmu";
+
+export function matrixValueModeForVal(val: MatrixValTab): MatrixValueMode {
+  return val === "sf" ? "sf" : "contribution";
+}
+
+export function matrixMuSourceForVal(val: MatrixValTab): MatrixMuSource {
+  return val === "dmu" ? "ercotDam" : "forecast";
+}
+
+// The sidebar/workspace-level selection (0139/0002) — coarser than
+// MatrixSelection above, which also carries the grid's cell selection.
+export type MatrixEntitySelection =
+  | { kind: "constraint"; key: string }
+  | { kind: "node"; point: string }
+  | null;
+
 export function matrixCellSf(
   values: number[],
   rowIndex: number,

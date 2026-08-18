@@ -14,6 +14,7 @@ import type {
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
+  AnalysisConstraintsResponse,
   AnalysisEsspGroupsResponse,
   EsspSource,
 } from "./types";
@@ -300,6 +301,20 @@ export async function fetchAnalysisSettlementPoints(
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/settlement-points?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`analysis/settlement-points ${r.status}`);
+  return r.json();
+}
+
+// The full constraint vocabulary for one day's artifact (plan/0139-0001) —
+// the Matrix sidebar's search index, not a Brief top-k.
+export async function fetchAnalysisConstraints(
+  deliveryDate: string,
+  { runId, horizon, signal }: Pick<AnalysisAttributionRequest, "runId" | "horizon" | "signal"> = {},
+): Promise<AnalysisConstraintsResponse> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate });
+  if (runId) qs.set("run_id", runId);
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/analysis/constraints?${qs.toString()}`, { signal });
+  if (!r.ok) throw new Error(`analysis/constraints ${r.status}`);
   return r.json();
 }
 
