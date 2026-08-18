@@ -105,15 +105,16 @@ function ConstraintRead({
         <span className="mrd__eyebrow">Constraint</span>
         <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
       </header>
-      <div className="mrd-kv">
-        <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} />
-        <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} />
-        <Fact label="Type" value={row?.ctype ?? "—"} />
-        <Fact label="Daily Σμ" value={row ? usd(row.daily_mu_sum, 2) : "—"} />
-        <Fact label="Binding hours" value={row?.binding_hours ?? "—"} />
+      <div className="mrd-top">
+        <div className="mrd-kv">
+          <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} />
+          <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} />
+          <Fact label="Type" value={row?.ctype ?? "—"} />
+          <Fact label="Daily Σμ" value={row ? usd(row.daily_mu_sum, 2) : "—"} />
+          <Fact label="Binding hours" value={row?.binding_hours ?? "—"} />
+        </div>
+        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
       </div>
-
-      <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} />
 
       <div className="mrd-reach">
         <span className="mrd-section-title">
@@ -207,13 +208,14 @@ function NodeRead({
         <span className="mrd__eyebrow">Settlement point</span>
         <h2 className="mrd__title">{point}</h2>
       </header>
-      <div className="mrd-kv">
-        <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} />
-        <Fact label="Type" value={meta?.type ?? "—"} />
-        {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
+      <div className="mrd-top">
+        <div className="mrd-kv">
+          <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} />
+          <Fact label="Type" value={meta?.type ?? "—"} />
+          {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
+        </div>
+        <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
       </div>
-
-      <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} />
 
       {damPendingBlock && (
         <div className="mrd-notice">ERCOT DAM μ has not been published for this delivery day — unavailable, not zero.</div>
@@ -272,6 +274,10 @@ export default function MatrixReadDetail({
         .mrd-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
         .mrd-kv { display: flex; flex-direction: column; margin: 0 0 4px; }
         .mrd-kv--stats { margin-top: 16px; }
+        .mrd-top { display: flex; align-items: flex-start; gap: 20px; }
+        .mrd-top .mrd-kv { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+        .mrd-top .bfm { flex: 0 0 180px; width: 180px; margin: 0; }
+        @media (max-width: 640px) { .mrd-top { flex-direction: column; } .mrd-top .bfm { width: 100%; flex: 0 0 auto; } }
         .mrd-kv__row { display: flex; gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
         .mrd-kv__row:last-child { border-bottom: 0; }
         .mrd-kv__label { flex: 0 0 140px; color: var(--text-muted); font-size: var(--fs-label); }

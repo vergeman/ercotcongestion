@@ -49,7 +49,7 @@ export function useConstraintReach(
     }
     let live = true;
     setLoading(true);
-    fetchMapReach(id, k)
+    fetchMapReach(id, { k })
       .then((r) => {
         reachCache.set(id, r);
         if (live) setReach(r);
@@ -65,6 +65,55 @@ export function useConstraintReach(
       live = false;
     };
   }, [id, k]);
+
+  return { reach, loading };
+}
+
+// The constraint's complete reach (bounded only by the noise floor, no row
+// limit — plan/0139-0001's `full=true` mode), separately cached from the
+// bounded `useConstraintReach` above since the two payloads are not
+// interchangeable (a k=20 cache hit must never satisfy a full-reach request,
+// or vice versa). Used by the Matrix Read pane (0139-0003), which needs both
+// dipole lobes complete, not a display top-k.
+const fullReachCache = new Map<string, ConstraintReach | null>();
+
+export function useFullConstraintReach(
+  id: string | null
+): { reach: ConstraintReach | null; loading: boolean } {
+  const [reach, setReach] = useState<ConstraintReach | null>(
+    id && fullReachCache.has(id) ? fullReachCache.get(id)! : null
+  );
+  const [loading, setLoading] = useState(!!id && !fullReachCache.has(id));
+
+  useEffect(() => {
+    if (!id) {
+      setReach(null);
+      setLoading(false);
+      return;
+    }
+    if (fullReachCache.has(id)) {
+      setReach(fullReachCache.get(id)!);
+      setLoading(false);
+      return;
+    }
+    let live = true;
+    setLoading(true);
+    fetchMapReach(id, { full: true, minFrac: 0 })
+      .then((r) => {
+        fullReachCache.set(id, r);
+        if (live) setReach(r);
+      })
+      .catch(() => {
+        fullReachCache.set(id, null);
+        if (live) setReach(null);
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [id]);
 
   return { reach, loading };
 }
