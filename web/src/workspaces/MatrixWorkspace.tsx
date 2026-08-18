@@ -3,7 +3,7 @@ import type { AnalysisConstraintsResponse, AnalysisSettlementPointsResponse, Mat
 import { getMatrixFrame } from "../api/matrixFrames";
 import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints, fetchTopology } from "../api/client";
 import MatrixGrid from "../components/matrix/MatrixGrid";
-import MatrixLegend from "../components/matrix/MatrixLegend";
+import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLegend";
 import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
 import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
 import {
@@ -403,16 +403,18 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
           <section className="matrix-workspace__stage" aria-busy={loading}>
             <header className="matrix-workspace__stage-header">
               <div className="matrix-workspace__toggle" role="tablist" aria-label="Lens">
-                <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Read</button>
+                <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Detail</button>
                 <button type="button" role="tab" aria-selected={state.lens === "sf"} className={state.lens === "sf" ? "is-active" : ""} onClick={() => update({ lens: "sf" })}>SF</button>
               </div>
               {state.lens === "sf" && (
-                <div className="matrix-workspace__toggle" role="tablist" aria-label="Value">
+                <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Value">
+                  <span className="label matrix-workspace__toggle-label">Data</span>
                   <button type="button" className={state.val === "sf" ? "is-active" : ""} onClick={() => update({ val: "sf" })}>Shift Factor</button>
                   <button type="button" className={state.val === "fmu" ? "is-active" : ""} onClick={() => update({ val: "fmu" })}>Forecast μ</button>
                   <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
                 </div>
               )}
+              {state.lens === "read" && <MatrixReachLegend />}
               {state.lens === "sf" && <MatrixLegend mode={valueMode} maxAbs={legendMax} />}
             </header>
 
@@ -470,7 +472,9 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace h1 { margin: 3px 0; font: 600 var(--fs-xl)/1.2 var(--font-label); color: var(--text-primary); }
         .matrix-workspace p { color: var(--text-secondary); font-size: var(--fs-label); margin: 0; }
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
-        .matrix-workspace__toggle { display: flex; gap: 7px; }
+        .matrix-workspace__toggle { display: flex; align-items: center; gap: 7px; }
+        .matrix-workspace__toggle--data { gap: 4px; }
+        .matrix-workspace__toggle-label { margin-right: 4px; }
         .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; padding: 7px 11px; }
         .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
         .matrix-workspace button:disabled { cursor: not-allowed; color: var(--text-muted); }
@@ -482,7 +486,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace__body { display: flex; flex: 1; min-height: 0; gap: 0; }
         .matrix-workspace__stage { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__stage-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; }
-        .matrix-workspace__read { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 18px 18px; }
+        .matrix-workspace__read { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 0 18px; }
         .matrix-workspace__meta { color: var(--text-secondary); display: flex; flex-wrap: wrap; font-size: var(--fs-label); gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
         .matrix-workspace__notices { min-height: 0; }
         .matrix-workspace__notices.has-notices { border-bottom: 1px solid var(--border); display: grid; gap: 1px; }

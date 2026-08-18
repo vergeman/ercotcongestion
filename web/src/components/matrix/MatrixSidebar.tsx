@@ -71,35 +71,50 @@ export default function MatrixSidebar({
       </div>
       <div className="matrix-sidebar__list" role="listbox" aria-label={tab === "constraints" ? "Constraints" : "Settlement points"}>
         {items.length === 0 && <p className="matrix-sidebar__empty">No {tab} match this search.</p>}
-        {items.map((item) => (
-          <div
-            key={item.id}
-            role="option"
-            aria-selected={item.id === selectedId}
-            className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}`}
-            tabIndex={0}
-            onClick={() => onSelect(item.id)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item.id); }
-            }}
-          >
-            <button
-              type="button"
-              className={`matrix-sidebar__pin${item.pinned ? " is-pinned" : ""}`}
-              aria-label={item.pinned ? `Unpin ${item.id}` : `Pin ${item.id}`}
-              title={item.pinned ? "Unpin" : "Pin"}
-              onClick={(event) => { event.stopPropagation(); onTogglePin(item.id); }}
+        {items.map((item) => {
+          // Constraints: the contingency (item.sub) differentiates otherwise
+          // duplicate monitored-element names — shown as a grey subline under
+          // the name, with the zone. The Σμ size sits in the aligned value
+          // column. Nodes carry no contingency; their zone fills that column.
+          const subline = tab === "constraints"
+            ? [item.zone, item.sub].filter(Boolean).join(" · ")
+            : "";
+          const value = tab === "constraints" ? item.sizeLabel : item.zone;
+          return (
+            <div
+              key={item.id}
+              role="option"
+              aria-selected={item.id === selectedId}
+              className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}`}
+              tabIndex={0}
+              onClick={() => onSelect(item.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item.id); }
+              }}
             >
-              {item.pinned ? "★" : "☆"}
-            </button>
-            <span className="matrix-sidebar__name">{item.label}</span>
-            {item.type && <span className="matrix-sidebar__tag">{typeTag(item.type)}</span>}
-            <span className="matrix-sidebar__meta">{item.zone ?? "—"}{item.sizeLabel ? ` · ${item.sizeLabel}` : ""}</span>
-          </div>
-        ))}
+              <button
+                type="button"
+                className={`matrix-sidebar__pin${item.pinned ? " is-pinned" : ""}`}
+                aria-label={item.pinned ? `Unpin ${item.id}` : `Pin ${item.id}`}
+                title={item.pinned ? "Unpin" : "Pin"}
+                onClick={(event) => { event.stopPropagation(); onTogglePin(item.id); }}
+              >
+                {item.pinned ? "★" : "☆"}
+              </button>
+              <span className="matrix-sidebar__namecell">
+                <span className="matrix-sidebar__name">{item.label}</span>
+                {subline && <span className="matrix-sidebar__sub">{subline}</span>}
+              </span>
+              <span className="matrix-sidebar__tag-col">
+                {item.type && <span className="matrix-sidebar__tag">{typeTag(item.type)}</span>}
+              </span>
+              <span className="matrix-sidebar__value">{value ?? "—"}</span>
+            </div>
+          );
+        })}
       </div>
       <style>{`
-        .matrix-sidebar { display: flex; flex-direction: column; min-height: 0; width: 280px; flex: 0 0 280px; background: var(--bg-panel); border: 1px solid var(--border); border-right: 0; }
+        .matrix-sidebar { display: flex; flex-direction: column; min-height: 0; width: 340px; flex: 0 0 340px; background: var(--bg-panel); border: 1px solid var(--border); border-right: 0; }
         .matrix-sidebar__tabs { display: flex; border-bottom: 1px solid var(--border); }
         .matrix-sidebar__tabs button { flex: 1; border: 0; border-right: 1px solid var(--border); background: var(--bg-surface); color: var(--text-secondary); font: 600 var(--fs-label) var(--font-sans); padding: 8px; cursor: pointer; }
         .matrix-sidebar__tabs button:last-child { border-right: 0; }
@@ -111,14 +126,17 @@ export default function MatrixSidebar({
         .matrix-sidebar__count button:hover { color: var(--accent); }
         .matrix-sidebar__list { flex: 1; min-height: 0; overflow: auto; }
         .matrix-sidebar__empty { color: var(--text-muted); padding: 12px; }
-        .matrix-sidebar__row { align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); cursor: pointer; display: flex; gap: 8px; font-size: var(--fs-label); padding: 7px 10px; }
+        .matrix-sidebar__row { align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); cursor: pointer; display: grid; grid-template-columns: 18px minmax(0, 1fr) 46px 68px; column-gap: 8px; font-size: var(--fs-label); padding: 7px 10px; }
         .matrix-sidebar__row:hover { background: var(--bg-surface); }
         .matrix-sidebar__row.is-selected { background: var(--accent-dim); box-shadow: inset 3px 0 var(--accent); }
-        .matrix-sidebar__pin { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; flex: 0 0 auto; font-size: var(--fs-label); padding: 0 2px; }
+        .matrix-sidebar__pin { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: var(--fs-label); padding: 0; text-align: center; }
         .matrix-sidebar__pin.is-pinned { color: var(--accent); }
-        .matrix-sidebar__name { flex: 1; font-family: var(--font-mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+        .matrix-sidebar__namecell { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+        .matrix-sidebar__name { font-family: var(--font-mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+        .matrix-sidebar__sub { color: var(--text-muted); font-size: var(--fs-micro); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .matrix-sidebar__tag-col { display: flex; justify-content: flex-start; }
         .matrix-sidebar__tag { border: 1px solid var(--border); border-radius: 3px; color: var(--text-muted); font-size: 9.5px; letter-spacing: .04em; padding: 0 4px; text-transform: uppercase; white-space: nowrap; }
-        .matrix-sidebar__meta { color: var(--text-muted); font-size: var(--fs-micro); white-space: nowrap; }
+        .matrix-sidebar__value { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-micro); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       `}</style>
     </aside>
   );
