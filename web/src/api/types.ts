@@ -266,6 +266,9 @@ export interface ConstraintReach {
   peak_offrail: number | null;
   binding_hours: number | null;
   available: boolean;
+  // 0139/0001: reports whether a bounded (`k`-limited) call was cut short of
+  // the constraint's complete reach — always `false` for a `full=true` call.
+  truncated: boolean;
   sps: ReachSp[];
 }
 

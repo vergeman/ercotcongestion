@@ -178,15 +178,27 @@ export async function fetchMapExposures(
   return r.json();
 }
 
-// Top-k nodes a constraint drives, by |sf| — the constraint click. Signed `sf`
-// carries the import/export dipole. Null on 503.
+export interface MapReachOptions {
+  k?: number;
+  minFrac?: number;
+  // 0139/0001: drops the row LIMIT entirely (bounded only by minFrac) — the
+  // matrix Read pane's "give me everything" call, as opposed to `k`'s
+  // display-oriented top-k (map click, brief).
+  full?: boolean;
+}
+
+// Top-k (or, with `full: true`, the complete) nodes a constraint drives, by
+// |sf| — the constraint click. Signed `sf` carries the import/export dipole.
+// Null on 503.
 export async function fetchMapReach(
   constraint: string,
-  k = 15
+  { k = 15, minFrac, full }: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
-  const r = await fetch(
-    `${BASE}/map/reach?constraint=${encodeURIComponent(constraint)}&k=${k}`
-  );
+  const qs = new URLSearchParams({ constraint });
+  if (full) qs.set("full", "true");
+  else qs.set("k", String(k));
+  if (minFrac != null) qs.set("min_frac", String(minFrac));
+  const r = await fetch(`${BASE}/map/reach?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/reach ${r.status}`);
   return r.json();
