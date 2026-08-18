@@ -1,4 +1,4 @@
-import type { MatrixColumn, MatrixFrame, MatrixRow } from "../api/types";
+import type { MatrixColumn, MatrixFrame, MatrixOrientation, MatrixRow } from "../api/types";
 import { congestionColor } from "./colors";
 
 export type MatrixValueMode = "sf" | "contribution";
@@ -132,15 +132,18 @@ export interface MatrixDisplayAxes {
 // Single source of truth for the grid's visual orientation. `constraints`
 // draws constraints as rows / nodes as columns (today's layout); `nodes`
 // transposes — nodes as rows, constraints as columns — over the same
-// already-correct constraint-major rectangle.
-export function matrixDisplayAxes(frame: MatrixFrame): MatrixDisplayAxes {
+// already-correct constraint-major rectangle. The orientation is a *display*
+// choice, decoupled from how the frame was fetched: the SF-lens rotation set is
+// one stable rectangle the tab flips client-side without any refetch. Defaults
+// to the frame's own `orientation` for callers that don't drive it explicitly.
+export function matrixDisplayAxes(frame: MatrixFrame, orientation: MatrixOrientation = frame.orientation): MatrixDisplayAxes {
   const constraintItems: MatrixAxisItem[] = frame.rows.map((row, index) => ({
     kind: "constraint", key: row.constraint_key, index, row,
   }));
   const nodeItems: MatrixAxisItem[] = frame.columns.map((column, index) => ({
     kind: "settlementPoint", key: column.settlement_point, index, column,
   }));
-  if (frame.orientation === "nodes") {
+  if (orientation === "nodes") {
     return { transposed: true, rowKind: "settlementPoint", columnKind: "constraint", displayRows: nodeItems, displayColumns: constraintItems };
   }
   return { transposed: false, rowKind: "constraint", columnKind: "settlementPoint", displayRows: constraintItems, displayColumns: nodeItems };

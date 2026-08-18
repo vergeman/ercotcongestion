@@ -141,15 +141,17 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     setLoading(true);
     setError(null);
     void getMatrixFrame(timestamp, {
-      // The SF lens opens small: ≤5 display rows and ≤5 display columns plus any
-      // pins. `orientation` follows the sidebar tab so toggling rotates the grid;
-      // the pin-driven column set seeds a hub (constraints view) or the
-      // max-μ-at-cursor constraint (nodes view) when nothing is pinned yet.
+      // One stable rotation set: the constraints that most drive the curated
+      // ERCOT anchors at the cursor (μ × shift-factor reach into those hubs/
+      // zones, blank-anchor rows dropped), against those anchors, plus any pins.
+      // The Constraints/Nodes tab transposes this SAME rectangle in the client
+      // (see MatrixGrid `orientation`), so toggling never refetches or reselects
+      // — the elements stay put, they just swap axes.
       rowPreset: "top30",
-      rowLimit: 5,
-      columnLimit: 5,
-      columnSet: "pinned",
-      orientation: state.tab === "nodes" ? "nodes" : "constraints",
+      rowLimit: 8,
+      columnLimit: 30,
+      columnSet: "default_anchors",
+      rowOrder: "anchor_contribution",
       pinnedConstraints: state.pinnedConstraints,
       pinnedSettlementPoints: state.pinnedSettlementPoints,
     }, controller.signal)
@@ -169,7 +171,9 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         if (id === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [state.tab, state.pinnedConstraints, state.pinnedSettlementPoints, requestVersion, timestamp]);
+    // Deliberately NOT keyed on state.tab: the tab transposes the fetched frame
+    // client-side, so a toggle must reuse the same frame, not refetch a new one.
+  }, [state.pinnedConstraints, state.pinnedSettlementPoints, requestVersion, timestamp]);
 
   // The topology's sp_type/load_zone properties are the only source of node
   // type/zone metadata — /analysis/settlement-points is deliberately a bare
@@ -466,6 +470,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                 </div>
                 <MatrixGrid
                   frame={frame}
+                  orientation={state.tab === "nodes" ? "nodes" : "constraints"}
                   mode={valueMode}
                   muSource={muSource}
                   selection={gridSelection}

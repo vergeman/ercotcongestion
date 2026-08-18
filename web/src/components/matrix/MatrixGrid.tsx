@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { MatrixFrame } from "../../api/types";
+import type { MatrixFrame, MatrixOrientation } from "../../api/types";
 import { TooltipBubble } from "../ui/Tooltip";
 import {
   formatMatrixDamMu,
@@ -20,6 +20,9 @@ import {
 
 interface Props {
   frame: MatrixFrame;
+  // The display orientation, driven by the sidebar tab — a pure client-side
+  // transpose of the same fetched rectangle, so toggling never refetches.
+  orientation: MatrixOrientation;
   mode: MatrixValueMode;
   muSource: MatrixMuSource;
   selection: MatrixSelection;
@@ -199,11 +202,11 @@ function AxisHeaderBody({ frame, item, isContribution, sourceLabel, muSource }: 
   </>;
 }
 
-export default function MatrixGrid({ frame, mode, muSource, selection, maxAbs, onSelect, isPinned, onTogglePin }: Props) {
+export default function MatrixGrid({ frame, orientation, mode, muSource, selection, maxAbs, onSelect, isPinned, onTogglePin }: Props) {
   const [tooltip, setTooltip] = useState<MatrixTooltipTarget | null>(null);
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
-  const axes = useMemo(() => matrixDisplayAxes(frame), [frame]);
+  const axes = useMemo(() => matrixDisplayAxes(frame, orientation), [frame, orientation]);
   const axesRef = useRef(axes);
   axesRef.current = axes;
 
