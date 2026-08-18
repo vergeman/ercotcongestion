@@ -457,7 +457,16 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                     <div className="matrix-workspace__notice" role="status">DAM μ: {frame.rows.length - damUnmatchedRows}/{frame.rows.length} constraints matched; unmatched cells are unavailable.</div>
                   )}
                 </div>
-                <MatrixGrid frame={frame} mode={valueMode} muSource={muSource} selection={gridSelection} maxAbs={legendMax} onSelect={handleGridSelect} />
+                <MatrixGrid
+                  frame={frame}
+                  mode={valueMode}
+                  muSource={muSource}
+                  selection={gridSelection}
+                  maxAbs={legendMax}
+                  onSelect={handleGridSelect}
+                  isPinned={(item) => isPinned(item.key, item.kind === "constraint" ? "constraint" : "sp")}
+                  onTogglePin={(item) => togglePin(item.key, item.kind === "constraint" ? "constraint" : "sp")}
+                />
               </>
             )}
           </section>
