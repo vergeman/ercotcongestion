@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { MatrixTab } from "../../lib/matrix";
 
 // One row in the sidebar list — already filtered/sorted by MatrixWorkspace,
@@ -42,6 +43,16 @@ export default function MatrixSidebar({
   query, onQuery, fType, fZone, typeOptions, zoneOptions, onFilter,
   onTogglePin, onReset,
 }: Props) {
+  // Scroll the list to the selected entry whenever the selection changes — the
+  // concrete cure for "the matrix row isn't in the sidebar": choosing a grid
+  // row/column now reveals it here. Guarded to the selection, not keystrokes or
+  // filters, so typing in search never yanks the list around.
+  const selectedRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!selectedId) return;
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   return (
     <aside className="matrix-sidebar" aria-label="Matrix index">
       <div className="matrix-sidebar__tabs" role="tablist" aria-label="Index">
@@ -83,6 +94,7 @@ export default function MatrixSidebar({
           return (
             <div
               key={item.id}
+              ref={item.id === selectedId ? selectedRef : undefined}
               role="option"
               aria-selected={item.id === selectedId}
               className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}`}

@@ -141,8 +141,15 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     setLoading(true);
     setError(null);
     void getMatrixFrame(timestamp, {
+      // The SF lens opens small: ≤5 display rows and ≤5 display columns plus any
+      // pins. `orientation` follows the sidebar tab so toggling rotates the grid;
+      // the pin-driven column set seeds a hub (constraints view) or the
+      // max-μ-at-cursor constraint (nodes view) when nothing is pinned yet.
       rowPreset: "top30",
-      columnSet: "core_pinned",
+      rowLimit: 5,
+      columnLimit: 5,
+      columnSet: "pinned",
+      orientation: state.tab === "nodes" ? "nodes" : "constraints",
       pinnedConstraints: state.pinnedConstraints,
       pinnedSettlementPoints: state.pinnedSettlementPoints,
     }, controller.signal)
@@ -162,7 +169,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         if (id === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [state.pinnedConstraints, state.pinnedSettlementPoints, requestVersion, timestamp]);
+  }, [state.tab, state.pinnedConstraints, state.pinnedSettlementPoints, requestVersion, timestamp]);
 
   // The topology's sp_type/load_zone properties are the only source of node
   // type/zone metadata — /analysis/settlement-points is deliberately a bare
