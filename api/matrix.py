@@ -25,6 +25,19 @@ MAX_PINNED_ITEMS = 20
 MAX_SEARCH_RESULTS = 20
 MAX_SEARCH_LENGTH = 64
 ROW_PRESETS = {'top30': 30, 'top100': 100, 'pinned': 0}
+# The canonical ERCOT anchors the SF-lens rotation set pins its node axis to —
+# the settlement-hub prices and load-zone aggregates, in a stable display order.
+# Only those present in the day's artifact are shown; the list is curated (not
+# "every hub/zone"), so it excludes the *_AVG hubs and the minor load zones the
+# 'anchors' column set would include.
+DEFAULT_ANCHORS = [
+    'HB_HOUSTON', 'HB_NORTH', 'HB_SOUTH', 'HB_WEST', 'HB_PAN',
+    'LZ_HOUSTON', 'LZ_NORTH', 'LZ_SOUTH', 'LZ_WEST',
+]
+# A constraint whose peak |SF| over the shown anchors rounds to 0.000 has no
+# visible interaction with the board — it is dropped from the default row
+# ranking rather than shown as an all-blank row.
+ANCHOR_REACH_EPS = 5e-4
 
 # Metadata is deliberately best-effort: the artifact is authoritative for the
 # matrix itself, and an absent topology record must not change its shape.
@@ -134,6 +147,37 @@ def _dam_mu(cur, interval_ts: datetime, constraint_keys) -> dict[str, float]:
     return load_realized_mu(cur, [interval_ts], constraint_keys).to_dict()
 
 
+def _cursor_mu_abs(exact_mu, dam_by_key, keys) -> dict[str, float]:
+    """Per-constraint \\|cursor μ\\|: published DAM μ at the hour where present,
+    else the forecast μ. The ranking key for the SF-lens rotation set — "top
+    constraints by ERCOT DAM μ, else forecast μ" — at the scrubbed hour."""
+    out: dict[str, float] = {}
+    for key in keys:
+        dam = dam_by_key.get(str(key))
+        out[str(key)] = abs(dam) if dam is not None else abs(float(exact_mu.loc[key]))
+    return out
+
+
+def _anchor_contribution_ranked(artifact, exact_mu, dam_by_key, anchors: list[str]) -> list[str]:
+    """The SF-lens default row order for an anchor-columned board: constraints
+    ranked by how much they drive the shown hubs/zones *at the cursor* —
+    ``|μ_cursor| × Σ_anchors |SF|`` (μ_cursor = DAM μ where published, else
+    forecast μ). Constraints with no visible reach into any anchor
+    (peak \\|SF\\| < ``ANCHOR_REACH_EPS``) are dropped, so every displayed row has
+    at least one non-zero cell — high μ alone never floats a blank row up."""
+    if not anchors or artifact.SF.empty:
+        return []
+    anchor_abs = artifact.SF[anchors].abs()
+    reach = anchor_abs.sum(axis=1)
+    peak = anchor_abs.max(axis=1)
+    cursor = _cursor_mu_abs(exact_mu, dam_by_key, artifact.SF.index)
+    scored = {
+        str(key): cursor[str(key)] * float(reach.loc[key])
+        for key in artifact.SF.index if float(peak.loc[key]) >= ANCHOR_REACH_EPS
+    }
+    return sorted(scored, key=lambda key: (-scored[key], key))
+
+
 def _default_hub_column(artifact, metadata, row_keys: list[str]) -> str | None:
     """The SF-lens column seed when no node is pinned yet (constraints view).
 
@@ -195,6 +239,10 @@ def _select_constraints_major(
     anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone'}]
     if column_set == 'anchors':
         base_columns = anchor_columns[:column_limit]
+    elif column_set == 'default_anchors':
+        # The curated ERCOT hubs/zones, in their canonical order, present in this
+        # artifact — the stable node axis of the rotation set.
+        base_columns = [sp for sp in DEFAULT_ANCHORS if sp in artifact.SF.columns]
     elif column_set == 'pinned':
         base_columns = []
     else:
@@ -276,8 +324,9 @@ def get_matrix_frame(
     settlement_point_search: str | None = Query(None),
     pinned_constraint: list[str] = Query(default=[]),
     pinned_settlement_point: list[str] = Query(default=[]),
-    column_set: str = Query('core', pattern='^(core|anchors|pinned|core_pinned)$', description='Bounded named column selection.'),
+    column_set: str = Query('core', pattern='^(core|anchors|pinned|core_pinned|default_anchors)$', description='Bounded named column selection.'),
     orientation: str = Query('constraints', pattern='^(constraints|nodes)$', description='Which axis gets the primary ranked/searched list treatment.'),
+    row_order: str = Query('contribution', pattern='^(contribution|cursor_mu|anchor_contribution)$', description='Constraint row selection order: day contribution; |DAM μ| (else |forecast μ|) at the cursor; or anchor-restricted contribution (μ × reach into the shown anchors).'),
 ) -> MatrixFrame:
     pinned_constraint = _bounded_values(pinned_constraint, name='pinned_constraint')
     pinned_settlement_point = _bounded_values(pinned_settlement_point, name='pinned_settlement_point')
@@ -316,7 +365,6 @@ def get_matrix_frame(
         # independently attainable, making this the exact day-wide maximum
         # absolute contribution in the recovered matrix.
         contribution_day_max_abs = float((artifact.E_mu.abs().max(axis=0) * artifact.SF.abs().max(axis=1)).max()) if not artifact.SF.empty else 0.0
-        ranked_rows = [str(key) for key in sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))]
         all_columns = [str(key) for key in artifact.SF.columns]
         pinned_rows = [key for key in pinned_constraint if key in artifact.SF.index]
         pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
@@ -325,6 +373,21 @@ def get_matrix_frame(
         dam_by_key = _dam_mu(cur, interval_ts, artifact.SF.index)
         metadata = _sp_metadata()
         exact_mu = artifact.E_mu.loc[hour]
+
+        # Contribution ranking backs ``daily_rank`` and the universe counts no
+        # matter how rows are selected; ``cursor_mu`` additionally re-orders which
+        # constraints the bounded rows pick and their display order — the SF-lens
+        # rotation set opens on the constraints with the largest |DAM μ| (else
+        # |forecast μ|) at the scrubbed hour.
+        contribution_ranked = [str(key) for key in sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))]
+        if row_order == 'anchor_contribution':
+            anchors_present = [sp for sp in DEFAULT_ANCHORS if sp in artifact.SF.columns]
+            ranked_rows = _anchor_contribution_ranked(artifact, exact_mu, dam_by_key, anchors_present)
+        elif row_order == 'cursor_mu':
+            cursor_abs = _cursor_mu_abs(exact_mu, dam_by_key, artifact.SF.index)
+            ranked_rows = sorted((str(key) for key in artifact.SF.index), key=lambda key: (-cursor_abs[key], key))
+        else:
+            ranked_rows = contribution_ranked
 
         # The wire is always constraint-major (rows=constraints, columns=nodes).
         # ``orientation`` only chooses which axis is the ranked/searched primary
@@ -344,7 +407,7 @@ def get_matrix_frame(
 
     rows: list[MatrixRow] = []
     matched_dam = 0
-    daily_ranks = {key: rank for rank, key in enumerate(ranked_rows, start=1)}
+    daily_ranks = {key: rank for rank, key in enumerate(contribution_ranked, start=1)}
     for key in row_keys:
         name, contingency = _split_constraint_key(str(key))
         dam_mu = dam_by_key.get(str(key))
@@ -375,7 +438,7 @@ def get_matrix_frame(
         dam_status=dam_status, rows=rows, columns=columns,
         rows_truncated=len(row_keys) < len(artifact.SF.index),
         columns_truncated=len(column_keys) < len(artifact.SF.columns),
-        total_constraint_count=len(ranked_rows), total_settlement_point_count=len(all_columns),
+        total_constraint_count=len(contribution_ranked), total_settlement_point_count=len(all_columns),
         sf_day_max_abs=sf_day_max_abs, contribution_day_max_abs=contribution_day_max_abs,
         orientation=orientation,
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),

@@ -33,6 +33,36 @@ def _full_utc_day_blob(day: datetime) -> bytes:
     return build_sf_mu_artifact(sf, mu)
 
 
+def _anchor_blob() -> bytes:
+    # Two default anchors out of order + an extra hub and a non-anchor node, so
+    # 'default_anchors' must both filter and re-order to the canonical list.
+    sf = pd.DataFrame(
+        {'HB_NORTH': [0.4], 'HB_HOUSTON': [0.6], 'HB_BUSAVG': [0.9], 'SP_X': [0.2]},
+        index=['AAA|BASE'],
+    )
+    mu = pd.DataFrame({'AAA|BASE': [2.0]}, index=pd.to_datetime([T0], utc=True))
+    return build_sf_mu_artifact(sf, mu)
+
+
+def _anchor_contribution_blob() -> bytes:
+    # A high-μ constraint with no anchor reach (only a non-anchor node), and two
+    # constraints that do reach the anchors, so anchor_contribution both filters
+    # the blank-anchor row out and ranks by μ × reach into the anchors.
+    sf = pd.DataFrame(
+        {
+            'HB_HOUSTON': [0.0, 0.5, 0.2],
+            'HB_NORTH': [0.0, 0.3, 0.1],
+            'SP_X': [0.9, 0.1, 0.0],
+        },
+        index=['HIGHMU_NOREACH|BASE', 'MIDMU_REACH|BASE', 'LOWMU_REACH|BASE'],
+    )
+    mu = pd.DataFrame(
+        {'HIGHMU_NOREACH|BASE': [100.0], 'MIDMU_REACH|BASE': [10.0], 'LOWMU_REACH|BASE': [5.0]},
+        index=pd.to_datetime([T0], utc=True),
+    )
+    return build_sf_mu_artifact(sf, mu)
+
+
 def _hub_zone_blob() -> bytes:
     sf = pd.DataFrame(
         {'SP_A': [0.9], 'HB_WEST': [0.734], 'LZ_COAST': [0.5]},
@@ -328,6 +358,73 @@ def test_frame_constraints_orientation_seeds_a_hub_column(client, fake_pool, mon
     columns = response.json()['columns']
     assert [c['settlement_point'] for c in columns] == ['HB_WEST']
     assert columns[0]['settlement_point_type'] == 'hub'
+
+
+def test_frame_default_anchors_columns_are_curated_and_ordered(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'HB_NORTH': ('hub', None), 'HB_HOUSTON': ('hub', None),
+        'HB_BUSAVG': ('hub', None), 'SP_X': ('resource', None),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([{'sf_npz': _anchor_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'column_set': 'default_anchors', 'column_limit': 30,
+    })
+    assert response.status_code == 200, response.text
+    # Canonical order (HB_HOUSTON before HB_NORTH), and the *_AVG hub / non-anchor
+    # node are excluded even though they exist in the artifact.
+    assert [c['settlement_point'] for c in response.json()['columns']] == ['HB_HOUSTON', 'HB_NORTH']
+
+
+def test_frame_anchor_contribution_ranks_by_reach_and_drops_blank_rows(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'HB_HOUSTON': ('hub', None), 'HB_NORTH': ('hub', None), 'SP_X': ('resource', None),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([{'sf_npz': _anchor_contribution_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'row_order': 'anchor_contribution',
+        'column_set': 'default_anchors', 'row_limit': 5, 'column_limit': 30,
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # HIGHMU_NOREACH (|μ|=100) is dropped despite the largest μ — its peak anchor
+    # |SF| is 0. The rest rank by μ × Σ|SF| over anchors: MID (10×0.8=8) > LOW
+    # (5×0.3=1.5).
+    assert [r['constraint_key'] for r in body['rows']] == ['MIDMU_REACH|BASE', 'LOWMU_REACH|BASE']
+    assert [c['settlement_point'] for c in body['columns']] == ['HB_HOUSTON', 'HB_NORTH']
+
+
+def test_frame_row_order_cursor_mu_ranks_by_dam_then_forecast(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    # Forecast |μ| at T0: BBB(3) > AAA(2) > CCC(0). cursor_mu therefore selects
+    # [BBB, AAA] — the reverse of the contribution default's [AAA, BBB].
+    _queue_frame(fake_pool)
+    forecast = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'row_order': 'cursor_mu', 'row_limit': 2, 'column_limit': 1,
+    })
+    assert forecast.status_code == 200, forecast.text
+    body = forecast.json()
+    assert [r['constraint_key'] for r in body['rows']] == ['BBB|LINE', 'AAA|BASE']
+    # daily_rank stays the contribution rank (AAA=1) regardless of the selection order.
+    assert {r['constraint_key']: r['daily_rank'] for r in body['rows']}['AAA|BASE'] == 1
+
+    # Published DAM μ for AAA (|9|) outranks BBB's forecast |μ|=3, floating AAA up.
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([{'constraint_name': 'AAA', 'contingency_name': 'BASE', 'shadow_price': 9.0}])
+    fake_pool.cursor.queue([])
+    dam = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'row_order': 'cursor_mu', 'row_limit': 2, 'column_limit': 1,
+    })
+    assert dam.status_code == 200, dam.text
+    assert [r['constraint_key'] for r in dam.json()['rows']] == ['AAA|BASE', 'BBB|LINE']
 
 
 def test_frame_constraints_orientation_hub_seed_yields_to_node_pin(client, fake_pool, monkeypatch):
