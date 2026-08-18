@@ -134,6 +134,137 @@ def _dam_mu(cur, interval_ts: datetime, constraint_keys) -> dict[str, float]:
     return load_realized_mu(cur, [interval_ts], constraint_keys).to_dict()
 
 
+def _default_hub_column(artifact, metadata, row_keys: list[str]) -> str | None:
+    """The SF-lens column seed when no node is pinned yet (constraints view).
+
+    Picks the hub settlement point with the largest max\\|SF\\| against the
+    visible constraint rows, falling back to the first hub in the artifact when
+    none score. Never invents a node: ``None`` when the artifact carries no hub.
+    """
+    hubs = [str(sp) for sp in artifact.SF.columns if metadata.get(str(sp), (None, None))[0] == 'hub']
+    if not hubs:
+        return None
+    if row_keys:
+        reach = artifact.SF.loc[row_keys, hubs].abs().max(axis=0)
+        return sorted(hubs, key=lambda sp: (-float(reach.loc[sp]), sp))[0]
+    return hubs[0]
+
+
+def _select_constraints_major(
+    cur, artifact, ranked_rows, metadata,
+    pinned_rows, pinned_columns, constraint_search, constraint_type,
+    settlement_point_search, row_limit, column_limit, row_preset, column_set,
+):
+    """Constraint-major selection: constraints are the primary (display-row) axis
+    ranked by contribution; settlement points are the pinned/secondary columns.
+
+    This is the established default; ``column_set == 'pinned'`` additionally seeds
+    a single hub when the user has no node pins so the SF-lens grid opens
+    non-empty. Returns ``(row_keys, column_keys, col_max, row_types)`` on the wire
+    (rows=constraints, columns=nodes)."""
+    matched_rows = [key for key in ranked_rows if constraint_search and constraint_search in key.casefold()][:MAX_SEARCH_RESULTS]
+    # Preserve the established DAM/type discovery order; both use bounded key sets.
+    type_candidates = _append_bounded(ranked_rows[:MAX_ROW_LIMIT], pinned_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS)
+    type_candidates = _append_bounded(type_candidates, matched_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS + MAX_SEARCH_RESULTS)
+    row_types = _constraint_types(cur, type_candidates)
+
+    # Core columns always come from the frozen unfiltered row preset. Pins,
+    # searches, and type filters may add or hide visible members but cannot
+    # make the existing core columns jump around.  ``row_limit`` remains the
+    # compatible form of the default top-30 preset.
+    core_reference_limit = row_limit if row_preset == 'top30' else (DEFAULT_ROW_LIMIT if row_preset == 'pinned' else ROW_PRESETS[row_preset])
+    default_rows = ranked_rows[:core_reference_limit]
+    core_max = artifact.SF.loc[default_rows].abs().max(axis=0)
+    ranked_columns = [str(key) for key in sorted(artifact.SF.columns, key=lambda key: (-core_max.loc[key], str(key)))]
+
+    # Keep explicit row_limit compatible with the existing client while a preset
+    # is top30; named presets use their fixed bounded universe.
+    base_rows = ranked_rows[:row_limit if row_preset == 'top30' else ROW_PRESETS[row_preset]]
+    if constraint_type:
+        base_rows = [key for key in base_rows if row_types.get(key) == constraint_type]
+    if constraint_search:
+        base_rows = [key for key in base_rows if key in matched_rows]
+    # Reserve bounded room for explicit pins and search matches, so a Top 100
+    # request cannot make a pinned item disappear behind the cap.
+    additions = [key for key in pinned_rows + matched_rows if key not in base_rows]
+    row_keys = _append_bounded([], base_rows, limit=MAX_ROW_LIMIT - len(additions))
+    row_keys = _append_bounded(row_keys, pinned_rows, limit=MAX_ROW_LIMIT)
+    row_keys = _append_bounded(row_keys, matched_rows, limit=MAX_ROW_LIMIT)
+
+    core_columns = ranked_columns[:column_limit]
+    anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone'}]
+    if column_set == 'anchors':
+        base_columns = anchor_columns[:column_limit]
+    elif column_set == 'pinned':
+        base_columns = []
+    else:
+        base_columns = core_columns
+    matched_columns = [key for key in ranked_columns if settlement_point_search and settlement_point_search in key.casefold()][:MAX_SEARCH_RESULTS]
+    if settlement_point_search:
+        base_columns = [key for key in base_columns if key in matched_columns]
+    # SF-lens default: seed a single hub when the pin-driven column axis is empty
+    # and the user has neither pinned nor searched a node — so the grid opens
+    # non-empty without inventing a node. The seed vanishes once a node is pinned.
+    if column_set == 'pinned' and not pinned_columns and not settlement_point_search and not base_columns:
+        hub_seed = _default_hub_column(artifact, metadata, row_keys)
+        if hub_seed is not None:
+            base_columns = [hub_seed]
+    additions = [key for key in pinned_columns + matched_columns if key not in base_columns]
+    column_keys = _append_bounded([], base_columns, limit=MAX_COLUMN_LIMIT - len(additions))
+    column_keys = _append_bounded(column_keys, pinned_columns, limit=MAX_COLUMN_LIMIT)
+    column_keys = _append_bounded(column_keys, matched_columns, limit=MAX_COLUMN_LIMIT)
+    col_max = artifact.SF.loc[default_rows].abs().max(axis=0)
+    return row_keys, column_keys, col_max, row_types
+
+
+def _select_nodes_major(
+    cur, artifact, exact_mu, dam_by_key,
+    pinned_rows, pinned_columns, settlement_point_search, row_limit, column_limit,
+):
+    """Node-major selection: settlement points are the primary (display-row) axis
+    ranked by \\|SF\\| reach against the shown constraints; constraints are the
+    pinned/secondary columns seeded by the max-μ-at-cursor constraint.
+
+    The wire stays constraint-major (rows=constraints, columns=nodes); the client
+    transposes for display. ``column_limit`` bounds the constraint columns (wire
+    rows), ``row_limit`` the node rows (wire columns). Returns
+    ``(row_keys, column_keys, col_max, row_types)``."""
+    # Constraint COLUMNS (wire rows): pins + the max-μ-at-cursor default seed,
+    # preferring published DAM μ per constraint and falling back to forecast μ.
+    def _cursor_mu(key) -> float:
+        dam = dam_by_key.get(str(key))
+        return abs(dam) if dam is not None else abs(float(exact_mu.loc[key]))
+
+    default_constraint = None
+    if not artifact.SF.empty:
+        default_constraint = sorted((str(k) for k in artifact.SF.index), key=lambda k: (-_cursor_mu(k), k))[0]
+    base_cols_c = list(pinned_rows)
+    if not base_cols_c and default_constraint is not None:
+        base_cols_c = [default_constraint]
+    additions_c = [key for key in pinned_rows if key not in base_cols_c]
+    row_keys = _append_bounded([], base_cols_c, limit=max(column_limit - len(additions_c), 1))
+    row_keys = _append_bounded(row_keys, pinned_rows, limit=MAX_ROW_LIMIT)
+    row_types = _constraint_types(cur, row_keys)
+
+    # Node ROWS (wire columns): ranked by max|SF| against the chosen constraints,
+    # the same reach signal the constraint-major ``core_max`` uses, on the other
+    # axis; pins and search matches are force-included past the cap.
+    if row_keys:
+        node_score = artifact.SF.loc[row_keys].abs().max(axis=0)
+    else:
+        node_score = pd.Series(0.0, index=artifact.SF.columns)
+    ranked_nodes = [str(key) for key in sorted(artifact.SF.columns, key=lambda key: (-float(node_score.loc[key]), str(key)))]
+    matched_nodes = [key for key in ranked_nodes if settlement_point_search and settlement_point_search in key.casefold()][:MAX_SEARCH_RESULTS]
+    base_nodes = ranked_nodes[:row_limit]
+    if settlement_point_search:
+        base_nodes = [key for key in base_nodes if key in matched_nodes]
+    additions_n = [key for key in pinned_columns + matched_nodes if key not in base_nodes]
+    column_keys = _append_bounded([], base_nodes, limit=max(MAX_COLUMN_LIMIT - len(additions_n), 1))
+    column_keys = _append_bounded(column_keys, pinned_columns, limit=MAX_COLUMN_LIMIT)
+    column_keys = _append_bounded(column_keys, matched_nodes, limit=MAX_COLUMN_LIMIT)
+    return row_keys, column_keys, node_score, row_types
+
+
 @router.get('/frame', response_model=MatrixFrame, summary='Bounded causal SF matrix frame')
 def get_matrix_frame(
     interval_ts: datetime = Query(..., description='Delivery interval in ISO-8601 UTC.'),
@@ -146,6 +277,7 @@ def get_matrix_frame(
     pinned_constraint: list[str] = Query(default=[]),
     pinned_settlement_point: list[str] = Query(default=[]),
     column_set: str = Query('core', pattern='^(core|anchors|pinned|core_pinned)$', description='Bounded named column selection.'),
+    orientation: str = Query('constraints', pattern='^(constraints|nodes)$', description='Which axis gets the primary ranked/searched list treatment.'),
 ) -> MatrixFrame:
     pinned_constraint = _bounded_values(pinned_constraint, name='pinned_constraint')
     pinned_settlement_point = _bounded_values(pinned_settlement_point, name='pinned_settlement_point')
@@ -187,60 +319,29 @@ def get_matrix_frame(
         ranked_rows = [str(key) for key in sorted(artifact.SF.index, key=lambda key: (-contribution.loc[key], str(key)))]
         all_columns = [str(key) for key in artifact.SF.columns]
         pinned_rows = [key for key in pinned_constraint if key in artifact.SF.index]
-        matched_rows = [key for key in ranked_rows if constraint_search and constraint_search in key.casefold()][:MAX_SEARCH_RESULTS]
+        pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
         # Preserve the established DAM query before best-effort discovery
         # metadata; both use indexed, bounded key sets.
         dam_by_key = _dam_mu(cur, interval_ts, artifact.SF.index)
-        type_candidates = _append_bounded(ranked_rows[:MAX_ROW_LIMIT], pinned_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS)
-        type_candidates = _append_bounded(type_candidates, matched_rows, limit=MAX_ROW_LIMIT + MAX_PINNED_ITEMS + MAX_SEARCH_RESULTS)
-        row_types = _constraint_types(cur, type_candidates)
-
-        # Core columns always come from the frozen unfiltered row preset. Pins,
-        # searches, and type filters may add or hide visible members but cannot
-        # make the existing core columns jump around.  ``row_limit`` remains
-        # the compatible form of the default top-30 preset.
-        core_reference_limit = row_limit if row_preset == 'top30' else (DEFAULT_ROW_LIMIT if row_preset == 'pinned' else ROW_PRESETS[row_preset])
-        default_rows = ranked_rows[:core_reference_limit]
-        core_max = artifact.SF.loc[default_rows].abs().max(axis=0)
-        ranked_columns = [str(key) for key in sorted(artifact.SF.columns, key=lambda key: (-core_max.loc[key], str(key)))]
         metadata = _sp_metadata()
+        exact_mu = artifact.E_mu.loc[hour]
 
-        # Keep explicit row_limit compatible with the existing client while a
-        # preset is top30; named presets use their fixed bounded universe.
-        base_rows = ranked_rows[:row_limit if row_preset == 'top30' else ROW_PRESETS[row_preset]]
-        if constraint_type:
-            base_rows = [key for key in base_rows if row_types.get(key) == constraint_type]
-        if constraint_search:
-            base_rows = [key for key in base_rows if key in matched_rows]
-        # Reserve bounded room for explicit pins and search matches, so a Top
-        # 100 request cannot make a pinned item disappear behind the cap.
-        additions = [key for key in pinned_rows + matched_rows if key not in base_rows]
-        row_keys = _append_bounded([], base_rows, limit=MAX_ROW_LIMIT - len(additions))
-        row_keys = _append_bounded(row_keys, pinned_rows, limit=MAX_ROW_LIMIT)
-        row_keys = _append_bounded(row_keys, matched_rows, limit=MAX_ROW_LIMIT)
-
-        core_columns = ranked_columns[:column_limit]
-        anchor_columns = [key for key in ranked_columns if metadata.get(key, (None, None))[0] in {'hub', 'load_zone'}]
-        if column_set == 'core':
-            base_columns = core_columns
-        elif column_set == 'anchors':
-            base_columns = anchor_columns[:column_limit]
-        elif column_set == 'pinned':
-            base_columns = []
+        # The wire is always constraint-major (rows=constraints, columns=nodes).
+        # ``orientation`` only chooses which axis is the ranked/searched primary
+        # list; the client transposes ``nodes`` for display.
+        if orientation == 'nodes':
+            row_keys, column_keys, col_max, row_types = _select_nodes_major(
+                cur, artifact, exact_mu, dam_by_key,
+                pinned_rows, pinned_columns, settlement_point_search, row_limit, column_limit,
+            )
         else:
-            base_columns = core_columns
-        pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
-        matched_columns = [key for key in ranked_columns if settlement_point_search and settlement_point_search in key.casefold()][:MAX_SEARCH_RESULTS]
-        if settlement_point_search:
-            base_columns = [key for key in base_columns if key in matched_columns]
-        additions = [key for key in pinned_columns + matched_columns if key not in base_columns]
-        column_keys = _append_bounded([], base_columns, limit=MAX_COLUMN_LIMIT - len(additions))
-        column_keys = _append_bounded(column_keys, pinned_columns, limit=MAX_COLUMN_LIMIT)
-        column_keys = _append_bounded(column_keys, matched_columns, limit=MAX_COLUMN_LIMIT)
+            row_keys, column_keys, col_max, row_types = _select_constraints_major(
+                cur, artifact, ranked_rows, metadata,
+                pinned_rows, pinned_columns, constraint_search, constraint_type,
+                settlement_point_search, row_limit, column_limit, row_preset, column_set,
+            )
         row_sf = artifact.SF.loc[row_keys]
-        col_max = artifact.SF.loc[default_rows].abs().max(axis=0)
 
-    exact_mu = artifact.E_mu.loc[hour]
     rows: list[MatrixRow] = []
     matched_dam = 0
     daily_ranks = {key: rank for rank, key in enumerate(ranked_rows, start=1)}
@@ -276,5 +377,6 @@ def get_matrix_frame(
         columns_truncated=len(column_keys) < len(artifact.SF.columns),
         total_constraint_count=len(ranked_rows), total_settlement_point_count=len(all_columns),
         sf_day_max_abs=sf_day_max_abs, contribution_day_max_abs=contribution_day_max_abs,
+        orientation=orientation,
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),
     )

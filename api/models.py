@@ -816,6 +816,11 @@ class MatrixFrame(BaseModel):
     interval_ts: datetime
     fit_window_start: datetime | None = None
     fit_window_end: datetime | None = None
+    # Which axis got the "primary list" (ranked + searched + bounded) treatment.
+    # The wire shape is unchanged — ``rows`` are always constraints and
+    # ``columns`` always settlement points — but the client reads this to decide
+    # the visual orientation (``nodes`` renders nodes as rows by transposing).
+    orientation: Literal['constraints', 'nodes'] = 'constraints'
     dam_status: Literal['pending', 'partial', 'available'] = 'pending'
     row_ordering: str = 'daily_abs_forecast_contribution_desc_then_constraint_key'
     column_ordering: str = 'max_abs_sf_desc_then_settlement_point'

@@ -239,3 +239,110 @@ def test_frame_rejects_unbounded_discovery_values(client):
     assert response.status_code == 422
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'constraint_search': 'x' * 65})
     assert response.status_code == 422
+
+
+def test_frame_default_orientation_is_constraints(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _queue_frame(fake_pool)
+    response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
+    assert response.status_code == 200, response.text
+    assert response.json()['orientation'] == 'constraints'
+
+
+def test_frame_orientation_nodes_transposes_selection(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('resource', None), 'SP_B': ('load_zone', 'west'), 'SP_C': ('resource', None),
+    })
+    _queue_frame(fake_pool)
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'orientation': 'nodes', 'row_limit': 2, 'column_limit': 2,
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['orientation'] == 'nodes'
+    # The wire stays constraint-major: rows are constraints, columns nodes. With
+    # no pins the constraint column seeds to the max-forecast-μ constraint at the
+    # cursor (BBB, |μ|=3 beats AAA's 2), and node rows rank by |SF| against it:
+    # SP_A(0.5), SP_C(0.4) lead SP_B(0.3), bounded to row_limit=2.
+    assert [r['constraint_key'] for r in body['rows']] == ['BBB|LINE']
+    assert [c['settlement_point'] for c in body['columns']] == ['SP_A', 'SP_C']
+    assert body['sf']['values'] == pytest.approx([0.5, 0.4])
+
+
+def test_frame_orientation_nodes_seed_prefers_dam_and_yields_to_pin(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    # DAM μ for AAA (|10|) outranks BBB's forecast |μ|=3, so the unpinned seed is AAA.
+    _queue_frame(fake_pool, dam_rows=[
+        {'constraint_name': 'AAA', 'contingency_name': 'BASE', 'shadow_price': 10.0},
+    ])
+    seeded = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'orientation': 'nodes', 'row_limit': 3, 'column_limit': 2,
+    })
+    assert seeded.status_code == 200, seeded.text
+    assert [r['constraint_key'] for r in seeded.json()['rows']] == ['AAA|BASE']
+
+    # Pinning a constraint replaces the seed with the pinned column entirely.
+    # The artifact is now cached, so the blob fetch is skipped (0123: the probe
+    # still runs before the cache is consulted); queue only the live queries.
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    pinned = client.get('/matrix/frame', params=[
+        ('interval_ts', T0.isoformat()), ('orientation', 'nodes'),
+        ('row_limit', '3'), ('column_limit', '2'), ('pinned_constraint', 'CCC|OUTAGE'),
+    ])
+    assert pinned.status_code == 200, pinned.text
+    # CCC drives SP_B(0.7) hardest, then SP_C(0.2), then SP_A(0.1); bounded to 3.
+    assert [r['constraint_key'] for r in pinned.json()['rows']] == ['CCC|OUTAGE']
+    assert [c['settlement_point'] for c in pinned.json()['columns']] == ['SP_B', 'SP_C', 'SP_A']
+
+
+def test_frame_orientation_nodes_search_forces_node_row_past_cap(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _queue_frame(fake_pool)
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'orientation': 'nodes',
+        'row_limit': 2, 'column_limit': 2, 'settlement_point_search': 'sp_b',
+    })
+    assert response.status_code == 200, response.text
+    # Against the BBB seed SP_B ranks last (0.3) and is outside the top-2 rows,
+    # but the node search force-includes it just as the constraint axis does.
+    assert [c['settlement_point'] for c in response.json()['columns']] == ['SP_B']
+
+
+def test_frame_constraints_orientation_seeds_a_hub_column(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('resource', None), 'HB_WEST': ('hub', 'west_hub'), 'LZ_COAST': ('load_zone', 'coast'),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([{'sf_npz': _hub_zone_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    # column_set='pinned' with no node pins seeds the single best-reaching hub.
+    response = client.get('/matrix/frame', params={
+        'interval_ts': T0.isoformat(), 'column_set': 'pinned', 'column_limit': 5,
+    })
+    assert response.status_code == 200, response.text
+    columns = response.json()['columns']
+    assert [c['settlement_point'] for c in columns] == ['HB_WEST']
+    assert columns[0]['settlement_point_type'] == 'hub'
+
+
+def test_frame_constraints_orientation_hub_seed_yields_to_node_pin(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('resource', None), 'HB_WEST': ('hub', 'west_hub'), 'LZ_COAST': ('load_zone', 'coast'),
+    })
+    fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
+    fake_pool.cursor.queue([{'h': 1}])
+    fake_pool.cursor.queue([{'sf_npz': _hub_zone_blob()}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    response = client.get('/matrix/frame', params=[
+        ('interval_ts', T0.isoformat()), ('column_set', 'pinned'), ('column_limit', '5'),
+        ('pinned_settlement_point', 'LZ_COAST'),
+    ])
+    assert response.status_code == 200, response.text
+    # A pinned node suppresses the hub seed entirely.
+    assert [c['settlement_point'] for c in response.json()['columns']] == ['LZ_COAST']
