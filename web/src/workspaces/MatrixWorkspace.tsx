@@ -4,6 +4,7 @@ import { getMatrixFrame } from "../api/matrixFrames";
 import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints, fetchTopology } from "../api/client";
 import MatrixGrid from "../components/matrix/MatrixGrid";
 import MatrixLegend from "../components/matrix/MatrixLegend";
+import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
 import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
 import {
   matrixMuSourceForVal,
@@ -105,11 +106,7 @@ function moneyLabel(value: number): string {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
-// `onNavigateToMap` is part of the shared workspace contract (App.tsx passes
-// it to every workspace) but is unused until 0003 wires the Read pane's map
-// deep-link — left off the destructure so it isn't flagged as dead.
-export default function MatrixWorkspace(props: Props) {
-  const { timestamp, routeSearch, onSelectionRouteChange } = props;
+export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRouteChange, onNavigateToMap }: Props) {
   const [frame, setFrame] = useState<MatrixFrame | null>(() =>
     rememberedFrame?.interval_ts === timestamp?.toISOString() ? rememberedFrame : null
   );
@@ -310,6 +307,11 @@ export default function MatrixWorkspace(props: Props) {
     ? (effectiveSelection?.kind === "constraint" ? effectiveSelection.key : null)
     : (effectiveSelection?.kind === "node" ? effectiveSelection.point : null);
 
+  const selectedConstraintRow = effectiveSelection?.kind === "constraint"
+    ? constraintsResp?.available ? constraintsResp.rows?.find((row) => row.constraint_key === effectiveSelection.key) ?? null : null
+    : null;
+  const selectedNodeMeta = effectiveSelection?.kind === "node" ? nodeMeta.get(effectiveSelection.point) ?? null : null;
+
   const selectId = (id: string) => update({
     selection: state.tab === "constraints" ? { kind: "constraint", key: id } : { kind: "node", point: id },
   });
@@ -349,10 +351,6 @@ export default function MatrixWorkspace(props: Props) {
     if (effectiveSelection.kind === "constraint") togglePin(effectiveSelection.key, "constraint");
     else togglePin(effectiveSelection.point, "sp");
   };
-
-  const readLabel = effectiveSelection?.kind === "constraint" ? effectiveSelection.key
-    : effectiveSelection?.kind === "node" ? effectiveSelection.point
-      : "…";
 
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
@@ -419,7 +417,19 @@ export default function MatrixWorkspace(props: Props) {
             </header>
 
             {state.lens === "read" && (
-              <div className="matrix-workspace__read-stub">Read detail for {readLabel} — built in 0003</div>
+              <div className="matrix-workspace__read">
+                <MatrixReadDetail
+                  selection={effectiveSelection}
+                  timestamp={timestamp}
+                  val={state.val}
+                  deliveryDate={frame.delivery_date}
+                  runId={frame.run_id}
+                  damStatus={frame.dam_status}
+                  constraintRow={selectedConstraintRow}
+                  nodeMeta={selectedNodeMeta}
+                  onNavigateToMap={onNavigateToMap}
+                />
+              </div>
             )}
 
             {state.lens === "sf" && (
@@ -472,7 +482,7 @@ export default function MatrixWorkspace(props: Props) {
         .matrix-workspace__body { display: flex; flex: 1; min-height: 0; gap: 0; }
         .matrix-workspace__stage { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; border: 1px solid var(--border); background: var(--bg-panel); overflow: hidden; }
         .matrix-workspace__stage-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; }
-        .matrix-workspace__read-stub { color: var(--text-secondary); display: grid; flex: 1; place-items: center; padding: 24px; text-align: center; }
+        .matrix-workspace__read { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 18px 18px; }
         .matrix-workspace__meta { color: var(--text-secondary); display: flex; flex-wrap: wrap; font-size: var(--fs-label); gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
         .matrix-workspace__notices { min-height: 0; }
         .matrix-workspace__notices.has-notices { border-bottom: 1px solid var(--border); display: grid; gap: 1px; }
