@@ -28,9 +28,10 @@ the pane follows the scrubber.
    variant when `selection.kind==="constraint"`, the node variant when `"node"`, else a
    "select something" hint. Wire it into `MatrixWorkspace` where the 0001 stub was.
 2. **Constraint variant.** Use `useConstraintReach(selection.key)` (call with `min_frac=0`,
-   `k=500` per 0002). Render the import/export dipole, top members per lobe, μ peak, binding
-   hours — reuse `ConstraintEvidence`. Fold sub-threshold nodes into a collapsed tail (do not
-   drop them at the API).
+   `full=true` per 0001 — the unbounded reach, not the `k`-limited display call). Render the
+   import/export dipole, top members per lobe, μ peak, binding hours — reuse
+   `ConstraintEvidence`. Fold sub-threshold nodes into a collapsed tail (do not drop them at
+   the API).
 3. **Node variant.** Fetch `GET /analysis/node?settlement_point={point}&delivery_date={ctDate}
    &hours=[{timestamp}]&basis={predicted if val!=="dmu" else realized}`. Render net congestion,
    coverage, ESSP, and the full ranked driver table (`constraint, SF, side, μ, -SF·μ`) sorted
