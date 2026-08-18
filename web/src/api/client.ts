@@ -39,6 +39,8 @@ export interface MatrixFrameRequest {
   columnSet?: "core" | "anchors" | "pinned" | "core_pinned" | "default_anchors";
   orientation?: "constraints" | "nodes";
   rowOrder?: "contribution" | "cursor_mu" | "anchor_contribution";
+  peekConstraint?: string | null;
+  peekSettlementPoint?: string | null;
   signal?: AbortSignal;
 }
 
@@ -60,6 +62,8 @@ export async function fetchMatrixFrame(
     columnSet = "core",
     orientation = "constraints",
     rowOrder = "contribution",
+    peekConstraint,
+    peekSettlementPoint,
     signal,
   }: MatrixFrameRequest = {}
 ): Promise<MatrixFrame> {
@@ -75,6 +79,8 @@ export async function fetchMatrixFrame(
   if (constraintType) qs.set("constraint_type", constraintType);
   if (constraintSearch) qs.set("constraint_search", constraintSearch);
   if (settlementPointSearch) qs.set("settlement_point_search", settlementPointSearch);
+  if (peekConstraint) qs.set("peek_constraint", peekConstraint);
+  if (peekSettlementPoint) qs.set("peek_settlement_point", peekSettlementPoint);
   pinnedConstraints.forEach((key) => qs.append("pinned_constraint", key));
   pinnedSettlementPoints.forEach((point) => qs.append("pinned_settlement_point", point));
   const r = await fetch(`${BASE}/matrix/frame?${qs.toString()}`, { signal });

@@ -427,6 +427,25 @@ def test_frame_row_order_cursor_mu_ranks_by_dam_then_forecast(client, fake_pool,
     assert [r['constraint_key'] for r in dam.json()['rows']] == ['AAA|BASE', 'BBB|LINE']
 
 
+def test_frame_peek_force_includes_preview_beyond_the_working_set(client, fake_pool, monkeypatch):
+    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+        'SP_A': ('hub', None), 'SP_B': ('resource', None), 'SP_C': ('resource', None),
+    })
+    _queue_frame(fake_pool)
+    # A pure working-set request: pinned rows/cols only, plus one previewed
+    # (un-pinned) constraint row and settlement-point column via peek.
+    response = client.get('/matrix/frame', params=[
+        ('interval_ts', T0.isoformat()), ('row_preset', 'pinned'), ('column_set', 'pinned'),
+        ('pinned_constraint', 'AAA|BASE'), ('pinned_settlement_point', 'SP_A'),
+        ('peek_constraint', 'CCC|OUTAGE'), ('peek_settlement_point', 'SP_C'),
+    ])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # The working set (AAA, SP_A) plus the peeked preview (CCC, SP_C) — and only those.
+    assert set(r['constraint_key'] for r in body['rows']) == {'AAA|BASE', 'CCC|OUTAGE'}
+    assert set(c['settlement_point'] for c in body['columns']) == {'SP_A', 'SP_C'}
+
+
 def test_frame_constraints_orientation_hub_seed_yields_to_node_pin(client, fake_pool, monkeypatch):
     monkeypatch.setattr(matrix_module, '_SP_METADATA', {
         'SP_A': ('resource', None), 'HB_WEST': ('hub', 'west_hub'), 'LZ_COAST': ('load_zone', 'coast'),

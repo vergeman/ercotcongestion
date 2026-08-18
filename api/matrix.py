@@ -324,6 +324,8 @@ def get_matrix_frame(
     settlement_point_search: str | None = Query(None),
     pinned_constraint: list[str] = Query(default=[]),
     pinned_settlement_point: list[str] = Query(default=[]),
+    peek_constraint: str | None = Query(None, description='Force-include one previewed constraint as a row, beyond the pin cap (the working-set "top row" preview).'),
+    peek_settlement_point: str | None = Query(None, description='Force-include one previewed settlement point as a column, beyond the pin cap.'),
     column_set: str = Query('core', pattern='^(core|anchors|pinned|core_pinned|default_anchors)$', description='Bounded named column selection.'),
     orientation: str = Query('constraints', pattern='^(constraints|nodes)$', description='Which axis gets the primary ranked/searched list treatment.'),
     row_order: str = Query('contribution', pattern='^(contribution|cursor_mu|anchor_contribution)$', description='Constraint row selection order: day contribution; |DAM μ| (else |forecast μ|) at the cursor; or anchor-restricted contribution (μ × reach into the shown anchors).'),
@@ -368,6 +370,15 @@ def get_matrix_frame(
         all_columns = [str(key) for key in artifact.SF.columns]
         pinned_rows = [key for key in pinned_constraint if key in artifact.SF.index]
         pinned_columns = [key for key in pinned_settlement_point if key in artifact.SF.columns]
+        # The previewed ("top row") entity rides in beyond the pin cap through the
+        # same force-include machinery, but stays out of the caller's saved
+        # working set — the client renders it un-pinned until the user pins it.
+        peek_c = (peek_constraint or '').strip() or None
+        peek_sp = (peek_settlement_point or '').strip() or None
+        if peek_c and peek_c in artifact.SF.index and peek_c not in pinned_rows:
+            pinned_rows = pinned_rows + [peek_c]
+        if peek_sp and peek_sp in artifact.SF.columns and peek_sp not in pinned_columns:
+            pinned_columns = pinned_columns + [peek_sp]
         # Preserve the established DAM query before best-effort discovery
         # metadata; both use indexed, bounded key sets.
         dam_by_key = _dam_mu(cur, interval_ts, artifact.SF.index)
