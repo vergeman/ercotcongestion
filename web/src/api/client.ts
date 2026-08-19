@@ -261,11 +261,14 @@ export async function fetchMapConstraintsRanked(
 // what the Scoreboard page always requested (`model`, full history) — only
 // `regime` varies from the client.
 export async function fetchScoreboardSummary(
-  regime = "all"
+  regime = "all",
+  horizon?: number | null
 ): Promise<ScoreboardSummary | null> {
-  const r = await fetch(
-    `${BASE}/scoreboard/summary?regime=${encodeURIComponent(regime)}`
-  );
+  const qs = new URLSearchParams({ regime });
+  // Live board only — the backtest sections have no horizon. Omitted on the
+  // first load so the server picks the final track.
+  if (horizon != null) qs.set("horizon", String(horizon));
+  const r = await fetch(`${BASE}/scoreboard/summary?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`scoreboard/summary ${r.status}`);
   return r.json();

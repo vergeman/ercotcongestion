@@ -414,6 +414,15 @@ function SeriesChart({
 // The four graded currencies foregrounded per day. All higher-is-better, so a
 // positive model−persistence delta is the model winning (matches HeadlineTiles +
 // the _CURRENCIES orientation the API pools on).
+// The two served tracks. h1 is what the product actually published for D; h2 is
+// the preview that fired a day earlier, before D's DAM auction cleared. They are
+// never merged into one series — a preview and a final are differently-informed
+// forecasts, so one board shows one track (api/scoreboard.py `_resolve_daily_horizon`).
+const HORIZON_LABELS: Record<number, string> = {
+  1: "Final · fires D−1",
+  2: "Preview · fires D−2",
+};
+
 const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
@@ -427,12 +436,14 @@ function LiveGradePanel({
   headlineWin,
   regime,
   onRegimeChange,
+  onHorizonChange,
 }: {
   daily: ScoreboardDaily;
   weekly: ScoreboardWeekly | null;
   headlineWin: HeadlineWindow | undefined;
   regime: string;
   onRegimeChange: (v: string) => void;
+  onHorizonChange: (v: number) => void;
 }) {
   // Delivery days present, most-recent first — the selector's options and default.
   const days = useMemo(
@@ -469,10 +480,31 @@ function LiveGradePanel({
 
   return (
     <section className="sb-live">
+      {/* Its own line, in the same `.sb-section-h` block every other section
+          heading uses, so all four headings share one left edge; the controls
+          sit on the row beneath rather than inline with the heading. */}
+      <div className="sb-section-h label">Live · per-delivery-day grade</div>
       <div className="sb-live__head">
-        <span className="sb-section-h label sb-live__h">
-          Live · per-delivery-day grade
-        </span>
+        {/* Which served track is being graded. Always labeled, even when only
+            one track exists, so a number is never ambiguous about its vintage. */}
+        {daily.horizons.length > 1 ? (
+          <select
+            className="sb-regime sb-live__day"
+            value={daily.horizon}
+            onChange={(e) => onHorizonChange(Number(e.target.value))}
+            aria-label="Forecast track"
+          >
+            {daily.horizons.map((h) => (
+              <option key={h} value={h}>
+                {HORIZON_LABELS[h] ?? `Horizon ${h}`}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="sb-live__ctx label">
+            {HORIZON_LABELS[daily.horizon] ?? `Horizon ${daily.horizon}`}
+          </span>
+        )}
         <select
           className="sb-regime sb-live__day"
           value={selected}
@@ -885,6 +917,8 @@ function Glossary() {
 
 export default function ScoreboardPage() {
   const [regime, setRegime] = useState("all");
+  // null = let the server pick the final track; a number is an explicit switch.
+  const [horizon, setHorizon] = useState<number | null>(null);
   const [group, setGroup] = useState<"screening" | "magnitude">("screening");
   const [metric, setMetric] = useState<MetricKey>("rank_spearman");
   const [weekly, setWeekly] = useState<ScoreboardWeekly | null>(null);
@@ -894,18 +928,20 @@ export default function ScoreboardPage() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // One bundled request per regime change (0137) — weekly, headline, and the
-  // live per-day board all arrive together. The live board isn't actually
+  // One bundled request per regime/horizon change (0137) — weekly, headline, and
+  // the live per-day board all arrive together. The live board isn't actually
   // sliced by `regime` (the server ignores it for that section), so this
   // re-fetches an unchanged `daily` alongside `weekly`/`headline` on every
   // regime change; that's the accepted cost of one request replacing three.
+  // The horizon switch is the mirror image: only `daily` changes, and the two
+  // backtest sections come back identical.
   // Each field is independently null on a 503 (that board has no rows yet),
   // so e.g. an absent live board still lets the backtest board render.
   useEffect(() => {
     let live = true;
     setLoading(true);
     setConnectionState("loading");
-    fetchScoreboardSummary(regime)
+    fetchScoreboardSummary(regime, horizon)
       .then((result) => {
         if (!live) return;
         setWeekly(result?.weekly ?? null);
@@ -921,7 +957,7 @@ export default function ScoreboardPage() {
     return () => {
       live = false;
     };
-  }, [regime]);
+  }, [regime, horizon]);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
@@ -949,6 +985,7 @@ export default function ScoreboardPage() {
               headlineWin={headlineWin}
               regime={regime}
               onRegimeChange={setRegime}
+              onHorizonChange={setHorizon}
             />
           )}
 
@@ -961,6 +998,16 @@ export default function ScoreboardPage() {
 
           {weekly && (
             <>
+              {/* Every block on this page is a different measurement, and they
+                  were previously distinguishable only by shape. Label each one
+                  with what it measures and over what span: the live panel above
+                  grades one served day, these tiles pool a rolling window of the
+                  backtest, the chart is that backtest week by week, and the table
+                  pools the whole walk. */}
+              <div className="sb-section-h label">
+                Backtest · rolling{" "}
+                {headlineWin ? `${headlineWin.window_days}-day` : ""} headline
+              </div>
               <HeadlineTiles headline={headline} />
 
               {/* metric controls: screening leads, magnitude behind a toggle */}
@@ -993,6 +1040,9 @@ export default function ScoreboardPage() {
                 </button>
               </div>
 
+              <div className="sb-section-h label">
+                Backtest · weekly series ({METRICS[metric].label})
+              </div>
               <SeriesChart
                 points={weekly.points}
                 metric={metric}
@@ -1013,7 +1063,8 @@ export default function ScoreboardPage() {
               </div>
 
               <div className="sb-section-h label">
-                Pooled · pre/post-RTC+B ({METRICS[metric].label})
+                Backtest · pooled over all weeks, split pre/post-RTC+B (
+                {METRICS[metric].label})
               </div>
               <SplitTable weekly={weekly} metric={metric} />
             </>
@@ -1153,8 +1204,7 @@ export default function ScoreboardPage() {
         }
 
         .sb-live { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; flex-wrap: wrap; }
-        .sb-live__h { padding: 0; }
+        .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 0 16px; flex-wrap: wrap; }
         .sb-live__day { margin-left: 0; }
         /* Nodes count + the model-run meta cluster, bunched at the right edge —
            the trailing counterpart to the topbar's own auto-margin convention. */
