@@ -72,7 +72,7 @@ Branch: fix/0133-ct-delivery-day-blocks
      `(run_id, delivery_date, horizon)` and `forecast_day` is deterministic, so a day
      emitted live and later re-backfilled converges to the same artifact (h2 included:
      the fire-time vintage cap uses the same historical instant either way).
-  3. Backfill the artifact, per horizon, **newest chunks first** (reverse date order):
+  3. Backfill the artifact, **per horizon**, **newest chunks first** (reverse date order):
      h2 2026-07-30→present, then h1 in reverse chunks back to 2025-01-01.
      `--no-skip-existing` is required — every historical day already carries an
      *old*-cut artifact, so without it the skip-existing check skips everything.
@@ -102,13 +102,32 @@ Branch: fix/0133-ct-delivery-day-blocks
          --horizon 1 --no-skip-existing --to-db \
          --start 2026-07-18 --end 2026-07-31
      # ...continue in reverse-date chunks back to --start 2025-01-01
+
+     # status
+     # done for h2, 2026-07-30+, h1 2025-01-01+
+     # seam days h1 2026-08-15, h2 2026-08-15, h2 2026-08-16 — done 2026-08-19
+     # (the chunks stopped at 2026-08-14 while the image cut over mid-08-15;
+     #  found by the acceptance sweep, re-run with --no-skip-existing)
+     #
+     # 2025-10-01 - 2026-01-01
+     # 2025-07-01 - 2025-10-01
+     # 2025-06-01 - 2025-07-01
+     # 2025-05-01 - 2025-06-01
+     # 2025-04-01 - 2025-05-01
+     # 2025-01-01 - 2025-04-01 --done
+
      ```
 
   4. Roll up each freshly-backfilled range into queryable constraint history — same
      `run_id`/horizon/date range as step 3, run right behind it. This job only
      decodes `forecast_sf_artifact` (never refits), so it is cheap and fast; without
-     it the constraint-explorer panel (`/map/constraints/ranked`) keeps showing
-     pre-0133 history for any day step 3 already re-backfilled. Not called out in
+     it the panels that compare a day against its own trailing history —
+     `/analysis/standouts` and the hero's forecast comparison (`load_forecast_constraint_days`)
+     — keep showing pre-0133 history for any day step 3 already re-backfilled.
+     (Single-day views are unaffected: `/analysis/forecast-mu`, `/analysis/top-constraints`
+     and `/map/constraints/ranked` decode `forecast_sf_artifact` directly, so they
+     follow step 3 immediately. An earlier draft of this line named
+     `/map/constraints/ranked` as the dependent panel — it is not.) Not called out in
      earlier drafts of this runbook — added here because it is a real dependency.
 
      ```
@@ -117,6 +136,10 @@ Branch: fix/0133-ct-delivery-day-blocks
      python -m compute.jobs.backfill_forecast_history --run-id mu-all-v1 --to-db \
          --horizon 1 --start 2026-08-01 --end 2026-08-14
      # ...same chunk boundaries as step 3, horizon 1
+
+     # status
+     # done for h2, 2026-07-30+, h1 2025-01-01+
+     # seam days (2026-08-15 h1/h2, 2026-08-16 h2) — done 2026-08-19
      ```
 
   5. Web/API work may continue throughout (separate pods; the backfill only talks to
@@ -131,12 +154,25 @@ Branch: fix/0133-ct-delivery-day-blocks
      (its own docstring has the worked example):
 
      ```
+     # see /compute/runs/grade_h1.sh on prod
+     # each day ~ 10s
+
      python -m compute.jobs.materialize_brief_grade \
          --run-id mu-all-v1 --horizon 1 --delivery-date 2026-08-14 --days 30
+
      python -m compute.jobs.materialize_brief_grade \
          --run-id mu-all-v1 --horizon 1 --delivery-date 2026-07-15 --days 30
+
      # ...continue back to 2025-01-01; repeat the same batches with --horizon 2
      # for the ~18 h2 days (2026-07-30→present)
+
+     # done — h1 2025-01-01→2026-08-18 (595 days), h2 2026-07-30→2026-08-19 (21 days),
+     # all rows computed_at 2026-08-19; seam days re-graded 17:53Z same day, and
+     # their scoreboard_daily rows refreshed via grade_day.
+     # OPEN: no before/after grade delta was captured (old grades overwritten in
+     # place, so it can no longer be reconstructed).
+     # OPEN: scoreboard_daily history before the cutover NOT refreshed — the
+     # deliberate accept/refresh decision is still unrecorded.
      ```
 
      `load_scoreboard` (→ `scoreboard_weekly`) transcribes the **offline backtest's**
@@ -179,23 +215,43 @@ Branch: fix/0133-ct-delivery-day-blocks
 
 ## Acceptance
 
-* [ ] Every re-backfilled `(run_id, delivery_date, horizon)` spans exactly
+*Verified against prod (`ercotstress/postgres-0`, run_id `mu-all-v1`) on 2026-08-19.*
+
+* [x] Every re-backfilled `(run_id, delivery_date, horizon)` spans exactly
       `delivery_bounds(delivery_date)`: 05:00Z→04:00Z+1 in CDT, 06:00Z→05:00Z+1 in CST,
-      23/24/25 distinct hours matching the CT calendar. Code path ready
-      (`daily_forecast.forecast_day` builds `forward_hours` from `ct_day_bounds`,
-      `backfill_artifacts.py` supports `--horizon`); the runbook backfill itself
-      (step 3) has not been run yet — nothing re-backfilled on prod so far.
+      23/24/25 distinct hours matching the CT calendar. **All 619 artifacts pass**
+      (every blob decoded and its `ts` index checked against `delivery_bounds`):
+      hourly with no gaps, exact CT-midnight endpoints, and the DST days correct —
+      2025-03-09 and 2026-03-08 are 23h (06:00Z→04:00Z+1), 2025-11-02 is 25h
+      (05:00Z→05:00Z+1). h1 covers 2025-01-01→2026-08-20 and h2 2026-07-30→2026-08-20
+      with no missing dates.
+      The three seam days found in the first verification pass — h1 2026-08-15, h2
+      2026-08-15, h2 2026-08-16, left on the old UTC cut because the chunks stopped
+      at 2026-08-14 while the image cut over mid-08-15 — were re-backfilled on
+      2026-08-19 and now conform.
+      *Footnote (`forecast_nodal` only, not the artifact):* the ts-scoped delete
+      (0133b) cannot reach old-cut rows whose CT-day predecessor was never
+      backfilled, so the first day of each span keeps a stale leading tail — h1
+      2025-01-01 has 30 hours (6 stale, 00:00Z–05:00Z) and h2 2026-07-30 has 29 (5
+      stale). These two are the *only* remaining nodal outliers (596/597 h1 and
+      21/22 h2 days match their CT bounds exactly). Only `_forecast_node_history`
+      (`api/analysis.py:383`) filters nodal by the `delivery_date` column, so the
+      effect is confined to the 30-day trailing baseline for delivery dates in
+      2025-01-02→2025-01-31.
 * [x] No train window contains any interval of its scored CT day (test asserts the cut
       at CT midnight, including both DST transition days). `predict_day`'s CT anchor
       + `test_predict_day_score_block_is_dst_aware`/`test_score_block_is_dst_aware`
       (spring-forward 23h, fall-back 25h) plus
       `test_reads_and_propagation_touch_no_interval_at_or_after_D` pin this.
-* [ ] Brief t+1 renders fully at ~17:05Z and t+2 at ~20:20Z from single artifacts; no
-      request loads two artifacts for one day. The "no request loads two artifacts"
-      half is true by construction now (`load_daily_artifact_tail` deleted, every
-      API path reads one `load_daily_artifact` call) — but this line is really a
-      claim about the live cron's timing once deployed (runbook step 2), not yet
-      observed in prod.
+      Corroborated in prod by the 23h/25h DST artifacts above.
+* [x] Brief t+1 renders fully at ~17:05Z and t+2 at ~20:20Z from single artifacts; no
+      request loads two artifacts for one day. Observed on prod: `ercot-forecast`
+      fired 2026-08-18 17:00:00Z and finished 17:08:13Z; `ercot-forecast-preview`
+      fired 20:15:00Z and finished 20:23:03Z — both on image `66cde13`, both
+      publishing full 24h CT-cut artifacts. The single-artifact half is structural:
+      no `load_daily_artifact_tail`/`ArtifactTail`/`StitchedProfile`/`tail_horizon`
+      symbol survives anywhere under `api/` or `web/` at HEAD, and the deployed API
+      image is `ac984d1` (contains the deletion).
 * [x] 0132's partial-coverage fields and fallback paths are deleted; API tests updated.
       `ArtifactTail`/`load_daily_artifact_tail`/`StitchedProfile` and every
       `tail_horizon`/`hours_covered`/`hours_expected` field removed from
@@ -205,17 +261,53 @@ Branch: fix/0133-ct-delivery-day-blocks
       originally name). Tests updated in `api/tests/test_analysis.py` and
       `api/tests/test_sf_artifacts.py`.
 * [ ] `analysis_grade_daily` and scoreboards regenerated over the full span; run log
-      records the grade delta attributable to the evening-hour fix. Not started —
-      runbook step 5, gated on the backfill (step 3) completing first.
+      records the grade delta attributable to the evening-hour fix.
+      **`analysis_grade_daily` is done**: h1 2025-01-01→2026-08-18 (595 days, no
+      gaps, 1190 rows) and h2 2026-07-30→2026-08-19 (21 days, 42 rows), every row
+      `computed_at` 2026-08-19 14:39–16:29Z; `/compute/runs/grade-h1.log` ends
+      "h1 grade materialization complete". `forecast_constraint_daily` (step 4) is
+      done too — 596 h1 days + 22 h2 days, and 2025-11-02 carries
+      `binding_hours = 25`, which only the CT cut can produce (migration 45's
+      0..25 check is applied on prod). Recomputing Σμ and the nonzero-hour count
+      straight from the decoded artifacts and diffing against the table gives 0
+      mismatches across every key on 5 sampled day/horizon pairs (the three former
+      seam days, h1 2026-08-16, and the 25-hour 2025-11-02), so the rollup is in
+      sync with the artifacts rather than merely present.
+      The three seam days were re-graded on 2026-08-19: `analysis_grade_daily`
+      `computed_at` 17:53Z for h1 08-15 / h2 08-15 / h2 08-16, with h1 08-16 left at
+      14:44Z (it was already new-cut and needed nothing). Their `scoreboard_daily`
+      rows were refreshed too — `xmin` 133315/133316/133317, the newest writes in
+      the table, against 131209 for the untouched h1 08-16.
+      **Two gaps remain.** (a) No grade delta was recorded anywhere — the old grades
+      were overwritten in place, so the before/after comparison this line asks for
+      can no longer be reconstructed from the DB. (b) `scoreboard_daily` history was
+      not refreshed and the deliberate decision the Approach section calls for is
+      still unrecorded: it holds only a rolling window (h1 2026-07-20→2026-08-18, h2
+      2026-07-31→2026-08-19), and every row for a day before the cutover was graded
+      against an old-cut artifact. `scoreboard_weekly` is untouched (1615 rows,
+      2025-01-01→2026-07-15) — expected, it transcribes the offline backtest.
 * [ ] Regenerated h2 rows carry covariate vintages a live run could have seen: every
       `vintage_load`/`vintage_wind`/`vintage_solar`/`vintage_outage` ≤ that day's
-      20:15Z D−2 fire instant (spot-check against the 18 live-emitted days before
-      overwriting them). h1 rows are unchanged by the cutoff cap (no-op assertion).
-      Code path ready (`vintage_cutoff`/`LEAST(...)` threaded through all four
-      vintaged reads in `features.py`, verified against real dev-DB rows; h1/h2
-      fire-time computation unit-tested in `test_backfill_artifacts.py`) — the
-      actual regenerated rows and live-day spot-check don't exist until the
-      backfill (step 3) runs.
+      20:15Z D−2 fire instant. **Not directly verifiable after the fact** — vintages
+      live in the feature panel and are never persisted, and the spot-check this
+      line names ("against the 18 live-emitted days before overwriting them") was
+      not captured before the overwrite, so it can no longer be run.
+      Indirect evidence that the cap is live in the regenerated rows: h1 and h2
+      blobs differ on all 21 shared days (identical bytes would be the signature of
+      a collapsed cap, since both tracks were backfilled the same day and the
+      `vintage_cutoff` is the only per-horizon difference in the code path); and the
+      capped window is materially non-empty in prod — between 20:15Z D−2 and 17:00Z
+      D−1 for D = 2026-08-05 there are 1 `load_forecast_zonal`, 1
+      `wind_forecast_regional`, 1 `solar_forecast_regional` and 20 `outages_zonal`
+      snapshots, matching this plan's predicted "one daily load/wind/solar snapshot,
+      ~19h of outage snapshots".
+      One thing to watch, not a conclusion: over the 20 shared graded days h2 is not
+      measurably worse than h1 (nodes — detection_ap 0.9993 both, magnitude_overlap
+      0.6634 h2 vs 0.6570 h1, timing_hourly 0.5112 vs 0.5099). That is within noise
+      at n=20 and the covariate delta is small by construction, but it is not the
+      "honestly disadvantaged" separation the design predicts. A decisive check
+      would be re-backfilling one h2 day into a scratch `run_id` and asserting the
+      panel's four `vintage_*` maxima against its 20:15Z D−2 fire instant.
 * [x] A backtest fold and a served day with the same D produce identically-phased
       train/score windows. `predict_day`'s CT-midnight re-anchor plus the CLI's
       `score_from_ts` tz fix (was `tz="UTC"` against the read-floor's
