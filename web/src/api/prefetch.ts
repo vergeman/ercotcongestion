@@ -4,19 +4,13 @@ import type {
   ErcotStateRangeEntry,
   ForecastRangeEntry,
   ForecastRangeResponse,
-  LoadZoneEntry,
-  LoadZoneRangeResponse,
-  GenerationEntry,
-  GenerationRangeResponse,
-  OutagesEntry,
-  OutagesRangeResponse,
+  ConditionsEntry,
+  ConditionsRangeResponse,
 } from "./types";
 import {
   fetchErcotRange,
   fetchForecastRange,
-  fetchLoadZoneRange,
-  fetchGenerationRange,
-  fetchOutagesRange,
+  fetchConditionsRange,
 } from "./client";
 
 const ercotCache = new Map<string, ErcotStateRangeEntry>();
@@ -25,14 +19,12 @@ const ercotSppCache = new Map<string, ErcotSppRangeEntry>();
 // forecast run. Aligned to the same interval keys as the realized caches so the
 // left pane reads it hour for hour off the scrubber.
 const forecastCache = new Map<string, ForecastRangeEntry>();
-// Load-by-region and generation-by-region (plan/0141) — supplementary Stats-tab
-// data, keyed the same way as the caches above so they read off the same
-// scrubber cursor. Neither contributes to `getAvailableTimestamps()`: they are
+// Load / Wind / Solar / Outages (plan/0141) — supplementary Stats-tab data,
+// keyed the same way as the caches above so it reads off the same scrubber
+// cursor. Does not contribute to `getAvailableTimestamps()`: it is
 // read-if-present at whatever hour the primary caches already put the cursor
 // on, not a reason to grow the timeline.
-const loadZoneCache = new Map<string, LoadZoneEntry>();
-const generationCache = new Map<string, GenerationEntry>();
-const outagesCache = new Map<string, OutagesEntry>();
+const conditionsCache = new Map<string, ConditionsEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
@@ -74,22 +66,10 @@ export function getForecastCached(ts: Date): ForecastRangeEntry | undefined {
   return forecastCache.get(cacheKey(roundToInterval(ts)));
 }
 
-// Load-by-region side (plan/0141). Same soft-fail contract: `undefined` when
-// this hour has neither an actual nor a forecast zonal row.
-export function getLoadZoneCached(ts: Date): LoadZoneEntry | undefined {
-  return loadZoneCache.get(cacheKey(roundToInterval(ts)));
-}
-
-// Generation-by-region side (plan/0141). Same soft-fail contract.
-export function getGenerationCached(ts: Date): GenerationEntry | undefined {
-  return generationCache.get(cacheKey(roundToInterval(ts)));
-}
-
-// Outages-by-fuel side (plan/0141 follow-up). Same soft-fail contract; note
-// the underlying data only changes once per day (see api/outages.py), so
-// every hour within a day reads the same cached entry.
-export function getOutagesCached(ts: Date): OutagesEntry | undefined {
-  return outagesCache.get(cacheKey(roundToInterval(ts)));
+// Load / Wind / Solar / Outages side (plan/0141). Same soft-fail contract:
+// `undefined` when this hour has nothing from any of the four sources.
+export function getConditionsCached(ts: Date): ConditionsEntry | undefined {
+  return conditionsCache.get(cacheKey(roundToInterval(ts)));
 }
 
 // The forecast run_id served for the loaded window, or `null` when no forecast
@@ -122,7 +102,6 @@ function ingestErcotRange(data: ErcotRangeResponse | null): void {
     };
     const sppEntry: ErcotSppRangeEntry = {
       interval_ts: entry.interval_ts,
-      total_load_mw: entry.total_load_mw,
       sps: data.sp_ids.map((sp_id, index) => ({
         sp_id,
         spp: entry.spp[index] ?? null,
@@ -145,27 +124,11 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
   }
 }
 
-function ingestLoadZoneRange(data: LoadZoneRangeResponse | null): void {
+function ingestConditionsRange(data: ConditionsRangeResponse | null): void {
   if (!data) return;
   for (const entry of data.entries) {
     const ts = roundToInterval(new Date(entry.interval_ts));
-    loadZoneCache.set(cacheKey(ts), entry);
-  }
-}
-
-function ingestGenerationRange(data: GenerationRangeResponse | null): void {
-  if (!data) return;
-  for (const entry of data.entries) {
-    const ts = roundToInterval(new Date(entry.interval_ts));
-    generationCache.set(cacheKey(ts), entry);
-  }
-}
-
-function ingestOutagesRange(data: OutagesRangeResponse | null): void {
-  if (!data) return;
-  for (const entry of data.entries) {
-    const ts = roundToInterval(new Date(entry.interval_ts));
-    outagesCache.set(cacheKey(ts), entry);
+    conditionsCache.set(cacheKey(ts), entry);
   }
 }
 
@@ -186,18 +149,14 @@ export async function prefetchWindow(
   // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
-    const [ercotData, forecastData, loadZoneData, generationData, outagesData] = await Promise.all([
+    const [ercotData, forecastData, conditionsData] = await Promise.all([
       fetchErcotRange(start, end),
       fetchForecastRange(start, end),
-      fetchLoadZoneRange(start, end),
-      fetchGenerationRange(start, end),
-      fetchOutagesRange(start, end),
+      fetchConditionsRange(start, end),
     ]);
     ingestErcotRange(ercotData);
     ingestForecast(forecastData);
-    ingestLoadZoneRange(loadZoneData);
-    ingestGenerationRange(generationData);
-    ingestOutagesRange(outagesData);
+    ingestConditionsRange(conditionsData);
     return { start, end };
   }
 
@@ -205,17 +164,13 @@ export async function prefetchWindow(
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
-  const [ercotData, loadZoneData, generationData, outagesData] = await Promise.all([
+  const [ercotData, conditionsData] = await Promise.all([
     fetchErcotRange(winStart, winEnd),
-    fetchLoadZoneRange(winStart, winEnd),
-    fetchGenerationRange(winStart, winEnd),
-    fetchOutagesRange(winStart, winEnd),
+    fetchConditionsRange(winStart, winEnd),
   ]);
   ingestErcotRange(ercotData);
   ingestForecast(forecastData);
-  ingestLoadZoneRange(loadZoneData);
-  ingestGenerationRange(generationData);
-  ingestOutagesRange(outagesData);
+  ingestConditionsRange(conditionsData);
   return { start: winStart, end: winEnd };
 }
 
@@ -238,9 +193,7 @@ export function clearCache(): void {
   ercotCache.clear();
   ercotSppCache.clear();
   forecastCache.clear();
-  loadZoneCache.clear();
-  generationCache.clear();
-  outagesCache.clear();
+  conditionsCache.clear();
   forecastRunId = null;
   forecastHorizons = {};
 }

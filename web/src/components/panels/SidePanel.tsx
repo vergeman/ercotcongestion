@@ -3,9 +3,7 @@ import type {
   ScoreboardHeadline,
   RankedConstraints,
   MapMeta,
-  LoadZoneEntry,
-  GenerationEntry,
-  OutagesEntry,
+  ConditionsEntry,
   MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
@@ -22,7 +20,6 @@ import Tooltip from "../ui/Tooltip";
 export interface NetworkStats {
   forecastRunId: string | null;
   systemLambda: number | null; // DAM system-λ at the cursor hour ($/MWh)
-  totalLoadMw: number | null; // ERCOT actual system load at the cursor hour (MW)
   congestionAbsTotal: number | null; // Σ|congestion| at the cursor hour ($)
   modelNodes: number; // SPs the forecast values this hour
   ercotNodes: number; // SPs ERCOT realized values this hour
@@ -30,17 +27,11 @@ export interface NetworkStats {
 
 interface Props {
   network: NetworkStats;
-  // Load-by-region and generation-by-region (plan/0141), null when this hour's
-  // cache has neither an actual nor a forecast row. `mapView` picks which side
-  // of each row renders: Forecast/Error show the forecast number, Market/
+  // Load / Wind / Solar / Outages (plan/0141), null when this hour's cache
+  // has nothing from any of the four sources. `mapView` picks which side of
+  // each row renders: Forecast/Error show the forecast number, Market/
   // Compare show the actual.
-  loadZone: LoadZoneEntry | null;
-  generation: GenerationEntry | null;
-  // Outaged (offline) capacity by fuel type, NP1-346 — a DIFFERENT quantity
-  // from `generation` (MW unavailable, not MW produced), and a different
-  // cadence underneath (daily snapshot, see api/outages.py); shown in its own
-  // section, never folded into Generation.
-  outages: OutagesEntry | null;
+  conditions: ConditionsEntry | null;
   mapView: MapView;
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
@@ -222,9 +213,7 @@ function ExpandableGroup({
 
 export default function SidePanel({
   network,
-  loadZone,
-  generation,
-  outages,
+  conditions,
   mapView,
   headline,
   fitMeta,
@@ -297,14 +286,6 @@ export default function SidePanel({
           <section className="np-section">
             <div className="np-section__header label">Network</div>
             <Stat
-              label="Total Load"
-              value={
-                network.totalLoadMw != null
-                  ? `${fmtNum(network.totalLoadMw, 0)} MW`
-                  : null
-              }
-            />
-            <Stat
               label="DAM System λ"
               value={
                 network.systemLambda != null
@@ -343,13 +324,13 @@ export default function SidePanel({
             <ExpandableGroup
               label="Load by Region"
               systemValue={(() => {
-                const mw = regionMw(loadZone?.zones.find((z) => z.zone === "system"), mapView);
+                const mw = regionMw(conditions?.load.find((z) => z.zone === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.load}
               onToggle={() => toggleRegions("load")}
               rows={WEATHER_ZONES.map((zone) => {
-                const mw = regionMw(loadZone?.zones.find((z) => z.zone === zone), mapView);
+                const mw = regionMw(conditions?.load.find((z) => z.zone === zone), mapView);
                 return {
                   key: zone,
                   label: regionLabel(zone),
@@ -360,13 +341,13 @@ export default function SidePanel({
             <ExpandableGroup
               label="Wind Generation"
               systemValue={(() => {
-                const mw = regionMw(generation?.wind.find((r) => r.region === "system"), mapView);
+                const mw = regionMw(conditions?.wind.find((r) => r.region === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.wind}
               onToggle={() => toggleRegions("wind")}
               rows={WIND_REGIONS.map((region) => {
-                const mw = regionMw(generation?.wind.find((r) => r.region === region), mapView);
+                const mw = regionMw(conditions?.wind.find((r) => r.region === region), mapView);
                 return {
                   key: region,
                   label: regionLabel(region),
@@ -377,13 +358,13 @@ export default function SidePanel({
             <ExpandableGroup
               label="Solar Generation"
               systemValue={(() => {
-                const mw = regionMw(generation?.solar.find((r) => r.region === "system"), mapView);
+                const mw = regionMw(conditions?.solar.find((r) => r.region === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.solar}
               onToggle={() => toggleRegions("solar")}
               rows={SOLAR_REGIONS.map((region) => {
-                const mw = regionMw(generation?.solar.find((r) => r.region === region), mapView);
+                const mw = regionMw(conditions?.solar.find((r) => r.region === region), mapView);
                 return {
                   key: region,
                   label: regionLabel(region),
@@ -394,13 +375,13 @@ export default function SidePanel({
             <ExpandableGroup
               label="Outages by Fuel"
               systemValue={(() => {
-                const mw = regionMw(outages?.fuels.find((f) => f.fuel === "total"), mapView);
+                const mw = regionMw(conditions?.outages.find((f) => f.fuel === "total"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.outages}
               onToggle={() => toggleRegions("outages")}
               rows={OUTAGE_FUELS.map((fuel) => {
-                const mw = regionMw(outages?.fuels.find((f) => f.fuel === fuel), mapView);
+                const mw = regionMw(conditions?.outages.find((f) => f.fuel === fuel), mapView);
                 return {
                   key: fuel,
                   label: regionLabel(fuel),

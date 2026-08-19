@@ -89,7 +89,6 @@ export interface ErcotSpSpp {
 
 export interface ErcotSppRangeEntry {
   interval_ts: string;
-  total_load_mw: number | null;
   sps: ErcotSpSpp[];
 }
 
@@ -104,7 +103,6 @@ export interface ErcotSppRangeResponse {
 // index for the response; each entry's same-length arrays align to it.
 export interface ErcotRangeEntry {
   interval_ts: string;
-  total_load_mw: number | null;
   congestion: Array<number | null>;
   spp: Array<number | null>;
 }
@@ -203,12 +201,30 @@ export interface ForecastRangeResponse {
 }
 
 // =============================================================================
-// /load_zone_range — per-hour actual + forecast load by ERCOT weather zone
-// (plan/0141). `zone` is one of the 8 NP3-561/NP6-345 weather zones, plus
-// "system" for the total row. Forecast is the latest `load_forecast_zonal`
-// vintage posted no later than the hour it describes (no lookahead); actual
-// is `load_by_zone`. Either side may be null independently — a pre-market
-// hour has forecast only, an elapsed forecast window has actual only.
+// /conditions_range — per-hour Load / Wind / Solar / Outages, merged into one
+// response (plan/0141; replaces the earlier load_zone_range/generation_range/
+// outages_range split once the frontend settled on one "Conditions" section).
+// Every row carries both `forecast_mw` and `actual_mw` so the map's Forecast/
+// Market/Compare/Error toggle can pick one client-side, no per-side request.
+//
+//   load    `zone` is one of the 8 NP3-561/NP6-345 weather zones, plus
+//           "system". Forecast is the latest `load_forecast_zonal` vintage
+//           posted no later than the hour it describes (no lookahead).
+//   wind/solar
+//           `region` is one of the 5 wind / 6 solar regions, plus "system".
+//           Forecast reads the vintaged `*_forecast_regional` tables (no
+//           lookahead), not the actual tables' own forecast-looking columns
+//           (those dedup to the most recent posting, ~49h after the hour).
+//   outages a DIFFERENT quantity from wind/solar — MW currently OFFLINE
+//           (NP1-346), not MW produced — and a different cadence underneath:
+//           the source table is a daily snapshot, so a day's values repeat
+//           across its 24 hourly entries. `fuel` is one of gas/wind/solar/
+//           coal/other/hydro, plus "total". `forecast_mw` is the D-1
+//           no-lookahead vintage (mirrors compute.mu.outage_exposure's leak
+//           boundary); `actual_mw` is the newest vintage through the day.
+//
+// Any list may be empty for an hour with nothing from that source — the
+// client's null-dash rendering handles it the same as a null field.
 // =============================================================================
 
 export interface ZoneLoad {
@@ -217,57 +233,11 @@ export interface ZoneLoad {
   actual_mw: number | null;
 }
 
-export interface LoadZoneEntry {
-  interval_ts: string;
-  zones: ZoneLoad[];
-}
-
-export interface LoadZoneRangeResponse {
-  start: string;
-  end: string;
-  count: number;
-  entries: LoadZoneEntry[];
-}
-
-// =============================================================================
-// /generation_range — per-hour actual + forecast wind + solar generation by
-// ERCOT region (plan/0141). `region` is one of the 5 wind regions or 6 solar
-// regions, plus "system". Forecast reads the vintaged `wind_forecast_regional`
-// / `solar_forecast_regional` tables (no lookahead) rather than the
-// `wind_hourly_regional` / `solar_hourly_regional` tables' own forecast-looking
-// columns, which dedup to the most recent posting (~49h after the hour) and
-// are not knowable ahead of time.
-// =============================================================================
-
 export interface RegionGen {
   region: string;
   forecast_mw: number | null;
   actual_mw: number | null;
 }
-
-export interface GenerationEntry {
-  interval_ts: string;
-  wind: RegionGen[];
-  solar: RegionGen[];
-}
-
-export interface GenerationRangeResponse {
-  start: string;
-  end: string;
-  count: number;
-  entries: GenerationEntry[];
-}
-
-// =============================================================================
-// /outages_range — per-hour outaged (offline) capacity by fuel type, NP1-346
-// (plan/0141 follow-up). A DIFFERENT quantity from `/generation_range` — MW
-// unavailable, not MW produced — and a different cadence underneath: the
-// source table is a daily snapshot, so a day's values repeat across its 24
-// hourly entries rather than genuinely changing every hour. `fuel` is one of
-// gas/wind/solar/coal/other/hydro, plus "total". `forecast_mw` is the D-1
-// no-lookahead vintage (mirrors compute.mu.outage_exposure's leak boundary);
-// `actual_mw` is the newest vintage through the day itself.
-// =============================================================================
 
 export interface FuelOutage {
   fuel: string;
@@ -275,16 +245,19 @@ export interface FuelOutage {
   actual_mw: number | null;
 }
 
-export interface OutagesEntry {
+export interface ConditionsEntry {
   interval_ts: string;
-  fuels: FuelOutage[];
+  load: ZoneLoad[];
+  wind: RegionGen[];
+  solar: RegionGen[];
+  outages: FuelOutage[];
 }
 
-export interface OutagesRangeResponse {
+export interface ConditionsRangeResponse {
   start: string;
   end: string;
   count: number;
-  entries: OutagesEntry[];
+  entries: ConditionsEntry[];
 }
 
 // =============================================================================

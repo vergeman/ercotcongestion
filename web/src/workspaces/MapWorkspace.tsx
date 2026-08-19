@@ -10,9 +10,7 @@ import type {
   MapMeta,
   RankedConstraints,
   ScoreboardHeadline,
-  LoadZoneEntry,
-  GenerationEntry,
-  OutagesEntry,
+  ConditionsEntry,
 } from "../api/types";
 import {
   fetchMapSummary,
@@ -26,9 +24,7 @@ import {
   getErcotSppCached,
   getForecastCached,
   getForecastHorizon,
-  getLoadZoneCached,
-  getGenerationCached,
-  getOutagesCached,
+  getConditionsCached,
 } from "../api/prefetch";
 import {
   forecastErrorColor,
@@ -449,10 +445,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // over the realized rows this hour. `modelNodes`/`ercotNodes` are the SP counts
   // on each side — the model forecasts its full nodal universe, ERCOT lights only
   // priced nodes, so model ≥ ercot. (Window / hours / cursor live on the scrubber.)
+  // Total Load lives in the Conditions panel's Load by Region row now, not here.
   const networkStats = useMemo<NetworkStats>(() => {
     const cur = timestamps[currentIndex] ?? null;
     const fc = cur ? getForecastCached(cur) : null;
-    const spp = cur ? getErcotSppCached(cur) : null;
     let absTotal: number | null = null;
     let ercot = 0;
     for (const r of spRows) {
@@ -466,30 +462,19 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     return {
       forecastRunId,
       systemLambda: fc?.system_lambda ?? null,
-      totalLoadMw: spp?.total_load_mw ?? null,
       congestionAbsTotal: absTotal,
       modelNodes: model,
       ercotNodes: ercot,
     };
   }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
 
-  // Load-by-region / generation-by-region (plan/0141): the same cursor hour as
-  // `networkStats`, read from their own soft-fail caches. `undefined` (no cache
+  // Load / Wind / Solar / Outages (plan/0141): the same cursor hour as
+  // `networkStats`, read from its own soft-fail cache. `undefined` (no cache
   // entry for this hour) collapses to `null` so SidePanel's null-dash rendering
   // handles it the same way as every other stat.
-  const loadZoneStats = useMemo<LoadZoneEntry | null>(() => {
+  const conditionsStats = useMemo<ConditionsEntry | null>(() => {
     const cur = timestamps[currentIndex] ?? null;
-    return (cur ? getLoadZoneCached(cur) : null) ?? null;
-  }, [timestamps, currentIndex]);
-
-  const generationStats = useMemo<GenerationEntry | null>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    return (cur ? getGenerationCached(cur) : null) ?? null;
-  }, [timestamps, currentIndex]);
-
-  const outagesStats = useMemo<OutagesEntry | null>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    return (cur ? getOutagesCached(cur) : null) ?? null;
+    return (cur ? getConditionsCached(cur) : null) ?? null;
   }, [timestamps, currentIndex]);
 
   // The full forecast / realized / error decomposition for one SP — carried by
@@ -1154,9 +1139,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const sidePanelProps = {
     network: networkStats,
-    loadZone: loadZoneStats,
-    generation: generationStats,
-    outages: outagesStats,
+    conditions: conditionsStats,
     mapView: renderedView,
     headline,
     fitMeta: mapMeta,
