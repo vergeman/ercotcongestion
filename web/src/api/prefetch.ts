@@ -8,12 +8,15 @@ import type {
   LoadZoneRangeResponse,
   GenerationEntry,
   GenerationRangeResponse,
+  OutagesEntry,
+  OutagesRangeResponse,
 } from "./types";
 import {
   fetchErcotRange,
   fetchForecastRange,
   fetchLoadZoneRange,
   fetchGenerationRange,
+  fetchOutagesRange,
 } from "./client";
 
 const ercotCache = new Map<string, ErcotStateRangeEntry>();
@@ -29,6 +32,7 @@ const forecastCache = new Map<string, ForecastRangeEntry>();
 // on, not a reason to grow the timeline.
 const loadZoneCache = new Map<string, LoadZoneEntry>();
 const generationCache = new Map<string, GenerationEntry>();
+const outagesCache = new Map<string, OutagesEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
@@ -79,6 +83,13 @@ export function getLoadZoneCached(ts: Date): LoadZoneEntry | undefined {
 // Generation-by-region side (plan/0141). Same soft-fail contract.
 export function getGenerationCached(ts: Date): GenerationEntry | undefined {
   return generationCache.get(cacheKey(roundToInterval(ts)));
+}
+
+// Outages-by-fuel side (plan/0141 follow-up). Same soft-fail contract; note
+// the underlying data only changes once per day (see api/outages.py), so
+// every hour within a day reads the same cached entry.
+export function getOutagesCached(ts: Date): OutagesEntry | undefined {
+  return outagesCache.get(cacheKey(roundToInterval(ts)));
 }
 
 // The forecast run_id served for the loaded window, or `null` when no forecast
@@ -150,6 +161,14 @@ function ingestGenerationRange(data: GenerationRangeResponse | null): void {
   }
 }
 
+function ingestOutagesRange(data: OutagesRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    outagesCache.set(cacheKey(ts), entry);
+  }
+}
+
 // Load a window into the caches. With an explicit [start, end] (a history scrub)
 // the compact realized range and forecast fetch in parallel. With no window — the default landing view —
 // the forecast leads: fetch the current run's latest delivery day first, then
@@ -167,16 +186,18 @@ export async function prefetchWindow(
   // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
-    const [ercotData, forecastData, loadZoneData, generationData] = await Promise.all([
+    const [ercotData, forecastData, loadZoneData, generationData, outagesData] = await Promise.all([
       fetchErcotRange(start, end),
       fetchForecastRange(start, end),
       fetchLoadZoneRange(start, end),
       fetchGenerationRange(start, end),
+      fetchOutagesRange(start, end),
     ]);
     ingestErcotRange(ercotData);
     ingestForecast(forecastData);
     ingestLoadZoneRange(loadZoneData);
     ingestGenerationRange(generationData);
+    ingestOutagesRange(outagesData);
     return { start, end };
   }
 
@@ -184,15 +205,17 @@ export async function prefetchWindow(
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
-  const [ercotData, loadZoneData, generationData] = await Promise.all([
+  const [ercotData, loadZoneData, generationData, outagesData] = await Promise.all([
     fetchErcotRange(winStart, winEnd),
     fetchLoadZoneRange(winStart, winEnd),
     fetchGenerationRange(winStart, winEnd),
+    fetchOutagesRange(winStart, winEnd),
   ]);
   ingestErcotRange(ercotData);
   ingestForecast(forecastData);
   ingestLoadZoneRange(loadZoneData);
   ingestGenerationRange(generationData);
+  ingestOutagesRange(outagesData);
   return { start: winStart, end: winEnd };
 }
 
@@ -217,6 +240,7 @@ export function clearCache(): void {
   forecastCache.clear();
   loadZoneCache.clear();
   generationCache.clear();
+  outagesCache.clear();
   forecastRunId = null;
   forecastHorizons = {};
 }

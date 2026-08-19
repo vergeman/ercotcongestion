@@ -259,6 +259,35 @@ export interface GenerationRangeResponse {
 }
 
 // =============================================================================
+// /outages_range — per-hour outaged (offline) capacity by fuel type, NP1-346
+// (plan/0141 follow-up). A DIFFERENT quantity from `/generation_range` — MW
+// unavailable, not MW produced — and a different cadence underneath: the
+// source table is a daily snapshot, so a day's values repeat across its 24
+// hourly entries rather than genuinely changing every hour. `fuel` is one of
+// gas/wind/solar/coal/other/hydro, plus "total". `forecast_mw` is the D-1
+// no-lookahead vintage (mirrors compute.mu.outage_exposure's leak boundary);
+// `actual_mw` is the newest vintage through the day itself.
+// =============================================================================
+
+export interface FuelOutage {
+  fuel: string;
+  forecast_mw: number | null;
+  actual_mw: number | null;
+}
+
+export interface OutagesEntry {
+  interval_ts: string;
+  fuels: FuelOutage[];
+}
+
+export interface OutagesRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: OutagesEntry[];
+}
+
+// =============================================================================
 // /map/* — the implied shift-factor structure (not time-indexed; one refit).
 // Mirrors api/models.py MapMeta / SpExposure / ExposuresResponse / ReachSp /
 // ConstraintReach.

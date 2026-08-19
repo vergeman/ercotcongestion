@@ -5,6 +5,7 @@ import type {
   ForecastRangeResponse,
   LoadZoneRangeResponse,
   GenerationRangeResponse,
+  OutagesRangeResponse,
   ExposuresResponse,
   ConstraintReach,
   MapSummary,
@@ -207,6 +208,22 @@ export async function fetchGenerationRange(
   const r = await fetch(`${BASE}/generation_range${suffix}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`generation_range ${r.status}`);
+  return r.json();
+}
+
+// Outaged capacity by fuel type, NP1-346 (plan/0141 follow-up). Same
+// optional-window/soft-fail contract as `fetchForecastRange`.
+export async function fetchOutagesRange(
+  start?: Date,
+  end?: Date
+): Promise<OutagesRangeResponse | null> {
+  const qs = new URLSearchParams();
+  if (start) qs.set("start", start.toISOString());
+  if (end) qs.set("end", end.toISOString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/outages_range${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`outages_range ${r.status}`);
   return r.json();
 }
 

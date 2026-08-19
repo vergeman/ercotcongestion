@@ -12,6 +12,7 @@ import type {
   ScoreboardHeadline,
   LoadZoneEntry,
   GenerationEntry,
+  OutagesEntry,
 } from "../api/types";
 import {
   fetchMapSummary,
@@ -27,6 +28,7 @@ import {
   getForecastHorizon,
   getLoadZoneCached,
   getGenerationCached,
+  getOutagesCached,
 } from "../api/prefetch";
 import {
   forecastErrorColor,
@@ -483,6 +485,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const generationStats = useMemo<GenerationEntry | null>(() => {
     const cur = timestamps[currentIndex] ?? null;
     return (cur ? getGenerationCached(cur) : null) ?? null;
+  }, [timestamps, currentIndex]);
+
+  const outagesStats = useMemo<OutagesEntry | null>(() => {
+    const cur = timestamps[currentIndex] ?? null;
+    return (cur ? getOutagesCached(cur) : null) ?? null;
   }, [timestamps, currentIndex]);
 
   // The full forecast / realized / error decomposition for one SP — carried by
@@ -1149,6 +1156,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     network: networkStats,
     loadZone: loadZoneStats,
     generation: generationStats,
+    outages: outagesStats,
     mapView: renderedView,
     headline,
     fitMeta: mapMeta,

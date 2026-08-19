@@ -5,6 +5,7 @@ import type {
   MapMeta,
   LoadZoneEntry,
   GenerationEntry,
+  OutagesEntry,
   MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
@@ -35,6 +36,11 @@ interface Props {
   // Compare show the actual.
   loadZone: LoadZoneEntry | null;
   generation: GenerationEntry | null;
+  // Outaged (offline) capacity by fuel type, NP1-346 — a DIFFERENT quantity
+  // from `generation` (MW unavailable, not MW produced), and a different
+  // cadence underneath (daily snapshot, see api/outages.py); shown in its own
+  // section, never folded into Generation.
+  outages: OutagesEntry | null;
   mapView: MapView;
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
@@ -120,6 +126,9 @@ const WIND_REGIONS = ["panhandle", "coastal", "south", "west", "north"] as const
 const SOLAR_REGIONS = [
   "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
 ] as const;
+// Outaged capacity by fuel (NP1-346, plan/0141 follow-up) — a different
+// quantity from generation, matching the prototype's 6-bucket fuel table.
+const OUTAGE_FUELS = ["gas", "wind", "solar", "coal", "other", "hydro"] as const;
 
 const REGION_PRETTY: Record<string, string> = {
   far_west: "Far West",
@@ -130,6 +139,7 @@ const REGION_PRETTY: Record<string, string> = {
   fareast: "Far East",
   centereast: "Center East",
   system: "System",
+  total: "Total",
 };
 function regionLabel(key: string): string {
   if (REGION_PRETTY[key]) return REGION_PRETTY[key];
@@ -214,6 +224,7 @@ export default function SidePanel({
   network,
   loadZone,
   generation,
+  outages,
   mapView,
   headline,
   fitMeta,
@@ -232,7 +243,9 @@ export default function SidePanel({
   const [tab, setTab] = useState<"stats" | "constraints" | "window">("stats");
   // Load-by-region / Generation panels (plan/0141): each System row discloses
   // its own regions independently — collapsed by default, one flag per group.
-  const [regionsOpen, setRegionsOpen] = useState({ load: false, wind: false, solar: false });
+  const [regionsOpen, setRegionsOpen] = useState({
+    load: false, wind: false, solar: false, outages: false,
+  });
   const toggleRegions = (group: keyof typeof regionsOpen) =>
     setRegionsOpen((cur) => ({ ...cur, [group]: !cur[group] }));
   const win =
@@ -375,6 +388,31 @@ export default function SidePanel({
                 return {
                   key: region,
                   label: regionLabel(region),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+          </section>
+
+          {/* ── Outages by Fuel (plan/0141 follow-up) ────────────────────────
+              NP1-346 unplanned outages: MW currently OFFLINE per fuel type —
+              not generation. Its own section so that distinction stays
+              visible rather than reading as a Generation sub-group. */}
+          <section className="np-section">
+            <div className="np-section__header label">Outages by Fuel</div>
+            <ExpandableGroup
+              label="Total"
+              systemValue={(() => {
+                const mw = regionMw(outages?.fuels.find((f) => f.fuel === "total"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.outages}
+              onToggle={() => toggleRegions("outages")}
+              rows={OUTAGE_FUELS.map((fuel) => {
+                const mw = regionMw(outages?.fuels.find((f) => f.fuel === fuel), mapView);
+                return {
+                  key: fuel,
+                  label: regionLabel(fuel),
                   value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
                 };
               })}
