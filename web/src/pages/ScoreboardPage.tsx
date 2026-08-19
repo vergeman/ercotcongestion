@@ -5,6 +5,7 @@ import type {
   ScoreboardDaily,
   WeeklyPoint,
   DailyPoint,
+  HeadlineWindow,
 } from "../api/types";
 import { fetchScoreboardSummary } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
@@ -420,7 +421,19 @@ const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
   { name: "pooled_r2", label: "Pooled R²" },
 ];
 
-function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
+function LiveGradePanel({
+  daily,
+  weekly,
+  headlineWin,
+  regime,
+  onRegimeChange,
+}: {
+  daily: ScoreboardDaily;
+  weekly: ScoreboardWeekly | null;
+  headlineWin: HeadlineWindow | undefined;
+  regime: string;
+  onRegimeChange: (v: string) => void;
+}) {
   // Delivery days present, most-recent first — the selector's options and default.
   const days = useMemo(
     () =>
@@ -472,10 +485,85 @@ function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
             </option>
           ))}
         </select>
-        <span className="sb-live__ctx label">
-          {model?.n_nodes != null ? `${model.n_nodes} nodes` : ""}
-          {model?.n_hours != null ? ` · ${model.n_hours} h` : ""}
-        </span>
+        <div className="sb-live__meta">
+          <span className="sb-live__ctx label">
+            {model?.n_nodes != null ? `${model.n_nodes} nodes` : ""}
+          </span>
+          <span className="sb-meta sb-meta--sub">
+            <span className="sb-meta__label label">
+              <Term def="The model run whose backtest is scored on this page.">
+                Backtest run
+              </Term>
+            </span>
+            <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
+          </span>
+          {headlineWin && (
+            <span className="sb-meta sb-meta--sub">
+              <span className="sb-meta__label label">
+                <Term def="The rolling look-back the headline tiles average over — the length of backtest history scored on this page.">
+                  Window
+                </Term>
+              </span>
+              <span className="sb-meta__val">{headlineWin.window_days} days</span>
+            </span>
+          )}
+          <span className="sb-meta sb-meta--sub">
+            <span className="sb-meta__label label">
+              <Term
+                def={
+                  <>
+                    <span className="sb-pop-p">
+                      Filters the whole board to a slice of hours by{" "}
+                      <b>net load</b> — the demand that dispatchable (thermal +
+                      battery) units must actually serve, and the main driver of
+                      congestion.
+                    </span>
+                    <span className="sb-pop-p">
+                      Hours are split into five equal buckets (quintiles) by net
+                      load:
+                    </span>
+                    <span className="sb-pop-li">
+                      <b>Net load</b> = demand − wind − solar.
+                    </span>
+                    <span className="sb-pop-li">
+                      <b>Q1</b> — lowest net load; a slack, low-risk grid.
+                    </span>
+                    <span className="sb-pop-li">
+                      <b>Q2–Q4</b> — the middle range.
+                    </span>
+                    <span className="sb-pop-li">
+                      <b>Q5</b> — peak net load; the tightest, highest-risk hours.
+                    </span>
+                    <span className="sb-pop-p">
+                      <b>All hours</b> pools every hour together.
+                    </span>
+                  </>
+                }
+              >
+                Net-load Bucket
+              </Term>
+            </span>
+            {headlineWin && (
+              <Tooltip
+                className="sb-meta__val"
+                tip="Graded weeks in the current selection — changes with the Hours filter."
+              >
+                {headlineWin.weeks} wk
+              </Tooltip>
+            )}
+            <select
+              className="sb-regime"
+              value={regime}
+              onChange={(e) => onRegimeChange(e.target.value)}
+            >
+              {REGIMES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          </span>
+        </div>
       </div>
 
       <div className="sb-tiles">
@@ -847,83 +935,6 @@ export default function ScoreboardPage() {
     <div className="sb-page">
       <header className="sb-topbar">
         <HeaderNav active="scoreboard" />
-        {/* Right-aligned meta cluster: Backtest run · Window · Hours (+ select).
-            Only the first group carries the margin-left:auto that right-aligns
-            the whole cluster. */}
-        <div className="sb-meta">
-          <span className="sb-meta__label label">
-            <Term def="The model run whose backtest is scored on this page.">
-              Backtest run
-            </Term>
-          </span>
-          <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
-        </div>
-        {headlineWin && (
-          <span className="sb-meta sb-meta--sub">
-            <span className="sb-meta__label label">
-              <Term def="The rolling look-back the headline tiles average over — the length of backtest history scored on this page.">
-                Window
-              </Term>
-            </span>
-            <span className="sb-meta__val">{headlineWin.window_days} days</span>
-          </span>
-        )}
-        <span className="sb-meta sb-meta--sub">
-          <span className="sb-meta__label label">
-            <Term
-              def={
-                <>
-                  <span className="sb-pop-p">
-                    Filters the whole board to a slice of hours by{" "}
-                    <b>net load</b> — the demand that dispatchable (thermal +
-                    battery) units must actually serve, and the main driver of
-                    congestion.
-                  </span>
-                  <span className="sb-pop-p">
-                    Hours are split into five equal buckets (quintiles) by net
-                    load:
-                  </span>
-                  <span className="sb-pop-li">
-                    <b>Net load</b> = demand − wind − solar.
-                  </span>
-                  <span className="sb-pop-li">
-                    <b>Q1</b> — lowest net load; a slack, low-risk grid.
-                  </span>
-                  <span className="sb-pop-li">
-                    <b>Q2–Q4</b> — the middle range.
-                  </span>
-                  <span className="sb-pop-li">
-                    <b>Q5</b> — peak net load; the tightest, highest-risk hours.
-                  </span>
-                  <span className="sb-pop-p">
-                    <b>All hours</b> pools every hour together.
-                  </span>
-                </>
-              }
-            >
-              Net-load Bucket
-            </Term>
-          </span>
-          {headlineWin && (
-            <Tooltip
-              className="sb-meta__val"
-              tip="Graded weeks in the current selection — changes with the Hours filter."
-            >
-              {headlineWin.weeks} wk
-            </Tooltip>
-          )}
-          <select
-            className="sb-regime"
-            value={regime}
-            onChange={(e) => setRegime(e.target.value)}
-          >
-            {REGIMES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </span>
         <HeaderStatus connectionState={connectionState} lastUpdated={lastUpdated} />
       </header>
 
@@ -931,7 +942,15 @@ export default function ScoreboardPage() {
         <main className="sb-main">
           {/* The live half — rendered independently of the backtest board, and
           gracefully absent until a served day has been graded (§0004). */}
-          {daily && <LiveGradePanel daily={daily} />}
+          {daily && (
+            <LiveGradePanel
+              daily={daily}
+              weekly={weekly}
+              headlineWin={headlineWin}
+              regime={regime}
+              onRegimeChange={setRegime}
+            />
+          )}
 
           {loading && <div className="sb-empty label">loading…</div>}
           {!loading && !weekly && (
@@ -1137,7 +1156,10 @@ export default function ScoreboardPage() {
         .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; flex-wrap: wrap; }
         .sb-live__h { padding: 0; }
         .sb-live__day { margin-left: 0; }
-        .sb-live__ctx { margin-left: auto; color: var(--text-muted); }
+        /* Nodes count + the model-run meta cluster, bunched at the right edge —
+           the trailing counterpart to the topbar's own auto-margin convention. */
+        .sb-live__meta { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .sb-live__ctx { color: var(--text-muted); }
 
         .sb-tiles { display: flex; gap: 12px; padding: 12px 16px 4px; align-items: stretch; flex-wrap: wrap; }
         .sb-tile {
