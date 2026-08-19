@@ -331,11 +331,17 @@ export default function SidePanel({
             />
           </section>
 
-          {/* ── Load by Region (plan/0141) ──────────────────────────────────── */}
+          {/* ── Conditions: Load / Wind / Solar / Outages (plan/0141) ────────
+              One section, four roll-up rows — each category's own name IS the
+              toggle row (no separate "System" child, no per-category header),
+              so there is nothing to put a divider between except the section
+              itself. Outages is a different quantity from Generation (MW
+              offline vs. MW produced) but stays a peer row here; the label
+              text carries that distinction, not a sub-grouping. */}
           <section className="np-section">
-            <div className="np-section__header label">Load by Region</div>
+            <div className="np-section__header label">Conditions</div>
             <ExpandableGroup
-              label="System"
+              label="Load by Region"
               systemValue={(() => {
                 const mw = regionMw(loadZone?.zones.find((z) => z.zone === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
@@ -351,14 +357,8 @@ export default function SidePanel({
                 };
               })}
             />
-          </section>
-
-          {/* ── Generation: wind + solar by region (plan/0141) ──────────────── */}
-          <section className="np-section">
-            <div className="np-section__header label">Generation</div>
-            <div className="np-subheader label">Wind</div>
             <ExpandableGroup
-              label="System"
+              label="Wind Generation"
               systemValue={(() => {
                 const mw = regionMw(generation?.wind.find((r) => r.region === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
@@ -374,9 +374,8 @@ export default function SidePanel({
                 };
               })}
             />
-            <div className="np-subheader label">Solar</div>
             <ExpandableGroup
-              label="System"
+              label="Solar Generation"
               systemValue={(() => {
                 const mw = regionMw(generation?.solar.find((r) => r.region === "system"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
@@ -392,16 +391,8 @@ export default function SidePanel({
                 };
               })}
             />
-          </section>
-
-          {/* ── Outages by Fuel (plan/0141 follow-up) ────────────────────────
-              NP1-346 unplanned outages: MW currently OFFLINE per fuel type —
-              not generation. Its own section so that distinction stays
-              visible rather than reading as a Generation sub-group. */}
-          <section className="np-section">
-            <div className="np-section__header label">Outages by Fuel</div>
             <ExpandableGroup
-              label="Total"
+              label="Outages by Fuel"
               systemValue={(() => {
                 const mw = regionMw(outages?.fuels.find((f) => f.fuel === "total"), mapView);
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
@@ -554,14 +545,6 @@ export default function SidePanel({
           margin-bottom: 8px;
           border-bottom: 1px solid var(--border);
         }
-        /* Wind / Solar sub-groups inside Generation (plan/0141) — lighter than
-           the section header, no border, just enough separation to read as a
-           sub-list rather than a continuation of the prior group's rows. */
-        .np-subheader {
-          margin: 10px 0 2px;
-          color: var(--text-muted);
-        }
-        .np-subheader:first-of-type { margin-top: 0; }
         .np-stat {
           display: flex;
           justify-content: space-between;
