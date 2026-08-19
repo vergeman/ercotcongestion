@@ -488,7 +488,6 @@ class ErcotSpSpp(BaseModel):
 
 class ErcotSppRangeEntry(BaseModel):
     interval_ts: datetime
-    total_load_mw: float | None = None
     sps: list[ErcotSpSpp]
 
 
@@ -508,7 +507,6 @@ class ErcotSppRangeResponse(BaseModel):
 
 class ErcotRangeEntry(BaseModel):
     interval_ts: datetime
-    total_load_mw: float | None = None
     congestion: list[float | None]
     spp: list[float | None]
 
@@ -1067,13 +1065,37 @@ class MapSummaryResponse(BaseModel):
     headline: ScoreboardHeadline | None
 
 
-# ---- /load_zone_range ------------------------------------------------------
+# ---- /conditions_range -------------------------------------------------------
 #
-# Per-hour load by ERCOT weather zone (plan/0141) — actual (NP6-345-CD,
-# ``load_by_zone``) alongside forecast (NP3-561-CD, ``load_forecast_zonal``),
-# the latter read at the latest vintage posted no later than ``interval_ts``
-# (no lookahead). ``zone`` is one of the 8 weather zones in
-# ``compute.ercot.zones.WEATHER_ZONES``, plus ``"system"`` for the total row.
+# Per-hour Load / Wind / Solar / Outages, in one response (plan/0141, merged
+# from the three original endpoints — load_zone_range, generation_range,
+# outages_range — once the frontend settled on showing them as one "Conditions"
+# section). Each sub-list carries both `forecast_mw` and `actual_mw` per row so
+# a single Conditions row can pick either side client-side (the map's Forecast/
+# Market/Compare/Error toggle), with no per-side request or client-side merge.
+#
+# load   actual (NP6-345-CD, `load_by_zone`) alongside forecast (NP3-561-CD,
+#        `load_forecast_zonal`, read at the latest vintage posted no later
+#        than `interval_ts` — no lookahead). `zone` is one of the 8 weather
+#        zones in `compute.ercot.zones.WEATHER_ZONES`, plus `"system"`.
+# wind/solar
+#        actual (NP4-732-CD / NP4-737-CD, `wind_hourly_regional` /
+#        `solar_hourly_regional`) alongside forecast (`wind_forecast_regional`
+#        / `solar_forecast_regional`, STWPF/STPPF, same no-lookahead vintage
+#        rule) — NOT the migration-06 actual tables' own forecast-looking
+#        columns, which dedup to the most recent posting (~49h after the hour)
+#        and are not knowable ahead of time. `region` is one of the 5 wind /
+#        6 solar regions, plus `"system"`.
+# outages
+#        a DIFFERENT quantity from wind/solar — MW currently OFFLINE (NP1-346
+#        unplanned resource outages), not MW produced — and a different
+#        cadence underneath: `resource_outages` is a daily D-vintage snapshot,
+#        not an hourly series, so a day's values repeat across its 24 hourly
+#        entries. `fuel` is one of gas/wind/solar/coal/other/hydro, plus
+#        `"total"`. `forecast_mw` is the D-1-admissible vintage (mirrors
+#        compute.mu.outage_exposure's leak boundary) summed over still-
+#        expected-out events; `actual_mw` is the newest vintage through the
+#        day itself, summed over genuinely-active-at-that-hour events.
 
 class ZoneLoad(BaseModel):
     zone: str
@@ -1081,61 +1103,11 @@ class ZoneLoad(BaseModel):
     actual_mw: float | None
 
 
-class LoadZoneEntry(BaseModel):
-    interval_ts: datetime
-    zones: list[ZoneLoad]
-
-
-class LoadZoneRangeResponse(BaseModel):
-    start: datetime
-    end: datetime
-    count: int
-    entries: list[LoadZoneEntry]
-
-
-# ---- /generation_range -------------------------------------------------------
-#
-# Per-hour wind + solar generation by ERCOT region (plan/0141) — actual
-# (NP4-732-CD / NP4-737-CD, ``wind_hourly_regional`` / ``solar_hourly_regional``)
-# alongside forecast (``wind_forecast_regional`` / ``solar_forecast_regional``,
-# STWPF/STPPF), the latter read at the latest vintage posted no later than
-# ``interval_ts`` (no lookahead) — the migration-06 actual tables' own
-# forecast-looking columns are NOT used here; they dedup to the most recent
-# posting (~49h after the hour) and are not knowable ahead of time. ``region``
-# is one of the 5 wind regions or 6 solar regions, plus ``"system"``.
-
 class RegionGen(BaseModel):
     region: str
     forecast_mw: float | None
     actual_mw: float | None
 
-
-class GenerationEntry(BaseModel):
-    interval_ts: datetime
-    wind: list[RegionGen]
-    solar: list[RegionGen]
-
-
-class GenerationRangeResponse(BaseModel):
-    start: datetime
-    end: datetime
-    count: int
-    entries: list[GenerationEntry]
-
-
-# ---- /outages_range ---------------------------------------------------------
-#
-# Per-hour outaged (offline) capacity by fuel type, from NP1-346 unplanned
-# resource outages (plan/0141 follow-up). This is a DIFFERENT quantity from
-# `/generation_range` — MW currently unavailable, not MW produced — and a
-# different cadence underneath: `resource_outages` is a daily D-vintage
-# snapshot of active outage events, not an hourly series, so each hour in a
-# response replicates that day's aggregate rather than reading a genuinely
-# new value every hour. `fuel` is one of gas/wind/solar/coal/other/hydro, plus
-# "total". `forecast_mw` is the D-1-admissible vintage (no lookahead, mirrors
-# compute.mu.outage_exposure's leak boundary) summed over still-expected-out
-# events; `actual_mw` is the newest vintage through the day itself, summed
-# over genuinely-active-at-that-hour events.
 
 class FuelOutage(BaseModel):
     fuel: str
@@ -1143,13 +1115,16 @@ class FuelOutage(BaseModel):
     actual_mw: float | None
 
 
-class OutagesEntry(BaseModel):
+class ConditionsEntry(BaseModel):
     interval_ts: datetime
-    fuels: list[FuelOutage]
+    load: list[ZoneLoad]
+    wind: list[RegionGen]
+    solar: list[RegionGen]
+    outages: list[FuelOutage]
 
 
-class OutagesRangeResponse(BaseModel):
+class ConditionsRangeResponse(BaseModel):
     start: datetime
     end: datetime
     count: int
-    entries: list[OutagesEntry]
+    entries: list[ConditionsEntry]
