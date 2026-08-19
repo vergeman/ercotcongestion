@@ -8,6 +8,22 @@ path; `nodeBasis()` / `compareBox()` are the reference reduction)
 Depends on: 0001 (`/analysis/node` — full constraint column + μ for one settlement point),
 0005 (the SF lens working-set, pins, selection model). No plan depends on this one.
 
+## As built (deviation from the tray design below)
+
+The docked-tray + shift-click design proved too cumbersome, so basis shipped as a **first-class
+full-screen lens** instead:
+
+* A third lens button **Basis** next to Detail / SF, **enabled only on the Nodes tab**; leaving the
+  Nodes tab drops back to Detail.
+* Slots **A** and **B** are filled by the **sidebar node search**: one click fills A, the next fills
+  B (active slot advances A→B→A). Slot chips re-target; ⇄ swap and per-slot ✕ clear. Rows are
+  badged A / B in the sidebar. No ghost, no shift-click, no grid gesture.
+* Same decomposition content; μ follows the header **Data** toggle (Forecast μ / ERCOT DAM μ). The
+  SIDE (mutual/one-sided) column was dropped — one-sidedness now reads from the `·` in the absent SF
+  cell. `?lens=basis&sp_a=&sp_b=` deep-links a pair; old links resolve unchanged.
+* Files: `lib/basis.ts`, `components/matrix/MatrixBasisPanel.tsx`, wiring in `MatrixWorkspace.tsx`,
+  A/B badges in `MatrixSidebar.tsx`.
+
 ## Why
 
 The SF lens already recovers, for any node, its full column of implied shift
@@ -120,36 +136,34 @@ keep the API surface flat.
 
 ## Steps (build order)
 
-1. [ ] `nodeBasis()` reduction + unit tests (union of constraints, one-sided tagging, sign, total,
-       top-share) ported from the prototype with app types.
-2. [ ] `BasisTray` component: ghost/armed/expanded states, swap/clear, decomposition table,
-       honesty line. Stubbed data first.
-3. [ ] Workspace wiring: `basisB`/`pickingB` state, two `/analysis/node` fetches + client join,
-       mount only in SF-lens Nodes tab, μ-source from the val-toggle.
-4. [ ] Selection gestures: shift/⌘-click → B; ghost "pick B" arm → next click → B; `?sp_b` route.
-5. [ ] Manual browser pass: tray advertises with empty B; opt-in fill never hijacks selection;
-       swap/clear; μ-source and predicted/realized track the scrubber; `?sp_b` deep-link resolves.
+1. [x] `nodeBasis()` reduction ported to app types (union, one-sided, sign, total, top-share).
+       Verified with a standalone script — repo has no test runner, so no formal test file.
+2. [x] Full-screen `MatrixBasisPanel` (replaces `BasisTray`): slot chips, swap/clear, decomposition
+       table, honesty line.
+3. [x] Workspace wiring: `basisA`/`basisB`/`basisActiveSlot` state, two `/analysis/node` fetches +
+       client join, Basis-lens-only mount, μ from the Data toggle.
+4. [x] Sidebar click A → then B fill; `?lens=basis&sp_a=&sp_b=` route. (No shift/ghost gesture.)
+5. [x] Verified via HMR + live 08-12 data (`basis == totalA − totalB`); owner eyeballed in browser.
 
 ## Do NOT touch
 
 * `App.tsx` scrubber ownership / shared time cursor; the Read lens; the SF↔contribution + μ-source
   math in `lib/matrix.ts`; the import/export color convention; 0005's working-set / pin model
   (basis reads selection, it does not add a pin concept).
-* Do not add a top-level lens/mode or header button for basis — it lives entirely in the tray.
+* ~~Do not add a top-level lens/mode or header button for basis.~~ Superseded — shipped as a Basis
+  lens per owner (see **As built**).
 * Never imply the implied SF is an official ERCOT PTDF.
 
 ## Acceptance
 
-* [ ] SF-lens Nodes tab shows a docked basis tray with A pre-filled from selection and an empty B
-      ghost; Read lens and Constraints tab do not show it.
-* [ ] Filling B (ghost-arm or shift-click) computes the decomposition; ordinary single-click never
-      fills B. Swap A⇄B and clear-B work; clear collapses to the ghost.
-* [ ] Decomposition ranks constraints by |contrib|, tags mutual vs one-sided, shows `SF_A/SF_B/μ`
-      and signed basis $, the total, and the top-constraint share; μ follows the lens val-toggle
-      (DAM→forecast fallback); predicted and realized both render when available.
-* [ ] Honesty line present: "congestion basis (implied SF)", and "explains X% of settled basis"
-      when a settled basis exists; no PTDF claim.
-* [ ] `?sp_b=` deep-links a pair; absent → collapsed tray; old links resolve unchanged.
+* [x] Basis is a Nodes-tab-only lens (button beside Detail/SF); Constraints tab disables it, Read/SF
+      do not show it. (Full-screen lens, not a docked tray.)
+* [x] Sidebar click fills A then B; swap A⇄B and per-slot clear work. (No ghost/shift-click.)
+* [x] Decomposition ranks by |contrib|, shows `Shift Factor A/B · Shadow Price (μ) · Basis ($)`, the
+      total, and top-constraint share; μ follows the Data toggle (DAM→forecast fallback); forecast +
+      settled render when available. (Explicit mutual/one-sided tag dropped — `·` marks a one-sided SF.)
+* [x] Honesty line present ("congestion basis (implied SF)", "explains X% of settled basis"); no PTDF claim.
+* [x] `?lens=basis&sp_a=&sp_b=` deep-links a pair; old links resolve unchanged.
 
 ## Defer (do not build unless someone asks)
 
