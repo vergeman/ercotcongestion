@@ -1065,3 +1065,59 @@ class MapSummaryResponse(BaseModel):
     overview: MapOverview | None
     meta: MapMeta | None
     headline: ScoreboardHeadline | None
+
+
+# ---- /load_zone_range ------------------------------------------------------
+#
+# Per-hour load by ERCOT weather zone (plan/0141) — actual (NP6-345-CD,
+# ``load_by_zone``) alongside forecast (NP3-561-CD, ``load_forecast_zonal``),
+# the latter read at the latest vintage posted no later than ``interval_ts``
+# (no lookahead). ``zone`` is one of the 8 weather zones in
+# ``compute.ercot.zones.WEATHER_ZONES``, plus ``"system"`` for the total row.
+
+class ZoneLoad(BaseModel):
+    zone: str
+    forecast_mw: float | None
+    actual_mw: float | None
+
+
+class LoadZoneEntry(BaseModel):
+    interval_ts: datetime
+    zones: list[ZoneLoad]
+
+
+class LoadZoneRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    entries: list[LoadZoneEntry]
+
+
+# ---- /generation_range -------------------------------------------------------
+#
+# Per-hour wind + solar generation by ERCOT region (plan/0141) — actual
+# (NP4-732-CD / NP4-737-CD, ``wind_hourly_regional`` / ``solar_hourly_regional``)
+# alongside forecast (``wind_forecast_regional`` / ``solar_forecast_regional``,
+# STWPF/STPPF), the latter read at the latest vintage posted no later than
+# ``interval_ts`` (no lookahead) — the migration-06 actual tables' own
+# forecast-looking columns are NOT used here; they dedup to the most recent
+# posting (~49h after the hour) and are not knowable ahead of time. ``region``
+# is one of the 5 wind regions or 6 solar regions, plus ``"system"``.
+
+class RegionGen(BaseModel):
+    region: str
+    forecast_mw: float | None
+    actual_mw: float | None
+
+
+class GenerationEntry(BaseModel):
+    interval_ts: datetime
+    wind: list[RegionGen]
+    solar: list[RegionGen]
+
+
+class GenerationRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    entries: list[GenerationEntry]
