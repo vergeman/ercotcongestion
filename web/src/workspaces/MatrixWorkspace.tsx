@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AnalysisConstraintsResponse, AnalysisSettlementPointsResponse, MatrixFrame } from "../api/types";
+import type { AnalysisBasis, AnalysisConstraintsResponse, AnalysisNodeResponse, AnalysisSettlementPointsResponse, MatrixFrame } from "../api/types";
 import { getMatrixFrame } from "../api/matrixFrames";
+import { getAnalysisNode } from "../api/analysisNode";
 import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints, fetchTopology } from "../api/client";
 import MatrixGrid from "../components/matrix/MatrixGrid";
 import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLegend";
 import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
 import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
+import MatrixBasisPanel from "../components/matrix/MatrixBasisPanel";
+import { basisFromNodes, type BasisResult } from "../lib/basis";
 import {
   matrixMuSourceForVal,
   matrixValueModeForVal,
@@ -21,6 +24,11 @@ let rememberedTab: MatrixTab = "constraints";
 let rememberedLens: MatrixLens = "read";
 let rememberedVal: MatrixValTab = "sf";
 let rememberedSelection: MatrixEntitySelection = null;
+// The Basis lens's two node slots (0139/0006), persisted across a remount like
+// the selection so a tab hop and back keeps the comparison. The active-slot
+// pointer is derived from the fills on mount, not remembered.
+let rememberedBasisA: string | null = null;
+let rememberedBasisB: string | null = null;
 let rememberedFrame: MatrixFrame | null = null;
 
 const PIN_STORAGE_KEY = "ercotstress.matrix-pins.v1";
@@ -65,6 +73,12 @@ interface WorkspaceState {
   selection: MatrixEntitySelection;
   pinnedConstraints: string[];
   pinnedSettlementPoints: string[];
+  // The Basis lens's two node slots. A sidebar click in the Basis lens fills the
+  // `basisActiveSlot` slot and advances it (A→B→A), so one click sets A and the
+  // next sets B; targeting a slot chip re-aims the next click.
+  basisA: string | null;
+  basisB: string | null;
+  basisActiveSlot: "a" | "b";
 }
 
 function stateFromSearch(search: string): WorkspaceState {
@@ -78,9 +92,16 @@ function stateFromSearch(search: string): WorkspaceState {
     : sp && !constraintKey ? "nodes" : "constraints";
   const lensParam = params.get("lens");
   const valParam = params.get("val");
+  // Basis is a Nodes-tab lens; a `?lens=basis` that lands on Constraints falls
+  // back to Detail so the stage never shows an empty basis over a constraint list.
+  const lens: MatrixLens = lensParam === "sf" ? "sf"
+    : lensParam === "basis" ? (tab === "nodes" ? "basis" : "read")
+    : "read";
+  const basisA = params.get("sp_a") || null;
+  const basisB = params.get("sp_b") || null;
   return {
     tab,
-    lens: lensParam === "sf" ? "sf" : "read",
+    lens,
     val: valParam === "fmu" || valParam === "dmu" ? valParam : "sf",
     query: (params.get("q") ?? params.get("constraint_search") ?? "").slice(0, 64),
     fType: params.get("type") ?? "",
@@ -88,6 +109,10 @@ function stateFromSearch(search: string): WorkspaceState {
     selection: constraintKey ? { kind: "constraint", key: constraintKey } : sp ? { kind: "node", point: sp } : null,
     pinnedConstraints: params.has("pinned_constraint") ? boundedPins(params.getAll("pinned_constraint")) : stored.pinnedConstraints,
     pinnedSettlementPoints: params.has("pinned_sp") ? boundedPins(params.getAll("pinned_sp")) : stored.pinnedSettlementPoints,
+    basisA,
+    basisB,
+    // Arm the empty slot for the next click: B when only A is set, else A.
+    basisActiveSlot: basisA && !basisB ? "b" : "a",
   };
 }
 
@@ -110,6 +135,10 @@ function searchFromState(state: WorkspaceState): string {
   // stateFromSearch for backward compatibility; we just stop emitting them.
   if (state.selection?.kind === "constraint") params.set("constraint", state.selection.key);
   if (state.selection?.kind === "node") params.set("sp", state.selection.point);
+  // The Basis lens's node pair — makes a comparison shareable, independent of
+  // the read/SF `sp` selection. Old links (no `sp_a`/`sp_b`) resolve unchanged.
+  if (state.basisA) params.set("sp_a", state.basisA);
+  if (state.basisB) params.set("sp_b", state.basisB);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -141,6 +170,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
       lens: params.has("lens") ? fromRoute.lens : rememberedLens,
       val: params.has("val") ? fromRoute.val : rememberedVal,
       selection: fromRoute.selection ?? rememberedSelection,
+      basisA: params.has("sp_a") ? fromRoute.basisA : rememberedBasisA,
+      basisB: params.has("sp_b") ? fromRoute.basisB : rememberedBasisB,
     };
   });
   const [constraintsResp, setConstraintsResp] = useState<AnalysisConstraintsResponse | null>(null);
@@ -290,6 +321,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
       const next = { ...current, ...patch };
       rememberedTab = next.tab; rememberedLens = next.lens; rememberedVal = next.val;
       rememberedSelection = next.selection;
+      rememberedBasisA = next.basisA; rememberedBasisB = next.basisB;
       onSelectionRouteChange(searchFromState(next));
       return next;
     });
@@ -310,6 +342,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     const next = stateFromSearch(routeSearch);
     rememberedTab = next.tab; rememberedLens = next.lens; rememberedVal = next.val;
     rememberedSelection = next.selection;
+    rememberedBasisA = next.basisA; rememberedBasisB = next.basisB;
     setState(next);
   }, [routeSearch]);
 
@@ -392,15 +425,90 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     : null;
   const selectedNodeMeta = effectiveSelection?.kind === "node" ? nodeMeta.get(effectiveSelection.point) ?? null : null;
 
-  const selectId = (id: string) => update({
-    selection: state.tab === "constraints" ? { kind: "constraint", key: id } : { kind: "node", point: id },
-  });
+  // Basis lens (0139/0006): two node slots A and B, filled by clicks in the
+  // sidebar index (the active slot advances A→B→A). The lens is Nodes-tab only;
+  // A/B are their own state, decoupled from the read/SF `selection`.
+  const showBasis = state.lens === "basis" && state.tab === "nodes";
+  // μ follows the value sub-toggle: predicted carries Forecast μ, realized
+  // carries ERCOT DAM μ. DAM→forecast fallback already happens upstream (the
+  // `damPending` effect flips `val` off dmu), so `val==="dmu"` implies DAM data.
+  const basisBasis: AnalysisBasis = state.val === "dmu" ? "realized" : "predicted";
+  const [basisResult, setBasisResult] = useState<BasisResult | null>(null);
+  // The realized (settled DAM) basis total for the same pair, shown alongside a
+  // forecast basis and used as the settled reconciliation denominator.
+  const [basisRealizedTotal, setBasisRealizedTotal] = useState<number | null>(null);
+  const [basisLoading, setBasisLoading] = useState(false);
+  const basisRequestId = useRef(0);
+
+  useEffect(() => {
+    // Compute only once both slots are set. A one-sided constraint still counts,
+    // so we fetch both columns and union them in `basisFromNodes`.
+    if (!showBasis || !state.basisA || !state.basisB || !timestamp || !frame?.delivery_date) {
+      setBasisResult(null); setBasisRealizedTotal(null); setBasisLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const id = ++basisRequestId.current;
+    setBasisLoading(true);
+    const hour = timestamp.toISOString();
+    const deliveryDate = frame.delivery_date;
+    const runId = frame.run_id ?? undefined;
+    const aNode = state.basisA;
+    const bNode = state.basisB;
+    // getAnalysisNode is LRU-cached by (point, day, hour, basis, run), so
+    // sweeping one slot against a held other refetches only the changed side.
+    const fetchPair = (basis: AnalysisBasis): Promise<[AnalysisNodeResponse, AnalysisNodeResponse]> =>
+      Promise.all([
+        getAnalysisNode(aNode, deliveryDate, hour, basis, runId, controller.signal),
+        getAnalysisNode(bNode, deliveryDate, hour, basis, runId, controller.signal),
+      ]);
+    // When the toggle shows the forecast basis and settled DAM exists, also join
+    // the realized pair so the panel can show forecast vs settled side by side.
+    const wantRealized = basisBasis === "predicted" && frame.dam_status === "available";
+    fetchPair(basisBasis)
+      .then(async ([a, b]) => {
+        if (id !== basisRequestId.current) return;
+        const primary = basisFromNodes(a, b);
+        let realizedTotal: number | null = null;
+        if (wantRealized) {
+          try {
+            const [ar, br] = await fetchPair("realized");
+            if (id !== basisRequestId.current) return;
+            realizedTotal = basisFromNodes(ar, br).total;
+          } catch {
+            // Realized is an optional side-by-side; its absence is not an error.
+          }
+        }
+        setBasisResult(primary);
+        setBasisRealizedTotal(realizedTotal);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (id === basisRequestId.current) { setBasisResult(null); setBasisRealizedTotal(null); }
+      })
+      .finally(() => { if (id === basisRequestId.current) setBasisLoading(false); });
+    return () => controller.abort();
+  }, [showBasis, state.basisA, state.basisB, basisBasis, timestamp, frame?.delivery_date, frame?.run_id, frame?.dam_status]);
+
+  // A sidebar click fills the active basis slot (and advances it) when the Basis
+  // lens is up; otherwise it drives the ordinary read/SF selection.
+  const selectId = (id: string) => {
+    if (showBasis) {
+      if (state.basisActiveSlot === "a") update({ basisA: id, basisActiveSlot: "b" });
+      else update({ basisB: id, basisActiveSlot: "a" });
+      return;
+    }
+    update({ selection: state.tab === "constraints" ? { kind: "constraint", key: id } : { kind: "node", point: id } });
+  };
   const handleGridSelect = (gridSelection: MatrixSelection) => {
     if (!gridSelection) return;
     if (gridSelection.kind === "constraint") { update({ selection: { kind: "constraint", key: gridSelection.constraintKey } }); return; }
     if (gridSelection.kind === "settlementPoint") { update({ selection: { kind: "node", point: gridSelection.settlementPoint } }); return; }
     update({ selection: state.tab === "nodes" ? { kind: "node", point: gridSelection.settlementPoint } : { kind: "constraint", key: gridSelection.constraintKey } });
   };
+  const basisTargetSlot = (slot: "a" | "b") => update({ basisActiveSlot: slot });
+  const basisSwap = () => update({ basisA: state.basisB, basisB: state.basisA });
+  const basisClear = (slot: "a" | "b") => update(slot === "a" ? { basisA: null, basisActiveSlot: "a" } : { basisB: null, basisActiveSlot: "b" });
   // Clearing `seeded` puts the fetch back into SEED mode, so the defaults are
   // re-adopted as a fresh working set. (Emptying the set item-by-item leaves
   // `seeded` true, so a hand-emptied set stays empty on reload — the user's
@@ -466,9 +574,10 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             tab={state.tab}
             items={filteredItems}
             totalCount={fullItems.length}
-            selectedId={selectedIdForSidebar}
+            selectedId={showBasis ? null : selectedIdForSidebar}
+            basisSlots={showBasis ? { a: state.basisA, b: state.basisB } : undefined}
             onSelect={selectId}
-            onTab={(tab) => update({ tab })}
+            onTab={(tab) => update(tab === "constraints" && state.lens === "basis" ? { tab, lens: "read" } : { tab })}
             query={state.query}
             onQuery={(query) => update({ query })}
             fType={state.fType}
@@ -484,6 +593,15 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
               <div className="matrix-workspace__toggle" role="tablist" aria-label="Lens">
                 <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Detail</button>
                 <button type="button" role="tab" aria-selected={state.lens === "sf"} className={state.lens === "sf" ? "is-active" : ""} onClick={() => update({ lens: "sf" })}>SF</button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={state.lens === "basis"}
+                  disabled={state.tab !== "nodes"}
+                  title={state.tab !== "nodes" ? "Basis compares two settlement points — switch to the Nodes tab" : undefined}
+                  className={state.lens === "basis" ? "is-active" : ""}
+                  onClick={() => update({ lens: "basis" })}
+                >Basis</button>
               </div>
               {state.lens === "sf" && (
                 <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Value">
@@ -493,8 +611,26 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                   <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
                 </div>
               )}
+              {state.lens === "basis" && (
+                <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Basis μ source">
+                  <span className="label matrix-workspace__toggle-label">Data</span>
+                  <button type="button" className={state.val !== "dmu" ? "is-active" : ""} onClick={() => update({ val: "fmu" })}>Forecast μ</button>
+                  <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
+                </div>
+              )}
               {state.lens === "read" && <MatrixReachLegend />}
               {state.lens === "sf" && <MatrixLegend mode={valueMode} maxAbs={legendMax} />}
+              {/* Basis has no legend, but an invisible legend-shaped placeholder
+                  keeps the header the same height as the Detail/SF lenses so the
+                  controls row does not resize when you switch lenses. */}
+              {state.lens === "basis" && (
+                <div className="matrix-legend" aria-hidden="true" style={{ visibility: "hidden" }}>
+                  <div className="matrix-legend__title label">&nbsp;</div>
+                  <div className="matrix-legend__bar" />
+                  <div className="matrix-legend__ticks mono"><span>&nbsp;</span></div>
+                  <div className="matrix-legend__signs label"><span>&nbsp;</span></div>
+                </div>
+              )}
             </header>
 
             {state.lens === "read" && (
@@ -544,6 +680,21 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                   onTogglePin={(item) => togglePin(item.key, item.kind === "constraint" ? "constraint" : "sp")}
                 />
               </>
+            )}
+
+            {state.lens === "basis" && (
+              <MatrixBasisPanel
+                aNode={state.basisA}
+                bNode={state.basisB}
+                activeSlot={state.basisActiveSlot}
+                loading={basisLoading}
+                primary={basisResult}
+                realizedTotal={basisBasis === "predicted" ? basisRealizedTotal : null}
+                settledBasis={basisBasis === "predicted" ? basisRealizedTotal : null}
+                onTargetSlot={basisTargetSlot}
+                onSwap={basisSwap}
+                onClear={basisClear}
+              />
             )}
           </section>
         </div>
