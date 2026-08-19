@@ -20,6 +20,8 @@ import {
   fetchBriefHeroLatestCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
+import HeaderStatus from "../components/layout/HeaderStatus";
+import type { ConnectionState } from "../hooks/useExplorerSession";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
@@ -1422,6 +1424,8 @@ export default function BriefPage() {
   const [contextLoading, setContextLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   // The row a reader opened the shared detail panel over (plan/0135); null when
   // closed. Purely UI state — it never touches the Brief's time coordinate.
@@ -1478,6 +1482,7 @@ export default function BriefPage() {
     let live = true;
     setLoading(true);
     setError(null);
+    setConnectionState("loading");
     setHero(null);
     setContextLoading(true);
     setStandoutsLoading(true);
@@ -1497,9 +1502,13 @@ export default function BriefPage() {
         setTopConstraints(result?.top_constraints ?? null);
         setGrade(result?.grade ?? null);
         setGradeHistory(result?.grade_history ?? null);
+        setLastUpdated(new Date());
+        setConnectionState("ok");
       })
       .catch(() => {
-        if (live) setError("The daily brief could not be loaded.");
+        if (!live) return;
+        setError("The daily brief could not be loaded.");
+        setConnectionState("error");
       })
       .finally(() => {
         if (!live) return;
@@ -1630,6 +1639,7 @@ export default function BriefPage() {
     <div className="an-page">
       <header className="an-topbar">
         <HeaderNav active="brief" />
+        <HeaderStatus connectionState={connectionState} lastUpdated={lastUpdated} />
       </header>
 
       <main className="an-main">
