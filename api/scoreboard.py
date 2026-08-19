@@ -355,17 +355,51 @@ def _resolve_daily_run_id(cur, run_id: str | None) -> str:
     return row["run_id"]
 
 
+def _resolve_daily_horizon(cur, run_id: str, horizon: int | None) -> tuple[int, list[int]]:
+    """The horizon to serve, plus every horizon this run has graded.
+
+    `scoreboard_daily` is keyed per horizon, and has carried two tracks since the
+    preview cron began grading. A query without a horizon predicate therefore
+    returns *two* rows per (delivery_date, source) — a final grade and a preview
+    grade — which a client keying by source alone silently collapses to whichever
+    arrived last. One board serves one horizon; h1 (the final forecast) is the
+    default because it is what was actually served for D.
+
+    An unknown or ungraded horizon returns no rows and falls through to the
+    caller's existing 503, rather than inventing a second failure mode.
+    """
+    cur.execute(
+        "SELECT DISTINCT horizon FROM scoreboard_daily WHERE run_id = %s "
+        "ORDER BY horizon",
+        (run_id,),
+    )
+    available = [int(r["horizon"] if isinstance(r, dict) else r[0])
+                 for r in cur.fetchall()]
+    if horizon is not None:
+        return horizon, available
+    return (1 if 1 in available else (available[0] if available else 1)), available
+
+
 @router.get(
     "/scoreboard/daily",
     response_model=ScoreboardDaily,
     summary="Live per-delivery-day grades of the served forecast — model with its "
-    "baselines + oracle (and the null tripwire), since a date",
+    "baselines + oracle (and the null tripwire), since a date, for one horizon",
 )
 def get_scoreboard_daily(
     since: date | None = Query(
         None,
         description="Earliest delivery_date to serve (inclusive). Omit for the "
         "run's full live history.",
+    ),
+    horizon: int | None = Query(
+        None,
+        ge=1,
+        le=2,
+        description="Forecast track to grade: 1 = final (fires D−1), 2 = preview "
+        "(fires D−2). Omit for the final track when it is present. Mixing the two "
+        "in one series would compare a forecast against a differently-informed "
+        "forecast.",
     ),
     source: str = Query(
         "model",
@@ -383,15 +417,16 @@ def get_scoreboard_daily(
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             run_id = _resolve_daily_run_id(cur, run_id)
+            horizon, horizons = _resolve_daily_horizon(cur, run_id, horizon)
             # Every source for the run — the page draws model + baselines + oracle +
             # the null tripwire; a lone model figure can't be rendered (spec §6).
             sql = (
-                "SELECT delivery_date, source, pooled_r2, mae, rank_spearman, "
+                "SELECT delivery_date, source, horizon, pooled_r2, mae, rank_spearman, "
                 "sign_agree, topdecile_hit, coverage80, band_width, pinball, "
                 "sf_coverage, model_coverage, n_hours, n_nodes "
-                "FROM scoreboard_daily WHERE run_id = %s"
+                "FROM scoreboard_daily WHERE run_id = %s AND horizon = %s"
             )
-            params: list[object] = [run_id]
+            params: list[object] = [run_id, horizon]
             if since is not None:
                 sql += " AND delivery_date >= %s"
                 params.append(since)
@@ -403,7 +438,7 @@ def get_scoreboard_daily(
         raise HTTPException(
             status_code=503,
             detail=(
-                f"no scoreboard_daily rows for run_id={run_id}"
+                f"no scoreboard_daily rows for run_id={run_id} horizon={horizon}"
                 + (f" since {since}" if since else "")
                 + ". Grade a served day first (compute.jobs.grade_day)."
             ),
@@ -413,6 +448,8 @@ def get_scoreboard_daily(
         run_id=run_id,
         since=since,
         primary_source=source,
+        horizon=horizon,
+        horizons=horizons,
         points=[DailyPoint(**r) for r in rows],
     )
 
@@ -446,6 +483,13 @@ def get_scoreboard_summary(
         "all",
         description="Regime slice — `all` or a net-load quintile / named regime.",
     ),
+    horizon: int | None = Query(
+        None,
+        ge=1,
+        le=2,
+        description="Forecast track for the live board only (the backtest sections "
+        "have no horizon). Omit for the final track.",
+    ),
 ) -> ScoreboardSummaryResponse:
     """Compose the Scoreboard's three load-time requests behind one call.
 
@@ -465,7 +509,7 @@ def get_scoreboard_summary(
     with ThreadPoolExecutor(max_workers=3) as pool:
         weekly = pool.submit(_soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
         headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, regime))
-        daily = pool.submit(_soft_fail, lambda: get_scoreboard_daily(None, "model", None))
+        daily = pool.submit(_soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
         return ScoreboardSummaryResponse(
             weekly=weekly.result(),
             headline=headline.result(),

@@ -994,9 +994,14 @@ class DailyPoint(BaseModel):
     now (it needs the prediction-time key set, the deferred snapshot); ``sf_coverage``
     rides along so a collapse day reads as a coverage gap, not lost skill. All
     nullable — a declined/flat cell (e.g. the ``null`` source's screening) is ``None``.
+
+    ``horizon`` names the forecast track the row grades (1 = final, 2 = preview).
+    It rides on every point because the board carries one horizon at a time and a
+    reader must never have to guess which one it is looking at.
     """
     delivery_date: date
     source: str
+    horizon: int
     pooled_r2: float | None = None
     mae: float | None = None
     rank_spearman: float | None = None
@@ -1019,10 +1024,17 @@ class ScoreboardDaily(BaseModel):
     foregrounds); every source rides along in ``points`` regardless, so the client
     can never render a lone model figure. ``since`` echoes the request (``None`` ==
     the run's full live history).
+
+    ``horizon`` is the single track these points grade; ``horizons`` lists every
+    track this run has graded, so a client can offer the switch without a second
+    request. One board is one horizon: a series mixing final and preview grades
+    would silently compare two differently-informed forecasts.
     """
     run_id: str
     since: date | None = None
     primary_source: str
+    horizon: int
+    horizons: list[int] = []
     points: list[DailyPoint]
 
 
