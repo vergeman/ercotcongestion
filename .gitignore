@@ -6,6 +6,11 @@ __pycache__/
 
 *.gz
 
+# Database backups (multi-GB dumps)
+/db/backups/
+*.dump
+*.dump.sha256
+
 # Data
 data/raw/TIGER/*
 !data/raw/TIGER/README.md
