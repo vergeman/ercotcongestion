@@ -8,6 +8,8 @@ import type {
 } from "../api/types";
 import { fetchScoreboardSummary } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
+import HeaderStatus from "../components/layout/HeaderStatus";
+import type { ConnectionState } from "../hooks/useExplorerSession";
 import Tooltip from "../components/ui/Tooltip";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
@@ -801,6 +803,8 @@ export default function ScoreboardPage() {
   const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
   const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // One bundled request per regime change (0137) — weekly, headline, and the
   // live per-day board all arrive together. The live board isn't actually
@@ -812,12 +816,18 @@ export default function ScoreboardPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setConnectionState("loading");
     fetchScoreboardSummary(regime)
       .then((result) => {
         if (!live) return;
         setWeekly(result?.weekly ?? null);
         setHeadline(result?.headline ?? null);
         setDaily(result?.daily ?? null);
+        setLastUpdated(new Date());
+        setConnectionState("ok");
+      })
+      .catch(() => {
+        if (live) setConnectionState("error");
       })
       .finally(() => live && setLoading(false));
     return () => {
@@ -914,6 +924,7 @@ export default function ScoreboardPage() {
             ))}
           </select>
         </span>
+        <HeaderStatus connectionState={connectionState} lastUpdated={lastUpdated} />
       </header>
 
       <div className="sb-body">
