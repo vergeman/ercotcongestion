@@ -4,10 +4,16 @@ import type {
   ErcotStateRangeEntry,
   ForecastRangeEntry,
   ForecastRangeResponse,
+  LoadZoneEntry,
+  LoadZoneRangeResponse,
+  GenerationEntry,
+  GenerationRangeResponse,
 } from "./types";
 import {
   fetchErcotRange,
   fetchForecastRange,
+  fetchLoadZoneRange,
+  fetchGenerationRange,
 } from "./client";
 
 const ercotCache = new Map<string, ErcotStateRangeEntry>();
@@ -16,6 +22,13 @@ const ercotSppCache = new Map<string, ErcotSppRangeEntry>();
 // forecast run. Aligned to the same interval keys as the realized caches so the
 // left pane reads it hour for hour off the scrubber.
 const forecastCache = new Map<string, ForecastRangeEntry>();
+// Load-by-region and generation-by-region (plan/0141) — supplementary Stats-tab
+// data, keyed the same way as the caches above so they read off the same
+// scrubber cursor. Neither contributes to `getAvailableTimestamps()`: they are
+// read-if-present at whatever hour the primary caches already put the cursor
+// on, not a reason to grow the timeline.
+const loadZoneCache = new Map<string, LoadZoneEntry>();
+const generationCache = new Map<string, GenerationEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
@@ -55,6 +68,17 @@ export function getErcotSppCached(ts: Date): ErcotSppRangeEntry | undefined {
 // current run has no forecast for this hour (503 or an unrequested interval).
 export function getForecastCached(ts: Date): ForecastRangeEntry | undefined {
   return forecastCache.get(cacheKey(roundToInterval(ts)));
+}
+
+// Load-by-region side (plan/0141). Same soft-fail contract: `undefined` when
+// this hour has neither an actual nor a forecast zonal row.
+export function getLoadZoneCached(ts: Date): LoadZoneEntry | undefined {
+  return loadZoneCache.get(cacheKey(roundToInterval(ts)));
+}
+
+// Generation-by-region side (plan/0141). Same soft-fail contract.
+export function getGenerationCached(ts: Date): GenerationEntry | undefined {
+  return generationCache.get(cacheKey(roundToInterval(ts)));
 }
 
 // The forecast run_id served for the loaded window, or `null` when no forecast
@@ -110,6 +134,22 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
   }
 }
 
+function ingestLoadZoneRange(data: LoadZoneRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    loadZoneCache.set(cacheKey(ts), entry);
+  }
+}
+
+function ingestGenerationRange(data: GenerationRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    generationCache.set(cacheKey(ts), entry);
+  }
+}
+
 // Load a window into the caches. With an explicit [start, end] (a history scrub)
 // the compact realized range and forecast fetch in parallel. With no window — the default landing view —
 // the forecast leads: fetch the current run's latest delivery day first, then
@@ -127,12 +167,16 @@ export async function prefetchWindow(
   // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
-    const [ercotData, forecastData] = await Promise.all([
+    const [ercotData, forecastData, loadZoneData, generationData] = await Promise.all([
       fetchErcotRange(start, end),
       fetchForecastRange(start, end),
+      fetchLoadZoneRange(start, end),
+      fetchGenerationRange(start, end),
     ]);
     ingestErcotRange(ercotData);
     ingestForecast(forecastData);
+    ingestLoadZoneRange(loadZoneData);
+    ingestGenerationRange(generationData);
     return { start, end };
   }
 
@@ -140,9 +184,15 @@ export async function prefetchWindow(
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
-  const ercotData = await fetchErcotRange(winStart, winEnd);
+  const [ercotData, loadZoneData, generationData] = await Promise.all([
+    fetchErcotRange(winStart, winEnd),
+    fetchLoadZoneRange(winStart, winEnd),
+    fetchGenerationRange(winStart, winEnd),
+  ]);
   ingestErcotRange(ercotData);
   ingestForecast(forecastData);
+  ingestLoadZoneRange(loadZoneData);
+  ingestGenerationRange(generationData);
   return { start: winStart, end: winEnd };
 }
 
@@ -165,6 +215,8 @@ export function clearCache(): void {
   ercotCache.clear();
   ercotSppCache.clear();
   forecastCache.clear();
+  loadZoneCache.clear();
+  generationCache.clear();
   forecastRunId = null;
   forecastHorizons = {};
 }

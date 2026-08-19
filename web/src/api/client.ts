@@ -3,6 +3,8 @@ import type {
   ErcotSppRangeResponse,
   ErcotRangeResponse,
   ForecastRangeResponse,
+  LoadZoneRangeResponse,
+  GenerationRangeResponse,
   ExposuresResponse,
   ConstraintReach,
   MapSummary,
@@ -173,6 +175,38 @@ export async function fetchForecastRange(
   const r = await fetch(`${BASE}/forecast_range${suffix}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`forecast_range ${r.status}`);
+  return r.json();
+}
+
+// Actual + forecast load by ERCOT weather zone (plan/0141). Same optional-
+// window/soft-fail contract as `fetchForecastRange`.
+export async function fetchLoadZoneRange(
+  start?: Date,
+  end?: Date
+): Promise<LoadZoneRangeResponse | null> {
+  const qs = new URLSearchParams();
+  if (start) qs.set("start", start.toISOString());
+  if (end) qs.set("end", end.toISOString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/load_zone_range${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`load_zone_range ${r.status}`);
+  return r.json();
+}
+
+// Actual + forecast wind + solar generation by ERCOT region (plan/0141). Same
+// optional-window/soft-fail contract as `fetchForecastRange`.
+export async function fetchGenerationRange(
+  start?: Date,
+  end?: Date
+): Promise<GenerationRangeResponse | null> {
+  const qs = new URLSearchParams();
+  if (start) qs.set("start", start.toISOString());
+  if (end) qs.set("end", end.toISOString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/generation_range${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`generation_range ${r.status}`);
   return r.json();
 }
 

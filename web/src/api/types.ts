@@ -203,6 +203,62 @@ export interface ForecastRangeResponse {
 }
 
 // =============================================================================
+// /load_zone_range — per-hour actual + forecast load by ERCOT weather zone
+// (plan/0141). `zone` is one of the 8 NP3-561/NP6-345 weather zones, plus
+// "system" for the total row. Forecast is the latest `load_forecast_zonal`
+// vintage posted no later than the hour it describes (no lookahead); actual
+// is `load_by_zone`. Either side may be null independently — a pre-market
+// hour has forecast only, an elapsed forecast window has actual only.
+// =============================================================================
+
+export interface ZoneLoad {
+  zone: string;
+  forecast_mw: number | null;
+  actual_mw: number | null;
+}
+
+export interface LoadZoneEntry {
+  interval_ts: string;
+  zones: ZoneLoad[];
+}
+
+export interface LoadZoneRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: LoadZoneEntry[];
+}
+
+// =============================================================================
+// /generation_range — per-hour actual + forecast wind + solar generation by
+// ERCOT region (plan/0141). `region` is one of the 5 wind regions or 6 solar
+// regions, plus "system". Forecast reads the vintaged `wind_forecast_regional`
+// / `solar_forecast_regional` tables (no lookahead) rather than the
+// `wind_hourly_regional` / `solar_hourly_regional` tables' own forecast-looking
+// columns, which dedup to the most recent posting (~49h after the hour) and
+// are not knowable ahead of time.
+// =============================================================================
+
+export interface RegionGen {
+  region: string;
+  forecast_mw: number | null;
+  actual_mw: number | null;
+}
+
+export interface GenerationEntry {
+  interval_ts: string;
+  wind: RegionGen[];
+  solar: RegionGen[];
+}
+
+export interface GenerationRangeResponse {
+  start: string;
+  end: string;
+  count: number;
+  entries: GenerationEntry[];
+}
+
+// =============================================================================
 // /map/* — the implied shift-factor structure (not time-indexed; one refit).
 // Mirrors api/models.py MapMeta / SpExposure / ExposuresResponse / ReachSp /
 // ConstraintReach.
