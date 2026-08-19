@@ -515,6 +515,10 @@ export interface ScoreboardWeekly {
 export interface DailyPoint {
   delivery_date: string;
   source: string;
+  // Which forecast track this row grades: 1 = final (fires D−1), 2 = preview
+  // (fires D−2). One board carries one horizon; it rides on every point so a
+  // reader never has to guess which track a number belongs to.
+  horizon: number;
   pooled_r2: number | null;
   mae: number | null;
   rank_spearman: number | null;
@@ -533,6 +537,10 @@ export interface ScoreboardDaily {
   run_id: string;
   since: string | null;
   primary_source: string;
+  // The single track `points` grades, and every track this run has graded — so
+  // the page can offer the switch without a second request.
+  horizon: number;
+  horizons: number[];
   points: DailyPoint[];
 }
 
