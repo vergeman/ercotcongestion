@@ -10,6 +10,8 @@ import type {
   MapMeta,
   RankedConstraints,
   ScoreboardHeadline,
+  LoadZoneEntry,
+  GenerationEntry,
 } from "../api/types";
 import {
   fetchMapSummary,
@@ -23,6 +25,8 @@ import {
   getErcotSppCached,
   getForecastCached,
   getForecastHorizon,
+  getLoadZoneCached,
+  getGenerationCached,
 } from "../api/prefetch";
 import {
   forecastErrorColor,
@@ -466,6 +470,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       ercotNodes: ercot,
     };
   }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
+
+  // Load-by-region / generation-by-region (plan/0141): the same cursor hour as
+  // `networkStats`, read from their own soft-fail caches. `undefined` (no cache
+  // entry for this hour) collapses to `null` so SidePanel's null-dash rendering
+  // handles it the same way as every other stat.
+  const loadZoneStats = useMemo<LoadZoneEntry | null>(() => {
+    const cur = timestamps[currentIndex] ?? null;
+    return (cur ? getLoadZoneCached(cur) : null) ?? null;
+  }, [timestamps, currentIndex]);
+
+  const generationStats = useMemo<GenerationEntry | null>(() => {
+    const cur = timestamps[currentIndex] ?? null;
+    return (cur ? getGenerationCached(cur) : null) ?? null;
+  }, [timestamps, currentIndex]);
 
   // The full forecast / realized / error decomposition for one SP — carried by
   // every card in every view, so the error-default never hides raw magnitude.
@@ -1129,6 +1147,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const sidePanelProps = {
     network: networkStats,
+    loadZone: loadZoneStats,
+    generation: generationStats,
+    mapView: renderedView,
     headline,
     fitMeta: mapMeta,
     ranked,

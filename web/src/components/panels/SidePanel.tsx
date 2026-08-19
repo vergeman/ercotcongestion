@@ -3,6 +3,9 @@ import type {
   ScoreboardHeadline,
   RankedConstraints,
   MapMeta,
+  LoadZoneEntry,
+  GenerationEntry,
+  MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
@@ -26,6 +29,13 @@ export interface NetworkStats {
 
 interface Props {
   network: NetworkStats;
+  // Load-by-region and generation-by-region (plan/0141), null when this hour's
+  // cache has neither an actual nor a forecast row. `mapView` picks which side
+  // of each row renders: Forecast/Error show the forecast number, Market/
+  // Compare show the actual.
+  loadZone: LoadZoneEntry | null;
+  generation: GenerationEntry | null;
+  mapView: MapView;
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
   headline: ScoreboardHeadline | null;
@@ -96,6 +106,50 @@ function leaderOf(
   return modelWins ? "model" : "persist";
 }
 
+// ── Load-by-region / Generation panels (plan/0141) ──────────────────────────
+// Three regionalizations, none crosswalked to each other: 8 load weather
+// zones, 5 wind regions, 6 solar regions (compute/ercot/zones.py,
+// db/migrations/06_wind_solar_region_data.sql). Row order below matches each
+// table's natural ordering; display names follow the prototype's own PRETTY
+// convention where ERCOT's region key isn't already a plain word.
+const WEATHER_ZONES = [
+  "coast", "east", "far_west", "north",
+  "north_central", "south_central", "southern", "west",
+] as const;
+const WIND_REGIONS = ["panhandle", "coastal", "south", "west", "north"] as const;
+const SOLAR_REGIONS = [
+  "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
+] as const;
+
+const REGION_PRETTY: Record<string, string> = {
+  far_west: "Far West",
+  north_central: "North Central",
+  south_central: "South Central",
+  centerwest: "Center West",
+  farwest: "Far West",
+  fareast: "Far East",
+  centereast: "Center East",
+  system: "System",
+};
+function regionLabel(key: string): string {
+  if (REGION_PRETTY[key]) return REGION_PRETTY[key];
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Forecast/Error show what ERCOT forecast; Market/Compare show what happened.
+function regionMw(
+  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
+  mapView: MapView
+): number | null {
+  if (!row) return null;
+  return mapView === "forecast" || mapView === "error"
+    ? row.forecast_mw
+    : row.actual_mw;
+}
+
 function Stat({
   label,
   value,
@@ -115,8 +169,52 @@ function Stat({
   );
 }
 
+// A System total row that discloses its regions on click (plan/0141). The
+// caret button is the whole label — one click target, not a separate row plus
+// a separate toggle — so the group reads as "System, expandable" rather than
+// two things stacked.
+function ExpandableGroup({
+  label,
+  systemValue,
+  rows,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  systemValue: string | null;
+  rows: { key: string; label: string; value: string | null }[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="np-group">
+      <button
+        type="button"
+        className="np-stat np-stat--toggle"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <span className="label">
+          <span className={`np-caret${expanded ? " open" : ""}`} aria-hidden="true">
+            ▸
+          </span>
+          {label}
+        </span>
+        <span className="np-stat__val mono">{systemValue ?? "—"}</span>
+      </button>
+      {expanded &&
+        rows.map((r) => (
+          <Stat key={r.key} label={r.label} value={r.value} />
+        ))}
+    </div>
+  );
+}
+
 export default function SidePanel({
   network,
+  loadZone,
+  generation,
+  mapView,
   headline,
   fitMeta,
   ranked,
@@ -132,6 +230,11 @@ export default function SidePanel({
 }: Props) {
   const [windowDays, setWindowDays] = useState<number>(30);
   const [tab, setTab] = useState<"stats" | "constraints" | "window">("stats");
+  // Load-by-region / Generation panels (plan/0141): each System row discloses
+  // its own regions independently — collapsed by default, one flag per group.
+  const [regionsOpen, setRegionsOpen] = useState({ load: false, wind: false, solar: false });
+  const toggleRegions = (group: keyof typeof regionsOpen) =>
+    setRegionsOpen((cur) => ({ ...cur, [group]: !cur[group] }));
   const win =
     headline?.windows.find((w) => w.window_days === windowDays) ??
     headline?.windows[0] ??
@@ -212,6 +315,69 @@ export default function SidePanel({
                   ? `${network.modelNodes} / ${network.ercotNodes}`
                   : null
               }
+            />
+          </section>
+
+          {/* ── Load by Region (plan/0141) ──────────────────────────────────── */}
+          <section className="np-section">
+            <div className="np-section__header label">Load by Region</div>
+            <ExpandableGroup
+              label="System"
+              systemValue={(() => {
+                const mw = regionMw(loadZone?.zones.find((z) => z.zone === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.load}
+              onToggle={() => toggleRegions("load")}
+              rows={WEATHER_ZONES.map((zone) => {
+                const mw = regionMw(loadZone?.zones.find((z) => z.zone === zone), mapView);
+                return {
+                  key: zone,
+                  label: regionLabel(zone),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+          </section>
+
+          {/* ── Generation: wind + solar by region (plan/0141) ──────────────── */}
+          <section className="np-section">
+            <div className="np-section__header label">Generation</div>
+            <div className="np-subheader label">Wind</div>
+            <ExpandableGroup
+              label="System"
+              systemValue={(() => {
+                const mw = regionMw(generation?.wind.find((r) => r.region === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.wind}
+              onToggle={() => toggleRegions("wind")}
+              rows={WIND_REGIONS.map((region) => {
+                const mw = regionMw(generation?.wind.find((r) => r.region === region), mapView);
+                return {
+                  key: region,
+                  label: regionLabel(region),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+            <div className="np-subheader label">Solar</div>
+            <ExpandableGroup
+              label="System"
+              systemValue={(() => {
+                const mw = regionMw(generation?.solar.find((r) => r.region === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.solar}
+              onToggle={() => toggleRegions("solar")}
+              rows={SOLAR_REGIONS.map((region) => {
+                const mw = regionMw(generation?.solar.find((r) => r.region === region), mapView);
+                return {
+                  key: region,
+                  label: regionLabel(region),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
             />
           </section>
 
@@ -350,6 +516,14 @@ export default function SidePanel({
           margin-bottom: 8px;
           border-bottom: 1px solid var(--border);
         }
+        /* Wind / Solar sub-groups inside Generation (plan/0141) — lighter than
+           the section header, no border, just enough separation to read as a
+           sub-list rather than a continuation of the prior group's rows. */
+        .np-subheader {
+          margin: 10px 0 2px;
+          color: var(--text-muted);
+        }
+        .np-subheader:first-of-type { margin-top: 0; }
         .np-stat {
           display: flex;
           justify-content: space-between;
@@ -361,6 +535,29 @@ export default function SidePanel({
            against their value cells. Scoped to this panel only. */
         .np-stat .label { font-size: 12.5px; }
         .np-stat__val { font-size: 13px; color: var(--text-primary); }
+
+        /* Expandable System-total groups (plan/0141): the toggle row is a
+           <button> styled as a Stat row, so it reads identically to every
+           other row until the caret hints it opens. Disclosed region rows sit
+           indented underneath, reusing the plain Stat row unchanged. */
+        .np-group { margin-bottom: 2px; }
+        .np-stat--toggle {
+          width: 100%;
+          background: none;
+          border: none;
+          cursor: pointer;
+          font: inherit;
+          text-align: inherit;
+        }
+        .np-stat--toggle .label { display: flex; align-items: center; gap: 5px; }
+        .np-caret {
+          display: inline-block;
+          font-size: 9px;
+          color: var(--text-muted);
+          transition: transform 0.12s ease;
+        }
+        .np-caret.open { transform: rotate(90deg); }
+        .np-group .np-stat:not(.np-stat--toggle) { padding-left: 15px; }
 
         .sc-header {
           display: flex;
