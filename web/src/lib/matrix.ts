@@ -11,8 +11,9 @@ export type MatrixSelection =
 
 // 0139/0002: the sidebar index tab.
 export type MatrixTab = "constraints" | "nodes";
-// The stage lens — Read (detail, 0003) vs SF (the grid kept from before).
-export type MatrixLens = "read" | "sf";
+// The stage lens — Read (detail, 0003), SF (the grid kept from before), and
+// Basis (0139/0006: a full-screen two-node congestion basis, Nodes tab only).
+export type MatrixLens = "read" | "sf" | "basis";
 // The SF-lens value sub-toggle. Maps onto the existing (mode, muSource) pair
 // below rather than replacing it, so MatrixGrid/MatrixLegend stay unchanged.
 export type MatrixValTab = "sf" | "fmu" | "dmu";

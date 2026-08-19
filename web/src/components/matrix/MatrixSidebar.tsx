@@ -18,6 +18,9 @@ interface Props {
   items: MatrixSidebarItem[];
   totalCount: number;
   selectedId: string | null;
+  // When the Basis lens is up, the two node slots so their rows can be badged
+  // A / B in the list (0139/0006). Absent outside the Basis lens.
+  basisSlots?: { a: string | null; b: string | null };
   onSelect: (id: string) => void;
   onTab: (tab: MatrixTab) => void;
   query: string;
@@ -39,7 +42,7 @@ function typeTag(type: string | null): string {
 }
 
 export default function MatrixSidebar({
-  tab, items, totalCount, selectedId, onSelect, onTab,
+  tab, items, totalCount, selectedId, basisSlots, onSelect, onTab,
   query, onQuery, fType, fZone, typeOptions, zoneOptions, onFilter,
   onTogglePin, onReset,
 }: Props) {
@@ -91,13 +94,14 @@ export default function MatrixSidebar({
             ? [item.zone, item.sub].filter(Boolean).join(" · ")
             : "";
           const value = tab === "constraints" ? item.sizeLabel : item.zone;
+          const slot = basisSlots?.a === item.id ? "A" : basisSlots?.b === item.id ? "B" : null;
           return (
             <div
               key={item.id}
               ref={item.id === selectedId ? selectedRef : undefined}
               role="option"
               aria-selected={item.id === selectedId}
-              className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}`}
+              className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}${slot ? " has-slot" : ""}`}
               tabIndex={0}
               onClick={() => onSelect(item.id)}
               onKeyDown={(event) => {
@@ -114,7 +118,10 @@ export default function MatrixSidebar({
                 {item.pinned ? "★" : "☆"}
               </button>
               <span className="matrix-sidebar__namecell">
-                <span className="matrix-sidebar__name">{item.label}</span>
+                <span className="matrix-sidebar__name">
+                  {slot && <span className={`matrix-sidebar__slot matrix-sidebar__slot--${slot.toLowerCase()}`}>{slot}</span>}
+                  {item.label}
+                </span>
                 {subline && <span className="matrix-sidebar__sub">{subline}</span>}
               </span>
               <span className="matrix-sidebar__tag-col">
@@ -141,6 +148,9 @@ export default function MatrixSidebar({
         .matrix-sidebar__row { align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); cursor: pointer; display: grid; grid-template-columns: 18px minmax(0, 1fr) 46px 68px; column-gap: 8px; font-size: var(--fs-label); padding: 7px 10px; }
         .matrix-sidebar__row:hover { background: var(--bg-surface); }
         .matrix-sidebar__row.is-selected { background: var(--accent-dim); box-shadow: inset 3px 0 var(--accent); }
+        .matrix-sidebar__row.has-slot { background: color-mix(in srgb, var(--accent-dim) 45%, transparent); }
+        .matrix-sidebar__slot { display: inline-block; min-width: 14px; margin-right: 6px; padding: 0 4px; border-radius: 3px; font: 700 9.5px var(--font-sans); text-align: center; vertical-align: 1px; color: var(--bg-panel); background: var(--accent); }
+        .matrix-sidebar__slot--b { background: var(--text-secondary); }
         .matrix-sidebar__pin { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: var(--fs-label); padding: 0; text-align: center; }
         .matrix-sidebar__pin.is-pinned { color: var(--accent); }
         .matrix-sidebar__namecell { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
