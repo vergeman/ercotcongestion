@@ -3,6 +3,8 @@ import type {
   ScoreboardHeadline,
   RankedConstraints,
   MapMeta,
+  ConditionsEntry,
+  MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
@@ -18,7 +20,6 @@ import Tooltip from "../ui/Tooltip";
 export interface NetworkStats {
   forecastRunId: string | null;
   systemLambda: number | null; // DAM system-λ at the cursor hour ($/MWh)
-  totalLoadMw: number | null; // ERCOT actual system load at the cursor hour (MW)
   congestionAbsTotal: number | null; // Σ|congestion| at the cursor hour ($)
   modelNodes: number; // SPs the forecast values this hour
   ercotNodes: number; // SPs ERCOT realized values this hour
@@ -26,6 +27,12 @@ export interface NetworkStats {
 
 interface Props {
   network: NetworkStats;
+  // Load / Wind / Solar / Outages (plan/0141), null when this hour's cache
+  // has nothing from any of the four sources. `mapView` picks which side of
+  // each row renders: Forecast/Error show the forecast number, Market/
+  // Compare show the actual.
+  conditions: ConditionsEntry | null;
+  mapView: MapView;
   // The rolling headline, or null on 503 (no board loaded) — the scorecard then
   // hides and the network readout stands alone.
   headline: ScoreboardHeadline | null;
@@ -96,6 +103,54 @@ function leaderOf(
   return modelWins ? "model" : "persist";
 }
 
+// ── Load-by-region / Generation panels (plan/0141) ──────────────────────────
+// Three regionalizations, none crosswalked to each other: 8 load weather
+// zones, 5 wind regions, 6 solar regions (compute/ercot/zones.py,
+// db/migrations/06_wind_solar_region_data.sql). Row order below matches each
+// table's natural ordering; display names follow the prototype's own PRETTY
+// convention where ERCOT's region key isn't already a plain word.
+const WEATHER_ZONES = [
+  "coast", "east", "far_west", "north",
+  "north_central", "south_central", "southern", "west",
+] as const;
+const WIND_REGIONS = ["panhandle", "coastal", "south", "west", "north"] as const;
+const SOLAR_REGIONS = [
+  "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
+] as const;
+// Outaged capacity by fuel (NP1-346, plan/0141 follow-up) — a different
+// quantity from generation, matching the prototype's 6-bucket fuel table.
+const OUTAGE_FUELS = ["gas", "wind", "solar", "coal", "other", "hydro"] as const;
+
+const REGION_PRETTY: Record<string, string> = {
+  far_west: "Far West",
+  north_central: "North Central",
+  south_central: "South Central",
+  centerwest: "Center West",
+  farwest: "Far West",
+  fareast: "Far East",
+  centereast: "Center East",
+  system: "System",
+  total: "Total",
+};
+function regionLabel(key: string): string {
+  if (REGION_PRETTY[key]) return REGION_PRETTY[key];
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+// Forecast/Error show what ERCOT forecast; Market/Compare show what happened.
+function regionMw(
+  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
+  mapView: MapView
+): number | null {
+  if (!row) return null;
+  return mapView === "forecast" || mapView === "error"
+    ? row.forecast_mw
+    : row.actual_mw;
+}
+
 function Stat({
   label,
   value,
@@ -115,8 +170,51 @@ function Stat({
   );
 }
 
+// A System total row that discloses its regions on click (plan/0141). The
+// caret button is the whole label — one click target, not a separate row plus
+// a separate toggle — so the group reads as "System, expandable" rather than
+// two things stacked.
+function ExpandableGroup({
+  label,
+  systemValue,
+  rows,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  systemValue: string | null;
+  rows: { key: string; label: string; value: string | null }[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="np-group">
+      <button
+        type="button"
+        className="np-stat np-stat--toggle"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <span className="label">
+          <span className={`np-caret${expanded ? " open" : ""}`} aria-hidden="true">
+            ▸
+          </span>
+          {label}
+        </span>
+        <span className="np-stat__val mono">{systemValue ?? "—"}</span>
+      </button>
+      {expanded &&
+        rows.map((r) => (
+          <Stat key={r.key} label={r.label} value={r.value} />
+        ))}
+    </div>
+  );
+}
+
 export default function SidePanel({
   network,
+  conditions,
+  mapView,
   headline,
   fitMeta,
   ranked,
@@ -132,6 +230,13 @@ export default function SidePanel({
 }: Props) {
   const [windowDays, setWindowDays] = useState<number>(30);
   const [tab, setTab] = useState<"stats" | "constraints" | "window">("stats");
+  // Load-by-region / Generation panels (plan/0141): each System row discloses
+  // its own regions independently — collapsed by default, one flag per group.
+  const [regionsOpen, setRegionsOpen] = useState({
+    load: false, wind: false, solar: false, outages: false,
+  });
+  const toggleRegions = (group: keyof typeof regionsOpen) =>
+    setRegionsOpen((cur) => ({ ...cur, [group]: !cur[group] }));
   const win =
     headline?.windows.find((w) => w.window_days === windowDays) ??
     headline?.windows[0] ??
@@ -181,14 +286,6 @@ export default function SidePanel({
           <section className="np-section">
             <div className="np-section__header label">Network</div>
             <Stat
-              label="Total Load"
-              value={
-                network.totalLoadMw != null
-                  ? `${fmtNum(network.totalLoadMw, 0)} MW`
-                  : null
-              }
-            />
-            <Stat
               label="DAM System λ"
               value={
                 network.systemLambda != null
@@ -212,6 +309,85 @@ export default function SidePanel({
                   ? `${network.modelNodes} / ${network.ercotNodes}`
                   : null
               }
+            />
+          </section>
+
+          {/* ── Conditions: Load / Wind / Solar / Outages (plan/0141) ────────
+              One section, four roll-up rows — each category's own name IS the
+              toggle row (no separate "System" child, no per-category header),
+              so there is nothing to put a divider between except the section
+              itself. Outages is a different quantity from Generation (MW
+              offline vs. MW produced) but stays a peer row here; the label
+              text carries that distinction, not a sub-grouping. */}
+          <section className="np-section">
+            <div className="np-section__header label">Conditions</div>
+            <ExpandableGroup
+              label="Load by Region"
+              systemValue={(() => {
+                const mw = regionMw(conditions?.load.find((z) => z.zone === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.load}
+              onToggle={() => toggleRegions("load")}
+              rows={WEATHER_ZONES.map((zone) => {
+                const mw = regionMw(conditions?.load.find((z) => z.zone === zone), mapView);
+                return {
+                  key: zone,
+                  label: regionLabel(zone),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+            <ExpandableGroup
+              label="Wind Generation"
+              systemValue={(() => {
+                const mw = regionMw(conditions?.wind.find((r) => r.region === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.wind}
+              onToggle={() => toggleRegions("wind")}
+              rows={WIND_REGIONS.map((region) => {
+                const mw = regionMw(conditions?.wind.find((r) => r.region === region), mapView);
+                return {
+                  key: region,
+                  label: regionLabel(region),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+            <ExpandableGroup
+              label="Solar Generation"
+              systemValue={(() => {
+                const mw = regionMw(conditions?.solar.find((r) => r.region === "system"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.solar}
+              onToggle={() => toggleRegions("solar")}
+              rows={SOLAR_REGIONS.map((region) => {
+                const mw = regionMw(conditions?.solar.find((r) => r.region === region), mapView);
+                return {
+                  key: region,
+                  label: regionLabel(region),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
+            />
+            <ExpandableGroup
+              label="Outages by Fuel"
+              systemValue={(() => {
+                const mw = regionMw(conditions?.outages.find((f) => f.fuel === "total"), mapView);
+                return mw != null ? `${fmtNum(mw, 0)} MW` : null;
+              })()}
+              expanded={regionsOpen.outages}
+              onToggle={() => toggleRegions("outages")}
+              rows={OUTAGE_FUELS.map((fuel) => {
+                const mw = regionMw(conditions?.outages.find((f) => f.fuel === fuel), mapView);
+                return {
+                  key: fuel,
+                  label: regionLabel(fuel),
+                  value: mw != null ? `${fmtNum(mw, 0)} MW` : null,
+                };
+              })}
             />
           </section>
 
@@ -361,6 +537,29 @@ export default function SidePanel({
            against their value cells. Scoped to this panel only. */
         .np-stat .label { font-size: 12.5px; }
         .np-stat__val { font-size: 13px; color: var(--text-primary); }
+
+        /* Expandable System-total groups (plan/0141): the toggle row is a
+           <button> styled as a Stat row, so it reads identically to every
+           other row until the caret hints it opens. Disclosed region rows sit
+           indented underneath, reusing the plain Stat row unchanged. */
+        .np-group { margin-bottom: 2px; }
+        .np-stat--toggle {
+          width: 100%;
+          background: none;
+          border: none;
+          cursor: pointer;
+          font: inherit;
+          text-align: inherit;
+        }
+        .np-stat--toggle .label { display: flex; align-items: center; gap: 5px; }
+        .np-caret {
+          display: inline-block;
+          font-size: 9px;
+          color: var(--text-muted);
+          transition: transform 0.12s ease;
+        }
+        .np-caret.open { transform: rotate(90deg); }
+        .np-group .np-stat:not(.np-stat--toggle) { padding-left: 15px; }
 
         .sc-header {
           display: flex;

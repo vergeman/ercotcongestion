@@ -10,6 +10,7 @@ import type {
   MapMeta,
   RankedConstraints,
   ScoreboardHeadline,
+  ConditionsEntry,
 } from "../api/types";
 import {
   fetchMapSummary,
@@ -23,6 +24,7 @@ import {
   getErcotSppCached,
   getForecastCached,
   getForecastHorizon,
+  getConditionsCached,
 } from "../api/prefetch";
 import {
   forecastErrorColor,
@@ -443,10 +445,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // over the realized rows this hour. `modelNodes`/`ercotNodes` are the SP counts
   // on each side — the model forecasts its full nodal universe, ERCOT lights only
   // priced nodes, so model ≥ ercot. (Window / hours / cursor live on the scrubber.)
+  // Total Load lives in the Conditions panel's Load by Region row now, not here.
   const networkStats = useMemo<NetworkStats>(() => {
     const cur = timestamps[currentIndex] ?? null;
     const fc = cur ? getForecastCached(cur) : null;
-    const spp = cur ? getErcotSppCached(cur) : null;
     let absTotal: number | null = null;
     let ercot = 0;
     for (const r of spRows) {
@@ -460,12 +462,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     return {
       forecastRunId,
       systemLambda: fc?.system_lambda ?? null,
-      totalLoadMw: spp?.total_load_mw ?? null,
       congestionAbsTotal: absTotal,
       modelNodes: model,
       ercotNodes: ercot,
     };
   }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
+
+  // Load / Wind / Solar / Outages (plan/0141): the same cursor hour as
+  // `networkStats`, read from its own soft-fail cache. `undefined` (no cache
+  // entry for this hour) collapses to `null` so SidePanel's null-dash rendering
+  // handles it the same way as every other stat.
+  const conditionsStats = useMemo<ConditionsEntry | null>(() => {
+    const cur = timestamps[currentIndex] ?? null;
+    return (cur ? getConditionsCached(cur) : null) ?? null;
+  }, [timestamps, currentIndex]);
 
   // The full forecast / realized / error decomposition for one SP — carried by
   // every card in every view, so the error-default never hides raw magnitude.
@@ -1129,6 +1139,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const sidePanelProps = {
     network: networkStats,
+    conditions: conditionsStats,
+    mapView: renderedView,
     headline,
     fitMeta: mapMeta,
     ranked,

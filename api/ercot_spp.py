@@ -53,25 +53,13 @@ def get_ercot_spp_range(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                WITH spp_rows AS (
-                    SELECT DISTINCT ON (interval_ts, settlement_point)
-                           interval_ts, settlement_point, dam_spp
-                    FROM ercot_dam_spp
-                    WHERE interval_ts >= %s AND interval_ts <= %s
-                    ORDER BY interval_ts, settlement_point, dst_flag ASC
-                ), load_rows AS (
-                    SELECT DISTINCT ON (interval_ts) interval_ts, total
-                    FROM load_by_zone
-                    WHERE interval_ts >= %s AND interval_ts <= %s
-                    ORDER BY interval_ts, dst_flag ASC
-                )
-                SELECT spp_rows.interval_ts, settlement_point, dam_spp,
-                       load_rows.total AS total_load_mw
-                FROM spp_rows
-                LEFT JOIN load_rows USING (interval_ts)
-                ORDER BY spp_rows.interval_ts, settlement_point
+                SELECT DISTINCT ON (interval_ts, settlement_point)
+                       interval_ts, settlement_point, dam_spp
+                FROM ercot_dam_spp
+                WHERE interval_ts >= %s AND interval_ts <= %s
+                ORDER BY interval_ts, settlement_point, dst_flag ASC
                 """,
-                (start_u, end_u, start_u, end_u),
+                (start_u, end_u),
             )
             rows = cur.fetchall()
 
@@ -84,14 +72,11 @@ def get_ercot_spp_range(
             ),
         )
 
-    by_ts: dict[datetime, tuple[float | None, list[ErcotSpSpp]]] = {}
+    by_ts: dict[datetime, list[ErcotSpSpp]] = {}
     for r in rows:
         ts = _coerce_utc(r["interval_ts"])
         spp = r["dam_spp"]
-        total_load = r["total_load_mw"]
-        load, sps = by_ts.setdefault(
-            ts, (None if total_load is None else float(total_load), [])
-        )
+        sps = by_ts.setdefault(ts, [])
         sps.append(
             ErcotSpSpp(
                 sp_id=str(r["settlement_point"]),
@@ -100,8 +85,8 @@ def get_ercot_spp_range(
         )
 
     entries = [
-        ErcotSppRangeEntry(interval_ts=ts, total_load_mw=load, sps=sps)
-        for ts, (load, sps) in sorted(by_ts.items())
+        ErcotSppRangeEntry(interval_ts=ts, sps=sps)
+        for ts, sps in sorted(by_ts.items())
     ]
 
     return ErcotSppRangeResponse(

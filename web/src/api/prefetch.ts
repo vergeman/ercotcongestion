@@ -4,10 +4,13 @@ import type {
   ErcotStateRangeEntry,
   ForecastRangeEntry,
   ForecastRangeResponse,
+  ConditionsEntry,
+  ConditionsRangeResponse,
 } from "./types";
 import {
   fetchErcotRange,
   fetchForecastRange,
+  fetchConditionsRange,
 } from "./client";
 
 const ercotCache = new Map<string, ErcotStateRangeEntry>();
@@ -16,6 +19,12 @@ const ercotSppCache = new Map<string, ErcotSppRangeEntry>();
 // forecast run. Aligned to the same interval keys as the realized caches so the
 // left pane reads it hour for hour off the scrubber.
 const forecastCache = new Map<string, ForecastRangeEntry>();
+// Load / Wind / Solar / Outages (plan/0141) — supplementary Stats-tab data,
+// keyed the same way as the caches above so it reads off the same scrubber
+// cursor. Does not contribute to `getAvailableTimestamps()`: it is
+// read-if-present at whatever hour the primary caches already put the cursor
+// on, not a reason to grow the timeline.
+const conditionsCache = new Map<string, ConditionsEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
@@ -57,6 +66,12 @@ export function getForecastCached(ts: Date): ForecastRangeEntry | undefined {
   return forecastCache.get(cacheKey(roundToInterval(ts)));
 }
 
+// Load / Wind / Solar / Outages side (plan/0141). Same soft-fail contract:
+// `undefined` when this hour has nothing from any of the four sources.
+export function getConditionsCached(ts: Date): ConditionsEntry | undefined {
+  return conditionsCache.get(cacheKey(roundToInterval(ts)));
+}
+
 // The forecast run_id served for the loaded window, or `null` when no forecast
 // covered it (the prediction pane falls back to the realized rows).
 export function getForecastRunId(): string | null {
@@ -87,7 +102,6 @@ function ingestErcotRange(data: ErcotRangeResponse | null): void {
     };
     const sppEntry: ErcotSppRangeEntry = {
       interval_ts: entry.interval_ts,
-      total_load_mw: entry.total_load_mw,
       sps: data.sp_ids.map((sp_id, index) => ({
         sp_id,
         spp: entry.spp[index] ?? null,
@@ -110,6 +124,14 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
   }
 }
 
+function ingestConditionsRange(data: ConditionsRangeResponse | null): void {
+  if (!data) return;
+  for (const entry of data.entries) {
+    const ts = roundToInterval(new Date(entry.interval_ts));
+    conditionsCache.set(cacheKey(ts), entry);
+  }
+}
+
 // Load a window into the caches. With an explicit [start, end] (a history scrub)
 // the compact realized range and forecast fetch in parallel. With no window — the default landing view —
 // the forecast leads: fetch the current run's latest delivery day first, then
@@ -127,12 +149,14 @@ export async function prefetchWindow(
   // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
-    const [ercotData, forecastData] = await Promise.all([
+    const [ercotData, forecastData, conditionsData] = await Promise.all([
       fetchErcotRange(start, end),
       fetchForecastRange(start, end),
+      fetchConditionsRange(start, end),
     ]);
     ingestErcotRange(ercotData);
     ingestForecast(forecastData);
+    ingestConditionsRange(conditionsData);
     return { start, end };
   }
 
@@ -140,9 +164,13 @@ export async function prefetchWindow(
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
-  const ercotData = await fetchErcotRange(winStart, winEnd);
+  const [ercotData, conditionsData] = await Promise.all([
+    fetchErcotRange(winStart, winEnd),
+    fetchConditionsRange(winStart, winEnd),
+  ]);
   ingestErcotRange(ercotData);
   ingestForecast(forecastData);
+  ingestConditionsRange(conditionsData);
   return { start: winStart, end: winEnd };
 }
 
@@ -165,6 +193,7 @@ export function clearCache(): void {
   ercotCache.clear();
   ercotSppCache.clear();
   forecastCache.clear();
+  conditionsCache.clear();
   forecastRunId = null;
   forecastHorizons = {};
 }

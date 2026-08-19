@@ -3,6 +3,7 @@ import type {
   ErcotSppRangeResponse,
   ErcotRangeResponse,
   ForecastRangeResponse,
+  ConditionsRangeResponse,
   ExposuresResponse,
   ConstraintReach,
   MapSummary,
@@ -173,6 +174,22 @@ export async function fetchForecastRange(
   const r = await fetch(`${BASE}/forecast_range${suffix}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`forecast_range ${r.status}`);
+  return r.json();
+}
+
+// Load / Wind / Solar / Outages, merged (plan/0141). Same optional-window/
+// soft-fail contract as `fetchForecastRange`.
+export async function fetchConditionsRange(
+  start?: Date,
+  end?: Date
+): Promise<ConditionsRangeResponse | null> {
+  const qs = new URLSearchParams();
+  if (start) qs.set("start", start.toISOString());
+  if (end) qs.set("end", end.toISOString());
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const r = await fetch(`${BASE}/conditions_range${suffix}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`conditions_range ${r.status}`);
   return r.json();
 }
 
