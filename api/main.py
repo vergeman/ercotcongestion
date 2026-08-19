@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
 import topology, ercot_range, ercot_state, ercot_spp, forecast, map, matrix, scoreboard, analysis
-import load_zone, generation
+import load_zone, generation, outages
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -38,7 +38,7 @@ app.add_middleware(
 
 # Routers mounted at root. URLs:
 #   /topology  /ercot_range  /ercot_state_range  /ercot_spp_range  /forecast_range
-#   /load_zone_range  /generation_range
+#   /load_zone_range  /generation_range  /outages_range
 #   /map/meta  /map/constraints  /map/exposures  /map/reach
 #   /scoreboard/headline  /scoreboard/weekly  /scoreboard/daily
 app.include_router(topology.router,    tags=['topology'])
@@ -48,6 +48,7 @@ app.include_router(ercot_spp.router,   tags=['ercot_spp'])
 app.include_router(forecast.router,    tags=['forecast'])
 app.include_router(load_zone.router,   tags=['load_zone'])
 app.include_router(generation.router,  tags=['generation'])
+app.include_router(outages.router,     tags=['outages'])
 app.include_router(map.router,         tags=['map'])
 app.include_router(matrix.router,      tags=['matrix'])
 app.include_router(scoreboard.router,  tags=['scoreboard'])

@@ -1121,3 +1121,35 @@ class GenerationRangeResponse(BaseModel):
     end: datetime
     count: int
     entries: list[GenerationEntry]
+
+
+# ---- /outages_range ---------------------------------------------------------
+#
+# Per-hour outaged (offline) capacity by fuel type, from NP1-346 unplanned
+# resource outages (plan/0141 follow-up). This is a DIFFERENT quantity from
+# `/generation_range` — MW currently unavailable, not MW produced — and a
+# different cadence underneath: `resource_outages` is a daily D-vintage
+# snapshot of active outage events, not an hourly series, so each hour in a
+# response replicates that day's aggregate rather than reading a genuinely
+# new value every hour. `fuel` is one of gas/wind/solar/coal/other/hydro, plus
+# "total". `forecast_mw` is the D-1-admissible vintage (no lookahead, mirrors
+# compute.mu.outage_exposure's leak boundary) summed over still-expected-out
+# events; `actual_mw` is the newest vintage through the day itself, summed
+# over genuinely-active-at-that-hour events.
+
+class FuelOutage(BaseModel):
+    fuel: str
+    forecast_mw: float | None
+    actual_mw: float | None
+
+
+class OutagesEntry(BaseModel):
+    interval_ts: datetime
+    fuels: list[FuelOutage]
+
+
+class OutagesRangeResponse(BaseModel):
+    start: datetime
+    end: datetime
+    count: int
+    entries: list[OutagesEntry]
