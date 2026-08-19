@@ -58,20 +58,14 @@ def get_ercot_range(
                     FROM dam_system_lambda
                     WHERE interval_ts >= %s AND interval_ts <= %s
                     ORDER BY interval_ts, dst_flag ASC
-                ), load_rows AS (
-                    SELECT DISTINCT ON (interval_ts) interval_ts, total
-                    FROM load_by_zone
-                    WHERE interval_ts >= %s AND interval_ts <= %s
-                    ORDER BY interval_ts, dst_flag ASC
                 )
                 SELECT spp_rows.interval_ts, settlement_point, dam_spp,
-                       lambda_rows.system_lambda, load_rows.total AS total_load_mw
+                       lambda_rows.system_lambda
                 FROM spp_rows
                 LEFT JOIN lambda_rows USING (interval_ts)
-                LEFT JOIN load_rows USING (interval_ts)
                 ORDER BY spp_rows.interval_ts, settlement_point
                 """,
-                (start_u, end_u, start_u, end_u, start_u, end_u),
+                (start_u, end_u, start_u, end_u),
             )
             rows = cur.fetchall()
 
@@ -90,9 +84,6 @@ def get_ercot_range(
         if entry is None:
             entry = ErcotRangeEntry(
                 interval_ts=ts,
-                total_load_mw=(
-                    None if row["total_load_mw"] is None else float(row["total_load_mw"])
-                ),
                 congestion=[None] * len(sp_ids),
                 spp=[None] * len(sp_ids),
             )
