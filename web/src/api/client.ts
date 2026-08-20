@@ -5,6 +5,7 @@ import type {
   ForecastRangeResponse,
   ConditionsRangeResponse,
   ExposuresResponse,
+  ExposureRank,
   ConstraintReach,
   MapSummary,
   RankedConstraints,
@@ -200,13 +201,19 @@ export async function fetchConditionsRange(
 // artifact, so the DetailCard matches the matrix at the same node and hour
 // (0144). Omitting it serves the latest built day — pass the cursor whenever
 // the caller has one, or the panel silently describes a different day.
+// `rank` picks the ordering basis (0145): "contribution" (the server default)
+// for what actually drove the node at `t`, "sf" for structural exposure over
+// every constraint in the day's fit. Sent only when overriding, so the default
+// lives in one place — the API.
 export async function fetchMapExposures(
   sp: string,
   k = 15,
-  t?: Date
+  t?: Date,
+  rank?: ExposureRank
 ): Promise<ExposuresResponse | null> {
   const qs = new URLSearchParams({ sp, k: String(k) });
   if (t) qs.set("t", t.toISOString());
+  if (rank) qs.set("rank", rank);
   const r = await fetch(`${BASE}/map/exposures?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/exposures ${r.status}`);

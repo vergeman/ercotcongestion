@@ -51,6 +51,10 @@ export interface MatrixColumn {
   max_abs_sf: number;
 }
 
+// A cell whose |value| reaches the frame's `sf_abs_cap` was pinned there by the
+// ridge fit's clip — a bound, not a measurement. No parallel mask is sent: the
+// clip is exact, so `Math.abs(v) >= sf_abs_cap` is the same test the server
+// would apply, at a fraction of the payload.
 export interface MatrixSfValues {
   row_count: number;
   column_count: number;
@@ -75,6 +79,9 @@ export interface MatrixFrame {
   total_settlement_point_count: number;
   sf_day_max_abs: number;
   contribution_day_max_abs: number;
+  // The fit's |SF| clip, so the threshold has one source rather than a
+  // hardcoded 1.0 on both sides of the wire.
+  sf_abs_cap: number;
   rows: MatrixRow[];
   columns: MatrixColumn[];
   sf: MatrixSfValues;
@@ -281,13 +288,27 @@ export interface MapMeta {
 
 // One constraint driving the queried node (a /map/exposures row). `sf` is the
 // signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
+// `contribution` = -sf * mu is the constraint's actual $/MWh of this node's
+// congestion at the requested interval, and is what `rank=contribution` orders
+// by; both it and `mu` are null under `rank=sf`, which describes structure and
+// has no hour attached. `sf_clipped` marks a cell the fit pinned at its cap.
 export interface SpExposure {
   constraint_key: string;
   ctype: string | null;
   sf: number;
+  sf_clipped: boolean;
+  mu: number | null;
+  contribution: number | null;
   max_abs_sf: number | null;
   binding_hours: number | null;
 }
+
+// How /map/exposures orders its list. `contribution` answers "what drove this
+// node at t" and drops constraints that did not bind; `sf` answers "what could
+// move this node" over the whole day's fit, quiet constraints included. The two
+// read identical SF values — only the ordering and filtering differ, which is
+// exactly why they used to look like disagreeing data (0145).
+export type ExposureRank = "contribution" | "sf";
 
 // Top-k constraints driving one node. `node_max_abs_sf` = max_c |SF[sp,c]| is
 // the stable unsigned headline (spec §6); the signed `exposures` follow it.
@@ -306,6 +327,11 @@ export interface ExposuresResponse {
   oos_r2: number | null;
   sf_stability: number | null;
   node_max_abs_sf: number | null;
+  rank: ExposureRank;
+  // Signed sum over ALL constraints, so a row's share of the node is
+  // `contribution / node_total` even when k truncates the list. Null under
+  // `rank=sf`.
+  node_total: number | null;
   available: boolean;
   unavailable_reason: string | null;
   exposures: SpExposure[];
