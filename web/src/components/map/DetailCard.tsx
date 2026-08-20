@@ -399,6 +399,16 @@ export default function DetailCard({
   const inReach = !!reach;
   const sp = mobile ? pinnedSp : pinnedSp ?? hoveredSp;
   const isPinned = !!pinnedSp;
+  // No SF for this node on this day (0146). Guarded on `sp`, so a stale
+  // response never labels the next node.
+  const noSf =
+    !inReach && isPinned && exposures?.sp === sp?.spId
+      ? exposures?.unavailable_reason
+      : null;
+  const noSfLabel =
+    noSf === "sp_not_in_service" ? "Non-existent"
+      : noSf === "sp_not_in_fit" ? "Not in fit"
+      : null;
   const [expanded, setExpanded] = useState(false);
 
   if (!inReach && !sp) return null;
@@ -423,6 +433,9 @@ export default function DetailCard({
             </>
           )}
         </div>
+        {noSfLabel && (
+          <span className="detail-card__badge label">{noSfLabel}</span>
+        )}
         {mobile && (
           <button
             className="detail-card__expand"
@@ -465,7 +478,7 @@ export default function DetailCard({
         ) : (
           <>
             <SpBody sp={sp!} lambdaIndicative={lambdaIndicative} />
-            {isPinned && showDrivers && (
+            {isPinned && showDrivers && !noSfLabel && (
               <div className="detail-card__section">
                 <ExposuresBody
                   exposures={exposures ?? null}
@@ -514,6 +527,20 @@ export default function DetailCard({
           align-items: baseline;
           gap: 8px;
           min-width: 0;
+        }
+        .detail-card__badge {
+          margin-left: auto;
+          margin-right: 8px;
+          border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+          border-radius: 3px;
+          padding: 1px 5px;
+          background: color-mix(in srgb, var(--warn) 12%, transparent);
+          color: var(--warn);
+          /* Uppercase, so it reads as a state stamp rather than a value; caps
+             need the air, hence --track-title (index.css). */
+          text-transform: uppercase;
+          letter-spacing: var(--track-title);
+          white-space: nowrap;
         }
         .detail-card__kind {
           color: ${"var(--accent)"};
