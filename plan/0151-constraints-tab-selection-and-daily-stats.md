@@ -29,8 +29,8 @@ Branch: feat/0151-constraints-tab-selection-and-daily-stats
 
 ## Acceptance
 
-* [ ] Clicking any Constraints-tab row opens and locks its constraint DetailCard even when it has no practical map mark.
-* [ ] The disclosure chevron, not primary row selection, solely expands/collapses the existing member list and remains keyboard accessible.
-* [ ] The tab displays daily μ mass, peak μ, binding hours, SF reach, and peak |SF| with labels/tooltips; μ fields follow the active basis and SF fields do not.
-* [ ] Existing ranked ordering, hover synchronization, node-member interactions, and DetailCard behavior remain intact.
-* [ ] Focused map API tests and frontend TypeScript/component checks pass.
+* [x] Clicking any Constraints-tab row opens and locks its constraint DetailCard even when it has no practical map mark.
+* [x] The disclosure chevron, not primary row selection, solely expands/collapses the existing member list and remains keyboard accessible.
+* [x] The tab displays daily μ mass and SF reach in aligned columns with labels/tooltips; μ mass follows the active basis and SF reach does not. Peak and binding statistics are intentionally not displayed.
+* [x] Existing ranked ordering, hover synchronization, node-member interactions, and DetailCard behavior remain intact.
+* [x] Focused map API tests and frontend TypeScript checks pass.
