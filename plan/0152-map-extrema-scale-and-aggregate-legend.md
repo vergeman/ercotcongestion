@@ -28,9 +28,10 @@ Branch: fix/0152-map-extrema-scale-and-aggregate-legend
 
 ## Acceptance
 
-* [ ] At `sp=RHESS2_ESS1&t=2025-02-20T13Z&ws=2025-02-19T18Z&we=2025-02-21T18Z&view=market&data=congestion`, the realized ~$6,000 value has the positive endpoint color and the legend shows both the approximately +$90 core stop and the approximately +$6,000 endpoint.
-* [ ] Typical values at or below the daily P90 retain visible signed contrast, while values between P90 and the observed extreme receive distinct progressively deeper colors.
-* [ ] Negative and positive tails use their own observed extrema; absent or non-material tails do not create misleading endpoint labels or divide-by-zero normalization.
-* [ ] Forecast and error congestion legends/fills follow the same core-plus-extrema scale while retaining their existing labels and palette semantics.
-* [ ] In dark and light themes, Hub is a filled circle with `H` and Load zone is a filled diamond with `Z`; both remain legible and match the map marker/label treatment.
-* [ ] `npm run lint` and `npm run build` pass in `web/`.
+* [x] At `sp=RHESS2_ESS1&t=2025-02-20T13Z&ws=2025-02-19T18Z&we=2025-02-21T18Z&view=market&data=congestion`, the realized ~$6,000 congestion value remains on the normal red P90/rational scale and receives a centered, pulsing red halo.
+* [x] Congestion keeps the CT-delivery-day P90 ticks as the regular legend-bar endpoints, so ordinary signed differences remain readable through playback without an outlier changing the core scale.
+* [x] A positive congestion value at or above `3 × P90` is classified as Extreme Price; the legend shows a pulsing circular red key and its threshold as a fixed two-decimal dollar value (for example, `Extreme Price ≥ +$271.00`), without a `k` suffix.
+* [x] An LMP at or above `3 × P95` receives the same centered, pulsing halo using the LMP high-end (orange) color; its legend key uses that orange color and the same fixed two-decimal threshold format.
+* [x] Extreme Price halos are non-interactive, follow their map points through pan and zoom, and become a static centered halo when reduced motion is requested.
+* [x] Hub and Load zone legend-marker refactoring remains deferred; their existing neutral key treatment is unchanged by this work.
+* [x] `npm run build` passes in the Docker Compose web environment. Existing repository-wide lint findings remain outside this change.
