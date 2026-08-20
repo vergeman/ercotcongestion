@@ -185,6 +185,26 @@ def _latest_artifact_day(cur, run_id: str):
     return None if row is None else row["d"]
 
 
+def _nearest_past_artifact_day(cur, run_id: str, day):
+    """The newest built delivery day at or before ``day``.
+
+    The fallback the constraint reach serves when the requested day itself has no
+    artifact (a lagging or failed forecast job, or a forward day). SF is
+    topology-driven and drifts slowly, so the nearest earlier build is a faithful
+    stand-in for "who this constraint drives" rather than an empty card. ``None``
+    when nothing was built that early (a date before the artifact history).
+    """
+    if day is None:
+        return None
+    cur.execute(
+        "SELECT max(delivery_date) AS d FROM forecast_sf_artifact "
+        "WHERE run_id = %s AND delivery_date <= %s",
+        (run_id, day),
+    )
+    row = cur.fetchone()
+    return None if row is None else row["d"]
+
+
 def _click_artifact(cur, t: datetime_t | None):
     """Resolve (run_id, delivery_date, artifact) for a node/constraint click.
 
@@ -426,19 +446,42 @@ def get_map_reach(
         "of the constraint's peak |SF|. Without it, top-k pads a weakly-fit "
         "constraint (few real nodes) with noise-floor entries.",
     ),
+    abs_floor: float = Query(
+        0.0, ge=0.0, le=1.0,
+        description="Absolute |SF| floor, combined with min_frac as "
+        "max(min_frac*peak, abs_floor). The relative floor follows each "
+        "constraint's shape but is meaningless for a noise-peak constraint "
+        "(peak ~0.01 lets its whole tail through); this cuts that off. The map "
+        "passes ~0.03. Default 0 preserves the matrix Read pane's complete reach.",
+    ),
 ) -> ConstraintReach:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, day, artifact = _click_artifact(cur, t)
+        basis = "artifact"
         if artifact is None:
-            return ConstraintReach(
-                constraint_key=constraint, run_id=run_id,
-                window_start=t, window_end=t, k=k,
-                available=False, unavailable_reason="artifact_missing", sps=[],
-            )
+            # The requested delivery day has no artifact. Which nodes a constraint
+            # drives is structural (topology-driven, slow to drift), so fall back to
+            # the nearest EARLIER built day rather than blanking the card — a
+            # resilience net for a lagging or failed forecast job. Only whole-day
+            # absence falls back; a constraint missing from a day that DOES have an
+            # artifact still reads as "didn't bind that day" below, not a stale
+            # substitute. window_start/window_end + basis report the day served.
+            fallback_day = _nearest_past_artifact_day(cur, run_id, day)
+            if fallback_day is not None:
+                artifact = load_daily_artifact(cur, run_id, fallback_day)
+                day, basis = fallback_day, "nearest_past"
+            if artifact is None:
+                return ConstraintReach(
+                    constraint_key=constraint, run_id=run_id,
+                    window_start=t, window_end=t, k=k,
+                    available=False, unavailable_reason="artifact_missing", sps=[],
+                )
 
         window_start, window_end = _artifact_window(artifact)
         geo = (_geo_metadata(cur, [constraint]).get(constraint) or {})
-        if not _interval_in_artifact(artifact, t):
+        # A nearest-past fallback is served precisely because `t` is not in any
+        # built block, so the interval gate only applies to the day's own artifact.
+        if basis == "artifact" and not _interval_in_artifact(artifact, t):
             return ConstraintReach(
                 constraint_key=constraint, ctype=geo.get("ctype"), run_id=run_id,
                 window_start=window_start, window_end=window_end, k=k,
@@ -461,10 +504,12 @@ def get_map_reach(
         max_abs_sf = float(row.abs().max())
         binding_hours = int((artifact.E_mu[constraint].abs() > 0).sum())
 
-        # Magnitude floor relative to the constraint's own peak |SF|. A weakly
-        # identified constraint has almost no structure past a few nodes, so
-        # top-k alone scrapes the noise floor; drop |SF| < min_frac * peak.
-        floor = min_frac * max_abs_sf if max_abs_sf else 0.0
+        # Magnitude floor relative to the constraint's own peak |SF|, combined
+        # with an absolute floor. The relative floor follows the constraint's
+        # shape; the absolute floor stops a noise-peak constraint (peak ~0.01)
+        # from admitting its whole tail. A weakly identified constraint has almost
+        # no structure past a few nodes, so top-k alone scrapes the noise floor.
+        floor = max(min_frac * max_abs_sf if max_abs_sf else 0.0, abs_floor)
         above = row[row.abs() >= floor]
         ranked = above.reindex(above.abs().sort_values(ascending=False).index)
 
@@ -502,6 +547,7 @@ def get_map_reach(
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=binding_hours,
         available=bool(sps),
+        basis=basis,
         truncated=truncated,
         sps=sps,
     )

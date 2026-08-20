@@ -241,25 +241,51 @@ export default function GridMap({
     onSpHover,
     onSpClick,
     onMapClick,
+    onIsolateConstraint,
+    onConstraintPreview,
+    onConstraintSelect,
   });
   useEffect(() => {
     callbacksRef.current = {
       onSpHover,
       onSpClick,
       onMapClick,
+      onIsolateConstraint,
+      onConstraintPreview,
+      onConstraintSelect,
     };
-  }, [onSpHover, onSpClick, onMapClick]);
+  }, [
+    onSpHover,
+    onSpClick,
+    onMapClick,
+    onIsolateConstraint,
+    onConstraintPreview,
+    onConstraintSelect,
+  ]);
 
   // One React-owned map hover card. Nodes use it either as a compact header or
   // as a full member list; GTC gates use the same compact header form.
   const [popover, setPopover] = useState<{
     name: string;
-    kind: "node" | "gtc";
+    kind: "node" | "gtc" | "transmission";
     members?: OvMember[];
     meta?: string | null;
     x: number;
     y: number;
   } | null>(null);
+  // Mirror the popover into a ref so the (bind-once) constraint hover handlers can
+  // see the currently-shown card without re-binding. A node card carrying a member
+  // list is "sticky" — it survives leaving the node so the pointer can travel onto
+  // it and hover the constraint rows. The corridor/GTC hit layers sit under that
+  // travel path, so they must yield to a sticky node card rather than overwrite it.
+  const popoverRef = useRef(popover);
+  useEffect(() => {
+    popoverRef.current = popover;
+  }, [popover]);
+  const overStickyNodeCard = () => {
+    const p = popoverRef.current;
+    return p?.kind === "node" && !!p.members?.length;
+  };
   useEffect(() => {
     tapOnlyRef.current = tapOnly;
     if (tapOnly) mapRef.current?.getCanvas().style.setProperty("cursor", "");
@@ -657,14 +683,32 @@ export default function GridMap({
     // not reuse a metric-map gradient, whose sign can mean something different.
     // Every other node fades to the no-data fill. This is SF *structure*,
     // deliberately overriding the realized/forecast-error palette while a
-    // constraint is focused. `focusReach` (the effective hovered/locked constraint)
-    // wins over the DetailCard's own `reach`, so the node glow always tracks the
-    // SAME constraint the marks isolate — hovering a panel row lights ITS nodes,
-    // not whichever one the card happens to have pinned (plan/0112).
+    // constraint is focused.
+    //
+    // Membership + signed SF come from the SAME reach the DetailCard shows, so the
+    // map glow and the card can never disagree. `reach`/`focusReach` is the
+    // constraint's FULL driven set (top-k), day-exact when the day has an artifact
+    // and the nearest-past SF run otherwise (server fallback), so it is populated
+    // on every day — the original reason for keying off the overview is gone now
+    // that reach never comes back empty.
+    //
+    // The overview's `nodes` is only a TRUNCATED top-few field for drawing the mark
+    // glyph (k=6 in the bundle), NOT the full membership — keying the fade off it
+    // faded every member past the glyph's top-6 while the card listed all of them.
+    // So it is only a pre-load fallback, used until reach lands for the isolated
+    // constraint, never the primary source.
     const rch = focusReach ?? reach;
-    if (rch && rch.sps.length > 0) {
+    const members =
+      rch && rch.sps.length > 0
+        ? rch.sps
+        : isolatedConstraint
+        ? overview?.constraints.find(
+            (c) => c.constraint_key === isolatedConstraint
+          )?.nodes ?? null
+        : null;
+    if (members && members.length > 0) {
       const bySp = new Map<string, number>();
-      for (const s of rch.sps) {
+      for (const s of members) {
         bySp.set(s.settlement_point, s.sf);
       }
       const touched = new Set<string>();
@@ -731,6 +775,8 @@ export default function GridMap({
     sourcesReady,
     reach,
     focusReach,
+    isolatedConstraint,
+    overview,
     congestionColor,
     theme,
   ]);
@@ -878,6 +924,26 @@ export default function GridMap({
           before
         );
       }
+      // Wide, effectively invisible interaction target for the thin corridor
+      // line — the transmission analogue of `ov-gtc-hit`. Same source as the
+      // rendered corridor, so it carries `constraint_key`/`ctype` too. Below
+      // `sps`; the handlers yield to any settlement point under the cursor.
+      if (!map.getLayer("ov-corridor-hit")) {
+        map.addLayer(
+          {
+            id: "ov-corridor-hit",
+            type: "line",
+            source: "ov-corridor",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": sf.transmission,
+              "line-width": 12,
+              "line-opacity": 0.01,
+            },
+          },
+          before
+        );
+      }
       if (!map.getLayer("ov-radial")) {
         map.addLayer(
           {
@@ -922,6 +988,7 @@ export default function GridMap({
       for (const id of ["ov-gtc-axis", "ov-gtc-gate", "ov-gtc-hit", "ov-radial"])
         map.setFilter(id, filt);
       map.setFilter("ov-corridor", filt);
+      map.setFilter("ov-corridor-hit", filt);
     };
 
     // `sourcesReady` already implies the style is loaded (it flips inside the
@@ -949,59 +1016,72 @@ export default function GridMap({
     const map = mapRef.current;
     if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
 
+    // Both overview constraint glyphs carry an invisible hit layer: GTC gates a
+    // circle, transmission corridors a fat line. They share one handler set.
+    const hitLayers = ["ov-gtc-hit", "ov-corridor-hit"];
     const overSettlementPoint = (e: maplibregl.MapLayerMouseEvent) =>
       map.queryRenderedFeatures(e.point, { layers: ["sps", "load-zone-diamonds"] }).length > 0;
     const keyAt = (e: maplibregl.MapLayerMouseEvent) =>
       e.features?.[0]?.properties?.constraint_key as string | undefined;
+    // Corridor features tag `ctype: "transmission"`; the gate hit target does
+    // not, so an absent ctype reads as a GTC.
+    const kindAt = (e: maplibregl.MapLayerMouseEvent) =>
+      e.features?.[0]?.properties?.ctype === "transmission" ? "transmission" : "gtc";
+    // Read callbacks off the ref, never the closure. Binding these handlers to
+    // the callback props would re-run this effect (and rebind the maplibre
+    // listeners) every time `reach`/`focusReach` changed — and since `onEnter`
+    // itself drives those, the rebind reset maplibre's mouseenter state and the
+    // next mousemove re-fired `onEnter`, spraying duplicate /map/reach fetches
+    // and thrashing the DetailCard. Binding once keeps one enter per hover.
     const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
-      if (overSettlementPoint(e)) return;
+      // Yield to a sticky node member-card the pointer is travelling toward, and
+      // to a settlement point directly under the cursor.
+      if (overStickyNodeCard() || overSettlementPoint(e)) return;
       const key = keyAt(e);
       if (!key) return;
       map.getCanvas().style.cursor = "pointer";
-      setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
-      onIsolateConstraint?.(key);
-      onConstraintPreview?.(key);
+      setPopover({ name: key, kind: kindAt(e), x: e.point.x, y: e.point.y });
+      callbacksRef.current.onIsolateConstraint?.(key);
+      callbacksRef.current.onConstraintPreview?.(key);
     };
     const onMove = (e: maplibregl.MapLayerMouseEvent) => {
-      if (overSettlementPoint(e)) return;
+      if (overStickyNodeCard() || overSettlementPoint(e)) return;
       const key = keyAt(e);
-      if (key) setPopover({ name: key, kind: "gtc", x: e.point.x, y: e.point.y });
+      if (key) setPopover({ name: key, kind: kindAt(e), x: e.point.x, y: e.point.y });
     };
     const onLeave = () => {
+      // Leaving the corridor onto a sticky node card (a DOM element that steals
+      // the pointer off the canvas) must NOT tear that card down — the corridor
+      // yielded on enter/move, so it owns no popover or focus to clear here.
+      if (overStickyNodeCard()) return;
       map.getCanvas().style.cursor = "";
       setPopover(null);
-      onIsolateConstraint?.(null);
-      onConstraintPreview?.(null);
+      callbacksRef.current.onIsolateConstraint?.(null);
+      callbacksRef.current.onConstraintPreview?.(null);
     };
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
       if (overSettlementPoint(e)) return;
       const key = keyAt(e);
       if (!key) return;
       e.preventDefault();
-      onConstraintSelect?.(key);
+      callbacksRef.current.onConstraintSelect?.(key);
       setPopover(null);
     };
     if (!tapOnly) {
-      map.on("mouseenter", "ov-gtc-hit", onEnter);
-      map.on("mousemove", "ov-gtc-hit", onMove);
-      map.on("mouseleave", "ov-gtc-hit", onLeave);
+      map.on("mouseenter", hitLayers, onEnter);
+      map.on("mousemove", hitLayers, onMove);
+      map.on("mouseleave", hitLayers, onLeave);
     }
-    map.on("click", "ov-gtc-hit", onClick);
+    map.on("click", hitLayers, onClick);
     return () => {
       if (!tapOnly) {
-        map.off("mouseenter", "ov-gtc-hit", onEnter);
-        map.off("mousemove", "ov-gtc-hit", onMove);
-        map.off("mouseleave", "ov-gtc-hit", onLeave);
+        map.off("mouseenter", hitLayers, onEnter);
+        map.off("mousemove", hitLayers, onMove);
+        map.off("mouseleave", hitLayers, onLeave);
       }
-      map.off("click", "ov-gtc-hit", onClick);
+      map.off("click", hitLayers, onClick);
     };
-  }, [
-    sourcesReady,
-    onIsolateConstraint,
-    onConstraintPreview,
-    onConstraintSelect,
-    tapOnly,
-  ]);
+  }, [sourcesReady, tapOnly]);
 
   const visiblePopover = showConstraints && !tapOnly ? popover : null;
 

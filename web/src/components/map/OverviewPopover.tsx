@@ -15,7 +15,7 @@ const SF_TOKENS: Record<string, string> = {
 
 interface Props {
   name: string;
-  kind: "node" | "gtc";
+  kind: "node" | "gtc" | "transmission";
   members?: OvMember[];
   meta?: string | null;
   x: number;
@@ -51,7 +51,8 @@ export default function OverviewPopover({
   const top = y + 12;
   const shown = members?.slice(0, 10) ?? [];
   const hasMembers = shown.length > 0;
-  const typeToken = kind === "gtc" ? "--sf-gtc" : "--violet";
+  const typeToken =
+    kind === "gtc" ? "--sf-gtc" : kind === "transmission" ? "--sf-transmission" : "--violet";
 
   return (
     <div
@@ -63,7 +64,7 @@ export default function OverviewPopover({
         <span className="ov-chip ov-pop-sp__chip" style={{ background: `var(${typeToken})` }} />
         <span>{name}</span>
         <small>
-          · {hasMembers ? `${members!.length} constraint${members!.length > 1 ? "s" : ""}` : kind === "gtc" ? "GTC" : "node"}
+          · {hasMembers ? `${members!.length} constraint${members!.length > 1 ? "s" : ""}` : kind === "gtc" ? "GTC" : kind === "transmission" ? "Transmission" : "node"}
         </small>
       </div>
       {meta && <div className="ov-pop-meta">{meta}</div>}

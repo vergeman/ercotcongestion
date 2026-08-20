@@ -76,6 +76,9 @@ function fmtSf(v: number | null): string {
 const RAIL_MULTI = 2;
 const BODY_FLOOR = 0.1;
 const THIN_HOURS = 50;
+// Max constraint-reach rows the card lists; the rest are summarized as a count
+// (the map still glows the full footprint). 0147.
+const REACH_ROW_CAP = 20;
 
 function Row({
   label,
@@ -344,6 +347,11 @@ function ReachBody({
   const lowConf = railArtifact;
   return (
     <>
+      {reach.basis === "nearest_past" && (
+        <div className="dc-support label">
+          SF as of {reach.window_start.slice(0, 10)} — no artifact for the selected day
+        </div>
+      )}
       <Row
         label="Binding hours"
         value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
@@ -359,7 +367,10 @@ function ReachBody({
         className="dc-drivers dc-drivers--reach"
         onMouseLeave={() => onHoverMember?.(null)}
       >
-        {reach.sps.map((s) => (
+        {/* The map glows the constraint's full driven footprint (0147); the card
+            lists the strongest REACH_ROW_CAP and reports the rest as a count, so a
+            broad constraint's hundreds of members stay scannable here. */}
+        {reach.sps.slice(0, REACH_ROW_CAP).map((s) => (
           <button
             key={s.settlement_point}
             className="dc-driver dc-driver--reach-row"
@@ -371,6 +382,11 @@ function ReachBody({
             <SfSign sf={s.sf} />
           </button>
         ))}
+        {reach.sps.length > REACH_ROW_CAP && (
+          <div className="dc-support label">
+            + {reach.sps.length - REACH_ROW_CAP} more nodes
+          </div>
+        )}
       </div>
     </>
   );

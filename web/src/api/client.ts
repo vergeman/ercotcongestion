@@ -220,9 +220,24 @@ export async function fetchMapExposures(
   return r.json();
 }
 
+// The reach depth every constraint-footprint surface shares (0147): the FULL
+// driven set above a shape-aware threshold rather than a fixed top-k. Membership
+// = |SF| >= max(minFrac*peak, absFloor) — the relative floor follows each
+// constraint's shape, the absolute floor cuts a noise-peak constraint's tail.
+// Map glow, Brief footprint, and the member lists (which cap their own rows)
+// all read this so their footprints agree.
+export const REACH_THRESHOLD_OPTS: MapReachOptions = {
+  full: true,
+  minFrac: 0.15,
+  absFloor: 0.03,
+};
+
 export interface MapReachOptions {
   k?: number;
   minFrac?: number;
+  // Absolute |SF| floor, combined with minFrac as max(minFrac*peak, absFloor).
+  // Cuts a noise-peak constraint's tail that a purely relative floor lets through.
+  absFloor?: number;
   // The scrubbed interval — selects the CT delivery day's artifact (0144).
   // Omitted serves the latest built day.
   t?: Date;
@@ -237,12 +252,13 @@ export interface MapReachOptions {
 // Null on 503.
 export async function fetchMapReach(
   constraint: string,
-  { k = 15, minFrac, full, t }: MapReachOptions = {}
+  { k = 15, minFrac, absFloor, full, t }: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
   const qs = new URLSearchParams({ constraint });
   if (full) qs.set("full", "true");
   else qs.set("k", String(k));
   if (minFrac != null) qs.set("min_frac", String(minFrac));
+  if (absFloor != null) qs.set("abs_floor", String(absFloor));
   if (t) qs.set("t", t.toISOString());
   const r = await fetch(`${BASE}/map/reach?${qs.toString()}`);
   if (r.status === 503) return null;

@@ -358,8 +358,25 @@ def test_reach_min_frac_floors_off_the_days_own_peak(client, fake_pool):
     assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
 
 
-def test_reach_reports_a_day_with_no_artifact(client, fake_pool):
+def test_reach_abs_floor_cuts_below_an_absolute_sf(client, fake_pool):
+    """abs_floor combines with min_frac as max(min_frac*peak, abs_floor), so a
+    noise-peak constraint's tail is cut even when the relative floor is permissive
+    (0147). Here min_frac=0 would keep every node; abs_floor=0.3 drops C."""
+    blob = _artifact({"A": [1.0], "B": [0.5], "C": [0.2]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "min_frac": 0.0,
+                                        "abs_floor": 0.3, "t": DAY_MID.isoformat()})
+    body = r.json()
+    assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
+
+
+def test_reach_reports_a_day_with_no_artifact_and_no_earlier_build(client, fake_pool):
+    """A date before the artifact history: the requested day has no artifact AND
+    nothing was built earlier, so the nearest-past fallback finds nothing and the
+    reach reports an explicit empty rather than inventing a member set."""
     _queue_click_artifact(fake_pool, None)
+    fake_pool.cursor.queue([{"d": None}])   # _nearest_past_artifact_day → none earlier
 
     r = client.get("/map/reach", params={"constraint": "CONSTR_A",
                                          "t": "2024-03-01T12:00:00Z"})
@@ -368,6 +385,34 @@ def test_reach_reports_a_day_with_no_artifact(client, fake_pool):
     assert body["available"] is False
     assert body["unavailable_reason"] == "artifact_missing"
     assert body["sps"] == []
+
+
+def test_reach_falls_back_to_nearest_past_day_when_the_day_has_no_artifact(
+    client, fake_pool, monkeypatch
+):
+    """A lagging/failed forecast job leaves the cursor's day with no artifact. SF is
+    topology-driven, so the reach serves the nearest EARLIER built day's members
+    (basis='nearest_past') instead of a blank card, with window_start reporting the
+    day actually served so the client can label it."""
+    monkeypatch.setattr(map_module, "_SP_COORDS", {"LZ_WEST": (31.9, -102.1)})
+    monkeypatch.setattr(map_module, "_SP_METADATA", {"LZ_WEST": ("load_zone", "west")})
+    _queue_click_artifact(fake_pool, None)            # requested day: no artifact
+    fake_pool.cursor.queue([{"d": DAY}])              # _nearest_past_artifact_day
+    fake_pool.cursor.queue([{"h": 1}])               # fallback load's horizon probe
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"], full_day=True)
+    fake_pool.cursor.queue([{"sf_npz": blob}])        # fallback artifact fetch
+    fake_pool.cursor.queue([                          # _geo_metadata
+        {"constraint_key": "CONSTR_A", "ctype": "gtc", "n_rail": 4, "peak_offrail": 0.2},
+    ])
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A",
+                                         "t": "2026-09-01T12:00:00Z"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is True
+    assert body["basis"] == "nearest_past"
+    assert body["window_start"].startswith(DAY.isoformat())
+    assert [sp["settlement_point"] for sp in body["sps"]] == ["LZ_WEST"]
 
 
 def test_reach_reports_a_constraint_absent_from_the_day(client, fake_pool):

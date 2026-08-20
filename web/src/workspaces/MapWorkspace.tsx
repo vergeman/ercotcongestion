@@ -18,6 +18,7 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapConstraintsRanked,
+  REACH_THRESHOLD_OPTS,
 } from "../api/client";
 import { formatCT } from "../lib/time";
 import {
@@ -666,7 +667,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
-    fetchMapReach(constraintKey, { t: cursorTs })
+    fetchMapReach(constraintKey, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
@@ -720,7 +721,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     previewReachRef.current = false;
     setHoveredConstraintId(null);
     const token = ++reachReqRef.current;
-    fetchMapReach(target.value, { t: cursorTs })
+    fetchMapReach(target.value, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((nextReach) => {
         if (reachReqRef.current !== token) return;
         if (!nextReach?.available) {
@@ -767,7 +768,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       return;
     }
     const token = ++focusReqRef.current;
-    fetchMapReach(id, { t: cursorTs })
+    fetchMapReach(id, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (r) focusReachCache.current.set(focusReachKey(id), r);
         if (focusReqRef.current === token) setFocusReach(r);
@@ -848,7 +849,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
-    fetchMapReach(key, { t: cursorTs })
+    fetchMapReach(key, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
