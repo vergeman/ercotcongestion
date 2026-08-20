@@ -745,6 +745,16 @@ class ConstraintReach(BaseModel):
     # interval. Null when the request has no cursor hour or the served SF is a
     # nearest-past structural fallback rather than that interval's artifact.
     shadow_price: float | None = None
+    # Published ERCOT DAM μ for the same cursor interval/key. It remains null
+    # until publication; forecast_error is never manufactured from missing DAM.
+    dam_mu: float | None = None
+    forecast_error: float | None = None
+    # Daily forecast-μ magnitude and rank from the served artifact's complete
+    # constraint vocabulary, plus the unfiltered nonzero-SF dipole counts.
+    daily_mu_rank: int | None = None
+    daily_mu_sum: float | None = None
+    import_members: int | None = None
+    export_members: int | None = None
     # False means the requested key has no represented SF reach on the requested
     # day (or the day has no artifact); callers can distinguish it from an empty
     # visual selection.

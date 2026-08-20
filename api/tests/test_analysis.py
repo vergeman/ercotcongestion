@@ -614,6 +614,32 @@ def test_constraints_soft_fails_when_artifact_is_unavailable(client, fake_pool, 
                     "delivery_date": "2026-07-28", "horizon": 1}
 
 
+def test_node_structural_mode_includes_quiet_nonzero_sf_terms(client, fake_pool, monkeypatch):
+    artifact = SfMuArtifact(
+        SF=pd.DataFrame([[1.0], [0.5]], index=["ACTIVE|C", "QUIET|C"], columns=["SOURCE"]),
+        E_mu=pd.DataFrame([[4.0, 0.0]], index=pd.to_datetime(["2026-07-28T05:00Z"]),
+                          columns=["ACTIVE|C", "QUIET|C"]),
+    )
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # coverage: settled SPP
+    fake_pool.cursor.queue([])  # coverage: settled lambda
+    fake_pool.cursor.queue([])  # forecast P50
+    fake_pool.cursor.queue([])  # exact forecast lambda
+    fake_pool.cursor.queue([])  # DAM SPP
+
+    body = client.get(
+        "/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+        f"&basis=predicted&run_id=run-x&horizon=1&mode=structural&hours={ts0.isoformat().replace('+00:00', 'Z')}"
+    ).json()
+
+    assert body["n_terms"] == 2
+    assert body["terms"] == [
+        {"constraint_key": "ACTIVE|C", "contribution": -4.0, "shift_factor": 1.0},
+        {"constraint_key": "QUIET|C", "contribution": 0.0, "shift_factor": 0.5},
+    ]
+
+
 def test_essp_returns_hourly_membership_for_requested_vintage(client, fake_pool):
     fake_pool.cursor.queue([
         {"group_index": 7, "settlement_points": ["ALPHA", "BETA"]},

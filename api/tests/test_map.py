@@ -292,6 +292,7 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     _queue_click_artifact(fake_pool, blob, geo=[
         {"constraint_key": "CONSTR_A", "ctype": "gtc", "n_rail": 4, "peak_offrail": 0.2},
     ])
+    fake_pool.cursor.queue([{"shadow_price": 12.0}])
 
     r = client.get("/map/reach",
                    params={"constraint": "CONSTR_A", "k": 5, "t": DAY_MID.isoformat()})
@@ -302,6 +303,10 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     assert body["max_abs_sf"] == pytest.approx(0.72)
     assert body["binding_hours"] == 2          # per-day, from the artifact E_mu
     assert body["shadow_price"] == pytest.approx(17.25)  # cursor hour, not day mass
+    assert body["dam_mu"] == pytest.approx(12.0)
+    assert body["forecast_error"] == pytest.approx(5.25)
+    assert body["daily_mu_rank"] == 1 and body["daily_mu_sum"] == pytest.approx(18.25)
+    assert body["import_members"] == 1 and body["export_members"] == 1
     assert body["ctype"] == "gtc" and body["n_rail"] == 4   # structural, from geo
     assert body["oos_r2"] is None
     sps = body["sps"]

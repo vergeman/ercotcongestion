@@ -5,7 +5,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from threading import Lock
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
@@ -209,6 +209,16 @@ def _terms(contributions: pd.Series, shift_factors: pd.Series) -> list[AnalysisC
     return [AnalysisContributionTerm(constraint_key=str(key), contribution=float(value),
                                     shift_factor=float(shift_factors.loc[key]))
             for key, value in ordered.items()]
+
+
+def _structural_terms(shift_factors: pd.Series, contributions: pd.Series) -> list[AnalysisContributionTerm]:
+    """Every nonzero SF relationship, including constraints quiet this hour."""
+    sf = shift_factors[shift_factors != 0.0]
+    ordered = sf.reindex(sf.abs().sort_values(ascending=False).index)
+    return [AnalysisContributionTerm(
+        constraint_key=str(key), contribution=float(contributions.loc[key]),
+        shift_factor=float(value),
+    ) for key, value in ordered.items()]
 
 
 def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
@@ -762,6 +772,7 @@ def get_node(
     horizon: int | None = Query(None, ge=1, le=2),
     hours: list[datetime] | None = Query(None),
     min_abs_sf: float = Query(0.0, ge=0.0),
+    mode: Literal["drivers", "structural"] = Query("drivers"),
 ) -> NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse:
     """Decompose a node from every represented constraint, never a brief top-k."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -797,9 +808,16 @@ def get_node(
     return NodeAnalysisAvailableResponse(
         available=True, settlement_point=settlement_point, run_id=run_id,
         delivery_date=delivery_date, horizon=horizon, basis=basis, hours=list(selected), total=total,
-        n_terms=int((contributions != 0.0).sum()),
+        n_terms=(
+            int(((sf.abs() >= min_abs_sf) & (sf != 0.0)).sum())
+            if mode == "structural" else int((contributions != 0.0).sum())
+        ),
         coverage=None if settled in (None, 0.0) else total / settled,
-        terms=_terms(contributions, sf), market_state=market_state,
+        terms=(
+            _structural_terms(sf[sf.abs() >= min_abs_sf], contributions)
+            if mode == "structural" else _terms(contributions, sf)
+        ),
+        market_state=market_state,
     )
 
 
