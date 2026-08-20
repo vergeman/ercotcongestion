@@ -797,11 +797,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     setHoveredConstraintId(null);
   }, []);
 
-  // Card driver-row click: load the constraint's member list into the card AND
-  // lock the map isolation, so the isolated view the user saw on hover persists
-  // after the pointer leaves the row — until a background click or another
-  // selection. Mirrors the constraint-panel's click-locks-hover contract, plus
-  // the card's reach body.
+  // Constraint selection from either a DetailCard driver row or the Constraints
+  // tab: load its member list into the constraint card AND lock map isolation, so
+  // the isolated view persists after the pointer leaves — until a background
+  // click or another selection. Both entry points deliberately share this
+  // composite route + reach + lock behavior.
   const handleConstraintSelectFromCard = useCallback(
     (key: string) => {
       handleConstraintClick(key);
@@ -1228,7 +1228,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     rankedLoading,
     constraintBasis,
     onConstraintBasis: setConstraintBasis,
-    onSelectConstraint: handleConstraintLock,
+    onSelectConstraint: handleConstraintSelectFromCard,
     highlightedConstraintId: effectiveConstraintId,
     onHoverConstraint: isMobile ? undefined : handleConstraintHover,
     onMemberHover: isMobile ? undefined : setHoveredMemberSp,
