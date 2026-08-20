@@ -33,7 +33,7 @@ from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableRes
                     ContextUnavailableResponse, GradeHistoryHalfResponse,
                     GradeHistoryDayResponse, GradeHistoryAvailableResponse,
                     GradeHistoryUnavailableResponse, BriefDayResponse,
-                    BriefDetailsResponse, BriefHeroShellResponse)
+                    BriefDetailsResponse, BriefHeroShellResponse, BriefHeroStatsResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -1662,6 +1662,7 @@ _CT = ZoneInfo("America/Chicago")
 _BRIEF_CACHE_MAX = 512
 _BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDict()
 _BRIEF_HERO_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroShellResponse]" = OrderedDict()
+_BRIEF_HERO_STATS_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroStatsResponse]" = OrderedDict()
 _BRIEF_DETAILS_CACHE: "OrderedDict[tuple[str, date, int], BriefDetailsResponse]" = OrderedDict()
 _BRIEF_CACHE_LOCK = Lock()
 
@@ -1781,7 +1782,7 @@ def get_brief_hero_shell(
     day: date = Query(..., description="ERCOT delivery day."),
     run: str | None = Query(None, description="Model version; defaults to the published run."),
 ) -> BriefHeroShellResponse:
-    """Serve the complete Brief hero without waiting for detail panels."""
+    """Serve the Brief prose and map before its slower stat-card evidence."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run)
         horizon = _resolve_horizon(cur, run_id, day, None)
@@ -1790,9 +1791,7 @@ def get_brief_hero_shell(
             if cached is not None:
                 return cached
         previous, following = _brief_neighbor_dates(cur, run_id, day)
-    # The hero is intentionally atomic: its stat cards and prose arrive in the
-    # same response, preventing a visible reflow as the load condition lands.
-    hero = get_hero(day, run_id, horizon)
+    hero = get_hero(day, run_id, horizon, include_condition=False)
     response = BriefHeroShellResponse(
         hero=hero,
         previous_delivery_date=previous,
@@ -1802,6 +1801,39 @@ def get_brief_hero_shell(
             and response.hero.available and response.hero.provenance.basis == "settled"):
         _brief_section_cache_put(_BRIEF_HERO_CACHE, (run_id, day, horizon), response)
     return response
+
+
+@router.get("/brief/hero/stats", response_model=BriefHeroStatsResponse,
+            summary="Complete grouped stat-card evidence for a Brief hero")
+def get_brief_hero_stats(
+    day: date = Query(..., description="ERCOT delivery day."),
+    run: str | None = Query(None, description="Model version; defaults to the published run."),
+) -> BriefHeroStatsResponse:
+    """Load every hero stat card in one response after prose and map paint."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run)
+        horizon = _resolve_horizon(cur, run_id, day, None)
+        if horizon is None:
+            raise HTTPException(status_code=404, detail="artifact_missing")
+        cache_key = (run_id, day, horizon)
+        if horizon == 1 and day < datetime.now(_CT).date():
+            cached = _brief_section_cache_get(_BRIEF_HERO_STATS_CACHE, cache_key)
+            if cached is not None:
+                return cached
+    hero = get_hero(day, run_id, horizon)
+    if not hero["available"]:
+        raise HTTPException(status_code=404, detail="artifact_missing")
+    response = BriefHeroStatsResponse(
+        run_id=run_id,
+        delivery_date=day,
+        horizon=horizon,
+        slots=hero["slots"],
+    )
+    if horizon == 1 and day < datetime.now(_CT).date() and hero["provenance"]["basis"] == "settled":
+        _brief_section_cache_put(_BRIEF_HERO_STATS_CACHE, cache_key, response)
+    return response
+
+
 @router.get("/brief/details", response_model=BriefDetailsResponse,
             summary="Secondary Brief sections for one delivery day")
 def get_brief_details(

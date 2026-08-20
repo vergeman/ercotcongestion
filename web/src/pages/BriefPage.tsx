@@ -9,6 +9,7 @@ import type {
   AnalysisGradeSupport,
   BriefContext,
   BriefHero,
+  BriefHeroStats,
   HeroSegment,
   Standouts,
   TopConstraints,
@@ -19,6 +20,7 @@ import {
   fetchBriefDetailsCached,
   fetchBriefHeroLatestCached,
   fetchBriefHeroShellCached,
+  fetchBriefHeroStatsCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
@@ -1417,6 +1419,7 @@ export default function BriefPage() {
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
   const [initialLookupDone, setInitialLookupDone] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
+  const [heroStats, setHeroStats] = useState<BriefHeroStats | null>(null);
   const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(
     null
   );
@@ -1428,6 +1431,7 @@ export default function BriefPage() {
     null
   );
   const [heroLoading, setHeroLoading] = useState(false);
+  const [heroStatsLoading, setHeroStatsLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
   const [standoutsLoading, setStandoutsLoading] = useState(false);
   const [topNodesLoading, setTopNodesLoading] = useState(false);
@@ -1485,6 +1489,7 @@ export default function BriefPage() {
   const heroPending = !!deliveryDay && !heroError &&
     (heroLoading || !heroMatchesDeliveryDay);
   const heroReadyDay = hero?.available ? hero.provenance?.delivery_date : null;
+  const globalLoading = (!deliveryDay && !initialLookupDone) || heroPending;
 
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
@@ -1503,9 +1508,11 @@ export default function BriefPage() {
     }
     let live = true;
     setHeroLoading(true);
+    setHeroStatsLoading(false);
     setHeroError(null);
     setConnectionState("loading");
     setHero(null);
+    setHeroStats(null);
     setContext(null);
     setStandouts(null);
     setTopNodes(null);
@@ -1538,6 +1545,28 @@ export default function BriefPage() {
       live = false;
     };
   }, [deliveryDay, cursor.run]);
+
+  // The evidence cards are deliberately one independent, all-or-nothing
+  // response. The prose and map can paint first, while the cards never enter
+  // the grid one at a time or change their layout as fields arrive.
+  useEffect(() => {
+    if (!deliveryDay || heroReadyDay !== deliveryDay) return;
+    let live = true;
+    setHeroStatsLoading(true);
+    fetchBriefHeroStatsCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (live) setHeroStats(result);
+      })
+      .catch(() => {
+        if (live) setHeroStats(null);
+      })
+      .finally(() => {
+        if (live) setHeroStatsLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run, heroReadyDay]);
 
   // Details have their own request and failure boundary. Do not begin it for
   // an unavailable hero: that is an invalid/missing day, not a slow page.
@@ -1605,9 +1634,9 @@ export default function BriefPage() {
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
   const title = useMemo(() => hero?.segments?.headline ?? [], [hero]);
-  const regime = hero?.slots?.regime;
-  const magnitude = hero?.slots?.magnitude;
-  const where = hero?.slots?.where;
+  const regime = heroStats?.slots.regime;
+  const magnitude = heroStats?.slots.magnitude;
+  const where = heroStats?.slots.where;
   const forecastLoadTotal = numeric(regime, "today");
   const forecastLoadNet = numeric(regime, "net_load");
   const actualLoadTotal = numeric(regime, "actual_today");
@@ -1679,7 +1708,7 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        <div className="an-date-picker">
+        {!globalLoading && <div className="an-date-picker">
           {provenance && (
             <div className="an-brief-meta">
               <span className="an-brief-meta__item">
@@ -1738,19 +1767,14 @@ export default function BriefPage() {
               loading={heroPending}
             />
           </div>
-        </div>
-        {!deliveryDay && !initialLookupDone && (
-          <section className="an-brief-loader" role="status" aria-label="Finding the newest delivery day">
+        </div>}
+        {globalLoading && (
+          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
             <span className="an-loading-indicator" aria-hidden="true" />
           </section>
         )}
         {initialLookupDone && !deliveryDay && (
           <p className="an-empty">No forecast delivery day is published yet.</p>
-        )}
-        {heroPending && deliveryDay && (
-          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
-            <span className="an-loading-indicator" aria-hidden="true" />
-          </section>
         )}
         {heroError && <p className="an-empty">{heroError}</p>}
         {!heroPending && hero && !hero.available && (
@@ -1784,40 +1808,49 @@ export default function BriefPage() {
                   <p className="an-lede">
                     <Segments segments={hero.segments.lede} />
                   </p>
-                  <div className="an-facts" aria-label="Brief evidence">
-                    {loadTotal != null && loadNet != null && (
-                      <DualStatBox
-                        firstLabel={loadTotalLabel}
-                        firstValue={gw(loadTotal)}
-                        secondLabel={loadNetLabel}
-                        secondValue={gw(loadNet)}
-                      />
+                  <div className="an-facts-slot" aria-busy={heroStatsLoading}>
+                    {heroStatsLoading && (
+                      <div className="an-facts-loading" aria-label="Loading brief evidence">
+                        <span className="an-loading-indicator" aria-hidden="true" />
+                      </div>
                     )}
-                    {magnitudeValue != null && magnitudeMedian != null && (
-                      <DualStatBox
-                        firstLabel="Total Congestion"
-                        firstValue={usd(magnitudeValue)}
-                        secondLabel="Median"
-                        secondValue={usd(magnitudeMedian)}
-                      />
-                    )}
-                    {magnitudeRank != null && (
-                      <DualStatBox
-                        firstLabel="30-Day Congestion"
-                        firstValue={`#${magnitudeRank}`}
-                        secondLabel={whereZone ? "Congested Region" : undefined}
-                        secondValue={
-                          whereZone ? zoneLabel(whereZone) : undefined
-                        }
-                      />
-                    )}
-                    {whereZone && whereShare != null && (
-                      <DualStatBox
-                        firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                        firstValue={pct(whereShare)}
-                        secondLabel={`${zoneLabel(whereZone)} Price`}
-                        secondValue={priceDirection(whereCongestion)}
-                      />
+                    {heroStats && (
+                      <div className="an-facts" aria-label="Brief evidence">
+                        {loadTotal != null && loadNet != null && (
+                          <DualStatBox
+                            firstLabel={loadTotalLabel}
+                            firstValue={gw(loadTotal)}
+                            secondLabel={loadNetLabel}
+                            secondValue={gw(loadNet)}
+                          />
+                        )}
+                        {magnitudeValue != null && magnitudeMedian != null && (
+                          <DualStatBox
+                            firstLabel="Total Congestion"
+                            firstValue={usd(magnitudeValue)}
+                            secondLabel="Median"
+                            secondValue={usd(magnitudeMedian)}
+                          />
+                        )}
+                        {magnitudeRank != null && (
+                          <DualStatBox
+                            firstLabel="30-Day Congestion"
+                            firstValue={`#${magnitudeRank}`}
+                            secondLabel={whereZone ? "Congested Region" : undefined}
+                            secondValue={
+                              whereZone ? zoneLabel(whereZone) : undefined
+                            }
+                          />
+                        )}
+                        {whereZone && whereShare != null && (
+                          <DualStatBox
+                            firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
+                            firstValue={pct(whereShare)}
+                            secondLabel={`${zoneLabel(whereZone)} Price`}
+                            secondValue={priceDirection(whereCongestion)}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                   {watchHref && (
@@ -1939,6 +1972,8 @@ export default function BriefPage() {
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
+        .an-facts-slot { display: grid; min-height: 108px; margin-top: 24px; }
+        .an-facts-loading { display: grid; place-items: center; }
         .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); }
         .an-fact { min-width: 0; min-height: 82px; padding: 11px 10px; background: var(--bg-panel); }
         .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; overflow-wrap: anywhere; }

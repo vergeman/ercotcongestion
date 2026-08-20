@@ -12,6 +12,7 @@ import type {
   ScoreboardSummary,
   MatrixFrame,
   BriefHeroLatest,
+  BriefHeroStats,
   BriefDay,
   BriefDetails,
   BriefHeroShell,
@@ -347,6 +348,18 @@ export async function fetchBriefHeroShell(
   const r = await fetch(`${BASE}/analysis/brief/hero?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief/hero ${r.status}`);
+  return r.json();
+}
+
+export async function fetchBriefHeroStats(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroStats | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief/hero/stats?${qs.toString()}`);
+  if (r.status === 503 || r.status === 404) return null;
+  if (!r.ok) throw new Error(`analysis/brief/hero/stats ${r.status}`);
   return r.json();
 }
 

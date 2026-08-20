@@ -278,10 +278,11 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
     fake_pool.cursor.queue([{"h": 2}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 27)}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 29)}])
-    calls = {"hero": 0}
+    calls = {"hero": 0, "include_condition": None}
 
     def hero(*_args, **_kwargs):
         calls["hero"] += 1
+        calls["include_condition"] = _kwargs.get("include_condition")
         return {"available": False, "unavailable_reason": "artifact_missing",
                 "run_id": "run-x", "delivery_date": date(2026, 7, 28), "horizon": 2}
 
@@ -295,12 +296,36 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
 
     body = client.get("/analysis/brief/hero?day=2026-07-28&run=run-x").json()
 
-    assert calls == {"hero": 1}
+    assert calls == {"hero": 1, "include_condition": False}
     assert body == {
         "hero": {"available": False, "unavailable_reason": "artifact_missing",
                  "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
         "previous_delivery_date": "2026-07-27",
         "next_delivery_date": "2026-07-29",
+    }
+
+
+def test_brief_hero_stats_returns_all_card_slots_in_one_response(
+    client, fake_pool, monkeypatch,
+):
+    fake_pool.cursor.queue([{"h": 2}])
+    monkeypatch.setattr(
+        analysis_module,
+        "get_hero",
+        lambda *_args, **_kwargs: {
+            "available": True,
+            "slots": {"regime": {"today": 84_000.0}, "magnitude": {"rank": 3},
+                      "where": {"zone": "north"}},
+            "provenance": {"basis": "forecast"},
+        },
+    )
+
+    body = client.get("/analysis/brief/hero/stats?day=2026-07-28&run=run-x").json()
+
+    assert body == {
+        "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2,
+        "slots": {"regime": {"today": 84_000.0}, "magnitude": {"rank": 3},
+                  "where": {"zone": "north"}},
     }
 
 
