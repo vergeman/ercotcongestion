@@ -55,6 +55,7 @@ from models import (
 )
 from scoreboard import get_scoreboard_headline
 from services.sf_artifacts import (
+    coerce_utc,
     delivery_date_for,
     load_daily_artifact,
     normalize_constraint_key,
@@ -194,6 +195,19 @@ def _click_artifact(cur, t: datetime_t | None):
     return run_id, day, load_daily_artifact(cur, run_id, day)
 
 
+def _interval_in_artifact(artifact, t: datetime_t | None) -> bool:
+    """Whether the block actually covers the requested instant.
+
+    A correctly cut CT block covers all 24 hours of its delivery day, so this is
+    always true on well-formed data. It matters when a block is misaligned or
+    partial: /matrix/frame rejects such an hour with ``interval_not_in_artifact``,
+    and the map must reach the same verdict rather than answering from the day's
+    SF while the matrix reports nothing there — a map/matrix disagreement is the
+    exact defect 0144 exists to remove.
+    """
+    return t is None or pd.Timestamp(coerce_utc(t)) in artifact.E_mu.index
+
+
 def _artifact_window(artifact) -> tuple[datetime_t, datetime_t]:
     """The day block's own bounds — what this response's SF actually describes."""
     idx = artifact.E_mu.index
@@ -250,6 +264,12 @@ def get_map_exposures(
             )
 
         window_start, window_end = _artifact_window(artifact)
+        if not _interval_in_artifact(artifact, t):
+            return ExposuresResponse(
+                sp=sp, run_id=run_id, window_start=window_start,
+                window_end=window_end, k=k, available=False,
+                unavailable_reason="interval_not_in_artifact", exposures=[],
+            )
         if sp not in artifact.SF.columns:
             # A located node absent from this day's fit: available, empty — the
             # same soft-fail an unknown sp always had.
@@ -327,6 +347,14 @@ def get_map_reach(
 
         window_start, window_end = _artifact_window(artifact)
         geo = (_geo_metadata(cur, [constraint]).get(constraint) or {})
+        if not _interval_in_artifact(artifact, t):
+            return ConstraintReach(
+                constraint_key=constraint, ctype=geo.get("ctype"), run_id=run_id,
+                window_start=window_start, window_end=window_end, k=k,
+                n_rail=geo.get("n_rail"), peak_offrail=geo.get("peak_offrail"),
+                available=False, unavailable_reason="interval_not_in_artifact",
+                sps=[],
+            )
         if constraint not in artifact.SF.index:
             return ConstraintReach(
                 constraint_key=constraint, ctype=geo.get("ctype"), run_id=run_id,

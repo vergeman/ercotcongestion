@@ -36,23 +36,37 @@ DAY_TAIL = datetime(2026, 7, 2, 3, tzinfo=timezone.utc)    # still CT July 1
 
 
 def _artifact(sf: dict[str, list[float]], index: list[str],
-              mu: dict[str, list[float]] | None = None) -> bytes:
-    """A day artifact: SF is constraints x nodes, E_mu hourly over the CT block."""
+              mu: dict[str, list[float]] | None = None, *,
+              full_day: bool = False) -> bytes:
+    """A day artifact: SF is constraints x nodes, E_mu hourly over the CT block.
+
+    ``full_day`` gives the block all 24 CT hours (what a correctly cut artifact
+    always has); the default two-hour block stands in for a partial one.
+    """
     sf_df = pd.DataFrame(sf, index=index)
-    hours = pd.to_datetime([DAY_T0, DAY_MID], utc=True)
-    mu_df = pd.DataFrame(mu or {key: [1.0, 1.0] for key in index}, index=hours)
+    hours = (pd.date_range(DAY_T0, periods=24, freq="h", tz="UTC") if full_day
+             else pd.to_datetime([DAY_T0, DAY_MID], utc=True))
+    mu_df = pd.DataFrame(mu or {key: [1.0] * len(hours) for key in index}, index=hours)
     return build_sf_mu_artifact(sf_df, mu_df)
 
 
-def _queue_click_artifact(fake_pool, blob: bytes | None, *, geo=None):
-    """Queue what _click_artifact + _geo_metadata fire, in order."""
+def _queue_click_artifact(fake_pool, blob: bytes | None, *, geo=None,
+                          reaches_geo: bool = True):
+    """Queue what _click_artifact (+ _geo_metadata) fire, in order.
+
+    The fake cursor is a single FIFO shared by every call in a test, so queue
+    exactly what the request consumes: a call that returns early (no artifact, or
+    an hour the block does not cover) never reaches the geo lookup, and a stray
+    queued row would desync the next request.
+    """
     fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])   # _forecast_run_id
     fake_pool.cursor.queue([{"h": 1}])                  # coalesce horizon probe
-    if blob is not None:
-        fake_pool.cursor.queue([{"sf_npz": blob}])      # artifact fetch
-        fake_pool.cursor.queue(geo or [])               # _geo_metadata
-    else:
+    if blob is None:
         fake_pool.cursor.queue([])                      # no artifact row
+        return
+    fake_pool.cursor.queue([{"sf_npz": blob}])          # artifact fetch
+    if reaches_geo:
+        fake_pool.cursor.queue(geo or [])               # _geo_metadata
 
 
 @pytest.fixture
@@ -150,7 +164,7 @@ def test_exposures_serves_the_requested_days_artifact(client, fake_pool):
 def test_exposures_resolves_the_ct_day_not_the_utc_date(client, fake_pool):
     """The CT evening hours (00:00-04:00Z of the next UTC date) belong to the
     same delivery day; a UTC cut here would repeat 0143.1 on the map."""
-    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"], full_day=True)
     _queue_click_artifact(fake_pool, blob)
 
     r = client.get("/map/exposures",
@@ -174,6 +188,41 @@ def test_exposures_reports_a_day_with_no_artifact(client, fake_pool):
     assert body["available"] is False
     assert body["unavailable_reason"] == "artifact_missing"
     assert body["exposures"] == []
+
+
+# An hour the block does not cover must be unavailable on the map exactly as
+# /matrix/frame reports it. A correctly cut CT block covers all 24 hours of its
+# day, so this only bites on a misaligned or partial block — but answering from
+# the day's SF while the matrix reports nothing there is the map/matrix
+# disagreement 0144 exists to remove. One endpoint per test: the decoded-artifact
+# cache is cleared between tests but not within one, so a second request in the
+# same test would skip the blob fetch and desync the shared cursor.
+UNCOVERED = datetime(2026, 7, 1, 20, tzinfo=timezone.utc)   # same CT day, not in E_mu
+
+
+def test_exposures_matches_the_matrix_verdict_on_an_uncovered_hour(client, fake_pool):
+    _queue_click_artifact(fake_pool, _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"]),
+                          reaches_geo=False)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": UNCOVERED.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "interval_not_in_artifact"
+    assert body["exposures"] == []
+
+
+def test_reach_matches_the_matrix_verdict_on_an_uncovered_hour(client, fake_pool):
+    _queue_click_artifact(fake_pool, _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"]))
+
+    r = client.get("/map/reach",
+                   params={"constraint": "CONSTR_A", "t": UNCOVERED.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "interval_not_in_artifact"
+    assert body["sps"] == []
 
 
 def test_exposures_without_t_uses_the_latest_built_day(client, fake_pool):
