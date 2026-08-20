@@ -459,6 +459,79 @@ def test_node_single_hour_predicted_uses_only_that_hours_forecast_mu(client, fak
     assert body["total"] == -1.0
 
 
+def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # coverage: settled SPP
+    fake_pool.cursor.queue([])  # coverage: settled lambda
+    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 30.0}])
+    fake_pool.cursor.queue([{"dam_spp": 35.0}])
+
+    body = client.get(
+        f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+        f"&basis=predicted&run_id=run-x&horizon=1&hours={ts0.isoformat().replace('+00:00', 'Z')}"
+    ).json()
+
+    assert body["market_state"] == {
+        "forecast_congestion": 5.0,
+        "forecast_lmp": 35.0,
+        "realized_congestion": 5.0,
+        "dam_lmp": 35.0,
+        "forecast_lambda_source": "settled",
+    }
+
+
+def test_node_market_state_keeps_missing_values_null(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # coverage: settled SPP
+    fake_pool.cursor.queue([])  # coverage: settled lambda
+    fake_pool.cursor.queue([])  # forecast P50
+    fake_pool.cursor.queue([])  # exact forecast lambda
+    fake_pool.cursor.queue([])  # DAM SPP
+
+    body = client.get(
+        f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+        f"&basis=predicted&run_id=run-x&horizon=1&hours={ts0.isoformat().replace('+00:00', 'Z')}"
+    ).json()
+
+    assert body["market_state"] == {
+        "forecast_congestion": None,
+        "forecast_lmp": None,
+        "realized_congestion": None,
+        "dam_lmp": None,
+        "forecast_lambda_source": None,
+    }
+
+
+def test_node_market_state_uses_persisted_forecast_lambda(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # coverage: settled SPP
+    fake_pool.cursor.queue([])  # coverage: settled lambda
+    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([])  # exact forecast lambda is not yet published
+    fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 25.0}])
+    fake_pool.cursor.queue([])  # DAM SPP is not yet published
+
+    body = client.get(
+        f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+        f"&basis=predicted&run_id=run-x&horizon=1&hours={ts0.isoformat().replace('+00:00', 'Z')}"
+    ).json()
+
+    assert body["market_state"] == {
+        "forecast_congestion": 5.0,
+        "forecast_lmp": 30.0,
+        "realized_congestion": None,
+        "dam_lmp": None,
+        "forecast_lambda_source": "persisted",
+    }
+
+
 def test_node_single_hour_realized_uses_only_that_hours_dam_mu(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()

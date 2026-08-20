@@ -13,7 +13,7 @@ import pandas as pd
 from psycopg.rows import dict_row, tuple_row
 
 from db import get_pool
-from models import (AnalysisContributionTerm, GradeAvailableResponse,
+from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableResponse,
                     GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
@@ -40,6 +40,11 @@ from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.sf.project import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
+from services.system_lambda import (
+    forecast_system_lambda,
+    persisted_system_lambdas_by_ct_hour,
+    settled_system_lambdas,
+)
 
 router = APIRouter(prefix="/analysis")
 
@@ -120,6 +125,50 @@ def _settled_congestion(cur, settlement_points: list[str], timestamps: pd.Dateti
             else:
                 out[sp] += float(spp[(ts, sp)]) - float(lam[ts])
     return {sp: out[sp] for sp in settlement_points if complete[sp]}
+
+
+def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: date,
+                       horizon: int, timestamp: datetime) -> NodeMarketState:
+    """One node's Map-equivalent congestion/LMP values at the Detail cursor."""
+    cur.execute(
+        """
+        SELECT p50 FROM forecast_nodal
+        WHERE run_id = %s AND delivery_date = %s AND horizon = %s
+          AND settlement_point = %s AND ts = %s
+        """,
+        (run_id, delivery_date, horizon, settlement_point, timestamp),
+    )
+    forecast_row = cur.fetchone()
+    forecast_congestion = (
+        None if forecast_row is None or forecast_row["p50"] is None
+        else float(forecast_row["p50"])
+    )
+
+    settled_by_ts = settled_system_lambdas(cur, timestamp, timestamp)
+    forecast_lambda, lambda_source = forecast_system_lambda(timestamp, settled_by_ts, {})
+    if forecast_congestion is not None and forecast_lambda is None:
+        persisted = persisted_system_lambdas_by_ct_hour(cur)
+        forecast_lambda, lambda_source = forecast_system_lambda(timestamp, settled_by_ts, persisted)
+
+    cur.execute(
+        """
+        SELECT DISTINCT ON (interval_ts, settlement_point) dam_spp
+        FROM ercot_dam_spp
+        WHERE interval_ts = %s AND settlement_point = %s
+        ORDER BY interval_ts, settlement_point, dst_flag ASC
+        """,
+        (timestamp, settlement_point),
+    )
+    dam_row = cur.fetchone()
+    dam_lmp = None if dam_row is None or dam_row["dam_spp"] is None else float(dam_row["dam_spp"])
+    settled_lambda = settled_by_ts.get(timestamp)
+    return NodeMarketState(
+        forecast_congestion=forecast_congestion,
+        forecast_lmp=None if forecast_congestion is None or forecast_lambda is None else forecast_congestion + forecast_lambda,
+        realized_congestion=None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda,
+        dam_lmp=dam_lmp,
+        forecast_lambda_source=lambda_source,
+    )
 
 
 def _split_constraint_key(key: str) -> tuple[str, str | None]:
@@ -738,13 +787,17 @@ def get_node(
         contributions = contributions[sf.abs() >= min_abs_sf]
         total = float(contributions.sum())
         settled = _settled_congestion(cur, [settlement_point], selected).get(settlement_point)
+        market_state = (
+            _node_market_state(cur, settlement_point, run_id, delivery_date, horizon, selected[0].to_pydatetime())
+            if len(selected) == 1 else None
+        )
 
     return NodeAnalysisAvailableResponse(
         available=True, settlement_point=settlement_point, run_id=run_id,
         delivery_date=delivery_date, horizon=horizon, basis=basis, hours=list(selected), total=total,
         n_terms=int((contributions != 0.0).sum()),
         coverage=None if settled in (None, 0.0) else total / settled,
-        terms=_terms(contributions, sf),
+        terms=_terms(contributions, sf), market_state=market_state,
     )
 
 

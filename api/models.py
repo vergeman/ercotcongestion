@@ -74,6 +74,15 @@ class AnalysisContributionTerm(BaseModel):
     shift_factor: float
 
 
+class NodeMarketState(BaseModel):
+    """Cursor-hour forecast and DAM values for one Matrix node Detail view."""
+    forecast_congestion: float | None = None
+    forecast_lmp: float | None = None
+    realized_congestion: float | None = None
+    dam_lmp: float | None = None
+    forecast_lambda_source: Literal["settled", "persisted"] | None = None
+
+
 class NodeAnalysisAvailableResponse(BaseModel):
     available: Literal[True]
     settlement_point: str
@@ -86,6 +95,7 @@ class NodeAnalysisAvailableResponse(BaseModel):
     n_terms: int
     coverage: float | None
     terms: list[AnalysisContributionTerm]
+    market_state: NodeMarketState | None = None
 
 
 class NodeAnalysisUnavailableResponse(BaseModel):
