@@ -889,6 +889,14 @@ export interface AnalysisContributionTerm {
   shift_factor: number;
 }
 
+export interface NodeMarketState {
+  forecast_congestion: number | null;
+  forecast_lmp: number | null;
+  realized_congestion: number | null;
+  dam_lmp: number | null;
+  forecast_lambda_source: "settled" | "persisted" | null;
+}
+
 export interface AnalysisNodeResponse {
   available: boolean;
   unavailable_reason?: "artifact_missing";
@@ -902,6 +910,7 @@ export interface AnalysisNodeResponse {
   n_terms?: number;
   coverage?: number | null;
   terms?: AnalysisContributionTerm[];
+  market_state?: NodeMarketState | null;
 }
 
 export interface AnalysisSettlementPointsResponse {

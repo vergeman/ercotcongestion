@@ -153,6 +153,10 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
   );
 }
 
+function marketValue(value: number | null | undefined): string {
+  return value == null ? "—" : `${usd(value, 2)}/MWh`;
+}
+
 function NodeRead({
   point, meta, timestamp, val, deliveryDate, runId, damStatus, onNavigateToMap,
 }: {
@@ -175,7 +179,7 @@ function NodeRead({
   const requestId = useRef(0);
 
   useEffect(() => {
-    if (!timestamp || !deliveryDate || damPendingBlock) { setNode(null); setLoading(false); return; }
+    if (!timestamp || !deliveryDate) { setNode(null); setLoading(false); return; }
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
@@ -204,6 +208,7 @@ function NodeRead({
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
+  const market = node?.available ? node.market_state : null;
 
   return (
     <>
@@ -217,6 +222,18 @@ function NodeRead({
           <Fact label="Type" value={meta?.type ?? "—"} />
           {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
         </div>
+
+        {node?.available && (
+          <div className="mrd-market" aria-label="Selected-hour node market state">
+            <span className="mrd-section-title">Selected-hour market state</span>
+            <div className="mrd-kv">
+              <Fact label="Forecast (P50) Congestion" value={marketValue(market?.forecast_congestion)} />
+              <Fact label="Realized Congestion" value={marketValue(market?.realized_congestion)} />
+              <Fact label="Forecast LMP" value={marketValue(market?.forecast_lmp)} />
+              <Fact label="DAM LMP" value={marketValue(market?.dam_lmp)} />
+            </div>
+          </div>
+        )}
 
         {damPendingBlock && (
           <div className="mrd-notice">ERCOT DAM μ has not been published for this delivery day — unavailable, not zero.</div>
@@ -290,6 +307,7 @@ export default function MatrixReadDetail({
         .mrd-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
         .mrd-kv { display: flex; flex-direction: column; margin: 0 0 4px; }
         .mrd-kv--stats { margin-top: 16px; }
+        .mrd-market { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
         @media (max-width: 760px) {
           .mrd { grid-template-columns: 1fr; height: auto; }
           .mrd__main { overflow-y: visible; padding-right: 2px; }

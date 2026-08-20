@@ -214,10 +214,10 @@ function AxisHeaderBody({ frame, item, isContribution, muSource }: {
       <span>{item.row.constraint_name}</span>
       <small className="matrix-grid__mu">
         <span className={muSource === "forecast" ? "is-active" : undefined}>
-          F {forecastText}
+          Forecast μ {forecastText}
         </span>
         <span className={muSource === "ercotDam" ? "is-active" : undefined}>
-          DAM {damMuText}
+          DAM μ {damMuText}
         </span>
         {!isContribution && <span className="matrix-grid__rank">rank {item.row.daily_rank}</span>}
       </small>
