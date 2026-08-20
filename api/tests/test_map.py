@@ -17,11 +17,56 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
+import pandas as pd
+
 import map as map_module
+from compute.sf.project import build_sf_mu_artifact
 from models import MapMeta, MapOverview, ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
 WE = datetime(2026, 7, 2, tzinfo=timezone.utc)
+
+# The CT delivery day the click endpoints serve, and an instant inside it. 12:00Z
+# is mid-afternoon CT on DAY; 03:00Z the next UTC date is still DAY in CT — the
+# seam that 0143.1 got wrong and 0144 must keep right.
+DAY = datetime(2026, 7, 1, tzinfo=timezone.utc).date()
+DAY_T0 = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)      # CT midnight (CDT)
+DAY_MID = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+DAY_TAIL = datetime(2026, 7, 2, 3, tzinfo=timezone.utc)    # still CT July 1
+
+
+def _artifact(sf: dict[str, list[float]], index: list[str],
+              mu: dict[str, list[float]] | None = None, *,
+              full_day: bool = False) -> bytes:
+    """A day artifact: SF is constraints x nodes, E_mu hourly over the CT block.
+
+    ``full_day`` gives the block all 24 CT hours (what a correctly cut artifact
+    always has); the default two-hour block stands in for a partial one.
+    """
+    sf_df = pd.DataFrame(sf, index=index)
+    hours = (pd.date_range(DAY_T0, periods=24, freq="h", tz="UTC") if full_day
+             else pd.to_datetime([DAY_T0, DAY_MID], utc=True))
+    mu_df = pd.DataFrame(mu or {key: [1.0] * len(hours) for key in index}, index=hours)
+    return build_sf_mu_artifact(sf_df, mu_df)
+
+
+def _queue_click_artifact(fake_pool, blob: bytes | None, *, geo=None,
+                          reaches_geo: bool = True):
+    """Queue what _click_artifact (+ _geo_metadata) fire, in order.
+
+    The fake cursor is a single FIFO shared by every call in a test, so queue
+    exactly what the request consumes: a call that returns early (no artifact, or
+    an hour the block does not cover) never reaches the geo lookup, and a stray
+    queued row would desync the next request.
+    """
+    fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])   # _forecast_run_id
+    fake_pool.cursor.queue([{"h": 1}])                  # coalesce horizon probe
+    if blob is None:
+        fake_pool.cursor.queue([])                      # no artifact row
+        return
+    fake_pool.cursor.queue([{"sf_npz": blob}])          # artifact fetch
+    if reaches_geo:
+        fake_pool.cursor.queue(geo or [])               # _geo_metadata
 
 
 @pytest.fixture
@@ -81,114 +126,235 @@ def test_resolution_defaults_to_newest_run(client, fake_pool, monkeypatch):
 
 # ---- /map/exposures ------------------------------------------------------
 
-def test_exposures_headline_and_confidence(client, fake_pool, configured_run):
-    fake_pool.cursor.queue([{"ws": WS}])            # _resolve
-    fake_pool.cursor.queue([_meta_row()])           # _meta_row (confidence)
-    fake_pool.cursor.queue([{"m": 0.72}])           # node_max_abs_sf
-    fake_pool.cursor.queue([                         # top-k exposures
-        {"constraint_key": "CONSTR_A", "sf": 0.72,
-         "max_abs_sf": 0.72, "binding_hours": 120},
-        {"constraint_key": "CONSTR_B", "sf": -0.31,
-         "max_abs_sf": 0.40, "binding_hours": 55},
+def test_exposures_serves_the_requested_days_artifact(client, fake_pool):
+    """0144: exposures read the CT delivery day's artifact, so the DetailCard
+    matches /matrix/frame at the same node and interval. Before this they always
+    served the newest sf_window_meta window whatever `t` said."""
+    blob = _artifact(
+        {"LZ_WEST": [0.72, -0.31, 0.05], "LZ_NORTH": [0.10, 0.40, 0.02]},
+        ["CONSTR_A", "CONSTR_B", "CONSTR_C"],
+    )
+    _queue_click_artifact(fake_pool, blob, geo=[
+        {"constraint_key": "CONSTR_A", "ctype": "gtc", "n_rail": 3, "peak_offrail": 0.1},
     ])
 
-    r = client.get("/map/exposures", params={"sp": "LZ_WEST", "k": 5})
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "k": 2, "t": DAY_MID.isoformat()})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["sp"] == "LZ_WEST" and body["k"] == 5
-    # §6: unsigned headline + window confidence ship alongside the signed rows.
-    assert body["node_max_abs_sf"] == 0.72
-    assert body["oos_r2"] == 0.62 and body["sf_stability"] == 0.47
+    assert body["sp"] == "LZ_WEST" and body["k"] == 2
+    assert body["available"] is True
+    assert body["run_id"] == "mu-all-v1"
+    # §6: the unsigned headline is over ALL constraints, independent of k.
+    assert body["node_max_abs_sf"] == pytest.approx(0.72)
+    # Ranked by |sf|, signs preserved, and cut to k.
     assert [e["constraint_key"] for e in body["exposures"]] == ["CONSTR_A", "CONSTR_B"]
-    assert body["exposures"][1]["sf"] == -0.31
+    assert body["exposures"][1]["sf"] == pytest.approx(-0.31)
+    # ctype stays structural (constraint_geo); the magnitudes are per-day, taken
+    # off the artifact row exactly as /matrix/frame reports them.
+    assert body["exposures"][0]["ctype"] == "gtc"
+    assert body["exposures"][0]["max_abs_sf"] == pytest.approx(0.72)
+    assert body["exposures"][0]["binding_hours"] == 2
+    # The window now bounds the day's block, not a rolling refit — and the
+    # rolling fit's confidence numbers no longer describe these values.
+    assert body["window_start"].startswith("2026-07-01T05:00")
+    assert body["oos_r2"] is None and body["sf_stability"] is None
+
+
+def test_exposures_resolves_the_ct_day_not_the_utc_date(client, fake_pool):
+    """The CT evening hours (00:00-04:00Z of the next UTC date) belong to the
+    same delivery day; a UTC cut here would repeat 0143.1 on the map."""
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"], full_day=True)
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_TAIL.isoformat()})
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is True
+    # The horizon probe is the first query carrying the resolved day.
+    probe = [q for q in fake_pool.cursor.queries if "min(horizon)" in q[0]][0]
+    assert probe[1] == ("mu-all-v1", DAY)
+
+
+def test_exposures_reports_a_day_with_no_artifact(client, fake_pool):
+    """Days before the artifact history (pre-2025) return an explicit empty, not
+    a silent fallback to a rolling window on a different basis."""
+    _queue_click_artifact(fake_pool, None)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": "2024-03-01T12:00:00Z"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "artifact_missing"
+    assert body["exposures"] == []
+
+
+# An hour the block does not cover must be unavailable on the map exactly as
+# /matrix/frame reports it. A correctly cut CT block covers all 24 hours of its
+# day, so this only bites on a misaligned or partial block — but answering from
+# the day's SF while the matrix reports nothing there is the map/matrix
+# disagreement 0144 exists to remove. One endpoint per test: the decoded-artifact
+# cache is cleared between tests but not within one, so a second request in the
+# same test would skip the blob fetch and desync the shared cursor.
+UNCOVERED = datetime(2026, 7, 1, 20, tzinfo=timezone.utc)   # same CT day, not in E_mu
+
+
+def test_exposures_matches_the_matrix_verdict_on_an_uncovered_hour(client, fake_pool):
+    _queue_click_artifact(fake_pool, _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"]),
+                          reaches_geo=False)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": UNCOVERED.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "interval_not_in_artifact"
+    assert body["exposures"] == []
+
+
+def test_reach_matches_the_matrix_verdict_on_an_uncovered_hour(client, fake_pool):
+    _queue_click_artifact(fake_pool, _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"]))
+
+    r = client.get("/map/reach",
+                   params={"constraint": "CONSTR_A", "t": UNCOVERED.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "interval_not_in_artifact"
+    assert body["sps"] == []
+
+
+def test_exposures_without_t_uses_the_latest_built_day(client, fake_pool):
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
+    fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])   # _forecast_run_id
+    fake_pool.cursor.queue([{"d": DAY}])                # _latest_artifact_day
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([{"sf_npz": blob}])
+    fake_pool.cursor.queue([])
+
+    r = client.get("/map/exposures", params={"sp": "LZ_WEST"})
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is True
+
+
+def test_exposures_soft_fails_for_a_node_absent_from_the_day(client, fake_pool):
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "NOT_A_NODE", "t": DAY_MID.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is True and body["exposures"] == []
 
 
 # ---- /map/reach ----------------------------------------------------------
 
-def test_reach_signed_with_coords(client, fake_pool, configured_run, monkeypatch):
+def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     monkeypatch.setattr(map_module, "_SP_COORDS",
                         {"LZ_WEST": (31.9, -102.1), "LZ_NORTH": (33.0, -97.0)})
     monkeypatch.setattr(map_module, "_SP_METADATA", {
         "LZ_WEST": ("load_zone", "west"), "LZ_NORTH": ("load_zone", "north"),
     })
-    fake_pool.cursor.queue([{"ws": WS}])                             # _resolve
-    fake_pool.cursor.queue([_meta_row()])                            # _meta_row
-    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])                   # constraint geo
-    fake_pool.cursor.queue([                                          # top-k reach
-        {"settlement_point": "LZ_WEST", "sf": 0.72},
-        {"settlement_point": "LZ_NORTH", "sf": -0.30},
+    blob = _artifact({"LZ_WEST": [0.72], "LZ_NORTH": [-0.30]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob, geo=[
+        {"constraint_key": "CONSTR_A", "ctype": "gtc", "n_rail": 4, "peak_offrail": 0.2},
     ])
 
-    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 5})
+    r = client.get("/map/reach",
+                   params={"constraint": "CONSTR_A", "k": 5, "t": DAY_MID.isoformat()})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["constraint_key"] == "CONSTR_A"
     assert body["available"] is True
-    assert body["max_abs_sf"] == 0.72
-    assert body["oos_r2"] == 0.62
+    assert body["max_abs_sf"] == pytest.approx(0.72)
+    assert body["binding_hours"] == 2          # per-day, from the artifact E_mu
+    assert body["ctype"] == "gtc" and body["n_rail"] == 4   # structural, from geo
+    assert body["oos_r2"] is None
     sps = body["sps"]
     assert sps[0] == {
-        "settlement_point": "LZ_WEST", "sf": 0.72, "lat": 31.9, "lon": -102.1,
+        "settlement_point": "LZ_WEST", "sf": pytest.approx(0.72),
+        "lat": 31.9, "lon": -102.1,
         "settlement_point_type": "load_zone", "load_zone": "west",
     }
-    assert sps[1]["sf"] == -0.30 and sps[1]["lat"] == 33.0  # opposite sign end
+    assert sps[1]["sf"] == pytest.approx(-0.30) and sps[1]["lat"] == 33.0
     assert sps[1]["load_zone"] == "north"
 
 
-def test_reach_full_mode_drops_the_limit_and_is_never_truncated(client, fake_pool, configured_run):
+def test_reach_full_mode_drops_the_limit_and_is_never_truncated(client, fake_pool):
     """0139/0001: the matrix Read pane needs the constraint's complete reach
     (bounded only by min_frac), not a top-k display slice — a fixed k ceiling
-    is a guess that can go stale as the node universe grows. full=True issues
-    no LIMIT at all; k stays untouched for the map/brief click's own use."""
-    fake_pool.cursor.queue([{"ws": WS}])
-    fake_pool.cursor.queue([_meta_row()])
-    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
-    fake_pool.cursor.queue([
-        {"settlement_point": f"SP{i}", "sf": 0.1} for i in range(600)
-    ])
+    is a guess that can go stale as the node universe grows."""
+    blob = _artifact({f"SP{i}": [0.1] for i in range(600)}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
 
-    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "full": True, "min_frac": 0})
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "full": True,
+                                        "min_frac": 0, "t": DAY_MID.isoformat()})
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(body["sps"]) == 600
     assert body["truncated"] is False
 
-    sql, params = fake_pool.cursor.queries[-1]
-    assert "LIMIT" not in sql
-    assert params == ("map-v1", WS, "CONSTR_A", 0.0)
 
+def test_reach_bounded_mode_flags_truncation_when_more_nodes_exist(client, fake_pool):
+    blob = _artifact({"A": [0.5], "B": [0.4], "C": [0.3]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
 
-def test_reach_bounded_mode_flags_truncation_when_more_nodes_exist(client, fake_pool, configured_run):
-    """A k-bounded call fetches k+1 rows to detect a cutoff without a second
-    COUNT query; the extra row is trimmed before it reaches the client."""
-    fake_pool.cursor.queue([{"ws": WS}])
-    fake_pool.cursor.queue([_meta_row()])
-    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
-    fake_pool.cursor.queue([  # k+1 = 3 rows queued for a k=2 request
-        {"settlement_point": "A", "sf": 0.5},
-        {"settlement_point": "B", "sf": 0.4},
-        {"settlement_point": "C", "sf": 0.3},
-    ])
-
-    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 2})
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 2,
+                                        "t": DAY_MID.isoformat()})
     body = r.json()
     assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
     assert body["truncated"] is True
 
-    _, params = fake_pool.cursor.queries[-1]
-    assert params[-1] == 3  # k + 1
 
+def test_reach_bounded_mode_is_not_truncated_when_exactly_k_nodes_exist(client, fake_pool):
+    blob = _artifact({"A": [0.5]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
 
-def test_reach_bounded_mode_is_not_truncated_when_exactly_k_nodes_exist(client, fake_pool, configured_run):
-    fake_pool.cursor.queue([{"ws": WS}])
-    fake_pool.cursor.queue([_meta_row()])
-    fake_pool.cursor.queue([{"max_abs_sf": 0.72}])
-    fake_pool.cursor.queue([{"settlement_point": "A", "sf": 0.5}])
-
-    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 5})
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "k": 5,
+                                        "t": DAY_MID.isoformat()})
     body = r.json()
     assert len(body["sps"]) == 1
     assert body["truncated"] is False
+
+
+def test_reach_min_frac_floors_off_the_days_own_peak(client, fake_pool):
+    """The noise floor is a fraction of the constraint's peak |SF| in *this day's*
+    artifact, so a weakly-fit constraint is not padded with noise-floor nodes."""
+    blob = _artifact({"A": [1.0], "B": [0.5], "C": [0.02]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "min_frac": 0.1,
+                                        "t": DAY_MID.isoformat()})
+    body = r.json()
+    assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
+
+
+def test_reach_reports_a_day_with_no_artifact(client, fake_pool):
+    _queue_click_artifact(fake_pool, None)
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A",
+                                         "t": "2024-03-01T12:00:00Z"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "artifact_missing"
+    assert body["sps"] == []
+
+
+def test_reach_reports_a_constraint_absent_from_the_day(client, fake_pool):
+    blob = _artifact({"A": [0.5]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob, geo=[
+        {"constraint_key": "OTHER", "ctype": "gtc", "n_rail": 1, "peak_offrail": 0.0},
+    ])
+
+    r = client.get("/map/reach", params={"constraint": "OTHER",
+                                         "t": DAY_MID.isoformat()})
+    body = r.json()
+    assert body["available"] is False
+    assert body["unavailable_reason"] == "constraint_not_in_artifact"
+    assert body["sps"] == []
 
 
 # ---- /map/overview -------------------------------------------------------

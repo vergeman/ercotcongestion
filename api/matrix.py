@@ -1,9 +1,8 @@
 """GET /matrix/frame — a bounded causal SF rectangle for one delivery hour."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
@@ -11,12 +10,16 @@ from psycopg.rows import dict_row
 
 from db import get_pool
 from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
-from services.sf_artifacts import load_daily_artifact, load_realized_mu
+from services.sf_artifacts import (
+    coerce_utc as _coerce_utc,
+    delivery_date_for as _delivery_date,
+    load_daily_artifact,
+    load_realized_mu,
+)
 
 
 router = APIRouter(prefix='/matrix')
 
-CENTRAL = ZoneInfo('America/Chicago')
 DEFAULT_ROW_LIMIT = 30
 DEFAULT_COLUMN_LIMIT = 40
 MAX_ROW_LIMIT = 100
@@ -44,20 +47,11 @@ ANCHOR_REACH_EPS = 5e-4
 _SP_METADATA: dict[str, tuple[str | None, str | None]] | None = None
 
 
-def _coerce_utc(ts: datetime) -> datetime:
-    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
-
-
 def _round_matrix_value(value: float) -> float:
     """The matrix UI renders these values to three decimal places."""
     return float(
         Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     )
-
-
-def _delivery_date(ts: datetime):
-    """ERCOT operating date, including the Central-time midnight boundary."""
-    return _coerce_utc(ts).astimezone(CENTRAL).date()
 
 
 def _split_constraint_key(key: str) -> tuple[str, str | None]:

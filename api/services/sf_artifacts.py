@@ -16,8 +16,9 @@ for a day that has since been finalized.
 from __future__ import annotations
 
 from collections import OrderedDict
-from datetime import date
+from datetime import date, datetime, timezone
 from threading import Lock
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -29,6 +30,26 @@ from compute.sf.project import SfMuArtifact, load_sf_mu
 # node-history window (31 artifacts ~= 150 MiB) fits without thrashing, which is
 # what let /analysis/standouts warm across a multi-day Brief page load (0137).
 ARTIFACT_CACHE_MAX_BYTES = 256 * 1024 * 1024
+
+
+CENTRAL = ZoneInfo('America/Chicago')
+
+
+def coerce_utc(ts: datetime) -> datetime:
+    """Interpret a naive timestamp as UTC; convert an aware one."""
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
+def delivery_date_for(ts: datetime) -> date:
+    """The CT operating date of an instant — the artifact partition key.
+
+    Artifacts are CT delivery-day blocks (0133): the row keyed D spans
+    05:00Z D -> 04:00Z D+1 in CDT (06:00Z -> 05:00Z in CST). Every consumer that
+    turns an instant into an artifact lookup must cut the day here and nowhere
+    else — /matrix/frame and /map/* each held their own copy of this rule, drifted
+    to a UTC cut, and blanked the day's last five hours (0143.1, 0144).
+    """
+    return coerce_utc(ts).astimezone(CENTRAL).date()
 
 
 def normalize_constraint_key(constraint_name: str, contingency_name: str) -> str:

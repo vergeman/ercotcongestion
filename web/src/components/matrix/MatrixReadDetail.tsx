@@ -86,9 +86,12 @@ function MemberLobe({ title, members }: { title: string; members: ReachSp[] }) {
 }
 
 function ConstraintRead({
-  selectionKey, row, onNavigateToMap,
-}: { selectionKey: string; row: AnalysisConstraintRow | null; onNavigateToMap: (search: string) => void }) {
-  const { reach, loading } = useFullConstraintReach(selectionKey);
+  selectionKey, row, timestamp, onNavigateToMap,
+}: { selectionKey: string; row: AnalysisConstraintRow | null; timestamp: Date | null; onNavigateToMap: (search: string) => void }) {
+  // The scrubbed interval selects the CT delivery day whose artifact backs the
+  // reach (0144) — the same day the rest of the Read pane describes.
+  const cursorTs = timestamp ?? undefined;
+  const { reach, loading } = useFullConstraintReach(selectionKey, cursorTs);
   const { imp, exp } = dipoleCounts(reach);
   const name = constraintName(selectionKey);
   const contingency = selectionKey.includes("|") ? selectionKey.split("|")[1] : null;
@@ -130,7 +133,7 @@ function ConstraintRead({
         </div>
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
+        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} t={cursorTs} />
       </div>
     </>
   );
@@ -263,7 +266,7 @@ export default function MatrixReadDetail({
     <div className="mrd">
       <ConstraintReachStyles />
       {selection.kind === "constraint"
-        ? <ConstraintRead selectionKey={selection.key} row={constraintRow} onNavigateToMap={onNavigateToMap} />
+        ? <ConstraintRead selectionKey={selection.key} row={constraintRow} timestamp={timestamp} onNavigateToMap={onNavigateToMap} />
         : <NodeRead point={selection.point} meta={nodeMeta} timestamp={timestamp} val={val} deliveryDate={deliveryDate} runId={runId} damStatus={damStatus} onNavigateToMap={onNavigateToMap} />}
       <style>{`
         /* Two columns: a scrolling evidence column on the left and the grid

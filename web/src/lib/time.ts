@@ -21,3 +21,13 @@ export function ctInputToUtc(local: string): Date {
 export function utcToCTInputString(d: Date): string {
   return formatInTimeZone(d, ERCOT_TZ, "yyyy-MM-dd'T'HH:mm");
 }
+
+// The CT delivery day an instant belongs to — the SF artifact's partition key
+// (0133 blocks: 05:00Z→04:00Z in CDT, 06:00Z→05:00Z in CST). Mirrors the API's
+// `delivery_date_for`. Use it to key per-day caches off a scrubber instant, so
+// sweeping hours within one delivery day reuses one fetch instead of firing a
+// request per hour — and so the evening hours that fall on the next UTC date
+// stay on the day they belong to.
+export function deliveryDateCT(d: Date): string {
+  return formatInTimeZone(d, ERCOT_TZ, "yyyy-MM-dd");
+}
