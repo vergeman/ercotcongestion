@@ -453,15 +453,6 @@ class BriefHeroShellResponse(BaseModel):
     next_delivery_date: date | None = None
 
 
-class BriefHeroConditionResponse(BaseModel):
-    """Deferred load-condition evidence for an already-rendered Brief hero."""
-    run_id: str
-    delivery_date: date
-    horizon: int
-    regime: dict[str, Any]
-    driver_text: str | None = None
-
-
 class BriefDetailsResponse(BaseModel):
     """The secondary Brief panels, intentionally separate from the hero shell."""
     context: ContextAvailableResponse | ContextUnavailableResponse

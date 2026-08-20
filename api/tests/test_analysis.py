@@ -304,25 +304,6 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
     }
 
 
-def test_brief_hero_condition_is_deferred_from_the_shell(client, fake_pool, monkeypatch):
-    fake_pool.cursor.queue([{"h": 2}])
-    monkeypatch.setattr(
-        analysis_module,
-        "build_hero_condition",
-        lambda *_: {"series": "load.system", "today": 84_000.0, "pct": 99.0,
-                    "bucket": "near_record_high"},
-    )
-
-    body = client.get("/analysis/brief/hero/condition?day=2026-07-28&run=run-x").json()
-
-    assert body == {
-        "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2,
-        "regime": {"series": "load.system", "today": 84_000.0, "pct": 99.0,
-                   "bucket": "near_record_high"},
-        "driver_text": None,
-    }
-
-
 def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_pool, monkeypatch):
     fake_pool.cursor.queue([{"h": 2}])
     calls: set[str] = set()
