@@ -161,6 +161,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mobileIndexOpen, setMobileIndexOpen] = useState(false);
   const [requestVersion, setRequestVersion] = useState(0);
   const [state, setState] = useState<WorkspaceState>(() => {
     const params = new URLSearchParams(routeSearch);
@@ -577,10 +578,11 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             totalCount={fullItems.length}
             selectedId={showBasis ? null : selectedIdForSidebar}
             basisSlots={showBasis ? { a: state.basisA, b: state.basisB } : undefined}
-            onSelect={selectId}
+            onSelect={(id) => { selectId(id); setMobileIndexOpen(false); }}
             onTab={(tab) => update(tab === "constraints" && state.lens === "basis" ? { tab, lens: "read" } : { tab })}
             query={state.query}
             onQuery={(query) => update({ query })}
+            onSearchFocus={() => setMobileIndexOpen(true)}
             fType={state.fType}
             fZone={state.fZone}
             typeOptions={typeOptions}
@@ -588,6 +590,8 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             onFilter={(next) => update(next)}
             onTogglePin={(id) => togglePin(id, state.tab === "constraints" ? "constraint" : "sp")}
             onReset={resetToDefaults}
+            collapsed={!mobileIndexOpen}
+            onToggleCollapsed={() => setMobileIndexOpen((open) => !open)}
           />
           <section className="matrix-workspace__stage" aria-busy={loading}>
             <header className="matrix-workspace__stage-header">
@@ -768,7 +772,18 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-grid__basis { color: var(--text-muted); font-style: italic; }
         /* An SF pinned at the fit's clip is a bound, not a measurement. */
         .matrix-grid__clip { color: var(--text-muted); padding-left: 1px; }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__body { flex-direction: column; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
+        @media (max-width: 767px) {
+          .matrix-workspace { overflow: auto; padding: 10px; }
+          .matrix-workspace__body { flex: 0 0 auto; flex-direction: column; min-height: 0; }
+          .matrix-workspace__stage { flex: 0 0 auto; min-height: 520px; margin-top: 10px; }
+          .matrix-workspace__stage-header { align-items: flex-start; gap: 8px; }
+          .matrix-workspace__toggle { flex-wrap: wrap; gap: 4px; }
+          .matrix-workspace__toggle-label { width: 100%; }
+          .matrix-legend { flex-basis: 100%; margin-left: 0; width: 100%; }
+          .matrix-workspace__read { overflow: visible; padding: 0 10px; }
+          .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; }
+          .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; }
+        }
       `}</style>
     </main>
   );
