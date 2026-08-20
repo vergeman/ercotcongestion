@@ -650,17 +650,16 @@ def get_map_overview(
     )
 
 
-def _realized_mu_summary(cur, lo, hi) -> dict[str, tuple[float, int, float]]:
+def _realized_mu_summary(cur, lo, hi) -> dict[str, tuple[float, int]]:
     """Daily realized μ summaries keyed to the artifact constraint vocabulary.
 
     The bounded DAM window is the artifact's own interval range, so predicted
     and realized summaries describe the same delivery-day basis. Each value is
-    ``(Σ|μ|, binding-hour count, peak |μ|)``.
+    ``(Σ|μ|, binding-hour count)``.
     """
     cur.execute(
         "SELECT constraint_name, contingency_name, sum(abs(shadow_price)) AS mass, "
-        "count(*) FILTER (WHERE abs(shadow_price) > 0) AS binding_hours, "
-        "max(abs(shadow_price)) AS peak_shadow_price "
+        "count(*) FILTER (WHERE abs(shadow_price) > 0) AS binding_hours "
         "FROM ercot_dam_shadow_prices "
         "WHERE interval_ts >= %s AND interval_ts <= %s AND shadow_price IS NOT NULL "
         "GROUP BY constraint_name, contingency_name",
@@ -670,7 +669,6 @@ def _realized_mu_summary(cur, lo, hi) -> dict[str, tuple[float, int, float]]:
         normalize_constraint_key(r["constraint_name"], r["contingency_name"]): (
             float(r["mass"]),
             int(r["binding_hours"]),
-            float(r["peak_shadow_price"]),
         )
         for r in cur.fetchall()
         if r["mass"] is not None
@@ -751,16 +749,14 @@ def get_map_constraints_ranked(
             realized_summary = pd.DataFrame.from_dict(
                 realized,
                 orient="index",
-                columns=["mu_mass", "binding_hours", "peak_shadow_price"],
+                columns=["mu_mass", "binding_hours"],
             )
             mu_mass = realized_summary.get("mu_mass", pd.Series(dtype=float)).reindex(keys).fillna(0.0)
             binding_hours = realized_summary.get("binding_hours", pd.Series(dtype=float)).reindex(keys).fillna(0).astype(int)
-            peak_shadow_price = realized_summary.get("peak_shadow_price", pd.Series(dtype=float)).reindex(keys).fillna(0.0)
         else:
             abs_mu = art.E_mu.abs().reindex(columns=keys, fill_value=0.0)
             mu_mass = abs_mu.sum(axis=0)
             binding_hours = (abs_mu > 0.0).sum(axis=0).astype(int)
-            peak_shadow_price = abs_mu.max(axis=0)
 
         # reach = Σ_sp |SF|; contribution = mu_mass · reach (the day-total of the
         # −E_mu·SF nodal decomposition), ranked descending.
@@ -806,9 +802,7 @@ def get_map_constraints_ranked(
                 congestion_contribution=float(ranked.loc[key]),
                 mu_mass=float(mu_mass.loc[key]),
                 binding_hours=int(binding_hours.loc[key]),
-                peak_shadow_price=float(peak_shadow_price.loc[key]),
                 reach=float(reach.loc[key]),
-                max_abs_sf=peak_abs,
                 n_members=len(src) + len(snk),
                 ctype=g.get("ctype"),
                 n_import=len(src),

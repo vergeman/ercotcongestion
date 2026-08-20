@@ -543,9 +543,7 @@ def test_ranked_predicted_orders_and_dipole(client, fake_pool, configured_run,
     assert aaa["rank"] == 1
     assert aaa["mu_mass"] == pytest.approx(20.0)
     assert aaa["binding_hours"] == 2
-    assert aaa["peak_shadow_price"] == pytest.approx(10.0)
     assert aaa["reach"] == pytest.approx(1.41, abs=1e-4)
-    assert aaa["max_abs_sf"] == pytest.approx(0.8)
     assert aaa["congestion_contribution"] == pytest.approx(28.2, abs=1e-3)
     # N3 (+0.01 < 0.05*0.8) is below the floor → 2 members, not 3
     assert aaa["n_members"] == 2
@@ -566,9 +564,9 @@ def test_ranked_realized_swaps_mu_series(client, fake_pool, configured_run,
     fake_pool.cursor.queue([{"sf_npz": _ranked_blob()}])   # artifact fetch
     fake_pool.cursor.queue([                                 # realized mu mass
         {"constraint_name": " AAA ", "contingency_name": " BASE ", "mass": 1.0,
-         "binding_hours": 1, "peak_shadow_price": 1.0},
+         "binding_hours": 1},
         {"constraint_name": "BBB", "contingency_name": "LINE", "mass": 100.0,
-         "binding_hours": 3, "peak_shadow_price": 70.0},
+         "binding_hours": 3},
     ])
     fake_pool.cursor.queue([{"ws": WS}])                    # _resolve (geo run)
     fake_pool.cursor.queue([])                               # constraint_geo (none)
@@ -584,10 +582,8 @@ def test_ranked_realized_swaps_mu_series(client, fake_pool, configured_run,
     assert [c["constraint_id"] for c in cs] == ["BBB|LINE", "AAA|BASE"]
     assert cs[0]["mu_mass"] == pytest.approx(100.0)
     assert cs[0]["binding_hours"] == 3
-    assert cs[0]["peak_shadow_price"] == pytest.approx(70.0)
     # The basis changes μ-derived fields but not the artifact's SF summaries.
     assert cs[0]["reach"] == pytest.approx(0.70)
-    assert cs[0]["max_abs_sf"] == pytest.approx(0.5)
 
 
 def test_ranked_503_when_no_artifact(client, fake_pool, configured_run):
