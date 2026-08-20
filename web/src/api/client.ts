@@ -195,13 +195,19 @@ export async function fetchConditionsRange(
 
 // Top-k constraints driving a node, by |sf| — the node-explorer click. An
 // unknown `sp` returns an empty exposures list, not an error. Null on 503.
+//
+// `t` is the scrubbed interval: the SF served is that CT delivery day's
+// artifact, so the DetailCard matches the matrix at the same node and hour
+// (0144). Omitting it serves the latest built day — pass the cursor whenever
+// the caller has one, or the panel silently describes a different day.
 export async function fetchMapExposures(
   sp: string,
-  k = 15
+  k = 15,
+  t?: Date
 ): Promise<ExposuresResponse | null> {
-  const r = await fetch(
-    `${BASE}/map/exposures?sp=${encodeURIComponent(sp)}&k=${k}`
-  );
+  const qs = new URLSearchParams({ sp, k: String(k) });
+  if (t) qs.set("t", t.toISOString());
+  const r = await fetch(`${BASE}/map/exposures?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/exposures ${r.status}`);
   return r.json();
@@ -210,6 +216,9 @@ export async function fetchMapExposures(
 export interface MapReachOptions {
   k?: number;
   minFrac?: number;
+  // The scrubbed interval — selects the CT delivery day's artifact (0144).
+  // Omitted serves the latest built day.
+  t?: Date;
   // 0139/0001: drops the row LIMIT entirely (bounded only by minFrac) — the
   // matrix Read pane's "give me everything" call, as opposed to `k`'s
   // display-oriented top-k (map click, brief).
@@ -221,12 +230,13 @@ export interface MapReachOptions {
 // Null on 503.
 export async function fetchMapReach(
   constraint: string,
-  { k = 15, minFrac, full }: MapReachOptions = {}
+  { k = 15, minFrac, full, t }: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
   const qs = new URLSearchParams({ constraint });
   if (full) qs.set("full", "true");
   else qs.set("k", String(k));
   if (minFrac != null) qs.set("min_frac", String(minFrac));
+  if (t) qs.set("t", t.toISOString());
   const r = await fetch(`${BASE}/map/reach?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`map/reach ${r.status}`);
