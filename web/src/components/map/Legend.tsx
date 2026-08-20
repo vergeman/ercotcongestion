@@ -3,6 +3,8 @@ import { cssVar, useTheme } from "../../lib/theme";
 import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmpFromStats,
+  isLmpAlarm,
+  lmpAlarmThreshold,
   normalizeCongestion,
   congestionAlarmColor,
   congestionAlarmThreshold,
@@ -125,6 +127,10 @@ function formatDollar(v: number): string {
   return `$${v.toFixed(0)}`;
 }
 
+function formatExactDollar(v: number): string {
+  return `$${v.toFixed(2)}`;
+}
+
 export default function Legend({
   dataMode,
   rows,
@@ -220,6 +226,17 @@ export default function Legend({
   }
   const negLabel = signLabels?.neg ?? "Export";
   const posLabel = signLabels?.pos ?? "Import";
+  const extremePrice = isCongestion && mcStats && mcStats.max >= congestionAlarmThreshold(mcStats)
+    ? {
+        color: congestionAlarmColor(theme),
+        label: `Extreme Price ≥ +${formatExactDollar(congestionAlarmThreshold(mcStats))}`,
+      }
+    : isLmp && lmpStats && isLmpAlarm(lmpStats.max, lmpStats)
+    ? {
+        color: lmpColor(1, theme),
+        label: `Extreme Price ≥ ${formatExactDollar(lmpAlarmThreshold(lmpStats))}`,
+      }
+    : null;
 
   return (
     <div className="legend">
@@ -265,17 +282,6 @@ export default function Legend({
             <span className="label">{negLabel}</span>
             <span className="label">{posLabel}</span>
           </div>
-          {mcStats.max >= congestionAlarmThreshold(mcStats) && (
-            <div className="legend__alarm">
-              <span
-                className="legend__alarm-swatch"
-                style={{ backgroundColor: congestionAlarmColor(theme) }}
-              />
-              <span className="label legend__alarm-text">
-                Extreme Price ≥ +{formatDollar(congestionAlarmThreshold(mcStats))}
-              </span>
-            </div>
-          )}
         </>
       )}
 
@@ -312,6 +318,16 @@ export default function Legend({
         <div className="legend__labels">
           <span className="label mono">—</span>
           <span className="label mono">—</span>
+        </div>
+      )}
+
+      {extremePrice && (
+        <div className="legend__alarm">
+          <span
+            className="legend__alarm-swatch"
+            style={{ backgroundColor: extremePrice.color }}
+          />
+          <span className="label legend__alarm-text">{extremePrice.label}</span>
         </div>
       )}
 
