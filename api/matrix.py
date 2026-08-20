@@ -8,6 +8,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
+from compute.sf.fit import SF_ABS_CAP
 from db import get_pool
 from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
 from services.sf_artifacts import (
@@ -446,6 +447,7 @@ def get_matrix_frame(
         columns_truncated=len(column_keys) < len(artifact.SF.columns),
         total_constraint_count=len(contribution_ranked), total_settlement_point_count=len(all_columns),
         sf_day_max_abs=sf_day_max_abs, contribution_day_max_abs=contribution_day_max_abs,
+        sf_abs_cap=SF_ABS_CAP,
         orientation=orientation,
         sf=MatrixSfValues(row_count=len(rows), column_count=len(columns), values=values),
     )
