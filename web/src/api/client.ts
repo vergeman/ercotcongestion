@@ -223,6 +223,9 @@ export async function fetchMapExposures(
 export interface MapReachOptions {
   k?: number;
   minFrac?: number;
+  // Absolute |SF| floor, combined with minFrac as max(minFrac*peak, absFloor).
+  // Cuts a noise-peak constraint's tail that a purely relative floor lets through.
+  absFloor?: number;
   // The scrubbed interval — selects the CT delivery day's artifact (0144).
   // Omitted serves the latest built day.
   t?: Date;
@@ -237,12 +240,13 @@ export interface MapReachOptions {
 // Null on 503.
 export async function fetchMapReach(
   constraint: string,
-  { k = 15, minFrac, full, t }: MapReachOptions = {}
+  { k = 15, minFrac, absFloor, full, t }: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
   const qs = new URLSearchParams({ constraint });
   if (full) qs.set("full", "true");
   else qs.set("k", String(k));
   if (minFrac != null) qs.set("min_frac", String(minFrac));
+  if (absFloor != null) qs.set("abs_floor", String(absFloor));
   if (t) qs.set("t", t.toISOString());
   const r = await fetch(`${BASE}/map/reach?${qs.toString()}`);
   if (r.status === 503) return null;
