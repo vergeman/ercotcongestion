@@ -8,6 +8,7 @@ export interface ErcotSpState {
 
 export interface ErcotStateRangeEntry {
   interval_ts: string;
+  system_lambda: number | null;
   sps: ErcotSpState[];
 }
 
@@ -110,6 +111,7 @@ export interface ErcotSppRangeResponse {
 // index for the response; each entry's same-length arrays align to it.
 export interface ErcotRangeEntry {
   interval_ts: string;
+  system_lambda: number | null;
   congestion: Array<number | null>;
   spp: Array<number | null>;
 }
