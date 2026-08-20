@@ -806,13 +806,19 @@ class RankedConstraint(BaseModel):
     dipole — located nodes above the floor on the import (SF<0) and export (SF>0)
     sides, which the panel's dipole gauge is split by; ``n_members`` is their total.
     ``ctype`` mirrors the /map/overview marker (same ``constraint_id`` key), so a
-    panel row highlights the same overlay mark. ``mu_mass``/``reach`` are exposed so
-    the contribution is legible, not a black-box score."""
+    panel row highlights the same overlay mark. The daily μ fields
+    (``mu_mass``, ``binding_hours``, ``peak_shadow_price``) follow the requested
+    basis; the SF fields (``reach``, ``max_abs_sf``) come from the shared artifact
+    structure and therefore do not. Together they make the contribution legible,
+    not a black-box score."""
     constraint_id: str
     rank: int
     congestion_contribution: float
     mu_mass: float
+    binding_hours: int
+    peak_shadow_price: float
     reach: float
+    max_abs_sf: float
     n_members: int
     ctype: str | None = None
     n_import: int = 0

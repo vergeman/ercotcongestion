@@ -650,19 +650,28 @@ def get_map_overview(
     )
 
 
-def _realized_mu_mass(cur, lo, hi) -> dict[str, float]:
-    """Σ |shadow_price| over the delivery day per ``constraint_name|contingency_name``
-    — the realized-basis μ series, keyed the same way the SF panel is (compute.sf
-    .panels), so it aligns to the artifact's constraint index with no name match."""
+def _realized_mu_summary(cur, lo, hi) -> dict[str, tuple[float, int, float]]:
+    """Daily realized μ summaries keyed to the artifact constraint vocabulary.
+
+    The bounded DAM window is the artifact's own interval range, so predicted
+    and realized summaries describe the same delivery-day basis. Each value is
+    ``(Σ|μ|, binding-hour count, peak |μ|)``.
+    """
     cur.execute(
-        "SELECT constraint_name, contingency_name, sum(abs(shadow_price)) AS mass "
+        "SELECT constraint_name, contingency_name, sum(abs(shadow_price)) AS mass, "
+        "count(*) FILTER (WHERE abs(shadow_price) > 0) AS binding_hours, "
+        "max(abs(shadow_price)) AS peak_shadow_price "
         "FROM ercot_dam_shadow_prices "
         "WHERE interval_ts >= %s AND interval_ts <= %s AND shadow_price IS NOT NULL "
         "GROUP BY constraint_name, contingency_name",
         (lo, hi),
     )
     return {
-        normalize_constraint_key(r["constraint_name"], r["contingency_name"]): float(r["mass"])
+        normalize_constraint_key(r["constraint_name"], r["contingency_name"]): (
+            float(r["mass"]),
+            int(r["binding_hours"]),
+            float(r["peak_shadow_price"]),
+        )
         for r in cur.fetchall()
         if r["mass"] is not None
     }
@@ -732,16 +741,26 @@ def get_map_constraints_ranked(
                 detail=f"no SF+μ artifact for run_id={run_id} on {day}.",
             )
 
-        # μ mass per constraint (Σ_ts |μ|) for the chosen basis, on the artifact's
-        # shared constraint-key index. Predicted reads the fitted E_mu; realized
-        # swaps in the day's DAM shadow prices over the same hours.
+        # Daily μ summaries for the chosen basis, on the artifact's shared
+        # constraint-key index. Predicted reads fitted E_mu; realized swaps in
+        # bounded DAM shadow prices over the same hours.
         keys = art.SF.index
         if basis == "realized":
             lo, hi = art.E_mu.index.min(), art.E_mu.index.max()
-            realized = _realized_mu_mass(cur, lo.to_pydatetime(), hi.to_pydatetime())
-            mu_mass = pd.Series(realized, dtype=float).reindex(keys).fillna(0.0)
+            realized = _realized_mu_summary(cur, lo.to_pydatetime(), hi.to_pydatetime())
+            realized_summary = pd.DataFrame.from_dict(
+                realized,
+                orient="index",
+                columns=["mu_mass", "binding_hours", "peak_shadow_price"],
+            )
+            mu_mass = realized_summary.get("mu_mass", pd.Series(dtype=float)).reindex(keys).fillna(0.0)
+            binding_hours = realized_summary.get("binding_hours", pd.Series(dtype=float)).reindex(keys).fillna(0).astype(int)
+            peak_shadow_price = realized_summary.get("peak_shadow_price", pd.Series(dtype=float)).reindex(keys).fillna(0.0)
         else:
-            mu_mass = art.E_mu.abs().sum(axis=0).reindex(keys).fillna(0.0)
+            abs_mu = art.E_mu.abs().reindex(columns=keys, fill_value=0.0)
+            mu_mass = abs_mu.sum(axis=0)
+            binding_hours = (abs_mu > 0.0).sum(axis=0).astype(int)
+            peak_shadow_price = abs_mu.max(axis=0)
 
         # reach = Σ_sp |SF|; contribution = mu_mass · reach (the day-total of the
         # −E_mu·SF nodal decomposition), ranked descending.
@@ -786,7 +805,10 @@ def get_map_constraints_ranked(
                 rank=i + 1,
                 congestion_contribution=float(ranked.loc[key]),
                 mu_mass=float(mu_mass.loc[key]),
+                binding_hours=int(binding_hours.loc[key]),
+                peak_shadow_price=float(peak_shadow_price.loc[key]),
                 reach=float(reach.loc[key]),
+                max_abs_sf=peak_abs,
                 n_members=len(src) + len(snk),
                 ctype=g.get("ctype"),
                 n_import=len(src),
