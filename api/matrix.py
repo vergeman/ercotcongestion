@@ -335,11 +335,12 @@ def get_matrix_frame(
     constraint_search = _bounded_search(constraint_search, name='constraint_search')
     settlement_point_search = _bounded_search(settlement_point_search, name='settlement_point_search')
     interval_ts = _coerce_utc(interval_ts)
-    # Artifacts are partitioned by their UTC timestamps.  The Central operating
-    # date remains the response label, but must not select the artifact: its
-    # first five summer hours otherwise look in the preceding UTC partition.
+    # Artifacts are CT delivery-day blocks (0133): the row keyed D spans
+    # 05:00Z D -> 04:00Z D+1 in CDT (06:00Z -> 05:00Z in CST). The Central
+    # operating date is therefore both the response label *and* the artifact
+    # key -- selecting by UTC date sends the day's last five/six CT hours into
+    # the following block, which begins after them.
     delivery_date = _delivery_date(interval_ts)
-    artifact_date = interval_ts.date()
 
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
@@ -348,7 +349,7 @@ def get_matrix_frame(
             raise HTTPException(status_code=503, detail='no forecast run is published yet.')
         run_id = str(row['run_id'])
 
-        artifact = load_daily_artifact(cur, run_id, artifact_date)
+        artifact = load_daily_artifact(cur, run_id, delivery_date)
         if artifact is None:
             return _unavailable(run_id, delivery_date, interval_ts, 'artifact_missing')
 
