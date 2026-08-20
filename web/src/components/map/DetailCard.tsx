@@ -229,7 +229,7 @@ function ExposuresBody({
       </>
     );
   }
-  const total = exposures.node_total;
+  const grossTotal = exposures.node_gross_total;
   return (
     <>
       {header}
@@ -262,8 +262,13 @@ function ExposuresBody({
             <span className="dc-driver-col label">
               {byContribution ? "$/MWh" : "SF"}
             </span>
-            <span className="dc-driver-col label">
-              {byContribution ? "Share" : "Binding"}
+            <span
+              className="dc-driver-col label"
+              title={byContribution
+                ? "Share of all driver magnitude (Σ |contribution|). Opposing constraints do not cancel in this denominator."
+                : undefined}
+            >
+              {byContribution ? "Gross" : "Binding"}
             </span>
           </div>
         )}
@@ -292,11 +297,12 @@ function ExposuresBody({
                 >
                   {fmtDollars(e.contribution)}
                 </span>
-                {/* Share of the node's full congestion, not of the visible
-                    top-k — node_total sums every constraint. */}
+                {/* Share of the full driver magnitude, not of the visible
+                    top-k. A signed-net denominator becomes unbounded when
+                    positive and negative constraints cancel. */}
                 <span className="dc-driver-sup mono">
-                  {total
-                    ? `${Math.round((e.contribution / total) * 100)}%`
+                  {grossTotal
+                    ? `${Math.round((Math.abs(e.contribution) / grossTotal) * 100)}%`
                     : "—"}
                 </span>
               </>
