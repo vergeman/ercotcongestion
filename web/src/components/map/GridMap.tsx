@@ -15,6 +15,7 @@ import {
 } from "./overviewSources";
 import {
   lmpColor,
+  isLmpAlarm,
   normalizeLmpFromStats,
   congestionColor as congestionRampColor,
   congestionAlarmColor,
@@ -788,7 +789,7 @@ export default function GridMap({
     theme,
   ]);
 
-  // The red node fill remains MapLibre data; this separate, zero-sized
+  // The metric node fill remains MapLibre data; this separate, zero-sized
   // DOM marker contributes only a CSS halo. MapLibre keeps its geographic
   // position through pan/zoom while the browser handles the animation.
   useEffect(() => {
@@ -803,7 +804,14 @@ export default function GridMap({
             ?.nodes.length
         : 0);
     const desired = new Map<string, [number, number]>();
-    if (dataMode === "congestion" && mcStats && !focusMembers) {
+    const alarmColor =
+      dataMode === "congestion"
+        ? congestionAlarmColor(theme)
+        : lmpColor(1, theme);
+    if (
+      !focusMembers &&
+      ((dataMode === "congestion" && mcStats) || (dataMode === "lmp" && lmpStats))
+    ) {
       const coordinates = new Map<string, [number, number]>();
       for (const feature of (points as GeoJSON.FeatureCollection).features) {
         if (feature.geometry?.type !== "Point") continue;
@@ -815,7 +823,11 @@ export default function GridMap({
       }
       for (const row of rows) {
         const coordinate = coordinates.get(row.sp_id);
-        if (coordinate && isCongestionAlarm(row.congestion, mcStats)) {
+        const alarm =
+          dataMode === "congestion"
+            ? !!mcStats && isCongestionAlarm(row.congestion, mcStats)
+            : !!lmpStats && isLmpAlarm(row.spp, lmpStats);
+        if (coordinate && alarm) {
           desired.set(row.sp_id, coordinate);
         }
       }
@@ -829,13 +841,13 @@ export default function GridMap({
     for (const [spId, coordinate] of desired) {
       const current = alarmMarkersRef.current.get(spId);
       if (current) {
-        current.element.style.setProperty("--alarm-halo", congestionAlarmColor(theme));
+        current.element.style.setProperty("--alarm-halo", alarmColor);
         continue;
       }
       const element = document.createElement("div");
       element.className = "map-alarm-halo";
       element.setAttribute("aria-hidden", "true");
-      element.style.setProperty("--alarm-halo", congestionAlarmColor(theme));
+      element.style.setProperty("--alarm-halo", alarmColor);
       element.style.pointerEvents = "none";
       const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat(coordinate)
@@ -846,6 +858,7 @@ export default function GridMap({
     rows,
     dataMode,
     mcStats,
+    lmpStats,
     points,
     sourcesReady,
     reach,

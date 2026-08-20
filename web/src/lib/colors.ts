@@ -193,6 +193,16 @@ export function normalizeLmpFromStats(
   }
 }
 
+// LMP uses its high percentile anchor as the ordinary scarcity scale. Reserve
+// the same categorical 3× threshold used by congestion for exceptional prices.
+export function lmpAlarmThreshold(stats: LmpStats): number {
+  return stats.p_high * CONGESTION_ALARM_MULTIPLIER;
+}
+
+export function isLmpAlarm(value: number | null, stats: LmpStats): boolean {
+  return value != null && isFinite(value) && stats.p_high > 0 && value >= lmpAlarmThreshold(stats);
+}
+
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
 // blue (oversupply) ↔ neutral (nominal) ↔ orange (scarcity).
 const LMP_BLUE = [59, 130, 246];
