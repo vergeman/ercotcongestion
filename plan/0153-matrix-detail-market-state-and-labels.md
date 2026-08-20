@@ -5,25 +5,25 @@ Branch: feat/0153-matrix-detail-market-state-and-labels
 
 ## Goal
 
-* Label Matrix SF row shadow prices explicitly as Forecast mu and DAM mu.
+* Keep the SF grid focused on shift factors while retaining unambiguous Forecast μ and DAM μ evidence on hover and in Detail.
 * Make Matrix Detail the complete deep view for a selected node or constraint, including the information presently available in the Map DetailCard.
 * Explain why Basis is unavailable from Constraints with an accessible hover/focus tooltip.
 
 ## Context
 
-* `MatrixGrid` currently abbreviates the two always-visible row prices as `F` and `DAM`, although they are respectively forecast and published DAM mu.
+* Constraint-row price/rank metadata made the SF grid crowded; the chosen presentation is constraint name plus muted contingency, with price evidence on hover and in Detail.
 * Matrix Detail already provides a constraint's full reach and a node's complete current-hour `-SF * mu` driver column, but its summary does not yet contain all Map DetailCard facts or distinguish current-hour values from daily/structural evidence.
 * `/forecast_range` and `/ercot_range` can derive the required values but are full-network playback payloads; a selected-node Detail request should return only its own cursor-hour state.
 * The disabled Basis button has a native `title`, but disabled controls do not reliably receive hover/focus events; the app has a reusable accessible `Tooltip` trigger for this case.
 
 ## Approach
 
-### 1. Make SF grid shadow-price labels unambiguous
+### 1. Keep SF grid headers legible
 
 * Work in: `web/src/components/matrix/MatrixGrid.tsx` and its Matrix styling/tests.
 * Entry point / primary change: `AxisHeaderBody` constraint header.
-* Replace `F $…` with `Forecast mu $…` and retain `DAM mu $…`, keeping both values visible and the active source emphasis unchanged.
-* Preserve DAM pending/partial formatting, the selected value toggle, existing matrix orientation, and compact responsive wrapping.
+* When constraints are rows, show only the constraint name and muted contingency; do not fit rank, Forecast μ, or DAM μ into the grid header.
+* Retain Forecast μ, DAM μ, and rank in the cell hover evidence. Preserve DAM pending/partial formatting and the selected value toggle.
 
 ### 2. Return one node's cursor-hour market state with its Detail attribution
 
@@ -50,7 +50,7 @@ Branch: feat/0153-matrix-detail-market-state-and-labels
 * Entry point / primary change: a single-constraint analysis response and the summary facts above each Detail evidence list.
 * Use one shared two-column summary layout: a **Selected hour** column for cursor-specific market values and a **Daily / structural** column for the selected delivery-day facts. Keep identical label/value tracks in both columns so values scan vertically.
 * For a node, show the Map DetailCard-equivalent Forecast congestion, Realized congestion, Forecast Error, Forecast LMP, and DAM LMP in Selected hour. Put zone, settlement-point type, ESSP membership, SF coverage, and driver count in Daily / structural. Keep the full current-hour drivers below; add a separate full structural-exposure view for nonzero SF relationships, including quiet constraints, rather than substituting the Map card's capped list.
-* Add a selected-constraint analysis response (do not overload the daily search-index response) aligned to the exact run, delivery date, horizon, and cursor hour. Return Forecast mu, published DAM mu when available, and their error for Selected hour; return daily Forecast mu rank, daily sum(mu), binding hours, peak absolute SF, and import/export reach counts for Daily / structural. Preserve null for absent/unpublished DAM data.
+* Extend the existing full `/map/reach` payload used by Matrix Constraint Detail with published DAM μ, Forecast Error, daily Forecast μ rank/sum, and full import/export counts. Preserve null for absent/unpublished DAM data; do not add a second constraint-detail endpoint.
 * For a constraint, retain the full reach/member evidence and footprint map below the summary. Do not duplicate the Map DetailCard's truncated member list: Matrix Detail must remain the unbounded evidence surface.
 * Clearly label Forecast mu versus DAM mu and Forecast Error; do not show a daily aggregate as though it were a cursor-hour value.
 
@@ -61,14 +61,22 @@ Branch: feat/0153-matrix-detail-market-state-and-labels
 * Wrap the disabled button in the shared `Tooltip` trigger when Constraints is active, with copy: `Basis is available only on the Nodes tab because it compares two settlement points.` Ensure the wrapper is reachable by pointer and keyboard without making the disabled action operable.
 * Preserve the existing behavior that switching to Constraints exits the Basis lens, the Node-tab enabled state, and the DAM-source availability tooltip.
 
+### 6. Redesign the Matrix mobile entity picker
+
+* Work in: `web/src/components/matrix/MatrixSidebar.tsx` and `web/src/workspaces/MatrixWorkspace.tsx`.
+* The current collapsed mobile index/search tray is functional but not accepted as the final interaction. Treat search/entity selection as the primary mobile action, not a hidden side panel.
+* Research and implement a compact picker that keeps Constraint/Node switching and search immediately discoverable, presents filtered results without making the Detail/SF stage feel displaced, and returns cleanly to the selected entity after a choice.
+* Keep horizontal SF-grid inspection, Detail's single-column layout, and keyboard/accessibility semantics intact. Do not change Matrix data contracts as part of this mobile interaction refinement.
+
 ## Acceptance
 
-* [ ] Every Matrix SF constraint header visibly says `Forecast mu` and `DAM mu`; source emphasis and DAM unavailable states remain correct.
-* [ ] Node Detail contains a paired Selected hour and Daily / structural summary. The hourly side includes Forecast P50 congestion, Realized congestion, Forecast Error, Forecast LMP, and DAM LMP; missing values render as unavailable rather than zero.
-* [ ] The node's market snapshot and its full Forecast/DAM driver attribution stay aligned to the selected delivery day, run, horizon, and cursor hour; Map and Matrix use the same forecast-LMP lambda convention.
-* [ ] Node Detail offers both a full current-hour driver list and a full structural-exposure list; quiet constraints are not presented as current-hour drivers.
-* [ ] Constraint Detail contains the same paired summary structure. Its hourly side shows Forecast mu, DAM mu when published, and Forecast Error; its daily/structural side shows daily Forecast rank, daily sum(mu), binding hours, peak absolute SF, and import/export reach counts.
-* [ ] Constraint Detail's selected-hour and daily/structural facts match the selected run, delivery date, horizon, and cursor hour; absent/unpublished DAM mu remains unavailable rather than zero.
-* [ ] Matrix Detail exposes the Map DetailCard's node and constraint facts while retaining its full, uncapped driver and reach evidence.
-* [ ] Hovering or focusing disabled Basis from Constraints explains that Nodes is required; Basis remains disabled and enables normally on Nodes.
-* [ ] Focused analysis API tests plus the Matrix frontend type/lint checks pass.
+* [x] SF constraint rows show only the constraint name and muted contingency; hover retains Forecast μ, DAM μ, and rank without crowding the matrix.
+* [x] Node Detail contains paired Selected hour and Daily / structural summaries, including Forecast P50 congestion, Realized congestion, Forecast Error, Forecast LMP, and DAM LMP; missing values render as unavailable rather than zero.
+* [x] Node current-hour market state and full Forecast/DAM driver attribution use the selected delivery day, run, horizon, and cursor hour; Matrix shares the forecast-LMP lambda convention with Map.
+* [x] Node Detail offers separate full current-hour drivers and full structural exposure; quiet constraints are not presented as current-hour drivers.
+* [x] Constraint Detail contains paired summaries. Its hourly side shows Forecast μ, DAM μ when published, and Forecast Error; its daily/structural side shows daily Forecast rank/sum, binding hours, peak |SF|, and import/export counts.
+* [x] Constraint Detail extends the existing full reach response and keeps absent/unpublished DAM μ unavailable rather than zero.
+* [x] Matrix Detail exposes Map DetailCard facts while retaining uncapped driver and reach evidence.
+* [x] Hovering or focusing disabled Basis from Constraints explains that Nodes is required; Basis remains disabled and enables normally on Nodes.
+* [x] Focused analysis/map tests, TypeScript checks, and whitespace checks pass for the implemented groups.
+* [ ] Mobile Matrix has an accepted entity-picker interaction: search and Node/Constraint switching remain immediately visible, filtered results are pleasant to use alongside the active stage, and selecting a result returns cleanly to that entity.
