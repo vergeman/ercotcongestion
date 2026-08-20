@@ -228,8 +228,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Focus-reach view (plan/0103): the src/sink dipole SP-coloring for the effective
   // constraint — its constituent nodes glow signed, every other node fades to the
   // no-data fill. Separate from `reach` (the node-explorer click that opens the
-  // DetailCard) so a hover just recolors nodes. Cached per constraint so sweeping
-  // the list doesn't spam /map/reach; kept in sync with the effective id below.
+  // DetailCard) so a hover just recolors nodes. Cached per constraint AND CT
+  // delivery day so sweeping the list doesn't spam /map/reach while moving the
+  // scrubber across days still refetches (0144); kept in sync with the effective
+  // id below.
   const [focusReach, setFocusReach] = useState<ConstraintReach | null>(null);
   const focusReqRef = useRef(0);
   const focusReachCache = useRef<Map<string, ConstraintReach>>(new Map());
@@ -339,6 +341,22 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     const ts = timestamps[currentIndex];
     return ts ? formatCT(ts, "yyyy-MM-dd") : undefined;
   }, [timestamps, currentIndex]);
+
+  // The cursor instant itself — what /map/exposures and /map/reach take as `t`
+  // (0144). Both serve that CT delivery day's SF artifact, so passing this is
+  // what keeps the DetailCard and the dipole glow on the same day the rest of
+  // the map is showing; omitting it silently served the newest rolling fit.
+  const cursorTs = useMemo<Date | undefined>(
+    () => timestamps[currentIndex],
+    [timestamps, currentIndex]
+  );
+
+  // focusReachCache key: a cached dipole belongs to one constraint on one CT
+  // delivery day, never to the constraint alone.
+  const focusReachKey = useCallback(
+    (id: string) => `${deliveryDay ?? "latest"}|${id}`,
+    [deliveryDay]
+  );
 
   // Whether the cursor's forecast day is a PREVIEW (horizon 2, 0123) — read-only
   // off the per-day provenance the range response carried, keyed by the frame's UTC
@@ -556,7 +574,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       const token = ++exposureReqRef.current;
       setExposures(null);
       setExposuresLoading(true);
-      fetchMapExposures(spId)
+      fetchMapExposures(spId, 15, cursorTs)
         .then((r) => {
           if (exposureReqRef.current === token) setExposures(r);
         })
@@ -567,7 +585,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           if (exposureReqRef.current === token) setExposuresLoading(false);
         });
     },
-    [spDecomp, setSelectionRoute]
+    [spDecomp, setSelectionRoute, cursorTs]
   );
 
   // Actual-pane click: pin the node scoped to the realized values only — no SF
@@ -600,14 +618,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
-    fetchMapReach(constraintKey)
+    fetchMapReach(constraintKey, { t: cursorTs })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, [setSelectionRoute]);
+  }, [setSelectionRoute, cursorTs]);
 
   // Deep links from the Matrix retain the requested identifier in the URL and
   // replay the equivalent Map selection once its representation is available.
@@ -644,7 +662,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     previewReachRef.current = false;
     setHoveredConstraintId(null);
     const token = ++reachReqRef.current;
-    fetchMapReach(target.value)
+    fetchMapReach(target.value, { t: cursorTs })
       .then((nextReach) => {
         if (reachReqRef.current !== token) return;
         if (!nextReach?.available) {
@@ -654,7 +672,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           return;
         }
         setReach(nextReach);
-        focusReachCache.current.set(target.value, nextReach);
+        focusReachCache.current.set(focusReachKey(target.value), nextReach);
         setLockedConstraintId(target.value);
       })
       .catch(() => {
@@ -663,7 +681,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         setLockedConstraintId(null);
         setTargetUnavailable(true);
       });
-  }, [target, topologyReady, spPoints, handleSpClickPrediction]);
+  }, [target, topologyReady, spPoints, handleSpClickPrediction, cursorTs, focusReachKey]);
 
   const handleCloseReach = useCallback(() => {
     setReach(null);
@@ -685,21 +703,21 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       setFocusReach(null);
       return;
     }
-    const cached = focusReachCache.current.get(id);
+    const cached = focusReachCache.current.get(focusReachKey(id));
     if (cached) {
       setFocusReach(cached);
       return;
     }
     const token = ++focusReqRef.current;
-    fetchMapReach(id)
+    fetchMapReach(id, { t: cursorTs })
       .then((r) => {
-        if (r) focusReachCache.current.set(id, r);
+        if (r) focusReachCache.current.set(focusReachKey(id), r);
         if (focusReqRef.current === token) setFocusReach(r);
       })
       .catch(() => {
         if (focusReqRef.current === token) setFocusReach(null);
       });
-  }, [effectiveConstraintId]);
+  }, [effectiveConstraintId, cursorTs, focusReachKey]);
 
   // Hover a constraint (panel row or popover row): the transient overlay. Leaving
   // (id === null) reverts to whatever is locked — it never clears the lock.
@@ -772,14 +790,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
-    fetchMapReach(key)
+    fetchMapReach(key, { t: cursorTs })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, [pinnedSp, reach]);
+  }, [pinnedSp, reach, cursorTs]);
 
   // Background (empty-map) click clears whichever mode is active.
   const handlePredictionMapBackgroundClick = useCallback(() => {
