@@ -31,9 +31,9 @@ interface Props {
   // panel stands alone, but App wires both so hover is symmetric.
   highlightedId?: string | null;
   onHover?: (id: string | null) => void;
-  // Row click → lock the map's focus on this constraint (isolation + the src/sink
-  // reach coloring), so the user can pan/zoom into it without a mouse-out clearing
-  // it. The row also expands its members in-panel.
+  // Primary row click → lock the map's focus on this constraint (isolation + the
+  // src/sink reach coloring), so the user can pan/zoom into it without a mouse-out
+  // clearing it. The adjacent disclosure button alone expands its members.
   onSelect?: (id: string) => void;
   // A constituent SP hovered in an expanded row → ring that node on the map.
   onMemberHover?: (sp: string | null) => void;
@@ -51,8 +51,9 @@ export default function ConstraintPanel({
 }: Props) {
   // Hover is non-destructive: it isolates the constraint on the MAP (via onHover)
   // and lights its row, but leaves the list intact so you can scroll freely. Click
-  // is the only thing that expands a row to its members. `litId` is whichever row
-  // the hover points at — panel-side (hoverId) or map-side (highlightedId).
+  // is the only thing that selects a row; its adjacent disclosure control expands
+  // member nodes. `litId` is whichever row the hover points at — panel-side
+  // (hoverId) or map-side (highlightedId).
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const litId = hoverId ?? highlightedId ?? null;
@@ -105,8 +106,8 @@ export default function ConstraintPanel({
       <div className="cp-caption">
         Ranked by <b>contribution</b> = shadow-price mass × SF reach (how much a
         constraint drives the day's congestion). The bar is its share of the top
-        constraint. Hover a row to isolate it on the map; click to expand its
-        member nodes.
+        constraint. Hover a row to isolate it on the map; click it to select the
+        constraint, or use its chevron to preview member nodes.
         <SfDipoleLegend />
       </div>
 
@@ -126,6 +127,7 @@ export default function ConstraintPanel({
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
           <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, soft magenta) ↔ export (SF>0, teal) split by node share">Dipole</Tooltip>
+          <span />
         </div>
       )}
 
@@ -140,27 +142,37 @@ export default function ConstraintPanel({
               className={`cp-row${lit ? " cp-lit" : ""}${expanded ? " cp-expanded" : ""}`}
               onMouseEnter={() => setHover(c.constraint_id)}
             >
-              <button
-                className="cp-head"
-                aria-expanded={expanded}
-                onFocus={() => setHover(c.constraint_id)}
-                onBlur={() => setHover(null)}
-                onClick={() => {
-                  setExpandedId(expanded ? null : c.constraint_id);
-                  onSelect?.(c.constraint_id); // lock the map's focus on it
-                }}
-              >
-                <span className="cp-rank mono">{c.rank}</span>
-                <span className="cp-key mono">{c.constraint_id}</span>
-                <span className="cp-n mono">{c.n_members}</span>
-                <span className="cp-meter">
-                  <span className="cp-meter-fill" style={{ width: `${w}%` }} />
-                  <span className="cp-meter-num mono">
-                    {fmtMag(c.congestion_contribution)}
+              <div className="cp-row-controls">
+                <button
+                  className="cp-head"
+                  onFocus={() => setHover(c.constraint_id)}
+                  onBlur={() => setHover(null)}
+                  onClick={() => onSelect?.(c.constraint_id)}
+                  aria-label={`Select constraint ${c.constraint_id}`}
+                >
+                  <span className="cp-rank mono">{c.rank}</span>
+                  <span className="cp-key mono">{c.constraint_id}</span>
+                  <span className="cp-n mono">{c.n_members}</span>
+                  <span className="cp-meter">
+                    <span className="cp-meter-fill" style={{ width: `${w}%` }} />
+                    <span className="cp-meter-num mono">
+                      {fmtMag(c.congestion_contribution)}
+                    </span>
                   </span>
-                </span>
-                <Dipole imp={c.n_import} exp={c.n_export} />
-              </button>
+                  <Dipole imp={c.n_import} exp={c.n_export} />
+                </button>
+                <button
+                  type="button"
+                  className="cp-disclosure"
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? "Hide" : "Show"} member nodes for ${c.constraint_id}`}
+                  onFocus={() => setHover(c.constraint_id)}
+                  onBlur={() => setHover(null)}
+                  onClick={() => setExpandedId(expanded ? null : c.constraint_id)}
+                >
+                  <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                </button>
+              </div>
               {expanded && (
                 <Membership
                   id={c.constraint_id}
@@ -192,9 +204,9 @@ export default function ConstraintPanel({
         /* One shared grid so the header labels sit exactly over the row cells.
            Columns are px (not em) because the header and data rows have different
            font-sizes — em would resolve to different widths and drift apart. */
-        .cp-colhead, .cp-head {
+        .cp-colhead, .cp-row-controls, .cp-head {
           display: grid;
-          grid-template-columns: 22px minmax(0,1fr) 44px 78px 54px;
+          grid-template-columns: 22px minmax(0,1fr) 44px 78px 54px 28px;
           align-items: center; column-gap: 10px;
         }
         .cp-colhead {
@@ -210,10 +222,19 @@ export default function ConstraintPanel({
            just a highlight, so the rest of the list stays put and scrollable. */
         .cp-row.cp-lit { background: color-mix(in srgb, var(--accent) 13%, transparent); }
         .cp-row.cp-expanded { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+        .cp-row-controls { column-gap: 10px; }
         .cp-head {
+          grid-column: 1 / 6;
           width: 100%; text-align: left; background: none; border: none;
           padding: 8px 2px; cursor: pointer; color: inherit;
         }
+        .cp-disclosure {
+          grid-column: 6; width: 28px; height: 28px; padding: 0;
+          background: none; border: none; color: var(--text-secondary); cursor: pointer;
+          font-size: 16px; line-height: 1;
+        }
+        .cp-disclosure:hover { color: var(--text-primary); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+        .cp-disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .cp-head:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .cp-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .cp-rank { font-size: 12px; color: var(--text-muted); text-align: right; }
