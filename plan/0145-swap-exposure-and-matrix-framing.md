@@ -98,8 +98,44 @@ Branch: feat/0145-swap-exposure-and-matrix-framing
       as HEAD (0143.2). Web typecheck and `vite build` clean; eslint at the HEAD
       baseline of 41.
 
-## Not verified
+### Follow-on work (not in the original plan)
 
-* Visual layout of the new card rows and matrix header was not rendered in a
-  browser: Vite's dev server rejects the probe container's Host header. The
-  contract underneath it is verified against live dev data.
+Review surfaced four gaps, all now shipped:
+
+* **The card did not follow the scrubber.** Every value in the response is
+  specific to the cursor's hour, but the fetch only ever fired on click, so a
+  pinned card silently disagreed with the map under it the moment you scrubbed.
+  Now driven by an effect keyed on (node, basis, cursor). Click and basis-toggle
+  clear the list first; scrubbing leaves it up until the new one lands, so an
+  hour tick does not strobe the card.
+* **The basis header names the hour** ("Drove Jun 30, 13:00 CT"), in the same
+  format as the scrubber and the matrix, rather than saying "this hour" and
+  leaving the reader to assume it tracked the cursor.
+* **Column headers** (`Constraint | Contingency` / `$/MWh` / `Share`, and
+  `SF` / `Binding`) replace the per-row unit suffix. Numeric grid tracks are
+  fixed widths, not `auto`: each row is its own grid container, so `auto` sized
+  every row to its own content and the header drifted out of line.
+* **The header sits inside the scroll container**, stuck to the top. Outside it,
+  a classic space-taking scrollbar squeezed the rows ~12px narrower than the
+  header and every numeric column read as shifted right — invisible under
+  overlay scrollbars (macOS, headless), plainly wrong elsewhere.
+
+Verified in headless Chrome on dev: scrubbing three hours issues one request per
+hour with the correct `t`, and the card follows (13:00 → 16:00 CT, `WESTEX|BASE
+CASE` repricing −6.61/43% → −7.86/42%).
+
+## Still open
+
+* The acceptance case named in Context (`RHESS2_ESS1`, 2025-02-20T12Z) can only
+  be confirmed **after deploy** — dev holds no 2025 artifacts, and prod still
+  runs the pre-0145 endpoint. Equivalence was verified on dev instead (`AEEC`).
+* **Per-hour request chatter.** Scrubbing a pinned node fires one request per
+  hour: 24 round trips / 68.6 KB across a day, where a single node-day payload
+  would be ~15 KB — across all 24 hours that node's top-15 lists draw on only 24
+  distinct constraints, so the per-hour responses re-send the same metadata 24
+  times. The server already decodes the whole CT block per request and discards
+  23/24 of it. Deferred as new scope; if taken, the per-hour *ranking* must stay
+  server-side, or the two-implementations drift this plan exists to remove comes
+  straight back.
+* `0143.2` (3 pre-existing `test_analysis.py` failures) is untouched by this
+  work and still undiagnosed.
