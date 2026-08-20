@@ -271,6 +271,26 @@ def get_map_meta() -> MapMeta:
         return MapMeta(**_meta_row(cur, run_id, window_start))
 
 
+def _absent_sp_reason(cur, run_id: str, day, sp: str) -> str:
+    """Why a node has no SF on this day: not in service, or just not fitted.
+
+    The run's own nodal forecast is the existence test — a node ERCOT had not
+    commissioned yet has no rows there either, while one merely dropped by the
+    fit does. ``day_rows`` guards a day the run never forecast at all, where the
+    two are indistinguishable. One indexed count, only on this branch.
+    """
+    cur.execute(
+        "SELECT count(*) FILTER (WHERE settlement_point = %s) AS sp_rows, "
+        "count(*) AS day_rows FROM forecast_nodal "
+        "WHERE run_id = %s AND delivery_date = %s",
+        (sp, run_id, day),
+    )
+    row = cur.fetchone() or {}
+    if row.get("day_rows") and not row.get("sp_rows"):
+        return "sp_not_in_service"
+    return "sp_not_in_fit"
+
+
 @router.get(
     "/exposures",
     response_model=ExposuresResponse,
@@ -319,11 +339,14 @@ def get_map_exposures(
                 unavailable_reason="interval_not_in_artifact", exposures=[],
             )
         if sp not in artifact.SF.columns:
-            # A located node absent from this day's fit: available, empty — the
-            # same soft-fail an unknown sp always had.
+            # Its own reason: an empty list would read as "in the fit, bound
+            # nothing" (0146). Pins come from the static geocoded CSV, which has
+            # no per-day universe, so any node is clickable on any day.
             return ExposuresResponse(
                 sp=sp, run_id=run_id, window_start=window_start,
-                window_end=window_end, k=k, rank=rank, exposures=[],
+                window_end=window_end, k=k, rank=rank, available=False,
+                unavailable_reason=_absent_sp_reason(cur, run_id, day, sp),
+                exposures=[],
             )
 
         column = artifact.SF[sp]

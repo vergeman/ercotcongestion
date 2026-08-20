@@ -674,8 +674,11 @@ class ExposuresResponse(BaseModel):
     oos_r2: float | None = None
     sf_stability: float | None = None
     node_max_abs_sf: float | None = None
-    # False means the requested day has no built artifact, so there is no SF to
-    # report — distinct from a located node that simply drives nothing.
+    # False = no SF to report: ``artifact_missing`` (no artifact for the day),
+    # ``interval_not_in_artifact`` (block does not cover ``t``),
+    # ``sp_not_in_service`` (the node did not exist on this day), or
+    # ``sp_not_in_fit`` (it existed but the fit dropped it).
+    # Distinct from a node in the fit that drives nothing: available, empty.
     available: bool = True
     unavailable_reason: str | None = None
     exposures: list[SpExposure]

@@ -333,7 +333,15 @@ export interface ExposuresResponse {
   // `rank=sf`.
   node_total: number | null;
   available: boolean;
-  unavailable_reason: string | null;
+  // No SF for this node on this day — not the same as being in the fit and
+  // driving nothing (0146). `sp_not_in_service`: the node did not exist yet;
+  // `sp_not_in_fit`: it existed but the fit dropped it.
+  unavailable_reason:
+    | "artifact_missing"
+    | "interval_not_in_artifact"
+    | "sp_not_in_service"
+    | "sp_not_in_fit"
+    | null;
   exposures: SpExposure[];
 }
 
