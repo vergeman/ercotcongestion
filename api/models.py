@@ -79,6 +79,7 @@ class NodeMarketState(BaseModel):
     forecast_congestion: float | None = None
     forecast_lmp: float | None = None
     realized_congestion: float | None = None
+    forecast_error: float | None = None
     dam_lmp: float | None = None
     forecast_lambda_source: Literal["settled", "persisted"] | None = None
 

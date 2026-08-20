@@ -893,6 +893,7 @@ export interface NodeMarketState {
   forecast_congestion: number | null;
   forecast_lmp: number | null;
   realized_congestion: number | null;
+  forecast_error: number | null;
   dam_lmp: number | null;
   forecast_lambda_source: "settled" | "persisted" | null;
 }

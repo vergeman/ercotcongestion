@@ -478,6 +478,7 @@ def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
         "forecast_congestion": 5.0,
         "forecast_lmp": 35.0,
         "realized_congestion": 5.0,
+        "forecast_error": 0.0,
         "dam_lmp": 35.0,
         "forecast_lambda_source": "settled",
     }
@@ -502,6 +503,7 @@ def test_node_market_state_keeps_missing_values_null(client, fake_pool, monkeypa
         "forecast_congestion": None,
         "forecast_lmp": None,
         "realized_congestion": None,
+        "forecast_error": None,
         "dam_lmp": None,
         "forecast_lambda_source": None,
     }
@@ -527,6 +529,7 @@ def test_node_market_state_uses_persisted_forecast_lambda(client, fake_pool, mon
         "forecast_congestion": 5.0,
         "forecast_lmp": 30.0,
         "realized_congestion": None,
+        "forecast_error": None,
         "dam_lmp": None,
         "forecast_lambda_source": "persisted",
     }

@@ -162,10 +162,12 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
     dam_row = cur.fetchone()
     dam_lmp = None if dam_row is None or dam_row["dam_spp"] is None else float(dam_row["dam_spp"])
     settled_lambda = settled_by_ts.get(timestamp)
+    realized_congestion = None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda
     return NodeMarketState(
         forecast_congestion=forecast_congestion,
         forecast_lmp=None if forecast_congestion is None or forecast_lambda is None else forecast_congestion + forecast_lambda,
-        realized_congestion=None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda,
+        realized_congestion=realized_congestion,
+        forecast_error=None if forecast_congestion is None or realized_congestion is None else forecast_congestion - realized_congestion,
         dam_lmp=dam_lmp,
         forecast_lambda_source=lambda_source,
     )
