@@ -17,6 +17,8 @@ import {
   lmpColor,
   normalizeLmpFromStats,
   congestionColor as congestionRampColor,
+  congestionAlarmColor,
+  isCongestionAlarm,
   normalizeCongestion,
   shiftFactorColor,
   type LmpStats,
@@ -754,10 +756,12 @@ export default function GridMap({
       let color: string;
       if (dataMode === "congestion") {
         color = mcStats
-          ? congestionColor(
-              normalizeCongestion(row.congestion, mcStats),
-              theme
-            )
+          ? isCongestionAlarm(row.congestion, mcStats)
+            ? congestionAlarmColor(theme)
+            : congestionColor(
+                normalizeCongestion(row.congestion, mcStats),
+                theme
+              )
           : congestionColor(0, theme);
       } else {
         color = lmpStats

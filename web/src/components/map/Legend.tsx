@@ -4,6 +4,8 @@ import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmpFromStats,
   normalizeCongestion,
+  congestionAlarmColor,
+  congestionAlarmThreshold,
   congestionColor,
   lmpColor,
   type LmpStats,
@@ -138,7 +140,7 @@ export default function Legend({
 }: Props) {
   // Subscribes the legend to theme flips so the cssVar() type-mark lookups below
   // re-resolve (SVG presentation attributes cannot take var()).
-  useTheme();
+  const theme = useTheme();
   const isCongestion = dataMode === "congestion";
   const isLmp = dataMode === "lmp";
 
@@ -245,7 +247,7 @@ export default function Legend({
 
       <div className="legend__bar" style={{ background: barGradient }} />
 
-      {/* Diverging congestion family: signed, center = 0, edges = ±p_high. */}
+      {/* Diverging congestion family: signed, center = 0, edges = ±P90. */}
       {isCongestion && mcStats && (
         <>
           <div className="legend__ticks">
@@ -263,6 +265,17 @@ export default function Legend({
             <span className="label">{negLabel}</span>
             <span className="label">{posLabel}</span>
           </div>
+          {mcStats.max >= congestionAlarmThreshold(mcStats) && (
+            <div className="legend__alarm">
+              <span
+                className="legend__alarm-swatch"
+                style={{ backgroundColor: congestionAlarmColor(theme) }}
+              />
+              <span className="label legend__alarm-text">
+                Extreme Price ≥ +{formatDollar(congestionAlarmThreshold(mcStats))}
+              </span>
+            </div>
+          )}
         </>
       )}
 
@@ -428,6 +441,15 @@ export default function Legend({
           opacity: 0.8;
           white-space: nowrap;
         }
+        .legend__tick::before {
+          content: "";
+          position: absolute;
+          top: -6px;
+          left: 50%;
+          width: 1px;
+          height: 4px;
+          background: var(--text-muted);
+        }
         /* End ticks anchor to the bar edges (matching the Export/Import labels)
            so they don't bleed past the container the way a centered −50% does. */
         .legend__tick--start {
@@ -438,6 +460,32 @@ export default function Legend({
           left: auto;
           right: 0;
           transform: none;
+        }
+        .legend__tick--start::before {
+          left: 0;
+        }
+        .legend__tick--end::before {
+          left: auto;
+          right: 0;
+        }
+        .legend__alarm {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 7px;
+          padding-top: 7px;
+          border-top: 1px solid var(--border);
+        }
+        .legend__alarm-swatch {
+          width: 11px;
+          height: 11px;
+          border-radius: 2px;
+          border: 1px solid var(--map-aggregate-label);
+          flex: 0 0 11px;
+        }
+        .legend__alarm-text {
+          font-size: var(--fs-label);
+          opacity: 0.9;
         }
         .legend__types {
           margin-top: 9px;
