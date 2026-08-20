@@ -1786,6 +1786,10 @@ export default function BriefPage() {
         </div>}
         {globalLoading && (
           <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
+            <div className="an-brief-loader__brand" aria-hidden="true">
+              <span className="an-brief-loader__title">ERCOT STRESS</span>
+              <span className="an-brief-loader__bolt">⚡</span>
+            </div>
             <span className="an-loading-indicator" aria-hidden="true" />
           </section>
         )}
@@ -1939,7 +1943,10 @@ export default function BriefPage() {
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
         .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
-        .an-brief-loader { display: grid; min-height: 48px; place-items: center; }
+        .an-brief-loader { display: flex; min-height: calc(100dvh - var(--header-h) - 84px); align-items: center; justify-content: center; flex-direction: column; gap: 18px; }
+        .an-brief-loader__brand { display: grid; justify-items: center; gap: 7px; }
+        .an-brief-loader__title { color: var(--accent); font: 700 var(--fs-xl) var(--font-label); letter-spacing: var(--track-title); }
+        .an-brief-loader__bolt { color: var(--accent); font-size: 28px; line-height: 1; }
         .an-loading-indicator { width: 16px; height: 16px; flex: none; box-sizing: border-box; border: 2px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-top-color: var(--accent); border-radius: 50%; animation: an-loading-spin .75s linear infinite; }
         .an-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); }
         .an-details-error button { flex: none; }
@@ -1990,7 +1997,7 @@ export default function BriefPage() {
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
         .an-facts-slot { display: grid; min-height: 108px; margin-top: 24px; }
         .an-facts-loading { display: grid; place-items: center; }
-        .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); }
+        .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); animation: an-facts-in 220ms ease-out both; }
         .an-fact { min-width: 0; min-height: 82px; padding: 11px 10px; background: var(--bg-panel); }
         .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; overflow-wrap: anywhere; }
         .an-fact__value { display: block; overflow: hidden; margin: 4px 0 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-lg); text-overflow: ellipsis; white-space: nowrap; }
@@ -2123,7 +2130,8 @@ export default function BriefPage() {
         .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
-        @media (prefers-reduced-motion: reduce) { .an-loading-indicator { animation: none; } }
+        @keyframes an-facts-in { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .an-loading-indicator, .an-facts { animation: none; } }
         @media (max-width: 700px) {
           .an-hero__frame { min-height: 0; border: 0; background: transparent; }
           .an-hero__frame::after { content: none; }
@@ -2135,7 +2143,7 @@ export default function BriefPage() {
           .an-grade__cards { grid-template-columns: 1fr; }
           .an-grade-card { min-height: 0; }
         }
-        @media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
+        @media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-brief-loader { min-height: calc(100dvh - var(--header-h) - 56px); } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
       `}</style>
     </div>
   );
