@@ -57,9 +57,9 @@ Do NOT touch: Map/Matrix playback loading, the shared URL cursor contract outsid
 
 ## Acceptance
 
-* [ ] On first paint, the Brief shows stable chrome and a usable delivery-date control; no control or label says “Load Window.”
-* [ ] The hero and prior/next available-date state render from a fast shell response before secondary sections finish; date carets no longer depend on full Brief neighbor prefetches.
-* [ ] A secondary-detail failure or slow response does not hide a successfully loaded hero or block choosing another date.
-* [ ] Direct URL dates, cold entry defaults, stale-response protection, unavailable days, and settled-cache rules work as before where applicable.
-* [ ] Query timings and `EXPLAIN` evidence identify the limiting uncached-detail path, and any query/index/materialization change has a measured before/after result.
-* [ ] API and web verification pass.
+* [x] On first paint, the Brief shows stable chrome and a usable delivery-date control; no control or label says “Load Window.”
+* [x] The hero and prior/next available-date state render from a fast shell response before secondary sections finish; date carets no longer depend on full Brief neighbor prefetches.
+* [x] A secondary-detail failure or slow response does not hide a successfully loaded hero or block choosing another date.
+* [x] Direct URL dates, cold entry defaults, stale-response protection, unavailable days, and settled-cache rules work as before where applicable.
+* [x] Query timings and `EXPLAIN` evidence identify the limiting uncached-detail path; dev’s absent `forecast_nodal` history takes the intentional artifact fallback, so no speculative query/index change was made.
+* [ ] Full API and web verification pass (blocked by three pre-existing API test failures and existing repository-wide ESLint violations; focused Brief API tests and TypeScript pass).
