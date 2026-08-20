@@ -82,6 +82,15 @@ function Segments({ segments }: { segments: HeroSegment[] }) {
   );
 }
 
+function LoadingState({ children }: { children: string }) {
+  return (
+    <p className="an-panel-state an-panel-state--loading">
+      <span className="an-loading-indicator" aria-hidden="true" />
+      {children}
+    </p>
+  );
+}
+
 function StandoutsPanel({
   data,
   loading,
@@ -104,7 +113,7 @@ function StandoutsPanel({
           30-day forecast history.
         </p>
       </div>
-      {loading && <p className="an-panel-state">Finding unusual calls…</p>}
+      {loading && <LoadingState>Finding unusual calls…</LoadingState>}
       {!loading &&
         (!data?.available || (!constraints.length && !nodes.length)) && (
           <p className="an-panel-state">
@@ -421,7 +430,7 @@ function TopConstraintsPanel({
             : "The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast."}
         </p>
       </div>
-      {loading && <p className="an-panel-state">Loading constraints…</p>}
+      {loading && <LoadingState>Loading constraints…</LoadingState>}
       {!loading && (!data?.available || !data.rows?.length) && (
         <p className="an-panel-state">
           No ranked forecast constraints are available for this delivery day.
@@ -581,7 +590,7 @@ function TopNodesPanel({
             : "Forecast congestion, attributed across each node’s complete shift-factor column."}
         </p>
       </div>
-      {loading && <p className="an-panel-state">Loading nodal congestion…</p>}
+      {loading && <LoadingState>Loading nodal congestion…</LoadingState>}
       {!loading && (!data?.available || !data.rows?.length) && (
         <p className="an-panel-state">
           No ranked nodal congestion is available for this delivery day.
@@ -754,7 +763,7 @@ function ContextPanel({
         <h2 id="context-title">Context</h2>
         <p>Structural context for this delivery day.</p>
       </div>
-      {loading && <p className="an-panel-state">Loading grid context…</p>}
+      {loading && <LoadingState>Loading grid context…</LoadingState>}
       {!loading && !data?.available && (
         <p className="an-panel-state">
           Context is unavailable for this delivery day.
@@ -870,7 +879,7 @@ function DualStatBox({
   secondValue?: string;
 }) {
   return (
-    <div className="an-fact an-fact--dual-stat">
+    <div className="an-fact an-fact--dual-stat an-fact--arriving">
       <span className="an-fact__label">{firstLabel}</span>
       <strong className="an-fact__value an-fact__value--primary">
         {firstValue}
@@ -883,6 +892,22 @@ function DualStatBox({
           <strong className="an-fact__value">{secondValue ?? ""}</strong>
         </>
       )}
+    </div>
+  );
+}
+
+function LoadingStatBox() {
+  return (
+    <div
+      className="an-fact an-fact--dual-stat an-fact--loading"
+      aria-label="Loading load forecast"
+    >
+      <span className="an-fact__label">Load forecast</span>
+      <span className="an-fact__line" />
+      <span className="an-fact__label an-fact__secondary">
+        Net load forecast
+      </span>
+      <span className="an-fact__line an-fact__line--short" />
     </div>
   );
 }
@@ -1347,7 +1372,7 @@ function ForecastGrade({
           </p>
         </div>
       )}
-      {settled && loading && <p>Loading forecast grade…</p>}
+      {settled && loading && <LoadingState>Loading forecast grade…</LoadingState>}
       {settled && !loading && (!grade || !grade.available) && (
         <p>Forecast grade is unavailable for this delivery day.</p>
       )}
@@ -1833,6 +1858,7 @@ export default function BriefPage() {
                         secondValue={gw(loadNet)}
                       />
                     )}
+                    {(loadTotal == null || loadNet == null) && <LoadingStatBox />}
                     {magnitudeValue != null && magnitudeMedian != null && (
                       <DualStatBox
                         firstLabel="Total Congestion"
@@ -1986,6 +2012,10 @@ export default function BriefPage() {
         .an-fact { min-width: 0; min-height: 82px; padding: 11px 10px; background: var(--bg-panel); }
         .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; overflow-wrap: anywhere; }
         .an-fact__value { display: block; overflow: hidden; margin: 4px 0 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-lg); text-overflow: ellipsis; white-space: nowrap; }
+        .an-fact--loading { opacity: .72; }
+        .an-fact__line { display: block; width: 72%; height: 16px; margin: 5px 0 7px; border-radius: 2px; background: linear-gradient(90deg, var(--bg-surface), var(--bg-hover), var(--bg-surface)); background-size: 200% 100%; animation: an-skeleton-shift 1.8s ease-in-out infinite; }
+        .an-fact__line--short { width: 52%; height: 14px; margin-top: 5px; }
+        .an-fact--arriving { animation: an-fact-arrive .22s ease-out both; }
         .an-fact__value--primary { margin-top: 2px; font-size: var(--fs-xl); }
         .an-fact--dual-stat .an-fact__value { margin-top: 2px; margin-bottom: 6px; }
         .an-fact--dual-stat .an-fact__secondary { margin-top: 9px; }
@@ -2022,6 +2052,8 @@ export default function BriefPage() {
         .an-context__share i { display: inline-block; height: 4px; max-width: 60px; background: var(--accent); }
         .an-section-heading h2 { margin: 0; font-size: var(--fs-xl); }
         .an-section-heading p, .an-panel-state { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-panel-state--loading { display: flex; align-items: center; gap: 8px; }
+        .an-panel-state--loading .an-loading-indicator { width: 14px; height: 14px; }
         .an-table-wrap { margin-top: 14px; overflow-x: auto; }
         .an-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; }
         .an-table th { padding: 6px 8px; color: var(--text-muted); border-top: 1px solid var(--border-bright); border-bottom: 1px solid var(--border-bright); font: var(--fw-label) var(--fs-micro) var(--font-label); letter-spacing: var(--track-label); text-align: right; text-transform: uppercase; white-space: nowrap; }
@@ -2113,7 +2145,8 @@ export default function BriefPage() {
         .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
-        @media (prefers-reduced-motion: reduce) { .an-hero-skeleton, .an-loading-indicator { animation: none; } }
+        @keyframes an-fact-arrive { from { opacity: .45; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .an-hero-skeleton, .an-loading-indicator, .an-fact__line, .an-fact--arriving { animation: none; } }
         @media (max-width: 700px) {
           .an-hero__frame { min-height: 0; border: 0; background: transparent; }
           .an-hero__frame::after { content: none; }
