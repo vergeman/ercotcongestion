@@ -639,6 +639,16 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     const key = `${target.kind}:${target.value}`;
     if (handledTargetRef.current === key) return;
 
+    // Wait for the scrubber to resolve the cursor before replaying. The URL
+    // carries the coordinate, but `timestamps` fills in asynchronously — and
+    // this workspace stays mounted on the Matrix route (App.tsx), so a Matrix
+    // deep link replays the target here while the map's own window is still
+    // loading. Firing then sends the click fetches with no `t`, which serves the
+    // latest built day instead of the linked one, and `handledTargetRef` below
+    // would mark the target done and suppress the corrected refetch. `cursorTs`
+    // is a dependency, so the effect re-runs once the cursor arrives.
+    if (!cursorTs) return;
+
     if (target.kind === "sp") {
       if (!topologyReady) return;
       handledTargetRef.current = key;
