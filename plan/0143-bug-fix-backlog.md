@@ -52,9 +52,18 @@ backfill graduates to its own numbered plan.
   touching either.
 * Test: the three existing tests, passing for the right reason.
 
+### 0143.3 — Map DetailCard SFs don't match the matrix → 0144
+
+* `/map/exposures` and `/map/reach` ignore `t` and always serve the newest
+  `sf_window_meta` window, so the map contradicts the matrix at the same node
+  and time.
+* Graduated to `plan/0144-map-day-aware-sf.md` — API contract plus four
+  frontend call sites, past this list's size limit.
+
 ## Acceptance
 
 * [x] 0143.1 — every in-range hour of a CT delivery day resolves; boundary test
       verified red pre-fix.
 * [ ] 0143.2 — `pytest api/tests` green on a clean checkout.
+* [x] 0143.3 — tracked in 0144.
 * [ ] Every closed task records a root cause, not only a symptom.
