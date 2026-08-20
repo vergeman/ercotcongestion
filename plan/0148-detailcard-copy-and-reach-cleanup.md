@@ -28,9 +28,9 @@ Branch: fix/0148-detailcard-copy-and-reach-cleanup
 
 ## Acceptance
 
-* [ ] A node DetailCard reads `Forecast (P50) Congestion`, `Realized Congestion`, `Forecast Error`, and `DAM LMP`; numbers and units are unchanged.
-* [ ] Horizon-2 node DetailCards show `Predicted LMP` with no `(indicative)` suffix; the LMP legend still identifies persisted lambda as indicative.
-* [ ] Driver-list headers have matching 6px gaps from text to border and border to first row, without column drift.
-* [ ] Constraint-reach cards render no `thin support`, ridge-clamp/low-confidence label, or rail-threshold qualification.
-* [ ] Constraint-reach rows have aligned settlement-point and `SF` headers, and retain their existing signed SF values and interactions.
-* [ ] `npm run lint` and `npx tsc --noEmit -p tsconfig.app.json` pass in `web/`.
+* [x] A node DetailCard reads `Forecast (P50) Congestion`, `Realized Congestion`, `Forecast Error`, and `DAM LMP`; numbers and units are unchanged.
+* [x] Horizon-2 node DetailCards show `Predicted LMP` with no `(indicative)` suffix; the LMP legend still identifies persisted lambda as indicative.
+* [x] Driver-list headers have matching 6px gaps from text to border and border to first row, without column drift.
+* [x] Constraint-reach cards render no `thin support`, ridge-clamp/low-confidence label, or rail-threshold qualification.
+* [x] Constraint-reach rows have aligned settlement-point and `SF` headers, and retain their existing signed SF values and interactions.
+* [x] DetailCard ESLint and `npx tsc --noEmit -p tsconfig.app.json` pass in `web/`; full-project lint remains blocked by existing MapWorkspace hook-rule errors and the local ESLint/Node formatter mismatch.
