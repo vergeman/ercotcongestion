@@ -21,16 +21,14 @@ interface Props {
   // The two orthogonal axes (0130): `view` picks the layout — Forecast | Market
   // (single maps), Compare (the prediction | ERCOT split), Error (P50 forecast −
   // realized congestion); `dataMode` picks the ERCOT quantity a single/compare
-  // pane colors by. `marketAvailable` gates Market/Compare/Error — they need
-  // settled data in the loaded window and grey out as one contiguous span with a
-  // tooltip when it's missing. Error forces `dataMode` to congestion (both sides
+  // pane colors by. A selected view remains selected when its data is absent;
+  // its map renders its normal empty state. Error forces `dataMode` to congestion (both sides
   // share the market λ, so price error ≡ congestion error) — the LMP chip
   // disables with its own tooltip while Error is active.
   view: MapView;
   onView: (v: MapView) => void;
   dataMode: MapDataMode;
   onDataMode: (v: MapDataMode) => void;
-  marketAvailable: boolean;
   lastUpdated: Date | null;
   connectionState: "ok" | "error" | "loading";
   mobileDrawerOpen?: boolean;
@@ -44,7 +42,6 @@ export default function Header({
   onView,
   dataMode,
   onDataMode,
-  marketAvailable,
   lastUpdated,
   connectionState,
   mobileDrawerOpen = false,
@@ -60,21 +57,15 @@ export default function Header({
             View
           </span>
           {VIEWS.map(({ key, label }) => {
-            const disabled = key !== "forecast" && !marketAvailable;
             return (
               <Tooltip
                 key={key}
                 as="button"
                 type="button"
                 placement="bottom"
-                tip={disabled ? "Available after market posts" : undefined}
-                aria-disabled={disabled || undefined}
-                className={`${view === key ? "active" : ""}${
-                  disabled ? " is-disabled" : ""
-                }`}
-                onClick={() => {
-                  if (!disabled) onView(key);
-                }}
+                tip={undefined}
+                className={view === key ? "active" : ""}
+                onClick={() => onView(key)}
               >
                 {label}
               </Tooltip>

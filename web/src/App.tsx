@@ -86,7 +86,6 @@ export function ExplorerApp() {
             onView={() => {}}
             dataMode="congestion"
             onDataMode={() => {}}
-            marketAvailable={false}
             lastUpdated={lastUpdated}
             connectionState={connectionState}
           />

@@ -868,11 +868,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     handleClearPinnedSp("actual");
   }, [handleClearPinnedSp]);
 
-  // Market/Compare/Error require settled data in the loaded window (0130); a
-  // pure-forecast window (nothing has settled yet) gates them off. Read off the
-  // cursor's delivery-day realized stats already computed by the session.
-  const hasSettledData = congestionStats != null;
-
   // Switch the view axis, applying that view's SF-overlay default: on in
   // Forecast and Error (the overlay is that view's own mechanism), off in
   // Compare (a per-pane explainer) and Market (no overlay at all). The manual
@@ -894,17 +889,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     if (view === "error") return; // locked; the Header disables the chip too
     setDataMode(d);
   }, [view]);
-
-  // Scrubbing into a pre-market window while sitting in a settled-only view
-  // (Market/Compare/Error) leaves nothing to render on at least one pane —
-  // downgrade to Forecast, the one view that's always available, mirroring the
-  // Header's own disabled-chip rule rather than stranding a broken layout.
-  useEffect(() => {
-    if (hasSettledData || view === "forecast") return;
-    if (view === "error") setDataMode(prevDataModeRef.current);
-    setView("forecast");
-    setShowConstraints(true);
-  }, [hasSettledData, view]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
@@ -1253,7 +1237,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         onView={handleView}
         dataMode={dataMode}
         onDataMode={handleDataMode}
-        marketAvailable={hasSettledData}
         lastUpdated={lastUpdated}
         connectionState={connState}
         mobileDrawerOpen={mobileDrawerOpen}
