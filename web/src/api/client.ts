@@ -13,6 +13,8 @@ import type {
   MatrixFrame,
   BriefHeroLatest,
   BriefDay,
+  BriefDetails,
+  BriefHeroShell,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
@@ -333,6 +335,30 @@ export async function fetchBriefDay(
   const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
+  return r.json();
+}
+
+export async function fetchBriefHeroShell(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroShell | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief/hero?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/brief/hero ${r.status}`);
+  return r.json();
+}
+
+export async function fetchBriefDetails(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefDetails | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief/details?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/brief/details ${r.status}`);
   return r.json();
 }
 

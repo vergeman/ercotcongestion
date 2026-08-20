@@ -108,6 +108,8 @@ def fake_pool(monkeypatch):
     _ARTIFACT_CACHE.clear()
     import analysis
     analysis._BRIEF_CACHE.clear()
+    analysis._BRIEF_HERO_CACHE.clear()
+    analysis._BRIEF_DETAILS_CACHE.clear()
     pool = FakePool()
     monkeypatch.setattr(db_module, 'pool', pool)
     return pool

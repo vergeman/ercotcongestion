@@ -446,6 +446,22 @@ class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
 
 # ---- /analysis/brief ------------------------------------------------------
 
+class BriefHeroShellResponse(BaseModel):
+    """The Brief's first paint: hero plus lightweight delivery-day navigation."""
+    hero: HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse
+    previous_delivery_date: date | None = None
+    next_delivery_date: date | None = None
+
+
+class BriefDetailsResponse(BaseModel):
+    """The secondary Brief panels, intentionally separate from the hero shell."""
+    context: ContextAvailableResponse | ContextUnavailableResponse
+    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse
+    top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
+    top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
+    grade: GradeAvailableResponse | GradeUnavailableResponse
+    grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
+
 class BriefDayResponse(BaseModel):
     """One bundled payload for a Brief delivery day (0137).
 

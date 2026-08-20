@@ -271,6 +271,68 @@ def test_brief_day_composes_all_sections_from_one_resolved_run_and_horizon(clien
                                 "top_constraints", "grade", "grade_history"}
 
 
+def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
+    client, fake_pool, monkeypatch,
+):
+    """First paint is hero-only; date carets use two cheap artifact lookups."""
+    fake_pool.cursor.queue([{"h": 2}])
+    fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 27)}])
+    fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 29)}])
+    calls = {"hero": 0}
+
+    def hero(*_args):
+        calls["hero"] += 1
+        return {"available": False, "unavailable_reason": "artifact_missing",
+                "run_id": "run-x", "delivery_date": date(2026, 7, 28), "horizon": 2}
+
+    monkeypatch.setattr(analysis_module, "get_hero", hero)
+    for name in ("get_context", "get_standouts", "get_top_nodes", "get_top_constraints",
+                 "get_grade", "get_grade_history"):
+        monkeypatch.setattr(
+            analysis_module, name,
+            lambda *_: (_ for _ in ()).throw(AssertionError("detail handler ran")),
+        )
+
+    body = client.get("/analysis/brief/hero?day=2026-07-28&run=run-x").json()
+
+    assert calls == {"hero": 1}
+    assert body == {
+        "hero": {"available": False, "unavailable_reason": "artifact_missing",
+                 "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
+        "previous_delivery_date": "2026-07-27",
+        "next_delivery_date": "2026-07-29",
+    }
+
+
+def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"h": 2}])
+    calls: set[str] = set()
+
+    def detail(name):
+        def handler(delivery_date, run_id, horizon, *_rest):
+            calls.add(name)
+            return {"available": False, "unavailable_reason": "artifact_missing",
+                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+        return handler
+
+    monkeypatch.setattr(
+        analysis_module, "get_hero",
+        lambda *_: (_ for _ in ()).throw(AssertionError("hero handler ran")),
+    )
+    names = ("get_context", "get_standouts", "get_top_nodes", "get_top_constraints",
+             "get_grade", "get_grade_history")
+    for name in names:
+        monkeypatch.setattr(analysis_module, name, detail(name))
+
+    response = client.get("/analysis/brief/details?day=2026-07-28&run=run-x")
+
+    assert response.status_code == 200
+    assert calls == set(names)
+    assert set(response.json()) == {
+        "context", "standouts", "top_nodes", "top_constraints", "grade", "grade_history",
+    }
+
+
 def _brief_section_counter(monkeypatch):
     """Monkeypatch the seven /brief section handlers to count invocations."""
     calls = {"n": 0}
