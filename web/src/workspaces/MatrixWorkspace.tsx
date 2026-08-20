@@ -749,17 +749,17 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-legend__signs { color: var(--text-secondary); }
         .matrix-grid { overflow: auto; min-height: 0; flex: 1; outline: none; }
         .matrix-grid:focus-visible, .matrix-grid [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; position: relative; z-index: 3; }
-        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-micro); width: max-content; }
+        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-label); width: max-content; }
         .matrix-grid th, .matrix-grid td { border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
-        .matrix-grid thead th { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; height: 50px; vertical-align: bottom; }
+        .matrix-grid thead th { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; height: 54px; vertical-align: bottom; }
         .matrix-grid__corner { left: 0; z-index: 4 !important; min-width: 205px; padding: 7px 10px; text-align: left; }
         .matrix-grid__corner span, .matrix-grid__row span { display: block; color: var(--text-primary); font-weight: 600; }
-        .matrix-grid small { color: var(--text-secondary); display: block; font-size: 9px; font-weight: 400; margin-top: 2px; }
+        .matrix-grid small { color: var(--text-secondary); display: block; font-size: var(--fs-micro); font-weight: 400; margin-top: 2px; }
         .matrix-grid__column { min-width: 72px; max-width: 72px; cursor: pointer; padding: 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__column > span { color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; }
         .matrix-grid__row { background: var(--bg-panel); cursor: pointer; left: 0; min-width: 205px; max-width: 205px; padding: 6px 10px; position: sticky; text-align: left; z-index: 1; }
         .matrix-grid__row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .matrix-grid__cell { color: #172033; cursor: pointer; font: 600 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
+        .matrix-grid__cell { color: #172033; cursor: pointer; font: 600 12px var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__cell--unavailable { color: var(--text-muted); background: repeating-linear-gradient(-45deg, var(--bg-surface), var(--bg-surface) 3px, var(--bg-panel) 3px, var(--bg-panel) 6px) !important; }
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
