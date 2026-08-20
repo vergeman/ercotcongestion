@@ -358,6 +358,19 @@ def test_reach_min_frac_floors_off_the_days_own_peak(client, fake_pool):
     assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
 
 
+def test_reach_abs_floor_cuts_below_an_absolute_sf(client, fake_pool):
+    """abs_floor combines with min_frac as max(min_frac*peak, abs_floor), so a
+    noise-peak constraint's tail is cut even when the relative floor is permissive
+    (0147). Here min_frac=0 would keep every node; abs_floor=0.3 drops C."""
+    blob = _artifact({"A": [1.0], "B": [0.5], "C": [0.2]}, ["CONSTR_A"])
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/reach", params={"constraint": "CONSTR_A", "min_frac": 0.0,
+                                        "abs_floor": 0.3, "t": DAY_MID.isoformat()})
+    body = r.json()
+    assert [sp["settlement_point"] for sp in body["sps"]] == ["A", "B"]
+
+
 def test_reach_reports_a_day_with_no_artifact_and_no_earlier_build(client, fake_pool):
     """A date before the artifact history: the requested day has no artifact AND
     nothing was built earlier, so the nearest-past fallback finds nothing and the

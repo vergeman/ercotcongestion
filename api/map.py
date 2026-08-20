@@ -446,6 +446,14 @@ def get_map_reach(
         "of the constraint's peak |SF|. Without it, top-k pads a weakly-fit "
         "constraint (few real nodes) with noise-floor entries.",
     ),
+    abs_floor: float = Query(
+        0.0, ge=0.0, le=1.0,
+        description="Absolute |SF| floor, combined with min_frac as "
+        "max(min_frac*peak, abs_floor). The relative floor follows each "
+        "constraint's shape but is meaningless for a noise-peak constraint "
+        "(peak ~0.01 lets its whole tail through); this cuts that off. The map "
+        "passes ~0.03. Default 0 preserves the matrix Read pane's complete reach.",
+    ),
 ) -> ConstraintReach:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, day, artifact = _click_artifact(cur, t)
@@ -496,10 +504,12 @@ def get_map_reach(
         max_abs_sf = float(row.abs().max())
         binding_hours = int((artifact.E_mu[constraint].abs() > 0).sum())
 
-        # Magnitude floor relative to the constraint's own peak |SF|. A weakly
-        # identified constraint has almost no structure past a few nodes, so
-        # top-k alone scrapes the noise floor; drop |SF| < min_frac * peak.
-        floor = min_frac * max_abs_sf if max_abs_sf else 0.0
+        # Magnitude floor relative to the constraint's own peak |SF|, combined
+        # with an absolute floor. The relative floor follows the constraint's
+        # shape; the absolute floor stops a noise-peak constraint (peak ~0.01)
+        # from admitting its whole tail. A weakly identified constraint has almost
+        # no structure past a few nodes, so top-k alone scrapes the noise floor.
+        floor = max(min_frac * max_abs_sf if max_abs_sf else 0.0, abs_floor)
         above = row[row.abs() >= floor]
         ranked = above.reindex(above.abs().sort_values(ascending=False).index)
 
