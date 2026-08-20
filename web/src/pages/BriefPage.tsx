@@ -1466,6 +1466,15 @@ export default function BriefPage() {
   }, [cursorDay]);
 
   const deliveryDay = cursorDay ?? defaultDay;
+  const heroDeliveryDay = hero?.available
+    ? hero.provenance?.delivery_date
+    : hero?.delivery_date;
+  // A default day from `/hero/latest` and a URL/date-picker change both render
+  // once before their request effect can set `heroLoading`. Treat a hero for a
+  // different day as pending too, so that handoff never exposes a blank page.
+  const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
+  const heroPending = !!deliveryDay && !heroError &&
+    (heroLoading || !heroMatchesDeliveryDay);
 
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
@@ -1716,7 +1725,7 @@ export default function BriefPage() {
               }}
               events={CURATED_EVENTS}
               activeEventId={activeEventId}
-              loading={heroLoading}
+              loading={heroPending}
             />
           </div>
         </div>
@@ -1730,7 +1739,7 @@ export default function BriefPage() {
         {initialLookupDone && !deliveryDay && (
           <p className="an-empty">No forecast delivery day is published yet.</p>
         )}
-        {heroLoading && deliveryDay && (
+        {heroPending && deliveryDay && (
           <section className="an-hero-skeleton" aria-live="polite" aria-busy="true">
             <p className="an-eyebrow">Daily congestion brief</p>
             <h1>Preparing {fmtDay(deliveryDay)}</h1>
@@ -1738,14 +1747,14 @@ export default function BriefPage() {
           </section>
         )}
         {heroError && <p className="an-empty">{heroError}</p>}
-        {!heroLoading && hero && !hero.available && (
+        {!heroPending && hero && !hero.available && (
           <p className="an-empty">
             No forecast artifact is available for{" "}
             {deliveryDay ? fmtDay(deliveryDay) : "this day"}.
           </p>
         )}
 
-        {!heroLoading && hero?.available && hero.segments && (
+        {!heroPending && hero?.available && hero.segments && (
           <>
             <section className="an-hero" aria-labelledby="brief-title">
               <div className="an-hero__frame">
