@@ -5,6 +5,7 @@ import type {
   MapDataMode,
   MapView,
   ExposuresResponse,
+  ExposureRank,
   ConstraintReach,
   MapOverview,
   MapMeta,
@@ -241,6 +242,12 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
   const [exposuresLoading, setExposuresLoading] = useState(false);
+  // Which basis that list is ranked on (0145). "contribution" answers what
+  // actually drove the node at the cursor hour; "sf" answers what could move it
+  // at all. It lives here rather than in the card because it changes the
+  // request. Sticky across clicks: a user comparing nodes on one basis should
+  // not have it reset under them.
+  const [exposureRank, setExposureRank] = useState<ExposureRank>("contribution");
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
 
@@ -556,6 +563,33 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   }, [onSelectionRouteChange]);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
+  // One place the driver list is requested from, so the click path, the basis
+  // toggle and the scrubber cannot fetch it differently. The token guard drops
+  // responses from a superseded request — all three race, and scrubbing fires
+  // one per hour tick.
+  //
+  // Fetch only — it never sets state synchronously, so the effect below can
+  // call it without cascading a render. Clearing the previous list is the
+  // caller's job, and only click and basis-toggle do it: there the old list is
+  // about to become wrong. Scrubbing leaves it up until the new one lands,
+  // since the node is unchanged and blanking on every hour tick would strobe.
+  const loadExposures = useCallback(
+    (spId: string, rank: ExposureRank) => {
+      const token = ++exposureReqRef.current;
+      fetchMapExposures(spId, 15, cursorTs, rank)
+        .then((r) => {
+          if (exposureReqRef.current === token) setExposures(r);
+        })
+        .catch(() => {
+          if (exposureReqRef.current === token) setExposures(null);
+        })
+        .finally(() => {
+          if (exposureReqRef.current === token) setExposuresLoading(false);
+        });
+    },
+    [cursorTs]
+  );
+
   // reach machinery lives on this pane).
   const handleSpClickPrediction = useCallback(
     (spId: string, props: Record<string, unknown>, writeRoute = true) => {
@@ -571,22 +605,36 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         ...current,
         prediction: { spId, props, side: "prediction", spState: spDecomp(spId) },
       }));
-      const token = ++exposureReqRef.current;
+      // The load itself is the effect's job (it also owns cursor changes), so
+      // this only clears the outgoing node's drivers.
       setExposures(null);
       setExposuresLoading(true);
-      fetchMapExposures(spId, 15, cursorTs)
-        .then((r) => {
-          if (exposureReqRef.current === token) setExposures(r);
-        })
-        .catch(() => {
-          if (exposureReqRef.current === token) setExposures(null);
-        })
-        .finally(() => {
-          if (exposureReqRef.current === token) setExposuresLoading(false);
-        });
+      exposureReqRef.current++;
     },
-    [spDecomp, setSelectionRoute, cursorTs]
+    [spDecomp, setSelectionRoute]
   );
+
+  // Switching basis re-asks the server rather than re-sorting what we have: the
+  // two lists are not permutations of each other (contribution drops the
+  // constraints that did not bind), so a client-side sort would show a
+  // truncated top-k as if it were the whole ranking.
+  const pinnedPredictionSp = pinnedSp.prediction?.spId;
+  const handleExposureRankChange = useCallback((rank: ExposureRank) => {
+    setExposureRank(rank);
+    setExposures(null);
+    setExposuresLoading(true);
+    exposureReqRef.current++;
+  }, []);
+
+  // The pinned node's drivers follow the scrubber. Every value in the response
+  // is specific to the cursor's CT delivery day and hour (0144/0145) — mu, the
+  // contribution ranking, the share of the node — so a card left on the hour it
+  // was opened at silently disagrees with the map under it. Keyed on the hour,
+  // the node, and the basis, since all three change the request.
+  useEffect(() => {
+    if (!pinnedPredictionSp) return;
+    loadExposures(pinnedPredictionSp, exposureRank);
+  }, [pinnedPredictionSp, exposureRank, loadExposures]);
 
   // Actual-pane click: pin the node scoped to the realized values only — no SF
   // drivers (those belong to the prediction pane), so drop any in-flight fetch.
@@ -1036,6 +1084,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
+        exposureRank={exposureRank}
+        onChangeExposureRank={handleExposureRankChange}
+        cursorTs={cursorTs}
         reach={reach}
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}
@@ -1153,6 +1204,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
+        exposureRank={exposureRank}
+        onChangeExposureRank={handleExposureRankChange}
+        cursorTs={cursorTs}
         reach={reach}
         onClose={() => handleClearPinnedSp("prediction")}
         onCloseReach={handleCloseReach}

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { ExposuresResponse, ConstraintReach } from "../../api/types";
+import type { ExposureRank, ExposuresResponse, ConstraintReach } from "../../api/types";
+import { formatCT } from "../../lib/time";
 import { shiftFactorColor } from "../../lib/colors";
 
 interface HoveredSp {
@@ -25,6 +26,14 @@ interface Props {
   // while null with a pinned SP; the card renders the SP body meanwhile.
   exposures?: ExposuresResponse | null;
   exposuresLoading?: boolean;
+  // Which basis the driver list is ordered on, and the toggle that switches it
+  // (0145). Owned upstream because it changes the request, not just the render.
+  exposureRank?: ExposureRank;
+  onChangeExposureRank?: (rank: ExposureRank) => void;
+  // The scrubber's instant. The contribution list is specific to this hour, so
+  // the basis header names it rather than saying "this hour" and leaving the
+  // reader to assume it followed the cursor.
+  cursorTs?: Date;
   // Constraint-reach mode (the constraint click). Wins over the SP view.
   reach?: ConstraintReach | null;
   onClose?: () => void;
@@ -84,6 +93,12 @@ function Row({
 }
 
 // Signed congestion $/MWh, e.g. "+$3.20/MWh" / "−$1.05/MWh". Null → "—".
+// Bare signed magnitude for a column whose header already states $/MWh —
+// repeating the unit on every row is what crowded the card.
+function fmtDollars(v: number): string {
+  return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
+}
+
 function fmtCong(v: number | null | undefined): string | null {
   if (v == null) return null;
   return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
@@ -156,63 +171,151 @@ function NodeChip() {
   );
 }
 
-// The SF's sign deserves its own fast visual cue. This sits beside the numeric
-// value, leaving the square marker free to identify the constraint or node.
+// The signed, colored value carries the direction on its own; a separate dot
+// beside it said the same thing twice and cost a grid column.
 function SfSign({ sf }: { sf: number }) {
-  const color = shiftFactorColor(sf);
   return (
-    <>
-      <span className="dc-sf-dot" style={{ background: color }} aria-hidden="true" />
-      <span className="dc-driver-sf mono" style={{ color }}>{fmtSf(sf)}</span>
-    </>
+    <span className="dc-driver-sf mono" style={{ color: shiftFactorColor(sf) }}>
+      {fmtSf(sf)}
+    </span>
   );
 }
 
-// Node-explorer body: drivers are ordered by |SF|, so the first row already
-// communicates the largest influence without a redundant headline statistic.
+// Node-explorer body. Two bases, named on screen (0145): "Drove this hour"
+// ranks by contribution (−SF × μ) and omits constraints that did not bind,
+// answering what actually moved this node; "Exposure" ranks by |SF| over the
+// whole day's fit, answering what could move it. They read identical SF values
+// — showing which one is active is what keeps the card from looking like it
+// disagrees with the matrix.
 function ExposuresBody({
   exposures,
   loading,
+  rank,
+  onChangeRank,
+  cursorTs,
   onSelectConstraint,
   onHoverConstraint,
 }: {
   exposures: ExposuresResponse | null;
   loading?: boolean;
+  rank: ExposureRank;
+  onChangeRank?: (rank: ExposureRank) => void;
+  cursorTs?: Date;
   onSelectConstraint?: (c: string) => void;
   onHoverConstraint?: (c: string | null) => void;
 }) {
+  const byContribution = rank === "contribution";
+  // Same format as the scrubber and the matrix, so the card is visibly pinned
+  // to the same instant the rest of the workspace is showing.
+  const hour = cursorTs ? `${formatCT(cursorTs, "MMM d, HH:mm")} CT` : null;
+  const header = (
+    <div className="dc-drivers-head">
+      <span className="dc-drivers-basis label">
+        {byContribution ? (hour ? `Drove ${hour}` : "Drove this hour") : "Exposure"}
+      </span>
+      {onChangeRank && (
+        <button
+          className="dc-drivers-toggle label"
+          onClick={() => onChangeRank(byContribution ? "sf" : "contribution")}
+          title={
+            byContribution
+              ? "Show every constraint this node is structurally exposed to, ranked by |SF| — including those that did not bind."
+              : "Show only the constraints that actually drove this node at this hour, ranked by −SF × μ."
+          }
+        >
+          {byContribution ? "exposure" : "drivers"}
+        </button>
+      )}
+    </div>
+  );
+
   if (!exposures) {
     return (
-      <div className="dc-drivers-empty label">
-        {loading ? "loading drivers…" : "—"}
-      </div>
+      <>
+        {header}
+        <div className="dc-drivers-empty label">
+          {loading ? "loading drivers…" : "—"}
+        </div>
+      </>
     );
   }
+  const total = exposures.node_total;
   return (
     <>
+      {header}
       {exposures.exposures.length === 0 && (
-        <div className="dc-drivers-empty label">No binding constraints</div>
+        <div className="dc-drivers-empty label">
+          {byContribution ? "Nothing bound this hour" : "No constraints in this fit"}
+        </div>
       )}
       <div
         className="dc-drivers"
         onMouseLeave={() => onHoverConstraint?.(null)}
       >
+        {/* Column headers carry the units, so the rows carry bare numbers. The
+            key column is `constraint|contingency` — the artifact's own key
+            order (services/sf_artifacts.normalize_constraint_key).
+
+            It lives *inside* the scroll container, stuck to the top, so it is
+            subject to the same scrollbar the rows are. Outside it, a classic
+            (space-taking) scrollbar squeezes the rows ~12px narrower than the
+            header and every numeric column reads as shifted right — invisible
+            under macOS/headless overlay scrollbars, plainly wrong elsewhere. */}
+        {exposures.exposures.length > 0 && (
+        <div className="dc-driver dc-driver--head">
+          <span aria-hidden="true" />
+          <span className="dc-driver-col label">Constraint | Contingency</span>
+          <span className="dc-driver-col label">{byContribution ? "$/MWh" : "SF"}</span>
+          <span className="dc-driver-col label">{byContribution ? "Share" : "Binding"}</span>
+        </div>
+        )}
         {exposures.exposures.map((e) => (
           <button
             key={e.constraint_key}
             className="dc-driver"
             onClick={() => onSelectConstraint?.(e.constraint_key)}
             onMouseEnter={() => onHoverConstraint?.(e.constraint_key)}
+            title={
+              e.sf_clipped
+                ? `SF is pinned at the fit's ±1 clip — a bound on a poorly-conditioned column, not a measured 1:1 response.`
+                : undefined
+            }
           >
             <TypeChip ctype={e.ctype} />
-            <span className="dc-driver-key mono">{e.constraint_key}</span>
-            <SfSign sf={e.sf} />
-            <span className="dc-driver-sup label">
-              {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
+            <span className="dc-driver-key mono">
+              {e.constraint_key}
+              {e.sf_clipped && <span className="dc-driver-clip">*</span>}
             </span>
+            {byContribution && e.contribution != null ? (
+              <>
+                <span
+                  className="dc-driver-sf mono"
+                  style={{ color: shiftFactorColor(-e.contribution) }}
+                >
+                  {fmtDollars(e.contribution)}
+                </span>
+                {/* Share of the node's full congestion, not of the visible
+                    top-k — node_total sums every constraint. */}
+                <span className="dc-driver-sup mono">
+                  {total ? `${Math.round((e.contribution / total) * 100)}%` : "—"}
+                </span>
+              </>
+            ) : (
+              <>
+                <SfSign sf={e.sf} />
+                <span className="dc-driver-sup mono">
+                  {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
+                </span>
+              </>
+            )}
           </button>
         ))}
       </div>
+      {exposures.exposures.some((e) => e.sf_clipped) && (
+        <div className="dc-drivers-note label">
+          * SF pinned at the fit's ±1 clip — a bound, not a measurement
+        </div>
+      )}
     </>
   );
 }
@@ -259,7 +362,7 @@ function ReachBody({
         {reach.sps.map((s) => (
           <button
             key={s.settlement_point}
-            className="dc-driver"
+            className="dc-driver dc-driver--reach-row"
             onClick={() => onSelectMember?.(s.settlement_point)}
             onMouseEnter={() => onHoverMember?.(s.settlement_point)}
           >
@@ -278,6 +381,9 @@ export default function DetailCard({
   pinnedSp,
   exposures,
   exposuresLoading,
+  exposureRank,
+  onChangeExposureRank,
+  cursorTs,
   reach,
   onClose,
   onCloseReach,
@@ -364,6 +470,9 @@ export default function DetailCard({
                 <ExposuresBody
                   exposures={exposures ?? null}
                   loading={exposuresLoading}
+                  rank={exposureRank ?? "contribution"}
+                  onChangeRank={onChangeExposureRank}
+                  cursorTs={cursorTs}
                   onSelectConstraint={onSelectConstraint}
                   onHoverConstraint={onHoverConstraint}
                 />
@@ -378,7 +487,7 @@ export default function DetailCard({
           position: absolute;
           top: 12px;
           left: 12px;
-          width: 270px;
+          width: 340px;
           background: var(--bg-glass);
           border: 1px solid var(--border-bright);
           border-radius: 4px;
@@ -466,6 +575,39 @@ export default function DetailCard({
           color: var(--text-muted);
           padding: 2px 0;
         }
+        /* Which basis the list is ranked on — stated, not inferred (0145). */
+        .dc-drivers-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 8px;
+          padding-bottom: 3px;
+        }
+        .dc-drivers-basis {
+          font-size: 11px;
+          color: var(--text-secondary);
+        }
+        .dc-drivers-toggle {
+          font-size: 11px;
+          color: var(--text-secondary);
+          background: transparent;
+          border: 1px solid var(--border);
+          border-radius: 3px;
+          padding: 1px 5px;
+          cursor: pointer;
+        }
+        .dc-drivers-toggle:hover {
+          color: var(--text);
+        }
+        .dc-drivers-note {
+          font-size: 10px;
+          color: var(--text-secondary);
+          padding-top: 4px;
+        }
+        .dc-driver-clip {
+          color: var(--text-secondary);
+          padding-left: 2px;
+        }
         .dc-drivers {
           display: flex;
           flex-direction: column;
@@ -477,11 +619,16 @@ export default function DetailCard({
           padding-top: 6px;
           border-top: 1px solid var(--border);
         }
+        /* One grid for the header row and every driver row, so the columns line
+           up in both bases. Four columns: type chip, key, value, support.
+           The numeric tracks are fixed widths, not auto: each row is its own
+           grid container, so auto sizes every row to its own content and the
+           header drifts out of line with the values under it. */
         .dc-driver {
           display: grid;
-          grid-template-columns: 10px 1fr 7px auto auto;
+          grid-template-columns: 10px 1fr 58px 46px;
           align-items: center;
-          gap: 6px;
+          gap: 8px;
           padding: 3px 0;
           background: transparent;
           border: none;
@@ -491,6 +638,28 @@ export default function DetailCard({
           cursor: pointer;
         }
         .dc-driver:hover { background: var(--bg-hover); }
+        /* Reach rows carry no support column, so they end at the value. */
+        .dc-driver--reach-row {
+          grid-template-columns: 10px 1fr 58px;
+        }
+        .dc-driver--head {
+          cursor: default;
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          /* Plain white (dark: near-black) — the sticky header must be opaque so
+             rows scroll under it, but --bg-panel read as a grey band against the
+             card in both themes. */
+          background: var(--bg-base);
+          padding-bottom: 2px;
+          border-bottom: 1px solid var(--border);
+        }
+        .dc-driver--head:hover { background: transparent; }
+        .dc-driver-col {
+          font-size: 10px;
+          color: var(--text-secondary);
+        }
+        .dc-driver-col:not(:nth-child(2)) { text-align: right; }
         .dc-chip {
           width: 9px;
           height: 9px;
@@ -506,12 +675,11 @@ export default function DetailCard({
         }
         .dc-driver-sf {
           font-size: 12px;
+          text-align: right;
         }
-        .dc-sf-dot { width: 7px; height: 7px; border-radius: 50%; }
         .dc-driver-sup {
-          font-size: 11px;
-          color: var(--text-muted);
-          min-width: 30px;
+          font-size: 12px;
+          color: var(--text-secondary);
           text-align: right;
         }
         .detail-card--mobile {
@@ -527,6 +695,9 @@ export default function DetailCard({
           background: var(--bg-panel);
           backdrop-filter: none;
         }
+        /* The mobile card's own surface is --bg-panel, so the sticky header
+           matches that instead of white — same rule, no band either way. */
+        .detail-card--mobile .dc-driver--head { background: var(--bg-panel); }
         .detail-card--mobile.detail-card--expanded { max-height: 86%; }
         .detail-card--mobile .detail-card__header {
           min-height: 46px;

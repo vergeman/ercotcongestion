@@ -648,3 +648,112 @@ def test_summary_does_not_soft_fail_a_topology_build_error(monkeypatch):
 
     with pytest.raises(RuntimeError):
         map_module.get_map_summary()
+
+
+# ---- 0145: ranking basis ------------------------------------------------
+#
+# The three surfaces read identical SF values and only ever differed in what
+# they sorted by, which is why they read as a data disagreement. These fix the
+# node card on "what actually drove this node" and keep the structural view
+# reachable — and named — rather than implicit.
+
+# CONSTR_QUIET has the largest |SF| but never binds; CONSTR_LIVE has a smaller
+# |SF| and carries all of the node's actual congestion. Under the old |SF|
+# ordering the card led with the constraint that did nothing.
+def _driver_artifact() -> bytes:
+    return _artifact(
+        {"LZ_WEST": [-1.0, 0.40, 0.20], "LZ_NORTH": [0.05, 0.10, 0.30]},
+        ["CONSTR_QUIET", "CONSTR_LIVE", "CONSTR_SMALL"],
+        mu={"CONSTR_QUIET": [0.0, 0.0], "CONSTR_LIVE": [10.0, 50.0],
+            "CONSTR_SMALL": [1.0, 4.0]},
+    )
+
+
+def test_exposures_rank_contribution_drops_constraints_that_never_bound(client, fake_pool):
+    """The default basis answers "what drove this node", so a constraint with
+    mu=0 is absent rather than ranked first on |SF| alone (0145)."""
+    _queue_click_artifact(fake_pool, _driver_artifact())
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_MID.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rank"] == "contribution"
+    keys = [e["constraint_key"] for e in body["exposures"]]
+    assert "CONSTR_QUIET" not in keys
+    # -SF * mu at 12:00Z: LIVE = -0.40*50 = -20.0, SMALL = -0.20*4 = -0.8.
+    assert keys == ["CONSTR_LIVE", "CONSTR_SMALL"]
+    live = body["exposures"][0]
+    assert live["contribution"] == pytest.approx(-20.0)
+    assert live["mu"] == pytest.approx(50.0)
+    assert live["sf"] == pytest.approx(0.40)
+    # The node total sums every constraint, so a row's share is honest even
+    # when k truncates the list.
+    assert body["node_total"] == pytest.approx(-20.8)
+    # The unsigned structural headline is unchanged by the ranking basis.
+    assert body["node_max_abs_sf"] == pytest.approx(1.0)
+
+
+def test_exposures_rank_contribution_uses_the_cursor_hour_not_the_day(client, fake_pool):
+    """A node card explains the interval on the scrubber; summing the block
+    would answer a different question than the one the click asked."""
+    _queue_click_artifact(fake_pool, _driver_artifact())
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_T0.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # 05:00Z is the block's first hour: LIVE mu = 10, not the 60 of the day sum.
+    live = body["exposures"][0]
+    assert live["mu"] == pytest.approx(10.0)
+    assert live["contribution"] == pytest.approx(-4.0)
+
+
+def test_exposures_rank_sf_keeps_the_structural_ordering(client, fake_pool):
+    """The structural view stays reachable: it answers "what could move this
+    node", which a quiet day erases from the contribution list entirely."""
+    _queue_click_artifact(fake_pool, _driver_artifact())
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_MID.isoformat(), "rank": "sf"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rank"] == "sf"
+    assert [e["constraint_key"] for e in body["exposures"]] == [
+        "CONSTR_QUIET", "CONSTR_LIVE", "CONSTR_SMALL"]
+    # No hour is implied by a structural ranking, so neither field is invented.
+    assert body["exposures"][0]["contribution"] is None
+    assert body["exposures"][0]["mu"] is None
+    assert body["node_total"] is None
+
+
+def test_exposures_marks_shift_factors_pinned_at_the_clip_cap(client, fake_pool):
+    """|SF| = SF_ABS_CAP is a bound the ridge hit, not a measurement — and it
+    always sorts first under rank=sf, so it has to be visibly flagged (0145)."""
+    _queue_click_artifact(fake_pool, _driver_artifact())
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_MID.isoformat(), "rank": "sf"})
+    assert r.status_code == 200, r.text
+    flags = {e["constraint_key"]: e["sf_clipped"] for e in r.json()["exposures"]}
+    assert flags == {"CONSTR_QUIET": True, "CONSTR_LIVE": False, "CONSTR_SMALL": False}
+
+
+def test_exposures_rank_contribution_ranks_by_magnitude_across_signs(client, fake_pool):
+    """Import and export both drive a node; ordering is on |contribution| so a
+    large negative term is not sorted below a small positive one."""
+    blob = _artifact(
+        {"LZ_WEST": [0.50, -0.60], "LZ_NORTH": [0.10, 0.20]},
+        ["CONSTR_POS", "CONSTR_NEG"],
+        mu={"CONSTR_POS": [1.0, 10.0], "CONSTR_NEG": [1.0, 30.0]},
+    )
+    _queue_click_artifact(fake_pool, blob)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_MID.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # POS = -0.50*10 = -5.0; NEG = 0.60*30 = +18.0.
+    assert [e["constraint_key"] for e in body["exposures"]] == ["CONSTR_NEG", "CONSTR_POS"]
+    assert body["exposures"][0]["contribution"] == pytest.approx(18.0)
+    assert body["node_total"] == pytest.approx(13.0)

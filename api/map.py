@@ -24,6 +24,13 @@ made the DetailCard contradict the matrix on any day but the most recent.
 The *aggregate* endpoints (``/map/overview``, ``/map/meta``, ``/map/summary``)
 still describe one resolved ``(run_id, window_start)`` rolling refit.
 
+``/map/exposures`` additionally chooses a *ranking* basis (0145). It defaults to
+``rank=contribution`` — what actually drove the node at ``t`` — rather than the
+structural ``rank=sf``, which leads with constraints that never bound and is
+biased toward cells the fit merely pinned at its clip cap. Agreeing on the SF
+values was never enough; the surfaces also have to agree on, and display, what
+they are sorting by.
+
 Soft-fail contract: 503 when no window is built for the resolved run (the
 client renders the available pane alone); an unknown ``sp``/``constraint``
 returns an empty result, not an error.
@@ -33,12 +40,14 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_t, datetime as datetime_t
-from typing import Callable, TypeVar
+from typing import Callable, Literal, TypeVar
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
+from compute.sf.fit import SF_ABS_CAP
+from compute.sf.project import node_contributions
 from config import MAP_RUN_ID
 from db import get_pool
 from models import (
@@ -214,6 +223,29 @@ def _artifact_window(artifact) -> tuple[datetime_t, datetime_t]:
     return idx.min().to_pydatetime(), idx.max().to_pydatetime()
 
 
+def _hour_mu(artifact, t: datetime_t | None) -> pd.Series:
+    """The day's forecast μ vector at one interval, or summed over the block.
+
+    A node card answers "what drove this node *now*", so the default is the
+    single scrubber hour. With ``t`` omitted there is no hour to stand on and
+    the whole block is summed, which is the same roll-up ``/analysis/node``
+    performs when its ``hours`` filter is absent.
+    """
+    if t is None:
+        return artifact.E_mu.sum(axis=0)
+    return artifact.E_mu.loc[pd.Timestamp(coerce_utc(t))]
+
+
+def _is_clipped(sf: float) -> bool:
+    """Whether the fit pinned this cell at its ``|SF|`` cap.
+
+    ``compute/sf/fit.py`` clips to exactly ``±SF_ABS_CAP``, so equality with the
+    cap is an exact test — no per-cell mask needs persisting (the fit's
+    ``n_clipped`` is only a count, and is dropped before serving).
+    """
+    return abs(sf) >= SF_ABS_CAP
+
+
 def _geo_metadata(cur, constraint_keys: list[str]) -> dict[str, dict]:
     """Best-effort structural metadata, newest window (matrix._constraint_types).
 
@@ -253,13 +285,29 @@ def get_map_exposures(
         "delivery day's artifact, so this matches /matrix/frame at the same "
         "node and interval. Omit for the run's latest built day.",
     ),
+    rank: Literal["contribution", "sf"] = Query(
+        "contribution",
+        description="Ordering basis. 'contribution' (default) ranks what actually "
+        "drove the node at t, by |-SF x mu|, dropping constraints that did not "
+        "bind. 'sf' ranks structural exposure by |SF| over every constraint in "
+        "the day's fit, including quiet ones.",
+    ),
 ) -> ExposuresResponse:
+    """Rank a node's constraints by what drove it, or by structural exposure.
+
+    The two bases read identical SF values and differ only in ordering and
+    filtering, which is precisely why they looked like a data disagreement
+    (0145): under ``sf`` this card led with constraints whose μ was zero all day
+    — including cells merely pinned at the fit's clip cap — while the constraint
+    carrying most of the node's actual congestion ranked below them. Clients
+    should say which basis is on screen.
+    """
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, day, artifact = _click_artifact(cur, t)
         if artifact is None:
             return ExposuresResponse(
                 sp=sp, run_id=run_id, window_start=t, window_end=t, k=k,
-                available=False, unavailable_reason="artifact_missing",
+                rank=rank, available=False, unavailable_reason="artifact_missing",
                 exposures=[],
             )
 
@@ -267,7 +315,7 @@ def get_map_exposures(
         if not _interval_in_artifact(artifact, t):
             return ExposuresResponse(
                 sp=sp, run_id=run_id, window_start=window_start,
-                window_end=window_end, k=k, available=False,
+                window_end=window_end, k=k, rank=rank, available=False,
                 unavailable_reason="interval_not_in_artifact", exposures=[],
             )
         if sp not in artifact.SF.columns:
@@ -275,27 +323,45 @@ def get_map_exposures(
             # same soft-fail an unknown sp always had.
             return ExposuresResponse(
                 sp=sp, run_id=run_id, window_start=window_start,
-                window_end=window_end, k=k, exposures=[],
+                window_end=window_end, k=k, rank=rank, exposures=[],
             )
 
         column = artifact.SF[sp]
         # Stable, unsigned headline (spec §6): max_c |SF[sp,c]| over ALL
-        # constraints, independent of k.
+        # constraints, independent of k and of the ranking basis.
         node_max = float(column.abs().max())
-        top = column.reindex(column.abs().sort_values(ascending=False).index[:k])
 
-        geo = _geo_metadata(cur, [str(key) for key in top.index])
+        node_total = None
+        if rank == "contribution":
+            mu = _hour_mu(artifact, t).reindex(artifact.SF.index).fillna(0.0)
+            # Shared with /analysis/node so the two cannot drift: the map card
+            # and the node analysis must be the same decomposition.
+            contributions = node_contributions(artifact, sp, mu)
+            # Dropped, not sorted last: a constraint that did not bind
+            # contributed nothing, and listing it as a "driver" is the defect.
+            contributions = contributions[contributions != 0.0]
+            node_total = float(contributions.sum())
+            ordered = contributions.abs().sort_values(ascending=False).index[:k]
+        else:
+            mu = None
+            contributions = None
+            ordered = column.abs().sort_values(ascending=False).index[:k]
+
+        geo = _geo_metadata(cur, [str(key) for key in ordered])
         exposures = [
             SpExposure(
                 constraint_key=str(key),
                 ctype=(geo.get(str(key)) or {}).get("ctype"),
-                sf=float(sf),
+                sf=float(column.loc[key]),
+                sf_clipped=_is_clipped(float(column.loc[key])),
+                mu=None if mu is None else float(mu.loc[key]),
+                contribution=None if contributions is None else float(contributions.loc[key]),
                 # Day-specific magnitudes come from the artifact, matching what
                 # /matrix/frame reports for the same constraint on the same day.
                 max_abs_sf=float(artifact.SF.loc[key].abs().max()),
                 binding_hours=int((artifact.E_mu[key].abs() > 0).sum()),
             )
-            for key, sf in top.items()
+            for key in ordered
         ]
 
     return ExposuresResponse(
@@ -304,7 +370,9 @@ def get_map_exposures(
         window_start=window_start,
         window_end=window_end,
         k=k,
+        rank=rank,
         node_max_abs_sf=node_max,
+        node_total=node_total,
         exposures=exposures,
     )
 

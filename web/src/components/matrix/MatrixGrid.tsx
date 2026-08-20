@@ -68,6 +68,14 @@ function damText(value: number | null) {
   return value == null ? "-" : formatMatrixMu(value);
 }
 
+// A cell the ridge fit pinned at its |SF| clip. The clip is exact, so this is
+// the same test the server applies — it sends the threshold, not a mask (0145).
+// Only meaningful on the SF value itself; a contribution built from a clipped SF
+// is flagged through its row, not the number.
+function isClippedSf(frame: MatrixFrame, sf: number | null): boolean {
+  return sf != null && frame.sf_abs_cap > 0 && Math.abs(sf) >= frame.sf_abs_cap;
+}
+
 function MatrixTooltipDetails({
   title,
   subtitle,
@@ -131,7 +139,9 @@ function MatrixTooltipContent({
   return <MatrixTooltipDetails title={constraint.row.constraint_name} subtitle={constraint.row.constraint_key} rows={[
     ["Contingency", valueOrUnknown(constraint.row.contingency_name)],
     ["Settlement point", node.column.settlement_point],
-    ["Implied SF", formatMatrixValue(sf, "sf")],
+    ["Implied SF", isClippedSf(frame, sf)
+      ? `${formatMatrixValue(sf, "sf")} * (pinned at the fit's clip)`
+      : formatMatrixValue(sf, "sf")],
     ["Forecast μ", formatMatrixMu(constraint.row.forecast_mu)],
     ["Forecast contribution", contributionText(matrixContribution(sf, constraint.row.forecast_mu), "-")],
     ["ERCOT DAM μ", damText(constraint.row.ercot_dam_mu)],
@@ -186,19 +196,31 @@ function PinStar({ pinned, label, onToggle }: { pinned: boolean; label: string; 
   );
 }
 
-function AxisHeaderBody({ frame, item, isContribution, sourceLabel, muSource }: {
+function AxisHeaderBody({ frame, item, isContribution, muSource }: {
   frame: MatrixFrame;
   item: MatrixAxisItem;
   isContribution: boolean;
-  sourceLabel: string;
   muSource: MatrixMuSource;
 }) {
   if (item.kind === "constraint") {
-    const mu = matrixMuForSource(item.row, muSource);
-    const muText = muSource === "ercotDam" ? formatMatrixDamMu(frame, mu) : formatMatrixMu(mu);
+    // Both shadow prices, always, side by side (0145). The matrix is the
+    // holistic surface: a row's SFs are only readable against the mu that
+    // actually priced them, and showing one source at a time made forecast and
+    // settled look like alternatives rather than a comparison. The active
+    // source is emphasized; the other stays legible next to it.
+    const forecastText = formatMatrixMu(item.row.forecast_mu);
+    const damMuText = formatMatrixDamMu(frame, item.row.ercot_dam_mu);
     return <>
       <span>{item.row.constraint_name}</span>
-      <small>{isContribution ? `${sourceLabel} ${muText}` : `rank ${item.row.daily_rank}`}</small>
+      <small className="matrix-grid__mu">
+        <span className={muSource === "forecast" ? "is-active" : undefined}>
+          F {forecastText}
+        </span>
+        <span className={muSource === "ercotDam" ? "is-active" : undefined}>
+          DAM {damMuText}
+        </span>
+        {!isContribution && <span className="matrix-grid__rank">rank {item.row.daily_rank}</span>}
+      </small>
     </>;
   }
   return <>
@@ -267,6 +289,14 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
             <th className="matrix-grid__corner" scope="col">
               <span>{cornerLabel}</span>
               <small>{isContribution ? sourceLabel : "recovered implied SF"}</small>
+              {/* The matrix is the holistic surface: rows are ranked by the
+                  day's contribution but nothing is filtered out, so quiet and
+                  clip-pinned constraints stay visible. Saying so is what stops
+                  it reading as a contradiction of the map's driver list, which
+                  ranks the same values differently (0145). */}
+              <small className="matrix-grid__basis">
+                ranked by day contribution · unfiltered
+              </small>
             </th>
             {axes.displayColumns.map((item, columnIndex) => (
               <th
@@ -284,7 +314,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(item)))}
               >
                 <PinStar pinned={isPinned(item)} label={`${isPinned(item) ? "Unpin" : "Pin"} ${item.key}`} onToggle={() => onTogglePin(item)} />
-                <AxisHeaderBody frame={frame} item={item} isContribution={isContribution} sourceLabel={sourceLabel} muSource={muSource} />
+                <AxisHeaderBody frame={frame} item={item} isContribution={isContribution} muSource={muSource} />
               </th>
             ))}
           </tr>
@@ -306,7 +336,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(rowItem)))}
               >
                 <PinStar pinned={isPinned(rowItem)} label={`${isPinned(rowItem) ? "Unpin" : "Pin"} ${rowItem.key}`} onToggle={() => onTogglePin(rowItem)} />
-                <AxisHeaderBody frame={frame} item={rowItem} isContribution={isContribution} sourceLabel={sourceLabel} muSource={muSource} />
+                <AxisHeaderBody frame={frame} item={rowItem} isContribution={isContribution} muSource={muSource} />
               </th>
               {axes.displayColumns.map((columnItem, columnIndex) => {
                 const { constraint, node } = splitAxis(rowItem, columnItem);
@@ -326,7 +356,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                     id={constraint && node ? selectionElementId({ kind: "cell", constraintKey: constraint.key, settlementPoint: node.key }) : undefined}
                     style={{ backgroundColor: matrixValueColor(value, maxAbs) }}
                     aria-selected={selected}
-                    aria-label={`${constraint?.row.constraint_name ?? rowItem.key}, ${node?.column.settlement_point ?? columnItem.key}: ${unavailable ? "unavailable" : `${formatMatrixValue(value, mode)} ${unit}`}`}
+                    aria-label={`${constraint?.row.constraint_name ?? rowItem.key}, ${node?.column.settlement_point ?? columnItem.key}: ${unavailable ? "unavailable" : `${formatMatrixValue(value, mode)} ${unit}`}${!isContribution && isClippedSf(frame, sf) ? ", pinned at the fit's clip" : ""}`}
                     aria-describedby={tooltipId}
                     data-matrix-tooltip="cell"
                     data-matrix-row={rowIndex}
@@ -335,6 +365,9 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                     onKeyDown={(event) => selectOnKey(event, () => { if (constraint && node) onSelect({ kind: "cell", constraintKey: constraint.key, settlementPoint: node.key }); })}
                   >
                     {formatMatrixValue(value, mode)}
+                    {!isContribution && isClippedSf(frame, sf) && (
+                      <span className="matrix-grid__clip">*</span>
+                    )}
                   </td>
                 );
               })}

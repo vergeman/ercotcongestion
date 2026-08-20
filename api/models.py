@@ -617,10 +617,25 @@ class SpExposure(BaseModel):
 
     ``sf`` is the signed exposure ($/MWh per $ of μ) — caveated, read it
     against the response's window confidence.
+
+    ``contribution`` = ``-sf * mu`` is the constraint's actual $/MWh of this
+    node's congestion at the requested interval, and is what ``rank=contribution``
+    orders by; both it and ``mu`` are ``None`` under ``rank=sf``, which describes
+    structure and has no hour attached.
+
+    ``sf_clipped`` marks a cell the ridge fit pinned at its ``SF_ABS_CAP`` of
+    1.0 (``compute/sf/fit.py``). It is a bound, not a measurement — a
+    poorly-conditioned column, not a node that moves 1:1 with the constraint —
+    and matters out of proportion to how rare it is, because a clipped value is
+    by construction the largest possible ``|SF|`` and so always sorts first
+    under ``rank=sf``.
     """
     constraint_key: str
     ctype: str | None = None
     sf: float
+    sf_clipped: bool = False
+    mu: float | None = None
+    contribution: float | None = None
     max_abs_sf: float | None = None
     binding_hours: int | None = None
 
@@ -636,12 +651,26 @@ class ExposuresResponse(BaseModel):
     ``window_end`` bound that day's block rather than a rolling fit window, and
     ``oos_r2``/``sf_stability`` are ``None`` — they describe the rolling
     ``sf_window_meta`` fit, which no longer backs these numbers.
+
+    ``rank`` names the basis the list is ordered on, because that — not the SF
+    values, which agree everywhere — is what made this endpoint appear to
+    contradict the matrix (0145):
+
+    * ``contribution`` (default): what actually drove the node at ``t``, ordered
+      by ``|-SF * mu|`` with ``mu = 0`` rows dropped. Matches
+      ``/analysis/node``'s ``terms``. ``node_total`` is the signed sum over
+      *all* constraints, so a row's share of the node is
+      ``contribution / node_total``.
+    * ``sf``: structural exposure, ordered by ``|SF|`` over every constraint in
+      the day's fit including those that never bound. ``node_total`` is ``None``.
     """
     sp: str
     run_id: str
     window_start: datetime
     window_end: datetime
     k: int
+    rank: Literal["contribution", "sf"] = "contribution"
+    node_total: float | None = None
     oos_r2: float | None = None
     sf_stability: float | None = None
     node_max_abs_sf: float | None = None
@@ -814,7 +843,13 @@ class MatrixColumn(BaseModel):
 
 
 class MatrixSfValues(BaseModel):
-    """Row-major recovered implied-SF values aligned to ``rows`` and ``columns``."""
+    """Row-major recovered implied-SF values aligned to ``rows`` and ``columns``.
+
+    A cell whose ``|value|`` equals the frame's ``sf_abs_cap`` was pinned there
+    by the ridge fit's clip and is a bound rather than a measurement (0145). No
+    parallel mask is sent: the clip is exact, so ``abs(v) >= sf_abs_cap`` is the
+    same test the server would apply, at a fraction of the payload.
+    """
     row_count: int
     column_count: int
     values: list[float]
@@ -851,6 +886,11 @@ class MatrixFrame(BaseModel):
     # so their colors remain directly comparable.
     sf_day_max_abs: float = 0.0
     contribution_day_max_abs: float = 0.0
+    # The fit's |SF| clip. Cells sitting exactly here were pinned by the ridge
+    # rather than measured, and the client marks them; sent so the threshold has
+    # one source (compute.sf.fit.SF_ABS_CAP) instead of a hardcoded 1.0 on both
+    # sides of the wire.
+    sf_abs_cap: float = 0.0
     rows: list[MatrixRow] = []
     columns: list[MatrixColumn] = []
     sf: MatrixSfValues
