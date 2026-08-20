@@ -284,7 +284,11 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     monkeypatch.setattr(map_module, "_SP_METADATA", {
         "LZ_WEST": ("load_zone", "west"), "LZ_NORTH": ("load_zone", "north"),
     })
-    blob = _artifact({"LZ_WEST": [0.72], "LZ_NORTH": [-0.30]}, ["CONSTR_A"])
+    blob = _artifact(
+        {"LZ_WEST": [0.72], "LZ_NORTH": [-0.30]},
+        ["CONSTR_A"],
+        mu={"CONSTR_A": [1.0, 17.25]},
+    )
     _queue_click_artifact(fake_pool, blob, geo=[
         {"constraint_key": "CONSTR_A", "ctype": "gtc", "n_rail": 4, "peak_offrail": 0.2},
     ])
@@ -297,6 +301,7 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     assert body["available"] is True
     assert body["max_abs_sf"] == pytest.approx(0.72)
     assert body["binding_hours"] == 2          # per-day, from the artifact E_mu
+    assert body["shadow_price"] == pytest.approx(17.25)  # cursor hour, not day mass
     assert body["ctype"] == "gtc" and body["n_rail"] == 4   # structural, from geo
     assert body["oos_r2"] is None
     sps = body["sps"]
@@ -411,6 +416,7 @@ def test_reach_falls_back_to_nearest_past_day_when_the_day_has_no_artifact(
     body = r.json()
     assert body["available"] is True
     assert body["basis"] == "nearest_past"
+    assert body["shadow_price"] is None  # fallback SF is structural, not stale μ
     assert body["window_start"].startswith(DAY.isoformat())
     assert [sp["settlement_point"] for sp in body["sps"]] == ["LZ_WEST"]
 

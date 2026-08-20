@@ -730,6 +730,10 @@ class ConstraintReach(BaseModel):
     n_rail: int | None = None
     peak_offrail: float | None = None
     binding_hours: int | None = None
+    # Forecast μ from this constraint's daily artifact at the requested cursor
+    # interval. Null when the request has no cursor hour or the served SF is a
+    # nearest-past structural fallback rather than that interval's artifact.
+    shadow_price: float | None = None
     # False means the requested key has no represented SF reach on the requested
     # day (or the day has no artifact); callers can distinguish it from an empty
     # visual selection.

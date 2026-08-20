@@ -351,6 +351,7 @@ function ReachBody({
         label="Binding hours"
         value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
       />
+      <Row label="Shadow Price" value={fmtCong(reach.shadow_price)} />
       <Row label="Import nodes" value={importEnd} />
       <Row label="Export nodes" value={exportEnd} />
       <div
@@ -364,6 +365,12 @@ function ReachBody({
           <span aria-hidden="true" />
           <span className="dc-driver-col label">Settlement Point</span>
           <span className="dc-driver-col label">SF</span>
+          <span
+            className="dc-driver-col label"
+            title="Signed nodal congestion contribution: −SF × the constraint's forecast shadow price at the selected hour ($/MWh)."
+          >
+            Contrib
+          </span>
         </div>
         {reach.sps.slice(0, REACH_ROW_CAP).map((s) => (
           <button
@@ -375,6 +382,19 @@ function ReachBody({
             <NodeChip />
             <span className="dc-driver-key mono">{s.settlement_point}</span>
             <SfSign sf={s.sf} />
+            <span
+              className="dc-driver-sup mono"
+              style={{
+                color:
+                  reach.shadow_price == null
+                    ? undefined
+                    : shiftFactorColor(-s.sf * reach.shadow_price),
+              }}
+            >
+              {reach.shadow_price == null
+                ? "—"
+                : fmtDollars(-s.sf * reach.shadow_price)}
+            </span>
           </button>
         ))}
         {reach.sps.length > REACH_ROW_CAP && (
@@ -680,9 +700,9 @@ export default function DetailCard({
           cursor: pointer;
         }
         .dc-driver:hover { background: var(--bg-hover); }
-        /* Reach rows carry no support column, so they end at the value. */
+        /* Reach rows add their signed −SF × shadow contribution at the right. */
         .dc-driver--reach-row {
-          grid-template-columns: 10px 1fr 58px;
+          grid-template-columns: 10px 1fr 58px 58px;
         }
         .dc-driver--head {
           cursor: default;

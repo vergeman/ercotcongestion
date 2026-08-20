@@ -371,6 +371,9 @@ export interface ConstraintReach {
   n_rail: number | null;
   peak_offrail: number | null;
   binding_hours: number | null;
+  // Forecast μ from the requested cursor hour's daily artifact. It is null for
+  // a structural nearest-past fallback or when no cursor hour was requested.
+  shadow_price: number | null;
   available: boolean;
   // 0144: "artifact_missing" (the day has no artifact) or
   // "constraint_not_in_artifact" (the day's fit does not carry this key).

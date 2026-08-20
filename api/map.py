@@ -506,6 +506,14 @@ def get_map_reach(
         # structural shape fields, which are not per-day (0144).
         max_abs_sf = float(row.abs().max())
         binding_hours = int((artifact.E_mu[constraint].abs() > 0).sum())
+        # This is the forecast μ that belongs to the selected cursor interval.
+        # A nearest-past SF fallback remains structural only: its E_mu describes
+        # another day, so never present it as the selected hour's shadow price.
+        shadow_price = (
+            float(artifact.E_mu.loc[pd.Timestamp(coerce_utc(t)), constraint])
+            if t is not None and basis == "artifact"
+            else None
+        )
 
         # Magnitude floor relative to the constraint's own peak |SF|, combined
         # with an absolute floor. The relative floor follows the constraint's
@@ -549,6 +557,7 @@ def get_map_reach(
         n_rail=geo.get("n_rail"),
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=binding_hours,
+        shadow_price=shadow_price,
         available=bool(sps),
         basis=basis,
         truncated=truncated,
