@@ -238,15 +238,42 @@ def test_exposures_without_t_uses_the_latest_built_day(client, fake_pool):
     assert r.json()["available"] is True
 
 
-def test_exposures_soft_fails_for_a_node_absent_from_the_day(client, fake_pool):
+@pytest.mark.parametrize("counts, reason", [
+    # The run forecast the day but never this node -> it did not exist yet.
+    ({"sp_rows": 0, "day_rows": 26880}, "sp_not_in_service"),
+    # Forecast, but dropped by the fit.
+    ({"sp_rows": 24, "day_rows": 26880}, "sp_not_in_fit"),
+    # The run forecast nothing that day: the two are indistinguishable.
+    ({"sp_rows": 0, "day_rows": 0}, "sp_not_in_fit"),
+])
+def test_exposures_reports_why_a_node_has_no_sf(client, fake_pool, counts, reason):
+    """0146: its own reason, so "no SF here" cannot read as "nothing bound"."""
     blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
-    _queue_click_artifact(fake_pool, blob)
+    _queue_click_artifact(fake_pool, blob, reaches_geo=False)
+    fake_pool.cursor.queue([counts])                    # _absent_sp_reason
 
     r = client.get("/map/exposures",
                    params={"sp": "NOT_A_NODE", "t": DAY_MID.isoformat()})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["available"] is True and body["exposures"] == []
+    assert body["available"] is False
+    assert body["unavailable_reason"] == reason
+    assert body["exposures"] == []
+
+
+def test_exposures_stays_available_for_a_node_that_bound_nothing(client, fake_pool):
+    """The case 0146 must keep distinct: in the fit, mu all zero."""
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"],
+                     mu={"CONSTR_A": [0.0, 0.0]})
+    _queue_click_artifact(fake_pool, blob, reaches_geo=False)
+
+    r = client.get("/map/exposures",
+                   params={"sp": "LZ_WEST", "t": DAY_MID.isoformat()})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is True
+    assert body["unavailable_reason"] is None
+    assert body["exposures"] == []
 
 
 # ---- /map/reach ----------------------------------------------------------
