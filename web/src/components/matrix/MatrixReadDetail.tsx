@@ -59,6 +59,21 @@ function Fact({ label, value, tone, numeric = false }: {
   );
 }
 
+function DetailSummary({ hourly, structural }: { hourly: ReactNode; structural: ReactNode }) {
+  return (
+    <div className="mrd-summary">
+      <section className="mrd-summary__section" aria-label="Selected hour">
+        <span className="mrd-section-title">Selected hour</span>
+        <div className="mrd-kv">{hourly}</div>
+      </section>
+      <section className="mrd-summary__section" aria-label="Daily and structural evidence">
+        <span className="mrd-section-title">Daily / structural</span>
+        <div className="mrd-kv">{structural}</div>
+      </section>
+    </div>
+  );
+}
+
 const LOBE_VISIBLE = 8;
 
 function MemberRow({ sp }: { sp: ReachSp }) {
@@ -113,13 +128,22 @@ function ConstraintRead({
           <span className="mrd__eyebrow">Constraint</span>
           <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
         </header>
-        <div className="mrd-kv mrd-kv--identity">
-          <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} />
-          <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} />
-          <Fact label="Type" value={row?.ctype ?? "—"} />
-          <Fact label="Daily Σμ" value={row ? usd(row.daily_mu_sum, 2) : "—"} />
-          <Fact label="Binding hours" value={row?.binding_hours ?? "—"} />
-        </div>
+        <DetailSummary
+          hourly={<>
+            <Fact label="Forecast μ" value={marketValue(reach?.shadow_price)} numeric />
+            <Fact label="DAM μ" value={marketValue(reach?.dam_mu)} numeric />
+            <Fact label="Forecast Error" value={marketValue(reach?.forecast_error)} numeric />
+          </>}
+          structural={<>
+            <Fact label="Forecast μ rank" value={reach?.daily_mu_rank ?? row?.daily_mu_rank ?? "—"} numeric />
+            <Fact label="Daily Σμ" value={reach?.daily_mu_sum == null ? (row ? usd(row.daily_mu_sum, 2) : "—") : usd(reach.daily_mu_sum, 2)} numeric />
+            <Fact label="Binding hours" value={reach?.binding_hours ?? row?.binding_hours ?? "—"} numeric />
+            <Fact label="Peak |SF|" value={reach?.max_abs_sf == null ? "—" : reach.max_abs_sf.toFixed(3)} numeric />
+            <Fact label="Import / export" value={reach ? `${reach.import_members ?? imp} / ${reach.export_members ?? exp}` : "—"} numeric />
+            <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} numeric />
+            <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} numeric />
+          </>}
+        />
 
         <div className="mrd-reach">
           <span className="mrd-section-title">
@@ -179,16 +203,18 @@ function NodeRead({
   // fetch outright rather than trust the caller already guarded `val`.
   const damPendingBlock = basis === "realized" && damStatus === "pending";
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
+  const [structural, setStructural] = useState<AnalysisNodeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [esspCount, setEsspCount] = useState<number | null>(null);
   const requestId = useRef(0);
+  const structuralRequestId = useRef(0);
 
   useEffect(() => {
     if (!timestamp || !deliveryDate) { setNode(null); setLoading(false); return; }
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
-    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal)
+    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, "drivers")
       .then((response) => { if (id === requestId.current) setNode(response); })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -197,6 +223,19 @@ function NodeRead({
       .finally(() => { if (id === requestId.current) setLoading(false); });
     return () => controller.abort();
   }, [point, deliveryDate, timestamp, basis, runId, damPendingBlock]);
+
+  useEffect(() => {
+    if (!timestamp || !deliveryDate) { setStructural(null); return; }
+    const controller = new AbortController();
+    const id = ++structuralRequestId.current;
+    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, "structural")
+      .then((response) => { if (id === structuralRequestId.current) setStructural(response); })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (id === structuralRequestId.current) setStructural(null);
+      });
+    return () => controller.abort();
+  }, [point, deliveryDate, timestamp, basis, runId]);
 
   useEffect(() => {
     if (!timestamp) { setEsspCount(null); return; }
@@ -213,6 +252,7 @@ function NodeRead({
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
+  const structuralTerms = structural?.available ? structural.terms ?? [] : [];
   const market = node?.available ? node.market_state : null;
 
   return (
@@ -222,22 +262,29 @@ function NodeRead({
           <span className="mrd__eyebrow">Settlement point</span>
           <h2 className="mrd__title">{point}</h2>
         </header>
-        <div className="mrd-kv mrd-kv--identity">
-          <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} />
-          <Fact label="Type" value={meta?.type ?? "—"} />
-          {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
-        </div>
-
         {node?.available && (
-          <div className="mrd-market" aria-label="Selected-hour node market state">
-            <span className="mrd-section-title">Selected-hour market state</span>
-            <div className="mrd-kv">
+          <DetailSummary
+            hourly={<>
               <Fact label="Forecast (P50) Congestion" value={marketValue(market?.forecast_congestion)} numeric />
               <Fact label="Realized Congestion" value={marketValue(market?.realized_congestion)} numeric />
+              <Fact label="Forecast Error" value={marketValue(market?.forecast_error)} numeric />
               <Fact label="Forecast LMP" value={marketValue(market?.forecast_lmp)} numeric />
               <Fact label="DAM LMP" value={marketValue(market?.dam_lmp)} numeric />
-            </div>
-          </div>
+              <Fact
+                label={basis === "realized" ? "DAM μ attribution" : "Forecast μ attribution"}
+                value={marketValue(node.total)}
+                tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
+                numeric
+              />
+            </>}
+            structural={<>
+              <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} numeric />
+              <Fact label="Type" value={meta?.type ?? "—"} numeric />
+              <Fact label="ESSP members" value={esspCount != null && esspCount > 1 ? `≈${esspCount}` : "—"} numeric />
+              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} numeric />
+              <Fact label="Current drivers" value={`${node.n_terms ?? terms.length}`} numeric />
+            </>}
+          />
         )}
 
         {damPendingBlock && (
@@ -252,23 +299,22 @@ function NodeRead({
         )}
         {!damPendingBlock && node?.available && (
           <>
-            <div className="mrd-kv mrd-kv--stats">
-              <Fact
-                label={basis === "realized" ? "DAM 7×16 $/MWh" : "Forecast 7×16 $/MWh"}
-                value={usd(node.total ?? 0, 2)}
-                tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
-                numeric
-              />
-              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} numeric />
-              <Fact label="Drivers" value={`${node.n_terms ?? terms.length} drivers`} numeric />
-            </div>
             <div className="mrd-drivers">
-              <span className="mrd-section-title">Congestion drivers <em>full column · −SF·μ</em></span>
+              <span className="mrd-section-title">Current-hour drivers <em>full column · −SF·μ</em></span>
               <table className="mrd-drv">
                 <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
                 <tbody>{terms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
               </table>
             </div>
+            <details className="mrd-structural">
+              <summary>Structural exposure <em>{structural?.available ? `${structural.n_terms ?? structuralTerms.length} nonzero SF relationships` : "loading…"}</em></summary>
+              {structural?.available && (
+                <table className="mrd-drv">
+                  <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
+                  <tbody>{structuralTerms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
+                </table>
+              )}
+            </details>
           </>
         )}
       </div>
@@ -315,13 +361,15 @@ export default function MatrixReadDetail({
            columns, while numeric values can right-align without drifting to
            the far side of the Detail pane. */
         .mrd-kv { display: grid; width: 100%; margin: 0 0 4px; }
-        .mrd-kv--stats { margin-top: 16px; }
-        .mrd-kv--identity .mrd-kv__value { text-align: right; }
-        .mrd-market { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+        .mrd-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 4px; }
+        .mrd-summary__section { min-width: 0; }
+        .mrd-summary .mrd-section-title { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .mrd-summary .mrd-kv__row { grid-template-columns: minmax(0, 1fr) 112px; gap: 10px; }
         @media (max-width: 760px) {
           .mrd { grid-template-columns: 1fr; height: auto; }
           .mrd__main { overflow-y: visible; padding-right: 2px; }
           .mrd__map { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 16px; margin-top: 4px; height: 320px; }
+          .mrd-summary { grid-template-columns: 1fr; gap: 18px; }
         }
         .mrd-kv__row { display: grid; grid-template-columns: minmax(0, var(--mrd-fact-label)) var(--mrd-fact-value) minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
         .mrd-kv__row:last-child { border-bottom: 0; }
@@ -345,6 +393,10 @@ export default function MatrixReadDetail({
         .mrd-drv th:first-child, .mrd-drv td:first-child { text-align: left; }
         .mrd-drv__key { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .mrd-drv__side { color: var(--text-muted); }
+        .mrd-structural { margin-top: 14px; }
+        .mrd-structural summary { color: var(--text-secondary); cursor: pointer; font: 600 var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
+        .mrd-structural summary em { color: var(--text-muted); font-style: normal; text-transform: none; }
+        .mrd-structural .mrd-drv { margin-top: 10px; }
         @media (max-width: 900px) { .mrd-lobes { grid-template-columns: 1fr; } }
       `}</style>
     </div>

@@ -345,6 +345,7 @@ export interface AnalysisAttributionRequest {
   horizon?: number;
   hours?: string[];
   minAbsSf?: number;
+  mode?: "drivers" | "structural";
   signal?: AbortSignal;
 }
 
@@ -354,6 +355,7 @@ function attributionQuery(request: AnalysisAttributionRequest): URLSearchParams 
   if (request.runId) qs.set("run_id", request.runId);
   if (request.horizon != null) qs.set("horizon", String(request.horizon));
   if (request.minAbsSf != null) qs.set("min_abs_sf", String(request.minAbsSf));
+  if (request.mode) qs.set("mode", request.mode);
   request.hours?.forEach((hour) => qs.append("hours", hour));
   return qs;
 }
