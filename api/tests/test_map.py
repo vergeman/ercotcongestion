@@ -759,9 +759,10 @@ def test_exposures_rank_contribution_drops_constraints_that_never_bound(client, 
     assert live["contribution"] == pytest.approx(-20.0)
     assert live["mu"] == pytest.approx(50.0)
     assert live["sf"] == pytest.approx(0.40)
-    # The node total sums every constraint, so a row's share is honest even
-    # when k truncates the list.
-    assert body["node_total"] == pytest.approx(-20.8)
+    # Gross magnitude supplies a bounded driver share even when positive and
+    # negative terms offset. It includes every constraint, not just top-k.
+    assert body["node_gross_total"] == pytest.approx(20.8)
+    assert "node_total" not in body
     # The unsigned structural headline is unchanged by the ranking basis.
     assert body["node_max_abs_sf"] == pytest.approx(1.0)
 
@@ -796,7 +797,7 @@ def test_exposures_rank_sf_keeps_the_structural_ordering(client, fake_pool):
     # No hour is implied by a structural ranking, so neither field is invented.
     assert body["exposures"][0]["contribution"] is None
     assert body["exposures"][0]["mu"] is None
-    assert body["node_total"] is None
+    assert body["node_gross_total"] is None
 
 
 def test_exposures_marks_shift_factors_pinned_at_the_clip_cap(client, fake_pool):
@@ -828,4 +829,4 @@ def test_exposures_rank_contribution_ranks_by_magnitude_across_signs(client, fak
     # POS = -0.50*10 = -5.0; NEG = 0.60*30 = +18.0.
     assert [e["constraint_key"] for e in body["exposures"]] == ["CONSTR_NEG", "CONSTR_POS"]
     assert body["exposures"][0]["contribution"] == pytest.approx(18.0)
-    assert body["node_total"] == pytest.approx(13.0)
+    assert body["node_gross_total"] == pytest.approx(23.0)

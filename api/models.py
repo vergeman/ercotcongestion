@@ -658,11 +658,13 @@ class ExposuresResponse(BaseModel):
 
     * ``contribution`` (default): what actually drove the node at ``t``, ordered
       by ``|-SF * mu|`` with ``mu = 0`` rows dropped. Matches
-      ``/analysis/node``'s ``terms``. ``node_total`` is the signed sum over
-      *all* constraints, so a row's share of the node is
-      ``contribution / node_total``.
+      ``/analysis/node``'s ``terms``. ``node_gross_total`` is the sum of all
+      absolute contributions; it is the denominator for a bounded
+      driver-magnitude share, so opposing signs do not turn a near-zero net
+      into an arbitrary percentage.
     * ``sf``: structural exposure, ordered by ``|SF|`` over every constraint in
-      the day's fit including those that never bound. ``node_total`` is ``None``.
+      the day's fit including those that never bound. ``node_gross_total`` is
+      ``None``.
     """
     sp: str
     run_id: str
@@ -670,7 +672,7 @@ class ExposuresResponse(BaseModel):
     window_end: datetime
     k: int
     rank: Literal["contribution", "sf"] = "contribution"
-    node_total: float | None = None
+    node_gross_total: float | None = None
     oos_r2: float | None = None
     sf_stability: float | None = None
     node_max_abs_sf: float | None = None

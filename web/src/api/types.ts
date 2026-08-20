@@ -328,10 +328,10 @@ export interface ExposuresResponse {
   sf_stability: number | null;
   node_max_abs_sf: number | null;
   rank: ExposureRank;
-  // Signed sum over ALL constraints, so a row's share of the node is
-  // `contribution / node_total` even when k truncates the list. Null under
-  // `rank=sf`.
-  node_total: number | null;
+  // Full-constraint gross magnitude, independent of the returned top-k:
+  // `sum(abs(contribution))`. It supports a bounded share when drivers offset
+  // and is null under `rank=sf`.
+  node_gross_total: number | null;
   available: boolean;
   // No SF for this node on this day — not the same as being in the fit and
   // driving nothing (0146). `sp_not_in_service`: the node did not exist yet;
