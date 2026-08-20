@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { ExposureRank, ExposuresResponse, ConstraintReach } from "../../api/types";
+import type {
+  ExposureRank,
+  ExposuresResponse,
+  ConstraintReach,
+} from "../../api/types";
 import { formatCT } from "../../lib/time";
 import { shiftFactorColor } from "../../lib/colors";
 
@@ -50,10 +54,6 @@ interface Props {
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
   showDrivers?: boolean;
-  // True when the current hour's predicted LMP used the persistence-λ fallback
-  // (0130) rather than a settled DAM value — marks `Predicted LMP` below as
-  // indicative. Display only, never a graded signal.
-  lambdaIndicative?: boolean;
   mobile?: boolean;
 }
 
@@ -69,13 +69,6 @@ function fmtSf(v: number | null): string {
   return `${sign}${Math.abs(v).toFixed(3)}`;
 }
 
-// Low-confidence is a shape verdict — mirror GridMap.tsx / docs §4. The artifact
-// is the ridge clamp (>= RAIL_MULTI nodes co-equal at the ±1 cap, or a lone rail
-// with no graded body beneath it), NOT a low hour count. binding_hours is a
-// separate "thin support" caveat: clean-but-brief constraints are trustworthy.
-const RAIL_MULTI = 2;
-const BODY_FLOOR = 0.1;
-const THIN_HOURS = 50;
 // Max constraint-reach rows the card lists; the rest are summarized as a count
 // (the map still glows the full footprint). 0147.
 const REACH_ROW_CAP = 20;
@@ -107,37 +100,25 @@ function fmtCong(v: number | null | undefined): string | null {
   return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
 }
 
-function SpBody({
-  sp,
-  lambdaIndicative = false,
-}: {
-  sp: HoveredSp;
-  lambdaIndicative?: boolean;
-}) {
+function SpBody({ sp }: { sp: HoveredSp }) {
   const s = sp.spState;
   return (
     <>
       <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
       {/* forecast / realized / error — the decomposition carried in every view. */}
-      <Row label="Forecast (P50)" value={fmtCong(s?.predicted)} />
-      <Row label="Realized" value={fmtCong(s?.market)} />
-      <Row label="Forecast error" value={fmtCong(s?.error)} />
+      <Row label="Forecast (P50) Congestion" value={fmtCong(s?.predicted)} />
+      <Row label="Realized Congestion" value={fmtCong(s?.market)} />
+      <Row label="Forecast Error" value={fmtCong(s?.error)} />
       <Row
         label="Predicted LMP"
         value={
-          s && s.predictedSpp != null
-            ? `$${fmt(s.predictedSpp, 2)}/MWh${
-                lambdaIndicative ? " (indicative)" : ""
-              }`
-            : null
+          s && s.predictedSpp != null ? `$${fmt(s.predictedSpp, 2)}/MWh` : null
         }
       />
       <Row
-        label="DAM SPP"
-        value={
-          s && s.marketSpp != null ? `$${fmt(s.marketSpp, 2)}/MWh` : null
-        }
+        label="DAM LMP"
+        value={s && s.marketSpp != null ? `$${fmt(s.marketSpp, 2)}/MWh` : null}
       />
     </>
   );
@@ -156,7 +137,9 @@ function TypeChip({ ctype }: { ctype?: string | null }) {
   return (
     <span
       className="dc-chip"
-      style={{ background: `var(${TYPE_TOKENS[ctype ?? ""] ?? "--sf-untyped"})` }}
+      style={{
+        background: `var(${TYPE_TOKENS[ctype ?? ""] ?? "--sf-untyped"})`,
+      }}
       aria-hidden="true"
     />
   );
@@ -214,7 +197,11 @@ function ExposuresBody({
   const header = (
     <div className="dc-drivers-head">
       <span className="dc-drivers-basis label">
-        {byContribution ? (hour ? `Drove ${hour}` : "Drove this hour") : "Exposure"}
+        {byContribution
+          ? hour
+            ? `Drove ${hour}`
+            : "Drove this hour"
+          : "Exposure"}
       </span>
       {onChangeRank && (
         <button
@@ -248,7 +235,9 @@ function ExposuresBody({
       {header}
       {exposures.exposures.length === 0 && (
         <div className="dc-drivers-empty label">
-          {byContribution ? "Nothing bound this hour" : "No constraints in this fit"}
+          {byContribution
+            ? "Nothing bound this hour"
+            : "No constraints in this fit"}
         </div>
       )}
       <div
@@ -265,12 +254,18 @@ function ExposuresBody({
             header and every numeric column reads as shifted right — invisible
             under macOS/headless overlay scrollbars, plainly wrong elsewhere. */}
         {exposures.exposures.length > 0 && (
-        <div className="dc-driver dc-driver--head">
-          <span aria-hidden="true" />
-          <span className="dc-driver-col label">Constraint | Contingency</span>
-          <span className="dc-driver-col label">{byContribution ? "$/MWh" : "SF"}</span>
-          <span className="dc-driver-col label">{byContribution ? "Share" : "Binding"}</span>
-        </div>
+          <div className="dc-driver dc-driver--head">
+            <span aria-hidden="true" />
+            <span className="dc-driver-col label">
+              Constraint | Contingency
+            </span>
+            <span className="dc-driver-col label">
+              {byContribution ? "$/MWh" : "SF"}
+            </span>
+            <span className="dc-driver-col label">
+              {byContribution ? "Share" : "Binding"}
+            </span>
+          </div>
         )}
         {exposures.exposures.map((e) => (
           <button
@@ -300,7 +295,9 @@ function ExposuresBody({
                 {/* Share of the node's full congestion, not of the visible
                     top-k — node_total sums every constraint. */}
                 <span className="dc-driver-sup mono">
-                  {total ? `${Math.round((e.contribution / total) * 100)}%` : "—"}
+                  {total
+                    ? `${Math.round((e.contribution / total) * 100)}%`
+                    : "—"}
                 </span>
               </>
             ) : (
@@ -336,20 +333,12 @@ function ReachBody({
 }) {
   const importEnd = reach.sps.filter((s) => s.sf < 0).length;
   const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
-  const nRail = reach.n_rail ?? 0;
-  // Ridge-clamp artifact: several nodes at the cap, or a lone rail with no body.
-  const railArtifact =
-    nRail >= RAIL_MULTI ||
-    (nRail >= 1 &&
-      (reach.peak_offrail == null || reach.peak_offrail < BODY_FLOOR));
-  const thin =
-    reach.binding_hours != null && reach.binding_hours < THIN_HOURS;
-  const lowConf = railArtifact;
   return (
     <>
       {reach.basis === "nearest_past" && (
         <div className="dc-support label">
-          SF as of {reach.window_start.slice(0, 10)} — no artifact for the selected day
+          SF as of {reach.window_start.slice(0, 10)} — no artifact for the
+          selected day
         </div>
       )}
       <Row
@@ -358,11 +347,6 @@ function ReachBody({
       />
       <Row label="Import nodes" value={importEnd} />
       <Row label="Export nodes" value={exportEnd} />
-      {(lowConf || thin) && (
-        <div className={`dc-support label ${lowConf ? "dc-support--low" : ""}`}>
-          {lowConf ? "⚠ low confidence — ridge clamp" : "thin support"}
-        </div>
-      )}
       <div
         className="dc-drivers dc-drivers--reach"
         onMouseLeave={() => onHoverMember?.(null)}
@@ -370,6 +354,11 @@ function ReachBody({
         {/* The map glows the constraint's full driven footprint (0147); the card
             lists the strongest REACH_ROW_CAP and reports the rest as a count, so a
             broad constraint's hundreds of members stay scannable here. */}
+        <div className="dc-driver dc-driver--head dc-driver--reach-row">
+          <span aria-hidden="true" />
+          <span className="dc-driver-col label">Settlement Point</span>
+          <span className="dc-driver-col label">SF</span>
+        </div>
         {reach.sps.slice(0, REACH_ROW_CAP).map((s) => (
           <button
             key={s.settlement_point}
@@ -408,7 +397,6 @@ export default function DetailCard({
   onHoverMember,
   onSelectMember,
   showDrivers = true,
-  lambdaIndicative = false,
   mobile = false,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
@@ -422,8 +410,10 @@ export default function DetailCard({
       ? exposures?.unavailable_reason
       : null;
   const noSfLabel =
-    noSf === "sp_not_in_service" ? "Non-existent"
-      : noSf === "sp_not_in_fit" ? "Not in fit"
+    noSf === "sp_not_in_service"
+      ? "Non-existent"
+      : noSf === "sp_not_in_fit"
+      ? "Not in fit"
       : null;
   const [expanded, setExpanded] = useState(false);
 
@@ -431,16 +421,20 @@ export default function DetailCard({
 
   return (
     <div
-      className={`detail-card ${inReach || isPinned ? "detail-card--pinned" : ""}${
-        mobile ? " detail-card--mobile" : ""
-      }${expanded ? " detail-card--expanded" : ""}`}
+      className={`detail-card ${
+        inReach || isPinned ? "detail-card--pinned" : ""
+      }${mobile ? " detail-card--mobile" : ""}${
+        expanded ? " detail-card--expanded" : ""
+      }`}
     >
       <div className="detail-card__header">
         <div className="detail-card__title">
           {inReach ? (
             <>
               <TypeChip ctype={reach!.ctype} />
-              <span className="detail-card__id mono">{reach!.constraint_key}</span>
+              <span className="detail-card__id mono">
+                {reach!.constraint_key}
+              </span>
             </>
           ) : (
             <>
@@ -493,7 +487,7 @@ export default function DetailCard({
           />
         ) : (
           <>
-            <SpBody sp={sp!} lambdaIndicative={lambdaIndicative} />
+            <SpBody sp={sp!} />
             {isPinned && showDrivers && !noSfLabel && (
               <div className="detail-card__section">
                 <ExposuresBody
@@ -612,7 +606,6 @@ export default function DetailCard({
           color: var(--text-secondary);
           margin: -2px 0 4px;
         }
-        .dc-support--low { color: var(--text-dim); }
         .dc-drivers-empty {
           font-size: 11px;
           color: var(--text-muted);
@@ -694,8 +687,9 @@ export default function DetailCard({
              rows scroll under it, but --bg-panel read as a grey band against the
              card in both themes. */
           background: var(--bg-base);
-          padding-bottom: 2px;
+          padding-bottom: 6px;
           border-bottom: 1px solid var(--border);
+          margin-bottom: 6px;
         }
         .dc-driver--head:hover { background: transparent; }
         .dc-driver-col {
