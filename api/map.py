@@ -15,10 +15,14 @@ is picked up without a redeploy. No ``implied_binding_proximity_current``
 pointer, no ``--promote``, no ``api/ibp.py`` — that is the legacy
 binding-proximity path (deleted in 0001).
 
-Not time-indexed: the SF structure is fixed per refit, so every response
-describes one resolved ``(run_id, window_start)``, not an hour. Queries are
-indexed slices (``WHERE run_id=? AND window_start=? AND settlement_point=?
-ORDER BY abs(sf) DESC LIMIT k`` and its transpose) — sub-ms.
+Two bases, deliberately. The *click* endpoints (``/map/exposures``,
+``/map/reach``) are day-indexed: they take ``t`` and serve the CT delivery day's
+SF artifact — the same object ``/matrix/frame`` and ``/map/constraints/ranked``
+read — so the map and the matrix agree at a given node and interval. Before 0144
+they ignored ``t`` and always served the newest ``sf_window_meta`` window, which
+made the DetailCard contradict the matrix on any day but the most recent.
+The *aggregate* endpoints (``/map/overview``, ``/map/meta``, ``/map/summary``)
+still describe one resolved ``(run_id, window_start)`` rolling refit.
 
 Soft-fail contract: 503 when no window is built for the resolved run (the
 client renders the available pane alone); an unknown ``sp``/``constraint``
@@ -28,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date as date_t
+from datetime import date as date_t, datetime as datetime_t
 from typing import Callable, TypeVar
 
 import pandas as pd
@@ -50,7 +54,12 @@ from models import (
     SpExposure,
 )
 from scoreboard import get_scoreboard_headline
-from services.sf_artifacts import load_daily_artifact, normalize_constraint_key
+from services.sf_artifacts import (
+    coerce_utc,
+    delivery_date_for,
+    load_daily_artifact,
+    normalize_constraint_key,
+)
 from services.topology_builder import get_or_build_topology
 from shared.settings import settings
 
@@ -149,6 +158,80 @@ def _meta_row(cur, run_id: str, window_start) -> dict:
     return row
 
 
+def _forecast_run_id(cur) -> str:
+    """The promoted forecast run — the artifact namespace, not the map's."""
+    cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=503, detail="no forecast run is published yet.")
+    return str(row["run_id"])
+
+
+def _latest_artifact_day(cur, run_id: str):
+    cur.execute(
+        "SELECT max(delivery_date) AS d FROM forecast_sf_artifact WHERE run_id = %s",
+        (run_id,),
+    )
+    row = cur.fetchone()
+    return None if row is None else row["d"]
+
+
+def _click_artifact(cur, t: datetime_t | None):
+    """Resolve (run_id, delivery_date, artifact) for a node/constraint click.
+
+    ``t`` is an instant on the map's scrubber; the artifact partition is its CT
+    delivery day (0133 blocks, cut in ``delivery_date_for`` — never a UTC date,
+    which is what blanked the matrix's evening hours in 0143.1). ``t`` omitted
+    falls back to the run's latest built day.
+
+    Returns ``artifact=None`` when the day has no artifact; callers turn that
+    into an explicit unavailable response rather than silently substituting a
+    rolling-window fit from a different basis (0144).
+    """
+    run_id = _forecast_run_id(cur)
+    day = delivery_date_for(t) if t is not None else _latest_artifact_day(cur, run_id)
+    if day is None:
+        return run_id, None, None
+    return run_id, day, load_daily_artifact(cur, run_id, day)
+
+
+def _interval_in_artifact(artifact, t: datetime_t | None) -> bool:
+    """Whether the block actually covers the requested instant.
+
+    A correctly cut CT block covers all 24 hours of its delivery day, so this is
+    always true on well-formed data. It matters when a block is misaligned or
+    partial: /matrix/frame rejects such an hour with ``interval_not_in_artifact``,
+    and the map must reach the same verdict rather than answering from the day's
+    SF while the matrix reports nothing there — a map/matrix disagreement is the
+    exact defect 0144 exists to remove.
+    """
+    return t is None or pd.Timestamp(coerce_utc(t)) in artifact.E_mu.index
+
+
+def _artifact_window(artifact) -> tuple[datetime_t, datetime_t]:
+    """The day block's own bounds — what this response's SF actually describes."""
+    idx = artifact.E_mu.index
+    return idx.min().to_pydatetime(), idx.max().to_pydatetime()
+
+
+def _geo_metadata(cur, constraint_keys: list[str]) -> dict[str, dict]:
+    """Best-effort structural metadata, newest window (matrix._constraint_types).
+
+    ``ctype``/``n_rail``/``peak_offrail`` describe a constraint's shape, not one
+    day's SF, so they stay on ``constraint_geo``; the day-specific magnitudes
+    (``max_abs_sf``, ``binding_hours``) come from the artifact instead.
+    """
+    if not constraint_keys:
+        return {}
+    cur.execute(
+        "SELECT DISTINCT ON (constraint_key) constraint_key, ctype, n_rail, peak_offrail "
+        "FROM constraint_geo WHERE constraint_key = ANY(%s) "
+        "ORDER BY constraint_key, window_start DESC",
+        (constraint_keys,),
+    )
+    return {str(r["constraint_key"]): r for r in cur.fetchall()}
+
+
 @router.get("/meta", response_model=MapMeta, summary="The refit the map is serving")
 def get_map_meta() -> MapMeta:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -164,41 +247,63 @@ def get_map_meta() -> MapMeta:
 def get_map_exposures(
     sp: str = Query(..., description="Settlement point to explain"),
     k: int = Query(15, ge=1, le=500, description="Number of top constraints"),
+    t: datetime_t | None = Query(
+        None,
+        description="Delivery interval in ISO-8601 UTC. The SF served is the CT "
+        "delivery day's artifact, so this matches /matrix/frame at the same "
+        "node and interval. Omit for the run's latest built day.",
+    ),
 ) -> ExposuresResponse:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id, window_start = _resolve(cur)
-        meta = _meta_row(cur, run_id, window_start)
+        run_id, day, artifact = _click_artifact(cur, t)
+        if artifact is None:
+            return ExposuresResponse(
+                sp=sp, run_id=run_id, window_start=t, window_end=t, k=k,
+                available=False, unavailable_reason="artifact_missing",
+                exposures=[],
+            )
 
+        window_start, window_end = _artifact_window(artifact)
+        if not _interval_in_artifact(artifact, t):
+            return ExposuresResponse(
+                sp=sp, run_id=run_id, window_start=window_start,
+                window_end=window_end, k=k, available=False,
+                unavailable_reason="interval_not_in_artifact", exposures=[],
+            )
+        if sp not in artifact.SF.columns:
+            # A located node absent from this day's fit: available, empty — the
+            # same soft-fail an unknown sp always had.
+            return ExposuresResponse(
+                sp=sp, run_id=run_id, window_start=window_start,
+                window_end=window_end, k=k, exposures=[],
+            )
+
+        column = artifact.SF[sp]
         # Stable, unsigned headline (spec §6): max_c |SF[sp,c]| over ALL
         # constraints, independent of k.
-        cur.execute(
-            "SELECT max(abs(sf)) AS m FROM implied_shift_factors "
-            "WHERE run_id = %s AND window_start = %s AND settlement_point = %s",
-            (run_id, window_start, sp),
-        )
-        node_max = cur.fetchone()["m"]
+        node_max = float(column.abs().max())
+        top = column.reindex(column.abs().sort_values(ascending=False).index[:k])
 
-        cur.execute(
-            "SELECT i.constraint_key, i.sf, g.ctype, g.max_abs_sf, "
-            "g.binding_hours FROM implied_shift_factors i "
-            "LEFT JOIN constraint_geo g ON g.run_id = i.run_id "
-            "AND g.window_start = i.window_start "
-            "AND g.constraint_key = i.constraint_key "
-            "WHERE i.run_id = %s AND i.window_start = %s "
-            "AND i.settlement_point = %s "
-            "ORDER BY abs(i.sf) DESC LIMIT %s",
-            (run_id, window_start, sp, k),
-        )
-        exposures = [SpExposure(**r) for r in cur.fetchall()]
+        geo = _geo_metadata(cur, [str(key) for key in top.index])
+        exposures = [
+            SpExposure(
+                constraint_key=str(key),
+                ctype=(geo.get(str(key)) or {}).get("ctype"),
+                sf=float(sf),
+                # Day-specific magnitudes come from the artifact, matching what
+                # /matrix/frame reports for the same constraint on the same day.
+                max_abs_sf=float(artifact.SF.loc[key].abs().max()),
+                binding_hours=int((artifact.E_mu[key].abs() > 0).sum()),
+            )
+            for key, sf in top.items()
+        ]
 
     return ExposuresResponse(
         sp=sp,
         run_id=run_id,
-        window_start=meta["window_start"],
-        window_end=meta["window_end"],
+        window_start=window_start,
+        window_end=window_end,
         k=k,
-        oos_r2=meta["oos_r2"],
-        sf_stability=meta["sf_stability"],
         node_max_abs_sf=node_max,
         exposures=exposures,
     )
@@ -212,6 +317,12 @@ def get_map_exposures(
 def get_map_reach(
     constraint: str = Query(..., description="Constraint key to trace"),
     k: int = Query(15, ge=1, le=500, description="Number of top nodes"),
+    t: datetime_t | None = Query(
+        None,
+        description="Delivery interval in ISO-8601 UTC. The SF served is the CT "
+        "delivery day's artifact, so this matches /matrix/frame at the same "
+        "constraint and interval. Omit for the run's latest built day.",
+    ),
     full: bool = Query(
         False,
         description="Ignore k and return every node above min_frac — the "
@@ -226,62 +337,65 @@ def get_map_reach(
     ),
 ) -> ConstraintReach:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id, window_start = _resolve(cur)
-        meta = _meta_row(cur, run_id, window_start)
+        run_id, day, artifact = _click_artifact(cur, t)
+        if artifact is None:
+            return ConstraintReach(
+                constraint_key=constraint, run_id=run_id,
+                window_start=t, window_end=t, k=k,
+                available=False, unavailable_reason="artifact_missing", sps=[],
+            )
 
-        cur.execute(
-            "SELECT ctype, max_abs_sf, n_rail, peak_offrail, binding_hours "
-            "FROM constraint_geo "
-            "WHERE run_id = %s AND window_start = %s AND constraint_key = %s",
-            (run_id, window_start, constraint),
-        )
-        geo = cur.fetchone() or {}
+        window_start, window_end = _artifact_window(artifact)
+        geo = (_geo_metadata(cur, [constraint]).get(constraint) or {})
+        if not _interval_in_artifact(artifact, t):
+            return ConstraintReach(
+                constraint_key=constraint, ctype=geo.get("ctype"), run_id=run_id,
+                window_start=window_start, window_end=window_end, k=k,
+                n_rail=geo.get("n_rail"), peak_offrail=geo.get("peak_offrail"),
+                available=False, unavailable_reason="interval_not_in_artifact",
+                sps=[],
+            )
+        if constraint not in artifact.SF.index:
+            return ConstraintReach(
+                constraint_key=constraint, ctype=geo.get("ctype"), run_id=run_id,
+                window_start=window_start, window_end=window_end, k=k,
+                n_rail=geo.get("n_rail"), peak_offrail=geo.get("peak_offrail"),
+                available=False, unavailable_reason="constraint_not_in_artifact",
+                sps=[],
+            )
+
+        row = artifact.SF.loc[constraint]
+        # Day-specific magnitudes from the artifact; the geo row keeps only the
+        # structural shape fields, which are not per-day (0144).
+        max_abs_sf = float(row.abs().max())
+        binding_hours = int((artifact.E_mu[constraint].abs() > 0).sum())
 
         # Magnitude floor relative to the constraint's own peak |SF|. A weakly
         # identified constraint has almost no structure past a few nodes, so
         # top-k alone scrapes the noise floor; drop |SF| < min_frac * peak.
-        # Unlocated constraints (no geo row → peak None) fall back to no floor.
-        peak = geo.get("max_abs_sf")
-        floor = min_frac * peak if peak else 0.0
+        floor = min_frac * max_abs_sf if max_abs_sf else 0.0
+        above = row[row.abs() >= floor]
+        ranked = above.reindex(above.abs().sort_values(ascending=False).index)
 
         if full:
-            # No LIMIT at all: a dev-DB audit (plan/0139-0001) found ~half the
+            # No limit at all: a dev-DB audit (plan/0139-0001) found ~half the
             # constraint universe has real reach past 500 nodes at even a
             # 5%-of-peak floor, so any fixed k is a guess that can go stale as
             # the node universe grows. truncated is always False here — full
             # means complete by construction, bounded only by min_frac.
-            cur.execute(
-                "SELECT settlement_point, sf FROM implied_shift_factors "
-                "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
-                "AND abs(sf) >= %s "
-                "ORDER BY abs(sf) DESC",
-                (run_id, window_start, constraint, floor),
-            )
-            fetched = cur.fetchall()
             truncated = False
         else:
-            # Fetch one extra row to detect a cutoff without a second COUNT
-            # query: k+1 rows back means more existed above the floor than k
-            # let through.
-            cur.execute(
-                "SELECT settlement_point, sf FROM implied_shift_factors "
-                "WHERE run_id = %s AND window_start = %s AND constraint_key = %s "
-                "AND abs(sf) >= %s "
-                "ORDER BY abs(sf) DESC LIMIT %s",
-                (run_id, window_start, constraint, floor, k + 1),
-            )
-            fetched = cur.fetchall()
-            truncated = len(fetched) > k
-            fetched = fetched[:k]
+            truncated = len(ranked) > k
+            ranked = ranked.iloc[:k]
 
         coords = _sp_coords()
         metadata = _sp_metadata()
         sps = []
-        for r in fetched:
-            lat, lon = coords.get(r["settlement_point"], (None, None))
-            settlement_point_type, load_zone = metadata.get(r["settlement_point"], (None, None))
-            sps.append(ReachSp(settlement_point=r["settlement_point"],
-                               sf=r["sf"], lat=lat, lon=lon,
+        for name, sf in ranked.items():
+            lat, lon = coords.get(str(name), (None, None))
+            settlement_point_type, load_zone = metadata.get(str(name), (None, None))
+            sps.append(ReachSp(settlement_point=str(name),
+                               sf=float(sf), lat=lat, lon=lon,
                                settlement_point_type=settlement_point_type,
                                load_zone=load_zone))
 
@@ -289,15 +403,13 @@ def get_map_reach(
         constraint_key=constraint,
         ctype=geo.get("ctype"),
         run_id=run_id,
-        window_start=meta["window_start"],
-        window_end=meta["window_end"],
+        window_start=window_start,
+        window_end=window_end,
         k=k,
-        oos_r2=meta["oos_r2"],
-        sf_stability=meta["sf_stability"],
-        max_abs_sf=geo.get("max_abs_sf"),
+        max_abs_sf=max_abs_sf,
         n_rail=geo.get("n_rail"),
         peak_offrail=geo.get("peak_offrail"),
-        binding_hours=geo.get("binding_hours"),
+        binding_hours=binding_hours,
         available=bool(sps),
         truncated=truncated,
         sps=sps,

@@ -291,6 +291,12 @@ export interface SpExposure {
 
 // Top-k constraints driving one node. `node_max_abs_sf` = max_c |SF[sp,c]| is
 // the stable unsigned headline (spec §6); the signed `exposures` follow it.
+//
+// 0144: served from the requested day's SF artifact, so these values match the
+// matrix at the same node and interval. `window_start`/`window_end` bound that
+// day's block, and `oos_r2`/`sf_stability` are null — they describe the rolling
+// fit that no longer backs these numbers. `available: false` means the day has
+// no artifact at all, as opposed to a node that simply drives nothing.
 export interface ExposuresResponse {
   sp: string;
   run_id: string;
@@ -300,6 +306,8 @@ export interface ExposuresResponse {
   oos_r2: number | null;
   sf_stability: number | null;
   node_max_abs_sf: number | null;
+  available: boolean;
+  unavailable_reason: string | null;
   exposures: SpExposure[];
 }
 
@@ -330,6 +338,9 @@ export interface ConstraintReach {
   peak_offrail: number | null;
   binding_hours: number | null;
   available: boolean;
+  // 0144: "artifact_missing" (the day has no artifact) or
+  // "constraint_not_in_artifact" (the day's fit does not carry this key).
+  unavailable_reason: string | null;
   // 0139/0001: reports whether a bounded (`k`-limited) call was cut short of
   // the constraint's complete reach — always `false` for a `full=true` call.
   truncated: boolean;

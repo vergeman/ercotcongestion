@@ -26,9 +26,10 @@ def _blob() -> bytes:
     return build_sf_mu_artifact(sf, mu)
 
 
-def _full_utc_day_blob(day: datetime) -> bytes:
+def _full_ct_day_blob(first_hour: datetime) -> bytes:
+    """A CT delivery-day block as 0133 writes them: 24 hours from CT midnight."""
     sf = pd.DataFrame({'SP_A': [1.0]}, index=['AAA|BASE'])
-    hours = pd.date_range(day, periods=24, freq='h', tz='UTC')
+    hours = pd.date_range(first_hour, periods=24, freq='h', tz='UTC')
     mu = pd.DataFrame({'AAA|BASE': range(24)}, index=hours)
     return build_sf_mu_artifact(sf, mu)
 
@@ -182,10 +183,18 @@ def test_delivery_date_uses_central_time_boundary():
     assert matrix_module._delivery_date(T0).isoformat() == '2026-07-01'
 
 
-def test_frame_resolves_all_utc_day_hours_from_one_utc_artifact(client, fake_pool, monkeypatch):
+def test_frame_resolves_all_ct_day_hours_from_one_ct_artifact(client, fake_pool, monkeypatch):
+    """Every hour of a CT delivery day resolves from that day's single block.
+
+    The day's last five hours (00:00–04:00Z of the *next* UTC date, in CDT) are
+    the regression: keying the artifact by UTC date sent them to the following
+    block, which starts at 05:00Z — after them — so they came back
+    ``interval_not_in_artifact`` and rendered as an empty board (0143).
+    """
     monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
-    utc_day = datetime(2026, 7, 1, tzinfo=timezone.utc)
-    artifact = _full_utc_day_blob(utc_day)
+    ct_day = datetime(2026, 7, 1, tzinfo=timezone.utc).date()
+    first_hour = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)   # CT midnight, CDT
+    artifact = _full_ct_day_blob(first_hour)
     for hour in range(24):
         fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
         fake_pool.cursor.queue([{'h': 1}])      # 0123: coalesce probe every hour
@@ -195,18 +204,22 @@ def test_frame_resolves_all_utc_day_hours_from_one_utc_artifact(client, fake_poo
         fake_pool.cursor.queue([])
 
     frames = [
-        client.get('/matrix/frame', params={'interval_ts': (utc_day + timedelta(hours=hour)).isoformat()})
+        client.get('/matrix/frame', params={'interval_ts': (first_hour + timedelta(hours=hour)).isoformat()})
         for hour in range(24)
     ]
 
     assert all(frame.status_code == 200 and frame.json()['available'] for frame in frames)
-    # 00:00–04:00 UTC retain their Central delivery label, while every request
-    # still resolves the same July 1 UTC artifact.
-    assert frames[0].json()['delivery_date'] == '2026-06-30'
-    # queries[1] is the coalesce min(horizon) probe (0123); it targets the artifact's
-    # UTC day, the same (run_id, date) the blob fetch then uses.
-    probe_query = fake_pool.cursor.queries[1]
-    assert probe_query[1] == ('fc-v1', utc_day.date())
+    # Both ends of the block carry the same Central delivery label — including the
+    # tail hours, which fall on the next UTC date.
+    assert frames[0].json()['delivery_date'] == '2026-07-01'
+    assert frames[23].json()['interval_ts'].startswith('2026-07-02T04:00')
+    assert frames[23].json()['delivery_date'] == '2026-07-01'
+    # queries[1] is the coalesce min(horizon) probe (0123); it targets the CT
+    # delivery date, the same (run_id, date) the blob fetch then uses — and the
+    # tail hours must probe that same date, not the next one.
+    assert fake_pool.cursor.queries[1][1] == ('fc-v1', ct_day)
+    tail_probe = [q for q in fake_pool.cursor.queries if 'min(horizon)' in q[0]][-1]
+    assert tail_probe[1] == ('fc-v1', ct_day)
 
 
 def test_frame_enforces_conservative_bounds(client):

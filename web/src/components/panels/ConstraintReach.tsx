@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ConstraintReach } from "../../api/types";
 import { fetchMapReach } from "../../api/client";
+import { deliveryDateCT } from "../../lib/time";
 import {
   SF_EXPORT_COLOR,
   SF_IMPORT_COLOR,
@@ -17,45 +18,62 @@ import {
 // Colour: import/export is a structural polarity (docs/SF.md). Import (SF<0,
 // receiving/expensive) is soft magenta; export (SF>0, trapped/cheap) is teal.
 
-// One /map/reach lookup per constraint is stable for the session (same map run),
-// so cache it module-side: re-opening the same constraint — a row hover in the
-// sidebar, or re-opening the Brief panel — is then instant and never re-hits the
-// endpoint. Shared across both consumers so a constraint fetched on one surface
-// is already warm on the other.
+// A /map/reach lookup is stable for a given constraint *on a given delivery
+// day* (0144 — reach is served from that day's SF artifact, not a session-wide
+// rolling fit), so cache it module-side under both: re-opening the same
+// constraint on the same day — a row hover in the sidebar, or re-opening the
+// Brief panel — is instant and never re-hits the endpoint, while moving the
+// scrubber to another day correctly refetches. Keying on the constraint alone
+// would pin the first-viewed day's reach for every day after it.
+//
+// The key uses the CT delivery day rather than the instant so sweeping hours
+// within one day is still a single fetch.
 const reachCache = new Map<string, ConstraintReach | null>();
+
+function reachKey(id: string, t?: Date): string {
+  return `${t ? deliveryDateCT(t) : "latest"}|${id}`;
+}
+
+// How many driven nodes a bounded reach request asks for. Every display consumer
+// (map sidebar, Brief evidence, Brief footprint) wants the same depth, and they
+// share one cache — a caller passing a different `k` would store a shorter list
+// under a key the others then read, so keep them on this one value.
+export const REACH_K = 20;
 
 // The reach for one constraint, from the shared cache or a single fetch. `id`
 // null (nothing selected) resolves to no reach without a request. Both panels
 // read through this so they share the cache and the soft-fail contract.
 export function useConstraintReach(
   id: string | null,
-  k = 20
+  k = REACH_K,
+  t?: Date
 ): { reach: ConstraintReach | null; loading: boolean } {
+  const key = id ? reachKey(id, t) : null;
   const [reach, setReach] = useState<ConstraintReach | null>(
-    id && reachCache.has(id) ? reachCache.get(id)! : null
+    key && reachCache.has(key) ? reachCache.get(key)! : null
   );
-  const [loading, setLoading] = useState(!!id && !reachCache.has(id));
+  const [loading, setLoading] = useState(!!key && !reachCache.has(key));
 
   useEffect(() => {
-    if (!id) {
+    if (!id || !key) {
       setReach(null);
       setLoading(false);
       return;
     }
-    if (reachCache.has(id)) {
-      setReach(reachCache.get(id)!);
+    if (reachCache.has(key)) {
+      setReach(reachCache.get(key)!);
       setLoading(false);
       return;
     }
     let live = true;
     setLoading(true);
-    fetchMapReach(id, { k })
+    fetchMapReach(id, { k, t })
       .then((r) => {
-        reachCache.set(id, r);
+        reachCache.set(key, r);
         if (live) setReach(r);
       })
       .catch(() => {
-        reachCache.set(id, null);
+        reachCache.set(key, null);
         if (live) setReach(null);
       })
       .finally(() => {
@@ -64,7 +82,7 @@ export function useConstraintReach(
     return () => {
       live = false;
     };
-  }, [id, k]);
+  }, [id, k, key, t]);
 
   return { reach, loading };
 }
@@ -78,33 +96,35 @@ export function useConstraintReach(
 const fullReachCache = new Map<string, ConstraintReach | null>();
 
 export function useFullConstraintReach(
-  id: string | null
+  id: string | null,
+  t?: Date
 ): { reach: ConstraintReach | null; loading: boolean } {
+  const key = id ? reachKey(id, t) : null;
   const [reach, setReach] = useState<ConstraintReach | null>(
-    id && fullReachCache.has(id) ? fullReachCache.get(id)! : null
+    key && fullReachCache.has(key) ? fullReachCache.get(key)! : null
   );
-  const [loading, setLoading] = useState(!!id && !fullReachCache.has(id));
+  const [loading, setLoading] = useState(!!key && !fullReachCache.has(key));
 
   useEffect(() => {
-    if (!id) {
+    if (!id || !key) {
       setReach(null);
       setLoading(false);
       return;
     }
-    if (fullReachCache.has(id)) {
-      setReach(fullReachCache.get(id)!);
+    if (fullReachCache.has(key)) {
+      setReach(fullReachCache.get(key)!);
       setLoading(false);
       return;
     }
     let live = true;
     setLoading(true);
-    fetchMapReach(id, { full: true, minFrac: 0 })
+    fetchMapReach(id, { full: true, minFrac: 0, t })
       .then((r) => {
-        fullReachCache.set(id, r);
+        fullReachCache.set(key, r);
         if (live) setReach(r);
       })
       .catch(() => {
-        fullReachCache.set(id, null);
+        fullReachCache.set(key, null);
         if (live) setReach(null);
       })
       .finally(() => {
@@ -113,7 +133,7 @@ export function useFullConstraintReach(
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, key, t]);
 
   return { reach, loading };
 }
