@@ -344,6 +344,11 @@ function ReachBody({
   const lowConf = railArtifact;
   return (
     <>
+      {reach.basis === "nearest_past" && (
+        <div className="dc-support label">
+          SF as of {reach.window_start.slice(0, 10)} — no artifact for the selected day
+        </div>
+      )}
       <Row
         label="Binding hours"
         value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}

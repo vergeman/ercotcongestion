@@ -375,6 +375,12 @@ export interface ConstraintReach {
   // 0144: "artifact_missing" (the day has no artifact) or
   // "constraint_not_in_artifact" (the day's fit does not carry this key).
   unavailable_reason: string | null;
+  // Provenance of the served SF. "artifact" = the requested day's own artifact
+  // (day-exact). "nearest_past" = that day had no artifact (a lagging/failed
+  // forecast job), so the nearest earlier built day was served — window_start
+  // reports which. The card labels it "SF as of <date>" so it never silently
+  // disagrees with the (empty) matrix for the requested day.
+  basis?: "artifact" | "nearest_past";
   // 0139/0001: reports whether a bounded (`k`-limited) call was cut short of
   // the constraint's complete reach — always `false` for a `full=true` call.
   truncated: boolean;
