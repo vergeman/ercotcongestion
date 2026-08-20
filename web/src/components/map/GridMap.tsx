@@ -15,8 +15,11 @@ import {
 } from "./overviewSources";
 import {
   lmpColor,
+  isLmpAlarm,
   normalizeLmpFromStats,
   congestionColor as congestionRampColor,
+  congestionAlarmColor,
+  isCongestionAlarm,
   normalizeCongestion,
   shiftFactorColor,
   type LmpStats,
@@ -229,6 +232,9 @@ export default function GridMap({
   const [sourcesReady, setSourcesReady] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const alarmMarkersRef = useRef<
+    Map<string, { marker: maplibregl.Marker; element: HTMLDivElement }>
+  >(new Map());
   const tapOnlyRef = useRef(tapOnly);
   const onMapReadyRef = useRef(onMapReady);
   useEffect(() => {
@@ -334,6 +340,8 @@ export default function GridMap({
     resizeObserver.observe(containerRef.current);
     return () => {
       resizeObserver.disconnect();
+      for (const { marker } of alarmMarkersRef.current.values()) marker.remove();
+      alarmMarkersRef.current.clear();
       map.remove();
       mapRef.current = null;
       setSourcesReady(false);
@@ -781,6 +789,85 @@ export default function GridMap({
     theme,
   ]);
 
+  // The metric node fill remains MapLibre data; this separate, zero-sized
+  // DOM marker contributes only a CSS halo. MapLibre keeps its geographic
+  // position through pan/zoom while the browser handles the animation.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !points || !sourcesReady) return;
+
+    const rch = focusReach ?? reach;
+    const focusMembers =
+      rch?.sps.length ||
+      (isolatedConstraint
+        ? overview?.constraints.find((c) => c.constraint_key === isolatedConstraint)
+            ?.nodes.length
+        : 0);
+    const desired = new Map<string, [number, number]>();
+    const alarmColor =
+      dataMode === "congestion"
+        ? congestionAlarmColor(theme)
+        : lmpColor(1, theme);
+    if (
+      !focusMembers &&
+      ((dataMode === "congestion" && mcStats) || (dataMode === "lmp" && lmpStats))
+    ) {
+      const coordinates = new Map<string, [number, number]>();
+      for (const feature of (points as GeoJSON.FeatureCollection).features) {
+        if (feature.geometry?.type !== "Point") continue;
+        const props = feature.properties as { sp_id?: string } | null;
+        const [lng, lat] = feature.geometry.coordinates;
+        if (props?.sp_id && Number.isFinite(lng) && Number.isFinite(lat)) {
+          coordinates.set(props.sp_id, [lng, lat]);
+        }
+      }
+      for (const row of rows) {
+        const coordinate = coordinates.get(row.sp_id);
+        const alarm =
+          dataMode === "congestion"
+            ? !!mcStats && isCongestionAlarm(row.congestion, mcStats)
+            : !!lmpStats && isLmpAlarm(row.spp, lmpStats);
+        if (coordinate && alarm) {
+          desired.set(row.sp_id, coordinate);
+        }
+      }
+    }
+
+    for (const [spId, current] of alarmMarkersRef.current) {
+      if (desired.has(spId)) continue;
+      current.marker.remove();
+      alarmMarkersRef.current.delete(spId);
+    }
+    for (const [spId, coordinate] of desired) {
+      const current = alarmMarkersRef.current.get(spId);
+      if (current) {
+        current.element.style.setProperty("--alarm-halo", alarmColor);
+        continue;
+      }
+      const element = document.createElement("div");
+      element.className = "map-alarm-halo";
+      element.setAttribute("aria-hidden", "true");
+      element.style.setProperty("--alarm-halo", alarmColor);
+      element.style.pointerEvents = "none";
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat(coordinate)
+        .addTo(map);
+      alarmMarkersRef.current.set(spId, { marker, element });
+    }
+  }, [
+    rows,
+    dataMode,
+    mcStats,
+    lmpStats,
+    points,
+    sourcesReady,
+    reach,
+    focusReach,
+    isolatedConstraint,
+    overview,
+    theme,
+  ]);
+
   // Selected SP
   useEffect(() => {
     const map = mapRef.current;
@@ -1138,6 +1225,33 @@ export default function GridMap({
         :root[data-theme='light'] .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
         :root[data-theme='light'] .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
           filter: opacity(0.65);
+        }
+        .map-alarm-halo {
+          width: 32px;
+          height: 32px;
+          pointer-events: none;
+        }
+        .map-alarm-halo::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          box-sizing: border-box;
+          border: 2px solid var(--alarm-halo);
+          border-radius: 50%;
+          box-shadow: 0 0 8px var(--alarm-halo);
+          animation: map-alarm-halo-pulse 1.8s ease-out infinite;
+        }
+        @keyframes map-alarm-halo-pulse {
+          0% { opacity: 0.95; transform: scale(0.45); }
+          72% { opacity: 0; transform: scale(1.45); }
+          100% { opacity: 0; transform: scale(1.45); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .map-alarm-halo::after {
+            animation: none;
+            opacity: 0.9;
+            transform: scale(0.8);
+          }
         }
       `}</style>
     </>

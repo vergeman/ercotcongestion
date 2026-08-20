@@ -193,6 +193,16 @@ export function normalizeLmpFromStats(
   }
 }
 
+// LMP uses its high percentile anchor as the ordinary scarcity scale. Reserve
+// the same categorical 3× threshold used by congestion for exceptional prices.
+export function lmpAlarmThreshold(stats: LmpStats): number {
+  return stats.p_high * CONGESTION_ALARM_MULTIPLIER;
+}
+
+export function isLmpAlarm(value: number | null, stats: LmpStats): boolean {
+  return value != null && isFinite(value) && stats.p_high > 0 && value >= lmpAlarmThreshold(stats);
+}
+
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
 // blue (oversupply) ↔ neutral (nominal) ↔ orange (scarcity).
 const LMP_BLUE = [59, 130, 246];
@@ -221,8 +231,9 @@ export function lmpColor(norm: number, theme: Theme = currentTheme()): string {
 //
 // Window-percentile anchors (mirrors LmpStats): p_high = percentile(|mc|, 0.90);
 // p_low = −p_high so the palette is symmetric around zero. γ damping flattens
-// the cream band so noise near zero stays neutral. Rational tail beyond p_high
-// keeps outlier snapshots darkening without crushing the mid range.
+// the cream band so noise near zero stays neutral. The normal scale retains its
+// rational tail; exceptionally high positive congestion is marked separately
+// with an alarm color so it cannot flatten the rest of the day.
 
 // P90 (not P99) so the anchor is set by "typical binding hours," not by a
 // single scarcity event. On a multi-day window one $400+ mc value at P99
@@ -236,18 +247,22 @@ const MC_PCT_HIGH = 0.9;
 // both the anchor stretch and a strong power curve on top, so a $36 bus
 // against a $400 P99 rendered near-cream.
 const MC_GAMMA = 1.2;
-// |mc| = p_high maps to |norm| = MC_CORE_END; the remaining [MC_CORE_END, 1]
-// band is the log-compressed tail for outliers.
+// |mc| = p_high maps to |norm| = MC_CORE_END; the remaining band is the
+// compressed normal tail for values above the core.
 const MC_CORE_END = 0.9;
 // Values with |mc| below this fraction of p_high read as cream (no signal).
 // Small floor — a diverging signal at 2% of the window's top percentile is
 // still meaningful; a heavier floor would wash out the map.
 const MC_FLOOR_FRAC = 0.02;
+// A discrete alarm bin reserves a categorical signal for rare scarcity nodes
+// without changing the P90 scale that keeps ordinary values readable.
+export const CONGESTION_ALARM_MULTIPLIER = 3;
 
 export interface CongestionStats {
   p_high: number; // percentile(|mc|, MC_PCT_HIGH); positive
   p_low: number; // −p_high (symmetric)
-  max_abs: number; // observed window max |mc| — legend only
+  min: number; // observed negative daily extreme; 0 when no negative values
+  max: number; // observed positive daily extreme; 0 when no positive values
   n: number;
 }
 
@@ -264,19 +279,24 @@ export function computeCongestionStats(
   values: Array<number | null | undefined>
 ): CongestionStats {
   const abs_xs: number[] = [];
+  let min = 0;
+  let max = 0;
   for (const v of values) {
     if (v == null || !isFinite(v)) continue;
     abs_xs.push(Math.abs(v));
+    if (v < min) min = v;
+    if (v > max) max = v;
   }
   if (abs_xs.length === 0) {
-    return { p_high: 1, p_low: -1, max_abs: 0, n: 0 };
+    return { p_high: 1, p_low: -1, min: 0, max: 0, n: 0 };
   }
   const sorted = [...abs_xs].sort((a, b) => a - b);
   const p_high = Math.max(percentile(sorted, MC_PCT_HIGH), 1e-9);
   return {
     p_high,
     p_low: -p_high,
-    max_abs: sorted[sorted.length - 1],
+    min,
+    max,
     n: abs_xs.length,
   };
 }
@@ -307,6 +327,19 @@ export function normalizeCongestion(
   return sign * (MC_CORE_END + (1 - MC_CORE_END) * tail);
 }
 
+export function congestionAlarmThreshold(stats: CongestionStats): number {
+  return stats.p_high * CONGESTION_ALARM_MULTIPLIER;
+}
+
+// Scarcity is operationally asymmetric: a huge positive import-side price is
+// the alarm condition. Negative congestion stays on its signed blue scale.
+export function isCongestionAlarm(
+  value: number | null,
+  stats: CongestionStats
+): boolean {
+  return value != null && isFinite(value) && value >= congestionAlarmThreshold(stats);
+}
+
 // Diverging blue (−) → cream (0) → red (+). Endpoints match the LMP scale's
 // blue (#3b82f6) for palette consistency; red end is the shared "critical"
 // crimson (#ef4444) that also drives --mc-accent and --danger.
@@ -315,6 +348,12 @@ const MC_CREAM = [232, 226, 215];
 const MC_RED = [239, 68, 68];
 const MC_BLUE_LIGHT = [47, 111, 214];
 const MC_RED_LIGHT = [214, 59, 59];
+export function congestionAlarmColor(theme: Theme = currentTheme()): string {
+  // The map keeps the normal signed red scale; the animated legend swatch
+  // supplies the categorical extreme-price cue without competing with the
+  // constraint overlay's gold GTC marks.
+  return congestionColor(1, theme);
+}
 
 export function congestionColor(
   norm: number,
