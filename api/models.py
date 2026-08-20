@@ -733,6 +733,13 @@ class ConstraintReach(BaseModel):
     # visual selection.
     available: bool = True
     unavailable_reason: str | None = None
+    # Provenance of the SF served. 'artifact' = the requested delivery day's own
+    # artifact (0144, day-exact). 'nearest_past' = that day had no artifact (a
+    # lagging or failed forecast job, or a day ahead of the newest build), so the
+    # nearest EARLIER built day's artifact was served instead — SF is
+    # topology-driven and drifts slowly. ``window_start``/``window_end`` report the
+    # day actually served, so the client can label it "SF as of <date>".
+    basis: str = "artifact"
     truncated: bool = False
     sps: list[ReachSp]
 
