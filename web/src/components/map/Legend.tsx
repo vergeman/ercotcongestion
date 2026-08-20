@@ -479,9 +479,27 @@ export default function Legend({
         .legend__alarm-swatch {
           width: 11px;
           height: 11px;
-          border-radius: 2px;
+          border-radius: 50%;
           border: 1px solid var(--map-aggregate-label);
           flex: 0 0 11px;
+          /* Mirrors the map's extreme-price pulse (GridMap ALARM_PULSE_*): a
+             1.4s raised-cosine fade between 0.28 and full so the legend key
+             breathes in step with the outlier nodes. */
+          animation: legend-alarm-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes legend-alarm-pulse {
+          0%,
+          100% {
+            opacity: 0.28;
+          }
+          50% {
+            opacity: 1;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .legend__alarm-swatch {
+            animation: none;
+          }
         }
         .legend__alarm-text {
           font-size: var(--fs-label);

@@ -338,13 +338,11 @@ const MC_CREAM = [232, 226, 215];
 const MC_RED = [239, 68, 68];
 const MC_BLUE_LIGHT = [47, 111, 214];
 const MC_RED_LIGHT = [214, 59, 59];
-// Electric yellow reads as a categorical "beyond red" alarm on both map
-// grounds. It intentionally sits away from the red/blue signed metric axis.
-const MC_ALARM = "#fef08a";
-const MC_ALARM_LIGHT = "#ca8a04";
-
 export function congestionAlarmColor(theme: Theme = currentTheme()): string {
-  return theme === "light" ? MC_ALARM_LIGHT : MC_ALARM;
+  // The map keeps the normal signed red scale; the animated legend swatch
+  // supplies the categorical extreme-price cue without competing with the
+  // constraint overlay's gold GTC marks.
+  return congestionColor(1, theme);
 }
 
 export function congestionColor(
