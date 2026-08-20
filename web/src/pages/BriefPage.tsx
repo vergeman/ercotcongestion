@@ -16,8 +16,9 @@ import type {
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
 import {
-  fetchBriefDayCached,
+  fetchBriefDetailsCached,
   fetchBriefHeroLatestCached,
+  fetchBriefHeroShellCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
@@ -1405,7 +1406,7 @@ export default function BriefPage() {
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
-  const [indexLoaded, setIndexLoaded] = useState(false);
+  const [initialLookupDone, setInitialLookupDone] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
   const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(
     null
@@ -1417,13 +1418,15 @@ export default function BriefPage() {
   const [gradeHistory, setGradeHistory] = useState<AnalysisGradeHistory | null>(
     null
   );
-  const [loading, setLoading] = useState(false);
+  const [heroLoading, setHeroLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
   const [standoutsLoading, setStandoutsLoading] = useState(false);
   const [topNodesLoading, setTopNodesLoading] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [heroError, setHeroError] = useState<string | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsRetry, setDetailsRetry] = useState(0);
   const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
@@ -1444,7 +1447,7 @@ export default function BriefPage() {
   // by the Brief's Chicago delivery-day tables, never the legacy brief blob.
   useEffect(() => {
     if (cursorDay) {
-      setIndexLoaded(true);
+      setInitialLookupDone(true);
       return;
     }
     let live = true;
@@ -1452,10 +1455,10 @@ export default function BriefPage() {
       .then((latest) => {
         if (!live) return;
         setDefaultDay(latest?.delivery_date ?? null);
-        setIndexLoaded(true);
+        setInitialLookupDone(true);
       })
       .catch(() => {
-        if (live) setIndexLoaded(true);
+        if (live) setInitialLookupDone(true);
       });
     return () => {
       live = false;
@@ -1470,76 +1473,90 @@ export default function BriefPage() {
     setSelection(null);
   }, [deliveryDay]);
 
-  // One bundled request per rendered day (0137). Neighbors are probed only after
-  // the current day resolves — three concurrent /brief payloads (current + prev +
-  // next) contend on the API pool + GIL, so deferring keeps the visible day on a
-  // clear critical path while neighbors warm the cache for navigation.
+  // First paint is deliberately hero-only. The old bundled payload made the
+  // reader wait for standouts/grade before seeing any part of the Brief, while
+  // adjacent full-day prefetches contended with that critical path just to
+  // decide whether the date carets should be enabled.
   useEffect(() => {
     if (!deliveryDay) {
       setAdjacentDays({ previous: null, next: null });
       return;
     }
     let live = true;
-    setLoading(true);
-    setError(null);
+    setHeroLoading(true);
+    setHeroError(null);
     setConnectionState("loading");
     setHero(null);
+    setContext(null);
+    setStandouts(null);
+    setTopNodes(null);
+    setTopConstraints(null);
+    setGrade(null);
+    setGradeHistory(null);
+    setDetailsError(null);
+    setAdjacentDays({ previous: null, next: null });
+    fetchBriefHeroShellCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (!live) return;
+        setHero(result?.hero ?? null);
+        setAdjacentDays({
+          previous: result?.previous_delivery_date ?? null,
+          next: result?.next_delivery_date ?? null,
+        });
+        setLastUpdated(new Date());
+        setConnectionState("ok");
+      })
+      .catch(() => {
+        if (!live) return;
+        setHeroError("The daily brief could not be loaded.");
+        setConnectionState("error");
+      })
+      .finally(() => {
+        if (!live) return;
+        setHeroLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run]);
+
+  // Details have their own request and failure boundary. Do not begin it for
+  // an unavailable hero: that is an invalid/missing day, not a slow page.
+  useEffect(() => {
+    if (!deliveryDay || !hero?.available || hero.provenance?.delivery_date !== deliveryDay)
+      return;
+    let live = true;
+    setDetailsError(null);
     setContextLoading(true);
     setStandoutsLoading(true);
     setTopNodesLoading(true);
     setTopConstraintsLoading(true);
     setGradeLoading(true);
-    setAdjacentDays({ previous: null, next: null });
-    const toDay = (offset: number) =>
-      format(addDays(new Date(`${deliveryDay}T12:00:00Z`), offset), "yyyy-MM-dd");
-    fetchBriefDayCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefDetailsCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
         if (!live) return;
-        setHero(result?.hero ?? null);
         setContext(result?.context ?? null);
         setStandouts(result?.standouts ?? null);
         setTopNodes(result?.top_nodes ?? null);
         setTopConstraints(result?.top_constraints ?? null);
         setGrade(result?.grade ?? null);
         setGradeHistory(result?.grade_history ?? null);
-        setLastUpdated(new Date());
-        setConnectionState("ok");
       })
       .catch(() => {
-        if (!live) return;
-        setError("The daily brief could not be loaded.");
-        setConnectionState("error");
+        if (live) setDetailsError("The rest of this brief could not be loaded.");
       })
       .finally(() => {
         if (!live) return;
-        setLoading(false);
         setContextLoading(false);
         setStandoutsLoading(false);
         setTopNodesLoading(false);
         setTopConstraintsLoading(false);
         setGradeLoading(false);
-        // Deferred neighbor prefetch: enable carets, warm the cache for nav.
-        const previous = toDay(-1);
-        const next = toDay(1);
-        Promise.all([
-          fetchBriefDayCached(previous, cursor.run ?? undefined),
-          fetchBriefDayCached(next, cursor.run ?? undefined),
-        ])
-          .then(([previousDay, nextDay]) => {
-            if (!live) return;
-            setAdjacentDays({
-              previous: previousDay?.hero.available ? previous : null,
-              next: nextDay?.hero.available ? next : null,
-            });
-          })
-          .catch(() => {
-            if (live) setAdjacentDays({ previous: null, next: null });
-          });
       });
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay, cursor.run, hero, detailsRetry]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.
@@ -1643,81 +1660,92 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        {indexLoaded && (
-          <div className="an-date-picker">
-            {provenance && (
-              <div className="an-brief-meta">
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Model Run</span>
-                  <span className="an-brief-meta__val">{provenance.run_id}</span>
-                </span>
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Status</span>
-                  <span className="an-brief-meta__val">
-                    {settled ? "DAM Settled" : "Forecast"} · t+
-                    {provenance.horizon}
-                  </span>
-                </span>
-              </div>
-            )}
-            <div className="an-day-controls" aria-label="Delivery day controls">
-              <button
-                type="button"
-                className="an-day-controls__caret"
-                onClick={() =>
-                  adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
-                }
-                disabled={!adjacentDays.previous}
-                aria-label="Previous available delivery day"
-              >
-                ‹
-              </button>
-              <span className="an-day-controls__date">
-                {deliveryDay ? fmtDay(deliveryDay) : "Loading date…"}
+        <div className="an-date-picker">
+          {provenance && (
+            <div className="an-brief-meta">
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Model Run</span>
+                <span className="an-brief-meta__val">{provenance.run_id}</span>
               </span>
-              <button
-                type="button"
-                className="an-day-controls__caret"
-                onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
-                disabled={!adjacentDays.next}
-                aria-label="Next available delivery day"
-              >
-                ›
-              </button>
-              <DateRangePicker
-                singleDate
-                showLabel={false}
-                selectedDate={deliveryDay}
-                onLoadDate={selectDeliveryDay}
-                onSelectEvent={(event) => {
-                  setActiveEventId(event.id);
-                  cursor.setCoord({
-                    t: new Date(event.cursor_ts),
-                    ws: new Date(event.window_start),
-                    we: new Date(event.window_end),
-                  });
-                }}
-                events={CURATED_EVENTS}
-                activeEventId={activeEventId}
-                loading={loading}
-              />
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Status</span>
+                <span className="an-brief-meta__val">
+                  {settled ? "DAM Settled" : "Forecast"} · t+
+                  {provenance.horizon}
+                </span>
+              </span>
             </div>
+          )}
+          <div className="an-day-controls" aria-label="Delivery day controls">
+            <button
+              type="button"
+              className="an-day-controls__caret"
+              onClick={() =>
+                adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
+              }
+              disabled={!adjacentDays.previous}
+              aria-label="Previous available delivery day"
+            >
+              ‹
+            </button>
+            <span className="an-day-controls__date">
+              {deliveryDay ? fmtDay(deliveryDay) : "Choose a delivery date"}
+            </span>
+            <button
+              type="button"
+              className="an-day-controls__caret"
+              onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
+              disabled={!adjacentDays.next}
+              aria-label="Next available delivery day"
+            >
+              ›
+            </button>
+            <DateRangePicker
+              singleDate
+              showLabel={false}
+              triggerLabel="Choose delivery date"
+              selectedDate={deliveryDay}
+              onLoadDate={selectDeliveryDay}
+              onSelectEvent={(event) => {
+                setActiveEventId(event.id);
+                cursor.setCoord({
+                  t: new Date(event.cursor_ts),
+                  ws: new Date(event.window_start),
+                  we: new Date(event.window_end),
+                });
+              }}
+              events={CURATED_EVENTS}
+              activeEventId={activeEventId}
+              loading={heroLoading}
+            />
           </div>
+        </div>
+        {!deliveryDay && !initialLookupDone && (
+          <section className="an-hero-skeleton" aria-live="polite" aria-busy="true">
+            <p className="an-eyebrow">Daily congestion brief</p>
+            <h1>Preparing the newest delivery day</h1>
+            <p>Choose another delivery date at any time.</p>
+          </section>
         )}
-        {!indexLoaded && <p className="an-empty">Loading brief…</p>}
-        {indexLoaded && !deliveryDay && (
+        {initialLookupDone && !deliveryDay && (
           <p className="an-empty">No forecast delivery day is published yet.</p>
         )}
-        {loading && <p className="an-empty">Loading brief…</p>}
-        {error && <p className="an-empty">{error}</p>}
-        {!loading && hero && !hero.available && (
+        {heroLoading && deliveryDay && (
+          <section className="an-hero-skeleton" aria-live="polite" aria-busy="true">
+            <p className="an-eyebrow">Daily congestion brief</p>
+            <h1>Preparing {fmtDay(deliveryDay)}</h1>
+            <p>Loading the day’s congestion story…</p>
+          </section>
+        )}
+        {heroError && <p className="an-empty">{heroError}</p>}
+        {!heroLoading && hero && !hero.available && (
           <p className="an-empty">
             No forecast artifact is available for{" "}
             {deliveryDay ? fmtDay(deliveryDay) : "this day"}.
           </p>
         )}
 
-        {!loading && hero?.available && hero.segments && (
+        {!heroLoading && hero?.available && hero.segments && (
           <>
             <section className="an-hero" aria-labelledby="brief-title">
               <div className="an-hero__frame">
@@ -1788,6 +1816,15 @@ export default function BriefPage() {
               </div>
             </section>
 
+            {detailsError && (
+              <div className="an-details-error" role="alert">
+                <span>{detailsError}</span>
+                <button type="button" onClick={() => setDetailsRetry((retry) => retry + 1)}>
+                  Retry details
+                </button>
+              </div>
+            )}
+
             <StandoutsPanel
               data={standouts}
               loading={standoutsLoading}
@@ -1838,6 +1875,12 @@ export default function BriefPage() {
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
         .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
+        .an-hero-skeleton { min-height: 460px; box-sizing: border-box; padding: 36px 34px; border: 1px solid var(--border); background: linear-gradient(110deg, var(--bg-panel) 8%, var(--bg-surface) 44%, var(--bg-panel) 82%); background-size: 220% 100%; animation: an-skeleton-shift 1.8s ease-in-out infinite; }
+        .an-hero-skeleton h1 { max-width: 22ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
+        .an-hero-skeleton > p:last-child { max-width: 42ch; margin-top: 16px; color: var(--text-secondary); font-size: var(--fs-lg); }
+        .an-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); }
+        .an-details-error button { flex: none; }
+        @keyframes an-skeleton-shift { 0%, 100% { background-position: 100% 0; } 50% { background-position: 0 0; } }
         .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
         .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
         .an-hero__frame::after {
