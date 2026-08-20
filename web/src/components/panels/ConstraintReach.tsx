@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConstraintReach } from "../../api/types";
-import { fetchMapReach } from "../../api/client";
+import { fetchMapReach, REACH_THRESHOLD_OPTS } from "../../api/client";
 import { deliveryDateCT } from "../../lib/time";
 import {
   SF_EXPORT_COLOR,
@@ -40,6 +40,12 @@ function reachKey(id: string, t?: Date): string {
 // under a key the others then read, so keep them on this one value.
 export const REACH_K = 20;
 
+// Max member rows a list surface (map sidebar, Brief evidence, DetailCard) renders
+// before summarizing the rest as a count. The fetch now returns the FULL driven
+// set (0147, REACH_THRESHOLD_OPTS) so a broad constraint's footprint maps fully;
+// the lists slice to stay scannable.
+export const REACH_ROW_CAP = 20;
+
 // The reach for one constraint, from the shared cache or a single fetch. `id`
 // null (nothing selected) resolves to no reach without a request. Both panels
 // read through this so they share the cache and the soft-fail contract.
@@ -67,7 +73,7 @@ export function useConstraintReach(
     }
     let live = true;
     setLoading(true);
-    fetchMapReach(id, { k, t })
+    fetchMapReach(id, { k, t, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         reachCache.set(key, r);
         if (live) setReach(r);
@@ -195,9 +201,10 @@ export function MemberList({
 }) {
   if (!reach || reach.sps.length === 0)
     return <div className="cr-mem-msg">no located members</div>;
+  const extra = reach.sps.length - REACH_ROW_CAP;
   return (
     <ul className="cr-mem" role="list" onMouseLeave={() => onMemberHover?.(null)}>
-      {reach.sps.map((s) => {
+      {reach.sps.slice(0, REACH_ROW_CAP).map((s) => {
         const imp = s.sf < 0;
         return (
           <li
@@ -219,6 +226,9 @@ export function MemberList({
           </li>
         );
       })}
+      {extra > 0 && (
+        <li className="cr-mem-msg">+ {extra} more nodes</li>
+      )}
     </ul>
   );
 }

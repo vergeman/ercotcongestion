@@ -18,6 +18,7 @@ import {
   fetchMapExposures,
   fetchMapReach,
   fetchMapConstraintsRanked,
+  REACH_THRESHOLD_OPTS,
 } from "../api/client";
 import { formatCT } from "../lib/time";
 import {
@@ -54,14 +55,6 @@ import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
-
-// Constraint reach on the map: the FULL driven set above a threshold rather than
-// a fixed top-k (0147). Membership = |SF| >= max(minFrac*peak, absFloor): the
-// relative floor follows each constraint's shape, the absolute floor cuts a
-// noise-peak constraint's tail (a broad constraint like WESTEX|BASE CASE has
-// hundreds of real members that k=15 truncated). The DetailCard caps its own row
-// list; the map glows the whole footprint.
-const MAP_REACH_OPTS = { full: true, minFrac: 0.15, absFloor: 0.03 } as const;
 
 function useMediaQuery(query: string): boolean {
   const getMatches = () =>
@@ -674,7 +667,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
-    fetchMapReach(constraintKey, { t: cursorTs, ...MAP_REACH_OPTS })
+    fetchMapReach(constraintKey, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
@@ -728,7 +721,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     previewReachRef.current = false;
     setHoveredConstraintId(null);
     const token = ++reachReqRef.current;
-    fetchMapReach(target.value, { t: cursorTs, ...MAP_REACH_OPTS })
+    fetchMapReach(target.value, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((nextReach) => {
         if (reachReqRef.current !== token) return;
         if (!nextReach?.available) {
@@ -775,7 +768,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       return;
     }
     const token = ++focusReqRef.current;
-    fetchMapReach(id, { t: cursorTs, ...MAP_REACH_OPTS })
+    fetchMapReach(id, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (r) focusReachCache.current.set(focusReachKey(id), r);
         if (focusReqRef.current === token) setFocusReach(r);
@@ -856,7 +849,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
-    fetchMapReach(key, { t: cursorTs, ...MAP_REACH_OPTS })
+    fetchMapReach(key, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })

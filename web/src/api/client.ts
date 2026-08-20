@@ -220,6 +220,18 @@ export async function fetchMapExposures(
   return r.json();
 }
 
+// The reach depth every constraint-footprint surface shares (0147): the FULL
+// driven set above a shape-aware threshold rather than a fixed top-k. Membership
+// = |SF| >= max(minFrac*peak, absFloor) — the relative floor follows each
+// constraint's shape, the absolute floor cuts a noise-peak constraint's tail.
+// Map glow, Brief footprint, and the member lists (which cap their own rows)
+// all read this so their footprints agree.
+export const REACH_THRESHOLD_OPTS: MapReachOptions = {
+  full: true,
+  minFrac: 0.15,
+  absFloor: 0.03,
+};
+
 export interface MapReachOptions {
   k?: number;
   minFrac?: number;
