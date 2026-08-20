@@ -45,11 +45,16 @@ interface Props {
   onNavigateToMap: (search: string) => void;
 }
 
-function Fact({ label, value, tone }: { label: string; value: ReactNode; tone?: "pos" | "neg" }) {
+function Fact({ label, value, tone, numeric = false }: {
+  label: string;
+  value: ReactNode;
+  tone?: "pos" | "neg";
+  numeric?: boolean;
+}) {
   return (
     <div className="mrd-kv__row">
       <span className="mrd-kv__label">{label}</span>
-      <span className={`mrd-kv__value${tone ? ` mrd-kv__value--${tone}` : ""}`}>{value}</span>
+      <span className={`mrd-kv__value${tone ? ` mrd-kv__value--${tone}` : ""}${numeric ? " mrd-kv__value--numeric" : ""}`}>{value}</span>
     </div>
   );
 }
@@ -108,7 +113,7 @@ function ConstraintRead({
           <span className="mrd__eyebrow">Constraint</span>
           <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
         </header>
-        <div className="mrd-kv">
+        <div className="mrd-kv mrd-kv--identity">
           <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} />
           <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} />
           <Fact label="Type" value={row?.ctype ?? "—"} />
@@ -217,7 +222,7 @@ function NodeRead({
           <span className="mrd__eyebrow">Settlement point</span>
           <h2 className="mrd__title">{point}</h2>
         </header>
-        <div className="mrd-kv">
+        <div className="mrd-kv mrd-kv--identity">
           <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} />
           <Fact label="Type" value={meta?.type ?? "—"} />
           {esspCount != null && esspCount > 1 && <Fact label="ESSP members" value={`≈${esspCount}`} />}
@@ -227,10 +232,10 @@ function NodeRead({
           <div className="mrd-market" aria-label="Selected-hour node market state">
             <span className="mrd-section-title">Selected-hour market state</span>
             <div className="mrd-kv">
-              <Fact label="Forecast (P50) Congestion" value={marketValue(market?.forecast_congestion)} />
-              <Fact label="Realized Congestion" value={marketValue(market?.realized_congestion)} />
-              <Fact label="Forecast LMP" value={marketValue(market?.forecast_lmp)} />
-              <Fact label="DAM LMP" value={marketValue(market?.dam_lmp)} />
+              <Fact label="Forecast (P50) Congestion" value={marketValue(market?.forecast_congestion)} numeric />
+              <Fact label="Realized Congestion" value={marketValue(market?.realized_congestion)} numeric />
+              <Fact label="Forecast LMP" value={marketValue(market?.forecast_lmp)} numeric />
+              <Fact label="DAM LMP" value={marketValue(market?.dam_lmp)} numeric />
             </div>
           </div>
         )}
@@ -252,9 +257,10 @@ function NodeRead({
                 label={basis === "realized" ? "DAM 7×16 $/MWh" : "Forecast 7×16 $/MWh"}
                 value={usd(node.total ?? 0, 2)}
                 tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
+                numeric
               />
-              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} />
-              <Fact label="Drivers" value={`${node.n_terms ?? terms.length} of the artifact's constraints`} />
+              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} numeric />
+              <Fact label="Drivers" value={`${node.n_terms ?? terms.length} drivers`} numeric />
             </div>
             <div className="mrd-drivers">
               <span className="mrd-section-title">Congestion drivers <em>full column · −SF·μ</em></span>
@@ -290,7 +296,7 @@ export default function MatrixReadDetail({
            footprint pinned full-height on the right. The pane's own
            .matrix-workspace__read container owns the height; the left column
            scrolls within it while the map stays put. */
-        .mrd { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
+        .mrd { --mrd-fact-label: 216px; --mrd-fact-value: 130px; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
         .mrd--empty { color: var(--text-secondary); display: grid; place-items: center; padding: 40px 20px; text-align: center; }
         .mrd__main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px 2px; }
         .mrd__map { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
@@ -305,18 +311,24 @@ export default function MatrixReadDetail({
         .mrd__contingency { color: var(--text-muted); font-weight: 400; }
         .mrd-section-title { display: block; margin-bottom: 8px; color: var(--text-secondary); font: 600 var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .mrd-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
-        .mrd-kv { display: flex; flex-direction: column; margin: 0 0 4px; }
+        /* A compact facts table: every label and value shares the same two
+           columns, while numeric values can right-align without drifting to
+           the far side of the Detail pane. */
+        .mrd-kv { display: grid; width: 100%; margin: 0 0 4px; }
         .mrd-kv--stats { margin-top: 16px; }
+        .mrd-kv--identity .mrd-kv__value { text-align: right; }
         .mrd-market { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
         @media (max-width: 760px) {
           .mrd { grid-template-columns: 1fr; height: auto; }
           .mrd__main { overflow-y: visible; padding-right: 2px; }
           .mrd__map { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 16px; margin-top: 4px; height: 320px; }
         }
-        .mrd-kv__row { display: flex; gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+        .mrd-kv__row { display: grid; grid-template-columns: minmax(0, var(--mrd-fact-label)) var(--mrd-fact-value) minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
         .mrd-kv__row:last-child { border-bottom: 0; }
-        .mrd-kv__label { flex: 0 0 140px; color: var(--text-muted); font-size: var(--fs-label); }
-        .mrd-kv__value { flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); overflow-wrap: anywhere; }
+        .mrd-kv__label { min-width: 0; color: var(--text-muted); font-size: var(--fs-label); }
+        .mrd-kv__value { min-width: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); overflow-wrap: anywhere; }
+        .mrd-kv__value--numeric { text-align: right; font-variant-numeric: tabular-nums; }
+        @media (max-width: 440px) { .mrd-kv__row { grid-template-columns: minmax(0, 1fr) minmax(120px, 150px); } }
         .mrd-kv__value--pos { color: var(--danger, #d94444); }
         .mrd-kv__value--neg { color: var(--accent); }
         .mrd-notice, .mrd-loading { margin-top: 14px; padding: 8px 10px; border: 1px solid var(--border); background: var(--accent-dim); color: var(--text-secondary); font-size: var(--fs-label); }
