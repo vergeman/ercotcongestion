@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, timedelta
+import logging
+from time import perf_counter
 from typing import Any
 
 import pandas as pd
 
-from compute.analysis.hero import classify_slots
+from compute.analysis.hero import classify_regime, classify_slots
 from compute.analysis.hero_window import (
     HIGH_CONGESTION_CT_HOURS,
     daily_total,
@@ -19,6 +21,10 @@ from compute.analysis.hero_window import (
 )
 from compute.analysis.metadata import load_sp_metadata
 from compute.sf.project import load_sf_mu
+
+
+logger = logging.getLogger(__name__)
+_HERO_SLOW_BUILD_SECONDS = 0.5
 
 
 BENCHMARK_SP_FAMILIES = (
@@ -189,8 +195,22 @@ def _exception_summary(rows: list[dict[str, Any]], delivery_date: date,
             "tier_1": sorted(tier_1, key=order)}
 
 
+def build_hero_condition(conn, delivery_date: date) -> dict[str, Any]:
+    """Return the deferred load-condition slot used by the hero's stat boxes.
+
+    This is intentionally independent of the SF artifact and congestion
+    headline, so a slow long-window condition query never blocks first paint.
+    """
+    condition = summarize_load_condition(load_load_condition(conn, delivery_date))
+    if condition is None:
+        condition = {"series": "load.system", "today": None, "median": None,
+                     "pct": 0.0, "n": 0, "basis": "forecast"}
+    return classify_regime(condition)
+
+
 def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
-               *, artifact=None, days: int = 30) -> dict[str, dict[str, Any]]:
+               *, artifact=None, days: int = 30,
+               include_condition: bool = True) -> dict[str, dict[str, Any]]:
     """Build classified hero slots for the requested forecast or settled basis.
 
     The same full artifact vocabulary defines both bases, so a settled total is
@@ -205,20 +225,30 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
     if artifact is None:
         raise ValueError(f"artifact missing for {run_id=} {delivery_date=} {horizon=}")
 
+    started = perf_counter()
+    timings: dict[str, float] = {}
     artifact_keys = [str(key) for key in artifact.SF.index]
+    step_started = perf_counter()
     artifact_rows = load_constraint_days(
         conn, delivery_date, days=days, constraint_keys=artifact_keys)
+    timings["artifact_history"] = perf_counter() - step_started
+    step_started = perf_counter()
     high_congestion_rows = load_constraint_days(
         conn, delivery_date, days=days, constraint_keys=artifact_keys,
         ct_hours=HIGH_CONGESTION_CT_HOURS)
+    timings["high_congestion_history"] = perf_counter() - step_started
+    step_started = perf_counter()
     all_rows = load_constraint_days(conn, delivery_date, days=days)
+    timings["all_constraint_history"] = perf_counter() - step_started
     weights = _weights(artifact, basis, artifact_rows, delivery_date)
     if basis == "forecast":
         # Forecast μ exists for every artifact key, including keys with no prior DAM row.
         forecast_value = float(weights.sum())
+        step_started = perf_counter()
         forecast_rows = load_forecast_constraint_days(
             conn, run_id, delivery_date, horizon, days=days,
             constraint_keys=artifact_keys)
+        timings["forecast_history"] = perf_counter() - step_started
         artifact_summary = _magnitude_summary(
             forecast_rows, delivery_date, days=days,
             basis="forecast_history_artifact_keys", n_keys=len(artifact_keys))
@@ -238,12 +268,30 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
         high_congestion_summary["value"] = _forecast_high_congestion_value(artifact)
     artifact_summary["high_congestion_hours"] = high_congestion_summary
 
-    condition = summarize_load_condition(load_load_condition(conn, delivery_date))
-    if condition is None:
+    if include_condition:
+        step_started = perf_counter()
+        condition = build_hero_condition(conn, delivery_date)
+        timings["load_condition"] = perf_counter() - step_started
+    else:
+        # `render()` then supplies the valid coverage-only lede. The browser
+        # replaces this slot with `build_hero_condition()`'s result when the
+        # deferred request completes.
         condition = {"series": "load.system", "today": None, "median": None,
-                     "pct": 0.0, "n": 0, "basis": "forecast"}
+                     "pct": 0.0, "n": 0, "basis": "forecast", "deferred": True}
+    step_started = perf_counter()
     geo = _zone_summary(weights, load_constraint_geo(conn), artifact)
+    timings["geography_and_nodal_projection"] = perf_counter() - step_started
     exceptions = (_exception_summary(all_rows, delivery_date, artifact_keys, days=days)
                   if basis == "settled" else {"available": False})
-    return classify_slots({"magnitude": artifact_summary, "regime": condition,
+    slots = classify_slots({"magnitude": artifact_summary, "regime": condition,
                            "where": geo, "exceptions": exceptions})
+    if not include_condition:
+        slots["regime"]["deferred"] = True
+    elapsed = perf_counter() - started
+    if elapsed >= _HERO_SLOW_BUILD_SECONDS:
+        breakdown = ", ".join(f"{name}={value:.3f}s" for name, value in timings.items())
+        logger.info(
+            "hero_build_profile day=%s run=%s horizon=%s basis=%s total=%.3fs %s",
+            delivery_date, run_id, horizon, basis, elapsed, breakdown,
+        )
+    return slots

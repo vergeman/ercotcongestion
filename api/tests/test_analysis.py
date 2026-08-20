@@ -280,7 +280,7 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 29)}])
     calls = {"hero": 0}
 
-    def hero(*_args):
+    def hero(*_args, **_kwargs):
         calls["hero"] += 1
         return {"available": False, "unavailable_reason": "artifact_missing",
                 "run_id": "run-x", "delivery_date": date(2026, 7, 28), "horizon": 2}
@@ -301,6 +301,25 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
                  "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
         "previous_delivery_date": "2026-07-27",
         "next_delivery_date": "2026-07-29",
+    }
+
+
+def test_brief_hero_condition_is_deferred_from_the_shell(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"h": 2}])
+    monkeypatch.setattr(
+        analysis_module,
+        "build_hero_condition",
+        lambda *_: {"series": "load.system", "today": 84_000.0, "pct": 99.0,
+                    "bucket": "near_record_high"},
+    )
+
+    body = client.get("/analysis/brief/hero/condition?day=2026-07-28&run=run-x").json()
+
+    assert body == {
+        "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2,
+        "regime": {"series": "load.system", "today": 84_000.0, "pct": 99.0,
+                   "bucket": "near_record_high"},
+        "driver_text": None,
     }
 
 

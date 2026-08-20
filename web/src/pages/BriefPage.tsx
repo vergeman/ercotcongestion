@@ -17,6 +17,7 @@ import type {
 import type { BriefSelection } from "../lib/briefSelection";
 import {
   fetchBriefDetailsCached,
+  fetchBriefHeroConditionCached,
   fetchBriefHeroLatestCached,
   fetchBriefHeroShellCached,
 } from "../api/briefCache";
@@ -1475,6 +1476,7 @@ export default function BriefPage() {
   const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
   const heroPending = !!deliveryDay && !heroError &&
     (heroLoading || !heroMatchesDeliveryDay);
+  const heroReadyDay = hero?.available ? hero.provenance?.delivery_date : null;
 
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
@@ -1565,7 +1567,45 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run, hero, detailsRetry]);
+  }, [deliveryDay, cursor.run, heroReadyDay, detailsRetry]);
+
+  // The headline and congestion facts do not need the slow 365-day load
+  // condition. Merge that evidence into the already-rendered hero when it
+  // arrives, including the optional lede driver clause.
+  useEffect(() => {
+    if (!deliveryDay || heroReadyDay !== deliveryDay) return;
+    let live = true;
+    fetchBriefHeroConditionCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (!live || !result) return;
+        setHero((current) => {
+          if (!current?.available || current.provenance?.delivery_date !== deliveryDay)
+            return current;
+          const lede = current.segments?.lede ?? [];
+          const driver = result.driver_text;
+          const prefix = driver
+            ? [
+                { text: `${driver.slice(0, 1).toUpperCase()}${driver.slice(1)}`, ref: "regime" },
+                { text: "; ", ref: "regime" },
+              ]
+            : [];
+          return {
+            ...current,
+            slots: { ...current.slots, regime: result.regime },
+            segments: current.segments
+              ? { ...current.segments, lede: [...prefix, ...lede] }
+              : current.segments,
+          };
+        });
+      })
+      .catch(() => {
+        // The base hero remains correct and useful if the deferred evidence
+        // fails; omit only the load boxes and optional driver clause.
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run, heroReadyDay]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.
@@ -1733,7 +1773,10 @@ export default function BriefPage() {
           <section className="an-hero-skeleton" aria-live="polite" aria-busy="true">
             <p className="an-eyebrow">Daily congestion brief</p>
             <h1>Preparing the newest delivery day</h1>
-            <p>Choose another delivery date at any time.</p>
+            <p className="an-hero-skeleton__status">
+              <span className="an-loading-indicator" aria-hidden="true" />
+              Finding the newest delivery day. Choose another date at any time.
+            </p>
           </section>
         )}
         {initialLookupDone && !deliveryDay && (
@@ -1743,7 +1786,10 @@ export default function BriefPage() {
           <section className="an-hero-skeleton" aria-live="polite" aria-busy="true">
             <p className="an-eyebrow">Daily congestion brief</p>
             <h1>Preparing {fmtDay(deliveryDay)}</h1>
-            <p>Loading the day’s congestion story…</p>
+            <p className="an-hero-skeleton__status">
+              <span className="an-loading-indicator" aria-hidden="true" />
+              Loading the day’s congestion story…
+            </p>
           </section>
         )}
         {heroError && <p className="an-empty">{heroError}</p>}
@@ -1879,17 +1925,19 @@ export default function BriefPage() {
         .an-brief-meta__item { display: flex; align-items: baseline; gap: 6px; }
         .an-brief-meta__label { color: var(--text-muted); }
         .an-brief-meta__val { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
-        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; }
+        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; margin-left: auto; }
         .an-day-controls__date { font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; }
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
         .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
         .an-hero-skeleton { min-height: 460px; box-sizing: border-box; padding: 36px 34px; border: 1px solid var(--border); background: linear-gradient(110deg, var(--bg-panel) 8%, var(--bg-surface) 44%, var(--bg-panel) 82%); background-size: 220% 100%; animation: an-skeleton-shift 1.8s ease-in-out infinite; }
         .an-hero-skeleton h1 { max-width: 22ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
-        .an-hero-skeleton > p:last-child { max-width: 42ch; margin-top: 16px; color: var(--text-secondary); font-size: var(--fs-lg); }
+        .an-hero-skeleton__status { display: flex; align-items: center; gap: 10px; max-width: 42ch; margin-top: 16px; color: var(--text-secondary); font-size: var(--fs-lg); }
+        .an-loading-indicator { width: 16px; height: 16px; flex: none; box-sizing: border-box; border: 2px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-top-color: var(--accent); border-radius: 50%; animation: an-loading-spin .75s linear infinite; }
         .an-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); }
         .an-details-error button { flex: none; }
         @keyframes an-skeleton-shift { 0%, 100% { background-position: 100% 0; } 50% { background-position: 0 0; } }
+        @keyframes an-loading-spin { to { transform: rotate(360deg); } }
         .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
         .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
         .an-hero__frame::after {
@@ -2065,6 +2113,7 @@ export default function BriefPage() {
         .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
+        @media (prefers-reduced-motion: reduce) { .an-hero-skeleton, .an-loading-indicator { animation: none; } }
         @media (max-width: 700px) {
           .an-hero__frame { min-height: 0; border: 0; background: transparent; }
           .an-hero__frame::after { content: none; }

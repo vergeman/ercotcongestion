@@ -892,6 +892,14 @@ export interface BriefHeroShell {
   next_delivery_date: string | null;
 }
 
+export interface BriefHeroCondition {
+  run_id: string;
+  delivery_date: string;
+  horizon: number;
+  regime: Record<string, unknown>;
+  driver_text: string | null;
+}
+
 export interface BriefDetails {
   context: BriefContext;
   standouts: Standouts;

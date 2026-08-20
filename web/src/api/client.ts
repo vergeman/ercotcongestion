@@ -14,6 +14,7 @@ import type {
   BriefHeroLatest,
   BriefDay,
   BriefDetails,
+  BriefHeroCondition,
   BriefHeroShell,
   AnalysisBasis,
   AnalysisNodeResponse,
@@ -359,6 +360,18 @@ export async function fetchBriefDetails(
   const r = await fetch(`${BASE}/analysis/brief/details?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief/details ${r.status}`);
+  return r.json();
+}
+
+export async function fetchBriefHeroCondition(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroCondition | null> {
+  const qs = new URLSearchParams({ day: deliveryDate });
+  if (runId) qs.set("run", runId);
+  const r = await fetch(`${BASE}/analysis/brief/hero/condition?${qs.toString()}`);
+  if (r.status === 503 || r.status === 404) return null;
+  if (!r.ok) throw new Error(`analysis/brief/hero/condition ${r.status}`);
   return r.json();
 }
 

@@ -1,10 +1,17 @@
 import {
   fetchBriefDay,
   fetchBriefDetails,
+  fetchBriefHeroCondition,
   fetchBriefHeroLatest,
   fetchBriefHeroShell,
 } from "./client";
-import type { BriefDay, BriefDetails, BriefHeroLatest, BriefHeroShell } from "./types";
+import type {
+  BriefDay,
+  BriefDetails,
+  BriefHeroCondition,
+  BriefHeroLatest,
+  BriefHeroShell,
+} from "./types";
 
 type CacheEntry<T> = {
   hasValue: boolean;
@@ -66,5 +73,14 @@ export function fetchBriefDetailsCached(
 ): Promise<BriefDetails | null> {
   return cached(`brief-details:${deliveryDate}:${scope(runId)}`, () =>
     fetchBriefDetails(deliveryDate, runId)
+  );
+}
+
+export function fetchBriefHeroConditionCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroCondition | null> {
+  return cached(`brief-hero-condition:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefHeroCondition(deliveryDate, runId)
   );
 }

@@ -33,11 +33,12 @@ from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableRes
                     ContextUnavailableResponse, GradeHistoryHalfResponse,
                     GradeHistoryDayResponse, GradeHistoryAvailableResponse,
                     GradeHistoryUnavailableResponse, BriefDayResponse,
-                    BriefDetailsResponse, BriefHeroShellResponse)
+                    BriefDetailsResponse, BriefHeroConditionResponse,
+                    BriefHeroShellResponse)
 from compute.analysis.hero import magnitude_verdict
-from compute.analysis.hero_builder import build_hero
+from compute.analysis.hero_builder import build_hero, build_hero_condition
 from compute.analysis.hero_window import delivery_bounds
-from compute.analysis.phrases import render
+from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.grade import GradeResult, grade_profiles
@@ -1585,8 +1586,13 @@ def get_hero(
     delivery_date: date = Query(..., alias="date", description="ERCOT delivery day."),
     run_id: str | None = Query(None, description="Model version; defaults to the published run."),
     horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; final preferred."),
+    *,
+    include_condition: bool = True,
 ) -> HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse:
     """Return prose segments, raw slots, independent verdicts, and map cursor."""
+    started = perf_counter()
+    artifact_elapsed = 0.0
+    builder_elapsed = 0.0
     # All window reads below share this checked-out connection.  Do not release
     # it before ``build_hero``: it performs the on-demand query layer itself.
     with get_pool().connection() as conn:
@@ -1606,19 +1612,29 @@ def get_hero(
                     return {"available": False, "unavailable_reason": "artifact_missing",
                             "run_id": run_id, "delivery_date": delivery_date}
                 horizon = int(row["h"])
+            artifact_started = perf_counter()
             artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
+            artifact_elapsed = perf_counter() - artifact_started
             settled = _dam_landed(cur, delivery_date)
 
         if artifact is None:
             return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
                     "delivery_date": delivery_date, "horizon": horizon}
         basis = "settled" if settled else "forecast"
-        slots = build_hero(conn, run_id, delivery_date, horizon, basis, artifact=artifact)
+        builder_started = perf_counter()
+        slots = build_hero(
+            conn, run_id, delivery_date, horizon, basis, artifact=artifact,
+            include_condition=include_condition,
+        )
+        builder_elapsed = perf_counter() - builder_started
         verdict = None
         if settled:
-            forecast = build_hero(conn, run_id, delivery_date, horizon, "forecast", artifact=artifact)
+            forecast = build_hero(
+                conn, run_id, delivery_date, horizon, "forecast", artifact=artifact,
+                include_condition=include_condition,
+            )
             verdict = _verdicts(forecast, slots)
-        return {
+        response = {
             "available": True,
             "segments": render(slots),
             "slots": slots,
@@ -1627,6 +1643,15 @@ def get_hero(
             "provenance": {"run_id": run_id, "delivery_date": delivery_date,
                            "horizon": horizon, "basis": basis},
         }
+        elapsed = perf_counter() - started
+        if elapsed >= _BRIEF_SLOW_REQUEST_SECONDS:
+            logger.info(
+                "hero_request_profile day=%s run=%s horizon=%s basis=%s condition=%s total=%.3fs "
+                "artifact=%.3fs builder=%.3fs",
+                delivery_date, run_id, horizon, basis, elapsed,
+                include_condition, artifact_elapsed, builder_elapsed,
+            )
+        return response
 
 
 _CT = ZoneInfo("America/Chicago")
@@ -1766,7 +1791,7 @@ def get_brief_hero_shell(
             if cached is not None:
                 return cached
         previous, following = _brief_neighbor_dates(cur, run_id, day)
-    hero = get_hero(day, run_id, horizon)
+    hero = get_hero(day, run_id, horizon, include_condition=False)
     response = BriefHeroShellResponse(
         hero=hero,
         previous_delivery_date=previous,
@@ -1776,6 +1801,30 @@ def get_brief_hero_shell(
             and response.hero.available and response.hero.provenance.basis == "settled"):
         _brief_section_cache_put(_BRIEF_HERO_CACHE, (run_id, day, horizon), response)
     return response
+
+
+@router.get("/brief/hero/condition", response_model=BriefHeroConditionResponse,
+            summary="Deferred Brief hero load condition")
+def get_brief_hero_condition(
+    day: date = Query(..., description="ERCOT delivery day."),
+    run: str | None = Query(None, description="Model version; defaults to the published run."),
+) -> BriefHeroConditionResponse:
+    """Load the hero's long-window load evidence after first paint."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = _resolve_run(cur, run)
+        horizon = _resolve_horizon(cur, run_id, day, None)
+    if horizon is None:
+        raise HTTPException(status_code=404, detail="artifact_missing")
+    with get_pool().connection() as conn:
+        regime = build_hero_condition(conn, day)
+    driver = phrase_for("driver", regime)[1]
+    return BriefHeroConditionResponse(
+        run_id=run_id,
+        delivery_date=day,
+        horizon=horizon,
+        regime=regime,
+        driver_text=driver or None,
+    )
 
 
 @router.get("/brief/details", response_model=BriefDetailsResponse,
