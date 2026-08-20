@@ -8,7 +8,7 @@ import {
   type BorderRing,
 } from "../../lib/texasOutline";
 import type { BriefSelectionGeo } from "../../lib/briefSelection";
-import { useConstraintReach } from "../panels/ConstraintReach";
+import { REACH_K, useConstraintReach } from "../panels/ConstraintReach";
 
 // The detail panel's abstract footprint (plan/0135): a small, non-interactive
 // orientation map, NOT a second Map workspace. It answers "where on the grid is
@@ -48,6 +48,7 @@ export default function BriefFootprintMap({
   mapHref,
   onNavigate,
   showTitle = true,
+  t,
 }: {
   selection: FootprintTarget;
   // The Map deep link for this element — rendered as a control ON the map
@@ -63,13 +64,18 @@ export default function BriefFootprintMap({
   // Read pane (0139-0003) renders the map inline next to its own kv facts,
   // where a second section title would be redundant.
   showTitle?: boolean;
+  // The cursor instant whose CT delivery day the reach is served for (0144).
+  // Omitted falls back to the latest built day.
+  t?: Date;
 }) {
   const { geo, key } = selection;
 
   // A constraint's members come from the shared reach (already warm if the
   // evidence list fetched it); a node is located from the topology instead.
   const { reach, loading: reachLoading } = useConstraintReach(
-    geo === "constraint" ? key : null
+    geo === "constraint" ? key : null,
+    REACH_K,
+    t
   );
   const [border, setBorder] = useState<BorderRing[] | null>(null);
   const [nodePoint, setNodePoint] = useState<NodePoint | null>(null);

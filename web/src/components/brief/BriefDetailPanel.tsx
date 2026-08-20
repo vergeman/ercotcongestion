@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -32,6 +33,7 @@ import {
   MemberList,
   SfDipoleLegend,
   dipoleCounts,
+  REACH_K,
   useConstraintReach,
 } from "../panels/ConstraintReach";
 import BriefFootprintMap from "./BriefFootprintMap";
@@ -300,6 +302,7 @@ function ConstraintEvidence({
   row,
   settled,
   standout,
+  t,
 }: {
   // Both constraint schemas carry every field this reads; they differ only in
   // nullability, so the union widens the numeric cells to `number | null` — which
@@ -307,11 +310,13 @@ function ConstraintEvidence({
   row: StandoutRow | TopConstraintRow;
   settled: boolean;
   standout: StandoutRow | null;
+  // The Brief cursor's instant — selects the delivery day the reach describes.
+  t?: Date;
 }) {
   // The constraint's SF reach — the located member nodes it drives and the
   // import↔export dipole they form — is the same evidence the map's Constraints
   // sidebar shows; both read it through the shared reach hook/cache.
-  const { reach, loading } = useConstraintReach(row.constraint_key);
+  const { reach, loading } = useConstraintReach(row.constraint_key, REACH_K, t);
   const { imp, exp } = dipoleCounts(reach);
   return (
     <>
@@ -586,6 +591,14 @@ export default function BriefDetailPanel({
     ? "Top constraint"
     : "Top nodal congestion";
   const mapHref = rendered ? briefElementMapHref(heroCursor, rendered) : "#";
+  // The Brief cursor as an instant: reach and footprint are served for its CT
+  // delivery day (0144), so the panel's evidence describes the day the Brief is
+  // showing rather than whatever day was built last.
+  const heroCursorT = heroCursor?.t;
+  const cursorTs = useMemo(
+    () => (heroCursorT ? new Date(heroCursorT) : undefined),
+    [heroCursorT]
+  );
 
   // Portal to <body> and keep the scrim + panel permanently mounted (see the
   // `rendered` note above). Both are `position: fixed` siblings — NOT nested in a
@@ -643,18 +656,20 @@ export default function BriefDetailPanel({
             </div>
 
             <div className="bdp__body">
-              <BriefFootprintMap selection={{ geo, key }} mapHref={mapHref} />
+              <BriefFootprintMap selection={{ geo, key }} mapHref={mapHref} t={cursorTs} />
               {rendered.kind === "standout-constraint" ? (
                 <ConstraintEvidence
                   row={rendered.row}
                   standout={rendered.row}
                   settled={settled}
+                  t={cursorTs}
                 />
               ) : rendered.kind === "constraint" ? (
                 <ConstraintEvidence
                   row={rendered.row}
                   standout={null}
                   settled={settled}
+                  t={cursorTs}
                 />
               ) : rendered.kind === "standout-node" ? (
                 <NodeEvidence ranked={null} standout={rendered.row} settled={settled} />
