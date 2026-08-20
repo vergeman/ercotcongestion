@@ -8,6 +8,7 @@ import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLege
 import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
 import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
 import MatrixBasisPanel from "../components/matrix/MatrixBasisPanel";
+import Tooltip from "../components/ui/Tooltip";
 import { basisFromNodes, type BasisResult } from "../lib/basis";
 import {
   matrixMuSourceForVal,
@@ -593,15 +594,23 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
               <div className="matrix-workspace__toggle" role="tablist" aria-label="Lens">
                 <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Detail</button>
                 <button type="button" role="tab" aria-selected={state.lens === "sf"} className={state.lens === "sf" ? "is-active" : ""} onClick={() => update({ lens: "sf" })}>SF</button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={state.lens === "basis"}
-                  disabled={state.tab !== "nodes"}
-                  title={state.tab !== "nodes" ? "Basis compares two settlement points — switch to the Nodes tab" : undefined}
-                  className={state.lens === "basis" ? "is-active" : ""}
-                  onClick={() => update({ lens: "basis" })}
-                >Basis</button>
+                {state.tab !== "nodes" ? (
+                  <Tooltip
+                    as="span"
+                    className="matrix-workspace__disabled-tab"
+                    tip="Basis is available only on the Nodes tab because it compares two settlement points."
+                  >
+                    <button type="button" role="tab" aria-selected={false} disabled>Basis</button>
+                  </Tooltip>
+                ) : (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={state.lens === "basis"}
+                    className={state.lens === "basis" ? "is-active" : ""}
+                    onClick={() => update({ lens: "basis" })}
+                  >Basis</button>
+                )}
               </div>
               {state.lens === "sf" && (
                 <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Value">
@@ -715,6 +724,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
         .matrix-workspace__toggle { display: flex; align-items: center; gap: 7px; }
         .matrix-workspace__toggle--data { gap: 4px; }
+        .matrix-workspace__disabled-tab { display: inline-flex; }
         .matrix-workspace__toggle-label { margin-right: 4px; }
         .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; padding: 7px 11px; }
         .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
