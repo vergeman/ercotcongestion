@@ -4,7 +4,9 @@ from __future__ import annotations
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+import logging
 from threading import Lock
+from time import perf_counter
 from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -47,6 +49,13 @@ from services.system_lambda import (
 )
 
 router = APIRouter(prefix="/analysis")
+logger = logging.getLogger(__name__)
+
+# Emit a single composition breakdown only when an uncached Brief request is
+# visibly slow. This is intentionally a request-level diagnostic rather than
+# per-SQL logging: it identifies the section worth taking to EXPLAIN without
+# adding a high-volume production log stream.
+_BRIEF_SLOW_REQUEST_SECONDS = 1.0
 
 
 def _iso_z(value) -> str:
@@ -1658,6 +1667,12 @@ def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
     return _dam_landed(cur, delivery_date)
 
 
+def _timed_brief_section(name: str, handler, *args):
+    """Run one composed section and retain its wall time for slow-request logs."""
+    started = perf_counter()
+    return name, handler(*args), perf_counter() - started
+
+
 @router.get("/brief", response_model=BriefDayResponse,
             summary="One bundled payload for a Brief delivery day (0137)")
 def get_brief_day(
@@ -1682,6 +1697,7 @@ def get_brief_day(
     would cost ``sum(sections)`` wall-clock instead of ``max(sections)`` —
     strictly worse than the 7 parallel requests this endpoint replaces.
     """
+    started = perf_counter()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run)
         horizon = _resolve_horizon(cur, run_id, day, None)
@@ -1692,21 +1708,33 @@ def get_brief_day(
         if cached is not None:
             return cached
     with ThreadPoolExecutor(max_workers=7) as pool:
-        hero = pool.submit(get_hero, day, run_id, horizon)
-        context = pool.submit(get_context, day, run_id, horizon, 14)
-        standouts = pool.submit(get_standouts, day, run_id, horizon, 4)
-        top_nodes = pool.submit(get_top_nodes, day, run_id, horizon, 10)
-        top_constraints = pool.submit(get_top_constraints, day, run_id, horizon, 10)
-        grade = pool.submit(get_grade, day, run_id, horizon)
-        grade_history = pool.submit(get_grade_history, day, run_id, horizon, 30)
+        sections = {
+            "hero": pool.submit(_timed_brief_section, "hero", get_hero, day, run_id, horizon),
+            "context": pool.submit(_timed_brief_section, "context", get_context, day, run_id, horizon, 14),
+            "standouts": pool.submit(_timed_brief_section, "standouts", get_standouts, day, run_id, horizon, 4),
+            "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, day, run_id, horizon, 10),
+            "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, day, run_id, horizon, 10),
+            "grade": pool.submit(_timed_brief_section, "grade", get_grade, day, run_id, horizon),
+            "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, day, run_id, horizon, 30),
+        }
+        completed = {name: future.result() for name, future in sections.items()}
         response = BriefDayResponse(
-            hero=hero.result(),
-            context=context.result(),
-            standouts=standouts.result(),
-            top_nodes=top_nodes.result(),
-            top_constraints=top_constraints.result(),
-            grade=grade.result(),
-            grade_history=grade_history.result(),
+            hero=completed["hero"][1],
+            context=completed["context"][1],
+            standouts=completed["standouts"][1],
+            top_nodes=completed["top_nodes"][1],
+            top_constraints=completed["top_constraints"][1],
+            grade=completed["grade"][1],
+            grade_history=completed["grade_history"][1],
+        )
+    elapsed = perf_counter() - started
+    if elapsed >= _BRIEF_SLOW_REQUEST_SECONDS:
+        timings = ", ".join(
+            f"{name}={result[2]:.3f}s" for name, result in completed.items()
+        )
+        logger.info(
+            "brief_profile day=%s run=%s horizon=%s total=%.3fs %s",
+            day, run_id, horizon, elapsed, timings,
         )
     if final:
         _brief_cache_put(key, response)
