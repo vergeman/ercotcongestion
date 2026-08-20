@@ -39,6 +39,13 @@ interface Props {
   onMemberHover?: (sp: string | null) => void;
 }
 
+function fmtDailyStat(v: number): string {
+  return v.toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
 export default function ConstraintPanel({
   ranked,
   loading,
@@ -123,9 +130,11 @@ export default function ConstraintPanel({
       {rows.length > 0 && (
         <div className="cp-colhead" aria-hidden="true">
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Rank by contribution">#</Tooltip>
-          <Tooltip className="cp-ch" tabIndex={-1} tip="ERCOT's identifier for the transmission constraint (line/element and contingency)">Constraint</Tooltip>
-          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="ERCOT's identifier for the transmission constraint (line/element and contingency)">Constraint</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Daily shadow-price mass: Σ |μ| across the active delivery-day basis.">μ mass</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Daily SF reach: Σ |SF| across all settlement points. Structural, so it does not change with basis.">SF reach</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, soft magenta) ↔ export (SF>0, teal) split by node share">Dipole</Tooltip>
           <span />
         </div>
@@ -151,14 +160,16 @@ export default function ConstraintPanel({
                   aria-label={`Select constraint ${c.constraint_id}`}
                 >
                   <span className="cp-rank mono">{c.rank}</span>
-                  <span className="cp-key mono">{c.constraint_id}</span>
-                  <span className="cp-n mono">{c.n_members}</span>
                   <span className="cp-meter">
                     <span className="cp-meter-fill" style={{ width: `${w}%` }} />
                     <span className="cp-meter-num mono">
                       {fmtMag(c.congestion_contribution)}
                     </span>
                   </span>
+                  <span className="cp-key mono">{c.constraint_id}</span>
+                  <span className="cp-daily-value mono">{fmtDailyStat(c.mu_mass)}</span>
+                  <span className="cp-daily-value mono">{fmtDailyStat(c.reach)}</span>
+                  <span className="cp-n mono">{c.n_members}</span>
                   <Dipole imp={c.n_import} exp={c.n_export} />
                 </button>
                 <button
@@ -204,10 +215,10 @@ export default function ConstraintPanel({
         /* One shared grid so the header labels sit exactly over the row cells.
            Columns are px (not em) because the header and data rows have different
            font-sizes — em would resolve to different widths and drift apart. */
-        .cp-colhead, .cp-row-controls, .cp-head {
+        .cp-colhead, .cp-row-controls {
           display: grid;
-          grid-template-columns: 22px minmax(0,1fr) 44px 78px 54px 28px;
-          align-items: center; column-gap: 10px;
+          grid-template-columns: 20px 66px minmax(0, 1fr) 56px 56px 34px 48px 24px;
+          align-items: center; column-gap: 6px; min-width: 0;
         }
         .cp-colhead {
           padding: 0 2px 7px; border-bottom: 1px solid var(--border);
@@ -222,19 +233,21 @@ export default function ConstraintPanel({
            just a highlight, so the rest of the list stays put and scrollable. */
         .cp-row.cp-lit { background: color-mix(in srgb, var(--accent) 13%, transparent); }
         .cp-row.cp-expanded { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-        .cp-row-controls { column-gap: 10px; }
+        .cp-row-controls { column-gap: 6px; }
         .cp-head {
-          grid-column: 1 / 6;
-          width: 100%; text-align: left; background: none; border: none;
+          display: grid; grid-column: 1 / 8; grid-template-columns: subgrid;
+          align-items: center; column-gap: 6px;
+          min-width: 0; width: 100%; text-align: left; background: none; border: none;
           padding: 8px 2px; cursor: pointer; color: inherit;
         }
         .cp-disclosure {
-          grid-column: 6; width: 28px; height: 28px; padding: 0;
+          grid-column: 8; width: 24px; height: 24px; padding: 0;
           background: none; border: none; color: var(--text-secondary); cursor: pointer;
           font-size: 16px; line-height: 1;
         }
         .cp-disclosure:hover { color: var(--text-primary); background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .cp-disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .cp-daily-value { font-size: 11px; color: var(--text-secondary); text-align: right; white-space: nowrap; }
         .cp-head:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
         .cp-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .cp-rank { font-size: 12px; color: var(--text-muted); text-align: right; }

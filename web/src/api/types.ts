@@ -430,13 +430,17 @@ export interface MapOverview {
 // (Σ_ts |μ|) and `reach` (Σ_sp |SF|) are surfaced so the score is legible.
 // `constraint_id` matches the overview's `constraint_key`, so a row highlights the
 // same overlay mark; `n_import`/`n_export` (located-node counts on the SF<0/SF>0
-// sides) carry the import/export dipole.
+// sides) carry the import/export dipole. The μ statistics follow `basis`; SF
+// reach and peak |SF| are fixed structural summaries from the daily artifact.
 export interface RankedConstraint {
   constraint_id: string;
   rank: number;
   congestion_contribution: number;
   mu_mass: number;
+  binding_hours: number;
+  peak_shadow_price: number;
   reach: number;
+  max_abs_sf: number;
   n_members: number;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
   n_import: number;
