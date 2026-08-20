@@ -2,6 +2,7 @@ import {
   fetchBriefDay,
   fetchBriefDetails,
   fetchBriefHeroStats,
+  fetchBriefStandouts,
   fetchBriefHeroLatest,
   fetchBriefHeroShell,
 } from "./client";
@@ -9,6 +10,7 @@ import type {
   BriefDay,
   BriefDetails,
   BriefHeroStats,
+  Standouts,
   BriefHeroLatest,
   BriefHeroShell,
 } from "./types";
@@ -73,6 +75,15 @@ export function fetchBriefHeroStatsCached(
 ): Promise<BriefHeroStats | null> {
   return cached(`brief-hero-stats:${deliveryDate}:${scope(runId)}`, () =>
     fetchBriefHeroStats(deliveryDate, runId)
+  );
+}
+
+export function fetchBriefStandoutsCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<Standouts | null> {
+  return cached(`brief-standouts:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefStandouts(deliveryDate, runId)
   );
 }
 

@@ -1743,22 +1743,23 @@ def _brief_neighbor_dates(cur, run_id: str, delivery_date: date) -> tuple[date |
     )
 
 
-def _compose_brief_details(day: date, run_id: str, horizon: int | None) -> BriefDetailsResponse:
+def _compose_brief_details(day: date, run_id: str, horizon: int | None, *, include_standouts: bool = True) -> BriefDetailsResponse:
     """Compose secondary panels without delaying the hero shell."""
     started = perf_counter()
     with ThreadPoolExecutor(max_workers=6) as pool:
         sections = {
             "context": pool.submit(_timed_brief_section, "context", get_context, day, run_id, horizon, 14),
-            "standouts": pool.submit(_timed_brief_section, "standouts", get_standouts, day, run_id, horizon, 4),
             "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, day, run_id, horizon, 10),
             "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, day, run_id, horizon, 10),
             "grade": pool.submit(_timed_brief_section, "grade", get_grade, day, run_id, horizon),
             "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, day, run_id, horizon, 30),
         }
+        if include_standouts:
+            sections["standouts"] = pool.submit(_timed_brief_section, "standouts", get_standouts, day, run_id, horizon, 4)
         completed = {name: future.result() for name, future in sections.items()}
     response = BriefDetailsResponse(
         context=completed["context"][1],
-        standouts=completed["standouts"][1],
+        standouts=completed["standouts"][1] if include_standouts else None,
         top_nodes=completed["top_nodes"][1],
         top_constraints=completed["top_constraints"][1],
         grade=completed["grade"][1],
@@ -1839,19 +1840,20 @@ def get_brief_hero_stats(
 def get_brief_details(
     day: date = Query(..., description="ERCOT delivery day."),
     run: str | None = Query(None, description="Model version; defaults to the published run."),
+    include_standouts: bool = Query(True, description="Include the standouts panel in this bundle."),
 ) -> BriefDetailsResponse:
     """Compose non-hero Brief panels after the reader can see the day’s story."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run)
         horizon = _resolve_horizon(cur, run_id, day, None)
         cache_key = None if horizon is None else (run_id, day, horizon)
-        if cache_key is not None and horizon == 1 and day < datetime.now(_CT).date():
+        if include_standouts and cache_key is not None and horizon == 1 and day < datetime.now(_CT).date():
             cached = _brief_section_cache_get(_BRIEF_DETAILS_CACHE, cache_key)
             if cached is not None:
                 return cached
         final = horizon is not None and _brief_is_final(cur, day, horizon)
-    response = _compose_brief_details(day, run_id, horizon)
-    if final and cache_key is not None:
+    response = _compose_brief_details(day, run_id, horizon, include_standouts=include_standouts)
+    if include_standouts and final and cache_key is not None:
         _brief_section_cache_put(_BRIEF_DETAILS_CACHE, cache_key, response)
     return response
 

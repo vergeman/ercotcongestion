@@ -464,7 +464,7 @@ class BriefHeroStatsResponse(BaseModel):
 class BriefDetailsResponse(BaseModel):
     """The secondary Brief panels, intentionally separate from the hero shell."""
     context: ContextAvailableResponse | ContextUnavailableResponse
-    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse
+    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse | None = None
     top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
     top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
     grade: GradeAvailableResponse | GradeUnavailableResponse

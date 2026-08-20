@@ -16,6 +16,7 @@ import type {
   BriefDay,
   BriefDetails,
   BriefHeroShell,
+  Standouts,
   AnalysisBasis,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
@@ -363,11 +364,23 @@ export async function fetchBriefHeroStats(
   return r.json();
 }
 
+export async function fetchBriefStandouts(
+  deliveryDate: string,
+  runId?: string,
+): Promise<Standouts | null> {
+  const qs = new URLSearchParams({ delivery_date: deliveryDate, k: "4" });
+  if (runId) qs.set("run_id", runId);
+  const r = await fetch(`${BASE}/analysis/standouts?${qs.toString()}`);
+  if (r.status === 503) return null;
+  if (!r.ok) throw new Error(`analysis/standouts ${r.status}`);
+  return r.json();
+}
+
 export async function fetchBriefDetails(
   deliveryDate: string,
   runId?: string,
 ): Promise<BriefDetails | null> {
-  const qs = new URLSearchParams({ day: deliveryDate });
+  const qs = new URLSearchParams({ day: deliveryDate, include_standouts: "false" });
   if (runId) qs.set("run", runId);
   const r = await fetch(`${BASE}/analysis/brief/details?${qs.toString()}`);
   if (r.status === 503) return null;

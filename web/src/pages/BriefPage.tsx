@@ -21,6 +21,7 @@ import {
   fetchBriefHeroLatestCached,
   fetchBriefHeroShellCached,
   fetchBriefHeroStatsCached,
+  fetchBriefStandoutsCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
@@ -1497,10 +1498,8 @@ export default function BriefPage() {
     setSelection(null);
   }, [deliveryDay]);
 
-  // First paint is deliberately hero-only. The old bundled payload made the
-  // reader wait for standouts/grade before seeing any part of the Brief, while
-  // adjacent full-day prefetches contended with that critical path just to
-  // decide whether the date carets should be enabled.
+  // All delivery-day requests begin together. The global loader keeps every
+  // result hidden until this fast prose/map hero request resolves.
   useEffect(() => {
     if (!deliveryDay) {
       setAdjacentDays({ previous: null, next: null });
@@ -1546,11 +1545,32 @@ export default function BriefPage() {
     };
   }, [deliveryDay, cursor.run]);
 
-  // The evidence cards are deliberately one independent, all-or-nothing
-  // response. The prose and map can paint first, while the cards never enter
-  // the grid one at a time or change their layout as fields arrive.
+  // Standouts are the one lower panel worth warming with the hero: they are
+  // already hidden by the global gate and can be shown immediately beneath it.
   useEffect(() => {
-    if (!deliveryDay || heroReadyDay !== deliveryDay) return;
+    if (!deliveryDay) return;
+    let live = true;
+    setStandoutsLoading(true);
+    fetchBriefStandoutsCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (live) setStandouts(result);
+      })
+      .catch(() => {
+        if (live) setStandouts(null);
+      })
+      .finally(() => {
+        if (live) setStandoutsLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run]);
+
+  // The evidence cards are deliberately one independent, all-or-nothing
+  // response. Start it alongside the hero, but do not reveal it until the
+  // global hero gate has opened.
+  useEffect(() => {
+    if (!deliveryDay) return;
     let live = true;
     setHeroStatsLoading(true);
     fetchBriefHeroStatsCached(deliveryDay, cursor.run ?? undefined)
@@ -1566,17 +1586,15 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run, heroReadyDay]);
+  }, [deliveryDay, cursor.run]);
 
-  // Details have their own request and failure boundary. Do not begin it for
-  // an unavailable hero: that is an invalid/missing day, not a slow page.
+  // The remaining secondary bundle waits until the hero has painted.
   useEffect(() => {
     if (!deliveryDay || !hero?.available || hero.provenance?.delivery_date !== deliveryDay)
       return;
     let live = true;
     setDetailsError(null);
     setContextLoading(true);
-    setStandoutsLoading(true);
     setTopNodesLoading(true);
     setTopConstraintsLoading(true);
     setGradeLoading(true);
@@ -1584,7 +1602,6 @@ export default function BriefPage() {
       .then((result) => {
         if (!live) return;
         setContext(result?.context ?? null);
-        setStandouts(result?.standouts ?? null);
         setTopNodes(result?.top_nodes ?? null);
         setTopConstraints(result?.top_constraints ?? null);
         setGrade(result?.grade ?? null);
@@ -1596,7 +1613,6 @@ export default function BriefPage() {
       .finally(() => {
         if (!live) return;
         setContextLoading(false);
-        setStandoutsLoading(false);
         setTopNodesLoading(false);
         setTopConstraintsLoading(false);
         setGradeLoading(false);

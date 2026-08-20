@@ -901,7 +901,7 @@ export interface BriefHeroStats {
 
 export interface BriefDetails {
   context: BriefContext;
-  standouts: Standouts;
+  standouts?: Standouts | null;
   top_nodes: TopNodes;
   top_constraints: TopConstraints;
   grade: AnalysisGrade;
