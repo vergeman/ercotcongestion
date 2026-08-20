@@ -95,6 +95,7 @@ function ingestErcotRange(data: ErcotRangeResponse | null): void {
   for (const entry of data.entries) {
     const stateEntry: ErcotStateRangeEntry = {
       interval_ts: entry.interval_ts,
+      system_lambda: entry.system_lambda,
       sps: data.sp_ids.map((sp_id, index) => ({
         sp_id,
         congestion: entry.congestion[index] ?? null,

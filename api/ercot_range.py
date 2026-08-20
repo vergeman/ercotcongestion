@@ -84,6 +84,11 @@ def get_ercot_range(
         if entry is None:
             entry = ErcotRangeEntry(
                 interval_ts=ts,
+                system_lambda=(
+                    None
+                    if row["system_lambda"] is None
+                    else float(row["system_lambda"])
+                ),
                 congestion=[None] * len(sp_ids),
                 spp=[None] * len(sp_ids),
             )

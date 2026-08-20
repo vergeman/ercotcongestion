@@ -25,6 +25,7 @@ def test_compact_range_shares_sp_index_and_combines_realized_values(client, fake
     assert body["sp_ids"] == ["LZ_NORTH", "LZ_SOUTH"]
     assert body["entries"][0]["spp"] == [28.0, 42.0]
     assert body["entries"][0]["congestion"] == [-2.0, 12.0]
+    assert body["entries"][0]["system_lambda"] == 30.0
     # Missing SPs preserve the shared index rather than changing positions.
     assert body["entries"][1]["spp"] == [None, 25.0]
     assert body["entries"][1]["congestion"] == [None, 0.0]

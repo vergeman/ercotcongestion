@@ -1,9 +1,12 @@
 import { useMemo, useRef, useCallback } from "react";
+import Tooltip from "../ui/Tooltip";
 
 export interface SparkPoint {
-  // magnitude, not signed — signed sums cancel visually across strong
-  // bidirectional snapshots.
-  congestion_abs_total: number | null;
+  // Congestion is magnitude, not signed — signed sums cancel visually across
+  // strong bidirectional snapshots. λ remains signed in $/MWh.
+  forecast_congestion_abs_total: number | null;
+  market_congestion_abs_total: number | null;
+  system_lambda: number | null;
 }
 
 interface Props {
@@ -17,13 +20,51 @@ const VIEW_W = 1000; // viewBox width — gets stretched horizontally
 const PAD_TOP = 4; // px space at top of viewBox
 const PAD_BOTTOM = 4; // px space at bottom of viewBox
 
-// Colors — match the rest of the app (yellow=‖congestion‖).
-const CONGESTION_COLOR = "#eab308";
+// Forecast blue, ERCOT market congestion yellow, system λ violet.
+const FORECAST_CONGESTION_COLOR = "#38bdf8";
+const MARKET_CONGESTION_COLOR = "#eab308";
+const SYSTEM_LAMBDA_COLOR = "#a78bfa";
 // Chrome, not data — routed through the theme tokens. These are applied via the
 // `style` prop rather than the `stroke` attribute, because SVG presentation
 // attributes do not parse var().
 const CURSOR_COLOR = "var(--accent)";
 const BASELINE_COLOR = "var(--border)";
+
+// The transport places this in its metadata row, opposite the selected date.
+export function TimelineSparklineLegend() {
+  return (
+    <Tooltip
+      as="div"
+      className="sparkline__legend"
+      placement="bottom"
+      tip={
+        <>
+          Each line is normalized independently within the loaded timeline, so
+          its height shows its own shape—not a shared dollar scale. Forecast
+          and ERCOT Congestion each run from $0 to that series’ maximum
+          Σ|nodal congestion|; ERCOT System λ runs from its observed minimum
+          to maximum $/MWh.
+        </>
+      }
+    >
+      <span>
+        <span
+          className="sparkline__sw"
+          style={{ background: FORECAST_CONGESTION_COLOR }}
+        />
+        Forecast Congestion
+      </span>
+      <span>
+        <span className="sparkline__sw" style={{ background: MARKET_CONGESTION_COLOR }} />
+        ERCOT Congestion
+      </span>
+      <span>
+        <span className="sparkline__sw" style={{ background: SYSTEM_LAMBDA_COLOR }} />
+        ERCOT System λ
+      </span>
+    </Tooltip>
+  );
+}
 
 export default function TimelineSparkline({
   series,
@@ -33,27 +74,16 @@ export default function TimelineSparkline({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Compute the peak and the SVG geometry once per series change. The signal
-  // is normalized to its own peak. ‖congestion‖ renders as a filled area.
+  // Each signal has different units and scale, so render its shape normalized
+  // to its own observed range. Missing values make a visible gap, rather than
+  // implying a zero observation.
   const geometry = useMemo(() => {
     if (series.length === 0) {
-      return { areaPath: "", peakCongestion: 0 };
+      return { forecastPath: "", marketPath: "", lambdaPath: "" };
     }
 
     const innerH = 100; // viewBox y range; CSS scales to actual px
     const usableH = innerH - PAD_TOP - PAD_BOTTOM;
-
-    let peakCongestion = 0;
-    for (const p of series) {
-      if (
-        p.congestion_abs_total != null &&
-        p.congestion_abs_total > peakCongestion
-      ) {
-        peakCongestion = p.congestion_abs_total;
-      }
-    }
-    // Avoid /0 when a window has no signal at all.
-    const congestionNorm = peakCongestion > 0 ? peakCongestion : 1;
 
     // x position for index i, centered in its slot.
     const xAt = (i: number) =>
@@ -63,16 +93,41 @@ export default function TimelineSparkline({
     const yFrom = (norm: number) =>
       innerH - PAD_BOTTOM - usableH * Math.max(0, Math.min(1, norm));
 
-    // Congestion area path
-    let areaPath = `M 0 ${innerH - PAD_BOTTOM} `;
-    series.forEach((p, i) => {
-      const x = xAt(i);
-      const y = yFrom((p.congestion_abs_total ?? 0) / congestionNorm);
-      areaPath += `L ${x.toFixed(1)} ${y.toFixed(1)} `;
-    });
-    areaPath += `L ${VIEW_W} ${innerH - PAD_BOTTOM} Z`;
+    const linePath = (
+      values: Array<number | null>,
+      normalize: (value: number) => number
+    ) => {
+      let path = "";
+      let inSegment = false;
+      values.forEach((value, i) => {
+        if (value == null) {
+          inSegment = false;
+          return;
+        }
+        const command = inSegment ? "L" : "M";
+        path += `${command} ${xAt(i).toFixed(1)} ${yFrom(normalize(value)).toFixed(1)} `;
+        inSegment = true;
+      });
+      return path;
+    };
+    const congestionPath = (values: Array<number | null>) => {
+      const defined = values.filter((value): value is number => value != null);
+      const peak = Math.max(0, ...defined);
+      return linePath(values, (value) => value / (peak || 1));
+    };
+    const lambdaValues = series.map((p) => p.system_lambda);
+    const definedLambda = lambdaValues.filter((value): value is number => value != null);
+    const lambdaMin = Math.min(...definedLambda);
+    const lambdaMax = Math.max(...definedLambda);
 
-    return { areaPath, peakCongestion };
+    return {
+      forecastPath: congestionPath(series.map((p) => p.forecast_congestion_abs_total)),
+      marketPath: congestionPath(series.map((p) => p.market_congestion_abs_total)),
+      lambdaPath: linePath(
+        lambdaValues,
+        (value) => lambdaMax === lambdaMin ? 0.5 : (value - lambdaMin) / (lambdaMax - lambdaMin)
+      ),
+    };
   }, [series]);
 
   // Click/drag to seek. We translate the click X to the nearest series index.
@@ -105,21 +160,6 @@ export default function TimelineSparkline({
 
   return (
     <div className="sparkline">
-      {/* legend row above the chart, top-right aligned */}
-      <div className="sparkline__legend">
-        <span>
-          <span
-            className="sparkline__sw"
-            style={{
-              background: CONGESTION_COLOR,
-              opacity: 0.6,
-              height: 8,
-            }}
-          />
-          congestion
-        </span>
-      </div>
-
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VIEW_W} 100`}
@@ -140,13 +180,27 @@ export default function TimelineSparkline({
           vectorEffect="non-scaling-stroke"
         />
 
-        {/* ‖congestion‖ area */}
+        {/* All three paths are normalized independently. */}
         <path
-          d={geometry.areaPath}
-          fill={CONGESTION_COLOR}
-          fillOpacity={0.25}
-          stroke={CONGESTION_COLOR}
-          strokeWidth={1}
+          d={geometry.forecastPath}
+          fill="none"
+          stroke={FORECAST_CONGESTION_COLOR}
+          strokeWidth={1.25}
+          strokeDasharray="3 2"
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
+          d={geometry.marketPath}
+          fill="none"
+          stroke={MARKET_CONGESTION_COLOR}
+          strokeWidth={1.25}
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
+          d={geometry.lambdaPath}
+          fill="none"
+          stroke={SYSTEM_LAMBDA_COLOR}
+          strokeWidth={1.25}
           vectorEffect="non-scaling-stroke"
         />
 
@@ -162,33 +216,6 @@ export default function TimelineSparkline({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-
-      <style>{`
-        .sparkline {
-          position: relative;
-          width: 100%;
-          flex-shrink: 0;
-        }
-        .sparkline--empty {
-          opacity: 0.2;
-        }
-        .sparkline__legend {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          font-size: var(--fs-body);
-          color: var(--text-muted);
-          font-family: var(--font-sans);
-          line-height: 1;
-          margin-bottom: 2px;
-        }
-        .sparkline__sw {
-          display: inline-block;
-          width: 12px;
-          vertical-align: middle;
-          margin-right: 4px;
-        }
-      `}</style>
     </div>
   );
 }

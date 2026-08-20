@@ -518,6 +518,10 @@ class ErcotSppRangeResponse(BaseModel):
 
 class ErcotRangeEntry(BaseModel):
     interval_ts: datetime
+    # One DAM system reference price per interval. It is sent alongside the
+    # compact SPP/congestion arrays so timeline-level consumers do not need to
+    # reconstruct it from rounded nodal values.
+    system_lambda: float | None
     congestion: list[float | None]
     spp: list[float | None]
 
