@@ -374,7 +374,7 @@ def get_map_exposures(
         # constraints, independent of k and of the ranking basis.
         node_max = float(column.abs().max())
 
-        node_total = None
+        node_gross_total = None
         if rank == "contribution":
             mu = _hour_mu(artifact, t).reindex(artifact.SF.index).fillna(0.0)
             # Shared with /analysis/node so the two cannot drift: the map card
@@ -383,7 +383,10 @@ def get_map_exposures(
             # Dropped, not sorted last: a constraint that did not bind
             # contributed nothing, and listing it as a "driver" is the defect.
             contributions = contributions[contributions != 0.0]
-            node_total = float(contributions.sum())
+            # A signed-net denominator makes a row's apparent "share" explode
+            # when constraints offset. Serve the full gross driver magnitude
+            # for a bounded, cancellation-safe UI share.
+            node_gross_total = float(contributions.abs().sum())
             ordered = contributions.abs().sort_values(ascending=False).index[:k]
         else:
             mu = None
@@ -415,7 +418,7 @@ def get_map_exposures(
         k=k,
         rank=rank,
         node_max_abs_sf=node_max,
-        node_total=node_total,
+        node_gross_total=node_gross_total,
         exposures=exposures,
     )
 
