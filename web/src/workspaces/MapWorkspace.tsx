@@ -1082,7 +1082,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
-        lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         exposureRank={exposureRank}
@@ -1202,7 +1201,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
-        lambdaIndicative={lambdaIndicative}
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         exposureRank={exposureRank}
