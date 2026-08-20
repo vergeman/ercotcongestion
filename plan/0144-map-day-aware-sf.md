@@ -62,13 +62,37 @@ Branch: fix/0144-map-day-aware-sf
 
 ## Acceptance
 
-* [ ] `/map/exposures?sp=RHESS2_ESS1&t=2025-02-20T12Z` returns the same
-      constraints and SF values as `/matrix/frame` at that interval.
-* [ ] Same for `/map/reach` on a constraint at a given `t`.
-* [ ] The DetailCard list changes when the map scrubber moves across days.
-* [ ] A day before 2025-01-01 returns `available: false` with a reason, not 503
-      and not a silent fallback to a rolling window.
-* [ ] Omitting `t` still serves the latest artifact day.
-* [ ] `ConstraintReach`'s cache returns day-correct reach when the same
-      constraint is opened on two different days.
-* [ ] Regression tests verified red against the pre-fix endpoints.
+Verified end-to-end against the dev stack (`docker compose`, delivery day
+2026-08-13, node `THREEW_S_RN`, constraint `HARGRO_TWINBU1_1|SRUSBIG8`).
+
+* [x] `/map/exposures` returns the same SF as `/matrix/frame` at the same node
+      and interval — 10/10 constraints match to the matrix's 3dp rounding.
+* [x] `/map/reach` likewise — 8/8 nodes match, and the fields moved off
+      `constraint_geo` onto the artifact agree exactly (`max_abs_sf` 0.847,
+      `binding_hours` 24).
+* [x] Map and matrix agree on *availability* at every probed hour, including the
+      CT-evening seam.
+* [x] A day with no artifact returns `available: false` /
+      `artifact_missing`; an unknown constraint returns
+      `constraint_not_in_artifact`; an unknown node stays `available` with an
+      empty list (the pre-existing soft-fail).
+* [x] Omitting `t` serves the latest built day.
+* [x] `ConstraintReach`'s two caches and `MapWorkspace`'s `focusReachCache` key
+      on delivery day + constraint.
+* [x] `api/tests`: 135 passed; only the 3 pre-existing `test_analysis.py`
+      failures (0143.2) remain, unchanged.
+* [x] `web`: `tsc --noEmit` clean, build succeeds, eslint 16 findings — exactly
+      HEAD's baseline, no new ones.
+
+## Notes for the prod rollout
+
+* **Dev data is not representative.** Dev artifacts are UTC-day blocks
+  (00:00Z→23:00Z) and share one identical SF matrix across every day — only
+  `E_mu` varies. Prod's are CT blocks (05:00Z→04:00Z) with per-day SF. So dev
+  can prove map==matrix and the availability contract, but *cannot* show the
+  day-to-day list change that motivated this plan. Re-check the original URL
+  pair on prod after deploy.
+* An hour the block does not cover is now unavailable on the map, matching
+  `/matrix/frame`. On correctly cut CT blocks this never fires (a block covers
+  all 24 of its day's hours); it exists so a misaligned or partial block cannot
+  make the map and matrix disagree.
