@@ -46,13 +46,28 @@ export function useExplorerSession(opts?: {
 
       setForecastRunId(getForecastRunId());
       setSparkSeries(nextTimestamps.map((timestamp) => {
-        const congestion = getErcotCached(timestamp);
-        let congestion_abs_total: number | null = null;
-        if (congestion) {
-          congestion_abs_total = 0;
-          for (const sp of congestion.sps) if (sp.congestion != null) congestion_abs_total += Math.abs(sp.congestion);
-        }
-        return { congestion_abs_total };
+        const market = getErcotCached(timestamp);
+        const forecast = getForecastCached(timestamp);
+        const absoluteTotal = (values: Array<number | null>): number | null => {
+          let total = 0;
+          let hasValue = false;
+          for (const value of values) {
+            if (value != null) {
+              total += Math.abs(value);
+              hasValue = true;
+            }
+          }
+          return hasValue ? total : null;
+        };
+        return {
+          forecast_congestion_abs_total: forecast
+            ? absoluteTotal(forecast.sps.map((sp) => sp.p50))
+            : null,
+          market_congestion_abs_total: market
+            ? absoluteTotal(market.sps.map((sp) => sp.congestion))
+            : null,
+          system_lambda: market?.system_lambda ?? null,
+        };
       }));
       if (cursorTs) {
         const target = cursorTs.getTime();

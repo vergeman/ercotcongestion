@@ -1,5 +1,8 @@
 import { type ReactNode, useState, useEffect, useRef, useCallback } from "react";
-import TimelineSparkline, { type SparkPoint } from "./TimelineSparkline";
+import TimelineSparkline, {
+  TimelineSparklineLegend,
+  type SparkPoint,
+} from "./TimelineSparkline";
 import Tooltip from "../ui/Tooltip";
 
 // The shared transport: play/step/seek + sparkline + a "what am I looking at"
@@ -180,6 +183,8 @@ export default function TimeTransport({
               <span className="label">loading…</span>
             </span>
           )}
+
+          <TimelineSparklineLegend />
         </div>
 
         <div className="scrubber__track">
@@ -248,7 +253,7 @@ export default function TimeTransport({
         .playbtn__label { font-size: 11px; line-height: 1; }
         .scrubber__left > .drp { width: 100%; }
         .scrubber__left > .drp > button { width: 100%; text-align: center; }
-        .scrubber__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .scrubber__main { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; }
         .scrubber__meta { display: flex; align-items: center; gap: 8px; min-height: 18px; }
         .scrubber__ts { font-size: 14px; color: var(--accent); letter-spacing: normal; }
         .scrubber__event {
@@ -264,6 +269,26 @@ export default function TimeTransport({
         .scrubber__event-sep { color: var(--text-muted); }
         .scrubber__axis { border-bottom: 1px dotted currentColor; cursor: help; }
         .scrubber__loading { margin-left: auto; opacity: 0.6; }
+        .sparkline { position: relative; width: 100%; flex-shrink: 0; }
+        .sparkline--empty { opacity: 0.2; }
+        .sparkline__legend {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-left: auto;
+          font-size: var(--fs-body);
+          color: var(--text-muted);
+          font-family: var(--font-sans);
+          line-height: 1;
+        }
+        .sparkline__sw {
+          display: inline-block;
+          width: 12px;
+          height: 2px;
+          vertical-align: middle;
+          margin-right: 4px;
+        }
         .scrubber__track { display: flex; flex-direction: column; gap: 2px; }
         .scrubber__range-labels { display: flex; justify-content: space-between; opacity: 0.5; }
         /* Right column mirrors the left: a page-owned control (e.g. whole-day). */
@@ -297,6 +322,7 @@ export default function TimeTransport({
           .scrubber__meta { justify-content: center; min-height: 16px; }
           .scrubber__ts { font-size: 13px; }
           .scrubber__event { display: none; }
+          .sparkline__legend { display: none; }
           .scrubber__track .sparkline,
           .scrubber__range-labels { display: none; }
           input[type='range'] { height: 6px; }
