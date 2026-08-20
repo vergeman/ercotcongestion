@@ -629,8 +629,13 @@ class ExposuresResponse(BaseModel):
     """Top-k constraints driving one node — the node-explorer click.
 
     ``node_max_abs_sf`` = ``max_c |SF[sp,c]|`` is the stable, unsigned
-    headline (spec §6); the per-constraint signed exposures follow,
-    caveated by ``oos_r2``/``sf_stability``.
+    headline (spec §6); the per-constraint signed exposures follow.
+
+    Served from the requested day's SF artifact (0144), so the values match
+    ``/matrix/frame`` at the same node and interval. ``window_start``/
+    ``window_end`` bound that day's block rather than a rolling fit window, and
+    ``oos_r2``/``sf_stability`` are ``None`` — they describe the rolling
+    ``sf_window_meta`` fit, which no longer backs these numbers.
     """
     sp: str
     run_id: str
@@ -640,6 +645,10 @@ class ExposuresResponse(BaseModel):
     oos_r2: float | None = None
     sf_stability: float | None = None
     node_max_abs_sf: float | None = None
+    # False means the requested day has no built artifact, so there is no SF to
+    # report — distinct from a located node that simply drives nothing.
+    available: bool = True
+    unavailable_reason: str | None = None
     exposures: list[SpExposure]
 
 
@@ -662,7 +671,11 @@ class ConstraintReach(BaseModel):
 
     ``sps`` carries the signed reach so the client can glow the positive- and
     negative-SF ends opposite (spec §4), placing each end from the per-node
-    coords. Signed detail, caveated by ``oos_r2``/``sf_stability``.
+    coords.
+
+    Served from the requested day's SF artifact (0144) — see
+    ``ExposuresResponse`` for what that means for ``window_start``/``window_end``
+    and ``oos_r2``/``sf_stability``.
 
     ``full=True`` switches the query to the unbounded reach (bounded only by
     ``min_frac``) the matrix Read pane needs (plan/0139-0001) instead of a
@@ -683,9 +696,11 @@ class ConstraintReach(BaseModel):
     n_rail: int | None = None
     peak_offrail: float | None = None
     binding_hours: int | None = None
-    # False means the requested key has no represented SF reach in the active
-    # fit/window; callers can distinguish it from an empty visual selection.
+    # False means the requested key has no represented SF reach on the requested
+    # day (or the day has no artifact); callers can distinguish it from an empty
+    # visual selection.
     available: bool = True
+    unavailable_reason: str | None = None
     truncated: bool = False
     sps: list[ReachSp]
 
