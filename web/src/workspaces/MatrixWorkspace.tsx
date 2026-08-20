@@ -754,6 +754,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
         .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
+        /* Both shadow prices side by side; the active source is emphasized so
+           the comparison reads without hiding the other one (0145). */
+        .matrix-grid__mu { display: flex; gap: 6px; flex-wrap: wrap; }
+        .matrix-grid__mu .is-active { color: var(--text); font-weight: 600; }
+        .matrix-grid__rank { color: var(--text-muted); }
+        .matrix-grid__basis { color: var(--text-muted); font-style: italic; }
+        /* An SF pinned at the fit's clip is a bound, not a measurement. */
+        .matrix-grid__clip { color: var(--text-muted); padding-left: 1px; }
         @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__body { flex-direction: column; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
       `}</style>
     </main>
