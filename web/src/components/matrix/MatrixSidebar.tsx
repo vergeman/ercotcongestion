@@ -25,6 +25,7 @@ interface Props {
   onTab: (tab: MatrixTab) => void;
   query: string;
   onQuery: (query: string) => void;
+  onSearchFocus?: () => void;
   fType: string;
   fZone: string;
   typeOptions: string[];
@@ -32,6 +33,8 @@ interface Props {
   onFilter: (next: { fType?: string; fZone?: string }) => void;
   onTogglePin: (id: string) => void;
   onReset: () => void;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }
 
 function typeTag(type: string | null): string {
@@ -43,8 +46,9 @@ function typeTag(type: string | null): string {
 
 export default function MatrixSidebar({
   tab, items, totalCount, selectedId, basisSlots, onSelect, onTab,
-  query, onQuery, fType, fZone, typeOptions, zoneOptions, onFilter,
+  query, onQuery, onSearchFocus, fType, fZone, typeOptions, zoneOptions, onFilter,
   onTogglePin, onReset,
+  collapsed = false, onToggleCollapsed,
 }: Props) {
   // Scroll the list to the selected entry whenever the selection changes — the
   // concrete cure for "the matrix row isn't in the sidebar": choosing a grid
@@ -57,16 +61,27 @@ export default function MatrixSidebar({
   }, [selectedId]);
 
   return (
-    <aside className="matrix-sidebar" aria-label="Matrix index">
+    <aside className={`matrix-sidebar${collapsed ? " matrix-sidebar--collapsed" : ""}`} aria-label="Matrix index">
       <div className="matrix-sidebar__tabs" role="tablist" aria-label="Index">
         <button type="button" role="tab" aria-selected={tab === "constraints"} className={tab === "constraints" ? "is-active" : ""} onClick={() => onTab("constraints")}>Constraints</button>
         <button type="button" role="tab" aria-selected={tab === "nodes"} className={tab === "nodes" ? "is-active" : ""} onClick={() => onTab("nodes")}>Nodes</button>
       </div>
+      {onToggleCollapsed && (
+        <button
+          type="button"
+          className="matrix-sidebar__collapse"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? "Browse index" : "Hide index"}
+        </button>
+      )}
       <div className="matrix-sidebar__filters">
         <input
           type="search"
           value={query}
           onChange={(event) => onQuery(event.target.value.slice(0, 64))}
+          onFocus={onSearchFocus}
           placeholder={tab === "constraints" ? "Search name or contingency" : "Search settlement point"}
           aria-label="Search"
         />
@@ -138,6 +153,7 @@ export default function MatrixSidebar({
         .matrix-sidebar__tabs button { flex: 1; border: 0; border-right: 1px solid var(--border); background: var(--bg-surface); color: var(--text-secondary); font: 600 var(--fs-label) var(--font-sans); padding: 8px; cursor: pointer; }
         .matrix-sidebar__tabs button:last-child { border-right: 0; }
         .matrix-sidebar__tabs button.is-active { background: var(--accent-dim); color: var(--accent); }
+        .matrix-sidebar__collapse { display: none; }
         .matrix-sidebar__filters { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
         .matrix-sidebar__filters input, .matrix-sidebar__filters select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); font: var(--fs-label) var(--font-sans); min-height: 30px; padding: 4px 6px; width: 100%; }
         .matrix-sidebar__count { align-items: center; color: var(--text-secondary); display: flex; font-size: var(--fs-micro); justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -159,6 +175,14 @@ export default function MatrixSidebar({
         .matrix-sidebar__tag-col { display: flex; justify-content: flex-start; }
         .matrix-sidebar__tag { border: 1px solid var(--border); border-radius: 3px; color: var(--text-muted); font-size: 9.5px; letter-spacing: .04em; padding: 0 4px; text-transform: uppercase; white-space: nowrap; }
         .matrix-sidebar__value { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-micro); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        @media (max-width: 767px) {
+          .matrix-sidebar { width: 100%; flex: 0 0 auto; border-right: 1px solid var(--border); }
+          .matrix-sidebar__tabs { padding-right: 116px; position: relative; }
+          .matrix-sidebar__collapse { display: block; position: absolute; right: 0; top: 0; min-height: 35px; width: 116px; border: 0; border-left: 1px solid var(--border); background: var(--bg-surface); color: var(--accent); font: 600 var(--fs-label) var(--font-sans); cursor: pointer; }
+          .matrix-sidebar:not(.matrix-sidebar--collapsed) .matrix-sidebar__list { max-height: min(38dvh, 300px); }
+          .matrix-sidebar--collapsed .matrix-sidebar__filters { display: block; padding: 6px; border-bottom: 0; }
+          .matrix-sidebar--collapsed .matrix-sidebar__filters select, .matrix-sidebar--collapsed .matrix-sidebar__count, .matrix-sidebar--collapsed .matrix-sidebar__list { display: none; }
+        }
       `}</style>
     </aside>
   );

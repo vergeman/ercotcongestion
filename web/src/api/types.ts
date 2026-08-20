@@ -374,6 +374,12 @@ export interface ConstraintReach {
   // Forecast μ from the requested cursor hour's daily artifact. It is null for
   // a structural nearest-past fallback or when no cursor hour was requested.
   shadow_price: number | null;
+  dam_mu: number | null;
+  forecast_error: number | null;
+  daily_mu_rank: number | null;
+  daily_mu_sum: number | null;
+  import_members: number | null;
+  export_members: number | null;
   available: boolean;
   // 0144: "artifact_missing" (the day has no artifact) or
   // "constraint_not_in_artifact" (the day's fit does not carry this key).
@@ -889,6 +895,15 @@ export interface AnalysisContributionTerm {
   shift_factor: number;
 }
 
+export interface NodeMarketState {
+  forecast_congestion: number | null;
+  forecast_lmp: number | null;
+  realized_congestion: number | null;
+  forecast_error: number | null;
+  dam_lmp: number | null;
+  forecast_lambda_source: "settled" | "persisted" | null;
+}
+
 export interface AnalysisNodeResponse {
   available: boolean;
   unavailable_reason?: "artifact_missing";
@@ -902,6 +917,7 @@ export interface AnalysisNodeResponse {
   n_terms?: number;
   coverage?: number | null;
   terms?: AnalysisContributionTerm[];
+  market_state?: NodeMarketState | null;
 }
 
 export interface AnalysisSettlementPointsResponse {

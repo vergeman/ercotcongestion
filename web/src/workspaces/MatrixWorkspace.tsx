@@ -8,6 +8,7 @@ import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLege
 import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
 import MatrixSidebar, { type MatrixSidebarItem } from "../components/matrix/MatrixSidebar";
 import MatrixBasisPanel from "../components/matrix/MatrixBasisPanel";
+import Tooltip from "../components/ui/Tooltip";
 import { basisFromNodes, type BasisResult } from "../lib/basis";
 import {
   matrixMuSourceForVal,
@@ -160,6 +161,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mobileIndexOpen, setMobileIndexOpen] = useState(false);
   const [requestVersion, setRequestVersion] = useState(0);
   const [state, setState] = useState<WorkspaceState>(() => {
     const params = new URLSearchParams(routeSearch);
@@ -576,10 +578,11 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             totalCount={fullItems.length}
             selectedId={showBasis ? null : selectedIdForSidebar}
             basisSlots={showBasis ? { a: state.basisA, b: state.basisB } : undefined}
-            onSelect={selectId}
+            onSelect={(id) => { selectId(id); setMobileIndexOpen(false); }}
             onTab={(tab) => update(tab === "constraints" && state.lens === "basis" ? { tab, lens: "read" } : { tab })}
             query={state.query}
             onQuery={(query) => update({ query })}
+            onSearchFocus={() => setMobileIndexOpen(true)}
             fType={state.fType}
             fZone={state.fZone}
             typeOptions={typeOptions}
@@ -587,21 +590,31 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
             onFilter={(next) => update(next)}
             onTogglePin={(id) => togglePin(id, state.tab === "constraints" ? "constraint" : "sp")}
             onReset={resetToDefaults}
+            collapsed={!mobileIndexOpen}
+            onToggleCollapsed={() => setMobileIndexOpen((open) => !open)}
           />
           <section className="matrix-workspace__stage" aria-busy={loading}>
             <header className="matrix-workspace__stage-header">
               <div className="matrix-workspace__toggle" role="tablist" aria-label="Lens">
                 <button type="button" role="tab" aria-selected={state.lens === "read"} className={state.lens === "read" ? "is-active" : ""} onClick={() => update({ lens: "read" })}>Detail</button>
                 <button type="button" role="tab" aria-selected={state.lens === "sf"} className={state.lens === "sf" ? "is-active" : ""} onClick={() => update({ lens: "sf" })}>SF</button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={state.lens === "basis"}
-                  disabled={state.tab !== "nodes"}
-                  title={state.tab !== "nodes" ? "Basis compares two settlement points — switch to the Nodes tab" : undefined}
-                  className={state.lens === "basis" ? "is-active" : ""}
-                  onClick={() => update({ lens: "basis" })}
-                >Basis</button>
+                {state.tab !== "nodes" ? (
+                  <Tooltip
+                    as="span"
+                    className="matrix-workspace__disabled-tab"
+                    tip="Basis is available only on the Nodes tab because it compares two settlement points."
+                  >
+                    <button type="button" role="tab" aria-selected={false} disabled>Basis</button>
+                  </Tooltip>
+                ) : (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={state.lens === "basis"}
+                    className={state.lens === "basis" ? "is-active" : ""}
+                    onClick={() => update({ lens: "basis" })}
+                  >Basis</button>
+                )}
               </div>
               {state.lens === "sf" && (
                 <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Value">
@@ -715,6 +728,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-workspace button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: 500 var(--fs-label) var(--font-sans); padding: 6px 8px; }
         .matrix-workspace__toggle { display: flex; align-items: center; gap: 7px; }
         .matrix-workspace__toggle--data { gap: 4px; }
+        .matrix-workspace__disabled-tab { display: inline-flex; }
         .matrix-workspace__toggle-label { margin-right: 4px; }
         .matrix-workspace__toggle button { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; padding: 7px 11px; }
         .matrix-workspace__toggle button.is-active { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent); }
@@ -739,30 +753,37 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
         .matrix-legend__signs { color: var(--text-secondary); }
         .matrix-grid { overflow: auto; min-height: 0; flex: 1; outline: none; }
         .matrix-grid:focus-visible, .matrix-grid [tabindex="0"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; position: relative; z-index: 3; }
-        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-micro); width: max-content; }
+        .matrix-grid table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-label); width: max-content; }
         .matrix-grid th, .matrix-grid td { border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
-        .matrix-grid thead th { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; height: 50px; vertical-align: bottom; }
+        .matrix-grid thead th { background: var(--bg-panel); position: sticky; top: 0; z-index: 2; height: 54px; vertical-align: bottom; }
         .matrix-grid__corner { left: 0; z-index: 4 !important; min-width: 205px; padding: 7px 10px; text-align: left; }
         .matrix-grid__corner span, .matrix-grid__row span { display: block; color: var(--text-primary); font-weight: 600; }
-        .matrix-grid small { color: var(--text-secondary); display: block; font-size: 9px; font-weight: 400; margin-top: 2px; }
+        .matrix-grid small { color: var(--text-secondary); display: block; font-size: var(--fs-micro); font-weight: 400; margin-top: 2px; }
         .matrix-grid__column { min-width: 72px; max-width: 72px; cursor: pointer; padding: 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__column > span { color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; }
         .matrix-grid__row { background: var(--bg-panel); cursor: pointer; left: 0; min-width: 205px; max-width: 205px; padding: 6px 10px; position: sticky; text-align: left; z-index: 1; }
         .matrix-grid__row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .matrix-grid__cell { color: #172033; cursor: pointer; font: 600 var(--fs-micro) var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
+        .matrix-grid__cell { color: #172033; cursor: pointer; font: 600 12px var(--font-mono); min-width: 72px; padding: 7px 6px; text-align: right; white-space: nowrap; }
         .matrix-grid__cell--unavailable { color: var(--text-muted); background: repeating-linear-gradient(-45deg, var(--bg-surface), var(--bg-surface) 3px, var(--bg-panel) 3px, var(--bg-panel) 6px) !important; }
         .matrix-grid__column[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 0 -3px var(--accent); }
         .matrix-grid__row[aria-selected="true"] { background: color-mix(in srgb, var(--accent-dim) 72%, var(--bg-panel)); box-shadow: inset 3px 0 var(--accent); }
         .matrix-grid__cell.is-selected { box-shadow: inset 0 0 0 3px var(--accent); position: relative; z-index: 1; }
-        /* Both shadow prices side by side; the active source is emphasized so
-           the comparison reads without hiding the other one (0145). */
-        .matrix-grid__mu { display: flex; gap: 6px; flex-wrap: wrap; }
-        .matrix-grid__mu .is-active { color: var(--text); font-weight: 600; }
-        .matrix-grid__rank { color: var(--text-muted); }
+        .matrix-grid__contingency { color: var(--text-secondary); font-weight: 400; }
         .matrix-grid__basis { color: var(--text-muted); font-style: italic; }
         /* An SF pinned at the fit's clip is a bound, not a measurement. */
         .matrix-grid__clip { color: var(--text-muted); padding-left: 1px; }
-        @media (max-width: 767px) { .matrix-workspace { padding: 10px; } .matrix-workspace__body { flex-direction: column; } .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; } .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; } }
+        @media (max-width: 767px) {
+          .matrix-workspace { overflow: auto; padding: 10px; }
+          .matrix-workspace__body { flex: 0 0 auto; flex-direction: column; min-height: 0; }
+          .matrix-workspace__stage { flex: 0 0 auto; min-height: 520px; margin-top: 10px; }
+          .matrix-workspace__stage-header { align-items: flex-start; gap: 8px; }
+          .matrix-workspace__toggle { flex-wrap: wrap; gap: 4px; }
+          .matrix-workspace__toggle-label { width: 100%; }
+          .matrix-legend { flex-basis: 100%; margin-left: 0; width: 100%; }
+          .matrix-workspace__read { overflow: visible; padding: 0 10px; }
+          .matrix-grid__corner, .matrix-grid__row { min-width: 155px; max-width: 155px; }
+          .matrix-grid::before { color: var(--text-secondary); content: "Scroll horizontally to inspect settlement points"; display: block; font-size: var(--fs-micro); padding: 5px 8px; position: sticky; left: 0; }
+        }
       `}</style>
     </main>
   );

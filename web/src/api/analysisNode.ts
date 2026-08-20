@@ -9,8 +9,8 @@ import type { AnalysisBasis, AnalysisNodeResponse } from "./types";
 const MAX_CACHED = 48;
 const cache = new Map<string, AnalysisNodeResponse>();
 
-function cacheKey(point: string, deliveryDate: string, hour: string, basis: AnalysisBasis, runId: string | undefined): string {
-  return [point, deliveryDate, hour, basis, runId ?? ""].join("|");
+function cacheKey(point: string, deliveryDate: string, hour: string, basis: AnalysisBasis, runId: string | undefined, mode: "drivers" | "structural"): string {
+  return [point, deliveryDate, hour, basis, runId ?? "", mode].join("|");
 }
 
 export async function getAnalysisNode(
@@ -20,8 +20,9 @@ export async function getAnalysisNode(
   basis: AnalysisBasis,
   runId: string | undefined,
   signal?: AbortSignal,
+  mode: "drivers" | "structural" = "drivers",
 ): Promise<AnalysisNodeResponse> {
-  const key = cacheKey(point, deliveryDate, hour, basis, runId);
+  const key = cacheKey(point, deliveryDate, hour, basis, runId, mode);
   const cached = cache.get(key);
   if (cached) {
     // Refresh recency on a cache hit — a tiny LRU via Map insertion order.
@@ -29,7 +30,7 @@ export async function getAnalysisNode(
     cache.set(key, cached);
     return cached;
   }
-  const response = await fetchAnalysisNode(point, { deliveryDate, basis, runId, hours: [hour], signal });
+  const response = await fetchAnalysisNode(point, { deliveryDate, basis, runId, mode, hours: [hour], signal });
   cache.delete(key);
   cache.set(key, response);
   while (cache.size > MAX_CACHED) {

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type { MatrixFrame, MatrixOrientation } from "../../api/types";
 import { TooltipBubble } from "../ui/Tooltip";
 import {
-  formatMatrixDamMu,
   formatMatrixMu,
   formatMatrixValue,
   matrixAxisCellSf,
@@ -196,31 +195,14 @@ function PinStar({ pinned, label, onToggle }: { pinned: boolean; label: string; 
   );
 }
 
-function AxisHeaderBody({ frame, item, isContribution, muSource }: {
-  frame: MatrixFrame;
+function AxisHeaderBody({ item, showConstraintContingency }: {
   item: MatrixAxisItem;
-  isContribution: boolean;
-  muSource: MatrixMuSource;
+  showConstraintContingency: boolean;
 }) {
   if (item.kind === "constraint") {
-    // Both shadow prices, always, side by side (0145). The matrix is the
-    // holistic surface: a row's SFs are only readable against the mu that
-    // actually priced them, and showing one source at a time made forecast and
-    // settled look like alternatives rather than a comparison. The active
-    // source is emphasized; the other stays legible next to it.
-    const forecastText = formatMatrixMu(item.row.forecast_mu);
-    const damMuText = formatMatrixDamMu(frame, item.row.ercot_dam_mu);
     return <>
       <span>{item.row.constraint_name}</span>
-      <small className="matrix-grid__mu">
-        <span className={muSource === "forecast" ? "is-active" : undefined}>
-          F {forecastText}
-        </span>
-        <span className={muSource === "ercotDam" ? "is-active" : undefined}>
-          DAM {damMuText}
-        </span>
-        {!isContribution && <span className="matrix-grid__rank">rank {item.row.daily_rank}</span>}
-      </small>
+      {showConstraintContingency && item.row.contingency_name && <small className="matrix-grid__contingency">{item.row.contingency_name}</small>}
     </>;
   }
   return <>
@@ -314,7 +296,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(item)))}
               >
                 <PinStar pinned={isPinned(item)} label={`${isPinned(item) ? "Unpin" : "Pin"} ${item.key}`} onToggle={() => onTogglePin(item)} />
-                <AxisHeaderBody frame={frame} item={item} isContribution={isContribution} muSource={muSource} />
+                <AxisHeaderBody item={item} showConstraintContingency={axes.rowKind === "constraint"} />
               </th>
             ))}
           </tr>
@@ -336,7 +318,7 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
                 onKeyDown={(event) => selectOnKey(event, () => onSelect(axisSelection(rowItem)))}
               >
                 <PinStar pinned={isPinned(rowItem)} label={`${isPinned(rowItem) ? "Unpin" : "Pin"} ${rowItem.key}`} onToggle={() => onTogglePin(rowItem)} />
-                <AxisHeaderBody frame={frame} item={rowItem} isContribution={isContribution} muSource={muSource} />
+                <AxisHeaderBody item={rowItem} showConstraintContingency={axes.rowKind === "constraint"} />
               </th>
               {axes.displayColumns.map((columnItem, columnIndex) => {
                 const { constraint, node } = splitAxis(rowItem, columnItem);

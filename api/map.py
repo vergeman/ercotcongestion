@@ -514,6 +514,21 @@ def get_map_reach(
             if t is not None and basis == "artifact"
             else None
         )
+        dam_mu = None
+        if t is not None and basis == "artifact":
+            cur.execute(
+                "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) shadow_price "
+                "FROM ercot_dam_shadow_prices "
+                "WHERE interval_ts = %s "
+                "AND btrim(constraint_name) || '|' || btrim(contingency_name) = %s "
+                "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
+                (pd.Timestamp(coerce_utc(t)).to_pydatetime(), constraint),
+            )
+            dam_row = cur.fetchone()
+            if dam_row is not None and dam_row["shadow_price"] is not None:
+                dam_mu = float(dam_row["shadow_price"])
+        daily_mass = artifact.E_mu.abs().sum(axis=0)
+        daily_rank = int(daily_mass.sort_values(ascending=False, kind="stable").index.get_loc(constraint)) + 1
 
         # Magnitude floor relative to the constraint's own peak |SF|, combined
         # with an absolute floor. The relative floor follows the constraint's
@@ -558,6 +573,12 @@ def get_map_reach(
         peak_offrail=geo.get("peak_offrail"),
         binding_hours=binding_hours,
         shadow_price=shadow_price,
+        dam_mu=dam_mu,
+        forecast_error=None if shadow_price is None or dam_mu is None else shadow_price - dam_mu,
+        daily_mu_rank=daily_rank,
+        daily_mu_sum=float(daily_mass.loc[constraint]),
+        import_members=int((row < 0.0).sum()),
+        export_members=int((row > 0.0).sum()),
         available=bool(sps),
         basis=basis,
         truncated=truncated,
