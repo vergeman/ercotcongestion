@@ -42,8 +42,8 @@ Branch: fix/0158-map-supporting-data-fallback-and-brief-link
 
 ## Acceptance
 
-* [ ] In ERCOT and Compare, missing actual load/wind/solar rows show their matching forecast value instead of `—`, and the applicable group label is marked `(Forecast)`.
-* [ ] Rows with actual ERCOT values remain actual and have no forecast suffix; rows with neither value remain `—`.
-* [ ] A t+2 Brief hero opens Forecast × Price (LMP), autoplays the full day, and says “Watch the latest price forecast →”.
-* [ ] A settled Brief hero continues to open ERCOT × Price (LMP), autoplays the full day, and says “Watch prices move across the day →”.
-* [ ] Existing Conditions API contracts and Outages display behavior are unchanged; the web build/type check passes.
+* [x] In ERCOT and Compare, missing actual load/wind/solar rows show their matching forecast value instead of `—`, and the applicable group label is marked `(Forecast)`.
+* [x] Rows with actual ERCOT values remain actual and have no forecast suffix; rows with neither value remain `—`.
+* [x] A t+2 Brief hero opens Forecast × Price (LMP), autoplays the full day, and says “Watch the latest price forecast →”.
+* [x] A settled Brief hero continues to open ERCOT × Price (LMP), autoplays the full day, and says “Watch prices move across the day →”.
+* [x] Existing Conditions API contracts and Outages display behavior are unchanged; the web build/type check passes.
