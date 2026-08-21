@@ -329,15 +329,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     });
   };
 
-  const damPending = frame?.dam_status === "pending";
-  useEffect(() => {
-    if (state.val === "dmu" && damPending) update({ val: "fmu" });
-    // `update` is stable across renders; including it would fire on every
-    // selection/filter change, not just the DAM-availability flip this
-    // effect exists to react to.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [damPending]);
-
   // Selection and filter state are URL-addressable. A hidden selection
   // remains explicit instead of being erased when a filter changes its frame.
   useEffect(() => {
@@ -431,9 +422,9 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   // sidebar index (the active slot advances A→B→A). The lens is Nodes-tab only;
   // A/B are their own state, decoupled from the read/SF `selection`.
   const showBasis = state.lens === "basis" && state.tab === "nodes";
-  // μ follows the value sub-toggle: predicted carries Forecast μ, realized
-  // carries ERCOT DAM μ. DAM→forecast fallback already happens upstream (the
-  // `damPending` effect flips `val` off dmu), so `val==="dmu"` implies DAM data.
+  // μ follows the value sub-toggle: predicted carries Forecast μ and realized
+  // carries ERCOT DAM μ. A realized view with no matched rows is still useful:
+  // the grid renders its cells unavailable rather than silently changing basis.
   const basisBasis: AnalysisBasis = state.val === "dmu" ? "realized" : "predicted";
   const [basisResult, setBasisResult] = useState<BasisResult | null>(null);
   // The realized (settled DAM) basis total for the same pair, shown alongside a
@@ -621,14 +612,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                   <span className="label matrix-workspace__toggle-label">Data</span>
                   <button type="button" className={state.val === "sf" ? "is-active" : ""} onClick={() => update({ val: "sf" })}>Shift Factor</button>
                   <button type="button" className={state.val === "fmu" ? "is-active" : ""} onClick={() => update({ val: "fmu" })}>Forecast μ</button>
-                  <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
+                  <button type="button" className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
                 </div>
               )}
               {state.lens === "basis" && (
                 <div className="matrix-workspace__toggle matrix-workspace__toggle--data" role="group" aria-label="Basis μ source">
                   <span className="label matrix-workspace__toggle-label">Data</span>
                   <button type="button" className={state.val !== "dmu" ? "is-active" : ""} onClick={() => update({ val: "fmu" })}>Forecast μ</button>
-                  <button type="button" disabled={damPending} title={damPending ? "ERCOT DAM μ has not been published for this hour" : undefined} className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
+                  <button type="button" className={state.val === "dmu" ? "is-active" : ""} onClick={() => update({ val: "dmu" })}>ERCOT DAM μ</button>
                 </div>
               )}
               {state.lens === "read" && <MatrixReachLegend />}
@@ -673,7 +664,7 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                 </div>
                 <div className={`matrix-workspace__notices${valueMode === "contribution" && frame.dam_status !== "available" ? " has-notices" : ""}`}>
                   {valueMode === "contribution" && frame.dam_status === "pending" && (
-                    <div className="matrix-workspace__notice" role="status">ERCOT DAM μ is pending; Contribution uses Forecast μ.</div>
+                    <div className="matrix-workspace__notice" role="status">No ERCOT DAM μ values matched the displayed constraints for this hour.</div>
                   )}
                   {valueMode === "contribution" && frame.dam_status === "partial" && (
                     <div className="matrix-workspace__notice" role="status">DAM μ: {frame.rows.length - damUnmatchedRows}/{frame.rows.length} constraints matched; unmatched cells are unavailable.</div>
