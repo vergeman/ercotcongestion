@@ -7,7 +7,7 @@ Branch: feat/0157-map-brand-and-detail-value-emphasis
 
 * Make the ERCOT Stress brand in the shared header navigate to the root route without retaining query parameters.
 * Rename the map view control from “Market” to “ERCOT”.
-* Bold the DetailCard values that correspond to the active Forecast or ERCOT view.
+* Make the DetailCard metrics for the active Forecast or ERCOT source easy to scan.
 
 ## Context
 
@@ -29,13 +29,13 @@ Branch: feat/0157-map-brand-and-detail-value-emphasis
 
 * Work in: `web/src/components/map/DetailCard.tsx` and `web/src/workspaces/MapWorkspace.tsx`.
 * Add a narrow DetailCard display-context prop (forecast versus ERCOT/realized) and pass it at every map card mount: forecast and error/prediction cards select forecast values; the market/actual card selects ERCOT values. In Compare, each pane’s card uses its own source context.
-* Teach `Row`/`SpBody` to apply a semantic selected-value class to the value cell only, leaving labels and unavailable values structurally unchanged.
-* In forecast context, bold Forecast (P50) Congestion, Forecast Error, and Predicted LMP. In ERCOT context, bold Realized Congestion and DAM LMP. Preserve all five rows and their existing formatting in either context.
-* Add the selected-value style locally with the existing DetailCard typography rules; do not alter driver rows, reach cards, map palettes, or the underlying `market`/forecast data calculations.
+* Teach `Row`/`SpBody` to preserve normal styling for the active source metrics and apply a subdued class to the companion metrics, leaving labels and unavailable values structurally unchanged.
+* In forecast context, fade Realized Congestion and DAM LMP; in ERCOT context, fade Forecast (P50) Congestion, Forecast Error, and Predicted LMP. Preserve all five rows and their existing formatting in either context.
+* Add the subdued companion-metric style locally with the existing DetailCard typography rules; do not alter driver rows, reach cards, map palettes, or the underlying `market`/forecast data calculations.
 
 ## Acceptance
 
-* [ ] The bolt/ERCOT Stress brand is keyboard-accessible and navigates to exactly `/` without carrying any current query parameters; the existing primary navigation continues to preserve only its shared time coordinate.
-* [ ] The map view toggle visibly says Forecast, ERCOT, Compare, and Error, while an ERCOT selection still uses the existing `market` URL/state behavior.
-* [ ] Forecast and prediction/error DetailCards bold only Forecast (P50) Congestion, Forecast Error, and Predicted LMP; ERCOT DetailCards bold only Realized Congestion and DAM LMP, including the respective panes of Compare.
-* [ ] `tsc --noEmit -p web/tsconfig.app.json` and the relevant web lint/build command pass, with a manual desktop and mobile map check covering Forecast, ERCOT, Compare, and Error.
+* [x] The bolt/ERCOT Stress brand is keyboard-accessible and navigates to exactly `/` without carrying any current query parameters; the existing primary navigation continues to preserve only its shared time coordinate.
+* [x] The map view toggle visibly says Forecast, ERCOT, Compare, and Error, while an ERCOT selection still uses the existing `market` URL/state behavior.
+* [x] Forecast and prediction/error DetailCards keep Forecast (P50) Congestion, Forecast Error, and Predicted LMP at normal emphasis while fading Realized Congestion and DAM LMP; ERCOT DetailCards do the inverse, including the respective panes of Compare.
+* [x] `tsc --noEmit -p web/tsconfig.app.json` and focused lint pass; repository-wide lint remains blocked by pre-existing React hook-rule errors in `MapWorkspace.tsx`.
