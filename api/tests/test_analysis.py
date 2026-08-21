@@ -571,6 +571,29 @@ def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
     }
 
 
+def test_node_detail_expansion_combines_structural_terms_and_essp_count(client, fake_pool, monkeypatch):
+    artifact = _node_artifact()
+    ts0 = artifact.E_mu.index[0].to_pydatetime()
+    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    fake_pool.cursor.queue([])  # coverage: settled SPP
+    fake_pool.cursor.queue([])  # coverage: settled lambda
+    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 30.0}])
+    fake_pool.cursor.queue([{"dam_spp": 35.0}])
+    fake_pool.cursor.queue([{"member_count": 3}])
+
+    body = client.get(
+        f"/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
+        f"&basis=predicted&run_id=run-x&horizon=1&include_detail=true"
+        f"&hours={ts0.isoformat().replace('+00:00', 'Z')}"
+    ).json()
+
+    assert [term["constraint_key"] for term in body["terms"]] == ["A|B", "C|D"]
+    assert body["structural_n_terms"] == 2
+    assert [term["constraint_key"] for term in body["structural_terms"]] == ["A|B", "C|D"]
+    assert body["essp_member_count"] == 3
+
+
 def test_node_market_state_keeps_missing_values_null(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
@@ -652,10 +675,18 @@ def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeyp
 
 def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(client, fake_pool, monkeypatch):
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _node_artifact())
+    monkeypatch.setattr(analysis_module, "load_sp_metadata", lambda _: {
+        "SINK": {"sp_type": "load_zone", "load_zone": "west", "lat": 31.2, "lon": -101.5},
+        "SOURCE": {"sp_type": "resource", "load_zone": "north", "lat": None, "lon": None},
+    })
     body = client.get("/analysis/settlement-points?delivery_date=2026-07-28"
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
-                    "horizon": 1, "settlement_points": ["SINK", "SOURCE"]}
+                    "horizon": 1, "settlement_points": ["SINK", "SOURCE"],
+                    "metadata": [
+                        {"settlement_point": "SINK", "settlement_point_type": "load_zone", "load_zone": "west", "lat": 31.2, "lon": -101.5},
+                        {"settlement_point": "SOURCE", "settlement_point_type": "resource", "load_zone": "north", "lat": None, "lon": None},
+                    ]}
 
 
 def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool, monkeypatch):

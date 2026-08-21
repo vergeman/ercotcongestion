@@ -1,20 +1,22 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   AnalysisBasis,
   AnalysisConstraintRow,
   AnalysisContributionTerm,
   AnalysisNodeResponse,
+  ConstraintReach,
   MatrixDamStatus,
   ReachSp,
 } from "../../api/types";
 import { getAnalysisNode } from "../../api/analysisNode";
-import { fetchAnalysisEsspGroups } from "../../api/client";
 import {
   ConstraintReachStyles,
   Dipole,
   dipoleCounts,
+  REACH_K,
   useFullConstraintReach,
 } from "../panels/ConstraintReach";
+import { REACH_THRESHOLD_OPTS } from "../../api/client";
 import BriefFootprintMap from "../brief/BriefFootprintMap";
 import { mapLinkTo } from "../../lib/mapLinks";
 import { shiftFactorColor } from "../../lib/colors";
@@ -41,7 +43,7 @@ interface Props {
   runId: string | null;
   damStatus: MatrixDamStatus | null;
   constraintRow: AnalysisConstraintRow | null;
-  nodeMeta: { type: string | null; zone: string | null } | null;
+  nodeMeta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
   onNavigateToMap: (search: string) => void;
 }
 
@@ -105,6 +107,15 @@ function MemberLobe({ title, members }: { title: string; members: ReachSp[] }) {
   );
 }
 
+function footprintReach(reach: ConstraintReach | null) {
+  if (!reach) return reach;
+  const floor = Math.max(
+    (REACH_THRESHOLD_OPTS.minFrac ?? 0) * (reach.max_abs_sf ?? 0),
+    REACH_THRESHOLD_OPTS.absFloor ?? 0,
+  );
+  return { ...reach, sps: reach.sps.filter((sp) => Math.abs(sp.sf) >= floor).slice(0, REACH_K) };
+}
+
 function ConstraintRead({
   selectionKey, row, timestamp, onNavigateToMap,
 }: { selectionKey: string; row: AnalysisConstraintRow | null; timestamp: Date | null; onNavigateToMap: (search: string) => void }) {
@@ -118,6 +129,7 @@ function ConstraintRead({
   const mapHref = mapLinkTo({ kind: "constraint", value: selectionKey });
 
   const sps = reach?.sps ?? [];
+  const mapReach = useMemo(() => footprintReach(reach), [reach]);
   const importLobe = [...sps].filter((sp) => sp.sf < 0).sort((a, b) => a.sf - b.sf);
   const exportLobe = [...sps].filter((sp) => sp.sf >= 0).sort((a, b) => b.sf - a.sf);
 
@@ -162,7 +174,8 @@ function ConstraintRead({
         </div>
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} t={cursorTs} />
+        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} t={cursorTs}
+          constraintReach={mapReach} constraintReachLoading={loading} />
       </div>
     </>
   );
@@ -190,7 +203,7 @@ function NodeRead({
   point, meta, timestamp, val, deliveryDate, runId, damStatus, onNavigateToMap,
 }: {
   point: string;
-  meta: { type: string | null; zone: string | null } | null;
+  meta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
   timestamp: Date | null;
   val: MatrixValTab;
   deliveryDate: string | null;
@@ -203,18 +216,15 @@ function NodeRead({
   // fetch outright rather than trust the caller already guarded `val`.
   const damPendingBlock = basis === "realized" && damStatus === "pending";
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
-  const [structural, setStructural] = useState<AnalysisNodeResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [esspCount, setEsspCount] = useState<number | null>(null);
   const requestId = useRef(0);
-  const structuralRequestId = useRef(0);
 
   useEffect(() => {
     if (!timestamp || !deliveryDate) { setNode(null); setLoading(false); return; }
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
-    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, "drivers")
+    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, true)
       .then((response) => { if (id === requestId.current) setNode(response); })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -224,35 +234,9 @@ function NodeRead({
     return () => controller.abort();
   }, [point, deliveryDate, timestamp, basis, runId, damPendingBlock]);
 
-  useEffect(() => {
-    if (!timestamp || !deliveryDate) { setStructural(null); return; }
-    const controller = new AbortController();
-    const id = ++structuralRequestId.current;
-    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, "structural")
-      .then((response) => { if (id === structuralRequestId.current) setStructural(response); })
-      .catch((error: unknown) => {
-        if (error instanceof Error && error.name === "AbortError") return;
-        if (id === structuralRequestId.current) setStructural(null);
-      });
-    return () => controller.abort();
-  }, [point, deliveryDate, timestamp, basis, runId]);
-
-  useEffect(() => {
-    if (!timestamp) { setEsspCount(null); return; }
-    let live = true;
-    fetchAnalysisEsspGroups(timestamp.toISOString())
-      .then((response) => {
-        if (!live || !response.available) { if (live) setEsspCount(null); return; }
-        const group = response.groups?.find((g) => g.settlement_points.includes(point));
-        setEsspCount(group ? group.settlement_points.length : null);
-      })
-      .catch(() => { if (live) setEsspCount(null); });
-    return () => { live = false; };
-  }, [point, timestamp]);
-
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
-  const structuralTerms = structural?.available ? structural.terms ?? [] : [];
+  const structuralTerms = node?.available ? node.structural_terms ?? [] : [];
   const market = node?.available ? node.market_state : null;
 
   return (
@@ -280,7 +264,7 @@ function NodeRead({
             structural={<>
               <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} numeric />
               <Fact label="Type" value={meta?.type ?? "—"} numeric />
-              <Fact label="ESSP members" value={esspCount != null && esspCount > 1 ? `≈${esspCount}` : "—"} numeric />
+              <Fact label="ESSP members" value={node.essp_member_count != null && node.essp_member_count > 1 ? `≈${node.essp_member_count}` : "—"} numeric />
               <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} numeric />
               <Fact label="Current drivers" value={`${node.n_terms ?? terms.length}`} numeric />
             </>}
@@ -307,8 +291,8 @@ function NodeRead({
               </table>
             </div>
             <details className="mrd-structural">
-              <summary>Structural exposure <em>{structural?.available ? `${structural.n_terms ?? structuralTerms.length} nonzero SF relationships` : "loading…"}</em></summary>
-              {structural?.available && (
+              <summary>Structural exposure <em>{node.structural_terms ? `${node.structural_n_terms ?? structuralTerms.length} nonzero SF relationships` : "loading…"}</em></summary>
+              {node.structural_terms && (
                 <table className="mrd-drv">
                   <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
                   <tbody>{structuralTerms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
@@ -319,7 +303,8 @@ function NodeRead({
         )}
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} />
+        <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false}
+          nodeLocation={meta?.lat != null && meta.lon != null ? { lat: meta.lat, lng: meta.lon } : null} />
       </div>
     </>
   );

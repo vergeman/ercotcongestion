@@ -945,6 +945,9 @@ export interface AnalysisNodeResponse {
   coverage?: number | null;
   terms?: AnalysisContributionTerm[];
   market_state?: NodeMarketState | null;
+  structural_n_terms?: number | null;
+  structural_terms?: AnalysisContributionTerm[] | null;
+  essp_member_count?: number | null;
 }
 
 export interface AnalysisSettlementPointsResponse {
@@ -954,6 +957,15 @@ export interface AnalysisSettlementPointsResponse {
   delivery_date: string;
   horizon?: number;
   settlement_points?: string[];
+  metadata?: AnalysisSettlementPointMetadata[];
+}
+
+export interface AnalysisSettlementPointMetadata {
+  settlement_point: string;
+  settlement_point_type: string | null;
+  load_zone: string | null;
+  lat: number | null;
+  lon: number | null;
 }
 
 // /analysis/constraints — the full constraint vocabulary for one day's
