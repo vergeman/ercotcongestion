@@ -188,6 +188,21 @@ def settled_posting_window(delivery_day: date) -> tuple[str, str]:
     return (nxt.strftime("%Y-%m-%dT04:00:00"), nxt.strftime("%Y-%m-%dT10:00:00"))
 
 
+def central_delivery_date_window(start: datetime, end: datetime) -> tuple[date, date]:
+    """Inclusive ERCOT delivery-date labels touched by UTC ``[start, end)``.
+
+    ERCOT's wind/solar ``deliveryDate`` filters are Central-time operating
+    dates.  This deliberately differs from ``daily_windows``' UTC date labels,
+    which are a stable ingest-log/backfill key for the other date endpoints.
+    """
+    if end <= start:
+        raise ValueError("end must be after start")
+    return (
+        start.astimezone(ERCOT_TZ).date(),
+        (end - timedelta(microseconds=1)).astimezone(ERCOT_TZ).date(),
+    )
+
+
 def daily_windows(start_date: date, end_date: date):
     """Yield (start_dt, end_dt) UTC datetimes for each day [start_date, end_date]."""
     d = start_date
@@ -275,7 +290,8 @@ def update_recent_lagged(client: ErcotClient, conn,
 
 def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
                         start: datetime, end: datetime, resume: bool,
-                        posting_window: tuple[str, str] | None = None) -> None:
+                        posting_window: tuple[str, str] | None = None,
+                        delivery_date_window: tuple[date, date] | None = None) -> None:
     cfg = ENDPOINTS[endpoint_key]
 
     if resume and is_completed(conn, endpoint_key, start, end):
@@ -284,10 +300,14 @@ def backfill_one_window(client: ErcotClient, conn, endpoint_key: str,
 
     if cfg["param_format"] == "date":
         # 'date' filters are inclusive on both ends and operate on whole days.
-        # ERCOT treats the date string as a CT day; pass through the user-supplied
-        # date label without TZ conversion so CLI intent matches.
-        from_value = start.strftime("%Y-%m-%d")
-        to_value = (end - timedelta(seconds=1)).strftime("%Y-%m-%d")
+        # Most callers use the stable UTC labels of daily_windows.  The rolling
+        # wind/solar path supplies Central delivery dates explicitly because its
+        # report endpoint interprets this filter in ERCOT local time.
+        date_start, date_end = delivery_date_window or (
+            start.date(), (end - timedelta(seconds=1)).date()
+        )
+        from_value = date_start.isoformat()
+        to_value = date_end.isoformat()
     else:
         # ERCOT interprets naive datetime filters as CT.
         from_value = start.astimezone(ERCOT_TZ).strftime("%Y-%m-%dT%H:%M:%S")
