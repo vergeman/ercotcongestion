@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchTopology } from "../../api/client";
+import type { ConstraintReach } from "../../api/types";
 import { shiftFactorColor } from "../../lib/colors";
 import {
   fitBorderProjection,
@@ -49,6 +50,9 @@ export default function BriefFootprintMap({
   onNavigate,
   showTitle = true,
   t,
+  nodeLocation,
+  constraintReach,
+  constraintReachLoading = false,
 }: {
   selection: FootprintTarget;
   // The Map deep link for this element — rendered as a control ON the map
@@ -67,16 +71,26 @@ export default function BriefFootprintMap({
   // The cursor instant whose CT delivery day the reach is served for (0144).
   // Omitted falls back to the latest built day.
   t?: Date;
+  // Matrix already has these coordinates in its settlement-points response;
+  // Brief omits them and keeps its existing topology lookup.
+  nodeLocation?: NodePoint | null;
+  // Matrix Detail already has the complete reach for its member table; consume
+  // it directly instead of starting this component's bounded reach lookup.
+  constraintReach?: ConstraintReach | null;
+  constraintReachLoading?: boolean;
 }) {
   const { geo, key } = selection;
 
   // A constraint's members come from the shared reach (already warm if the
-  // evidence list fetched it); a node is located from the topology instead.
-  const { reach, loading: reachLoading } = useConstraintReach(
-    geo === "constraint" ? key : null,
+  // evidence list fetched it); a Matrix node can arrive with its location.
+  const hasProvidedConstraintReach = constraintReach !== undefined;
+  const { reach: fetchedReach, loading: fetchedReachLoading } = useConstraintReach(
+    geo === "constraint" && !hasProvidedConstraintReach ? key : null,
     REACH_K,
     t
   );
+  const reach = hasProvidedConstraintReach ? constraintReach : fetchedReach;
+  const reachLoading = hasProvidedConstraintReach ? constraintReachLoading : fetchedReachLoading;
   const [border, setBorder] = useState<BorderRing[] | null>(null);
   const [nodePoint, setNodePoint] = useState<NodePoint | null>(null);
   const [nodeResolved, setNodeResolved] = useState(geo !== "node");
@@ -95,6 +109,11 @@ export default function BriefFootprintMap({
   useEffect(() => {
     if (geo !== "node") {
       setNodePoint(null);
+      setNodeResolved(true);
+      return;
+    }
+    if (nodeLocation) {
+      setNodePoint(nodeLocation);
       setNodeResolved(true);
       return;
     }
@@ -122,7 +141,7 @@ export default function BriefFootprintMap({
     return () => {
       live = false;
     };
-  }, [geo, key]);
+  }, [geo, key, nodeLocation]);
 
   const projection = useMemo(
     () => (border ? fitBorderProjection(border, VIEW_W, VIEW_H) : null),

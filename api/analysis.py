@@ -20,7 +20,7 @@ from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableRes
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     AnalysisSettlementPointsAvailableResponse,
-                    AnalysisSettlementPointsUnavailableResponse,
+                    AnalysisSettlementPointsUnavailableResponse, AnalysisSettlementPointMetadata,
                     AnalysisConstraintRow, AnalysisConstraintsAvailableResponse,
                     AnalysisConstraintsUnavailableResponse, ForecastMuAvailableResponse,
                     ForecastMuUnavailableResponse, ForecastMuRow, EsspGroup,
@@ -181,6 +181,28 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
         dam_lmp=dam_lmp,
         forecast_lambda_source=lambda_source,
     )
+
+
+def _essp_member_count(cur, settlement_point: str, timestamp: datetime) -> int | None:
+    """Return the selected node's study-vintage ESSP group size, if present."""
+    cur.execute(
+        """
+        WITH selected_group AS (
+            SELECT group_index
+            FROM ercot_essp
+            WHERE interval_ts = %s AND is_study = TRUE AND settlement_point = %s
+            LIMIT 1
+        )
+        SELECT count(*) AS member_count
+        FROM ercot_essp
+        WHERE interval_ts = %s AND is_study = TRUE
+          AND group_index = (SELECT group_index FROM selected_group)
+        """,
+        (timestamp, settlement_point, timestamp),
+    )
+    row = cur.fetchone()
+    count = 0 if row is None else int(row["member_count"])
+    return count or None
 
 
 def _split_constraint_key(key: str) -> tuple[str, str | None]:
@@ -783,6 +805,7 @@ def get_node(
     hours: list[datetime] | None = Query(None),
     min_abs_sf: float = Query(0.0, ge=0.0),
     mode: Literal["drivers", "structural"] = Query("drivers"),
+    include_detail: bool = Query(False, description="Include Matrix Detail's structural terms and ESSP count."),
 ) -> NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse:
     """Decompose a node from every represented constraint, never a brief top-k."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -814,6 +837,11 @@ def get_node(
             _node_market_state(cur, settlement_point, run_id, delivery_date, horizon, selected[0].to_pydatetime())
             if len(selected) == 1 else None
         )
+        structural_sf = sf[sf.abs() >= min_abs_sf] if include_detail else None
+        essp_member_count = (
+            _essp_member_count(cur, settlement_point, selected[0].to_pydatetime())
+            if include_detail and len(selected) == 1 else None
+        )
 
     return NodeAnalysisAvailableResponse(
         available=True, settlement_point=settlement_point, run_id=run_id,
@@ -828,6 +856,11 @@ def get_node(
             if mode == "structural" else _terms(contributions, sf)
         ),
         market_state=market_state,
+        structural_n_terms=None if structural_sf is None else int((structural_sf != 0.0).sum()),
+        structural_terms=(
+            None if structural_sf is None else _structural_terms(structural_sf, contributions)
+        ),
+        essp_member_count=essp_member_count,
     )
 
 
@@ -854,9 +887,21 @@ def get_settlement_points(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date, horizon=horizon,
             )
+    settlement_points = sorted(str(sp) for sp in artifact.SF.columns)
+    metadata = load_sp_metadata(settlement_points)
     return AnalysisSettlementPointsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        settlement_points=sorted(str(sp) for sp in artifact.SF.columns),
+        settlement_points=settlement_points,
+        metadata=[
+            AnalysisSettlementPointMetadata(
+                settlement_point=point,
+                settlement_point_type=metadata[point].get("sp_type"),
+                load_zone=metadata[point].get("load_zone"),
+                lat=metadata[point].get("lat"),
+                lon=metadata[point].get("lon"),
+            )
+            for point in settlement_points
+        ],
     )
 
 

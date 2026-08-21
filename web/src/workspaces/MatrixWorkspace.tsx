@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalysisBasis, AnalysisConstraintsResponse, AnalysisNodeResponse, AnalysisSettlementPointsResponse, MatrixFrame } from "../api/types";
 import { getMatrixFrame } from "../api/matrixFrames";
 import { getAnalysisNode } from "../api/analysisNode";
-import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints, fetchTopology } from "../api/client";
+import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints } from "../api/client";
 import MatrixGrid from "../components/matrix/MatrixGrid";
 import MatrixLegend, { MatrixReachLegend } from "../components/matrix/MatrixLegend";
 import MatrixReadDetail from "../components/matrix/MatrixReadDetail";
@@ -177,7 +177,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     };
   });
   const [constraintsResp, setConstraintsResp] = useState<AnalysisConstraintsResponse | null>(null);
-  const [nodeMeta, setNodeMeta] = useState<Map<string, { type: string | null; zone: string | null }>>(new Map());
   const [settlementPointsResp, setSettlementPointsResp] = useState<AnalysisSettlementPointsResponse | null>(null);
   const [seeded, setSeeded] = useState<boolean>(() => storedSeeded());
   // The preview key the *currently displayed* frame is hoisted by. It lags the
@@ -269,31 +268,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     : false;
   const previewKey = topRowKey && !topRowPinned ? topRowKey : null;
 
-  // The topology's sp_type/load_zone properties are the only source of node
-  // type/zone metadata — /analysis/settlement-points is deliberately a bare
-  // vocabulary list. Fetched once; it does not vary with the current run.
-  useEffect(() => {
-    let cancelled = false;
-    void fetchTopology()
-      .then((topology) => {
-        if (cancelled) return;
-        const collection = (topology as { settlement_points?: { features?: Array<{ properties?: Record<string, unknown> }> } }).settlement_points;
-        const next = new Map<string, { type: string | null; zone: string | null }>();
-        for (const feature of collection?.features ?? []) {
-          const props = feature.properties ?? {};
-          const spId = props.sp_id;
-          if (typeof spId !== "string") continue;
-          next.set(spId, {
-            type: typeof props.sp_type === "string" ? props.sp_type : null,
-            zone: typeof props.load_zone === "string" ? props.load_zone : null,
-          });
-        }
-        setNodeMeta(next);
-      })
-      .catch(() => { /* Node type/zone filters degrade to empty, not an error. */ });
-    return () => { cancelled = true; };
-  }, []);
-
   // The sidebar's full vocabulary depends on which day's artifact the frame
   // resolved to, so it follows the frame rather than the raw timestamp.
   useEffect(() => {
@@ -365,6 +339,13 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
       }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [constraintsResp, state.pinnedConstraints]);
+
+  const nodeMeta = useMemo(() => new Map<string, { type: string | null; zone: string | null; lat: number | null; lon: number | null }>(
+    (settlementPointsResp?.available ? settlementPointsResp.metadata ?? [] : []).map((metadata) => [
+      metadata.settlement_point,
+      { type: metadata.settlement_point_type, zone: metadata.load_zone, lat: metadata.lat, lon: metadata.lon },
+    ])
+  ), [settlementPointsResp]);
 
   const nodeItems = useMemo<MatrixSidebarItem[]>(() => {
     const points = settlementPointsResp?.available ? settlementPointsResp.settlement_points ?? [] : [];

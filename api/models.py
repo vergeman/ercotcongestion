@@ -97,6 +97,9 @@ class NodeAnalysisAvailableResponse(BaseModel):
     coverage: float | None
     terms: list[AnalysisContributionTerm]
     market_state: NodeMarketState | None = None
+    structural_n_terms: int | None = None
+    structural_terms: list[AnalysisContributionTerm] | None = None
+    essp_member_count: int | None = None
 
 
 class NodeAnalysisUnavailableResponse(BaseModel):
@@ -107,6 +110,15 @@ class NodeAnalysisUnavailableResponse(BaseModel):
     horizon: int | None = None
 
 
+class AnalysisSettlementPointMetadata(BaseModel):
+    """Static display metadata for one artifact settlement point."""
+    settlement_point: str
+    settlement_point_type: str | None = None
+    load_zone: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+
 class AnalysisSettlementPointsAvailableResponse(BaseModel):
     """The exact settlement-point vocabulary represented by one day artifact."""
     available: Literal[True]
@@ -114,6 +126,7 @@ class AnalysisSettlementPointsAvailableResponse(BaseModel):
     delivery_date: date
     horizon: int
     settlement_points: list[str]
+    metadata: list[AnalysisSettlementPointMetadata]
 
 
 class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableResponse):

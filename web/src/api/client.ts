@@ -398,6 +398,7 @@ export interface AnalysisAttributionRequest {
   hours?: string[];
   minAbsSf?: number;
   mode?: "drivers" | "structural";
+  includeDetail?: boolean;
   signal?: AbortSignal;
 }
 
@@ -408,6 +409,7 @@ function attributionQuery(request: AnalysisAttributionRequest): URLSearchParams 
   if (request.horizon != null) qs.set("horizon", String(request.horizon));
   if (request.minAbsSf != null) qs.set("min_abs_sf", String(request.minAbsSf));
   if (request.mode) qs.set("mode", request.mode);
+  if (request.includeDetail) qs.set("include_detail", "true");
   request.hours?.forEach((hour) => qs.append("hours", hour));
   return qs;
 }
