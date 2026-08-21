@@ -25,6 +25,7 @@ import {
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
+import Tooltip from "../components/ui/Tooltip";
 import type { ConnectionState } from "../hooks/useExplorerSession";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
@@ -1752,9 +1753,14 @@ export default function BriefPage() {
             >
               ‹
             </button>
-            <span className="an-day-controls__date">
+            <Tooltip
+              className="an-day-controls__date"
+              placement="bottom"
+              tip="This is the ERCOT market delivery date, not today’s calendar date or the date the DAM auction ran."
+              aria-label="About the delivery date"
+            >
               {deliveryDay ? fmtDay(deliveryDay) : "Choose a delivery date"}
-            </span>
+            </Tooltip>
             <button
               type="button"
               className="an-day-controls__caret"
@@ -1938,8 +1944,9 @@ export default function BriefPage() {
         .an-brief-meta__item { display: flex; align-items: baseline; gap: 6px; }
         .an-brief-meta__label { color: var(--text-muted); }
         .an-brief-meta__val { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
-        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; margin-left: auto; }
-        .an-day-controls__date { font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; }
+        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; margin-right: 8px; margin-left: auto; }
+        .an-day-controls__date { display: block; min-width: 0; overflow: hidden; font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+        .an-day-controls__date:hover, .an-day-controls__date:focus-visible { color: var(--accent); outline: none; }
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
         .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
