@@ -16,6 +16,7 @@ interface Props {
   loading: boolean;
   inline?: boolean;
   showLabel?: boolean;
+  triggerLabel?: string;
 }
 
 const PRESETS = [
@@ -65,12 +66,14 @@ export default function DateRangePicker({
   loading,
   inline = false,
   showLabel = true,
+  triggerLabel,
 }: Props) {
   const [open, setOpen] = useState(false);
   // A Brief selection replaces the page's hero request, so it must remain
   // available while that request is in flight. The Map's range controls keep
   // their existing loading lock to avoid overlapping explorer window loads.
   const disabled = singleDate ? false : loading;
+  const triggerText = triggerLabel ?? `Load ${singleDate ? "Date" : "Window"}`;
   const [startStr, setStartStr] = useState(() =>
     utcToCTHourInputString(subDays(new Date(), 1))
   );
@@ -113,10 +116,10 @@ export default function DateRangePicker({
         <button
           className={showLabel ? undefined : "drp__trigger--icon"}
           onClick={() => setOpen((o) => !o)}
-          aria-label={`Load ${singleDate ? "date" : "window"}`}
-          title={`Load ${singleDate ? "date" : "window"}`}
+          aria-label={triggerText}
+          title={triggerText}
         >
-          📅{showLabel && ` Load ${singleDate ? "Date" : "Window"}`}
+          📅{showLabel && ` ${triggerText}`}
         </button>
       )}
 

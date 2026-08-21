@@ -883,6 +883,31 @@ export interface BriefDay {
   grade_history: AnalysisGradeHistory;
 }
 
+// `/analysis/brief/hero` is the first-paint payload. It deliberately carries
+// only the hero plus inexpensive artifact-backed date navigation; the tables
+// and grade arrive through `/analysis/brief/details` afterwards.
+export interface BriefHeroShell {
+  hero: BriefHero;
+  previous_delivery_date: string | null;
+  next_delivery_date: string | null;
+}
+
+export interface BriefHeroStats {
+  run_id: string;
+  delivery_date: string;
+  horizon: number;
+  slots: Record<string, Record<string, unknown>>;
+}
+
+export interface BriefDetails {
+  context: BriefContext;
+  standouts?: Standouts | null;
+  top_nodes: TopNodes;
+  top_constraints: TopConstraints;
+  grade: AnalysisGrade;
+  grade_history: AnalysisGradeHistory;
+}
+
 // =============================================================================
 // /analysis/node and /analysis/settlement-points — full-artifact attribution.
 // These are intentionally sparse lists, not Matrix rectangles: every nonzero

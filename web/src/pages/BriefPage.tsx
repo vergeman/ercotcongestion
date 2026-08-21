@@ -9,6 +9,7 @@ import type {
   AnalysisGradeSupport,
   BriefContext,
   BriefHero,
+  BriefHeroStats,
   HeroSegment,
   Standouts,
   TopConstraints,
@@ -16,11 +17,15 @@ import type {
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
 import {
-  fetchBriefDayCached,
+  fetchBriefDetailsCached,
   fetchBriefHeroLatestCached,
+  fetchBriefHeroShellCached,
+  fetchBriefHeroStatsCached,
+  fetchBriefStandoutsCached,
 } from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
+import Tooltip from "../components/ui/Tooltip";
 import type { ConnectionState } from "../hooks/useExplorerSession";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
@@ -80,6 +85,15 @@ function Segments({ segments }: { segments: HeroSegment[] }) {
   );
 }
 
+function LoadingState({ children }: { children: string }) {
+  return (
+    <p className="an-panel-state an-panel-state--loading">
+      <span className="an-loading-indicator" aria-hidden="true" />
+      {children}
+    </p>
+  );
+}
+
 function StandoutsPanel({
   data,
   loading,
@@ -102,7 +116,7 @@ function StandoutsPanel({
           30-day forecast history.
         </p>
       </div>
-      {loading && <p className="an-panel-state">Finding unusual calls…</p>}
+      {loading && <LoadingState>Finding unusual calls…</LoadingState>}
       {!loading &&
         (!data?.available || (!constraints.length && !nodes.length)) && (
           <p className="an-panel-state">
@@ -419,7 +433,7 @@ function TopConstraintsPanel({
             : "The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast."}
         </p>
       </div>
-      {loading && <p className="an-panel-state">Loading constraints…</p>}
+      {loading && <LoadingState>Loading constraints…</LoadingState>}
       {!loading && (!data?.available || !data.rows?.length) && (
         <p className="an-panel-state">
           No ranked forecast constraints are available for this delivery day.
@@ -579,7 +593,7 @@ function TopNodesPanel({
             : "Forecast congestion, attributed across each node’s complete shift-factor column."}
         </p>
       </div>
-      {loading && <p className="an-panel-state">Loading nodal congestion…</p>}
+      {loading && <LoadingState>Loading nodal congestion…</LoadingState>}
       {!loading && (!data?.available || !data.rows?.length) && (
         <p className="an-panel-state">
           No ranked nodal congestion is available for this delivery day.
@@ -752,7 +766,7 @@ function ContextPanel({
         <h2 id="context-title">Context</h2>
         <p>Structural context for this delivery day.</p>
       </div>
-      {loading && <p className="an-panel-state">Loading grid context…</p>}
+      {loading && <LoadingState>Loading grid context…</LoadingState>}
       {!loading && !data?.available && (
         <p className="an-panel-state">
           Context is unavailable for this delivery day.
@@ -1345,7 +1359,7 @@ function ForecastGrade({
           </p>
         </div>
       )}
-      {settled && loading && <p>Loading forecast grade…</p>}
+      {settled && loading && <LoadingState>Loading forecast grade…</LoadingState>}
       {settled && !loading && (!grade || !grade.available) && (
         <p>Forecast grade is unavailable for this delivery day.</p>
       )}
@@ -1405,8 +1419,9 @@ export default function BriefPage() {
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
-  const [indexLoaded, setIndexLoaded] = useState(false);
+  const [initialLookupDone, setInitialLookupDone] = useState(false);
   const [hero, setHero] = useState<BriefHero | null>(null);
+  const [heroStats, setHeroStats] = useState<BriefHeroStats | null>(null);
   const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(
     null
   );
@@ -1417,13 +1432,16 @@ export default function BriefPage() {
   const [gradeHistory, setGradeHistory] = useState<AnalysisGradeHistory | null>(
     null
   );
-  const [loading, setLoading] = useState(false);
+  const [heroLoading, setHeroLoading] = useState(false);
+  const [heroStatsLoading, setHeroStatsLoading] = useState(false);
   const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
   const [standoutsLoading, setStandoutsLoading] = useState(false);
   const [topNodesLoading, setTopNodesLoading] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [gradeLoading, setGradeLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [heroError, setHeroError] = useState<string | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsRetry, setDetailsRetry] = useState(0);
   const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
@@ -1444,7 +1462,7 @@ export default function BriefPage() {
   // by the Brief's Chicago delivery-day tables, never the legacy brief blob.
   useEffect(() => {
     if (cursorDay) {
-      setIndexLoaded(true);
+      setInitialLookupDone(true);
       return;
     }
     let live = true;
@@ -1452,10 +1470,10 @@ export default function BriefPage() {
       .then((latest) => {
         if (!live) return;
         setDefaultDay(latest?.delivery_date ?? null);
-        setIndexLoaded(true);
+        setInitialLookupDone(true);
       })
       .catch(() => {
-        if (live) setIndexLoaded(true);
+        if (live) setInitialLookupDone(true);
       });
     return () => {
       live = false;
@@ -1463,6 +1481,17 @@ export default function BriefPage() {
   }, [cursorDay]);
 
   const deliveryDay = cursorDay ?? defaultDay;
+  const heroDeliveryDay = hero?.available
+    ? hero.provenance?.delivery_date
+    : hero?.delivery_date;
+  // A default day from `/hero/latest` and a URL/date-picker change both render
+  // once before their request effect can set `heroLoading`. Treat a hero for a
+  // different day as pending too, so that handoff never exposes a blank page.
+  const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
+  const heroPending = !!deliveryDay && !heroError &&
+    (heroLoading || !heroMatchesDeliveryDay);
+  const heroReadyDay = hero?.available ? hero.provenance?.delivery_date : null;
+  const globalLoading = (!deliveryDay && !initialLookupDone) || heroPending;
 
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
@@ -1470,76 +1499,129 @@ export default function BriefPage() {
     setSelection(null);
   }, [deliveryDay]);
 
-  // One bundled request per rendered day (0137). Neighbors are probed only after
-  // the current day resolves — three concurrent /brief payloads (current + prev +
-  // next) contend on the API pool + GIL, so deferring keeps the visible day on a
-  // clear critical path while neighbors warm the cache for navigation.
+  // All delivery-day requests begin together. The global loader keeps every
+  // result hidden until this fast prose/map hero request resolves.
   useEffect(() => {
     if (!deliveryDay) {
       setAdjacentDays({ previous: null, next: null });
       return;
     }
     let live = true;
-    setLoading(true);
-    setError(null);
+    setHeroLoading(true);
+    setHeroStatsLoading(false);
+    setHeroError(null);
     setConnectionState("loading");
     setHero(null);
-    setContextLoading(true);
-    setStandoutsLoading(true);
-    setTopNodesLoading(true);
-    setTopConstraintsLoading(true);
-    setGradeLoading(true);
+    setHeroStats(null);
+    setContext(null);
+    setStandouts(null);
+    setTopNodes(null);
+    setTopConstraints(null);
+    setGrade(null);
+    setGradeHistory(null);
+    setDetailsError(null);
     setAdjacentDays({ previous: null, next: null });
-    const toDay = (offset: number) =>
-      format(addDays(new Date(`${deliveryDay}T12:00:00Z`), offset), "yyyy-MM-dd");
-    fetchBriefDayCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroShellCached(deliveryDay, cursor.run ?? undefined)
       .then((result) => {
         if (!live) return;
         setHero(result?.hero ?? null);
-        setContext(result?.context ?? null);
-        setStandouts(result?.standouts ?? null);
-        setTopNodes(result?.top_nodes ?? null);
-        setTopConstraints(result?.top_constraints ?? null);
-        setGrade(result?.grade ?? null);
-        setGradeHistory(result?.grade_history ?? null);
+        setAdjacentDays({
+          previous: result?.previous_delivery_date ?? null,
+          next: result?.next_delivery_date ?? null,
+        });
         setLastUpdated(new Date());
         setConnectionState("ok");
       })
       .catch(() => {
         if (!live) return;
-        setError("The daily brief could not be loaded.");
+        setHeroError("The daily brief could not be loaded.");
         setConnectionState("error");
       })
       .finally(() => {
         if (!live) return;
-        setLoading(false);
-        setContextLoading(false);
-        setStandoutsLoading(false);
-        setTopNodesLoading(false);
-        setTopConstraintsLoading(false);
-        setGradeLoading(false);
-        // Deferred neighbor prefetch: enable carets, warm the cache for nav.
-        const previous = toDay(-1);
-        const next = toDay(1);
-        Promise.all([
-          fetchBriefDayCached(previous, cursor.run ?? undefined),
-          fetchBriefDayCached(next, cursor.run ?? undefined),
-        ])
-          .then(([previousDay, nextDay]) => {
-            if (!live) return;
-            setAdjacentDays({
-              previous: previousDay?.hero.available ? previous : null,
-              next: nextDay?.hero.available ? next : null,
-            });
-          })
-          .catch(() => {
-            if (live) setAdjacentDays({ previous: null, next: null });
-          });
+        setHeroLoading(false);
       });
     return () => {
       live = false;
     };
   }, [deliveryDay, cursor.run]);
+
+  // Standouts are the one lower panel worth warming with the hero: they are
+  // already hidden by the global gate and can be shown immediately beneath it.
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setStandoutsLoading(true);
+    fetchBriefStandoutsCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (live) setStandouts(result);
+      })
+      .catch(() => {
+        if (live) setStandouts(null);
+      })
+      .finally(() => {
+        if (live) setStandoutsLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run]);
+
+  // The evidence cards are deliberately one independent, all-or-nothing
+  // response. Start it alongside the hero, but do not reveal it until the
+  // global hero gate has opened.
+  useEffect(() => {
+    if (!deliveryDay) return;
+    let live = true;
+    setHeroStatsLoading(true);
+    fetchBriefHeroStatsCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (live) setHeroStats(result);
+      })
+      .catch(() => {
+        if (live) setHeroStats(null);
+      })
+      .finally(() => {
+        if (live) setHeroStatsLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run]);
+
+  // The remaining secondary bundle waits until the hero has painted.
+  useEffect(() => {
+    if (!deliveryDay || !hero?.available || hero.provenance?.delivery_date !== deliveryDay)
+      return;
+    let live = true;
+    setDetailsError(null);
+    setContextLoading(true);
+    setTopNodesLoading(true);
+    setTopConstraintsLoading(true);
+    setGradeLoading(true);
+    fetchBriefDetailsCached(deliveryDay, cursor.run ?? undefined)
+      .then((result) => {
+        if (!live) return;
+        setContext(result?.context ?? null);
+        setTopNodes(result?.top_nodes ?? null);
+        setTopConstraints(result?.top_constraints ?? null);
+        setGrade(result?.grade ?? null);
+        setGradeHistory(result?.grade_history ?? null);
+      })
+      .catch(() => {
+        if (live) setDetailsError("The rest of this brief could not be loaded.");
+      })
+      .finally(() => {
+        if (!live) return;
+        setContextLoading(false);
+        setTopNodesLoading(false);
+        setTopConstraintsLoading(false);
+        setGradeLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [deliveryDay, cursor.run, heroReadyDay, detailsRetry]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.
@@ -1569,9 +1651,9 @@ export default function BriefPage() {
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
   const title = useMemo(() => hero?.segments?.headline ?? [], [hero]);
-  const regime = hero?.slots?.regime;
-  const magnitude = hero?.slots?.magnitude;
-  const where = hero?.slots?.where;
+  const regime = heroStats?.slots.regime;
+  const magnitude = heroStats?.slots.magnitude;
+  const where = heroStats?.slots.where;
   const forecastLoadTotal = numeric(regime, "today");
   const forecastLoadNet = numeric(regime, "net_load");
   const actualLoadTotal = numeric(regime, "actual_today");
@@ -1643,81 +1725,92 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        {indexLoaded && (
-          <div className="an-date-picker">
-            {provenance && (
-              <div className="an-brief-meta">
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Model Run</span>
-                  <span className="an-brief-meta__val">{provenance.run_id}</span>
-                </span>
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Status</span>
-                  <span className="an-brief-meta__val">
-                    {settled ? "DAM Settled" : "Forecast"} · t+
-                    {provenance.horizon}
-                  </span>
-                </span>
-              </div>
-            )}
-            <div className="an-day-controls" aria-label="Delivery day controls">
-              <button
-                type="button"
-                className="an-day-controls__caret"
-                onClick={() =>
-                  adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
-                }
-                disabled={!adjacentDays.previous}
-                aria-label="Previous available delivery day"
-              >
-                ‹
-              </button>
-              <span className="an-day-controls__date">
-                {deliveryDay ? fmtDay(deliveryDay) : "Loading date…"}
+        {!globalLoading && <div className="an-date-picker">
+          {provenance && (
+            <div className="an-brief-meta">
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Model Run</span>
+                <span className="an-brief-meta__val">{provenance.run_id}</span>
               </span>
-              <button
-                type="button"
-                className="an-day-controls__caret"
-                onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
-                disabled={!adjacentDays.next}
-                aria-label="Next available delivery day"
-              >
-                ›
-              </button>
-              <DateRangePicker
-                singleDate
-                showLabel={false}
-                selectedDate={deliveryDay}
-                onLoadDate={selectDeliveryDay}
-                onSelectEvent={(event) => {
-                  setActiveEventId(event.id);
-                  cursor.setCoord({
-                    t: new Date(event.cursor_ts),
-                    ws: new Date(event.window_start),
-                    we: new Date(event.window_end),
-                  });
-                }}
-                events={CURATED_EVENTS}
-                activeEventId={activeEventId}
-                loading={loading}
-              />
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Status</span>
+                <span className="an-brief-meta__val">
+                  {settled ? "DAM Settled" : "Forecast"} · t+
+                  {provenance.horizon}
+                </span>
+              </span>
             </div>
+          )}
+          <div className="an-day-controls" aria-label="Delivery day controls">
+            <button
+              type="button"
+              className="an-day-controls__caret"
+              onClick={() =>
+                adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
+              }
+              disabled={!adjacentDays.previous}
+              aria-label="Previous available delivery day"
+            >
+              ‹
+            </button>
+            <Tooltip
+              className="an-day-controls__date"
+              placement="bottom"
+              tip="This is the ERCOT market delivery date, not today’s calendar date or the date the DAM auction ran."
+              aria-label="About the delivery date"
+            >
+              {deliveryDay ? fmtDay(deliveryDay) : "Choose a delivery date"}
+            </Tooltip>
+            <button
+              type="button"
+              className="an-day-controls__caret"
+              onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
+              disabled={!adjacentDays.next}
+              aria-label="Next available delivery day"
+            >
+              ›
+            </button>
+            <DateRangePicker
+              singleDate
+              showLabel={false}
+              triggerLabel="Choose delivery date"
+              selectedDate={deliveryDay}
+              onLoadDate={selectDeliveryDay}
+              onSelectEvent={(event) => {
+                setActiveEventId(event.id);
+                cursor.setCoord({
+                  t: new Date(event.cursor_ts),
+                  ws: new Date(event.window_start),
+                  we: new Date(event.window_end),
+                });
+              }}
+              events={CURATED_EVENTS}
+              activeEventId={activeEventId}
+              loading={heroPending}
+            />
           </div>
+        </div>}
+        {globalLoading && (
+          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
+            <div className="an-brief-loader__brand" aria-hidden="true">
+              <span className="an-brief-loader__title">ERCOT STRESS</span>
+              <span className="an-brief-loader__bolt">⚡</span>
+            </div>
+            <span className="an-loading-indicator" aria-hidden="true" />
+          </section>
         )}
-        {!indexLoaded && <p className="an-empty">Loading brief…</p>}
-        {indexLoaded && !deliveryDay && (
+        {initialLookupDone && !deliveryDay && (
           <p className="an-empty">No forecast delivery day is published yet.</p>
         )}
-        {loading && <p className="an-empty">Loading brief…</p>}
-        {error && <p className="an-empty">{error}</p>}
-        {!loading && hero && !hero.available && (
+        {heroError && <p className="an-empty">{heroError}</p>}
+        {!heroPending && hero && !hero.available && (
           <p className="an-empty">
             No forecast artifact is available for{" "}
             {deliveryDay ? fmtDay(deliveryDay) : "this day"}.
           </p>
         )}
 
-        {!loading && hero?.available && hero.segments && (
+        {!heroPending && hero?.available && hero.segments && (
           <>
             <section className="an-hero" aria-labelledby="brief-title">
               <div className="an-hero__frame">
@@ -1741,40 +1834,49 @@ export default function BriefPage() {
                   <p className="an-lede">
                     <Segments segments={hero.segments.lede} />
                   </p>
-                  <div className="an-facts" aria-label="Brief evidence">
-                    {loadTotal != null && loadNet != null && (
-                      <DualStatBox
-                        firstLabel={loadTotalLabel}
-                        firstValue={gw(loadTotal)}
-                        secondLabel={loadNetLabel}
-                        secondValue={gw(loadNet)}
-                      />
+                  <div className="an-facts-slot" aria-busy={heroStatsLoading}>
+                    {heroStatsLoading && (
+                      <div className="an-facts-loading" aria-label="Loading brief evidence">
+                        <span className="an-loading-indicator" aria-hidden="true" />
+                      </div>
                     )}
-                    {magnitudeValue != null && magnitudeMedian != null && (
-                      <DualStatBox
-                        firstLabel="Total Congestion"
-                        firstValue={usd(magnitudeValue)}
-                        secondLabel="Median"
-                        secondValue={usd(magnitudeMedian)}
-                      />
-                    )}
-                    {magnitudeRank != null && (
-                      <DualStatBox
-                        firstLabel="30-Day Congestion"
-                        firstValue={`#${magnitudeRank}`}
-                        secondLabel={whereZone ? "Congested Region" : undefined}
-                        secondValue={
-                          whereZone ? zoneLabel(whereZone) : undefined
-                        }
-                      />
-                    )}
-                    {whereZone && whereShare != null && (
-                      <DualStatBox
-                        firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                        firstValue={pct(whereShare)}
-                        secondLabel={`${zoneLabel(whereZone)} Price`}
-                        secondValue={priceDirection(whereCongestion)}
-                      />
+                    {heroStats && (
+                      <div className="an-facts" aria-label="Brief evidence">
+                        {loadTotal != null && loadNet != null && (
+                          <DualStatBox
+                            firstLabel={loadTotalLabel}
+                            firstValue={gw(loadTotal)}
+                            secondLabel={loadNetLabel}
+                            secondValue={gw(loadNet)}
+                          />
+                        )}
+                        {magnitudeValue != null && magnitudeMedian != null && (
+                          <DualStatBox
+                            firstLabel="Total Congestion"
+                            firstValue={usd(magnitudeValue)}
+                            secondLabel="Median"
+                            secondValue={usd(magnitudeMedian)}
+                          />
+                        )}
+                        {magnitudeRank != null && (
+                          <DualStatBox
+                            firstLabel="30-Day Congestion"
+                            firstValue={`#${magnitudeRank}`}
+                            secondLabel={whereZone ? "Congested Region" : undefined}
+                            secondValue={
+                              whereZone ? zoneLabel(whereZone) : undefined
+                            }
+                          />
+                        )}
+                        {whereZone && whereShare != null && (
+                          <DualStatBox
+                            firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
+                            firstValue={pct(whereShare)}
+                            secondLabel={`${zoneLabel(whereZone)} Price`}
+                            secondValue={priceDirection(whereCongestion)}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                   {watchHref && (
@@ -1787,6 +1889,15 @@ export default function BriefPage() {
                 </div>
               </div>
             </section>
+
+            {detailsError && (
+              <div className="an-details-error" role="alert">
+                <span>{detailsError}</span>
+                <button type="button" onClick={() => setDetailsRetry((retry) => retry + 1)}>
+                  Retry details
+                </button>
+              </div>
+            )}
 
             <StandoutsPanel
               data={standouts}
@@ -1833,11 +1944,20 @@ export default function BriefPage() {
         .an-brief-meta__item { display: flex; align-items: baseline; gap: 6px; }
         .an-brief-meta__label { color: var(--text-muted); }
         .an-brief-meta__val { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
-        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; }
-        .an-day-controls__date { font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; }
+        .an-day-controls { display: grid; grid-template-columns: 28px 200px 28px 28px; align-items: center; column-gap: 8px; margin-right: 8px; margin-left: auto; }
+        .an-day-controls__date { display: block; min-width: 0; overflow: hidden; font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-align: center; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+        .an-day-controls__date:hover, .an-day-controls__date:focus-visible { color: var(--accent); outline: none; }
         .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
         .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
+        .an-brief-loader { display: flex; min-height: calc(100dvh - var(--header-h) - 84px); align-items: center; justify-content: center; flex-direction: column; gap: 18px; }
+        .an-brief-loader__brand { display: grid; justify-items: center; gap: 7px; }
+        .an-brief-loader__title { color: var(--accent); font: 700 var(--fs-xl) var(--font-label); letter-spacing: var(--track-title); }
+        .an-brief-loader__bolt { color: var(--accent); font-size: 28px; line-height: 1; }
+        .an-loading-indicator { width: 16px; height: 16px; flex: none; box-sizing: border-box; border: 2px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-top-color: var(--accent); border-radius: 50%; animation: an-loading-spin .75s linear infinite; }
+        .an-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); }
+        .an-details-error button { flex: none; }
+        @keyframes an-loading-spin { to { transform: rotate(360deg); } }
         .an-hero { padding-bottom: 24px; border-bottom: 2px solid var(--text-primary); }
         .an-hero__frame { position: relative; overflow: hidden; min-height: 460px; border: 1px solid var(--border); background: var(--bg-panel); }
         .an-hero__frame::after {
@@ -1882,7 +2002,9 @@ export default function BriefPage() {
         .an-eyebrow { margin: 0 0 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-xs) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .an-hero h1 { max-width: 28ch; margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.14; letter-spacing: -0.025em; }
         .an-lede { max-width: 72ch; margin: 16px 0 0; color: var(--text-secondary); font-size: var(--fs-lg); line-height: 1.55; }
-        .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); }
+        .an-facts-slot { display: grid; min-height: 108px; margin-top: 24px; }
+        .an-facts-loading { display: grid; place-items: center; }
+        .an-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 24px; border: 1px solid var(--border); background: var(--border); animation: an-facts-in 220ms ease-out both; }
         .an-fact { min-width: 0; min-height: 82px; padding: 11px 10px; background: var(--bg-panel); }
         .an-fact__label, .an-fact__detail { display: block; color: var(--text-muted); font-size: var(--fs-label); line-height: 1.35; overflow-wrap: anywhere; }
         .an-fact__value { display: block; overflow: hidden; margin: 4px 0 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-lg); text-overflow: ellipsis; white-space: nowrap; }
@@ -1922,6 +2044,8 @@ export default function BriefPage() {
         .an-context__share i { display: inline-block; height: 4px; max-width: 60px; background: var(--accent); }
         .an-section-heading h2 { margin: 0; font-size: var(--fs-xl); }
         .an-section-heading p, .an-panel-state { margin: 7px 0 0; color: var(--text-secondary); }
+        .an-panel-state--loading { display: flex; align-items: center; gap: 8px; }
+        .an-panel-state--loading .an-loading-indicator { width: 14px; height: 14px; }
         .an-table-wrap { margin-top: 14px; overflow-x: auto; }
         .an-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: var(--fs-label); table-layout: fixed; }
         .an-table th { padding: 6px 8px; color: var(--text-muted); border-top: 1px solid var(--border-bright); border-bottom: 1px solid var(--border-bright); font: var(--fw-label) var(--fs-micro) var(--font-label); letter-spacing: var(--track-label); text-align: right; text-transform: uppercase; white-space: nowrap; }
@@ -2013,6 +2137,8 @@ export default function BriefPage() {
         .an-grade-card__formula-popover { position: absolute; z-index: 2; bottom: calc(100% + 7px); left: 0; width: max-content; max-width: min(430px, calc(100vw - 48px)); padding: 10px; border: 1px solid var(--border-bright); background: var(--bg-panel); box-shadow: 0 8px 22px rgb(0 0 0 / 22%); }
         .an-grade-card__formula-popover pre { margin: 0; overflow-x: auto; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: 1.4; white-space: pre; }
         .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
+        @keyframes an-facts-in { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .an-loading-indicator, .an-facts { animation: none; } }
         @media (max-width: 700px) {
           .an-hero__frame { min-height: 0; border: 0; background: transparent; }
           .an-hero__frame::after { content: none; }
@@ -2024,7 +2150,7 @@ export default function BriefPage() {
           .an-grade__cards { grid-template-columns: 1fr; }
           .an-grade-card { min-height: 0; }
         }
-        @media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
+        @media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-brief-loader { min-height: calc(100dvh - var(--header-h) - 56px); } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
       `}</style>
     </div>
   );

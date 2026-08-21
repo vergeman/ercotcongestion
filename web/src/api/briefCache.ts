@@ -1,5 +1,19 @@
-import { fetchBriefDay, fetchBriefHeroLatest } from "./client";
-import type { BriefDay, BriefHeroLatest } from "./types";
+import {
+  fetchBriefDay,
+  fetchBriefDetails,
+  fetchBriefHeroStats,
+  fetchBriefStandouts,
+  fetchBriefHeroLatest,
+  fetchBriefHeroShell,
+} from "./client";
+import type {
+  BriefDay,
+  BriefDetails,
+  BriefHeroStats,
+  Standouts,
+  BriefHeroLatest,
+  BriefHeroShell,
+} from "./types";
 
 type CacheEntry<T> = {
   hasValue: boolean;
@@ -44,4 +58,40 @@ export function fetchBriefDayCached(
   runId?: string,
 ): Promise<BriefDay | null> {
   return cached(`brief:${deliveryDate}:${scope(runId)}`, () => fetchBriefDay(deliveryDate, runId));
+}
+
+export function fetchBriefHeroShellCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroShell | null> {
+  return cached(`brief-hero:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefHeroShell(deliveryDate, runId)
+  );
+}
+
+export function fetchBriefHeroStatsCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefHeroStats | null> {
+  return cached(`brief-hero-stats:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefHeroStats(deliveryDate, runId)
+  );
+}
+
+export function fetchBriefStandoutsCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<Standouts | null> {
+  return cached(`brief-standouts:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefStandouts(deliveryDate, runId)
+  );
+}
+
+export function fetchBriefDetailsCached(
+  deliveryDate: string,
+  runId?: string,
+): Promise<BriefDetails | null> {
+  return cached(`brief-details:${deliveryDate}:${scope(runId)}`, () =>
+    fetchBriefDetails(deliveryDate, runId)
+  );
 }
