@@ -1066,6 +1066,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
+        valueMode="forecast"
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         exposureRank={exposureRank}
@@ -1116,6 +1117,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <DetailCard
         hoveredSp={hoveredSp.actual}
         pinnedSp={pinnedSp.actual}
+        valueMode="ercot"
         showDrivers={false}
         onClose={() => handleClearPinnedSp("actual")}
         mobile={isMobile}
@@ -1185,6 +1187,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       <DetailCard
         hoveredSp={hoveredSp.prediction}
         pinnedSp={pinnedSp.prediction}
+        valueMode="forecast"
         exposures={exposures}
         exposuresLoading={exposuresLoading}
         exposureRank={exposureRank}
