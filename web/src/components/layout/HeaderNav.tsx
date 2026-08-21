@@ -43,8 +43,21 @@ export default function HeaderNav({
   }, [search]);
   return (
     <div className="brand-nav">
-      <span className="brand-nav__logo">⚡</span>
-      <span className="brand-nav__title">ERCOT Stress</span>
+      <a
+        className="brand-nav__brand"
+        href="/"
+        aria-label="ERCOT Stress home"
+        onClick={(event) => {
+          // The brand is a home link, so it deliberately drops every page-local
+          // and shared query parameter instead of using the nav coordinate.
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          navigate({ pathname: "/", search: "" });
+        }}
+      >
+        <span className="brand-nav__logo">⚡</span>
+        <span className="brand-nav__title">ERCOT Stress</span>
+      </a>
       <nav className="brand-nav__links" aria-label="Primary">
         {NAV.map((n) =>
           n.href ? (
@@ -89,6 +102,18 @@ export default function HeaderNav({
 
       <style>{`
         .brand-nav { display: flex; align-items: center; gap: 8px; }
+        .brand-nav__brand {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          color: inherit;
+          text-decoration: none;
+          border-radius: 3px;
+        }
+        .brand-nav__brand:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 3px;
+        }
         .brand-nav__logo { font-size: var(--fs-xl); }
         .brand-nav__title {
           font-family: var(--font-label);
@@ -126,6 +151,7 @@ export default function HeaderNav({
         }
         @media (max-width: 767px) {
           .brand-nav { min-width: 0; gap: 5px; }
+          .brand-nav__brand { gap: 5px; }
           .brand-nav__logo { font-size: var(--fs-lg); }
           .brand-nav__title {
             font-size: var(--fs-lg);

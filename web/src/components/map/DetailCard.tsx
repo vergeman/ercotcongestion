@@ -54,6 +54,10 @@ interface Props {
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
   showDrivers?: boolean;
+  // Which side of the decomposition this card represents. Compare mounts one
+  // card per pane, so this is passed explicitly rather than inferred from the
+  // URL's layout state.
+  valueMode: "forecast" | "ercot";
   mobile?: boolean;
 }
 
@@ -76,12 +80,16 @@ const REACH_ROW_CAP = 20;
 function Row({
   label,
   value,
+  deemphasized = false,
 }: {
   label: string;
   value: string | number | null;
+  deemphasized?: boolean;
 }) {
   return (
-    <div className="dc-row">
+    <div
+      className={`dc-row${deemphasized ? " dc-row--deemphasis" : ""}`}
+    >
       <span className="label">{label}</span>
       <span className="dc-val mono">{value ?? "—"}</span>
     </div>
@@ -100,25 +108,46 @@ function fmtCong(v: number | null | undefined): string | null {
   return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
 }
 
-function SpBody({ sp }: { sp: HoveredSp }) {
+function SpBody({
+  sp,
+  valueMode,
+}: {
+  sp: HoveredSp;
+  valueMode: "forecast" | "ercot";
+}) {
   const s = sp.spState;
+  const forecastMode = valueMode === "forecast";
   return (
     <>
       <Row label="SP Type" value={String(sp.props.sp_type ?? "—")} />
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
       {/* forecast / realized / error — the decomposition carried in every view. */}
-      <Row label="Forecast (P50) Congestion" value={fmtCong(s?.predicted)} />
-      <Row label="Realized Congestion" value={fmtCong(s?.market)} />
-      <Row label="Forecast Error" value={fmtCong(s?.error)} />
+      <Row
+        label="Forecast (P50) Congestion"
+        value={fmtCong(s?.predicted)}
+        deemphasized={!forecastMode}
+      />
+      <Row
+        label="Realized Congestion"
+        value={fmtCong(s?.market)}
+        deemphasized={forecastMode}
+      />
+      <Row
+        label="Forecast Error"
+        value={fmtCong(s?.error)}
+        deemphasized={!forecastMode}
+      />
       <Row
         label="Predicted LMP"
         value={
           s && s.predictedSpp != null ? `$${fmt(s.predictedSpp, 2)}/MWh` : null
         }
+        deemphasized={!forecastMode}
       />
       <Row
         label="DAM LMP"
         value={s && s.marketSpp != null ? `$${fmt(s.marketSpp, 2)}/MWh` : null}
+        deemphasized={forecastMode}
       />
     </>
   );
@@ -423,6 +452,7 @@ export default function DetailCard({
   onHoverMember,
   onSelectMember,
   showDrivers = true,
+  valueMode,
   mobile = false,
 }: Props) {
   // Reach (constraint pinned) wins; otherwise pinned SP wins over hover.
@@ -513,7 +543,7 @@ export default function DetailCard({
           />
         ) : (
           <>
-            <SpBody sp={sp!} />
+            <SpBody sp={sp!} valueMode={valueMode} />
             {isPinned && showDrivers && !noSfLabel && (
               <div className="detail-card__section">
                 <ExposuresBody
@@ -623,6 +653,7 @@ export default function DetailCard({
           align-items: center;
           padding: 3px 0;
         }
+        .dc-row--deemphasis { opacity: 0.56; }
         .dc-val {
           font-size: 12px;
           color: var(--text-primary);

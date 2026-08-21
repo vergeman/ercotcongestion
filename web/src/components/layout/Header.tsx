@@ -5,7 +5,7 @@ import Tooltip from "../ui/Tooltip";
 
 const VIEWS: { key: MapView; label: string }[] = [
   { key: "forecast", label: "Forecast" },
-  { key: "market", label: "Market" },
+  { key: "market", label: "ERCOT" },
   { key: "compare", label: "Compare" },
   { key: "error", label: "Error" },
 ];
