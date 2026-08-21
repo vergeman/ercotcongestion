@@ -57,8 +57,11 @@ Do NOT touch: Map/Matrix playback loading, the shared URL cursor contract outsid
 
 ## Acceptance
 
-* [x] On first paint, the Brief shows stable chrome and a usable delivery-date control; no control or label says “Load Window.”
+* [x] On first paint, the Brief shows stable chrome and a vertically centered ERCOT STRESS / bolt / loading-indicator treatment; date controls remain hidden until the hero, lede, and map have rendered, and no control or label says “Load Window.”
 * [x] The hero and prior/next available-date state render from a fast shell response before secondary sections finish; date carets no longer depend on full Brief neighbor prefetches.
+* [x] The delivery-date control is right-aligned with centered text between its carets; hovering or focusing the date explains that it is the ERCOT market delivery date, rather than today or the DAM auction date.
+* [x] Hero prose/map, stat cards, and standouts begin concurrently; the global loader hides all of them until the hero is ready. Stat cards enter as one group with a reduced-motion-safe fade, rather than shifting in piecemeal.
+* [x] Each lower panel has its own compact loading indicator, while the deferred detail request no longer duplicates the concurrently loaded standouts request.
 * [x] A secondary-detail failure or slow response does not hide a successfully loaded hero or block choosing another date.
 * [x] Direct URL dates, cold entry defaults, stale-response protection, unavailable days, and settled-cache rules work as before where applicable.
 * [x] Query timings and `EXPLAIN` evidence identify the limiting uncached-detail path; dev’s absent `forecast_nodal` history takes the intentional artifact fallback, so no speculative query/index change was made.
