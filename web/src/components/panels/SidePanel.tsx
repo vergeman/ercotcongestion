@@ -140,7 +140,28 @@ function regionLabel(key: string): string {
     .join(" ");
 }
 
-// Forecast/Error show what ERCOT forecast; Market/Compare show what happened.
+type ConditionValue = {
+  mw: number | null;
+  isForecast: boolean;
+};
+
+// Forecast/Error show the forecast. Market/Compare show the actual when it has
+// published, with a row-level forecast fallback while supporting ERCOT data is
+// still catching up to DAM settlement.
+function conditionValue(
+  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
+  mapView: MapView
+): ConditionValue {
+  if (!row) return { mw: null, isForecast: false };
+  if (mapView === "forecast" || mapView === "error") {
+    return { mw: row.forecast_mw, isForecast: false };
+  }
+  if (row.actual_mw != null) return { mw: row.actual_mw, isForecast: false };
+  return { mw: row.forecast_mw, isForecast: row.forecast_mw != null };
+}
+
+// Outages retain their existing actual-or-empty behavior. They are a separate
+// daily-vintage quantity from the load/wind/solar supporting-data fallback.
 function regionMw(
   row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
   mapView: MapView
@@ -149,6 +170,14 @@ function regionMw(
   return mapView === "forecast" || mapView === "error"
     ? row.forecast_mw
     : row.actual_mw;
+}
+
+function conditionLabel(
+  label: string,
+  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
+  mapView: MapView
+): string {
+  return `${label}${conditionValue(row, mapView).isForecast ? " (Forecast)" : ""}`;
 }
 
 function Stat({
@@ -322,15 +351,25 @@ export default function SidePanel({
           <section className="np-section">
             <div className="np-section__header label">Conditions</div>
             <ExpandableGroup
-              label="Load by Region"
+              label={conditionLabel(
+                "Load by Region",
+                conditions?.load.find((z) => z.zone === "system"),
+                mapView
+              )}
               systemValue={(() => {
-                const mw = regionMw(conditions?.load.find((z) => z.zone === "system"), mapView);
+                const { mw } = conditionValue(
+                  conditions?.load.find((z) => z.zone === "system"),
+                  mapView
+                );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.load}
               onToggle={() => toggleRegions("load")}
               rows={WEATHER_ZONES.map((zone) => {
-                const mw = regionMw(conditions?.load.find((z) => z.zone === zone), mapView);
+                const { mw } = conditionValue(
+                  conditions?.load.find((z) => z.zone === zone),
+                  mapView
+                );
                 return {
                   key: zone,
                   label: regionLabel(zone),
@@ -339,15 +378,25 @@ export default function SidePanel({
               })}
             />
             <ExpandableGroup
-              label="Wind Generation"
+              label={conditionLabel(
+                "Wind Generation",
+                conditions?.wind.find((r) => r.region === "system"),
+                mapView
+              )}
               systemValue={(() => {
-                const mw = regionMw(conditions?.wind.find((r) => r.region === "system"), mapView);
+                const { mw } = conditionValue(
+                  conditions?.wind.find((r) => r.region === "system"),
+                  mapView
+                );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.wind}
               onToggle={() => toggleRegions("wind")}
               rows={WIND_REGIONS.map((region) => {
-                const mw = regionMw(conditions?.wind.find((r) => r.region === region), mapView);
+                const { mw } = conditionValue(
+                  conditions?.wind.find((r) => r.region === region),
+                  mapView
+                );
                 return {
                   key: region,
                   label: regionLabel(region),
@@ -356,15 +405,25 @@ export default function SidePanel({
               })}
             />
             <ExpandableGroup
-              label="Solar Generation"
+              label={conditionLabel(
+                "Solar Generation",
+                conditions?.solar.find((r) => r.region === "system"),
+                mapView
+              )}
               systemValue={(() => {
-                const mw = regionMw(conditions?.solar.find((r) => r.region === "system"), mapView);
+                const { mw } = conditionValue(
+                  conditions?.solar.find((r) => r.region === "system"),
+                  mapView
+                );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.solar}
               onToggle={() => toggleRegions("solar")}
               rows={SOLAR_REGIONS.map((region) => {
-                const mw = regionMw(conditions?.solar.find((r) => r.region === region), mapView);
+                const { mw } = conditionValue(
+                  conditions?.solar.find((r) => r.region === region),
+                  mapView
+                );
                 return {
                   key: region,
                   label: regionLabel(region),
