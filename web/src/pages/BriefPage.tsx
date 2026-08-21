@@ -1690,10 +1690,9 @@ export default function BriefPage() {
   const whereShare = numeric(where, "share");
   const whereZone = typeof where?.zone === "string" ? where.zone : null;
   const whereCongestion = numeric(where, "zone_congestion");
-  // The hero's own map action (0131): always requests Market × LMP, playing —
-  // the layman gold standard. Pre-settlement the Map canonicalizes this to
-  // Forecast × LMP on its own, so this stays dumb rather than branching on
-  // `settled` itself. Shared by the image CTA and its mobile fallback below.
+  // The hero's own map action (0131): settled heroes open the ERCOT DAM view;
+  // forecast heroes (including t+2 previews) open the latest price forecast.
+  // Shared by the image CTA and its mobile fallback below.
   //
   // `t` is deliberately `cursor.ws` (the delivery day's start), not
   // `cursor.t` (the peak-μ hour `_cursor` computes it as). Autoplay starts
@@ -1705,7 +1704,7 @@ export default function BriefPage() {
         t: new Date(hero.cursor.ws),
         ws: new Date(hero.cursor.ws),
         we: new Date(hero.cursor.we),
-        view: "market",
+        view: settled ? "market" : "forecast",
         data: "lmp",
         autoPlay: true,
       })
@@ -1822,8 +1821,14 @@ export default function BriefPage() {
                 )}
                 {watchHref && (
                   <Link to={watchHref} className="an-hero__watch">
-                    <span>Watch prices</span>
-                    <span>move across the day →</span>
+                    {settled ? (
+                      <>
+                        <span>Watch prices</span>
+                        <span>move across the day →</span>
+                      </>
+                    ) : (
+                      <span>Watch the latest price forecast →</span>
+                    )}
                   </Link>
                 )}
                 <div className="an-hero__body">
