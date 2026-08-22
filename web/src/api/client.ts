@@ -1,6 +1,4 @@
 import type {
-  ErcotStateRangeResponse,
-  ErcotSppRangeResponse,
   ErcotRangeResponse,
   ForecastRangeResponse,
   ConditionsRangeResponse,
@@ -91,35 +89,6 @@ export async function fetchMatrixFrame(
   pinnedSettlementPoints.forEach((point) => qs.append("pinned_settlement_point", point));
   const r = await fetch(`${BASE}/matrix/frame?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`matrix/frame ${r.status}`);
-  return r.json();
-}
-
-// ERCOT SP congestion (SPP − system_λ) over the window. Returns `null` — not
-// throws — when the backend reports the artifact isn't built (503), so the
-// caller can render an empty map rather than error out.
-export async function fetchErcotStateRange(
-  start: Date,
-  end: Date
-): Promise<ErcotStateRangeResponse | null> {
-  const r = await fetch(
-    `${BASE}/ercot_state_range?start=${start.toISOString()}&end=${end.toISOString()}`
-  );
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`ercot_state_range ${r.status}`);
-  return r.json();
-}
-
-// Raw DAM SPP per settlement point over the window. Same soft-fail contract
-// as ercot_state_range: 503 returns null.
-export async function fetchErcotSppRange(
-  start: Date,
-  end: Date
-): Promise<ErcotSppRangeResponse | null> {
-  const r = await fetch(
-    `${BASE}/ercot_spp_range?start=${start.toISOString()}&end=${end.toISOString()}`
-  );
-  if (r.status === 503) return null;
-  if (!r.ok) throw new Error(`ercot_spp_range ${r.status}`);
   return r.json();
 }
 

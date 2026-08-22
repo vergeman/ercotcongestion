@@ -36,8 +36,10 @@ def test_openapi_keeps_realized_schemas(client):
     assert r.status_code == 200
     schemas = r.json()['components']['schemas']
 
-    for name in ('ErcotRangeResponse', 'ErcotStateRangeResponse', 'ErcotSppRangeResponse'):
+    for name in ('ErcotRangeResponse',):
         assert name in schemas, f'{name} should be present'
+    for name in ('ErcotStateRangeResponse', 'ErcotSppRangeResponse'):
+        assert name not in schemas, f'{name} should be removed'
 
 
 def test_openapi_includes_map_schemas(client):
@@ -55,8 +57,8 @@ def test_openapi_documents_contract_migrations_and_bootstrap_availability(client
     paths = schema['paths']
     schemas = schema['components']['schemas']
 
-    assert paths['/ercot_state_range']['get']['deprecated'] is True
-    assert paths['/ercot_spp_range']['get']['deprecated'] is True
+    assert '/ercot_state_range' not in paths
+    assert '/ercot_spp_range' not in paths
 
     brief_parameters = {
         parameter['name']: parameter

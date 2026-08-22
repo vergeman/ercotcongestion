@@ -10,8 +10,7 @@ their scheduled version boundary.
 | Route group | Ownership | Known consumer | Migration status |
 | --- | --- | --- | --- |
 | `/topology`, `/forecast_range`, `/conditions_range` | primitive | Web Map and Brief | Stable resource reads |
-| `/ercot_range` | primitive | Web Map and Brief | Canonical realized range |
-| `/ercot_state_range`, `/ercot_spp_range` | compatibility | No in-repository runtime caller | Mounted and deprecated; preserve their 503 and response shapes |
+| `/ercot_range` | primitive | Web Map and Brief | Sole realized range resource |
 | `/map/summary` | bootstrap | Web Map | Typed per-section `availability` accompanies nullable sections |
 | `/map/meta`, `/map/overview` | primitive | Map summary and Web Map | Stable independently readable resources |
 | `/map/exposures`, `/map/reach`, `/map/constraints/ranked` | interaction | Web Map | Deliberately excluded from `/map/summary` |

@@ -1,8 +1,7 @@
 """GET /ercot_range -- compact realized congestion + DAM SPP window.
 
-This replaces the paired client requests to ``/ercot_state_range`` and
-``/ercot_spp_range``.  It reads the DAM SPP rows once and sends settlement
-point identifiers once per response rather than once per hour and per view.
+It reads the DAM SPP rows once and sends settlement-point identifiers once per
+response rather than once per hour and per view.
 """
 from __future__ import annotations
 

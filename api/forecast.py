@@ -1,6 +1,6 @@
 """GET /forecast_range — per-hour forecast congestion (P10/P50/P90) for a window.
 
-The prediction counterpart to ``/ercot_spp_range``: same range shape, read from
+The prediction counterpart to ``/ercot_range``: same range shape, read from
 ``forecast_nodal``. ``run_id`` names the *model version* (not a day — one run
 accumulates many ``delivery_date`` s); the public API serves the current
 ``forecast_current[ercot]`` run (this feature's own pointer, independent of the
@@ -11,10 +11,10 @@ default landing view. The left ("prediction") map pane consumes it through the s
 prefetch/scrubber path the realized ranges use, so the two panes align hour for
 hour instead of both rendering one realized quantity.
 
-Expanded for prediction vs ``/ercot_spp_range``: each SP carries the P10/P50/P90
+Expanded for prediction vs ``/ercot_range``: each SP carries the P10/P50/P90
 triple, and each hour carries the DAM ``system_lambda`` (NP4-523-CD) at that
 interval — ``DISTINCT ON`` keeping the ``dst_flag = FALSE`` variant, matching
-``/ercot_state_range`` — so predicted LMP = P50 + system_λ resolves on the client
+``/ercot_range`` — so predicted LMP = P50 + system_λ resolves on the client
 against the same reference the market side subtracts. On an unsettled hour (no
 DAM row yet) ``system_lambda`` falls back to the most recent settled day's λ at
 the same Central hour — a persistence display convention (0130), never a model

@@ -1,7 +1,5 @@
 import type {
-  ErcotSppRangeEntry,
   ErcotRangeResponse,
-  ErcotStateRangeEntry,
   ForecastRangeEntry,
   ForecastRangeResponse,
   ConditionsEntry,
@@ -13,8 +11,19 @@ import {
   fetchConditionsRange,
 } from "./client";
 
-const ercotCache = new Map<string, ErcotStateRangeEntry>();
-const ercotSppCache = new Map<string, ErcotSppRangeEntry>();
+interface ErcotCongestionEntry {
+  interval_ts: string;
+  system_lambda: number | null;
+  sps: Array<{ sp_id: string; congestion: number | null }>;
+}
+
+interface ErcotSppEntry {
+  interval_ts: string;
+  sps: Array<{ sp_id: string; spp: number | null }>;
+}
+
+const ercotCache = new Map<string, ErcotCongestionEntry>();
+const ercotSppCache = new Map<string, ErcotSppEntry>();
 // Forecast (prediction) side — per-hour P10/P50/P90 + system-λ for the current
 // forecast run. Aligned to the same interval keys as the realized caches so the
 // left pane reads it hour for hour off the scrubber.
@@ -51,12 +60,12 @@ function normalizeInterval(raw: string): Date {
 
 // ERCOT congestion (SPP − system_λ) side. `undefined` means either the
 // backend has no artifact for this window (503) or this hour wasn't requested.
-export function getErcotCached(ts: Date): ErcotStateRangeEntry | undefined {
+export function getErcotCached(ts: Date): ErcotCongestionEntry | undefined {
   return ercotCache.get(cacheKey(roundToInterval(ts)));
 }
 
 // Raw DAM SPP side. Same soft-fail contract as `getErcotCached`.
-export function getErcotSppCached(ts: Date): ErcotSppRangeEntry | undefined {
+export function getErcotSppCached(ts: Date): ErcotSppEntry | undefined {
   return ercotSppCache.get(cacheKey(roundToInterval(ts)));
 }
 
@@ -93,7 +102,7 @@ export function getForecastHorizon(ts: Date): number | null {
 function ingestErcotRange(data: ErcotRangeResponse | null): void {
   if (!data) return;
   for (const entry of data.entries) {
-    const stateEntry: ErcotStateRangeEntry = {
+    const stateEntry: ErcotCongestionEntry = {
       interval_ts: entry.interval_ts,
       system_lambda: entry.system_lambda,
       sps: data.sp_ids.map((sp_id, index) => ({
@@ -101,7 +110,7 @@ function ingestErcotRange(data: ErcotRangeResponse | null): void {
         congestion: entry.congestion[index] ?? null,
       })),
     };
-    const sppEntry: ErcotSppRangeEntry = {
+    const sppEntry: ErcotSppEntry = {
       interval_ts: entry.interval_ts,
       sps: data.sp_ids.map((sp_id, index) => ({
         sp_id,
