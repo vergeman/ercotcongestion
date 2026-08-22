@@ -18,32 +18,36 @@ import type {
 
 const entries = new QueryCache<unknown>({ maxSize: 48, ttlMs: 5 * 60 * 1000 });
 
-function cached<T>(key: string, request: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  return entries.load(key, request) as Promise<T>;
+function cached<T>(
+  key: string,
+  request: (signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  return entries.load(key, request, signal) as Promise<T>;
 }
 
 export function clearBriefCache(): void { entries.invalidate(); }
 
 export function fetchBriefHeroLatestCached(signal?: AbortSignal): Promise<BriefHeroLatest | null> {
-  void signal;
-  return cached("hero-latest", fetchBriefHeroLatest);
+  return cached("hero-latest", fetchBriefHeroLatest, signal);
 }
 
 export function fetchBriefDayCached(
   deliveryDate: string,
   signal?: AbortSignal,
 ): Promise<BriefDay | null> {
-  void signal;
-  return cached(`brief:${deliveryDate}`, (requestSignal) => fetchBriefDay(deliveryDate, requestSignal));
+  return cached(`brief:${deliveryDate}`, (requestSignal) =>
+    fetchBriefDay(deliveryDate, requestSignal), signal);
 }
 
 export function fetchBriefHeroShellCached(
   deliveryDate: string,
   signal?: AbortSignal,
 ): Promise<BriefHeroShell | null> {
-  void signal;
-  return cached(`brief-hero:${deliveryDate}`, (requestSignal) =>
-    fetchBriefHeroShell(deliveryDate, requestSignal)
+  return cached(
+    `brief-hero:${deliveryDate}`,
+    (requestSignal) => fetchBriefHeroShell(deliveryDate, requestSignal),
+    signal,
   );
 }
 
@@ -51,24 +55,29 @@ export function fetchBriefHeroStatsCached(
   deliveryDate: string,
   signal?: AbortSignal,
 ): Promise<BriefHeroStats | null> {
-  void signal;
-  return cached(`brief-hero-stats:${deliveryDate}`, (requestSignal) =>
-    fetchBriefHeroStats(deliveryDate, requestSignal)
+  return cached(
+    `brief-hero-stats:${deliveryDate}`,
+    (requestSignal) => fetchBriefHeroStats(deliveryDate, requestSignal),
+    signal,
   );
 }
 
-export function fetchBriefStandoutsCached(deliveryDate: string, signal?: AbortSignal,
+export function fetchBriefStandoutsCached(
+  deliveryDate: string, signal?: AbortSignal,
 ): Promise<Standouts | null> {
-  void signal;
-  return cached(`brief-standouts:${deliveryDate}`, (requestSignal) =>
-    fetchBriefStandouts(deliveryDate, requestSignal)
+  return cached(
+    `brief-standouts:${deliveryDate}`,
+    (requestSignal) => fetchBriefStandouts(deliveryDate, requestSignal),
+    signal,
   );
 }
 
-export function fetchBriefDetailsCached(deliveryDate: string, signal?: AbortSignal,
+export function fetchBriefDetailsCached(
+  deliveryDate: string, signal?: AbortSignal,
 ): Promise<BriefDetails | null> {
-  void signal;
-  return cached(`brief-details:${deliveryDate}`, (requestSignal) =>
-    fetchBriefDetails(deliveryDate, requestSignal)
+  return cached(
+    `brief-details:${deliveryDate}`,
+    (requestSignal) => fetchBriefDetails(deliveryDate, requestSignal),
+    signal,
   );
 }
