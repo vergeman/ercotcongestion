@@ -40,6 +40,10 @@ import pandas as pd
 
 from compute.mu.score import LAM, MIN_HOURS, STD_FLOOR, WINDOW_DAYS
 from compute.sf.fit import implied_shift_factors
+from compute.sf.map_store import (
+    MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE, load_forecast_sf, load_window_sf,
+    resolve_sf_window, sf_mass_coverage,
+)
 from compute.sf.sampling import (
     DRAW_CHUNK, N_DRAWS, QUANTILES, RESID_CAP, _wide, band_metrics,
     draw_congestion, residual_pool,
@@ -52,135 +56,8 @@ from compute.sf.codecs import (
 
 log = logging.getLogger("compute.sf.project")
 
-# The forecast reads the map's persisted weekly SF instead of refitting it daily
-# (0095-0002). These pin the shared-fit contract:
-MAP_RUN_ID = "map-v1"    # the served weekly SF-map run the forecast projects through
-MAX_SF_AGE_DAYS = 14     # freshness floor: D − window_end must be ≤ this, else stale.
-#   The map refits weekly (REFIT_DAYS), so the freshest complete window closes up to
-#   ~a week before D even when current; 14d tolerates one fully missed weekly refresh
-#   and fails loud beyond, rather than silently serving weeks-old geography.
-MIN_SF_COVERAGE = 0.5    # min share of D's predicted binding MASS the map must locate
 
 
-
-
-# --------------------------------------------------------------------------
-# Persisted-SF read + guard (0095-0002) — the forecast projects μ through the
-# weekly map's persisted SF instead of refitting SF on [D−240, D) every day.
-# --------------------------------------------------------------------------
-
-def resolve_sf_window(conn, run_id: str, *, as_of=None
-                      ) -> tuple[pd.Timestamp, pd.Timestamp] | None:
-    """Latest persisted ``(window_start, window_end)`` for ``run_id``, causal to
-    ``as_of``.
-
-    Returns the row with the greatest ``window_start`` whose fit closes at or before
-    ``as_of`` (``window_end <= as_of``) — the freshest SF a forecast for ``as_of``
-    may use without any interval ≥ ``as_of`` entering the fit (``window_end`` is the
-    fit-window close, `rolling.py`). ``as_of=None`` drops the causality filter (the
-    plain "newest window" the API serves). ``None`` if the run has no window.
-    """
-    with conn.cursor() as cur:
-        if as_of is None:
-            cur.execute(
-                "SELECT window_start, window_end FROM sf_window_meta "
-                "WHERE run_id = %s ORDER BY window_start DESC LIMIT 1", (run_id,))
-        else:
-            cur.execute(
-                "SELECT window_start, window_end FROM sf_window_meta "
-                "WHERE run_id = %s AND window_end <= %s "
-                "ORDER BY window_start DESC LIMIT 1",
-                (run_id, pd.Timestamp(as_of)))
-        row = cur.fetchone()
-    if row is None:
-        return None
-    return pd.Timestamp(row[0]), pd.Timestamp(row[1])
-
-
-def load_window_sf(conn, run_id: str, window_start) -> pd.DataFrame:
-    """Read one persisted window's SF matrix (constraint_key × settlement_point).
-
-    The map stores it threshold-sparsified (``|sf| < sf_threshold`` dropped), so an
-    absent cell is a true zero: pivot and fill ``0.0`` to hand `draw_congestion` a
-    dense matrix on the same axes a fresh fit would. Empty frame if the window has
-    no rows.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT constraint_key, settlement_point, sf FROM implied_shift_factors "
-            "WHERE run_id = %s AND window_start = %s",
-            (run_id, pd.Timestamp(window_start)))
-        rows = cur.fetchall()
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows, columns=["constraint_key", "settlement_point", "sf"])
-    SF = df.pivot_table(index="constraint_key", columns="settlement_point",
-                        values="sf", aggfunc="mean").fillna(0.0)
-    SF.index.name = None
-    SF.columns.name = None
-    return SF
-
-
-def sf_mass_coverage(SF: pd.DataFrame, wp: pd.DataFrame) -> float:
-    """Share of D's predicted binding MASS (Σ ``p_bind·mu_gbm``) whose constraint
-    the loaded map has a column for.
-
-    Mass-weighted, not a raw key count: a covered key that never binds shouldn't
-    prop up coverage, and a novel key that barely binds shouldn't sink it. ``1.0``
-    when the day predicts no binding at all (nothing to locate — the degenerate-μ
-    guard downstream handles a truly empty forecast)."""
-    e_mu = wp["p_bind"].to_numpy(float) * wp["mu_gbm"].to_numpy(float)
-    total = float(np.nansum(np.abs(e_mu)))
-    if total <= 0:
-        return 1.0
-    covered = wp["key"].isin(set(SF.index)).to_numpy()
-    return float(np.nansum(np.abs(e_mu[covered])) / total)
-
-
-def load_forecast_sf(conn, D, wp: pd.DataFrame, *, run_id: str = MAP_RUN_ID,
-                     max_age_days: int = MAX_SF_AGE_DAYS,
-                     min_coverage: float = MIN_SF_COVERAGE) -> pd.DataFrame:
-    """Load the weekly map's latest SF for delivery day ``D`` and guard it, or raise.
-
-    Replaces the per-day ``[D−240, D)`` refit: the map already fits this SF weekly
-    and persists it (`implied_shift_factors`, run ``run_id``); within the 7-day
-    refit interval the model treats SF as stationary, so the freshest complete
-    window is valid for ``D``. Causal by construction — only a window with
-    ``window_end ≤ D`` is eligible, so the SF never saw an interval ≥ ``D``.
-
-    Fails loud (the caller keeps the prior pointer) on any of: no window built for
-    the run; stale (``D − window_end > max_age_days`` — a missed weekly refresh);
-    an empty SF matrix; or coverage below ``min_coverage`` of D's predicted binding
-    mass (the map universe and D's constraints have diverged).
-    """
-    D = pd.Timestamp(D)
-    win = resolve_sf_window(conn, run_id, as_of=D)
-    if win is None:
-        raise RuntimeError(
-            f"no persisted SF window for run_id={run_id!r} at/before {D.date()} — "
-            f"the weekly map ({run_id}) has not been built. Refusing to forecast "
-            f"without geography (keep prior pointer).")
-    window_start, window_end = win
-    age = (D - window_end).days
-    if age > max_age_days:
-        raise RuntimeError(
-            f"stale SF map for {D.date()}: the latest {run_id} window closes "
-            f"{window_end.date()} ({age}d old > {max_age_days}d floor). The weekly "
-            f"refresh is behind — refusing to serve stale geography (keep pointer).")
-    SF = load_window_sf(conn, run_id, window_start)
-    if SF.empty:
-        raise RuntimeError(
-            f"empty SF matrix for {run_id} window {window_start.date()} — nothing "
-            f"to project {D.date()} through (keep prior pointer).")
-    cov = sf_mass_coverage(SF, wp)
-    if cov < min_coverage:
-        raise RuntimeError(
-            f"low SF coverage for {D.date()}: the {run_id} map locates {cov:.1%} of "
-            f"the day's predicted binding mass (< {min_coverage:.0%} floor). The map "
-            f"universe and D's constraints have diverged — refusing (keep pointer).")
-    log.info("SF from %s window %s (%dd old): %d constraints x %d SPs, coverage %.1f%%",
-             run_id, window_start.date(), age, SF.shape[0], SF.shape[1], cov * 100)
-    return SF
 
 
 def propagate_window(
