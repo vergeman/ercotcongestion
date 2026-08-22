@@ -9,7 +9,13 @@ import type { AnalysisBasis, AnalysisNodeResponse } from "./types";
 
 const cache = new QueryCache<AnalysisNodeResponse>({ maxSize: 48, ttlMs: 5 * 60 * 1000 });
 
-function cacheKey(point: string, deliveryDate: string, hour: string, basis: AnalysisBasis, includeDetail: boolean): string {
+function cacheKey(
+  point: string,
+  deliveryDate: string,
+  hour: string,
+  basis: AnalysisBasis,
+  includeDetail: boolean,
+): string {
   return [point, deliveryDate, hour, basis, includeDetail].join("|");
 }
 
@@ -26,10 +32,18 @@ export async function getAnalysisNode(
   if (cached) return cached;
   // Caller-owned cancellation remains caller-owned; the cache only aborts an
   // in-flight request when it is explicitly invalidated or evicted.
-  return cache.load(key, () => fetchAnalysisNode(point, { deliveryDate, basis, includeDetail, hours: [hour], signal }).then((response) => {
-    if (!response) throw new Error("analysis/node unavailable");
-    return response;
-  }));
+  return cache.load(key, () =>
+    fetchAnalysisNode(point, {
+      deliveryDate,
+      basis,
+      includeDetail,
+      hours: [hour],
+      signal,
+    }).then((response) => {
+      if (!response) throw new Error("analysis/node unavailable");
+      return response;
+    }),
+  );
 }
 
 export function clearAnalysisNodeCache(): void { cache.invalidate(); }

@@ -1,19 +1,126 @@
 import { requestRequiredJson } from "./http";
-import type { AnalysisBasis, AnalysisConstraintsResponse, AnalysisEsspGroupsResponse, AnalysisNodeResponse, AnalysisSettlementPointsResponse, EsspSource, MatrixFrame } from "./types";
+import type {
+  AnalysisBasis,
+  AnalysisConstraintsResponse,
+  AnalysisEsspGroupsResponse,
+  AnalysisNodeResponse,
+  AnalysisSettlementPointsResponse,
+  EsspSource,
+  MatrixFrame,
+} from "./types";
 
 export interface MatrixFrameRequest {
-  rowLimit?: number; columnLimit?: number; rowPreset?: "top30" | "top100" | "pinned"; constraintType?: "gtc" | "transmission" | "radial"; constraintSearch?: string; settlementPointSearch?: string; pinnedConstraints?: string[]; pinnedSettlementPoints?: string[]; columnSet?: "core" | "anchors" | "pinned" | "core_pinned" | "default_anchors"; orientation?: "constraints" | "nodes"; rowOrder?: "contribution" | "cursor_mu" | "anchor_contribution"; peekConstraint?: string | null; peekSettlementPoint?: string | null; signal?: AbortSignal;
+  rowLimit?: number;
+  columnLimit?: number;
+  rowPreset?: "top30" | "top100" | "pinned";
+  constraintType?: "gtc" | "transmission" | "radial";
+  constraintSearch?: string;
+  settlementPointSearch?: string;
+  pinnedConstraints?: string[];
+  pinnedSettlementPoints?: string[];
+  columnSet?: "core" | "anchors" | "pinned" | "core_pinned" | "default_anchors";
+  orientation?: "constraints" | "nodes";
+  rowOrder?: "contribution" | "cursor_mu" | "anchor_contribution";
+  peekConstraint?: string | null;
+  peekSettlementPoint?: string | null;
+  signal?: AbortSignal;
 }
-export function fetchMatrixFrame(intervalTs: Date, options: MatrixFrameRequest = {}): Promise<MatrixFrame> {
-  const { rowLimit = 30, columnLimit = 40, rowPreset = "top30", constraintType, constraintSearch, settlementPointSearch, pinnedConstraints = [], pinnedSettlementPoints = [], columnSet = "core", orientation = "constraints", rowOrder = "contribution", peekConstraint, peekSettlementPoint, signal } = options;
-  const query = new URLSearchParams({ interval_ts: intervalTs.toISOString(), row_limit: String(rowLimit), column_limit: String(columnLimit), column_set: columnSet, row_preset: rowPreset, orientation, row_order: rowOrder });
-  if (constraintType) query.set("constraint_type", constraintType); if (constraintSearch) query.set("constraint_search", constraintSearch); if (settlementPointSearch) query.set("settlement_point_search", settlementPointSearch); if (peekConstraint) query.set("peek_constraint", peekConstraint); if (peekSettlementPoint) query.set("peek_settlement_point", peekSettlementPoint);
-  pinnedConstraints.forEach((key) => query.append("pinned_constraint", key)); pinnedSettlementPoints.forEach((point) => query.append("pinned_settlement_point", point));
+
+export function fetchMatrixFrame(
+  intervalTs: Date,
+  options: MatrixFrameRequest = {},
+): Promise<MatrixFrame> {
+  const {
+    rowLimit = 30,
+    columnLimit = 40,
+    rowPreset = "top30",
+    constraintType,
+    constraintSearch,
+    settlementPointSearch,
+    pinnedConstraints = [],
+    pinnedSettlementPoints = [],
+    columnSet = "core",
+    orientation = "constraints",
+    rowOrder = "contribution",
+    peekConstraint,
+    peekSettlementPoint,
+    signal,
+  } = options;
+  const query = new URLSearchParams({
+    interval_ts: intervalTs.toISOString(),
+    row_limit: String(rowLimit),
+    column_limit: String(columnLimit),
+    column_set: columnSet,
+    row_preset: rowPreset,
+    orientation,
+    row_order: rowOrder,
+  });
+  if (constraintType) query.set("constraint_type", constraintType);
+  if (constraintSearch) query.set("constraint_search", constraintSearch);
+  if (settlementPointSearch) query.set("settlement_point_search", settlementPointSearch);
+  if (peekConstraint) query.set("peek_constraint", peekConstraint);
+  if (peekSettlementPoint) query.set("peek_settlement_point", peekSettlementPoint);
+  pinnedConstraints.forEach((key) => query.append("pinned_constraint", key));
+  pinnedSettlementPoints.forEach((point) => query.append("pinned_settlement_point", point));
   return requestRequiredJson("/matrix/frame", { query, signal });
 }
-export interface AnalysisAttributionRequest { deliveryDate: string; basis?: AnalysisBasis; horizon?: number; hours?: string[]; minAbsSf?: number; mode?: "drivers" | "structural"; includeDetail?: boolean; signal?: AbortSignal; }
-function attributionQuery(request: AnalysisAttributionRequest) { const query = new URLSearchParams({ delivery_date: request.deliveryDate }); if (request.basis) query.set("basis", request.basis); if (request.horizon != null) query.set("horizon", String(request.horizon)); if (request.minAbsSf != null) query.set("min_abs_sf", String(request.minAbsSf)); if (request.mode) query.set("mode", request.mode); if (request.includeDetail) query.set("include_detail", "true"); request.hours?.forEach((hour) => query.append("hours", hour)); return query; }
-export function fetchAnalysisNode(settlementPoint: string, request: AnalysisAttributionRequest): Promise<AnalysisNodeResponse> { const query = attributionQuery(request); query.set("settlement_point", settlementPoint); return requestRequiredJson("/analysis/node", { query, signal: request.signal }); }
-export function fetchAnalysisSettlementPoints(deliveryDate: string, { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {}): Promise<AnalysisSettlementPointsResponse> { const query = new URLSearchParams({ delivery_date: deliveryDate }); if (horizon != null) query.set("horizon", String(horizon)); return requestRequiredJson("/analysis/settlement-points", { query, signal }); }
-export function fetchAnalysisConstraints(deliveryDate: string, { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {}): Promise<AnalysisConstraintsResponse> { const query = new URLSearchParams({ delivery_date: deliveryDate }); if (horizon != null) query.set("horizon", String(horizon)); return requestRequiredJson("/analysis/constraints", { query, signal }); }
-export function fetchAnalysisEsspGroups(intervalTs: string, source: EsspSource = "study", signal?: AbortSignal): Promise<AnalysisEsspGroupsResponse> { return requestRequiredJson("/analysis/essp", { query: new URLSearchParams({ interval_ts: intervalTs, source }), signal }); }
+
+export interface AnalysisAttributionRequest {
+  deliveryDate: string;
+  basis?: AnalysisBasis;
+  horizon?: number;
+  hours?: string[];
+  minAbsSf?: number;
+  mode?: "drivers" | "structural";
+  includeDetail?: boolean;
+  signal?: AbortSignal;
+}
+
+function attributionQuery(request: AnalysisAttributionRequest): URLSearchParams {
+  const query = new URLSearchParams({ delivery_date: request.deliveryDate });
+  if (request.basis) query.set("basis", request.basis);
+  if (request.horizon != null) query.set("horizon", String(request.horizon));
+  if (request.minAbsSf != null) query.set("min_abs_sf", String(request.minAbsSf));
+  if (request.mode) query.set("mode", request.mode);
+  if (request.includeDetail) query.set("include_detail", "true");
+  request.hours?.forEach((hour) => query.append("hours", hour));
+  return query;
+}
+
+export function fetchAnalysisNode(
+  settlementPoint: string,
+  request: AnalysisAttributionRequest,
+): Promise<AnalysisNodeResponse> {
+  const query = attributionQuery(request);
+  query.set("settlement_point", settlementPoint);
+  return requestRequiredJson("/analysis/node", { query, signal: request.signal });
+}
+
+export function fetchAnalysisSettlementPoints(
+  deliveryDate: string,
+  { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {},
+): Promise<AnalysisSettlementPointsResponse> {
+  const query = new URLSearchParams({ delivery_date: deliveryDate });
+  if (horizon != null) query.set("horizon", String(horizon));
+  return requestRequiredJson("/analysis/settlement-points", { query, signal });
+}
+
+export function fetchAnalysisConstraints(
+  deliveryDate: string,
+  { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {},
+): Promise<AnalysisConstraintsResponse> {
+  const query = new URLSearchParams({ delivery_date: deliveryDate });
+  if (horizon != null) query.set("horizon", String(horizon));
+  return requestRequiredJson("/analysis/constraints", { query, signal });
+}
+
+export function fetchAnalysisEsspGroups(
+  intervalTs: string,
+  source: EsspSource = "study",
+  signal?: AbortSignal,
+): Promise<AnalysisEsspGroupsResponse> {
+  return requestRequiredJson("/analysis/essp", {
+    query: new URLSearchParams({ interval_ts: intervalTs, source }),
+    signal,
+  });
+}

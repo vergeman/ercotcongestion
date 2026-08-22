@@ -1,5 +1,12 @@
 import { requestJson } from "./http";
-import type { BriefDay, BriefDetails, BriefHeroLatest, BriefHeroShell, BriefHeroStats, Standouts } from "./types";
+import type {
+  BriefDay,
+  BriefDetails,
+  BriefHeroLatest,
+  BriefHeroShell,
+  BriefHeroStats,
+  Standouts,
+} from "./types";
 
 const dayQuery = (deliveryDate: string) => new URLSearchParams({ delivery_date: deliveryDate });
 
@@ -9,11 +16,21 @@ export function fetchBriefHeroLatest(signal?: AbortSignal): Promise<BriefHeroLat
 export function fetchBriefDay(deliveryDate: string, signal?: AbortSignal): Promise<BriefDay | null> {
   return requestJson("/analysis/brief", { query: dayQuery(deliveryDate), signal });
 }
-export function fetchBriefHeroShell(deliveryDate: string, signal?: AbortSignal): Promise<BriefHeroShell | null> {
+export function fetchBriefHeroShell(
+  deliveryDate: string,
+  signal?: AbortSignal,
+): Promise<BriefHeroShell | null> {
   return requestJson("/analysis/brief/hero", { query: dayQuery(deliveryDate), signal });
 }
-export function fetchBriefHeroStats(deliveryDate: string, signal?: AbortSignal): Promise<BriefHeroStats | null> {
-  return requestJson("/analysis/brief/hero/stats", { query: dayQuery(deliveryDate), signal, unavailable: [404, 503] });
+export function fetchBriefHeroStats(
+  deliveryDate: string,
+  signal?: AbortSignal,
+): Promise<BriefHeroStats | null> {
+  return requestJson("/analysis/brief/hero/stats", {
+    query: dayQuery(deliveryDate),
+    signal,
+    unavailable: [404, 503],
+  });
 }
 export function fetchBriefStandouts(deliveryDate: string, signal?: AbortSignal): Promise<Standouts | null> {
   const query = dayQuery(deliveryDate); query.set("k", "4");

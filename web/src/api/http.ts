@@ -21,7 +21,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function requestRequiredJson<T>(path: string, options: { query?: URLSearchParams; signal?: AbortSignal } = {}): Promise<T> {
+export async function requestRequiredJson<T>(
+  path: string,
+  options: { query?: URLSearchParams; signal?: AbortSignal } = {},
+): Promise<T> {
   const value = await requestJson<T>(path, { ...options, unavailable: [] });
   // An empty unavailable list means requestJson either resolves T or throws.
   return value as T;
@@ -38,12 +41,18 @@ export function apiUrl(path: string, query?: URLSearchParams): string {
  */
 export async function requestJson<T>(
   path: string,
-  options: { query?: URLSearchParams; signal?: AbortSignal; unavailable?: readonly number[] } = {},
+  options: {
+    query?: URLSearchParams;
+    signal?: AbortSignal;
+    unavailable?: readonly number[];
+  } = {},
 ): Promise<T | null> {
   try {
     const response = await fetch(apiUrl(path, options.query), { signal: options.signal });
     if ((options.unavailable ?? [503]).includes(response.status)) return null;
-    if (!response.ok) throw new ApiError(`${path} ${response.status}`, "http", response.status);
+    if (!response.ok) {
+      throw new ApiError(`${path} ${response.status}`, "http", response.status);
+    }
     try {
       return await response.json() as T;
     } catch (error) {

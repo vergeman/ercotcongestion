@@ -12,14 +12,26 @@ export function fetchTopology(signal?: AbortSignal): Promise<unknown> {
   return requestRequiredJson("/topology", { signal });
 }
 
-export function fetchErcotRange(start: Date, end: Date, signal?: AbortSignal): Promise<ErcotRangeResponse | null> {
+export function fetchErcotRange(
+  start: Date,
+  end: Date,
+  signal?: AbortSignal,
+): Promise<ErcotRangeResponse | null> {
   return requestJson("/ercot_range", { query: rangeQuery(start, end), signal });
 }
 
-export function fetchForecastRange(start?: Date, end?: Date, signal?: AbortSignal): Promise<ForecastRangeResponse | null> {
+export function fetchForecastRange(
+  start?: Date,
+  end?: Date,
+  signal?: AbortSignal,
+): Promise<ForecastRangeResponse | null> {
   return requestJson("/forecast_range", { query: rangeQuery(start, end), signal });
 }
 
-export function fetchConditionsRange(start?: Date, end?: Date, signal?: AbortSignal): Promise<ConditionsRangeResponse | null> {
+export function fetchConditionsRange(
+  start?: Date,
+  end?: Date,
+  signal?: AbortSignal,
+): Promise<ConditionsRangeResponse | null> {
   return requestJson("/conditions_range", { query: rangeQuery(start, end), signal });
 }
