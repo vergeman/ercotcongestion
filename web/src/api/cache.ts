@@ -27,16 +27,13 @@ export class QueryCache<T> {
     return entry.value;
   }
 
-  load(key: string, loader: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
-    if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  load(key: string, loader: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const cached = this.get(key);
     if (cached !== undefined) return Promise.resolve(cached);
     const existing = this.entries.get(key);
     if (existing?.promise) return existing.promise;
 
     const controller = new AbortController();
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
     const entry: CacheEntry<T> = existing ?? {};
     const promise = loader(controller.signal).then(
       (value) => {
@@ -54,7 +51,7 @@ export class QueryCache<T> {
         this.entries.delete(key);
         throw error;
       },
-    ).finally(() => signal?.removeEventListener("abort", abort));
+    );
     entry.promise = promise;
     entry.controller = controller;
     this.entries.set(key, entry);

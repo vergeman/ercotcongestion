@@ -23,7 +23,10 @@ function cached<T>(
   request: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  return entries.load(key, request, signal) as Promise<T>;
+  // A cached request may serve multiple mounted consumers. Its own cache
+  // controller owns cancellation; a consumer's cleanup must not abort it.
+  void signal;
+  return entries.load(key, request) as Promise<T>;
 }
 
 export function clearBriefCache(): void { entries.invalidate(); }
