@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap/0007-ct-time-helpers
 
 ## Acceptance
 
-* [ ] All existing CT boundary, forecast-day, grade-day, and nodal-write tests pass.
-* [ ] New DST table tests prove 23-, 24-, and 25-hour blocks and correct CT labels.
-* [ ] Reprocessing a legacy UTC-labeled day still deletes/replaces by the exact timestamp window.
+* [x] All existing CT boundary, forecast-day, grade-day, and nodal-write tests pass.
+* [x] New DST table tests prove 23-, 24-, and 25-hour blocks and correct CT labels.
+* [x] Reprocessing a legacy UTC-labeled day still deletes/replaces by the exact timestamp window.
 
 ## Suggested regression tests
 
