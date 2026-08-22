@@ -27,6 +27,12 @@ Branch: refactor/0161-compute-refactor-roadmap/0006-mu-model-seams
 * [ ] Fixed inputs produce identical prediction tables and serialized artifacts.
 * [ ] Spill and non-spill execution retain identical model output.
 
+## Commit groups
+
+* [ ] `refactor(mu)`: extract prediction artifact serialization and chunk combination.
+* [ ] `refactor(mu)`: extract head fitting, encoding, and fold prediction helpers.
+* [ ] `refactor(mu)`: extract walk scheduling and chunk orchestration behind compatibility exports.
+
 ## Suggested regression tests
 
 * Add a small deterministic panel fixture and fixed seed, then compare `walk_forward` output pre/post extraction with exact frame/index equality, including fold/week boundaries and attrs such as novelty metadata.

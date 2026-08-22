@@ -36,7 +36,6 @@ import gc
 import logging
 import os
 import time
-import zipfile
 from datetime import timedelta
 
 import numpy as np
@@ -46,6 +45,7 @@ from sklearn.ensemble import (HistGradientBoostingClassifier,
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
+from compute.mu.artifacts import combine_pred_chunks, load_preds, save_preds
 from compute.mu.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 from compute.sf.config import REFIT_DAYS, WINDOW_DAYS
 
@@ -731,124 +731,6 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
 # --------------------------------------------------------------------------
 # Persisting the predictions — the input to commits 4 and 5
 # --------------------------------------------------------------------------
-
-def save_preds(path: str, preds: pd.DataFrame) -> None:
-    """Write the prediction frame as a compressed .npz.
-
-    **Not parquet:** the compute image ships neither pyarrow nor fastparquet, so
-    `to_parquet` raises — and it would have raised at the END of a ~2h walk, after
-    every fit was already paid for. npz needs only numpy.
-
-    The constraint key is factorized to int32 codes against a vocabulary rather
-    than stored as a string per row: at ~11M rows and ~30-char keys, the naive
-    encoding is over a gigabyte of mostly-repeated text.
-
-    Timestamps go out as int64 UTC **microseconds** — npz has no tz-aware dtype,
-    and silently dropping a timezone here is exactly how an hour-shift enters a
-    panel the leak audit has already signed off on. Microseconds, not nanoseconds,
-    because pandas 3 makes `us` the default resolution (`date_range` returns
-    `datetime64[us]` while `to_datetime(unit="ns")` returns `ns`), so an ns
-    round-trip comes back with a different dtype and silently fails an index
-    comparison. The data is hourly; there is no precision to lose either way.
-    """
-    df = preds.reset_index()
-    codes, vocab = pd.factorize(df["key"], sort=True)
-
-    def epoch_us(s: pd.Series) -> np.ndarray:
-        return (pd.DatetimeIndex(s).tz_convert("UTC").tz_localize(None)
-                .to_numpy("datetime64[us]").astype("int64"))
-
-    np.savez_compressed(
-        path,
-        interval_ts=epoch_us(df["interval_ts"]),
-        week=epoch_us(df["week"]),
-        key_code=codes.astype("int32"),
-        key_vocab=np.asarray(vocab, dtype=object).astype("U"),
-        p_bind=df["p_bind"].to_numpy("float32"),
-        mu_clim=df["mu_clim"].to_numpy("float32"),
-        mu_gbm=df["mu_gbm"].to_numpy("float32"),
-        y_bind=df["y_bind"].to_numpy("int8"),
-        y_mu=df["y_mu"].to_numpy("float32"),   # NaN where it did not bind
-    )
-
-
-_PRED_ARRAY_DTYPES = {
-    "interval_ts": np.dtype("int64"),
-    "week": np.dtype("int64"),
-    "key_code": np.dtype("int32"),
-    "p_bind": np.dtype("float32"),
-    "mu_clim": np.dtype("float32"),
-    "mu_gbm": np.dtype("float32"),
-    "y_bind": np.dtype("int8"),
-    "y_mu": np.dtype("float32"),
-}
-
-
-def combine_pred_chunks(paths: list[str], output: str) -> int:
-    """Stream per-chunk NPZs into one standard ``mu_preds.npz`` artifact.
-
-    The walk writes each chunk before releasing its panel.  Loading those chunks
-    into one DataFrame merely moves the full-history OOM to the finish line, so the
-    final ZIP members are written as streaming ``.npy`` arrays instead.  The result
-    is byte-schema-compatible with ``save_preds`` / ``load_preds``.
-    """
-    if not paths:
-        raise ValueError("cannot combine zero prediction chunks")
-
-    vocab_parts: list[np.ndarray] = []
-    n_rows = 0
-    for path in paths:
-        with np.load(path, allow_pickle=False) as z:
-            vocab_parts.append(z["key_vocab"])
-            n_rows += len(z["interval_ts"])
-    vocab = np.unique(np.concatenate(vocab_parts))
-    tmp = f"{output}.tmp"
-    os.makedirs(os.path.dirname(os.path.abspath(output)) or ".", exist_ok=True)
-
-    def write_member(zf: zipfile.ZipFile, name: str, dtype: np.dtype, chunks) -> None:
-        header = {"descr": dtype.str, "fortran_order": False, "shape": (n_rows,)}
-        with zf.open(f"{name}.npy", "w", force_zip64=True) as fh:
-            np.lib.format.write_array_header_2_0(fh, header)
-            for values in chunks:
-                fh.write(np.ascontiguousarray(values, dtype=dtype).tobytes())
-
-    try:
-        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED,
-                             allowZip64=True) as zf:
-            with zf.open("key_vocab.npy", "w", force_zip64=True) as fh:
-                np.save(fh, vocab, allow_pickle=False)
-            for name, dtype in _PRED_ARRAY_DTYPES.items():
-                def arrays(name=name):
-                    for path in paths:
-                        with np.load(path, allow_pickle=False) as z:
-                            if name == "key_code":
-                                keys = z["key_vocab"][z["key_code"]]
-                                yield np.searchsorted(vocab, keys).astype("int32")
-                            else:
-                                yield z[name]
-                write_member(zf, name, dtype, arrays())
-        os.replace(tmp, output)
-    finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-    return n_rows
-
-
-def load_preds(path: str) -> pd.DataFrame:
-    """Inverse of `save_preds`. Round-trips exactly — see the test."""
-    z = np.load(path, allow_pickle=False)
-    vocab = z["key_vocab"]
-    df = pd.DataFrame({
-        "interval_ts": pd.to_datetime(z["interval_ts"], unit="us", utc=True),
-        "key": vocab[z["key_code"]],
-        "week": pd.to_datetime(z["week"], unit="us", utc=True),
-        "p_bind": z["p_bind"], "mu_clim": z["mu_clim"], "mu_gbm": z["mu_gbm"],
-        "y_bind": z["y_bind"], "y_mu": z["y_mu"],
-    })
-    return df.set_index(["interval_ts", "key"])
-
 
 def _fmt_reliability(rel: pd.DataFrame) -> str:
     lines = ["  p_bin      n     said    happened     gap"]
