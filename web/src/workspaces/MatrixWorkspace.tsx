@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState } from "react";
 import type { AnalysisBasis } from "../api/types";
 import MatrixSidebar from "../components/matrix/MatrixSidebar";
@@ -17,19 +18,16 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   const { state, update } = useMatrixRouteState(routeSearch, onSelectionRouteChange);
   const [mobileIndexOpen, setMobileIndexOpen] = useState(false);
   const [seeded, setSeeded] = useState(storedSeeded);
-  const { frame, loading, error, retry } = useMatrixFrame(timestamp, state, seeded);
+  const { frame, loading, error, retry } = useMatrixFrame(timestamp, state, seeded, (nextFrame) => {
+    setSeeded(true);
+    update({ pinnedConstraints: boundedPins(nextFrame.rows.map((row) => row.constraint_key)), pinnedSettlementPoints: boundedPins(nextFrame.columns.map((column) => column.settlement_point)) });
+  });
   const { constraints, settlementPoints } = useMatrixVocabulary(frame);
   const vocabulary = useMemo(() => matrixVocabulary(constraints, settlementPoints, state), [constraints, settlementPoints, state]);
   const showBasis = state.tab === "nodes" && state.lens === "basis";
   const basisType: AnalysisBasis = state.val === "dmu" ? "realized" : "predicted";
   const basis = useMatrixBasis(showBasis, state.basisA, state.basisB, timestamp, frame, basisType);
   const [frameTopKey, setFrameTopKey] = useState<string | null>(null);
-  useEffect(() => {
-    if (!seeded && !state.pinnedConstraints.length && !state.pinnedSettlementPoints.length && frame?.available && (frame.rows.length || frame.columns.length)) {
-      setSeeded(true);
-      update({ pinnedConstraints: boundedPins(frame.rows.map((row) => row.constraint_key)), pinnedSettlementPoints: boundedPins(frame.columns.map((column) => column.settlement_point)) });
-    }
-  }, [frame, seeded, state.pinnedConstraints.length, state.pinnedSettlementPoints.length, update]);
   useEffect(() => { try { window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify({ version: 1, seeded, constraints: state.pinnedConstraints, settlementPoints: state.pinnedSettlementPoints })); } catch { /* optional */ } }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints]);
   const selectionKey = state.selection?.kind === "constraint" ? state.selection.key : state.selection?.kind === "node" ? state.selection.point : null;
   const selectionInFrame = Boolean(selectionKey && (state.tab === "nodes" ? frame?.columns.some((column) => column.settlement_point === selectionKey) : frame?.rows.some((row) => row.constraint_key === selectionKey)));

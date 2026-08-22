@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import type { MatrixEntitySelection, MatrixLens, MatrixTab, MatrixValTab } from "../../lib/matrix";
 

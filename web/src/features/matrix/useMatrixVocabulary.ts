@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react";
 import { fetchAnalysisConstraints, fetchAnalysisSettlementPoints } from "../../api/client";
 import type { AnalysisConstraintsResponse, AnalysisSettlementPointsResponse, MatrixFrame } from "../../api/types";

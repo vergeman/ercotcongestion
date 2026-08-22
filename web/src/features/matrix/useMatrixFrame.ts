@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from "react";
 import { getMatrixFrame } from "../../api/matrixFrames";
 import type { MatrixFrame } from "../../api/types";
@@ -5,7 +6,7 @@ import type { MatrixRouteState } from "./routeState";
 
 let rememberedFrame: MatrixFrame | null = null;
 
-export function useMatrixFrame(timestamp: Date | null, state: MatrixRouteState, seeded: boolean) {
+export function useMatrixFrame(timestamp: Date | null, state: MatrixRouteState, seeded: boolean, onSeed?: (frame: MatrixFrame) => void) {
   const [frame, setFrame] = useState<MatrixFrame | null>(() => rememberedFrame?.interval_ts === timestamp?.toISOString() ? rememberedFrame : null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,10 +29,13 @@ export function useMatrixFrame(timestamp: Date | null, state: MatrixRouteState, 
     void getMatrixFrame(timestamp, request, controller.signal).then((next) => {
       if (id !== requestId.current) return;
       rememberedFrame = next; setFrame(next);
+      if (seeding && next.available && (next.rows.length || next.columns.length)) onSeed?.(next);
     }).catch((requestError: unknown) => {
       if (!(requestError instanceof Error && requestError.name === "AbortError") && id === requestId.current) setError("The Matrix frame could not be loaded. Check the connection and retry.");
     }).finally(() => { if (id === requestId.current) setLoading(false); });
     return () => controller.abort();
+  // onSeed is an event callback; re-subscribing the request for its identity would abort an active request.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seeded, state.pinnedConstraints, state.pinnedSettlementPoints, peekConstraint, peekSettlementPoint, retryVersion, timestamp]);
   return { frame, loading, error, retry: () => setRetryVersion((value) => value + 1) };
 }

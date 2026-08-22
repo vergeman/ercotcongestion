@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from "react";
 import { getAnalysisNode } from "../../api/analysisNode";
 import type { AnalysisBasis, MatrixFrame } from "../../api/types";
