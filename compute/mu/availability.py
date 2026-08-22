@@ -51,13 +51,12 @@ def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
     return start.tz_convert("UTC"), (start + pd.DateOffset(days=1)).tz_convert("UTC")
 
 
-_DAM_CLOSE_SQL = """
+def dam_close_expr(ts_col: str) -> str:
+    """Return the SQL expression for an interval's DAM-close instant."""
+    _DAM_CLOSE_SQL = """
     ((date_trunc('day', {ts} AT TIME ZONE '{tz}') - interval '1 day'
       + interval '{hour} hours') AT TIME ZONE '{tz}')
 """
-
-
-def dam_close_expr(ts_col: str) -> str:
     return _DAM_CLOSE_SQL.format(ts=ts_col, tz=ERCOT_TZ, hour=DAM_CLOSE_HOUR)
 
 
