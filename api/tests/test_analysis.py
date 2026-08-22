@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 import pandas as pd
+from fastapi import Query
 
 import analysis as analysis_module
 from compute.analysis.hero_window import delivery_bounds
@@ -23,6 +24,14 @@ def _node_artifact():
         E_mu=pd.DataFrame([[4.0, 6.0, 2.0], [1.0, 3.0, 0.0]], index=pd.to_datetime([
             "2026-07-28T05:00Z", "2026-07-28T06:00Z"]), columns=["A|B", "C|D", "E|F"]),
     )
+
+
+def test_brief_delivery_date_alias_resolves_to_the_canonical_name():
+    delivery_date = date(2026, 7, 28)
+
+    assert analysis_module._resolve_brief_delivery_date(delivery_date, None) == delivery_date
+    assert analysis_module._resolve_brief_delivery_date(None, delivery_date) == delivery_date
+    assert analysis_module._resolve_brief_delivery_date(Query(None), delivery_date) == delivery_date
 
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
@@ -158,12 +167,13 @@ def _slots(basis):
 
 
 def test_hero_resolves_served_horizon_and_returns_forecast_segments(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"run_id": "run-x"}]) # published run
     fake_pool.cursor.queue([{"h": 1}])            # horizon resolve
     fake_pool.cursor.queue([{"ts": None}])        # DAM coverage
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
     monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
 
-    response = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
+    response = client.get("/analysis/hero?date=2026-07-28")
     assert response.status_code == 200
     body = response.json()
     assert body["provenance"] == {"run_id": "run-x", "delivery_date": "2026-07-28",
@@ -175,12 +185,13 @@ def test_hero_resolves_served_horizon_and_returns_forecast_segments(client, fake
 
 
 def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": pd.Timestamp("2026-07-28T20:00Z")}])
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
     monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
 
-    body = client.get("/analysis/hero?date=2026-07-28&run_id=run-x").json()
+    body = client.get("/analysis/hero?date=2026-07-28").json()
     assert body["provenance"]["basis"] == "settled"
     assert body["verdict"] == {
         "magnitude": {"bucket": "under_called", "rungs": 3},
@@ -191,17 +202,19 @@ def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, 
 
 
 def test_hero_soft_fails_when_no_artifact_exists(client, fake_pool):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": None}])
-    body = client.get("/analysis/hero?date=2026-07-28&run_id=run-x").json()
+    body = client.get("/analysis/hero?date=2026-07-28").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing",
                     "run_id": "run-x", "delivery_date": "2026-07-28"}
 
 
 def test_hero_latest_returns_the_newest_published_day(client, fake_pool):
     """One artifact covers its whole CT day now (0133) — no following-day join."""
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 28), "horizon": 1}])
 
-    body = client.get("/analysis/hero/latest?run_id=run-x").json()
+    body = client.get("/analysis/hero/latest").json()
 
     assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1}
     sql, params = fake_pool.cursor.queries[-1]
@@ -210,9 +223,10 @@ def test_hero_latest_returns_the_newest_published_day(client, fake_pool):
 
 
 def test_hero_latest_soft_fails_without_any_published_day(client, fake_pool):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([])
 
-    assert client.get("/analysis/hero/latest?run_id=run-x").json() == {
+    assert client.get("/analysis/hero/latest").json() == {
         "available": False, "run_id": "run-x", "delivery_date": None, "horizon": None,
     }
 
@@ -275,6 +289,7 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
     client, fake_pool, monkeypatch,
 ):
     """First paint is hero-only; date carets use two cheap artifact lookups."""
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 2}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 27)}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 29)}])
@@ -294,7 +309,7 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
             lambda *_: (_ for _ in ()).throw(AssertionError("detail handler ran")),
         )
 
-    body = client.get("/analysis/brief/hero?day=2026-07-28&run=run-x").json()
+    body = client.get("/analysis/brief/hero?day=2026-07-28").json()
 
     assert calls == {"hero": 1, "include_condition": False}
     assert body == {
@@ -308,6 +323,7 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
 def test_brief_hero_stats_returns_all_card_slots_in_one_response(
     client, fake_pool, monkeypatch,
 ):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 2}])
     monkeypatch.setattr(
         analysis_module,
@@ -320,7 +336,7 @@ def test_brief_hero_stats_returns_all_card_slots_in_one_response(
         },
     )
 
-    body = client.get("/analysis/brief/hero/stats?day=2026-07-28&run=run-x").json()
+    body = client.get("/analysis/brief/hero/stats?day=2026-07-28").json()
 
     assert body == {
         "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2,
@@ -330,6 +346,7 @@ def test_brief_hero_stats_returns_all_card_slots_in_one_response(
 
 
 def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 2}])
     calls: set[str] = set()
 
@@ -349,7 +366,7 @@ def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_
     for name in names:
         monkeypatch.setattr(analysis_module, name, detail(name))
 
-    response = client.get("/analysis/brief/details?day=2026-07-28&run=run-x")
+    response = client.get("/analysis/brief/details?day=2026-07-28")
 
     assert response.status_code == 200
     assert calls == set(names)
@@ -417,14 +434,16 @@ def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
 
 
 def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, monkeypatch):
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": None}])
+    fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": None}])
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
     monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
-    first = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
-    second = client.get("/analysis/hero?date=2026-07-28&run_id=run-x")
+    first = client.get("/analysis/hero?date=2026-07-28")
+    second = client.get("/analysis/hero?date=2026-07-28")
     assert first.content == second.content
 
 

@@ -499,53 +499,6 @@ class BriefDayResponse(BaseModel):
     grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
 
 
-# ---- /api/ercot_state_range ---------------------------------------------
-#
-# Per-hour ERCOT settlement-point congestion, read from the active run's
-# congestion_matrices.npz.
-
-class ErcotSpState(BaseModel):
-    sp_id: str
-    congestion: float | None
-
-
-class ErcotStateRangeEntry(BaseModel):
-    interval_ts: datetime
-    sps: list[ErcotSpState]
-
-
-class ErcotStateRangeResponse(BaseModel):
-    start: datetime
-    end: datetime
-    count: int
-    entries: list[ErcotStateRangeEntry]
-
-
-# ---- /api/ercot_spp_range -----------------------------------------------
-#
-# Raw DAM SPP (NP4-190-CD) per settlement point, per hour. Feeds the LMP
-# palette's right pane so LMP-vs-LMP comparison uses ERCOT's own published
-# prices, not a derived (SPP − system_λ) quantity. Read directly from the
-# ``ercot_dam_spp`` table rather than the run's congestion matrix — the
-# matrix stores only the shifted congestion component, not the raw price.
-
-class ErcotSpSpp(BaseModel):
-    sp_id: str
-    spp: float | None
-
-
-class ErcotSppRangeEntry(BaseModel):
-    interval_ts: datetime
-    sps: list[ErcotSpSpp]
-
-
-class ErcotSppRangeResponse(BaseModel):
-    start: datetime
-    end: datetime
-    count: int
-    entries: list[ErcotSppRangeEntry]
-
-
 # ---- /ercot_range --------------------------------------------------------
 #
 # Compact wire format for the two realized ERCOT views.  Settlement-point IDs
@@ -574,7 +527,7 @@ class ErcotRangeResponse(BaseModel):
 # ---- /forecast_range -----------------------------------------------------
 #
 # Per-hour, per-SP forecast congestion (P10/P50/P90) over a window — the
-# prediction counterpart to ``/ercot_spp_range``, read from ``forecast_nodal``
+# prediction counterpart to ``/ercot_range``, read from ``forecast_nodal``
 # at the current ``forecast_current[ercot]`` run. Same range shape (start / end /
 # count / per-hour ``entries``) so the left ("prediction") map pane aligns to the
 # same scrubber the realized right pane does, hour for hour, instead of both
@@ -1176,6 +1129,14 @@ class ScoreboardDaily(BaseModel):
 
 # ---- /scoreboard/summary --------------------------------------------------
 
+class BootstrapSectionStatus(BaseModel):
+    """Availability and source identity for one independently built section."""
+    available: bool
+    unavailable_reason: str | None = None
+    run_id: str | None = None
+    delivery_date: date | None = None
+    horizon: int | None = None
+
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary (0137).
 
@@ -1190,6 +1151,7 @@ class ScoreboardSummaryResponse(BaseModel):
     weekly: ScoreboardWeekly | None
     headline: ScoreboardHeadline | None
     daily: ScoreboardDaily | None
+    availability: dict[str, BootstrapSectionStatus]
 
 
 # ---- /map/summary -----------------------------------------------------------
@@ -1211,6 +1173,7 @@ class MapSummaryResponse(BaseModel):
     overview: MapOverview | None
     meta: MapMeta | None
     headline: ScoreboardHeadline | None
+    availability: dict[str, BootstrapSectionStatus]
 
 
 # ---- /conditions_range -------------------------------------------------------

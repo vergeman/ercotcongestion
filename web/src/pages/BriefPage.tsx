@@ -1521,7 +1521,7 @@ export default function BriefPage() {
     setGradeHistory(null);
     setDetailsError(null);
     setAdjacentDays({ previous: null, next: null });
-    fetchBriefHeroShellCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroShellCached(deliveryDay)
       .then((result) => {
         if (!live) return;
         setHero(result?.hero ?? null);
@@ -1544,7 +1544,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // Standouts are the one lower panel worth warming with the hero: they are
   // already hidden by the global gate and can be shown immediately beneath it.
@@ -1552,7 +1552,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setStandoutsLoading(true);
-    fetchBriefStandoutsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefStandoutsCached(deliveryDay)
       .then((result) => {
         if (live) setStandouts(result);
       })
@@ -1565,7 +1565,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // The evidence cards are deliberately one independent, all-or-nothing
   // response. Start it alongside the hero, but do not reveal it until the
@@ -1574,7 +1574,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setHeroStatsLoading(true);
-    fetchBriefHeroStatsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroStatsCached(deliveryDay)
       .then((result) => {
         if (live) setHeroStats(result);
       })
@@ -1587,7 +1587,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // The remaining secondary bundle waits until the hero has painted.
   useEffect(() => {
@@ -1599,7 +1599,7 @@ export default function BriefPage() {
     setTopNodesLoading(true);
     setTopConstraintsLoading(true);
     setGradeLoading(true);
-    fetchBriefDetailsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefDetailsCached(deliveryDay)
       .then((result) => {
         if (!live) return;
         setContext(result?.context ?? null);
@@ -1621,7 +1621,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run, heroReadyDay, detailsRetry]);
+  }, [deliveryDay, heroReadyDay, detailsRetry]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.

@@ -47,51 +47,44 @@ function cached<T>(key: string, request: () => Promise<T>): Promise<T> {
   return promise;
 }
 
-const scope = (runId?: string) => runId ?? "default";
-
-export function fetchBriefHeroLatestCached(runId?: string): Promise<BriefHeroLatest | null> {
-  return cached(`hero-latest:${scope(runId)}`, () => fetchBriefHeroLatest(runId));
+export function fetchBriefHeroLatestCached(): Promise<BriefHeroLatest | null> {
+  return cached("hero-latest", fetchBriefHeroLatest);
 }
 
 export function fetchBriefDayCached(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefDay | null> {
-  return cached(`brief:${deliveryDate}:${scope(runId)}`, () => fetchBriefDay(deliveryDate, runId));
+  return cached(`brief:${deliveryDate}`, () => fetchBriefDay(deliveryDate));
 }
 
 export function fetchBriefHeroShellCached(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefHeroShell | null> {
-  return cached(`brief-hero:${deliveryDate}:${scope(runId)}`, () =>
-    fetchBriefHeroShell(deliveryDate, runId)
+  return cached(`brief-hero:${deliveryDate}`, () =>
+    fetchBriefHeroShell(deliveryDate)
   );
 }
 
 export function fetchBriefHeroStatsCached(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefHeroStats | null> {
-  return cached(`brief-hero-stats:${deliveryDate}:${scope(runId)}`, () =>
-    fetchBriefHeroStats(deliveryDate, runId)
+  return cached(`brief-hero-stats:${deliveryDate}`, () =>
+    fetchBriefHeroStats(deliveryDate)
   );
 }
 
 export function fetchBriefStandoutsCached(
   deliveryDate: string,
-  runId?: string,
 ): Promise<Standouts | null> {
-  return cached(`brief-standouts:${deliveryDate}:${scope(runId)}`, () =>
-    fetchBriefStandouts(deliveryDate, runId)
+  return cached(`brief-standouts:${deliveryDate}`, () =>
+    fetchBriefStandouts(deliveryDate)
   );
 }
 
 export function fetchBriefDetailsCached(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefDetails | null> {
-  return cached(`brief-details:${deliveryDate}:${scope(runId)}`, () =>
-    fetchBriefDetails(deliveryDate, runId)
+  return cached(`brief-details:${deliveryDate}`, () =>
+    fetchBriefDetails(deliveryDate)
   );
 }

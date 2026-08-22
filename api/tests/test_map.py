@@ -698,6 +698,8 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     assert body.overview == OVERVIEW
     assert body.meta == META
     assert body.headline == HEADLINE
+    assert body.availability['overview'].available is True
+    assert body.availability['overview'].run_id == 'map-v1'
 
 
 def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest(
@@ -718,6 +720,8 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
 
     assert body.overview is None
     assert body.meta == META
+    assert body.availability['overview'].available is False
+    assert body.availability['overview'].unavailable_reason == 'source_unavailable'
     assert body.headline == HEADLINE
     assert body.topology == TOPOLOGY
 

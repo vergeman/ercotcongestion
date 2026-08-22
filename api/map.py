@@ -43,7 +43,7 @@ from datetime import date as date_t, datetime as datetime_t
 from typing import Callable, Literal, TypeVar
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from compute.sf.fit import SF_ABS_CAP
@@ -55,7 +55,7 @@ from models import (
     ExposuresResponse,
     MapMeta,
     MapOverview,
-    MapSummaryResponse,
+    BootstrapSectionStatus, MapSummaryResponse,
     OverviewConstraint,
     RankedConstraint,
     RankedConstraints,
@@ -75,6 +75,11 @@ from shared.settings import settings
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/map")
+
+
+def _server_selected_run() -> None:
+    """Keep forecast-run selection behind the server boundary for public reads."""
+    return None
 
 # In-process cache of the geocoded SP coordinates (settlement_point → (lat,
 # lon)), for the /map/reach join. The CSV only changes when we re-geocode, so
@@ -713,11 +718,7 @@ def get_map_constraints_ranked(
         description="μ series: predicted (the day's fitted E_mu) or realized "
         "(that day's published DAM shadow prices). SF structure is shared.",
     ),
-    run_id: str | None = Query(
-        None,
-        description="Forecast model version. Omit for the current promoted run "
-        "(forecast_current[ercot]).",
-    ),
+    run_id: str | None = Depends(_server_selected_run),
     k: int = Query(30, ge=1, le=200, description="Top-k constraints to return."),
     min_frac: float = Query(
         0.05, ge=0.0, le=1.0,
@@ -860,6 +861,18 @@ def _soft_fail(build: Callable[[], _T]) -> _T | None:
         raise
 
 
+def _bootstrap_status(section: object | None) -> BootstrapSectionStatus:
+    """Describe a bundled section without making its null payload ambiguous."""
+    if section is None:
+        return BootstrapSectionStatus(available=False, unavailable_reason="source_unavailable")
+    return BootstrapSectionStatus(
+        available=True,
+        run_id=getattr(section, "run_id", None),
+        delivery_date=getattr(section, "delivery_date", None),
+        horizon=getattr(section, "horizon", None),
+    )
+
+
 @router.get(
     "/summary",
     response_model=MapSummaryResponse,
@@ -891,9 +904,18 @@ def get_map_summary() -> MapSummaryResponse:
         meta = pool.submit(_soft_fail, get_map_meta)
         headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, "all"))
         topology = get_or_build_topology()
+        overview_result = overview.result()
+        meta_result = meta.result()
+        headline_result = headline.result()
         return MapSummaryResponse(
             topology=topology,
-            overview=overview.result(),
-            meta=meta.result(),
-            headline=headline.result(),
+            overview=overview_result,
+            meta=meta_result,
+            headline=headline_result,
+            availability={
+                "topology": BootstrapSectionStatus(available=True),
+                "overview": _bootstrap_status(overview_result),
+                "meta": _bootstrap_status(meta_result),
+                "headline": _bootstrap_status(headline_result),
+            },
         )

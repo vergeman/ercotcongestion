@@ -1,24 +1,3 @@
-// ERCOT SP snapshot payload. `sp_id` is the ERCOT settlement point
-// identifier; `congestion` is the reference-adjusted congestion value
-// (SPP − system_λ) from the run's congestion matrix.
-export interface ErcotSpState {
-  sp_id: string;
-  congestion: number | null;
-}
-
-export interface ErcotStateRangeEntry {
-  interval_ts: string;
-  system_lambda: number | null;
-  sps: ErcotSpState[];
-}
-
-export interface ErcotStateRangeResponse {
-  start: string;
-  end: string;
-  count: number;
-  entries: ErcotStateRangeEntry[];
-}
-
 // =============================================================================
 // /matrix/frame — one bounded, day-stable constraint × settlement-point frame.
 // The API owns the row and column ordering.  `sf.values` is row-major and is
@@ -88,25 +67,6 @@ export interface MatrixFrame {
   sf: MatrixSfValues;
 }
 
-// Raw DAM SPP per settlement point, per hour. Feeds the LMP palette so the
-// price view renders directly from ERCOT's published prices.
-export interface ErcotSpSpp {
-  sp_id: string;
-  spp: number | null;
-}
-
-export interface ErcotSppRangeEntry {
-  interval_ts: string;
-  sps: ErcotSpSpp[];
-}
-
-export interface ErcotSppRangeResponse {
-  start: string;
-  end: string;
-  count: number;
-  entries: ErcotSppRangeEntry[];
-}
-
 // Compact realized-range wire format. `sp_ids` is the one settlement-point
 // index for the response; each entry's same-length arrays align to it.
 export interface ErcotRangeEntry {
@@ -165,7 +125,7 @@ export interface SPFeatureProperties {
 
 // =============================================================================
 // /forecast_range — per-hour forecast congestion for the current forecast run,
-// the prediction counterpart to /ercot_spp_range. Feeds the left ("prediction")
+// the prediction counterpart to /ercot_range. Feeds the left ("prediction")
 // pane through the same prefetch/scrubber path as the realized ranges, so the
 // two panes align hour for hour. Expanded for prediction: P10/P50/P90 per SP,
 // plus each hour's system-λ. Mirrors api/models.py ForecastSpState /
@@ -608,14 +568,24 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
+// Explicitly describes a bootstrap section's soft-fail state and, where the
+// resource has one, the source artifact identity behind its payload.
+export interface BootstrapSectionStatus {
+  available: boolean;
+  unavailable_reason: string | null;
+  run_id: string | null;
+  delivery_date: string | null;
+  horizon: number | null;
+}
+
 // /scoreboard/summary — one bundled payload for the Scoreboard page's
-// load-time requests (0137). Each field keeps its single-section shape; null
-// exactly when that section's own endpoint would 503 (that board has no rows
-// yet).
+// load-time requests (0137). `availability` makes every nullable section's
+// soft-fail state explicit.
 export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
   headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
+  availability: Record<string, BootstrapSectionStatus>;
 }
 
 // /map/summary — one bundled payload for the Map workspace's load-time
@@ -627,6 +597,7 @@ export interface MapSummary {
   overview: MapOverview | null;
   meta: MapMeta | null;
   headline: ScoreboardHeadline | null;
+  availability: Record<string, BootstrapSectionStatus>;
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

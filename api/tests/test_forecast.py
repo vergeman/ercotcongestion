@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import pytest
+
+import forecast as forecast_module
+
 
 def _frow(ts, sp, dd, horizon, p50=1.0):
     return {"ts": ts, "settlement_point": sp,
@@ -17,7 +21,14 @@ def _frow(ts, sp, dd, horizon, p50=1.0):
             "delivery_date": dd, "horizon": horizon}
 
 
-_WINDOW = "run_id=m&start=2026-08-01T00:00:00Z&end=2026-08-02T23:00:00Z"
+_WINDOW = "start=2026-08-01T00:00:00Z&end=2026-08-02T23:00:00Z"
+
+
+@pytest.fixture(autouse=True)
+def published_run(client):
+    client.app.dependency_overrides[forecast_module._server_selected_run] = lambda: "m"
+    yield
+    client.app.dependency_overrides.pop(forecast_module._server_selected_run, None)
 
 
 def test_coalesced_range_reports_per_day_horizon_provenance(client, fake_pool):

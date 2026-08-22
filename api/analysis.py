@@ -10,7 +10,7 @@ from time import perf_counter
 from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import pandas as pd
 from psycopg.rows import dict_row, tuple_row
 
@@ -93,6 +93,11 @@ def _resolve_run(cur, run_id: str | None) -> str:
     return str(row["run_id"])
 
 
+def _server_selected_run() -> None:
+    """Keep run selection behind the server boundary for public read routes."""
+    return None
+
+
 def _resolve_horizon(cur, run_id: str, delivery_date: date, horizon: int | None) -> int | None:
     if horizon is not None:
         return horizon
@@ -101,6 +106,26 @@ def _resolve_horizon(cur, run_id: str, delivery_date: date, horizon: int | None)
         "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
     row = cur.fetchone()
     return None if row is None or row["h"] is None else int(row["h"])
+
+
+def _resolve_brief_delivery_date(
+    delivery_date: date | None,
+    legacy_day: date | None,
+) -> date:
+    """Accept the delivery-date alias without letting conflicting values drift."""
+    # These handlers are also invoked directly by the Brief compositions. In
+    # that path FastAPI has not resolved an omitted Query default, so normalize
+    # its sentinel to the same missing value an HTTP request receives.
+    delivery_date = delivery_date if isinstance(delivery_date, date) else None
+    legacy_day = legacy_day if isinstance(legacy_day, date) else None
+    if delivery_date is None:
+        delivery_date = legacy_day
+    elif legacy_day is not None and legacy_day != delivery_date:
+        raise HTTPException(status_code=422, detail="delivery_date and deprecated day must match.")
+    if delivery_date is None:
+        raise HTTPException(status_code=422, detail="delivery_date is required (deprecated alias: day).")
+
+    return delivery_date
 
 
 def _selected_hours(artifact, hours: list[datetime] | None) -> pd.DatetimeIndex:
@@ -800,7 +825,7 @@ def get_node(
     settlement_point: str = Query(..., min_length=1),
     delivery_date: date = Query(...),
     basis: str = Query("predicted", pattern="^(predicted|realized)$"),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     hours: list[datetime] | None = Query(None),
     min_abs_sf: float = Query(0.0, ge=0.0),
@@ -869,7 +894,7 @@ def get_node(
             summary="Full settlement-point vocabulary for a daily SF artifact")
 def get_settlement_points(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> AnalysisSettlementPointsAvailableResponse | AnalysisSettlementPointsUnavailableResponse:
     """List all artifact columns once for counterparty discovery, never a Matrix screen."""
@@ -910,7 +935,7 @@ def get_settlement_points(
             summary="Full constraint vocabulary for a daily SF artifact")
 def get_constraints(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> AnalysisConstraintsAvailableResponse | AnalysisConstraintsUnavailableResponse:
     """List every constraint in one day's artifact for search, ranked by
@@ -993,7 +1018,7 @@ def get_essp_groups(
             summary="Prototype-defined per-day forecast grade")
 def get_grade(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> GradeAvailableResponse | GradeUnavailableResponse:
     """Score constraints without blending them with the separately exposed node half."""
@@ -1047,7 +1072,7 @@ def get_grade(
             summary="Materialized trailing v6 constraint and node grade")
 def get_grade_history(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     days: int = Query(30, ge=1, le=30),
 ) -> GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse:
@@ -1084,7 +1109,7 @@ def get_forecast_mu(
     constraint_key: list[str] = Query(..., min_length=1,
                                       description="One or more canonical constraint|contingency keys."),
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> ForecastMuAvailableResponse | ForecastMuUnavailableResponse:
     """Serve a narrow, untruncated E_mu slice without altering the model fit."""
@@ -1121,7 +1146,7 @@ def get_forecast_mu(
             summary="Untruncated daily forecast-μ ranking with same-key DAM evidence")
 def get_top_constraints(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(10, ge=1, le=15),
 ) -> TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse:
@@ -1202,7 +1227,7 @@ def _voltage_class(kv_max: float | None) -> str:
             summary="Daily voltage-class distribution and trailing chronic constraints")
 def get_context(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     chronic_limit: int = Query(14, ge=1, le=50),
 ) -> ContextAvailableResponse | ContextUnavailableResponse:
@@ -1282,7 +1307,7 @@ def get_context(
             summary="Forecast standouts against each constraint's own trailing forecast history")
 def get_standouts(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(4, ge=1, le=20),
 ) -> StandoutsAvailableResponse | StandoutsUnavailableResponse:
@@ -1497,7 +1522,7 @@ def get_standouts(
             summary="Top daily nodal congestion with full-column driver attribution")
 def get_top_nodes(
     delivery_date: date = Query(...),
-    run_id: str | None = Query(None),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(10, ge=1, le=15),
 ) -> TopNodesAvailableResponse | TopNodesUnavailableResponse:
@@ -1600,7 +1625,7 @@ def get_top_nodes(
 @router.get("/hero/latest", response_model=HeroLatestResponse,
             summary="Newest v6 Brief delivery day with a published artifact")
 def get_hero_latest(
-    run_id: str | None = Query(None, description="Model version; defaults to the published ERCOT run."),
+    run_id: str | None = Depends(_server_selected_run),
 ) -> HeroLatestResponse:
     """Discover a cold-entry day from the artifacts required by Brief tables.
 
@@ -1627,13 +1652,16 @@ def get_hero_latest(
                                       HeroUnavailableAtHorizonResponse),
             summary="Server-computed v6 daily-brief hero")
 def get_hero(
-    delivery_date: date = Query(..., alias="date", description="ERCOT delivery day."),
-    run_id: str | None = Query(None, description="Model version; defaults to the published run."),
+    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
+    run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; final preferred."),
     *,
+    date_: date | None = Query(None, alias="date", deprecated=True,
+                               description="Deprecated alias for delivery_date."),
     include_condition: bool = True,
 ) -> HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse:
     """Return prose segments, raw slots, independent verdicts, and map cursor."""
+    delivery_date = _resolve_brief_delivery_date(delivery_date, date_)
     started = perf_counter()
     artifact_elapsed = 0.0
     builder_elapsed = 0.0
@@ -1825,57 +1853,63 @@ def _compose_brief_details(day: date, run_id: str, horizon: int | None, *, inclu
 @router.get("/brief/hero", response_model=BriefHeroShellResponse,
             summary="Brief hero and available neighbouring delivery dates")
 def get_brief_hero_shell(
-    day: date = Query(..., description="ERCOT delivery day."),
-    run: str | None = Query(None, description="Model version; defaults to the published run."),
+    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
+    run_id: str | None = Depends(_server_selected_run),
+    *,
+    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
 ) -> BriefHeroShellResponse:
     """Serve the Brief prose and map before its slower stat-card evidence."""
+    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run)
-        horizon = _resolve_horizon(cur, run_id, day, None)
-        if horizon is not None and horizon == 1 and day < datetime.now(_CT).date():
-            cached = _brief_section_cache_get(_BRIEF_HERO_CACHE, (run_id, day, horizon))
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
+        if horizon is not None and horizon == 1 and delivery_date < datetime.now(_CT).date():
+            cached = _brief_section_cache_get(_BRIEF_HERO_CACHE, (run_id, delivery_date, horizon))
             if cached is not None:
                 return cached
-        previous, following = _brief_neighbor_dates(cur, run_id, day)
-    hero = get_hero(day, run_id, horizon, include_condition=False)
+        previous, following = _brief_neighbor_dates(cur, run_id, delivery_date)
+    hero = get_hero(delivery_date, run_id, horizon, include_condition=False)
     response = BriefHeroShellResponse(
         hero=hero,
         previous_delivery_date=previous,
         next_delivery_date=following,
     )
-    if (horizon is not None and horizon == 1 and day < datetime.now(_CT).date()
+    if (horizon is not None and horizon == 1 and delivery_date < datetime.now(_CT).date()
             and response.hero.available and response.hero.provenance.basis == "settled"):
-        _brief_section_cache_put(_BRIEF_HERO_CACHE, (run_id, day, horizon), response)
+        _brief_section_cache_put(_BRIEF_HERO_CACHE, (run_id, delivery_date, horizon), response)
     return response
 
 
 @router.get("/brief/hero/stats", response_model=BriefHeroStatsResponse,
             summary="Complete grouped stat-card evidence for a Brief hero")
 def get_brief_hero_stats(
-    day: date = Query(..., description="ERCOT delivery day."),
-    run: str | None = Query(None, description="Model version; defaults to the published run."),
+    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
+    run_id: str | None = Depends(_server_selected_run),
+    *,
+    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
 ) -> BriefHeroStatsResponse:
     """Load every hero stat card in one response after prose and map paint."""
+    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run)
-        horizon = _resolve_horizon(cur, run_id, day, None)
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
         if horizon is None:
             raise HTTPException(status_code=404, detail="artifact_missing")
-        cache_key = (run_id, day, horizon)
-        if horizon == 1 and day < datetime.now(_CT).date():
+        cache_key = (run_id, delivery_date, horizon)
+        if horizon == 1 and delivery_date < datetime.now(_CT).date():
             cached = _brief_section_cache_get(_BRIEF_HERO_STATS_CACHE, cache_key)
             if cached is not None:
                 return cached
-    hero = get_hero(day, run_id, horizon)
+    hero = get_hero(delivery_date, run_id, horizon)
     if not hero["available"]:
         raise HTTPException(status_code=404, detail="artifact_missing")
     response = BriefHeroStatsResponse(
         run_id=run_id,
-        delivery_date=day,
+        delivery_date=delivery_date,
         horizon=horizon,
         slots=hero["slots"],
     )
-    if horizon == 1 and day < datetime.now(_CT).date() and hero["provenance"]["basis"] == "settled":
+    if horizon == 1 and delivery_date < datetime.now(_CT).date() and hero["provenance"]["basis"] == "settled":
         _brief_section_cache_put(_BRIEF_HERO_STATS_CACHE, cache_key, response)
     return response
 
@@ -1883,21 +1917,24 @@ def get_brief_hero_stats(
 @router.get("/brief/details", response_model=BriefDetailsResponse,
             summary="Secondary Brief sections for one delivery day")
 def get_brief_details(
-    day: date = Query(..., description="ERCOT delivery day."),
-    run: str | None = Query(None, description="Model version; defaults to the published run."),
+    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
+    run_id: str | None = Depends(_server_selected_run),
     include_standouts: bool = Query(True, description="Include the standouts panel in this bundle."),
+    *,
+    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
 ) -> BriefDetailsResponse:
     """Compose non-hero Brief panels after the reader can see the day’s story."""
+    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run)
-        horizon = _resolve_horizon(cur, run_id, day, None)
-        cache_key = None if horizon is None else (run_id, day, horizon)
-        if include_standouts and cache_key is not None and horizon == 1 and day < datetime.now(_CT).date():
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
+        cache_key = None if horizon is None else (run_id, delivery_date, horizon)
+        if include_standouts and cache_key is not None and horizon == 1 and delivery_date < datetime.now(_CT).date():
             cached = _brief_section_cache_get(_BRIEF_DETAILS_CACHE, cache_key)
             if cached is not None:
                 return cached
-        final = horizon is not None and _brief_is_final(cur, day, horizon)
-    response = _compose_brief_details(day, run_id, horizon, include_standouts=include_standouts)
+        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
+    response = _compose_brief_details(delivery_date, run_id, horizon, include_standouts=include_standouts)
     if include_standouts and final and cache_key is not None:
         _brief_section_cache_put(_BRIEF_DETAILS_CACHE, cache_key, response)
     return response
@@ -1906,8 +1943,10 @@ def get_brief_details(
 @router.get("/brief", response_model=BriefDayResponse,
             summary="One bundled payload for a Brief delivery day (0137)")
 def get_brief_day(
-    day: date = Query(..., description="ERCOT delivery day."),
-    run: str | None = Query(None, description="Model version; defaults to the published run."),
+    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
+    run_id: str | None = Depends(_server_selected_run),
+    *,
+    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
 ) -> BriefDayResponse:
     """Compose the Brief's eight per-day requests behind one call.
 
@@ -1927,25 +1966,26 @@ def get_brief_day(
     would cost ``sum(sections)`` wall-clock instead of ``max(sections)`` —
     strictly worse than the 7 parallel requests this endpoint replaces.
     """
+    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
     started = perf_counter()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run)
-        horizon = _resolve_horizon(cur, run_id, day, None)
-        final = horizon is not None and _brief_is_final(cur, day, horizon)
-    key = (run_id, day, horizon)
+        run_id = _resolve_run(cur, run_id)
+        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
+        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
+    key = (run_id, delivery_date, horizon)
     if final:
         cached = _brief_cache_get(key)
         if cached is not None:
             return cached
     with ThreadPoolExecutor(max_workers=7) as pool:
         sections = {
-            "hero": pool.submit(_timed_brief_section, "hero", get_hero, day, run_id, horizon),
-            "context": pool.submit(_timed_brief_section, "context", get_context, day, run_id, horizon, 14),
-            "standouts": pool.submit(_timed_brief_section, "standouts", get_standouts, day, run_id, horizon, 4),
-            "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, day, run_id, horizon, 10),
-            "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, day, run_id, horizon, 10),
-            "grade": pool.submit(_timed_brief_section, "grade", get_grade, day, run_id, horizon),
-            "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, day, run_id, horizon, 30),
+            "hero": pool.submit(_timed_brief_section, "hero", get_hero, delivery_date, run_id, horizon),
+            "context": pool.submit(_timed_brief_section, "context", get_context, delivery_date, run_id, horizon, 14),
+            "standouts": pool.submit(_timed_brief_section, "standouts", get_standouts, delivery_date, run_id, horizon, 4),
+            "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, delivery_date, run_id, horizon, 10),
+            "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, delivery_date, run_id, horizon, 10),
+            "grade": pool.submit(_timed_brief_section, "grade", get_grade, delivery_date, run_id, horizon),
+            "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, delivery_date, run_id, horizon, 30),
         }
         completed = {name: future.result() for name, future in sections.items()}
         response = BriefDayResponse(
@@ -1964,7 +2004,7 @@ def get_brief_day(
         )
         logger.info(
             "brief_profile day=%s run=%s horizon=%s total=%.3fs %s",
-            day, run_id, horizon, elapsed, timings,
+            delivery_date, run_id, horizon, elapsed, timings,
         )
     if final:
         _brief_cache_put(key, response)

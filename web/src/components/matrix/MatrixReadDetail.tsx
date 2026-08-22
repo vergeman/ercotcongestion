@@ -40,7 +40,6 @@ interface Props {
   timestamp: Date | null;
   val: MatrixValTab;
   deliveryDate: string | null;
-  runId: string | null;
   damStatus: MatrixDamStatus | null;
   constraintRow: AnalysisConstraintRow | null;
   nodeMeta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
@@ -200,14 +199,13 @@ function marketValue(value: number | null | undefined): string {
 }
 
 function NodeRead({
-  point, meta, timestamp, val, deliveryDate, runId, damStatus, onNavigateToMap,
+  point, meta, timestamp, val, deliveryDate, damStatus, onNavigateToMap,
 }: {
   point: string;
   meta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
   timestamp: Date | null;
   val: MatrixValTab;
   deliveryDate: string | null;
-  runId: string | null;
   damStatus: MatrixDamStatus | null;
   onNavigateToMap: (search: string) => void;
 }) {
@@ -224,7 +222,7 @@ function NodeRead({
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
-    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, runId ?? undefined, controller.signal, true)
+    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, controller.signal, true)
       .then((response) => { if (id === requestId.current) setNode(response); })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -232,7 +230,7 @@ function NodeRead({
       })
       .finally(() => { if (id === requestId.current) setLoading(false); });
     return () => controller.abort();
-  }, [point, deliveryDate, timestamp, basis, runId, damPendingBlock]);
+  }, [point, deliveryDate, timestamp, basis, damPendingBlock]);
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
@@ -311,7 +309,7 @@ function NodeRead({
 }
 
 export default function MatrixReadDetail({
-  selection, timestamp, val, deliveryDate, runId, damStatus, constraintRow, nodeMeta, onNavigateToMap,
+  selection, timestamp, val, deliveryDate, damStatus, constraintRow, nodeMeta, onNavigateToMap,
 }: Props) {
   if (!selection) {
     return <div className="mrd mrd--empty">Select a constraint or node from the index to see its evidence.</div>;
@@ -321,7 +319,7 @@ export default function MatrixReadDetail({
       <ConstraintReachStyles />
       {selection.kind === "constraint"
         ? <ConstraintRead selectionKey={selection.key} row={constraintRow} timestamp={timestamp} onNavigateToMap={onNavigateToMap} />
-        : <NodeRead point={selection.point} meta={nodeMeta} timestamp={timestamp} val={val} deliveryDate={deliveryDate} runId={runId} damStatus={damStatus} onNavigateToMap={onNavigateToMap} />}
+        : <NodeRead point={selection.point} meta={nodeMeta} timestamp={timestamp} val={val} deliveryDate={deliveryDate} damStatus={damStatus} onNavigateToMap={onNavigateToMap} />}
       <style>{`
         /* Two columns: a scrolling evidence column on the left and the grid
            footprint pinned full-height on the right. The pane's own
