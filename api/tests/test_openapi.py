@@ -62,11 +62,29 @@ def test_openapi_documents_contract_migrations_and_bootstrap_availability(client
         parameter['name']: parameter
         for parameter in paths['/analysis/brief']['get']['parameters']
     }
-    assert {'delivery_date', 'run_id', 'day', 'run'} <= brief_parameters.keys()
+    assert {'delivery_date', 'day'} <= brief_parameters.keys()
     assert brief_parameters['day']['deprecated'] is True
-    assert brief_parameters['run']['deprecated'] is True
+    assert 'run_id' not in brief_parameters
+    assert 'run' not in brief_parameters
 
     bootstrap_status = schemas['BootstrapSectionStatus']['properties']
     assert {'available', 'unavailable_reason', 'run_id', 'delivery_date', 'horizon'} <= bootstrap_status.keys()
     for name in ('MapSummaryResponse', 'ScoreboardSummaryResponse'):
         assert 'availability' in schemas[name]['properties']
+
+
+def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
+    paths = client.get('/openapi.json').json()['paths']
+    public_routes = (
+        '/forecast_range', '/map/constraints/ranked', '/scoreboard/headline',
+        '/scoreboard/weekly', '/scoreboard/daily', '/analysis/hero/latest',
+        '/analysis/hero', '/analysis/brief', '/analysis/brief/hero',
+        '/analysis/brief/hero/stats', '/analysis/brief/details', '/analysis/node',
+        '/analysis/settlement-points', '/analysis/constraints', '/analysis/grade',
+        '/analysis/grade-history', '/analysis/forecast-mu', '/analysis/top-constraints',
+        '/analysis/context', '/analysis/standouts', '/analysis/top-nodes',
+    )
+    for route in public_routes:
+        names = {parameter['name'] for parameter in paths[route]['get'].get('parameters', [])}
+        assert 'run_id' not in names, route
+        assert 'run' not in names, route

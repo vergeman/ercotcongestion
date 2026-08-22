@@ -314,12 +314,8 @@ export async function fetchScoreboardSummary(
 // V6 cold-entry discovery selects only days with both UTC artifacts required
 // to stitch the Brief's Chicago delivery-day tables.
 export async function fetchBriefHeroLatest(
-  runId?: string,
 ): Promise<BriefHeroLatest | null> {
-  const qs = new URLSearchParams();
-  if (runId) qs.set("run_id", runId);
-  const suffix = qs.toString() ? `?${qs.toString()}` : "";
-  const r = await fetch(`${BASE}/analysis/hero/latest${suffix}`);
+  const r = await fetch(`${BASE}/analysis/hero/latest`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/hero/latest ${r.status}`);
   return r.json();
@@ -330,10 +326,8 @@ export async function fetchBriefHeroLatest(
 // fan-out with a single request. Each field keeps its prior section shape.
 export async function fetchBriefDay(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefDay | null> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
   const r = await fetch(`${BASE}/analysis/brief?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief ${r.status}`);
@@ -342,10 +336,8 @@ export async function fetchBriefDay(
 
 export async function fetchBriefHeroShell(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefHeroShell | null> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
   const r = await fetch(`${BASE}/analysis/brief/hero?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief/hero ${r.status}`);
@@ -354,10 +346,8 @@ export async function fetchBriefHeroShell(
 
 export async function fetchBriefHeroStats(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefHeroStats | null> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
   const r = await fetch(`${BASE}/analysis/brief/hero/stats?${qs.toString()}`);
   if (r.status === 503 || r.status === 404) return null;
   if (!r.ok) throw new Error(`analysis/brief/hero/stats ${r.status}`);
@@ -366,10 +356,8 @@ export async function fetchBriefHeroStats(
 
 export async function fetchBriefStandouts(
   deliveryDate: string,
-  runId?: string,
 ): Promise<Standouts | null> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate, k: "4" });
-  if (runId) qs.set("run_id", runId);
   const r = await fetch(`${BASE}/analysis/standouts?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/standouts ${r.status}`);
@@ -378,10 +366,8 @@ export async function fetchBriefStandouts(
 
 export async function fetchBriefDetails(
   deliveryDate: string,
-  runId?: string,
 ): Promise<BriefDetails | null> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate, include_standouts: "false" });
-  if (runId) qs.set("run_id", runId);
   const r = await fetch(`${BASE}/analysis/brief/details?${qs.toString()}`);
   if (r.status === 503) return null;
   if (!r.ok) throw new Error(`analysis/brief/details ${r.status}`);
@@ -393,7 +379,6 @@ export async function fetchBriefDetails(
 export interface AnalysisAttributionRequest {
   deliveryDate: string;
   basis?: AnalysisBasis;
-  runId?: string;
   horizon?: number;
   hours?: string[];
   minAbsSf?: number;
@@ -405,7 +390,6 @@ export interface AnalysisAttributionRequest {
 function attributionQuery(request: AnalysisAttributionRequest): URLSearchParams {
   const qs = new URLSearchParams({ delivery_date: request.deliveryDate });
   if (request.basis) qs.set("basis", request.basis);
-  if (request.runId) qs.set("run_id", request.runId);
   if (request.horizon != null) qs.set("horizon", String(request.horizon));
   if (request.minAbsSf != null) qs.set("min_abs_sf", String(request.minAbsSf));
   if (request.mode) qs.set("mode", request.mode);
@@ -427,10 +411,9 @@ export async function fetchAnalysisNode(
 
 export async function fetchAnalysisSettlementPoints(
   deliveryDate: string,
-  { runId, horizon, signal }: Pick<AnalysisAttributionRequest, "runId" | "horizon" | "signal"> = {},
+  { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {},
 ): Promise<AnalysisSettlementPointsResponse> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/settlement-points?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`analysis/settlement-points ${r.status}`);
@@ -441,10 +424,9 @@ export async function fetchAnalysisSettlementPoints(
 // the Matrix sidebar's search index, not a Brief top-k.
 export async function fetchAnalysisConstraints(
   deliveryDate: string,
-  { runId, horizon, signal }: Pick<AnalysisAttributionRequest, "runId" | "horizon" | "signal"> = {},
+  { horizon, signal }: Pick<AnalysisAttributionRequest, "horizon" | "signal"> = {},
 ): Promise<AnalysisConstraintsResponse> {
   const qs = new URLSearchParams({ delivery_date: deliveryDate });
-  if (runId) qs.set("run_id", runId);
   if (horizon != null) qs.set("horizon", String(horizon));
   const r = await fetch(`${BASE}/analysis/constraints?${qs.toString()}`, { signal });
   if (!r.ok) throw new Error(`analysis/constraints ${r.status}`);

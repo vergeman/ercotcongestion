@@ -1521,7 +1521,7 @@ export default function BriefPage() {
     setGradeHistory(null);
     setDetailsError(null);
     setAdjacentDays({ previous: null, next: null });
-    fetchBriefHeroShellCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroShellCached(deliveryDay)
       .then((result) => {
         if (!live) return;
         setHero(result?.hero ?? null);
@@ -1552,7 +1552,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setStandoutsLoading(true);
-    fetchBriefStandoutsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefStandoutsCached(deliveryDay)
       .then((result) => {
         if (live) setStandouts(result);
       })
@@ -1574,7 +1574,7 @@ export default function BriefPage() {
     if (!deliveryDay) return;
     let live = true;
     setHeroStatsLoading(true);
-    fetchBriefHeroStatsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefHeroStatsCached(deliveryDay)
       .then((result) => {
         if (live) setHeroStats(result);
       })
@@ -1599,7 +1599,7 @@ export default function BriefPage() {
     setTopNodesLoading(true);
     setTopConstraintsLoading(true);
     setGradeLoading(true);
-    fetchBriefDetailsCached(deliveryDay, cursor.run ?? undefined)
+    fetchBriefDetailsCached(deliveryDay)
       .then((result) => {
         if (!live) return;
         setContext(result?.context ?? null);

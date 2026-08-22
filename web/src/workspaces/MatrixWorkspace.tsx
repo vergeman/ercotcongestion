@@ -273,14 +273,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
   useEffect(() => {
     if (!frame?.available) { setConstraintsResp(null); setSettlementPointsResp(null); return; }
     let cancelled = false;
-    void fetchAnalysisConstraints(frame.delivery_date, { runId: frame.run_id })
+    void fetchAnalysisConstraints(frame.delivery_date)
       .then((response) => { if (!cancelled) setConstraintsResp(response); })
       .catch(() => { if (!cancelled) setConstraintsResp(null); });
-    void fetchAnalysisSettlementPoints(frame.delivery_date, { runId: frame.run_id })
+    void fetchAnalysisSettlementPoints(frame.delivery_date)
       .then((response) => { if (!cancelled) setSettlementPointsResp(response); })
       .catch(() => { if (!cancelled) setSettlementPointsResp(null); });
     return () => { cancelled = true; };
-  }, [frame?.delivery_date, frame?.run_id, frame?.available]);
+  }, [frame?.delivery_date, frame?.available]);
 
   useEffect(() => {
     try {
@@ -426,15 +426,14 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
     setBasisLoading(true);
     const hour = timestamp.toISOString();
     const deliveryDate = frame.delivery_date;
-    const runId = frame.run_id ?? undefined;
     const aNode = state.basisA;
     const bNode = state.basisB;
-    // getAnalysisNode is LRU-cached by (point, day, hour, basis, run), so
+    // getAnalysisNode is LRU-cached by (point, day, hour, basis), so
     // sweeping one slot against a held other refetches only the changed side.
     const fetchPair = (basis: AnalysisBasis): Promise<[AnalysisNodeResponse, AnalysisNodeResponse]> =>
       Promise.all([
-        getAnalysisNode(aNode, deliveryDate, hour, basis, runId, controller.signal),
-        getAnalysisNode(bNode, deliveryDate, hour, basis, runId, controller.signal),
+        getAnalysisNode(aNode, deliveryDate, hour, basis, controller.signal),
+        getAnalysisNode(bNode, deliveryDate, hour, basis, controller.signal),
       ]);
     // When the toggle shows the forecast basis and settled DAM exists, also join
     // the realized pair so the panel can show forecast vs settled side by side.
@@ -625,7 +624,6 @@ export default function MatrixWorkspace({ timestamp, routeSearch, onSelectionRou
                   timestamp={timestamp}
                   val={state.val}
                   deliveryDate={frame.delivery_date}
-                  runId={frame.run_id}
                   damStatus={frame.dam_status}
                   constraintRow={selectedConstraintRow}
                   nodeMeta={selectedNodeMeta}

@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from typing import Callable, TypeVar
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
@@ -45,6 +45,11 @@ from models import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _server_selected_run() -> None:
+    """Keep board selection behind the server boundary for public reads."""
+    return None
 
 # The comparators that ride with every model figure (spec §6). Ordered model-first
 # so the client reads model → its delta → the ceiling.
@@ -137,7 +142,7 @@ def _build_windows(rows: list[dict], as_of: date) -> list[HeadlineWindow]:
 
 
 def _resolve_run_id(cur, run_id: str | None) -> str:
-    """An explicit ?run_id= wins; otherwise the most recent board (max week).
+    """Resolve the most recent board (max week).
     Raises 503 when scoreboard_weekly is empty (no board loaded), matching the
     realized ranges' soft-fail contract."""
     if run_id is not None:
@@ -161,11 +166,7 @@ def _resolve_run_id(cur, run_id: str | None) -> str:
     "delta and oracle ceiling, per currency",
 )
 def get_scoreboard_headline(
-    run_id: str | None = Query(
-        None,
-        description="Board (model version) to serve. Omit for the most recent "
-        "board present in scoreboard_weekly.",
-    ),
+    run_id: str | None = Depends(_server_selected_run),
     regime: str = Query(
         "all",
         description="Regime slice — `all` or a net-load quintile / named regime.",
@@ -285,11 +286,7 @@ def get_scoreboard_weekly(
         "all",
         description="Regime slice — `all` or a net-load quintile / named regime.",
     ),
-    run_id: str | None = Query(
-        None,
-        description="Board (model version) to serve. Omit for the most recent "
-        "board present in scoreboard_weekly.",
-    ),
+    run_id: str | None = Depends(_server_selected_run),
 ) -> ScoreboardWeekly:
     pool = get_pool()
     with pool.connection() as conn:
@@ -336,8 +333,8 @@ def get_scoreboard_weekly(
 # --------------------------------------------------------------------------
 
 def _resolve_daily_run_id(cur, run_id: str | None) -> str:
-    """An explicit ?run_id= wins; otherwise the run with the most recent graded
-    day. Raises 503 when scoreboard_daily is empty (no live grade has run yet),
+    """Resolve the run with the most recent graded day.
+    Raises 503 when scoreboard_daily is empty (no live grade has run yet),
     matching the realized ranges' soft-fail contract — the client renders the
     backtest board / realized pane alone rather than erroring."""
     if run_id is not None:
@@ -407,11 +404,7 @@ def get_scoreboard_daily(
         "climatology / oracle / null) ride along regardless — never a lone model "
         "figure.",
     ),
-    run_id: str | None = Query(
-        None,
-        description="Model version to serve. Omit for the run with the most recent "
-        "graded day.",
-    ),
+    run_id: str | None = Depends(_server_selected_run),
 ) -> ScoreboardDaily:
     pool = get_pool()
     with pool.connection() as conn:

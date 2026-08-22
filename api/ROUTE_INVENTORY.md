@@ -18,8 +18,8 @@ their scheduled version boundary.
 | `/matrix/frame` | interaction | Web Matrix | Cursor and selection-specific resource |
 | `/scoreboard/summary` | bootstrap | Web Scoreboard | Typed per-section `availability` accompanies nullable sections |
 | `/scoreboard/headline`, `/scoreboard/weekly`, `/scoreboard/daily` | primitive | Scoreboard summary and Web Scoreboard | Stable independently readable resources |
-| `/analysis/brief`, `/analysis/brief/hero`, `/analysis/brief/hero/stats`, `/analysis/brief/details` | bootstrap | Web Brief | Canonical `delivery_date`/`run_id`; `day`/`run` remain deprecated aliases |
-| `/analysis/hero`, `/analysis/hero/latest` | bootstrap/discovery | Web Brief | Canonical `delivery_date`/`run_id`; `date`/`run` remain deprecated aliases on `/hero` |
+| `/analysis/brief`, `/analysis/brief/hero`, `/analysis/brief/hero/stats`, `/analysis/brief/details` | bootstrap | Web Brief | Server resolves the published run; `day` remains a deprecated `delivery_date` alias |
+| `/analysis/hero`, `/analysis/hero/latest` | bootstrap/discovery | Web Brief | Server resolves the published run; `date` remains a deprecated alias on `/hero` |
 | `/analysis/context`, `/analysis/standouts`, `/analysis/top-nodes`, `/analysis/top-constraints`, `/analysis/grade`, `/analysis/grade-history` | primitive | Brief bundles and Web Brief | Artifact-day resources with typed availability unions |
 | `/analysis/node`, `/analysis/settlement-points`, `/analysis/constraints`, `/analysis/forecast-mu`, `/analysis/essp` | interaction/primitive | Web Matrix and Brief | Selection or artifact vocabulary resources |
 | `/healthz` | operational | Deploy/runtime health checks | Not a web data resource |

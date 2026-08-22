@@ -2,9 +2,9 @@
 
 The prediction counterpart to ``/ercot_spp_range``: same range shape, read from
 ``forecast_nodal``. ``run_id`` names the *model version* (not a day — one run
-accumulates many ``delivery_date`` s); an explicit ``?run_id=`` selects a version
-to A/B, and omitting it serves the current ``forecast_current[ercot]`` run (this
-feature's own pointer, independent of the SF-map ``map_run_id``). ``start``/``end``
+accumulates many ``delivery_date`` s); the public API serves the current
+``forecast_current[ercot]`` run (this feature's own pointer, independent of the
+SF-map ``map_run_id``). ``start``/``end``
 scrub history; omitting both serves the run's latest ``delivery_date`` — a **UTC**
 calendar day, so in CT it spans 19:00 → 18:00 (CDT), not midnight to midnight — the
 default landing view. The left ("prediction") map pane consumes it through the same
@@ -31,7 +31,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
@@ -52,6 +52,11 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _server_selected_run() -> None:
+    """Keep forecast-run selection behind the server boundary for public reads."""
+    return None
+
 def _round_congestion(value: float | None) -> float | None:
     """The map has cent resolution; don't ship model float noise."""
     if value is None:
@@ -68,11 +73,7 @@ def _round_congestion(value: float | None) -> float | None:
     "defaults to the latest delivery day",
 )
 def get_forecast_range(
-    run_id: str | None = Query(
-        None,
-        description="Model version to serve. Omit for the current promoted "
-        "run (forecast_current[ercot]).",
-    ),
+    run_id: str | None = Depends(_server_selected_run),
     start: datetime | None = Query(
         None,
         description="ISO-8601 UTC start (inclusive). Omit together with `end` "
@@ -96,8 +97,7 @@ def get_forecast_range(
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            # Resolve the model version: an explicit ?run_id= wins; otherwise the
-            # current promoted run — this feature's own pointer, not the SF-map
+            # Resolve the current promoted run — this feature's own pointer, not the SF-map
             # run. 503 (not empty) when nothing is published yet, so the client
             # renders the realized pane alone rather than erroring.
             if run_id is None:
