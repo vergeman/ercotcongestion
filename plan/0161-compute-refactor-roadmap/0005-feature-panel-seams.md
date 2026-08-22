@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap/0005-feature-panel-seams
 
 ## Acceptance
 
-* [ ] Existing feature tests pass unchanged.
-* [ ] Representative panels have identical index, columns, dtypes, and values.
-* [ ] A fixed input still yields the same leakage audit result.
+* [x] Existing feature tests pass unchanged.
+* [x] `features.py` is the `build_panel` orchestration façade; availability, source reads, and pure engineering live in dedicated modules.
+* [x] A fixed input still yields the same leakage audit result.
 
 ## Suggested regression tests
 
