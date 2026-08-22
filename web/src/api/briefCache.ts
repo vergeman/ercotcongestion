@@ -1,3 +1,4 @@
+import { QueryCache } from "./cache";
 import {
   fetchBriefDay,
   fetchBriefDetails,
@@ -15,37 +16,13 @@ import type {
   BriefHeroShell,
 } from "./types";
 
-type CacheEntry<T> = {
-  hasValue: boolean;
-  value?: T;
-  promise?: Promise<T>;
-};
-
-const entries = new Map<string, CacheEntry<unknown>>();
+const entries = new QueryCache<unknown>({ maxSize: 48, ttlMs: 5 * 60 * 1000 });
 
 function cached<T>(key: string, request: () => Promise<T>): Promise<T> {
-  const existing = entries.get(key) as CacheEntry<T> | undefined;
-  if (existing?.hasValue) return Promise.resolve(existing.value as T);
-  if (existing?.promise) return existing.promise;
-
-  const entry: CacheEntry<T> = existing ?? { hasValue: false };
-  const promise = request().then(
-    (value) => {
-      entry.value = value;
-      entry.hasValue = true;
-      entry.promise = undefined;
-      return value;
-    },
-    (error) => {
-      entry.promise = undefined;
-      entries.delete(key);
-      throw error;
-    },
-  );
-  entry.promise = promise;
-  entries.set(key, entry as CacheEntry<unknown>);
-  return promise;
+  return entries.load(key, () => request()) as Promise<T>;
 }
+
+export function clearBriefCache(): void { entries.invalidate(); }
 
 export function fetchBriefHeroLatestCached(): Promise<BriefHeroLatest | null> {
   return cached("hero-latest", fetchBriefHeroLatest);

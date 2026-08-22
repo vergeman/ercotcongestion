@@ -1,4 +1,5 @@
-import { fetchAnalysisNode } from "./client";
+import { QueryCache } from "./cache";
+import { fetchAnalysisNode } from "./matrix";
 import type { AnalysisBasis, AnalysisNodeResponse } from "./types";
 
 // A small LRU cache for the Matrix Read pane's node column (plan/0139-0003) —
@@ -6,10 +7,15 @@ import type { AnalysisBasis, AnalysisNodeResponse } from "./types";
 // basis) so the scrubber's rapid re-fetches of an already-visited hour are
 // instant, without sharing state with any other consumer of /analysis/node.
 
-const MAX_CACHED = 48;
-const cache = new Map<string, AnalysisNodeResponse>();
+const cache = new QueryCache<AnalysisNodeResponse>({ maxSize: 48, ttlMs: 5 * 60 * 1000 });
 
-function cacheKey(point: string, deliveryDate: string, hour: string, basis: AnalysisBasis, includeDetail: boolean): string {
+function cacheKey(
+  point: string,
+  deliveryDate: string,
+  hour: string,
+  basis: AnalysisBasis,
+  includeDetail: boolean,
+): string {
   return [point, deliveryDate, hour, basis, includeDetail].join("|");
 }
 
@@ -23,19 +29,21 @@ export async function getAnalysisNode(
 ): Promise<AnalysisNodeResponse> {
   const key = cacheKey(point, deliveryDate, hour, basis, includeDetail);
   const cached = cache.get(key);
-  if (cached) {
-    // Refresh recency on a cache hit — a tiny LRU via Map insertion order.
-    cache.delete(key);
-    cache.set(key, cached);
-    return cached;
-  }
-  const response = await fetchAnalysisNode(point, { deliveryDate, basis, includeDetail, hours: [hour], signal });
-  cache.delete(key);
-  cache.set(key, response);
-  while (cache.size > MAX_CACHED) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
-  return response;
+  if (cached) return cached;
+  // Caller-owned cancellation remains caller-owned; the cache only aborts an
+  // in-flight request when it is explicitly invalidated or evicted.
+  return cache.load(key, () =>
+    fetchAnalysisNode(point, {
+      deliveryDate,
+      basis,
+      includeDetail,
+      hours: [hour],
+      signal,
+    }).then((response) => {
+      if (!response) throw new Error("analysis/node unavailable");
+      return response;
+    }),
+  );
 }
+
+export function clearAnalysisNodeCache(): void { cache.invalidate(); }

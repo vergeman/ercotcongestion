@@ -41,6 +41,7 @@ let forecastRunId: string | null = null;
 // `"YYYY-MM-DD" -> 1|2` (1 = final, 2 = preview). Backs the preview badge; empty
 // until a forecast loads.
 let forecastHorizons: Record<string, number> = {};
+let activeRequest: AbortController | null = null;
 
 function cacheKey(ts: Date): string {
   return ts.toISOString();
@@ -151,8 +152,14 @@ function ingestConditionsRange(data: ConditionsRangeResponse | null): void {
 // and no forecast published).
 export async function prefetchWindow(
   start?: Date,
-  end?: Date
+  end?: Date,
 ): Promise<{ start: Date; end: Date } | null> {
+  // This orchestration layer owns a single active window. A newer cursor/window
+  // invalidates older work before it can repopulate the shared playback caches.
+  activeRequest?.abort();
+  const controller = new AbortController();
+  activeRequest = controller;
+  const isCurrent = () => activeRequest === controller;
   // Replace, don't accumulate: the caches are module-level and back the union
   // in getAvailableTimestamps(), so a stale prior window would otherwise linger
   // on the timeline (and leave the cursor stranded on an old frame). Clear first
@@ -160,24 +167,26 @@ export async function prefetchWindow(
   clearCache();
   if (start && end) {
     const [ercotData, forecastData, conditionsData] = await Promise.all([
-      fetchErcotRange(start, end),
-      fetchForecastRange(start, end),
-      fetchConditionsRange(start, end),
+      fetchErcotRange(start, end, controller.signal),
+      fetchForecastRange(start, end, controller.signal),
+      fetchConditionsRange(start, end, controller.signal),
     ]);
+    if (!isCurrent()) return null;
     ingestErcotRange(ercotData);
     ingestForecast(forecastData);
     ingestConditionsRange(conditionsData);
     return { start, end };
   }
 
-  const forecastData = await fetchForecastRange();
+  const forecastData = await fetchForecastRange(undefined, undefined, controller.signal);
   if (!forecastData) return null;
   const winStart = new Date(forecastData.start);
   const winEnd = new Date(forecastData.end);
   const [ercotData, conditionsData] = await Promise.all([
-    fetchErcotRange(winStart, winEnd),
-    fetchConditionsRange(winStart, winEnd),
+    fetchErcotRange(winStart, winEnd, controller.signal),
+    fetchConditionsRange(winStart, winEnd, controller.signal),
   ]);
+  if (!isCurrent()) return null;
   ingestErcotRange(ercotData);
   ingestForecast(forecastData);
   ingestConditionsRange(conditionsData);
