@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   ScoreboardWeekly,
   ScoreboardHeadline,
@@ -11,6 +11,14 @@ import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
 import Tooltip from "../components/ui/Tooltip";
 import { useScoreboard } from "../hooks/useScoreboard";
+import {
+  METRICS,
+  ScoreboardControls,
+  type MetricKey,
+  useScoreboardControls,
+} from "../features/scoreboard/ScoreboardControls";
+import { useScoreboardChart } from "../features/scoreboard/useScoreboardChart";
+import "../features/scoreboard/scoreboard.css";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
@@ -31,61 +39,6 @@ const SERIES = [
   { source: "oracle", label: "Oracle", color: "#c98500" },
 ] as const;
 
-type MetricKey =
-  | "topdecile_hit"
-  | "rank_spearman"
-  | "sign_agree"
-  | "pooled_r2"
-  | "mae";
-
-const METRICS: Record<
-  MetricKey,
-  {
-    label: string;
-    group: "screening" | "magnitude";
-    fmt: (v: number) => string;
-    domain: (vals: number[]) => [number, number];
-    higher: boolean;
-  }
-> = {
-  topdecile_hit: {
-    label: "Top-Decile Hit",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  rank_spearman: {
-    label: "Rank ρ",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  sign_agree: {
-    label: "Sign Agreement",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  pooled_r2: {
-    label: "Pooled R²",
-    group: "magnitude",
-    fmt: (v) => v.toFixed(2),
-    domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)],
-    higher: true,
-  },
-  mae: {
-    label: "MAE ($/MWh)",
-    group: "magnitude",
-    fmt: (v) => `$${v.toFixed(1)}`,
-    domain: (vals) => [0, Math.max(1, ...vals) * 1.05],
-    higher: false,
-  },
-};
-const SCREENING: MetricKey[] = ["rank_spearman", "sign_agree", "topdecile_hit"];
-const MAGNITUDE: MetricKey[] = ["pooled_r2", "mae"];
 
 const REGIMES: { value: string; label: string }[] = [
   { value: "all", label: "All hours" },
@@ -128,19 +81,6 @@ function SeriesChart({
   metric: MetricKey;
   cutover: string;
 }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(720);
-  const [hover, setHover] = useState<number | null>(null);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const measure = () => setWidth(el.clientWidth);
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-
   const weeks = useMemo(
     () => Array.from(new Set(points.map((p) => p.week))).sort(),
     [points]
@@ -176,9 +116,12 @@ function SeriesChart({
   // at the 11px label face) — keep it wide enough that they don't clip.
   const M = { t: 14, r: 116, b: 22, l: 42 };
   const H = 280;
+  const n = weeks.length;
+  const {
+    wrapRef, width, hover, clearHover, moveHover, setHoverFromCoordinate,
+  } = useScoreboardChart(n);
   const plotW = Math.max(1, width - M.l - M.r);
   const plotH = H - M.t - M.b;
-  const n = weeks.length;
 
   const x = (i: number) => M.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) =>
@@ -237,8 +180,7 @@ function SeriesChart({
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
-    const i = Math.round((mx / plotW) * (n - 1));
-    setHover(Math.max(0, Math.min(n - 1, i)));
+    setHoverFromCoordinate(mx, plotW);
   };
 
   return (
@@ -374,7 +316,13 @@ function SeriesChart({
           height={plotH}
           fill="transparent"
           onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
+          onMouseLeave={clearHover}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") moveHover(-1);
+            if (event.key === "ArrowRight") moveHover(1);
+          }}
+          tabIndex={0}
+          aria-label="Use left and right arrow keys to inspect weekly values"
         />
       </svg>
 
@@ -918,9 +866,11 @@ export default function ScoreboardPage() {
   const [regime, setRegime] = useState("all");
   // null = let the server pick the final track; a number is an explicit switch.
   const [horizon, setHorizon] = useState<number | null>(null);
-  const [group, setGroup] = useState<"screening" | "magnitude">("screening");
-  const [metric, setMetric] = useState<MetricKey>("rank_spearman");
-  const { weekly, headline, daily, loading, connectionState, lastUpdated } =
+  const [controls, dispatchControls] = useScoreboardControls();
+  const {
+    weekly, headline, daily, backtestLoading, liveLoading, liveError,
+    connectionState, lastUpdated,
+  } =
     useScoreboard(regime, horizon);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
@@ -952,9 +902,12 @@ export default function ScoreboardPage() {
               onHorizonChange={setHorizon}
             />
           )}
+          {!liveLoading && liveError && (
+            <div className="sb-empty label">live grades could not be loaded.</div>
+          )}
 
-          {loading && <div className="sb-empty label">loading…</div>}
-          {!loading && !weekly && (
+          {backtestLoading && <div className="sb-empty label">loading…</div>}
+          {!backtestLoading && !weekly && (
             <div className="sb-empty label">
               no board loaded for “{regime}”.
             </div>
@@ -975,41 +928,14 @@ export default function ScoreboardPage() {
               <HeadlineTiles headline={headline} />
 
               {/* metric controls: screening leads, magnitude behind a toggle */}
-              <div className="sb-controls">
-                <div className="sb-metric-group">
-                  {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
-                    <button
-                      key={mk}
-                      className={metric === mk ? "active" : ""}
-                      onClick={() => setMetric(mk)}
-                    >
-                      {METRICS[mk].label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="sb-group-toggle"
-                  onClick={() => {
-                    const next =
-                      group === "screening" ? "magnitude" : "screening";
-                    setGroup(next);
-                    setMetric(
-                      next === "screening" ? "rank_spearman" : "pooled_r2"
-                    );
-                  }}
-                >
-                  {group === "screening"
-                    ? "Show magnitude (R²/MAE) →"
-                    : "← Back to screening"}
-                </button>
-              </div>
+              <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Backtest · weekly series ({METRICS[metric].label})
+                Backtest · weekly series ({METRICS[controls.metric].label})
               </div>
               <SeriesChart
                 points={weekly.points}
-                metric={metric}
+                metric={controls.metric}
                 cutover={weekly.rtc_b_cutover}
               />
 
@@ -1028,206 +954,15 @@ export default function ScoreboardPage() {
 
               <div className="sb-section-h label">
                 Backtest · pooled over all weeks, split pre/post-RTC+B (
-                {METRICS[metric].label})
+                {METRICS[controls.metric].label})
               </div>
-              <SplitTable weekly={weekly} metric={metric} />
+              <SplitTable weekly={weekly} metric={controls.metric} />
             </>
           )}
         </main>
         <Glossary />
       </div>
 
-      <style>{`
-        .sb-page {
-          height: 100%;
-          /* Flex column: sticky-ish header on top, the two-pane body owns the
-             rest and each pane scrolls on its own (graph static, notes scroll). */
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          background: var(--bg-base);
-          color: var(--text-primary);
-          /* One font on this page (Inter). Numbers used to be set in the mono
-             face; tabular-nums keeps them column-aligned without a 2nd family. */
-          font-variant-numeric: tabular-nums;
-        }
-        .sb-topbar {
-          display: flex; align-items: center; gap: 14px;
-          height: var(--header-h);
-          padding: 0 16px;
-          background: var(--bg-panel);
-          border-bottom: 1px solid var(--border);
-          position: sticky; top: 0; z-index: 2;
-        }
-        .sb-meta {
-          margin-left: auto;
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-        }
-        .sb-meta__label { color: var(--text-muted); cursor: help; }
-        .sb-meta__val {
-          font-family: var(--font-mono);
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-        .sb-meta__sep { color: var(--border-bright); }
-        .sb-regime {
-          background: var(--bg-surface); color: var(--text-primary);
-          border: 1px solid var(--border); border-radius: 3px;
-          padding: 4px 8px; font-size: 13px; font-family: inherit;
-        }
-        .sb-empty { padding: 40px 16px; text-align: center; }
-
-        /* board (left) + glossary rail (right). Same proportional split as the
-           map: content flex:5, rail flex:2 → rail is ~2/7 of the width, floored
-           at --panel-w so it never collapses too narrow. */
-        .sb-body { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 0; }
-        /* Each pane scrolls independently, so the graph stays put while the
-           explanation is scrolled (and vice versa). */
-        .sb-main { flex: 5 1 0; min-width: 0; overflow-y: auto; padding-bottom: 40px; }
-        .sb-guide {
-          flex: 2 1 0; min-width: var(--panel-w);
-          overflow-y: auto;
-          border-left: 1px solid var(--border);
-          padding: 14px 16px 24px;
-        }
-        /* Blocks read as sections now: a rule + spacing separates each. */
-        .sb-guide__block + .sb-guide__block {
-          margin-top: 18px; padding-top: 18px;
-          border-top: 1px solid var(--border);
-        }
-        .sb-guide__h {
-          display: block; margin: 0 0 10px;
-          font-size: 16px; font-weight: 600; line-height: 1.25;
-          letter-spacing: normal; text-transform: none;
-          color: var(--text-primary);
-        }
-        .sb-guide__p { font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); margin: 0; }
-        .sb-guide__p + .sb-guide__p, .sb-guide__dl + .sb-guide__p { margin-top: 8px; }
-        .sb-guide__eq {
-          font-family: var(--font-mono);
-          font-size: 14px; color: var(--text-primary);
-          text-align: center; margin: 8px 0;
-          padding: 6px 8px; background: var(--bg-surface);
-          border: 1px solid var(--border); border-radius: 3px;
-        }
-        .sb-guide__dl { margin: 0; }
-        .sb-guide__dl dt { font-size: 13.5px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
-        .sb-guide__dl dt:first-child { margin-top: 0; }
-        .sb-guide__dl dd { margin: 1px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
-
-        /* "where:" lines under the congestion equation — μ: / SF: inline. */
-        .sb-guide__where { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
-        .sb-guide__where + .sb-guide__where { margin-top: 4px; }
-        .sb-guide__where b { color: var(--text-primary); font-family: var(--font-mono); }
-
-        /* concrete worked example */
-        .sb-guide__eg {
-          margin-top: 10px; padding: 8px 10px;
-          font-size: 13.5px; line-height: 1.5; color: var(--text-secondary);
-          background: var(--bg-surface); border-radius: 3px;
-          border-left: 2px solid var(--border-bright);
-        }
-
-        /* Inline defined term: just the underline affordance — the popover
-           surface + behavior come from the shared Tooltip (.tt in index.css). */
-        .sb-term {
-          text-decoration: underline dotted; text-underline-offset: 2px;
-          cursor: help; outline: none;
-        }
-        /* Only the first .sb-meta carries margin-left:auto; the Window / Hours
-           groups sit alongside it, spaced by the topbar's own gap. */
-        .sb-meta--sub { margin-left: 0; align-items: center; }
-        .sb-meta--sub .sb-regime { margin-left: 6px; }
-
-        /* Rich tooltip content (rendered inside .tt): paragraphs + a bulleted
-           list. Unscoped so it styles the Net-load def portaled onto <body>. */
-        .sb-pop-p { display: block; }
-        .sb-pop-p + .sb-pop-p,
-        .sb-pop-p + .sb-pop-li,
-        .sb-pop-li + .sb-pop-p { margin-top: 7px; }
-        .sb-pop-li {
-          display: block; position: relative;
-          padding-left: 13px; margin-top: 3px;
-        }
-        .sb-pop-li::before {
-          content: "•"; position: absolute; left: 2px;
-          color: var(--text-muted);
-        }
-        @media (max-width: 900px) {
-          /* Stacked: independent-pane scrolling no longer applies — let the
-             whole page scroll as one column again. */
-          .sb-page { overflow-y: auto; }
-          .sb-body { flex-direction: column; min-height: 0; }
-          .sb-main { overflow: visible; padding-bottom: 0; }
-          .sb-guide {
-            flex-basis: auto; width: 100%; min-width: 0; overflow: visible;
-            border-left: none; border-top: 1px solid var(--border);
-          }
-        }
-
-        .sb-live { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        .sb-live__head { display: flex; align-items: center; gap: 12px; padding: 0 16px; flex-wrap: wrap; }
-        .sb-live__day { margin-left: 0; }
-        /* Nodes count + the model-run meta cluster, bunched at the right edge —
-           the trailing counterpart to the topbar's own auto-margin convention. */
-        .sb-live__meta { margin-left: auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-        .sb-live__ctx { color: var(--text-muted); }
-
-        .sb-tiles { display: flex; gap: 12px; padding: 12px 16px 4px; align-items: stretch; flex-wrap: wrap; }
-        .sb-tile {
-          flex: 1; min-width: 150px;
-          background: var(--bg-panel); border: 1px solid var(--border);
-          border-radius: 4px; padding: 8px 12px;
-        }
-        .sb-tile__model { font-size: 28px; font-weight: 700; line-height: 1.1; margin: 2px 0 4px; }
-        .sb-tile__cmp { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-        .sb-delta { font-weight: 600; }
-        .sb-delta[data-good="true"] { color: var(--ok); }
-        .sb-delta[data-good="false"] { color: var(--danger); }
-        .sb-ceiling { color: var(--text-secondary); }
-
-        .sb-controls { display: flex; align-items: center; gap: 14px; padding: 10px 16px 6px; flex-wrap: wrap; }
-        .sb-metric-group { display: flex; gap: 4px; }
-        .sb-metric-group button, .sb-group-toggle { font-size: 12px; padding: 4px 10px; }
-        .sb-group-toggle { color: var(--text-secondary); }
-
-        .sb-chart { padding: 0 16px; }
-        .sb-chart svg { display: block; width: 100%; }
-        .sb-axis { fill: var(--text-muted); font-size: 10px; font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
-        .sb-axis--mark { fill: var(--text-secondary); font-family: var(--font-label); letter-spacing: normal; }
-        .sb-endlabel { font-size: 11px; font-family: var(--font-label); font-weight: 600; }
-
-        .sb-tip {
-          position: absolute; pointer-events: none;
-          /* Theme-aware surface (was a hardcoded dark rgba that ignored the
-             light-mode toggle). */
-          background: var(--bg-glass); border: 1px solid var(--border-bright);
-          border-radius: 3px; padding: 6px 9px; font-size: 14px; min-width: 124px;
-        }
-        .sb-tip__wk { color: var(--accent); margin-bottom: 3px; font-size: 14px; }
-        .sb-tip__row { display: flex; align-items: center; gap: 5px; }
-        .sb-tip__dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
-        .sb-tip__lbl { color: var(--text-secondary); flex: 1; }
-        .sb-tip__val { color: var(--text-primary); }
-
-        .sb-cov { padding: 0 16px; margin-top: -4px; }
-
-        .sb-legend { display: flex; gap: 14px; padding: 8px 16px 4px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
-        .sb-legend__item { display: flex; align-items: center; gap: 5px; }
-        .sb-legend__swatch { width: 12px; height: 3px; border-radius: 1px; display: inline-block; }
-        .sb-legend__note { color: var(--text-muted); font-size: 11px; }
-
-        .sb-section-h { padding: 14px 16px 6px; }
-        .sb-splits { padding: 0 16px; overflow-x: auto; }
-        .sb-split-grid { display: inline-grid; grid-template-columns: minmax(180px, 260px) repeat(4, 108px); column-gap: 28px; row-gap: 10px; align-items: baseline; padding-right: 24px; }
-        .sb-h { font-size: 12px; font-family: var(--font-label); letter-spacing: var(--track-label); color: var(--text-muted); text-align: right; }
-        .sb-cat { text-align: left; font-size: 13px; }
-        .sb-v { font-size: 16px; text-align: right; color: var(--text-secondary); }
-        .sb-v[data-lead="true"] { color: var(--text-primary); font-weight: 700; }
-        .sb-v--ceiling { color: var(--text-muted); }
-      `}</style>
     </div>
   );
 }
