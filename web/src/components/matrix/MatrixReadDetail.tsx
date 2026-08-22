@@ -367,9 +367,6 @@ function NodeRead({
   onNavigateToMap: (search: string) => void;
 }) {
   const basis: AnalysisBasis = val === "dmu" ? "realized" : "predicted";
-  // DAM-unavailable must stay unavailable, never a fabricated zero: block the
-  // fetch outright rather than trust the caller already guarded `val`.
-  const damPendingBlock = basis === "realized" && damStatus === "pending";
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
@@ -405,7 +402,7 @@ function NodeRead({
         }
       });
     return () => controller.abort();
-  }, [point, deliveryDate, timestamp, basis, damPendingBlock]);
+  }, [point, deliveryDate, timestamp, basis]);
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
@@ -492,29 +489,27 @@ function NodeRead({
           />
         )}
 
-        {damPendingBlock && (
+        {basis === "realized" && node?.available && market?.dam_lmp == null && (
           <div className="mrd-notice">
-            ERCOT DAM μ has not been published for this delivery day —
-            unavailable, not zero.
+            ERCOT DAM LMP has not been published for this settlement point and
+            hour — unavailable, not zero.
           </div>
         )}
-        {!damPendingBlock &&
-          basis === "realized" &&
-          damStatus === "partial" && (
-            <div className="mrd-notice">
-              ERCOT DAM μ is only partially published for this day; unmatched
-              constraints read as zero here.
-            </div>
-          )}
-        {!damPendingBlock && loading && !node && (
+        {basis === "realized" && damStatus === "partial" && (
+          <div className="mrd-notice">
+            ERCOT DAM μ is only partially published for this day; unmatched
+            constraints read as zero here.
+          </div>
+        )}
+        {loading && !node && (
           <div className="mrd-loading">Loading node column…</div>
         )}
-        {!damPendingBlock && !loading && node && !node.available && (
+        {!loading && node && !node.available && (
           <div className="mrd-notice">
             No forecast artifact for this node on this delivery day.
           </div>
         )}
-        {!damPendingBlock && node?.available && (
+        {node?.available && (
           <>
             <div className="mrd-drivers">
               <span className="mrd-section-title">
