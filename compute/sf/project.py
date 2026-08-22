@@ -38,8 +38,12 @@ import logging
 import numpy as np
 import pandas as pd
 
-from compute.mu.score import LAM, MIN_HOURS, STD_FLOOR, WINDOW_DAYS, score_matrix
+from compute.mu.score import LAM, MIN_HOURS, STD_FLOOR, WINDOW_DAYS
 from compute.sf.fit import implied_shift_factors
+from compute.sf.sampling import (
+    DRAW_CHUNK, N_DRAWS, QUANTILES, RESID_CAP, _wide, band_metrics,
+    draw_congestion, residual_pool,
+)
 from compute.sf.codecs import (
     DRIVERS_K, DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator,
     build_sf_mu_artifact, load_nodal, load_sf_mu, materialize_drivers,
@@ -47,11 +51,6 @@ from compute.sf.codecs import (
 )
 
 log = logging.getLogger("compute.sf.project")
-
-N_DRAWS = 200
-DRAW_CHUNK = 25          # cap peak memory; percentiles need every draw kept
-RESID_CAP = 500_000      # the pool is sampled from, not enumerated
-QUANTILES = (10, 50, 90)
 
 # The forecast reads the map's persisted weekly SF instead of refitting it daily
 # (0095-0002). These pin the shared-fit contract:
@@ -63,95 +62,6 @@ MAX_SF_AGE_DAYS = 14     # freshness floor: D − window_end must be ≤ this, e
 MIN_SF_COVERAGE = 0.5    # min share of D's predicted binding MASS the map must locate
 
 
-
-
-def residual_pool(prior: pd.DataFrame, cap: int = RESID_CAP,
-                  rng: np.random.Generator | None = None) -> np.ndarray:
-    """Head 2's out-of-sample log-space errors on the weeks already behind us.
-
-    Log space because head 2 fits `log1p(μ)` — μ spans $0.01 to $4,000 and an
-    additive residual drawn from that would be meaningless at one end and absurd
-    at the other. `expm1(log1p(μ̂) + ε)` keeps the draw positive and scales the
-    spread with the level, which is how shadow prices actually behave.
-    """
-    b = prior[(prior["y_bind"] == 1) & prior["y_mu"].notna()]
-    if b.empty:
-        return np.array([], dtype=np.float32)
-    eps = (np.log1p(b["y_mu"].to_numpy(np.float64))
-           - np.log1p(np.clip(b["mu_gbm"].to_numpy(np.float64), 0, None)))
-    eps = eps[np.isfinite(eps)].astype(np.float32)
-    if len(eps) > cap:
-        rng = rng or np.random.default_rng(0)
-        eps = rng.choice(eps, size=cap, replace=False)
-    return eps
-
-
-def _wide(week_preds: pd.DataFrame, col: str, hours: pd.DatetimeIndex,
-          cols: pd.Index) -> np.ndarray:
-    w = week_preds.pivot_table(index="interval_ts", columns="key", values=col,
-                               aggfunc="mean")
-    return w.reindex(index=hours, columns=cols).fillna(0.0).to_numpy(np.float32)
-
-
-def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
-                    hours: pd.DatetimeIndex, eps: np.ndarray,
-                    n_draws: int = N_DRAWS,
-                    rng: np.random.Generator | None = None,
-                    *, want_point: bool = False,
-                    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
-    """(draws × hours × nodes) of sampled nodal congestion.
-
-    With `want_point`, also return the deterministic point forecast
-    `point = −(E[μ]·SF)` where `E[μ] = P(bind)·E[μ|bind]` (§4). It reuses the
-    `P`/`MU`/`SFm` arrays already built here — no sampling, no second SF
-    multiply — and is the model's expectation, distinct from the draws' median.
-    """
-    rng = rng or np.random.default_rng(0)
-    cols = SF.index                                   # only keys the map carries
-    P = _wide(week_preds, "p_bind", hours, cols)      # (H, K)
-    MU = _wide(week_preds, "mu_gbm", hours, cols)     # (H, K) = E[μ | bind]
-    SFm = SF.to_numpy(np.float32)                     # (K, N)
-    H, K, N = len(hours), len(cols), SF.shape[1]
-
-    out = np.empty((n_draws, H, N), dtype=np.float32)
-    log_mu = np.log1p(np.clip(MU, 0, None))
-    for lo in range(0, n_draws, DRAW_CHUNK):
-        d = min(DRAW_CHUNK, n_draws - lo)
-        bind = rng.random((d, H, K), dtype=np.float32) < P            # head 1
-        e = (rng.choice(eps, size=(d, H, K)) if len(eps)
-             else np.zeros((d, H, K), np.float32))                    # spread
-        mu = np.expm1(log_mu[None] + e) * bind                        # head 2
-        np.clip(mu, 0, None, out=mu)          # a shadow price is never negative
-        out[lo:lo + d] = -(mu.reshape(d * H, K) @ SFm).reshape(d, H, N)
-    if want_point:
-        E_mu = P * MU                                 # (H, K) E[μ]=P(bind)·E[μ|bind]
-        point = -(E_mu @ SFm).astype(np.float32)      # (H, N) same sign as draws
-        return out, point
-    return out
-
-
-def band_metrics(Y: np.ndarray, p10: np.ndarray, p50: np.ndarray,
-                 p90: np.ndarray) -> dict:
-    """Coverage FIRST, then skill. A band that misses is not a narrower band, it
-    is a wrong one, and P50 skill next to broken coverage is a sales pitch.
-
-    Percentiles are computed once by the caller (`np.percentile(draws,
-    QUANTILES, axis=0)`) and passed in, so the scored p50 and the served p50
-    can never diverge — both read the same array."""
-    inside = (Y >= p10) & (Y <= p90)
-    m = {
-        "coverage80": float(np.nanmean(inside)),      # target 0.80
-        "band_width": float(np.nanmean(p90 - p10)),
-        "pinball": float(np.nanmean([_pinball(Y, q, p / 100)
-                                     for q, p in zip((p10, p50, p90), QUANTILES)])),
-        **score_matrix(Y, p50),                       # P50 is the point forecast
-    }
-    return m
-
-
-def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
-    d = y - q
-    return float(np.nanmean(np.maximum(tau * d, (tau - 1) * d)))
 
 
 # --------------------------------------------------------------------------
