@@ -328,7 +328,7 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
         {term.shift_factor.toFixed(3)}
       </td>
       <td className="mrd-drv__side">{side}</td>
-      <td className="mono">{mu == null ? "—" : usd(mu, 0)}</td>
+      <td className="mono">{mu == null ? "—" : usd(mu, 2)}</td>
       <td
         className={`mono${
           term.contribution >= 0 ? " mrd-kv__value--pos" : " mrd-kv__value--neg"
