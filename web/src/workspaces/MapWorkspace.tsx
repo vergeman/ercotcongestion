@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
   MapDataMode,
@@ -40,16 +39,14 @@ import SidePanel, {
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
 import {
   type MapTarget,
-  parseMapTarget,
-  mapTargetSearch,
-  parseMapViewState,
-  mapViewStateParams,
 } from "../lib/mapLinks";
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useMapRows } from "../hooks/useMapRows";
 import { useMapBootstrap } from "../hooks/useMapBootstrap";
+import { useMapRouteState } from "../features/map/MapRouteState";
+import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -88,7 +85,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Re-render on theme flip so the forecast-error legend gradient (built from the
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
-  const target = useMemo(() => parseMapTarget(routeSearch), [routeSearch]);
+  const {
+    view, setView, dataMode, setDataMode, target, selectTarget,
+  } = useMapRouteState({ search: routeSearch, onChange: onSelectionRouteChange });
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes (0130). `view` picks the layout: `forecast` (default
@@ -106,9 +105,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // opening on the shipped default and reconciling after. `parseMapViewState`
   // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
   // congestion), so this is never an unreachable combination.
-  const [view, setView] = useState<MapView>(() => parseMapViewState(routeSearch).view);
   const renderedView: MapView = isMobile ? "forecast" : view;
-  const [dataMode, setDataMode] = useState<MapDataMode>(() => parseMapViewState(routeSearch).data);
   // Data selection held from before entering Error, so leaving it restores
   // rather than defaulting back to congestion.
   const prevDataModeRef = useRef<MapDataMode>("congestion");
@@ -121,17 +118,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // coordinate, not constraint/sp, so a selection would otherwise be dropped
   // by a view-only change). Guarded against the URL already agreeing, so it
   // doesn't fire redundantly on mount or fight an inbound deep link.
-  useEffect(() => {
-    const current = parseMapViewState(routeSearch);
-    if (current.view === view && current.data === dataMode) return;
-    const params = mapViewStateParams({ view, data: dataMode });
-    if (target) params.set(target.kind, target.value);
-    onSelectionRouteChange(`?${params.toString()}`);
-    // Only the axes themselves should trigger a push; routeSearch/target
-    // reflect the URL this effect writes to and reading them here isn't a
-    // signal to re-run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, dataMode]);
   const {
     timestamps, currentIndex, loading, connectionState: connState,
     setConnectionState: setConnState, lastUpdated, activeEventId,
@@ -226,59 +212,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const featCount = spPoints?.features.length ?? 0;
   const spTopologyEmpty = !!topology && featCount === 0;
 
-  // Camera sync between the two panes. Refs collected via each GridMap's
-  // `onMapReady`; both handlers re-arm the mirror once both maps exist.
-  const mainMapRef = useRef<maplibregl.Map | null>(null);
-  const rightMapRef = useRef<maplibregl.Map | null>(null);
-  const syncingSide = useRef<"main" | "right" | null>(null);
-  const wireSync = useCallback(() => {
-    const a = mainMapRef.current;
-    const b = rightMapRef.current;
-    if (!a || !b) return () => {};
-    const drive =
-      (from: maplibregl.Map, to: maplibregl.Map, tag: "main" | "right") =>
-      () => {
-        // Ignore the echo that fires while we're programmatically driving the
-        // other side.
-        if (syncingSide.current && syncingSide.current !== tag) return;
-        syncingSide.current = tag;
-        to.jumpTo({
-          center: from.getCenter(),
-          zoom: from.getZoom(),
-          bearing: from.getBearing(),
-          pitch: from.getPitch(),
-        });
-        syncingSide.current = null;
-      };
-    const aToB = drive(a, b, "main");
-    const bToA = drive(b, a, "right");
-    a.on("move", aToB);
-    b.on("move", bToA);
-    aToB();
-    return () => {
-      a.off("move", aToB);
-      b.off("move", bToA);
-    };
-  }, []);
-  const teardownSyncRef = useRef<(() => void) | null>(null);
-  const rearmSync = useCallback(() => {
-    teardownSyncRef.current?.();
-    teardownSyncRef.current = wireSync();
-  }, [wireSync]);
-  const handleMainReady = useCallback(
-    (m: maplibregl.Map) => {
-      mainMapRef.current = m;
-      rearmSync();
-    },
-    [rearmSync]
-  );
-  const handleRightReady = useCallback(
-    (m: maplibregl.Map) => {
-      rightMapRef.current = m;
-      rearmSync();
-    },
-    [rearmSync]
-  );
+  const { onMainReady: handleMainReady, onRightReady: handleRightReady } = useSynchronizedMaps();
 
   // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
   // from the current frame's Central date (ERCOT operates on Central), so the
@@ -445,8 +379,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const setSelectionRoute = useCallback((target: MapTarget) => {
     handledTargetRef.current = `${target.kind}:${target.value}`;
     setTargetUnavailable(false);
-    onSelectionRouteChange(mapTargetSearch(target));
-  }, [onSelectionRouteChange]);
+    selectTarget(target);
+  }, [selectTarget]);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
   // One place the driver list is requested from, so the click path, the basis
