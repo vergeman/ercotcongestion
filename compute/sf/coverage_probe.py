@@ -55,16 +55,16 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
+from compute.sf.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
 from compute.sf.panels import load_shadow_prices
 
 log = logging.getLogger("compute.sf.coverage_probe")
 
-# The point 0082/S1.5 selected on honest OOS metrics. Not yet the code defaults
-# in fit.py/runner.py (that is S5) -- but the probe must measure the gap at the
-# point the product will actually run at, so it defaults here.
-DEFAULT_WINDOW_DAYS = 240
-DEFAULT_REFIT_DAYS = 7
-DEFAULT_MIN_HOURS = 25
+# Semantic aliases retain the probe's vocabulary while sharing the adopted SF
+# operating point it measures.
+DEFAULT_WINDOW_DAYS = WINDOW_DAYS
+DEFAULT_REFIT_DAYS = REFIT_DAYS
+DEFAULT_MIN_HOURS = MIN_HOURS
 DEFAULT_MIN_HISTORY_DAYS = 365
 
 # plan/0084 gate G1, fixed before the run.

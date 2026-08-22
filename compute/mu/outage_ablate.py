@@ -39,7 +39,8 @@ import pandas as pd
 from compute.mu import score as score_mod
 from compute.mu.ablate import (PERSISTENCE_TOPDEC, PRODUCT_TOPDEC,
                                check_baselines_identical, run_arm, _row)
-from compute.mu.mu_model import FEATURE_SETS, feature_cols
+from compute.mu.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
+                                 FEATURE_SETS, feature_cols)
 
 log = logging.getLogger("compute.mu.outage_ablate")
 
@@ -102,8 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--score-from", default="2025-08-14")
-    p.add_argument("--train-days", type=int, default=240)
-    p.add_argument("--refit-days", type=int, default=7)
+    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
+    p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d")
     p.add_argument("--arms", default=",".join(ARMS))
     p.add_argument("--preds-dir", default="/compute/mu/outage_ablation")

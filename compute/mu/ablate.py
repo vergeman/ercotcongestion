@@ -44,7 +44,8 @@ import numpy as np
 import pandas as pd
 
 from compute.mu import score as score_mod
-from compute.mu.mu_model import (FEATURE_SETS, arms_for, feature_cols, load_preds,
+from compute.mu.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
+                                 FEATURE_SETS, arms_for, feature_cols, load_preds,
                                  save_preds, walk_forward)
 
 log = logging.getLogger("compute.mu.ablate")
@@ -192,8 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--score-from", default="2025-08-14")
-    p.add_argument("--train-days", type=int, default=240)
-    p.add_argument("--refit-days", type=int, default=7)
+    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
+    p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d")
     p.add_argument("--arms", default=",".join(ARMS))
     p.add_argument("--preds-dir", default="/compute/mu/ablation")
