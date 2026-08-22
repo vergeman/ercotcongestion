@@ -1,22 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { addDays, format } from "date-fns";
-import { Link } from "react-router-dom";
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useRef, useState } from "react";
 import type {
-  AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics,
-  AnalysisGradeSupport, BriefContext, HeroSegment, Standouts, TopConstraints, TopNodes,
+  AnalysisGrade,
+  AnalysisGradeHalf,
+  AnalysisGradeHistory,
+  AnalysisGradeMetrics,
+  AnalysisGradeSupport,
+  BriefContext,
+  Standouts,
+  TopConstraints,
+  TopNodes,
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
-import Tooltip from "../components/ui/Tooltip";
-import HeroMapPreview from "../components/brief/HeroMapPreview";
-import DateRangePicker from "../components/playback/DateRangePicker";
-import { CURATED_EVENTS } from "../lib/events";
-import { buildMapLink } from "../lib/mapLinks";
-import { ctInputToUtc, formatCT } from "../lib/time";
+import { formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useBriefDay } from "../hooks/useBriefDay";
+import BriefDayControls from "../components/brief/BriefDayControls";
+import BriefHero from "../components/brief/BriefHero";
+import BriefEvidence from "../components/brief/BriefEvidence";
+import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
   HistoryBars,
@@ -38,20 +43,6 @@ const fmtDay = (day: string) =>
   });
 
 const MOBILE_BREAKPOINT = "(max-width: 700px)";
-
-// The hero's map image is a genuine fetch (topology + an hour of nodal
-// data + the state border) with no payoff on a screen too narrow to show it
-// beside the text — skip mounting it below the breakpoint rather than
-// fetching it just to hide it with CSS.
-function Segments({ segments }: { segments: HeroSegment[] }) {
-  return (
-    <>
-      {segments.map((segment, i) => (
-        <span key={`${segment.ref}-${i}`}>{segment.text}</span>
-      ))}
-    </>
-  );
-}
 
 function LoadingState({ children }: { children: string }) {
   return (
@@ -1327,7 +1318,9 @@ function ForecastGrade({
           </p>
         </div>
       )}
-      {settled && loading && <LoadingState>Loading forecast grade…</LoadingState>}
+      {settled && loading && (
+        <LoadingState>Loading forecast grade…</LoadingState>
+      )}
       {settled && !loading && (!grade || !grade.available) && (
         <p>Forecast grade is unavailable for this delivery day.</p>
       )}
@@ -1368,17 +1361,6 @@ const priceDirection = (congestion: number | null) =>
     ? "Below system"
     : "Above system";
 
-function dateBounds(day: string) {
-  const nextDay = format(
-    addDays(new Date(`${day}T12:00:00Z`), 1),
-    "yyyy-MM-dd"
-  );
-  return {
-    start: ctInputToUtc(`${day}T00:00`),
-    end: ctInputToUtc(`${nextDay}T00:00`),
-  };
-}
-
 // v6 is deliberately a separate composition from the legacy, precomputed
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
@@ -1393,11 +1375,29 @@ export default function BriefPage() {
   const [selection, setSelection] = useState<BriefSelection | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
   const {
-    deliveryDay, hero, heroStats, topConstraints, standouts, topNodes, context,
-    grade, gradeHistory, heroStatsLoading, topConstraintsLoading,
-    standoutsLoading, topNodesLoading, contextLoading, gradeLoading, heroError,
-    detailsError, connectionState, lastUpdated, adjacentDays, heroPending,
-    initialLookupDone, globalLoading,
+    deliveryDay,
+    hero,
+    heroStats,
+    topConstraints,
+    standouts,
+    topNodes,
+    context,
+    grade,
+    gradeHistory,
+    heroStatsLoading,
+    topConstraintsLoading,
+    standoutsLoading,
+    topNodesLoading,
+    contextLoading,
+    gradeLoading,
+    heroError,
+    detailsError,
+    connectionState,
+    lastUpdated,
+    adjacentDays,
+    heroPending,
+    initialLookupDone,
+    globalLoading,
   } = useBriefDay(cursorDay, detailsRetry);
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
@@ -1437,7 +1437,6 @@ export default function BriefPage() {
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
-  const title = useMemo(() => hero?.segments?.headline ?? [], [hero]);
   const regime = heroStats?.slots.regime;
   const magnitude = heroStats?.slots.magnitude;
   const where = heroStats?.slots.where;
@@ -1486,18 +1485,9 @@ export default function BriefPage() {
   // wherever the scrubber's cursor lands and only rewinds if it's already at
   // the window's end — landing mid-day would give the reader just the
   // tail of the day to watch move, not the full arc.
-  const watchHref = hero?.cursor
-    ? buildMapLink({
-        t: new Date(hero.cursor.ws),
-        ws: new Date(hero.cursor.ws),
-        we: new Date(hero.cursor.we),
-        view: settled ? "market" : "forecast",
-        data: "lmp",
-        autoPlay: true,
-      })
-    : null;
+  const watchHref = briefMapWatchHref(hero, settled);
   const selectDeliveryDay = (day: string) => {
-    const { start, end } = dateBounds(day);
+    const { start, end } = briefDayBounds(day);
     setActiveEventId(null);
     pendingDeliveryDayRef.current = day;
     setReplaceWithHeroCursor(true);
@@ -1507,61 +1497,38 @@ export default function BriefPage() {
     <div className="an-page">
       <header className="an-topbar">
         <HeaderNav active="brief" />
-        <HeaderStatus connectionState={connectionState} lastUpdated={lastUpdated} />
+        <HeaderStatus
+          connectionState={connectionState}
+          lastUpdated={lastUpdated}
+        />
       </header>
 
       <main className="an-main">
-        {!globalLoading && <div className="an-date-picker">
-          {provenance && (
-            <div className="an-brief-meta">
-              <span className="an-brief-meta__item">
-                <span className="an-brief-meta__label label">Model Run</span>
-                <span className="an-brief-meta__val">{provenance.run_id}</span>
-              </span>
-              <span className="an-brief-meta__item">
-                <span className="an-brief-meta__label label">Status</span>
-                <span className="an-brief-meta__val">
-                  {settled ? "DAM Settled" : "Forecast"} · t+
-                  {provenance.horizon}
+        {!globalLoading && (
+          <div className="an-date-picker">
+            {provenance && (
+              <div className="an-brief-meta">
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Model Run</span>
+                  <span className="an-brief-meta__val">
+                    {provenance.run_id}
+                  </span>
                 </span>
-              </span>
-            </div>
-          )}
-          <div className="an-day-controls" aria-label="Delivery day controls">
-            <button
-              type="button"
-              className="an-day-controls__caret"
-              onClick={() =>
-                adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
-              }
-              disabled={!adjacentDays.previous}
-              aria-label="Previous available delivery day"
-            >
-              ‹
-            </button>
-            <Tooltip
-              className="an-day-controls__date"
-              placement="bottom"
-              tip="This is the ERCOT market delivery date, not today’s calendar date or the date the DAM auction ran."
-              aria-label="About the delivery date"
-            >
-              {deliveryDay ? fmtDay(deliveryDay) : "Choose a delivery date"}
-            </Tooltip>
-            <button
-              type="button"
-              className="an-day-controls__caret"
-              onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
-              disabled={!adjacentDays.next}
-              aria-label="Next available delivery day"
-            >
-              ›
-            </button>
-            <DateRangePicker
-              singleDate
-              showLabel={false}
-              triggerLabel="Choose delivery date"
-              selectedDate={deliveryDay}
-              onLoadDate={selectDeliveryDay}
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Status</span>
+                  <span className="an-brief-meta__val">
+                    {settled ? "DAM Settled" : "Forecast"} · t+
+                    {provenance.horizon}
+                  </span>
+                </span>
+              </div>
+            )}
+            <BriefDayControls
+              day={deliveryDay}
+              adjacentDays={adjacentDays}
+              loading={heroPending}
+              activeEventId={activeEventId}
+              onSelectDay={selectDeliveryDay}
               onSelectEvent={(event) => {
                 setActiveEventId(event.id);
                 cursor.setCoord({
@@ -1570,14 +1537,15 @@ export default function BriefPage() {
                   we: new Date(event.window_end),
                 });
               }}
-              events={CURATED_EVENTS}
-              activeEventId={activeEventId}
-              loading={heroPending}
             />
           </div>
-        </div>}
+        )}
         {globalLoading && (
-          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
+          <section
+            className="an-brief-loader"
+            role="status"
+            aria-label="Loading daily congestion brief"
+          >
             <div className="an-brief-loader__brand" aria-hidden="true">
               <span className="an-brief-loader__title">ERCOT STRESS</span>
               <span className="an-brief-loader__bolt">⚡</span>
@@ -1598,124 +1566,84 @@ export default function BriefPage() {
 
         {!heroPending && hero?.available && hero.segments && (
           <>
-            <section className="an-hero" aria-labelledby="brief-title">
-              <div className="an-hero__frame">
-                {!isMobile && hero.cursor && (
-                  <HeroMapPreview
-                    cursor={hero.cursor}
-                    basis={settled ? "settled" : "forecast"}
-                  />
-                )}
-                {watchHref && (
-                  <Link to={watchHref} className="an-hero__watch">
-                    {settled ? (
-                      <>
-                        <span>Watch prices</span>
-                        <span>move across the day →</span>
-                      </>
-                    ) : (
-                      <span>Watch the latest price forecast →</span>
+            <BriefHero
+              hero={hero}
+              settled={settled}
+              mobile={isMobile}
+              watchHref={watchHref}
+              evidenceLoading={heroStatsLoading}
+              evidence={
+                heroStats && (
+                  <div className="an-facts" aria-label="Brief evidence">
+                    {loadTotal != null && loadNet != null && (
+                      <DualStatBox
+                        firstLabel={loadTotalLabel}
+                        firstValue={gw(loadTotal)}
+                        secondLabel={loadNetLabel}
+                        secondValue={gw(loadNet)}
+                      />
                     )}
-                  </Link>
-                )}
-                <div className="an-hero__body">
-                  <p className="an-eyebrow">Daily congestion brief</p>
-                  <h1 id="brief-title">
-                    <Segments segments={title} />
-                  </h1>
-                  <p className="an-lede">
-                    <Segments segments={hero.segments.lede} />
-                  </p>
-                  <div className="an-facts-slot" aria-busy={heroStatsLoading}>
-                    {heroStatsLoading && (
-                      <div className="an-facts-loading" aria-label="Loading brief evidence">
-                        <span className="an-loading-indicator" aria-hidden="true" />
-                      </div>
+                    {magnitudeValue != null && magnitudeMedian != null && (
+                      <DualStatBox
+                        firstLabel="Total Congestion"
+                        firstValue={usd(magnitudeValue)}
+                        secondLabel="Median"
+                        secondValue={usd(magnitudeMedian)}
+                      />
                     )}
-                    {heroStats && (
-                      <div className="an-facts" aria-label="Brief evidence">
-                        {loadTotal != null && loadNet != null && (
-                          <DualStatBox
-                            firstLabel={loadTotalLabel}
-                            firstValue={gw(loadTotal)}
-                            secondLabel={loadNetLabel}
-                            secondValue={gw(loadNet)}
-                          />
-                        )}
-                        {magnitudeValue != null && magnitudeMedian != null && (
-                          <DualStatBox
-                            firstLabel="Total Congestion"
-                            firstValue={usd(magnitudeValue)}
-                            secondLabel="Median"
-                            secondValue={usd(magnitudeMedian)}
-                          />
-                        )}
-                        {magnitudeRank != null && (
-                          <DualStatBox
-                            firstLabel="30-Day Congestion"
-                            firstValue={`#${magnitudeRank}`}
-                            secondLabel={whereZone ? "Congested Region" : undefined}
-                            secondValue={
-                              whereZone ? zoneLabel(whereZone) : undefined
-                            }
-                          />
-                        )}
-                        {whereZone && whereShare != null && (
-                          <DualStatBox
-                            firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                            firstValue={pct(whereShare)}
-                            secondLabel={`${zoneLabel(whereZone)} Price`}
-                            secondValue={priceDirection(whereCongestion)}
-                          />
-                        )}
-                      </div>
+                    {magnitudeRank != null && (
+                      <DualStatBox
+                        firstLabel="30-Day Congestion"
+                        firstValue={`#${magnitudeRank}`}
+                        secondLabel={whereZone ? "Congested Region" : undefined}
+                        secondValue={
+                          whereZone ? zoneLabel(whereZone) : undefined
+                        }
+                      />
+                    )}
+                    {whereZone && whereShare != null && (
+                      <DualStatBox
+                        firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
+                        firstValue={pct(whereShare)}
+                        secondLabel={`${zoneLabel(whereZone)} Price`}
+                        secondValue={priceDirection(whereCongestion)}
+                      />
                     )}
                   </div>
-                  {watchHref && (
-                    <div className="an-hero__meta">
-                      <Link to={watchHref} className="an-hero__watch-inline">
-                        Watch prices move across the day →
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
+                )
+              }
+            />
 
-            {detailsError && (
-              <div className="an-details-error" role="alert">
-                <span>{detailsError}</span>
-                <button type="button" onClick={() => setDetailsRetry((retry) => retry + 1)}>
-                  Retry details
-                </button>
-              </div>
-            )}
-
-            <StandoutsPanel
-              data={standouts}
-              loading={standoutsLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <TopConstraintsPanel
-              data={topConstraints}
-              loading={topConstraintsLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <TopNodesPanel
-              data={topNodes}
-              loading={topNodesLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <ForecastGrade
-              grade={grade}
-              history={gradeHistory}
-              loading={gradeLoading}
-              settled={settled}
-            />
-            <ContextPanel data={context} loading={contextLoading} />
+            <BriefEvidence
+              error={detailsError}
+              onRetry={() => setDetailsRetry((retry) => retry + 1)}
+            >
+              <StandoutsPanel
+                data={standouts}
+                loading={standoutsLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <TopConstraintsPanel
+                data={topConstraints}
+                loading={topConstraintsLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <TopNodesPanel
+                data={topNodes}
+                loading={topNodesLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <ForecastGrade
+                grade={grade}
+                history={gradeHistory}
+                loading={gradeLoading}
+                settled={settled}
+              />
+              <ContextPanel data={context} loading={contextLoading} />
+            </BriefEvidence>
           </>
         )}
       </main>
