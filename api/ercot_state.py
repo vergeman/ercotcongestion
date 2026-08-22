@@ -48,7 +48,8 @@ def _round_congestion_difference(spp: object, system_lambda: object) -> float:
 @router.get(
     "/ercot_state_range",
     response_model=ErcotStateRangeResponse,
-    summary="ERCOT SP congestion snapshots across a window",
+    summary="Deprecated: use /ercot_range for realized congestion snapshots",
+    deprecated=True,
 )
 def get_ercot_state_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),

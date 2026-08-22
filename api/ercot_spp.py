@@ -39,7 +39,8 @@ def _coerce_utc(ts: datetime) -> datetime:
 @router.get(
     "/ercot_spp_range",
     response_model=ErcotSppRangeResponse,
-    summary="Raw DAM SPP per settlement point across a window",
+    summary="Deprecated: use /ercot_range for realized SPP snapshots",
+    deprecated=True,
 )
 def get_ercot_spp_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),
