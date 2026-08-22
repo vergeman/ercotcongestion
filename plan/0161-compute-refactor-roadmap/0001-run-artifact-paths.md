@@ -1,7 +1,7 @@
 # 0161-0001 - Centralize run-artifact paths
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0001-run-artifact-paths
 
 ## Goal
 

@@ -1,7 +1,7 @@
 # 0161-0005 - Separate feature-panel seams
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0005-feature-panel-seams
 
 ## Goal
 

@@ -1,7 +1,7 @@
 # 0161-0003 - Share operating defaults
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0003-shared-operating-defaults
 
 ## Goal
 
