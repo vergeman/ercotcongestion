@@ -38,7 +38,6 @@ import os
 import time
 import zipfile
 from datetime import timedelta
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -46,6 +45,7 @@ from sklearn.ensemble import (HistGradientBoostingClassifier,
                               HistGradientBoostingRegressor)
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
+from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.mu.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 
 log = logging.getLogger("compute.mu.mu_model")
@@ -80,24 +80,20 @@ _BIND_MATRIX_FILE = "bind_matrix.f64"
 # opt-in via MU_SPILL_PANEL. One file, overwritten per run, unlinked when main ends.
 _PANEL_FILE = "panel_features.arrow"
 
-# The canonical run-artifact tree (plan/0113). `--run-id` is the namespace every
-# stage shares: the walk writes its weekly metrics and residual pool beneath
-# `runs/<run-id>/mu/`, exactly where `backfill_nodal`/`daily_forecast` read them
-# back. `Path(__file__).parent.parent` is `compute/`, so this resolves to the same
-# mounted `/compute/runs` PVC those jobs use.
-RUNS_ROOT = Path(__file__).parent.parent / "runs"
+# Retained for tests that redirect the mounted runs PVC.
+RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 def weekly_path_for(run_id: str) -> str:
     """The walk's weekly-metrics CSV for `run_id` — `runs/<run-id>/mu/mu_weekly.csv`."""
-    return str(RUNS_ROOT / run_id / "mu" / "mu_weekly.csv")
+    return str(RunArtifacts(run_id, RUNS_ROOT).weekly_metrics)
 
 
 def preds_path_for(run_id: str) -> str:
     """The walk's per-row predictions / residual-pool npz for `run_id` —
     `runs/<run-id>/mu/mu_preds.npz`, the path `backfill_nodal`/`daily_forecast`
     resolve from the same run id (their `preds_path_for` mirrors this)."""
-    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
+    return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
 
 
 def resolve_output_paths(run_id: str | None, out: str | None, preds_out: str | None,

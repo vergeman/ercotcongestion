@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap
 
 ## Acceptance
 
-* [ ] The three callers resolve byte-identical paths for representative run IDs.
-* [ ] Existing path-resolution tests pass, including `RUNS_ROOT` test overrides.
-* [ ] No imports create a `daily_forecast` ↔ `backfill_nodal` cycle.
+* [x] The three callers resolve byte-identical paths for representative run IDs.
+* [x] Existing path-resolution tests pass, including `RUNS_ROOT` test overrides.
+* [x] No imports create a `daily_forecast` ↔ `backfill_nodal` cycle.
 
 ## Suggested regression tests
 
