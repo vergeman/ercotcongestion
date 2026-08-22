@@ -1,12 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   AnalysisBasis,
   AnalysisConstraintRow,
@@ -185,21 +178,16 @@ function ConstraintRead({
   row,
   timestamp,
   onNavigateToMap,
-  onLoadingChange,
 }: {
   selectionKey: string;
   row: AnalysisConstraintRow | null;
   timestamp: Date | null;
   onNavigateToMap: (search: string) => void;
-  onLoadingChange: (loading: boolean) => void;
 }) {
   // The scrubbed interval selects the CT delivery day whose artifact backs the
   // reach (0144) — the same day the rest of the Read pane describes.
   const cursorTs = timestamp ?? undefined;
   const { reach, loading } = useFullConstraintReach(selectionKey, cursorTs);
-  useEffect(() => {
-    onLoadingChange(loading);
-  }, [loading, onLoadingChange]);
   const { imp, exp } = dipoleCounts(reach);
   const name = constraintName(selectionKey);
   const contingency = selectionKey.includes("|")
@@ -215,6 +203,8 @@ function ConstraintRead({
   const exportLobe = [...sps]
     .filter((sp) => sp.sf >= 0)
     .sort((a, b) => b.sf - a.sf);
+
+  if (loading) return <DetailLoading />;
 
   return (
     <>
@@ -373,7 +363,6 @@ function NodeRead({
   deliveryDate,
   damStatus,
   onNavigateToMap,
-  onLoadingChange,
 }: {
   point: string;
   meta: {
@@ -387,27 +376,26 @@ function NodeRead({
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
   onNavigateToMap: (search: string) => void;
-  onLoadingChange: (loading: boolean) => void;
 }) {
   const basis: AnalysisBasis = val === "dmu" ? "realized" : "predicted";
   // DAM-unavailable must stay unavailable, never a fabricated zero: block the
   // fetch outright rather than trust the caller already guarded `val`.
   const damPendingBlock = basis === "realized" && damStatus === "pending";
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  // A remount follows each row selection, so start pending to avoid briefly
+  // painting the new panel's empty shell before its request effect begins.
+  const [loading, setLoading] = useState(true);
   const requestId = useRef(0);
 
   useEffect(() => {
     if (!timestamp || !deliveryDate) {
       setNode(null);
       setLoading(false);
-      onLoadingChange(false);
       return;
     }
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
-    onLoadingChange(true);
     getAnalysisNode(
       point,
       deliveryDate,
@@ -426,16 +414,17 @@ function NodeRead({
       .finally(() => {
         if (id === requestId.current) {
           setLoading(false);
-          onLoadingChange(false);
         }
       });
     return () => controller.abort();
-  }, [point, deliveryDate, timestamp, basis, damPendingBlock, onLoadingChange]);
+  }, [point, deliveryDate, timestamp, basis, damPendingBlock]);
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
   const structuralTerms = node?.available ? node.structural_terms ?? [] : [];
   const market = node?.available ? node.market_state : null;
+
+  if (loading && !node) return <DetailLoading />;
 
   return (
     <>
@@ -622,11 +611,6 @@ export default function MatrixReadDetail({
   nodeMeta,
   onNavigateToMap,
 }: Props) {
-  const [ready, setReady] = useState(false);
-  const handleLoadingChange = useCallback(
-    (loading: boolean) => setReady(!loading),
-    []
-  );
   if (!selection) {
     return (
       <div className="mrd mrd--empty">
@@ -637,29 +621,24 @@ export default function MatrixReadDetail({
   return (
     <div className="mrd">
       <ConstraintReachStyles />
-      {!ready && <DetailLoading />}
-      <div className="mrd__content" hidden={!ready}>
-        {selection.kind === "constraint" ? (
-          <ConstraintRead
-            selectionKey={selection.key}
-            row={constraintRow}
-            timestamp={timestamp}
-            onNavigateToMap={onNavigateToMap}
-            onLoadingChange={handleLoadingChange}
-          />
-        ) : (
-          <NodeRead
-            point={selection.point}
-            meta={nodeMeta}
-            timestamp={timestamp}
-            val={val}
-            deliveryDate={deliveryDate}
-            damStatus={damStatus}
-            onNavigateToMap={onNavigateToMap}
-            onLoadingChange={handleLoadingChange}
-          />
-        )}
-      </div>
+      {selection.kind === "constraint" ? (
+        <ConstraintRead
+          selectionKey={selection.key}
+          row={constraintRow}
+          timestamp={timestamp}
+          onNavigateToMap={onNavigateToMap}
+        />
+      ) : (
+        <NodeRead
+          point={selection.point}
+          meta={nodeMeta}
+          timestamp={timestamp}
+          val={val}
+          deliveryDate={deliveryDate}
+          damStatus={damStatus}
+          onNavigateToMap={onNavigateToMap}
+        />
+      )}
       <style>{`
         /* Two columns: a scrolling evidence column on the left and the grid
            footprint pinned full-height on the right. The pane's own
@@ -668,7 +647,6 @@ export default function MatrixReadDetail({
         .mrd { --mrd-fact-label: 216px; --mrd-fact-value: 130px; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
         .mrd--empty { color: var(--text-secondary); display: grid; place-items: center; padding: 40px 20px; text-align: center; }
         .mrd--loading { color: var(--text-secondary); display: flex; grid-column: 1 / -1; align-items: center; justify-content: center; gap: 10px; padding: 40px 20px; }
-        .mrd__content { display: contents; }
         .mrd-loading__spinner { animation: mrd-spin .8s linear infinite; border: 2px solid var(--border); border-right-color: var(--accent); border-radius: 50%; height: 18px; width: 18px; }
         @keyframes mrd-spin { to { transform: rotate(360deg); } }
         .mrd__main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px 2px; }
