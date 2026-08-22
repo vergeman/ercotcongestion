@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap/0003-shared-operating-defaults
 
 ## Acceptance
 
-* [ ] No production 240-day, 7-day, or 25-hour operating default is duplicated outside the canonical configuration and intentional experiment configs.
-* [ ] Existing CLI help/default behavior remains unchanged.
-* [ ] Focused μ, SF, and weather-default tests pass.
+* [x] No production 240-day, 7-day, 25-hour, or ridge-λ operating default is duplicated outside the canonical configuration and intentional experiment configs; `fit.py` retains its `RIDGE_LAMBDA` compatibility export.
+* [x] Existing CLI help/default behavior remains unchanged.
+* [x] Focused μ, SF, and weather-default tests pass.
 
 ## Suggested regression tests
 
