@@ -21,11 +21,17 @@ Branch: refactor/0161-compute-refactor-roadmap/0004-sf-projection-seams
 * Use deterministic RNG fixtures and serialized-artifact fixtures to compare results before and after each extraction.
 * Do NOT change draw count, RNG ordering, percentile dtypes, map freshness/coverage guards, or SQL.
 
+## Commit groups
+
+* [x] Extract NPZ codecs and artifact read helpers into `compute/sf/codecs.py` while re-exporting them from `project.py`.
+* [x] Extract fixed-seed draws and band metrics into `compute/sf/sampling.py` while preserving the façade API.
+* [x] Extract persisted-map reads and guards into `compute/sf/map_store.py` and test its failure contracts at the new seam.
+
 ## Acceptance
 
-* [ ] Fixed-seed draws, band metrics, and NPZ round trips are unchanged.
-* [ ] Forward and historical propagation tests pass without changed expected values.
-* [ ] `daily_forecast` and `backfill_nodal` still import a stable propagation API.
+* [x] Fixed-seed draws, band metrics, and NPZ round trips are unchanged.
+* [x] Forward and historical propagation tests pass without changed expected values.
+* [x] `daily_forecast` and `backfill_nodal` still import a stable propagation API.
 
 ## Suggested regression tests
 

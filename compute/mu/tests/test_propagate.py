@@ -250,7 +250,7 @@ def test_load_forecast_sf_fails_loud_on_missing_stale_empty_or_low_coverage(monk
     """The shared-fit guard (0095-0002 acceptance): a missing / stale / empty /
     low-coverage map raises so the caller keeps the prior pointer; a fresh,
     covered window returns the SF to project through."""
-    import compute.sf.project as proj
+    import compute.sf.map_store as proj
 
     Dd = pd.Timestamp("2025-09-15", tz="UTC")
     wp = pd.DataFrame({"key": ["K0|Z", "K1|Z"], "p_bind": [0.8, 0.8],
