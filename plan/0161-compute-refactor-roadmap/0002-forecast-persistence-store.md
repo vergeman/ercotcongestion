@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap/0002-forecast-persistence-store
 
 ## Acceptance
 
-* [ ] Daily publish and bulk backfill follow the same SQL/write order as before.
-* [ ] Horizon-1 and horizon-2 replacement remain isolated.
-* [ ] `test_forecast_day.py`, `test_propagate.py`, and `test_backfill_nodal.py` pass.
+* [x] Daily publish and bulk backfill follow the same SQL/write order as before.
+* [x] Horizon-1 and horizon-2 replacement remain isolated.
+* [x] `test_forecast_day.py`, `test_propagate.py`, and `test_backfill_nodal.py` pass.
 
 ## Suggested regression tests
 
