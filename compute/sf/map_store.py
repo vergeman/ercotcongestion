@@ -76,8 +76,9 @@ def load_forecast_sf(conn, D, wp: pd.DataFrame, *, run_id: str = MAP_RUN_ID,
                            f"to project {D.date()} through (keep prior pointer).")
     cov = sf_mass_coverage(SF, wp)
     if cov < min_coverage:
-        raise RuntimeError(f"low SF coverage for {D.date()}: the {run_id} map locates {cov:.1%} of "
-                           f"the day's predicted binding mass (< {min_coverage:.0%} floor). The map "
+        raise RuntimeError(f"low SF coverage for {D.date()}: the {run_id} map locates "
+                           f"{cov:.1%} of the day's predicted binding mass "
+                           f"(< {min_coverage:.0%} floor). The map "
                            "universe and D's constraints have diverged — refusing (keep pointer).")
     log.info("SF from %s window %s (%dd old): %d constraints x %d SPs, coverage %.1f%%",
              run_id, window_start.date(), age, SF.shape[0], SF.shape[1], cov * 100)
