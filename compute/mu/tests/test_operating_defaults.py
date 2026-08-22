@@ -33,6 +33,7 @@ def test_mu_aliases_share_the_sf_operating_point():
     assert mu_model.DEFAULT_REFIT_DAYS is config.REFIT_DAYS
     assert coverage_probe.DEFAULT_WINDOW_DAYS is config.WINDOW_DAYS
     assert coverage_probe.DEFAULT_REFIT_DAYS is config.REFIT_DAYS
+    assert coverage_probe.DEFAULT_MIN_HOURS is config.MIN_HOURS
 
 
 @pytest.mark.parametrize(
@@ -50,7 +51,14 @@ def test_map_and_mu_cli_defaults_match_the_operating_point(
     defaults = _defaults(monkeypatch, main)
     assert defaults[window_name] == config.WINDOW_DAYS
     assert defaults[refit_name] == config.REFIT_DAYS
+
+
 def test_frozen_out_of_window_experiment_keeps_its_own_window():
     assert frozen_oos.WINDOW_DAYS == 60
     assert frozen_oos.REFIT_DAYS == 7
     assert frozen_oos.WINDOW_DAYS != config.WINDOW_DAYS
+
+
+def test_coverage_probe_cli_admission_default_matches_the_operating_point(monkeypatch):
+    assert _defaults(monkeypatch, coverage_probe.main)["min_binding_hours"] \
+        == config.MIN_HOURS
