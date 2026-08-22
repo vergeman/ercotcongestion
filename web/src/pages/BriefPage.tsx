@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useRef, useState } from "react";
 import type {
   AnalysisGrade,
   AnalysisGradeHalf,
@@ -7,7 +7,6 @@ import type {
   AnalysisGradeMetrics,
   AnalysisGradeSupport,
   BriefContext,
-  HeroSegment,
   Standouts,
   TopConstraints,
   TopNodes,
@@ -15,12 +14,12 @@ import type {
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
-import HeroMapPreview from "../components/brief/HeroMapPreview";
 import { formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useBriefDay } from "../hooks/useBriefDay";
 import BriefDayControls from "../components/brief/BriefDayControls";
+import BriefHero from "../components/brief/BriefHero";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
@@ -43,20 +42,6 @@ const fmtDay = (day: string) =>
   });
 
 const MOBILE_BREAKPOINT = "(max-width: 700px)";
-
-// The hero's map image is a genuine fetch (topology + an hour of nodal
-// data + the state border) with no payoff on a screen too narrow to show it
-// beside the text — skip mounting it below the breakpoint rather than
-// fetching it just to hide it with CSS.
-function Segments({ segments }: { segments: HeroSegment[] }) {
-  return (
-    <>
-      {segments.map((segment, i) => (
-        <span key={`${segment.ref}-${i}`}>{segment.text}</span>
-      ))}
-    </>
-  );
-}
 
 function LoadingState({ children }: { children: string }) {
   return (
@@ -1451,7 +1436,6 @@ export default function BriefPage() {
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
-  const title = useMemo(() => hero?.segments?.headline ?? [], [hero]);
   const regime = heroStats?.slots.regime;
   const magnitude = heroStats?.slots.magnitude;
   const where = heroStats?.slots.where;
@@ -1581,97 +1565,53 @@ export default function BriefPage() {
 
         {!heroPending && hero?.available && hero.segments && (
           <>
-            <section className="an-hero" aria-labelledby="brief-title">
-              <div className="an-hero__frame">
-                {!isMobile && hero.cursor && (
-                  <HeroMapPreview
-                    cursor={hero.cursor}
-                    basis={settled ? "settled" : "forecast"}
-                  />
-                )}
-                {watchHref && (
-                  <Link to={watchHref} className="an-hero__watch">
-                    {settled ? (
-                      <>
-                        <span>Watch prices</span>
-                        <span>move across the day →</span>
-                      </>
-                    ) : (
-                      <span>Watch the latest price forecast →</span>
+            <BriefHero
+              hero={hero}
+              settled={settled}
+              mobile={isMobile}
+              watchHref={watchHref}
+              evidenceLoading={heroStatsLoading}
+              evidence={
+                heroStats && (
+                  <div className="an-facts" aria-label="Brief evidence">
+                    {loadTotal != null && loadNet != null && (
+                      <DualStatBox
+                        firstLabel={loadTotalLabel}
+                        firstValue={gw(loadTotal)}
+                        secondLabel={loadNetLabel}
+                        secondValue={gw(loadNet)}
+                      />
                     )}
-                  </Link>
-                )}
-                <div className="an-hero__body">
-                  <p className="an-eyebrow">Daily congestion brief</p>
-                  <h1 id="brief-title">
-                    <Segments segments={title} />
-                  </h1>
-                  <p className="an-lede">
-                    <Segments segments={hero.segments.lede} />
-                  </p>
-                  <div className="an-facts-slot" aria-busy={heroStatsLoading}>
-                    {heroStatsLoading && (
-                      <div
-                        className="an-facts-loading"
-                        aria-label="Loading brief evidence"
-                      >
-                        <span
-                          className="an-loading-indicator"
-                          aria-hidden="true"
-                        />
-                      </div>
+                    {magnitudeValue != null && magnitudeMedian != null && (
+                      <DualStatBox
+                        firstLabel="Total Congestion"
+                        firstValue={usd(magnitudeValue)}
+                        secondLabel="Median"
+                        secondValue={usd(magnitudeMedian)}
+                      />
                     )}
-                    {heroStats && (
-                      <div className="an-facts" aria-label="Brief evidence">
-                        {loadTotal != null && loadNet != null && (
-                          <DualStatBox
-                            firstLabel={loadTotalLabel}
-                            firstValue={gw(loadTotal)}
-                            secondLabel={loadNetLabel}
-                            secondValue={gw(loadNet)}
-                          />
-                        )}
-                        {magnitudeValue != null && magnitudeMedian != null && (
-                          <DualStatBox
-                            firstLabel="Total Congestion"
-                            firstValue={usd(magnitudeValue)}
-                            secondLabel="Median"
-                            secondValue={usd(magnitudeMedian)}
-                          />
-                        )}
-                        {magnitudeRank != null && (
-                          <DualStatBox
-                            firstLabel="30-Day Congestion"
-                            firstValue={`#${magnitudeRank}`}
-                            secondLabel={
-                              whereZone ? "Congested Region" : undefined
-                            }
-                            secondValue={
-                              whereZone ? zoneLabel(whereZone) : undefined
-                            }
-                          />
-                        )}
-                        {whereZone && whereShare != null && (
-                          <DualStatBox
-                            firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                            firstValue={pct(whereShare)}
-                            secondLabel={`${zoneLabel(whereZone)} Price`}
-                            secondValue={priceDirection(whereCongestion)}
-                          />
-                        )}
-                      </div>
+                    {magnitudeRank != null && (
+                      <DualStatBox
+                        firstLabel="30-Day Congestion"
+                        firstValue={`#${magnitudeRank}`}
+                        secondLabel={whereZone ? "Congested Region" : undefined}
+                        secondValue={
+                          whereZone ? zoneLabel(whereZone) : undefined
+                        }
+                      />
+                    )}
+                    {whereZone && whereShare != null && (
+                      <DualStatBox
+                        firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
+                        firstValue={pct(whereShare)}
+                        secondLabel={`${zoneLabel(whereZone)} Price`}
+                        secondValue={priceDirection(whereCongestion)}
+                      />
                     )}
                   </div>
-                  {watchHref && (
-                    <div className="an-hero__meta">
-                      <Link to={watchHref} className="an-hero__watch-inline">
-                        Watch prices move across the day →
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
+                )
+              }
+            />
 
             {detailsError && (
               <div className="an-details-error" role="alert">
