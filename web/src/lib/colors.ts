@@ -257,6 +257,10 @@ const MC_FLOOR_FRAC = 0.02;
 // A discrete alarm bin reserves a categorical signal for rare scarcity nodes
 // without changing the P90 scale that keeps ordinary values readable.
 export const CONGESTION_ALARM_MULTIPLIER = 3;
+// Relative thresholds collapse on quiet days (for example, 3 × a $1 P90 is
+// not an extreme price).  Keep the alarm reserved for a materially elevated
+// positive congestion price even when the daily distribution is near zero.
+export const CONGESTION_ALARM_FLOOR = 100;
 
 export interface CongestionStats {
   p_high: number; // percentile(|mc|, MC_PCT_HIGH); positive
@@ -328,7 +332,10 @@ export function normalizeCongestion(
 }
 
 export function congestionAlarmThreshold(stats: CongestionStats): number {
-  return stats.p_high * CONGESTION_ALARM_MULTIPLIER;
+  return Math.max(
+    stats.p_high * CONGESTION_ALARM_MULTIPLIER,
+    CONGESTION_ALARM_FLOOR
+  );
 }
 
 // Scarcity is operationally asymmetric: a huge positive import-side price is
