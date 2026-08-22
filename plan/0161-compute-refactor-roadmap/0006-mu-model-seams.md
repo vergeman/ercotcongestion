@@ -1,7 +1,7 @@
 # 0161-0006 - Decompose μ model responsibilities
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0006-mu-model-seams
 
 ## Goal
 

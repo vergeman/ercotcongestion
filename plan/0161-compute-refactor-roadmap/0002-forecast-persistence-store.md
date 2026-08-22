@@ -1,7 +1,7 @@
 # 0161-0002 - Extract forecast persistence store
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0002-forecast-persistence-store
 
 ## Goal
 

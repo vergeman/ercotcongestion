@@ -17,11 +17,11 @@ from __future__ import annotations
 import logging
 import os
 import time
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.mu.features import ERCOT_TZ, ct_day_bounds
 from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.sf.project import (
@@ -45,7 +45,8 @@ log = logging.getLogger("compute.jobs.backfill_nodal")
 
 FORECAST_LAYER = "ercot"
 
-RUNS_ROOT = Path(__file__).parent.parent / "runs"    # the mounted /compute/runs PVC
+# Retained for tests that redirect the mounted runs PVC.
+RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 def preds_path_for(run_id: str) -> str:
@@ -53,11 +54,10 @@ def preds_path_for(run_id: str) -> str:
 
     Same layout every stage uses — `runs/<run_id>/mu/mu_preds.npz`, where
     `mu_model --preds-out` writes it (runbook step 2) — so passing `--run-id`
-    is enough and `--preds` need not be spelled out. Mirrors
-    `daily_forecast.preds_path_for` (defined here too rather than imported, to
-    avoid a circular import: daily_forecast imports this module).
+    is enough and `--preds` need not be spelled out. The shared artifact catalog
+    also supplies the matching `daily_forecast` and `mu_model` locations.
     """
-    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
+    return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
 
 
 def scores_path_for(run_id: str) -> str:
@@ -67,19 +67,19 @@ def scores_path_for(run_id: str) -> str:
     reads. A μ-stage artifact (score schema: source/regime/pooled_r2/…), so it lives
     under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
     which is `mu_model`'s calibration output."""
-    return str(RUNS_ROOT / run_id / "mu" / "mu_score_weekly.csv")
+    return str(RunArtifacts(run_id, RUNS_ROOT).scores)
 
 
 def bands_path_for(run_id: str) -> str:
     """The P50 band-metrics CSV for `run_id` — `runs/<run_id>/forecast/mu_bands_weekly.csv`.
     A forecast-stage output (this job produces it), so it lives under `forecast/`."""
-    return str(RUNS_ROOT / run_id / "forecast" / "mu_bands_weekly.csv")
+    return str(RunArtifacts(run_id, RUNS_ROOT).bands)
 
 
 def nodal_path_for(run_id: str) -> str:
     """The per-week nodal P10/P50/P90 + point panel npz for `run_id` —
     `runs/<run_id>/forecast/mu_nodal.npz`. The forecast-stage seed/reload artifact."""
-    return str(RUNS_ROOT / run_id / "forecast" / "mu_nodal.npz")
+    return str(RunArtifacts(run_id, RUNS_ROOT).nodal_panel)
 
 
 def resolve_walk_paths(run_id: str | None, preds: str | None, scores: str | None,

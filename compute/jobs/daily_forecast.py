@@ -33,11 +33,11 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.jobs.backfill_nodal import (
     FORECAST_LAYER,
     nodal_to_db,
@@ -81,8 +81,8 @@ from compute.sf.project import (
 
 log = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).parent
-RUNS_ROOT = BASE_DIR.parent / "runs"    # the mounted /compute/runs PVC
+# Retained for tests that redirect the mounted runs PVC.
+RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 def preds_path_for(run_id: str) -> str:
@@ -97,7 +97,7 @@ def preds_path_for(run_id: str) -> str:
     copy, so refreshing the pool no longer needs an image rebuild. Pass `--preds`
     to override (parity with backfill_nodal/score/rerank).
     """
-    return str(RUNS_ROOT / run_id / "mu" / "mu_preds.npz")
+    return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 

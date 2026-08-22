@@ -1,7 +1,7 @@
 # 0161-0007 - Consolidate CT delivery-time helpers
 
 Type: refactor
-Branch: refactor/0161-compute-refactor-roadmap
+Branch: refactor/0161-compute-refactor-roadmap/0007-ct-time-helpers
 
 ## Goal
 
