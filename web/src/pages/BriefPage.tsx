@@ -2,37 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
 import type {
-  AnalysisGrade,
-  AnalysisGradeHalf,
-  AnalysisGradeHistory,
-  AnalysisGradeMetrics,
-  AnalysisGradeSupport,
-  BriefContext,
-  BriefHero,
-  BriefHeroStats,
-  HeroSegment,
-  Standouts,
-  TopConstraints,
-  TopNodes,
+  AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics,
+  AnalysisGradeSupport, BriefContext, HeroSegment, Standouts, TopConstraints, TopNodes,
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
-import {
-  fetchBriefDetailsCached,
-  fetchBriefHeroLatestCached,
-  fetchBriefHeroShellCached,
-  fetchBriefHeroStatsCached,
-  fetchBriefStandoutsCached,
-} from "../api/briefCache";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
 import Tooltip from "../components/ui/Tooltip";
-import type { ConnectionState } from "../hooks/useExplorerSession";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import { CURATED_EVENTS } from "../lib/events";
 import { buildMapLink } from "../lib/mapLinks";
 import { ctInputToUtc, formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useBriefDay } from "../hooks/useBriefDay";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
   HistoryBars,
@@ -59,22 +43,6 @@ const MOBILE_BREAKPOINT = "(max-width: 700px)";
 // data + the state border) with no payoff on a screen too narrow to show it
 // beside the text — skip mounting it below the breakpoint rather than
 // fetching it just to hide it with CSS.
-function useIsMobile(): boolean {
-  const [matches, setMatches] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia(MOBILE_BREAKPOINT).matches
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(MOBILE_BREAKPOINT);
-    const update = () => setMatches(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  return matches;
-}
-
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return (
     <>
@@ -1415,213 +1383,32 @@ function dateBounds(day: string) {
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
 export default function BriefPage() {
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
-  const [defaultDay, setDefaultDay] = useState<string | null>(null);
-  const [initialLookupDone, setInitialLookupDone] = useState(false);
-  const [hero, setHero] = useState<BriefHero | null>(null);
-  const [heroStats, setHeroStats] = useState<BriefHeroStats | null>(null);
-  const [topConstraints, setTopConstraints] = useState<TopConstraints | null>(
-    null
-  );
-  const [standouts, setStandouts] = useState<Standouts | null>(null);
-  const [topNodes, setTopNodes] = useState<TopNodes | null>(null);
-  const [context, setContext] = useState<BriefContext | null>(null);
-  const [grade, setGrade] = useState<AnalysisGrade | null>(null);
-  const [gradeHistory, setGradeHistory] = useState<AnalysisGradeHistory | null>(
-    null
-  );
-  const [heroLoading, setHeroLoading] = useState(false);
-  const [heroStatsLoading, setHeroStatsLoading] = useState(false);
-  const [topConstraintsLoading, setTopConstraintsLoading] = useState(false);
-  const [standoutsLoading, setStandoutsLoading] = useState(false);
-  const [topNodesLoading, setTopNodesLoading] = useState(false);
-  const [contextLoading, setContextLoading] = useState(false);
-  const [gradeLoading, setGradeLoading] = useState(false);
-  const [heroError, setHeroError] = useState<string | null>(null);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsRetry, setDetailsRetry] = useState(0);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   // The row a reader opened the shared detail panel over (plan/0135); null when
   // closed. Purely UI state — it never touches the Brief's time coordinate.
   const [selection, setSelection] = useState<BriefSelection | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
-  const [adjacentDays, setAdjacentDays] = useState<{
-    previous: string | null;
-    next: string | null;
-  }>({ previous: null, next: null });
+  const {
+    deliveryDay, hero, heroStats, topConstraints, standouts, topNodes, context,
+    grade, gradeHistory, heroStatsLoading, topConstraintsLoading,
+    standoutsLoading, topNodesLoading, contextLoading, gradeLoading, heroError,
+    detailsError, connectionState, lastUpdated, adjacentDays, heroPending,
+    initialLookupDone, globalLoading,
+  } = useBriefDay(cursorDay, detailsRetry);
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
   // cursor during that short handoff.
   const pendingDeliveryDayRef = useRef<string | null>(null);
-
-  // Cold entry remains entirely v6: newest day with both UTC artifacts needed
-  // by the Brief's Chicago delivery-day tables, never the legacy brief blob.
-  useEffect(() => {
-    if (cursorDay) {
-      setInitialLookupDone(true);
-      return;
-    }
-    let live = true;
-    fetchBriefHeroLatestCached()
-      .then((latest) => {
-        if (!live) return;
-        setDefaultDay(latest?.delivery_date ?? null);
-        setInitialLookupDone(true);
-      })
-      .catch(() => {
-        if (live) setInitialLookupDone(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [cursorDay]);
-
-  const deliveryDay = cursorDay ?? defaultDay;
-  const heroDeliveryDay = hero?.available
-    ? hero.provenance?.delivery_date
-    : hero?.delivery_date;
-  // A default day from `/hero/latest` and a URL/date-picker change both render
-  // once before their request effect can set `heroLoading`. Treat a hero for a
-  // different day as pending too, so that handoff never exposes a blank page.
-  const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
-  const heroPending = !!deliveryDay && !heroError &&
-    (heroLoading || !heroMatchesDeliveryDay);
-  const heroReadyDay = hero?.available ? hero.provenance?.delivery_date : null;
-  const globalLoading = (!deliveryDay && !initialLookupDone) || heroPending;
 
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
   useEffect(() => {
     setSelection(null);
   }, [deliveryDay]);
-
-  // All delivery-day requests begin together. The global loader keeps every
-  // result hidden until this fast prose/map hero request resolves.
-  useEffect(() => {
-    if (!deliveryDay) {
-      setAdjacentDays({ previous: null, next: null });
-      return;
-    }
-    let live = true;
-    setHeroLoading(true);
-    setHeroStatsLoading(false);
-    setHeroError(null);
-    setConnectionState("loading");
-    setHero(null);
-    setHeroStats(null);
-    setContext(null);
-    setStandouts(null);
-    setTopNodes(null);
-    setTopConstraints(null);
-    setGrade(null);
-    setGradeHistory(null);
-    setDetailsError(null);
-    setAdjacentDays({ previous: null, next: null });
-    fetchBriefHeroShellCached(deliveryDay)
-      .then((result) => {
-        if (!live) return;
-        setHero(result?.hero ?? null);
-        setAdjacentDays({
-          previous: result?.previous_delivery_date ?? null,
-          next: result?.next_delivery_date ?? null,
-        });
-        setLastUpdated(new Date());
-        setConnectionState("ok");
-      })
-      .catch(() => {
-        if (!live) return;
-        setHeroError("The daily brief could not be loaded.");
-        setConnectionState("error");
-      })
-      .finally(() => {
-        if (!live) return;
-        setHeroLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay]);
-
-  // Standouts are the one lower panel worth warming with the hero: they are
-  // already hidden by the global gate and can be shown immediately beneath it.
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
-    setStandoutsLoading(true);
-    fetchBriefStandoutsCached(deliveryDay)
-      .then((result) => {
-        if (live) setStandouts(result);
-      })
-      .catch(() => {
-        if (live) setStandouts(null);
-      })
-      .finally(() => {
-        if (live) setStandoutsLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay]);
-
-  // The evidence cards are deliberately one independent, all-or-nothing
-  // response. Start it alongside the hero, but do not reveal it until the
-  // global hero gate has opened.
-  useEffect(() => {
-    if (!deliveryDay) return;
-    let live = true;
-    setHeroStatsLoading(true);
-    fetchBriefHeroStatsCached(deliveryDay)
-      .then((result) => {
-        if (live) setHeroStats(result);
-      })
-      .catch(() => {
-        if (live) setHeroStats(null);
-      })
-      .finally(() => {
-        if (live) setHeroStatsLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay]);
-
-  // The remaining secondary bundle waits until the hero has painted.
-  useEffect(() => {
-    if (!deliveryDay || !hero?.available || hero.provenance?.delivery_date !== deliveryDay)
-      return;
-    let live = true;
-    setDetailsError(null);
-    setContextLoading(true);
-    setTopNodesLoading(true);
-    setTopConstraintsLoading(true);
-    setGradeLoading(true);
-    fetchBriefDetailsCached(deliveryDay)
-      .then((result) => {
-        if (!live) return;
-        setContext(result?.context ?? null);
-        setTopNodes(result?.top_nodes ?? null);
-        setTopConstraints(result?.top_constraints ?? null);
-        setGrade(result?.grade ?? null);
-        setGradeHistory(result?.grade_history ?? null);
-      })
-      .catch(() => {
-        if (live) setDetailsError("The rest of this brief could not be loaded.");
-      })
-      .finally(() => {
-        if (!live) return;
-        setContextLoading(false);
-        setTopNodesLoading(false);
-        setTopConstraintsLoading(false);
-        setGradeLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [deliveryDay, heroReadyDay, detailsRetry]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.

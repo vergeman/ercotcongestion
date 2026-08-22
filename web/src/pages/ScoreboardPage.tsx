@@ -7,11 +7,10 @@ import type {
   DailyPoint,
   HeadlineWindow,
 } from "../api/types";
-import { fetchScoreboardSummary } from "../api/client";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
-import type { ConnectionState } from "../hooks/useExplorerSession";
 import Tooltip from "../components/ui/Tooltip";
+import { useScoreboard } from "../hooks/useScoreboard";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
@@ -921,43 +920,8 @@ export default function ScoreboardPage() {
   const [horizon, setHorizon] = useState<number | null>(null);
   const [group, setGroup] = useState<"screening" | "magnitude">("screening");
   const [metric, setMetric] = useState<MetricKey>("rank_spearman");
-  const [weekly, setWeekly] = useState<ScoreboardWeekly | null>(null);
-  const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
-  const [daily, setDaily] = useState<ScoreboardDaily | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("loading");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // One bundled request per regime/horizon change (0137) — weekly, headline, and
-  // the live per-day board all arrive together. The live board isn't actually
-  // sliced by `regime` (the server ignores it for that section), so this
-  // re-fetches an unchanged `daily` alongside `weekly`/`headline` on every
-  // regime change; that's the accepted cost of one request replacing three.
-  // The horizon switch is the mirror image: only `daily` changes, and the two
-  // backtest sections come back identical.
-  // Each field is independently null on a 503 (that board has no rows yet),
-  // so e.g. an absent live board still lets the backtest board render.
-  useEffect(() => {
-    let live = true;
-    setLoading(true);
-    setConnectionState("loading");
-    fetchScoreboardSummary(regime, horizon)
-      .then((result) => {
-        if (!live) return;
-        setWeekly(result?.weekly ?? null);
-        setHeadline(result?.headline ?? null);
-        setDaily(result?.daily ?? null);
-        setLastUpdated(new Date());
-        setConnectionState("ok");
-      })
-      .catch(() => {
-        if (live) setConnectionState("error");
-      })
-      .finally(() => live && setLoading(false));
-    return () => {
-      live = false;
-    };
-  }, [regime, horizon]);
+  const { weekly, headline, daily, loading, connectionState, lastUpdated } =
+    useScoreboard(regime, horizon);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
