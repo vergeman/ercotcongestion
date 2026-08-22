@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MapDataMode, MapView } from "../../api/types";
 import {
   type MapTarget,
@@ -21,6 +21,8 @@ export function useMapRouteState({ search, onChange }: MapRouteStateOptions) {
   const [view, setView] = useState<MapView>(initial.view);
   const [dataMode, setDataMode] = useState<MapDataMode>(initial.data);
   const target = useMemo(() => parseMapTarget(search), [search]);
+  const lastWrittenSearch = useRef<string | null>(null);
+  const observedSearch = useRef(search);
 
   const write = useCallback((patch: Record<string, string | null>) => {
     const params = new URLSearchParams(search);
@@ -29,7 +31,10 @@ export function useMapRouteState({ search, onChange }: MapRouteStateOptions) {
       else params.set(key, value);
     }
     const next = `?${params.toString()}`;
-    if (next !== search) onChange(next);
+    if (next !== search) {
+      lastWrittenSearch.current = next;
+      onChange(next);
+    }
   }, [search, onChange]);
 
   const selectTarget = useCallback((next: MapTarget) => {
@@ -38,6 +43,21 @@ export function useMapRouteState({ search, onChange }: MapRouteStateOptions) {
       sp: next.kind === "sp" ? next.value : null,
     });
   }, [write]);
+
+  // The Map stays mounted across workspace navigation. Apply a genuinely
+  // incoming deep link without treating the URL echo from our own write as a
+  // competing source of truth.
+  useEffect(() => {
+    if (observedSearch.current === search) return;
+    observedSearch.current = search;
+    if (lastWrittenSearch.current === search) {
+      lastWrittenSearch.current = null;
+      return;
+    }
+    const incoming = parseMapViewState(search);
+    setView(incoming.view);
+    setDataMode(incoming.data);
+  }, [search]);
 
   useEffect(() => {
     const parsed = parseMapViewState(search);

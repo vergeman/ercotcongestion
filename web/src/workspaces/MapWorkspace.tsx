@@ -123,7 +123,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   } = session;
   const handleSelectEvent = useCallback(
     (event: CuratedEvent) => selectEvent(event, setDataMode),
-    [selectEvent]
+    [selectEvent, setDataMode]
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
@@ -699,12 +699,12 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     setView(v);
     setShowConstraints(v === "forecast" || v === "error");
-  }, [view, dataMode]);
+  }, [view, dataMode, setView, setDataMode]);
 
   const handleDataMode = useCallback((d: MapDataMode) => {
     if (view === "error") return; // locked; the Header disables the chip too
     setDataMode(d);
-  }, [view]);
+  }, [view, setDataMode]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
