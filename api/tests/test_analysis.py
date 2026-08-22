@@ -25,6 +25,17 @@ def _node_artifact():
     )
 
 
+def test_brief_parameter_aliases_resolve_to_the_canonical_names():
+    delivery_date = date(2026, 7, 28)
+
+    assert analysis_module._resolve_brief_parameters(
+        delivery_date, None, "run-x", None,
+    ) == (delivery_date, "run-x")
+    assert analysis_module._resolve_brief_parameters(
+        None, delivery_date, None, "run-x",
+    ) == (delivery_date, "run-x")
+
+
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
     """One artifact covers its whole CT day now (0133) — no cross-day stitch."""
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
