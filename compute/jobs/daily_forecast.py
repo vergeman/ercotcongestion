@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
-from compute.jobs.backfill_nodal import (
+from compute.forecast_store import (
     FORECAST_LAYER,
     nodal_to_db,
     persist_sf_mu_artifact,
