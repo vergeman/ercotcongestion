@@ -3,6 +3,7 @@ export const MATRIX_COPY = {
   title: "Constraint × settlement point",
   waitingForPlayback: "Waiting for playback data",
   loadingFrame: "Loading matrix frame…",
+  loadingDetail: "Loading detail…",
   loadErrorTitle: "Unable to load Matrix",
   retry: "Retry",
   unavailableTitle: "Matrix unavailable for this hour",

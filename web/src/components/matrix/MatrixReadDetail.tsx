@@ -52,15 +52,6 @@ interface Props {
   onNavigateToMap: (search: string) => void;
 }
 
-function DetailLoading() {
-  return (
-    <div className="mrd mrd--loading" role="status">
-      <span className="mrd-loading__spinner" aria-hidden="true" />
-      <span>Loading detail…</span>
-    </div>
-  );
-}
-
 function Fact({
   label,
   value,
@@ -203,8 +194,6 @@ function ConstraintRead({
   const exportLobe = [...sps]
     .filter((sp) => sp.sf >= 0)
     .sort((a, b) => b.sf - a.sf);
-
-  if (loading) return <DetailLoading />;
 
   return (
     <>
@@ -382,9 +371,7 @@ function NodeRead({
   // fetch outright rather than trust the caller already guarded `val`.
   const damPendingBlock = basis === "realized" && damStatus === "pending";
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
-  // A remount follows each row selection, so start pending to avoid briefly
-  // painting the new panel's empty shell before its request effect begins.
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -395,6 +382,7 @@ function NodeRead({
     }
     const controller = new AbortController();
     const id = ++requestId.current;
+    setNode(null);
     setLoading(true);
     getAnalysisNode(
       point,
@@ -423,8 +411,6 @@ function NodeRead({
   const terms = node?.available ? node.terms ?? [] : [];
   const structuralTerms = node?.available ? node.structural_terms ?? [] : [];
   const market = node?.available ? node.market_state : null;
-
-  if (loading && !node) return <DetailLoading />;
 
   return (
     <>
@@ -646,9 +632,6 @@ export default function MatrixReadDetail({
            scrolls within it while the map stays put. */
         .mrd { --mrd-fact-label: 216px; --mrd-fact-value: 130px; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
         .mrd--empty { color: var(--text-secondary); display: grid; place-items: center; padding: 40px 20px; text-align: center; }
-        .mrd--loading { color: var(--text-secondary); display: flex; grid-column: 1 / -1; align-items: center; justify-content: center; gap: 10px; padding: 40px 20px; }
-        .mrd-loading__spinner { animation: mrd-spin .8s linear infinite; border: 2px solid var(--border); border-right-color: var(--accent); border-radius: 50%; height: 18px; width: 18px; }
-        @keyframes mrd-spin { to { transform: rotate(360deg); } }
         .mrd__main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px 2px; }
         .mrd__map { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
         /* Fill the column height with the footprint, overriding the Brief

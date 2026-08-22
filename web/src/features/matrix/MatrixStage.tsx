@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useLayoutEffect, useState } from "react";
 import type {
   AnalysisBasis,
   AnalysisConstraintRow,
@@ -66,6 +68,17 @@ export default function MatrixStage({
   timestamp,
   onNavigateToMap,
 }: Props) {
+  const detailKey = selection
+    ? `${selection.kind}:${
+        selection.kind === "constraint" ? selection.key : selection.point
+      }:${state.val}`
+    : "empty";
+  const [detailLoading, setDetailLoading] = useState(true);
+  useLayoutEffect(() => {
+    setDetailLoading(true);
+    const timer = window.setTimeout(() => setDetailLoading(false), 220);
+    return () => window.clearTimeout(timer);
+  }, [detailKey]);
   const gridSelection: MatrixSelection =
     state.selection?.kind === "constraint"
       ? { kind: "constraint", constraintKey: state.selection.key }
@@ -188,17 +201,17 @@ export default function MatrixStage({
         )}
       </header>
       {state.lens === "read" && (
-        <div className="matrix-workspace__read">
+        <div className="matrix-workspace__read matrix-workspace__read--loading">
+          {detailLoading && (
+            <div className="matrix-workspace__detail-loading" role="status">
+              <span
+                className="matrix-workspace__detail-spinner"
+                aria-hidden="true"
+              />
+              <span>{MATRIX_COPY.loadingDetail}</span>
+            </div>
+          )}
           <MatrixReadDetail
-            key={
-              selection
-                ? `${selection.kind}:${
-                    selection.kind === "constraint"
-                      ? selection.key
-                      : selection.point
-                  }:${state.val}`
-                : "empty"
-            }
             selection={selection}
             timestamp={timestamp}
             val={state.val}
