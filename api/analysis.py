@@ -113,6 +113,11 @@ def _resolve_brief_delivery_date(
     legacy_day: date | None,
 ) -> date:
     """Accept the delivery-date alias without letting conflicting values drift."""
+    # These handlers are also invoked directly by the Brief compositions. In
+    # that path FastAPI has not resolved an omitted Query default, so normalize
+    # its sentinel to the same missing value an HTTP request receives.
+    delivery_date = delivery_date if isinstance(delivery_date, date) else None
+    legacy_day = legacy_day if isinstance(legacy_day, date) else None
     if delivery_date is None:
         delivery_date = legacy_day
     elif legacy_day is not None and legacy_day != delivery_date:

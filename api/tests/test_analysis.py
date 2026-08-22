@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 import pandas as pd
+from fastapi import Query
 
 import analysis as analysis_module
 from compute.analysis.hero_window import delivery_bounds
@@ -30,6 +31,7 @@ def test_brief_delivery_date_alias_resolves_to_the_canonical_name():
 
     assert analysis_module._resolve_brief_delivery_date(delivery_date, None) == delivery_date
     assert analysis_module._resolve_brief_delivery_date(None, delivery_date) == delivery_date
+    assert analysis_module._resolve_brief_delivery_date(Query(None), delivery_date) == delivery_date
 
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):

@@ -1544,7 +1544,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // Standouts are the one lower panel worth warming with the hero: they are
   // already hidden by the global gate and can be shown immediately beneath it.
@@ -1565,7 +1565,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // The evidence cards are deliberately one independent, all-or-nothing
   // response. Start it alongside the hero, but do not reveal it until the
@@ -1587,7 +1587,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run]);
+  }, [deliveryDay]);
 
   // The remaining secondary bundle waits until the hero has painted.
   useEffect(() => {
@@ -1621,7 +1621,7 @@ export default function BriefPage() {
     return () => {
       live = false;
     };
-  }, [deliveryDay, cursor.run, heroReadyDay, detailsRetry]);
+  }, [deliveryDay, heroReadyDay, detailsRetry]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
   // cursor; write all three fields so the first URL is immediately shareable.
