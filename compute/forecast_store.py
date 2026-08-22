@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from compute.mu.features import ERCOT_TZ, ct_day_bounds
+from compute.time import ct_day_bounds, delivery_date_of
 from compute.sf.project import build_sf_mu_artifact, load_nodal
 
 log = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ FORECAST_LAYER = "ercot"
 
 def _delivery_dates(ts: pd.Series) -> pd.Series:
     """Return the CT calendar date for each tz-aware UTC interval."""
-    return ts.dt.tz_convert(ERCOT_TZ).dt.date
+    return delivery_date_of(ts)
 
 
 def nodal_to_db(npz_path: str, conn, *, run_id: str,

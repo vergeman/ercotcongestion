@@ -13,16 +13,16 @@ from statistics import median
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from compute.time import ERCOT_TZ as ERCOT_TZ_NAME, ct_day_bounds
 
-ERCOT_TZ = ZoneInfo("America/Chicago")
+ERCOT_TZ = ZoneInfo(ERCOT_TZ_NAME)
 HIGH_CONGESTION_CT_HOURS = (15, 16, 17, 18)  # Empirical slice; not a market on-peak definition.
 
 
 def delivery_bounds(delivery_date: date) -> tuple[datetime, datetime]:
     """Return the UTC [start, end) bounds for one ERCOT delivery day."""
-    start = datetime.combine(delivery_date, datetime.min.time(), tzinfo=ERCOT_TZ)
-    end = start + timedelta(days=1)
-    return start.astimezone(ZoneInfo("UTC")), end.astimezone(ZoneInfo("UTC"))
+    start, end = ct_day_bounds(delivery_date)
+    return start.to_pydatetime(), end.to_pydatetime()
 
 
 def _rows(cur, columns: tuple[str, ...]) -> list[dict[str, Any]]:
