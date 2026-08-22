@@ -1,0 +1,18 @@
+.map-view-single { width: 100%; height: 100%; position: relative; }
+.map-target-notice {
+  background: var(--bg-panel); border: 1px solid var(--warning, #f59e0b); color: var(--text-primary);
+  font-size: var(--fs-label); left: 10px; max-width: min(440px, calc(100% - 20px)); padding: 8px 10px;
+  position: absolute; top: 68px; z-index: 3;
+}
+.pane-badge {
+  position: absolute; top: 10px; left: 10px; padding: 5px 10px; background: var(--bg-glass);
+  border: 1px solid var(--border); border-radius: 4px; display: flex; flex-direction: column; gap: 3px;
+  pointer-events: none;
+}
+.pane-badge__title { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-md); letter-spacing: var(--track-label); color: var(--text-primary); }
+.pane-badge__coord { font-size: var(--fs-label); color: var(--text-muted); }
+.pane-badge__meta { display: flex; gap: 18px; font-family: var(--font-label); font-weight: var(--fw-label); font-size: var(--fs-body); letter-spacing: var(--track-label); color: var(--text-secondary); }
+.pane-badge__stat { pointer-events: auto; cursor: help; }
+.pane-badge__key { color: var(--text-muted); }
+.pane-badge__stat b { color: var(--text-primary); font-weight: 600; }
+.pane-badge__preview { align-self: flex-start; margin-top: 2px; padding: 1px 6px; border: 1px solid var(--accent); border-radius: 3px; font-family: var(--font-label); font-weight: var(--fw-label); font-size: var(--fs-body); letter-spacing: var(--track-label); color: var(--accent); }

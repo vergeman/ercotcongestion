@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
   MapDataMode,
@@ -10,12 +9,6 @@ import type {
   RankedConstraints,
   ConditionsEntry,
 } from "../api/types";
-import {
-  fetchMapExposures,
-  fetchMapReach,
-  fetchMapConstraintsRanked,
-  REACH_THRESHOLD_OPTS,
-} from "../api/client";
 import { formatCT } from "../lib/time";
 import {
   getForecastCached,
@@ -33,23 +26,23 @@ import Legend from "../components/map/Legend";
 import CompareMap from "../components/map/CompareMap";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import DetailCard from "../components/map/DetailCard";
-import Tooltip from "../components/ui/Tooltip";
 import SidePanel, {
   type NetworkStats,
 } from "../components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
 import {
   type MapTarget,
-  parseMapTarget,
-  mapTargetSearch,
-  parseMapViewState,
-  mapViewStateParams,
 } from "../lib/mapLinks";
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useMapRows } from "../hooks/useMapRows";
 import { useMapBootstrap } from "../hooks/useMapBootstrap";
+import { useMapRouteState } from "../features/map/MapRouteState";
+import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
+import { MapPaneBadge } from "../features/map/MapPaneBadge";
+import "../features/map/mapPresentation.css";
+import { useConstraintSelection } from "../features/map/useConstraintSelection";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -88,7 +81,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Re-render on theme flip so the forecast-error legend gradient (built from the
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
-  const target = useMemo(() => parseMapTarget(routeSearch), [routeSearch]);
+  const {
+    view, setView, dataMode, setDataMode, target, selectTarget,
+  } = useMapRouteState({ search: routeSearch, onChange: onSelectionRouteChange });
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes (0130). `view` picks the layout: `forecast` (default
@@ -106,9 +101,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // opening on the shipped default and reconciling after. `parseMapViewState`
   // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
   // congestion), so this is never an unreachable combination.
-  const [view, setView] = useState<MapView>(() => parseMapViewState(routeSearch).view);
   const renderedView: MapView = isMobile ? "forecast" : view;
-  const [dataMode, setDataMode] = useState<MapDataMode>(() => parseMapViewState(routeSearch).data);
   // Data selection held from before entering Error, so leaving it restores
   // rather than defaulting back to congestion.
   const prevDataModeRef = useRef<MapDataMode>("congestion");
@@ -121,17 +114,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // coordinate, not constraint/sp, so a selection would otherwise be dropped
   // by a view-only change). Guarded against the URL already agreeing, so it
   // doesn't fire redundantly on mount or fight an inbound deep link.
-  useEffect(() => {
-    const current = parseMapViewState(routeSearch);
-    if (current.view === view && current.data === dataMode) return;
-    const params = mapViewStateParams({ view, data: dataMode });
-    if (target) params.set(target.kind, target.value);
-    onSelectionRouteChange(`?${params.toString()}`);
-    // Only the axes themselves should trigger a push; routeSearch/target
-    // reflect the URL this effect writes to and reading them here isn't a
-    // signal to re-run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, dataMode]);
   const {
     timestamps, currentIndex, loading, connectionState: connState,
     setConnectionState: setConnState, lastUpdated, activeEventId,
@@ -141,7 +123,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   } = session;
   const handleSelectEvent = useCallback(
     (event: CuratedEvent) => selectEvent(event, setDataMode),
-    [selectEvent]
+    [selectEvent, setDataMode]
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
@@ -209,6 +191,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
   const { topology, topologyReady, overview, mapMeta, headline } = useMapBootstrap(setConnState);
+  const { loadRanked, loadExposures: requestExposures, loadReach } = useConstraintSelection();
 
   // settlement_points FeatureCollection, shared by both panes.
   const spPoints = useMemo(() => {
@@ -226,59 +209,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const featCount = spPoints?.features.length ?? 0;
   const spTopologyEmpty = !!topology && featCount === 0;
 
-  // Camera sync between the two panes. Refs collected via each GridMap's
-  // `onMapReady`; both handlers re-arm the mirror once both maps exist.
-  const mainMapRef = useRef<maplibregl.Map | null>(null);
-  const rightMapRef = useRef<maplibregl.Map | null>(null);
-  const syncingSide = useRef<"main" | "right" | null>(null);
-  const wireSync = useCallback(() => {
-    const a = mainMapRef.current;
-    const b = rightMapRef.current;
-    if (!a || !b) return () => {};
-    const drive =
-      (from: maplibregl.Map, to: maplibregl.Map, tag: "main" | "right") =>
-      () => {
-        // Ignore the echo that fires while we're programmatically driving the
-        // other side.
-        if (syncingSide.current && syncingSide.current !== tag) return;
-        syncingSide.current = tag;
-        to.jumpTo({
-          center: from.getCenter(),
-          zoom: from.getZoom(),
-          bearing: from.getBearing(),
-          pitch: from.getPitch(),
-        });
-        syncingSide.current = null;
-      };
-    const aToB = drive(a, b, "main");
-    const bToA = drive(b, a, "right");
-    a.on("move", aToB);
-    b.on("move", bToA);
-    aToB();
-    return () => {
-      a.off("move", aToB);
-      b.off("move", bToA);
-    };
-  }, []);
-  const teardownSyncRef = useRef<(() => void) | null>(null);
-  const rearmSync = useCallback(() => {
-    teardownSyncRef.current?.();
-    teardownSyncRef.current = wireSync();
-  }, [wireSync]);
-  const handleMainReady = useCallback(
-    (m: maplibregl.Map) => {
-      mainMapRef.current = m;
-      rearmSync();
-    },
-    [rearmSync]
-  );
-  const handleRightReady = useCallback(
-    (m: maplibregl.Map) => {
-      rightMapRef.current = m;
-      rearmSync();
-    },
-    [rearmSync]
-  );
+  const { onMainReady: handleMainReady, onRightReady: handleRightReady } = useSynchronizedMaps();
 
   // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
   // from the current frame's Central date (ERCOT operates on Central), so the
@@ -320,7 +251,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   useEffect(() => {
     const controller = new AbortController();
     setRankedLoading(true);
-    fetchMapConstraintsRanked(constraintBasis, deliveryDay, 30, controller.signal)
+    loadRanked(constraintBasis, deliveryDay, 30, controller.signal)
       .then((r) => {
         if (!controller.signal.aborted) setRanked(r);
       })
@@ -331,7 +262,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         if (!controller.signal.aborted) setRankedLoading(false);
       });
     return () => controller.abort();
-  }, [deliveryDay, constraintBasis]);
+  }, [deliveryDay, constraintBasis, loadRanked]);
 
   const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
 
@@ -445,8 +376,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const setSelectionRoute = useCallback((target: MapTarget) => {
     handledTargetRef.current = `${target.kind}:${target.value}`;
     setTargetUnavailable(false);
-    onSelectionRouteChange(mapTargetSearch(target));
-  }, [onSelectionRouteChange]);
+    selectTarget(target);
+  }, [selectTarget]);
 
   // Prediction-pane click: pin the node and trace its SF drivers (the overview /
   // One place the driver list is requested from, so the click path, the basis
@@ -462,7 +393,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const loadExposures = useCallback(
     (spId: string, rank: ExposureRank) => {
       const token = ++exposureReqRef.current;
-      fetchMapExposures(spId, 15, cursorTs, rank)
+      requestExposures(spId, rank, cursorTs)
         .then((r) => {
           if (exposureReqRef.current === token) setExposures(r);
         })
@@ -473,7 +404,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           if (exposureReqRef.current === token) setExposuresLoading(false);
         });
     },
-    [cursorTs]
+    [cursorTs, requestExposures]
   );
 
   // reach machinery lives on this pane).
@@ -552,14 +483,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
-    fetchMapReach(constraintKey, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
+    loadReach(constraintKey, cursorTs)
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, [setSelectionRoute, cursorTs]);
+  }, [setSelectionRoute, cursorTs, loadReach]);
 
   // Deep links from the Matrix retain the requested identifier in the URL and
   // replay the equivalent Map selection once its representation is available.
@@ -606,7 +537,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     previewReachRef.current = false;
     setHoveredConstraintId(null);
     const token = ++reachReqRef.current;
-    fetchMapReach(target.value, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
+    loadReach(target.value, cursorTs)
       .then((nextReach) => {
         if (reachReqRef.current !== token) return;
         if (!nextReach?.available) {
@@ -625,7 +556,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         setLockedConstraintId(null);
         setTargetUnavailable(true);
       });
-  }, [target, topologyReady, spPoints, handleSpClickPrediction, cursorTs, focusReachKey]);
+  }, [target, topologyReady, spPoints, handleSpClickPrediction, cursorTs, focusReachKey, loadReach]);
 
   const handleCloseReach = useCallback(() => {
     setReach(null);
@@ -653,7 +584,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       return;
     }
     const token = ++focusReqRef.current;
-    fetchMapReach(id, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
+    loadReach(id, cursorTs)
       .then((r) => {
         if (r) focusReachCache.current.set(focusReachKey(id), r);
         if (focusReqRef.current === token) setFocusReach(r);
@@ -661,7 +592,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       .catch(() => {
         if (focusReqRef.current === token) setFocusReach(null);
       });
-  }, [effectiveConstraintId, cursorTs, focusReachKey]);
+  }, [effectiveConstraintId, cursorTs, focusReachKey, loadReach]);
 
   // Hover a constraint (panel row or popover row): the transient overlay. Leaving
   // (id === null) reverts to whatever is locked — it never clears the lock.
@@ -734,14 +665,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     previewReachRef.current = true;
     const token = ++reachReqRef.current;
-    fetchMapReach(key, { t: cursorTs, ...REACH_THRESHOLD_OPTS })
+    loadReach(key, cursorTs)
       .then((r) => {
         if (reachReqRef.current === token) setReach(r);
       })
       .catch(() => {
         if (reachReqRef.current === token) setReach(null);
       });
-  }, [pinnedSp, reach, cursorTs]);
+  }, [pinnedSp, reach, cursorTs, loadReach]);
 
   // Background (empty-map) click clears whichever mode is active.
   const handlePredictionMapBackgroundClick = useCallback(() => {
@@ -768,12 +699,12 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }
     setView(v);
     setShowConstraints(v === "forecast" || v === "error");
-  }, [view, dataMode]);
+  }, [view, dataMode, setView, setDataMode]);
 
   const handleDataMode = useCallback((d: MapDataMode) => {
     if (view === "error") return; // locked; the Header disables the chip too
     setDataMode(d);
-  }, [view]);
+  }, [view, setDataMode]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
@@ -817,55 +748,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const cursorLabel = timestamps[currentIndex]
     ? `${formatCT(timestamps[currentIndex], "MMM d, HH:mm")} CT`
     : "—";
-  const VIEW_LABELS: Record<MapView, string> = {
-    forecast: "Forecast",
-    market: "Market",
-    compare: "Compare",
-    error: "Error",
-  };
-  const DATA_LABELS: Record<MapDataMode, string> = {
-    congestion: "Congestion",
-    lmp: "Price (LMP)",
-  };
-
-  // The pane subtitle. A bold title line names what the pane shows; a coord
-  // line pins it to view · data · timestamp; the meta row reports node coverage
-  // in words — `litNoun` says what "having a value" means for this pane
-  // (forecast / priced / compared) so the count reads plainly.
-  const badgeFor = (
-    label: string,
-    paneView: MapView,
-    paneDataMode: MapDataMode,
-    lit: number = litCount,
-    litNoun = "priced",
-    litHint = "Nodes with a value at this hour (colored on the map); the rest are drawn unlit"
-  ) => (
-    <>
-      <span className="pane-badge__title">{label}</span>
-      <span className="pane-badge__coord mono">
-        {VIEW_LABELS[paneView]} · {DATA_LABELS[paneDataMode]} · {cursorLabel}
-      </span>
-      <span className="pane-badge__meta">
-        {spTopologyEmpty ? (
-          <span className="pane-badge__stat">no nodes (rebuild topology cache)</span>
-        ) : (
-          <>
-            <Tooltip
-              className="pane-badge__stat"
-              tip="Settlement points (nodes) drawn on the map"
-            >
-              <span className="pane-badge__key">nodes</span>{" "}
-              <b>{featCount.toLocaleString()}</b>
-            </Tooltip>
-            <Tooltip className="pane-badge__stat" tip={litHint}>
-              <span className="pane-badge__key">{litNoun}</span>{" "}
-              <b>{lit.toLocaleString()}</b>
-            </Tooltip>
-          </>
-        )}
-      </span>
-    </>
-  );
+  const badgeProps = { cursorLabel, nodeCount: featCount, emptyTopology: spTopologyEmpty };
 
 
   // Shared across both panes. Per-side hover/click handlers are passed
@@ -922,21 +805,15 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         ringedSpId={isMobile ? null : hoveredMemberSp}
         tapOnly={isMobile}
       />
-      <div className="pane-badge">
-        {badgeFor(
-          predictionLabel,
-          "forecast",
-          dataMode,
-          litFor(leftRows),
-          "forecast",
-          "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count."
-        )}
+      <MapPaneBadge {...badgeProps} label={predictionLabel} view="forecast" dataMode={dataMode}
+        litCount={litFor(leftRows)} litNoun="forecast"
+        litHint="Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count.">
         {isPreviewDay && (
           <span className="pane-badge__preview" role="status">
             Preview — refreshes at noon CT
           </span>
         )}
-      </div>
+      </MapPaneBadge>
       <Legend
         dataMode={dataMode}
         rows={leftRows}
@@ -981,16 +858,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         onMapReady={handleRightReady}
         tapOnly={isMobile}
       />
-      <div className="pane-badge">
-        {badgeFor(
-          "ERCOT: Day Ahead Market (DAM)",
-          "market",
-          dataMode,
-          litCount,
-          "priced",
-          "Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
-        )}
-      </div>
+      <MapPaneBadge {...badgeProps} label="ERCOT: Day Ahead Market (DAM)" view="market" dataMode={dataMode}
+        litCount={litCount} litNoun="priced"
+        litHint="Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count." />
       <Legend
         dataMode={dataMode}
         rows={spRows}
@@ -1046,16 +916,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         congestionColor={forecastErrorColor}
         tapOnly={isMobile}
       />
-      <div className="pane-badge">
-        {badgeFor(
-          errorLabel,
-          "error",
-          "congestion",
-          errorLit,
-          "compared",
-          "Nodes with both a model forecast and a realized value, so an error is defined"
-        )}
-      </div>
+      <MapPaneBadge {...badgeProps} label={errorLabel} view="error" dataMode="congestion"
+        litCount={errorLit} litNoun="compared"
+        litHint="Nodes with both a model forecast and a realized value, so an error is defined" />
       <Legend
         dataMode="congestion"
         rows={errorRows}
@@ -1153,79 +1016,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
                 : forecastPane}
             </div>
           )}
-          <style>{`
-            .map-view-single {
-              width: 100%;
-              height: 100%;
-              position: relative;
-            }
-            .map-target-notice {
-              background: var(--bg-panel);
-              border: 1px solid var(--warning, #f59e0b);
-              color: var(--text-primary);
-              font-size: var(--fs-label);
-              left: 10px;
-              max-width: min(440px, calc(100% - 20px));
-              padding: 8px 10px;
-              position: absolute;
-              top: 68px;
-              z-index: 3;
-            }
-            .pane-badge {
-              position: absolute;
-              top: 10px;
-              left: 10px;
-              padding: 5px 10px;
-              background: var(--bg-glass);
-              border: 1px solid var(--border);
-              border-radius: 4px;
-              display: flex;
-              flex-direction: column;
-              gap: 3px;
-              /* Click-through except on the stat chips (which carry tooltips). */
-              pointer-events: none;
-            }
-            .pane-badge__title {
-              font-family: var(--font-label);
-              font-weight: 600;
-              font-size: var(--fs-md);
-              letter-spacing: var(--track-label);
-              color: var(--text-primary);
-            }
-            .pane-badge__coord {
-              font-size: var(--fs-label);
-              color: var(--text-muted);
-            }
-            .pane-badge__meta {
-              display: flex;
-              gap: 18px;
-              font-family: var(--font-label);
-              font-weight: var(--fw-label);
-              font-size: var(--fs-body);
-              letter-spacing: var(--track-label);
-              color: var(--text-secondary);
-            }
-            .pane-badge__stat { pointer-events: auto; cursor: help; }
-            .pane-badge__key { color: var(--text-muted); }
-            .pane-badge__stat b { color: var(--text-primary); font-weight: 600; }
-            /* Preview provenance (0123): the served day is a t+2 preview, refreshed
-               by the noon-CT final run. A static, sentence-case label (the app's
-               casing rule) carrying the shared --track-label token; the accent
-               border/color sets it apart from the neutral title/meta above (reusing
-               the app-wide --accent so it tracks both themes). */
-            .pane-badge__preview {
-              align-self: flex-start;
-              margin-top: 2px;
-              padding: 1px 6px;
-              border: 1px solid var(--accent);
-              border-radius: 3px;
-              font-family: var(--font-label);
-              font-weight: var(--fw-label);
-              font-size: var(--fs-body);
-              letter-spacing: var(--track-label);
-              color: var(--accent);
-            }
-          `}</style>
         </div>
 
         {/* Right side panel: [Stats] (network + scorecard) | [Constraints] (the
