@@ -20,6 +20,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useBriefDay } from "../hooks/useBriefDay";
 import BriefDayControls from "../components/brief/BriefDayControls";
 import BriefHero from "../components/brief/BriefHero";
+import BriefEvidence from "../components/brief/BriefEvidence";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
@@ -1613,43 +1614,36 @@ export default function BriefPage() {
               }
             />
 
-            {detailsError && (
-              <div className="an-details-error" role="alert">
-                <span>{detailsError}</span>
-                <button
-                  type="button"
-                  onClick={() => setDetailsRetry((retry) => retry + 1)}
-                >
-                  Retry details
-                </button>
-              </div>
-            )}
-
-            <StandoutsPanel
-              data={standouts}
-              loading={standoutsLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <TopConstraintsPanel
-              data={topConstraints}
-              loading={topConstraintsLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <TopNodesPanel
-              data={topNodes}
-              loading={topNodesLoading}
-              settled={settled}
-              onSelect={setSelection}
-            />
-            <ForecastGrade
-              grade={grade}
-              history={gradeHistory}
-              loading={gradeLoading}
-              settled={settled}
-            />
-            <ContextPanel data={context} loading={contextLoading} />
+            <BriefEvidence
+              error={detailsError}
+              onRetry={() => setDetailsRetry((retry) => retry + 1)}
+            >
+              <StandoutsPanel
+                data={standouts}
+                loading={standoutsLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <TopConstraintsPanel
+                data={topConstraints}
+                loading={topConstraintsLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <TopNodesPanel
+                data={topNodes}
+                loading={topNodesLoading}
+                settled={settled}
+                onSelect={setSelection}
+              />
+              <ForecastGrade
+                grade={grade}
+                history={gradeHistory}
+                loading={gradeLoading}
+                settled={settled}
+              />
+              <ContextPanel data={context} loading={contextLoading} />
+            </BriefEvidence>
           </>
         )}
       </main>
