@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AnalysisBasis } from "../api/types";
 import MatrixSidebar from "../components/matrix/MatrixSidebar";
 import MatrixStage from "../features/matrix/MatrixStage";
+import { MATRIX_COPY } from "../features/matrix/copy";
 import {
   boundedPins,
   PIN_STORAGE_KEY,
@@ -190,45 +191,42 @@ export default function MatrixWorkspace({
   return (
     <main className="matrix-workspace" aria-labelledby="matrix-title">
       <div className="matrix-workspace__heading">
-        <span className="label">Explorer / matrix</span>
-        <h1 id="matrix-title">Constraint × settlement point</h1>
+        <span className="label">{MATRIX_COPY.eyebrow}</span>
+        <h1 id="matrix-title">{MATRIX_COPY.title}</h1>
         <p>
           {timestamp
             ? `${formatCT(timestamp, "MMM d, yyyy HH:mm")} CT`
-            : "Waiting for playback data"}
+            : MATRIX_COPY.waitingForPlayback}
         </p>
       </div>
       {loading && !frame && !error && (
         <div className="matrix-workspace__loading" role="status">
-          Loading matrix frame…
+          {MATRIX_COPY.loadingFrame}
         </div>
       )}
       {error && (
         <section className="matrix-workspace__state" role="alert">
-          <h2>Unable to load Matrix</h2>
+          <h2>{MATRIX_COPY.loadErrorTitle}</h2>
           <p>{error}</p>
           <button type="button" onClick={retry}>
-            Retry
+            {MATRIX_COPY.retry}
           </button>
         </section>
       )}
       {!error && frame && !frame.available && (
         <section className="matrix-workspace__state" role="status">
-          <h2>Matrix unavailable for this hour</h2>
+          <h2>{MATRIX_COPY.unavailableTitle}</h2>
           <p>
             {frame.unavailable_reason === "artifact_missing"
-              ? "No causal daily Matrix artifact was published for this delivery day."
-              : "This timestamp is outside the available Matrix artifact."}
+              ? MATRIX_COPY.missingArtifact
+              : MATRIX_COPY.outOfRange}
           </p>
         </section>
       )}
       {!error && frame?.available && !usable && (
         <section className="matrix-workspace__state" role="status">
-          <h2>No bounded Matrix values</h2>
-          <p>
-            The selected artifact contains no rows or settlement-point columns
-            for this bounded view.
-          </p>
+          <h2>{MATRIX_COPY.emptyTitle}</h2>
+          <p>{MATRIX_COPY.emptyDescription}</p>
         </section>
       )}
       {!error && usable && frame && (
@@ -291,11 +289,8 @@ export default function MatrixWorkspace({
       )}
       {!timestamp && !loading && (
         <section className="matrix-workspace__state" role="status">
-          <h2>Waiting for a playback hour</h2>
-          <p>
-            Choose an available timestamp in the shared playback scrubber to
-            load its Matrix frame.
-          </p>
+          <h2>{MATRIX_COPY.waitingTitle}</h2>
+          <p>{MATRIX_COPY.waitingDescription}</p>
         </section>
       )}
     </main>

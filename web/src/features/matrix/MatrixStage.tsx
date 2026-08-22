@@ -17,6 +17,7 @@ import type {
   MatrixValueMode,
 } from "../../lib/matrix";
 import type { MatrixRouteState } from "./routeState";
+import { MATRIX_COPY } from "./copy";
 import type { useMatrixBasis } from "./useMatrixBasis";
 
 interface Props {
@@ -80,7 +81,7 @@ export default function MatrixStage({
         <div
           className="matrix-workspace__toggle"
           role="tablist"
-          aria-label="Lens"
+          aria-label={MATRIX_COPY.lens.label}
         >
           <button
             type="button"
@@ -89,7 +90,7 @@ export default function MatrixStage({
             className={state.lens === "read" ? "is-active" : ""}
             onClick={() => update({ lens: "read" })}
           >
-            Detail
+            {MATRIX_COPY.lens.detail}
           </button>
           <button
             type="button"
@@ -98,16 +99,16 @@ export default function MatrixStage({
             className={state.lens === "sf" ? "is-active" : ""}
             onClick={() => update({ lens: "sf" })}
           >
-            SF
+            {MATRIX_COPY.lens.sf}
           </button>
           {state.tab !== "nodes" ? (
             <Tooltip
               as="span"
               className="matrix-workspace__disabled-tab"
-              tip="Basis is available only on the Nodes tab because it compares two settlement points."
+              tip={MATRIX_COPY.basisUnavailable}
             >
               <button type="button" role="tab" aria-selected={false} disabled>
-                Basis
+                {MATRIX_COPY.lens.basis}
               </button>
             </Tooltip>
           ) : (
@@ -118,7 +119,7 @@ export default function MatrixStage({
               className={state.lens === "basis" ? "is-active" : ""}
               onClick={() => update({ lens: "basis" })}
             >
-              Basis
+              {MATRIX_COPY.lens.basis}
             </button>
           )}
         </div>
@@ -126,14 +127,16 @@ export default function MatrixStage({
           <div
             className="matrix-workspace__toggle matrix-workspace__toggle--data"
             role="group"
-            aria-label="Value"
+            aria-label={MATRIX_COPY.value.label}
           >
-            <span className="label matrix-workspace__toggle-label">Data</span>
+            <span className="label matrix-workspace__toggle-label">
+              {MATRIX_COPY.value.data}
+            </span>
             {(
               [
-                ["sf", "Shift Factor"],
-                ["fmu", "Forecast μ"],
-                ["dmu", "ERCOT DAM μ"],
+                ["sf", MATRIX_COPY.value.shiftFactor],
+                ["fmu", MATRIX_COPY.value.forecastMu],
+                ["dmu", MATRIX_COPY.value.damMu],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -151,22 +154,24 @@ export default function MatrixStage({
           <div
             className="matrix-workspace__toggle matrix-workspace__toggle--data"
             role="group"
-            aria-label="Basis μ source"
+            aria-label={MATRIX_COPY.basisSource}
           >
-            <span className="label matrix-workspace__toggle-label">Data</span>
+            <span className="label matrix-workspace__toggle-label">
+              {MATRIX_COPY.value.data}
+            </span>
             <button
               type="button"
               className={state.val !== "dmu" ? "is-active" : ""}
               onClick={() => update({ val: "fmu" })}
             >
-              Forecast μ
+              {MATRIX_COPY.value.forecastMu}
             </button>
             <button
               type="button"
               className={state.val === "dmu" ? "is-active" : ""}
               onClick={() => update({ val: "dmu" })}
             >
-              ERCOT DAM μ
+              {MATRIX_COPY.value.damMu}
             </button>
           </div>
         )}
@@ -199,16 +204,21 @@ export default function MatrixStage({
       {state.lens === "sf" && (
         <>
           <div className="matrix-workspace__meta">
-            <span>Run {frame.run_id}</span>
-            <span>Delivery day {frame.delivery_date}</span>
+            <span>{MATRIX_COPY.run(frame.run_id)}</span>
+            <span>{MATRIX_COPY.deliveryDay(frame.delivery_date)}</span>
             <span>
-              {frame.rows.length} of {frame.total_constraint_count} constraints
+              {MATRIX_COPY.constraintCount(
+                frame.rows.length,
+                frame.total_constraint_count
+              )}
             </span>
             <span>
-              {frame.columns.length} of {frame.total_settlement_point_count}{" "}
-              settlement points
+              {MATRIX_COPY.settlementPointCount(
+                frame.columns.length,
+                frame.total_settlement_point_count
+              )}
             </span>
-            {loading && <span>Updating frame…</span>}
+            {loading && <span>{MATRIX_COPY.updatingFrame}</span>}
           </div>
           <div
             className={`matrix-workspace__notices${
@@ -219,15 +229,15 @@ export default function MatrixStage({
           >
             {valueMode === "contribution" && frame.dam_status === "pending" && (
               <div className="matrix-workspace__notice" role="status">
-                No ERCOT DAM μ values matched the displayed constraints for this
-                hour.
+                {MATRIX_COPY.pendingDam}
               </div>
             )}
             {valueMode === "contribution" && frame.dam_status === "partial" && (
               <div className="matrix-workspace__notice" role="status">
-                DAM μ: {frame.rows.length - damUnmatchedRows}/
-                {frame.rows.length} constraints matched; unmatched cells are
-                unavailable.
+                {MATRIX_COPY.partialDam(
+                  frame.rows.length - damUnmatchedRows,
+                  frame.rows.length
+                )}
               </div>
             )}
           </div>
