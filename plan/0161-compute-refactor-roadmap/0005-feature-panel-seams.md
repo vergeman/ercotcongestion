@@ -24,7 +24,7 @@ Branch: refactor/0161-compute-refactor-roadmap/0005-feature-panel-seams
 ## Acceptance
 
 * [x] Existing feature tests pass unchanged.
-* [x] Source, availability, and pure engineering seams keep `build_panel` as the public façade.
+* [x] `features.py` is the `build_panel` orchestration façade; availability, source reads, and pure engineering live in dedicated modules.
 * [x] A fixed input still yields the same leakage audit result.
 
 ## Suggested regression tests
