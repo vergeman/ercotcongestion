@@ -47,13 +47,14 @@ from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.mu.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
+from compute.sf.config import REFIT_DAYS, WINDOW_DAYS
 
 log = logging.getLogger("compute.mu.mu_model")
 
-# Mirrors the SF operating point adopted in 0082 (window=240d, refit=7d) so the
-# mu-model's scored weeks land on the same boundaries as the SF map's.
-DEFAULT_TRAIN_DAYS = 240
-DEFAULT_REFIT_DAYS = 7
+# Semantic aliases retain the μ forecast vocabulary for callers while sharing
+# the SF operating point that fixes the scored-week boundaries.
+DEFAULT_TRAIN_DAYS = WINDOW_DAYS
+DEFAULT_REFIT_DAYS = REFIT_DAYS
 
 # build_panel drops its first delivery day(s) to DAM/tz edges — the covariate panel
 # starts a day after the shadow-price read floor. Read this many extra days behind
