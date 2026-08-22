@@ -1,4 +1,9 @@
-"""Pure feature engineering for the μ panel."""
+"""Pure, leakage-safe feature engineering for the μ panel.
+
+These transformations do not read the database.  Binding history is strictly
+backward-looking; net-load buckets fit only on their supplied training window;
+and audit data is derived from the vintages actually selected.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -8,6 +13,7 @@ from compute.mu.availability import ERCOT_TZ, dam_close, delivery_day_of, histor
 
 
 def calendar_features(idx: pd.DatetimeIndex) -> pd.DataFrame:
+    """Build free calendar features, including cyclic hour encodings."""
     local = pd.DatetimeIndex(idx).tz_convert(ERCOT_TZ)
     out = pd.DataFrame(index=idx)
     out["hour"] = local.hour
@@ -21,6 +27,7 @@ def calendar_features(idx: pd.DatetimeIndex) -> pd.DataFrame:
 
 def net_load_regime(panel: pd.DataFrame, fit_index: pd.DatetimeIndex,
                     n_buckets: int = 5) -> pd.Series:
+    """Bucket net load using quantile edges fitted only on ``fit_index``."""
     train = panel.loc[panel.index.isin(fit_index), "net_load"].dropna()
     if train.empty:
         return pd.Series(-1, index=panel.index, name="net_load_regime")
@@ -31,6 +38,7 @@ def net_load_regime(panel: pd.DataFrame, fit_index: pd.DatetimeIndex,
 
 
 def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFrame:
+    """Choose every historical key or only keys binding in the trailing 28 days."""
     if policy == "all":
         return hist
     if policy == "active_28d":
@@ -39,6 +47,7 @@ def candidate_keys(hist: pd.DataFrame, policy: str = "active_28d") -> pd.DataFra
 
 
 def downcast_join(frame: pd.DataFrame) -> pd.DataFrame:
+    """Downcast merge inputs before the wide panel can become float64-wide."""
     float64 = frame.select_dtypes("float64").columns
     if len(float64):
         frame[float64] = frame[float64].astype("float32")
@@ -47,6 +56,7 @@ def downcast_join(frame: pd.DataFrame) -> pd.DataFrame:
 
 def attach_refit_features(panel: pd.DataFrame, days: pd.DatetimeIndex,
                           values: pd.DataFrame) -> None:
+    """Attach weekly per-key refit values without copying the wide panel."""
     if values.empty or not len(days):
         return
     if not values.index.is_unique:
@@ -63,6 +73,7 @@ def attach_refit_features(panel: pd.DataFrame, days: pd.DatetimeIndex,
 
 
 def audit_leakage(panel: pd.DataFrame) -> pd.DataFrame:
+    """Report whether selected source vintages were published after DAM close."""
     rows = []
     for col in [col for col in panel.columns if col.startswith("vintage_")]:
         used = pd.to_datetime(panel[col]).dropna()
@@ -83,6 +94,11 @@ def audit_leakage(panel: pd.DataFrame) -> pd.DataFrame:
 def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex,
                     bind_deadband: float, history_windows: tuple[int, ...],
                     lag_windows: tuple[int, ...]) -> pd.DataFrame:
+    """Build per-day, per-key history using only intervals before ``history_cutoff``.
+
+    Lagged magnitudes average all observed hours, including slack zeroes; DST day
+    lengths come from the source index rather than a hard-coded 24.
+    """
     binds = M.fillna(0.0).abs() > bind_deadband
     mu = M.fillna(0.0).abs().where(binds, 0.0)
     day_idx = delivery_day_of(M.index)

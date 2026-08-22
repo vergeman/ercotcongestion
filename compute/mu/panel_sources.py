@@ -1,4 +1,8 @@
-"""Database-backed source readers for the μ feature panel."""
+"""Database-backed, DAM-vintaged source readers for the μ feature panel.
+
+Each query selects the newest admissible vintage per interval.  Publication
+time—not the interval being forecast—is the availability boundary.
+"""
 from __future__ import annotations
 
 import pandas as pd
@@ -7,6 +11,7 @@ from compute.mu.availability import ERCOT_TZ, vintage_cutoff_expr
 
 
 def _read(conn, sql: str, params, index_col: str | None = None) -> pd.DataFrame:
+    """Execute a query without ``pd.read_sql``'s repeated connection warnings."""
     with conn.cursor() as cur:
         cur.execute(sql, params)
         columns = [description[0] for description in cur.description]
@@ -15,6 +20,7 @@ def _read(conn, sql: str, params, index_col: str | None = None) -> pd.DataFrame:
 
 
 def load_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
+    """Load zonal demand forecasts at the legal DAM-close vintage."""
     cutoff, params = vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts) interval_ts, posted_datetime,
@@ -29,6 +35,7 @@ def load_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
 
 
 def wind_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
+    """Load regional wind forecasts at the legal DAM-close vintage."""
     cutoff, params = vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts) interval_ts, posted_datetime,
@@ -43,6 +50,7 @@ def wind_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
 
 
 def solar_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
+    """Load regional solar forecasts at the legal DAM-close vintage."""
     cutoff, params = vintage_cutoff_expr("interval_ts", vintage_cutoff)
     sql = f"""
         SELECT DISTINCT ON (interval_ts) interval_ts, posted_datetime,
@@ -57,6 +65,12 @@ def solar_forecast_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
 
 
 def outage_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
+    """Load zonal outage MW at the legal DAM-close vintage.
+
+    The source reports 24 hour endings even on spring-forward days.  Its
+    non-existent 02:00 collides with 03:00 after localization, so retain the last
+    row to preserve a unique interval index.
+    """
     cutoff, params = vintage_cutoff_expr(
         "(operating_date::timestamp AT TIME ZONE '" + ERCOT_TZ + "')", vintage_cutoff)
     sql = f"""
@@ -71,6 +85,7 @@ def outage_panel(conn, start, end, vintage_cutoff=None) -> pd.DataFrame:
     frame = _read(conn, sql, (pd.Timestamp(start).date(), pd.Timestamp(end).date()) + params)
     if frame.empty:
         return pd.DataFrame()
+    # Hour ending 1..24 labels the interval starting at h-1.
     local = (pd.to_datetime(frame["operating_date"])
              + pd.to_timedelta(frame["hour_ending"].astype(int) - 1, unit="h"))
     frame["interval_ts"] = (local.dt.tz_localize(ERCOT_TZ, ambiguous=True,
