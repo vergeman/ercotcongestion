@@ -29,8 +29,8 @@ Branch: refactor/0161-compute-refactor-roadmap/0006-mu-model-seams
 
 ## Commit groups
 
-* [ ] `refactor(mu)`: extract prediction artifact serialization and chunk combination.
-* [ ] `refactor(mu)`: extract head fitting, encoding, and fold prediction helpers.
+* [x] `refactor(mu)`: extract prediction artifact serialization and chunk combination.
+* [x] `refactor(mu)`: extract head fitting, encoding, and fold prediction helpers.
 * [ ] `refactor(mu)`: extract walk scheduling and chunk orchestration behind compatibility exports.
 
 ## Suggested regression tests
