@@ -22,8 +22,6 @@ import {
 } from "../api/client";
 import { formatCT } from "../lib/time";
 import {
-  getErcotCached,
-  getErcotSppCached,
   getForecastCached,
   getForecastHorizon,
   getConditionsCached,
@@ -54,6 +52,7 @@ import {
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useMapRows } from "../hooks/useMapRows";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -162,21 +161,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     actual: null,
   });
 
-  // Per-current-hour SP rows, merged from the congestion and SPP caches.
-  const [spRows, setSpRows] = useState<SpRow[]>([]);
-
   const [showConstraints, setShowConstraints] = useState(true);
   // The de-piled overview (top-N constraints at their |SF|² cores + type) — the
   // sole constraint presentation on the map. Fixed per refit, so fetched once,
   // not time-indexed. `null` while loading or on 503 (map renders without it).
   const [overview, setOverview] = useState<MapOverview | null>(null);
-  // Forecast side of the split map (left/prediction pane): per-hour P10/P50/P90
-  // congestion for the current forecast run, read hour-for-hour off the same
-  // scrubber as the realized right pane. `forecastRows` is the current hour;
-  // the stats cover the cursor's delivery day so coloring is stable within it;
-  // `forecastRunId` labels which refit is serving (null → no forecast covered
-  // the window, pane falls back to the realized rows).
-  const [forecastRows, setForecastRows] = useState<SpRow[]>([]);
   // Forecast-error (P50 forecast − realized congestion) delivery-day stats, for
   // the diverging palette centered at 0 in the forecast-error view. The per-hour
   // error rows are derived below.
@@ -380,60 +369,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
   }, [deliveryDay, constraintBasis]);
 
-  // Merge the congestion + SPP caches into per-SP rows for the current hour.
-  // An SP present in only one cache still shows up, colored by whichever field
-  // the active palette reads.
-  useEffect(() => {
-    if (!timestamps.length) return;
-    const ts = timestamps[currentIndex];
-    const cong = getErcotCached(ts);
-    const spp = getErcotSppCached(ts);
-    if (!cong && !spp) {
-      setSpRows([]);
-      return;
-    }
-    const byId = new Map<string, SpRow>();
-    for (const s of cong?.sps ?? []) {
-      byId.set(s.sp_id, { sp_id: s.sp_id, congestion: s.congestion, spp: null });
-    }
-    for (const s of spp?.sps ?? []) {
-      const cur = byId.get(s.sp_id);
-      if (cur) cur.spp = s.spp;
-      else byId.set(s.sp_id, { sp_id: s.sp_id, congestion: null, spp: s.spp });
-    }
-    setSpRows(Array.from(byId.values()));
-  }, [currentIndex, timestamps]);
-
-  // Forecast rows for the current hour: P50 → congestion (the fill), P50 + the
-  // hour's system-λ → spp (predicted LMP, the same reference the market side
-  // subtracts). Read from the forecast cache the prefetch filled, aligned to the
-  // same scrubber index as the realized rows above. `lambdaSource` (0130) tracks
-  // whether that λ was a settled DAM value or the persistence fallback, so the
-  // LMP legend/hover can mark a persisted hour's price as indicative — display
-  // only, never a graded signal.
-  const [lambdaSource, setLambdaSource] = useState<"settled" | "persisted" | null>(null);
-  useEffect(() => {
-    if (!timestamps.length) {
-      setForecastRows([]);
-      setLambdaSource(null);
-      return;
-    }
-    const fc = getForecastCached(timestamps[currentIndex]);
-    if (!fc) {
-      setForecastRows([]);
-      setLambdaSource(null);
-      return;
-    }
-    const lam = fc.system_lambda;
-    setForecastRows(
-      fc.sps.map((s) => ({
-        sp_id: s.sp_id,
-        congestion: s.p50,
-        spp: s.p50 != null && lam != null ? s.p50 + lam : null,
-      }))
-    );
-    setLambdaSource(fc.lambda_source);
-  }, [currentIndex, timestamps]);
+  const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
 
   // Forecast-error rows for the current hour: P50 forecast − realized congestion
   // per SP, derived client-side from the two series already in state (no new API).
