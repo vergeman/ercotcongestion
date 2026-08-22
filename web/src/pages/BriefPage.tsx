@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addDays, format } from "date-fns";
 import { Link } from "react-router-dom";
 import type {
-  AnalysisGrade, AnalysisGradeHalf, AnalysisGradeHistory, AnalysisGradeMetrics,
-  AnalysisGradeSupport, BriefContext, HeroSegment, Standouts, TopConstraints, TopNodes,
+  AnalysisGrade,
+  AnalysisGradeHalf,
+  AnalysisGradeHistory,
+  AnalysisGradeMetrics,
+  AnalysisGradeSupport,
+  BriefContext,
+  HeroSegment,
+  Standouts,
+  TopConstraints,
+  TopNodes,
 } from "../api/types";
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
-import Tooltip from "../components/ui/Tooltip";
 import HeroMapPreview from "../components/brief/HeroMapPreview";
-import DateRangePicker from "../components/playback/DateRangePicker";
-import { CURATED_EVENTS } from "../lib/events";
-import { buildMapLink } from "../lib/mapLinks";
-import { ctInputToUtc, formatCT } from "../lib/time";
+import { formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useBriefDay } from "../hooks/useBriefDay";
+import BriefDayControls from "../components/brief/BriefDayControls";
+import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
   HistoryBars,
@@ -1327,7 +1332,9 @@ function ForecastGrade({
           </p>
         </div>
       )}
-      {settled && loading && <LoadingState>Loading forecast grade…</LoadingState>}
+      {settled && loading && (
+        <LoadingState>Loading forecast grade…</LoadingState>
+      )}
       {settled && !loading && (!grade || !grade.available) && (
         <p>Forecast grade is unavailable for this delivery day.</p>
       )}
@@ -1368,17 +1375,6 @@ const priceDirection = (congestion: number | null) =>
     ? "Below system"
     : "Above system";
 
-function dateBounds(day: string) {
-  const nextDay = format(
-    addDays(new Date(`${day}T12:00:00Z`), 1),
-    "yyyy-MM-dd"
-  );
-  return {
-    start: ctInputToUtc(`${day}T00:00`),
-    end: ctInputToUtc(`${nextDay}T00:00`),
-  };
-}
-
 // v6 is deliberately a separate composition from the legacy, precomputed
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
@@ -1393,11 +1389,29 @@ export default function BriefPage() {
   const [selection, setSelection] = useState<BriefSelection | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
   const {
-    deliveryDay, hero, heroStats, topConstraints, standouts, topNodes, context,
-    grade, gradeHistory, heroStatsLoading, topConstraintsLoading,
-    standoutsLoading, topNodesLoading, contextLoading, gradeLoading, heroError,
-    detailsError, connectionState, lastUpdated, adjacentDays, heroPending,
-    initialLookupDone, globalLoading,
+    deliveryDay,
+    hero,
+    heroStats,
+    topConstraints,
+    standouts,
+    topNodes,
+    context,
+    grade,
+    gradeHistory,
+    heroStatsLoading,
+    topConstraintsLoading,
+    standoutsLoading,
+    topNodesLoading,
+    contextLoading,
+    gradeLoading,
+    heroError,
+    detailsError,
+    connectionState,
+    lastUpdated,
+    adjacentDays,
+    heroPending,
+    initialLookupDone,
+    globalLoading,
   } = useBriefDay(cursorDay, detailsRetry);
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
@@ -1486,18 +1500,9 @@ export default function BriefPage() {
   // wherever the scrubber's cursor lands and only rewinds if it's already at
   // the window's end — landing mid-day would give the reader just the
   // tail of the day to watch move, not the full arc.
-  const watchHref = hero?.cursor
-    ? buildMapLink({
-        t: new Date(hero.cursor.ws),
-        ws: new Date(hero.cursor.ws),
-        we: new Date(hero.cursor.we),
-        view: settled ? "market" : "forecast",
-        data: "lmp",
-        autoPlay: true,
-      })
-    : null;
+  const watchHref = briefMapWatchHref(hero, settled);
   const selectDeliveryDay = (day: string) => {
-    const { start, end } = dateBounds(day);
+    const { start, end } = briefDayBounds(day);
     setActiveEventId(null);
     pendingDeliveryDayRef.current = day;
     setReplaceWithHeroCursor(true);
@@ -1507,61 +1512,38 @@ export default function BriefPage() {
     <div className="an-page">
       <header className="an-topbar">
         <HeaderNav active="brief" />
-        <HeaderStatus connectionState={connectionState} lastUpdated={lastUpdated} />
+        <HeaderStatus
+          connectionState={connectionState}
+          lastUpdated={lastUpdated}
+        />
       </header>
 
       <main className="an-main">
-        {!globalLoading && <div className="an-date-picker">
-          {provenance && (
-            <div className="an-brief-meta">
-              <span className="an-brief-meta__item">
-                <span className="an-brief-meta__label label">Model Run</span>
-                <span className="an-brief-meta__val">{provenance.run_id}</span>
-              </span>
-              <span className="an-brief-meta__item">
-                <span className="an-brief-meta__label label">Status</span>
-                <span className="an-brief-meta__val">
-                  {settled ? "DAM Settled" : "Forecast"} · t+
-                  {provenance.horizon}
+        {!globalLoading && (
+          <div className="an-date-picker">
+            {provenance && (
+              <div className="an-brief-meta">
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Model Run</span>
+                  <span className="an-brief-meta__val">
+                    {provenance.run_id}
+                  </span>
                 </span>
-              </span>
-            </div>
-          )}
-          <div className="an-day-controls" aria-label="Delivery day controls">
-            <button
-              type="button"
-              className="an-day-controls__caret"
-              onClick={() =>
-                adjacentDays.previous && selectDeliveryDay(adjacentDays.previous)
-              }
-              disabled={!adjacentDays.previous}
-              aria-label="Previous available delivery day"
-            >
-              ‹
-            </button>
-            <Tooltip
-              className="an-day-controls__date"
-              placement="bottom"
-              tip="This is the ERCOT market delivery date, not today’s calendar date or the date the DAM auction ran."
-              aria-label="About the delivery date"
-            >
-              {deliveryDay ? fmtDay(deliveryDay) : "Choose a delivery date"}
-            </Tooltip>
-            <button
-              type="button"
-              className="an-day-controls__caret"
-              onClick={() => adjacentDays.next && selectDeliveryDay(adjacentDays.next)}
-              disabled={!adjacentDays.next}
-              aria-label="Next available delivery day"
-            >
-              ›
-            </button>
-            <DateRangePicker
-              singleDate
-              showLabel={false}
-              triggerLabel="Choose delivery date"
-              selectedDate={deliveryDay}
-              onLoadDate={selectDeliveryDay}
+                <span className="an-brief-meta__item">
+                  <span className="an-brief-meta__label label">Status</span>
+                  <span className="an-brief-meta__val">
+                    {settled ? "DAM Settled" : "Forecast"} · t+
+                    {provenance.horizon}
+                  </span>
+                </span>
+              </div>
+            )}
+            <BriefDayControls
+              day={deliveryDay}
+              adjacentDays={adjacentDays}
+              loading={heroPending}
+              activeEventId={activeEventId}
+              onSelectDay={selectDeliveryDay}
               onSelectEvent={(event) => {
                 setActiveEventId(event.id);
                 cursor.setCoord({
@@ -1570,14 +1552,15 @@ export default function BriefPage() {
                   we: new Date(event.window_end),
                 });
               }}
-              events={CURATED_EVENTS}
-              activeEventId={activeEventId}
-              loading={heroPending}
             />
           </div>
-        </div>}
+        )}
         {globalLoading && (
-          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
+          <section
+            className="an-brief-loader"
+            role="status"
+            aria-label="Loading daily congestion brief"
+          >
             <div className="an-brief-loader__brand" aria-hidden="true">
               <span className="an-brief-loader__title">ERCOT STRESS</span>
               <span className="an-brief-loader__bolt">⚡</span>
@@ -1628,8 +1611,14 @@ export default function BriefPage() {
                   </p>
                   <div className="an-facts-slot" aria-busy={heroStatsLoading}>
                     {heroStatsLoading && (
-                      <div className="an-facts-loading" aria-label="Loading brief evidence">
-                        <span className="an-loading-indicator" aria-hidden="true" />
+                      <div
+                        className="an-facts-loading"
+                        aria-label="Loading brief evidence"
+                      >
+                        <span
+                          className="an-loading-indicator"
+                          aria-hidden="true"
+                        />
                       </div>
                     )}
                     {heroStats && (
@@ -1654,7 +1643,9 @@ export default function BriefPage() {
                           <DualStatBox
                             firstLabel="30-Day Congestion"
                             firstValue={`#${magnitudeRank}`}
-                            secondLabel={whereZone ? "Congested Region" : undefined}
+                            secondLabel={
+                              whereZone ? "Congested Region" : undefined
+                            }
                             secondValue={
                               whereZone ? zoneLabel(whereZone) : undefined
                             }
@@ -1685,7 +1676,10 @@ export default function BriefPage() {
             {detailsError && (
               <div className="an-details-error" role="alert">
                 <span>{detailsError}</span>
-                <button type="button" onClick={() => setDetailsRetry((retry) => retry + 1)}>
+                <button
+                  type="button"
+                  onClick={() => setDetailsRetry((retry) => retry + 1)}
+                >
                   Retry details
                 </button>
               </div>
