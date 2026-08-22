@@ -7,14 +7,10 @@ import type {
   ExposuresResponse,
   ExposureRank,
   ConstraintReach,
-  MapOverview,
-  MapMeta,
   RankedConstraints,
-  ScoreboardHeadline,
   ConditionsEntry,
 } from "../api/types";
 import {
-  fetchMapSummary,
   fetchMapExposures,
   fetchMapReach,
   fetchMapConstraintsRanked,
@@ -53,6 +49,7 @@ import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useMapRows } from "../hooks/useMapRows";
+import { useMapBootstrap } from "../hooks/useMapBootstrap";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -91,8 +88,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Re-render on theme flip so the forecast-error legend gradient (built from the
   // theme-aware palette) stays in sync with the map fills.
   useTheme();
-  const [topology, setTopology] = useState<unknown | null>(null);
-  const [topologyReady, setTopologyReady] = useState(false);
   const target = useMemo(() => parseMapTarget(routeSearch), [routeSearch]);
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
@@ -162,21 +157,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   });
 
   const [showConstraints, setShowConstraints] = useState(true);
-  // The de-piled overview (top-N constraints at their |SF|² cores + type) — the
-  // sole constraint presentation on the map. Fixed per refit, so fetched once,
-  // not time-indexed. `null` while loading or on 503 (map renders without it).
-  const [overview, setOverview] = useState<MapOverview | null>(null);
   // Forecast-error (P50 forecast − realized congestion) delivery-day stats, for
   // the diverging palette centered at 0 in the forecast-error view. The per-hour
   // error rows are derived below.
-  // The rolling backtest scorecard for the side panel. Fetched once (the board
-  // is static), independent of the forecast/playback window. `null` on 503 (no
-  // board loaded) — the panel then shows network stats alone.
-  const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
-  // The diagnostics for the active SF refit window. These qualify the entire
-  // map/constraint view, so they belong beside the scorecard rather than inside
-  // a selected node or constraint card.
-  const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
   // The per-day ranked constraint list for the side panel's `Constraints` tab
   // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
   // keyed to the cursor's CT delivery day so the realized toggle can reach a past
@@ -225,6 +208,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [exposureRank, setExposureRank] = useState<ExposureRank>("contribution");
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
+  const { topology, topologyReady, overview, mapMeta, headline } = useMapBootstrap(setConnState);
 
   // settlement_points FeatureCollection, shared by both panes.
   const spPoints = useMemo(() => {
@@ -296,25 +280,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [rearmSync]
   );
 
-  // One bundled load-time request (0137): topology, the constraint overview,
-  // the SF-refit meta, and the scorecard headline all load together, once,
-  // independent of the playback window (each is fixed per refit / static).
-  // overview/meta/headline are independently null on their own soft-fail
-  // (nothing built/loaded for that section yet); topology failing is still
-  // the harder error it always was (connection state flips to "error").
-  useEffect(() => {
-    fetchMapSummary()
-      .then((b) => {
-        setTopology(b.topology);
-        setConnState("ok");
-        setOverview(b.overview);
-        setMapMeta(b.meta);
-        setHeadline(b.headline);
-      })
-      .catch(() => setConnState("error"))
-      .finally(() => setTopologyReady(true));
-  }, [setConnState]);
-
   // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
   // from the current frame's Central date (ERCOT operates on Central), so the
   // ranking follows the map's day. Undefined before a window loads → the server
@@ -350,23 +315,22 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     return ts ? getForecastHorizon(ts) === 2 : false;
   }, [timestamps, currentIndex]);
 
-  // Ranked constraints for the panel — refetched only when the ranked DAY or the
-  // basis changes (not every hour: the ranking is per delivery day). A request-id
-  // guard drops a stale in-flight response. Soft-fails to null (empty state) on 503.
-  const rankedReqRef = useRef(0);
+  // Ranked constraints are scoped to the delivery day and basis. Cancellation
+  // replaces the prior request-id guard, so a scrub can never publish an old day.
   useEffect(() => {
-    const token = ++rankedReqRef.current;
+    const controller = new AbortController();
     setRankedLoading(true);
-    fetchMapConstraintsRanked(constraintBasis, deliveryDay)
+    fetchMapConstraintsRanked(constraintBasis, deliveryDay, 30, controller.signal)
       .then((r) => {
-        if (rankedReqRef.current === token) setRanked(r);
+        if (!controller.signal.aborted) setRanked(r);
       })
-      .catch(() => {
-        if (rankedReqRef.current === token) setRanked(null);
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setRanked(null);
       })
       .finally(() => {
-        if (rankedReqRef.current === token) setRankedLoading(false);
+        if (!controller.signal.aborted) setRankedLoading(false);
       });
+    return () => controller.abort();
   }, [deliveryDay, constraintBasis]);
 
   const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
