@@ -55,6 +55,7 @@ import numpy as np
 import pandas as pd
 
 from compute.mu import availability, panel_engineering, panel_sources
+from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.mu.features")
 

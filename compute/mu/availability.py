@@ -11,8 +11,8 @@ from datetime import date
 
 import pandas as pd
 
+from compute.time import ERCOT_TZ, ct_day_bounds, delivery_day_of
 
-ERCOT_TZ = "America/Chicago"
 DAM_CLOSE_HOUR = 10
 
 
@@ -31,24 +31,6 @@ def history_cutoff(delivery_day: date | pd.Timestamp) -> pd.Timestamp:
     """
     day = pd.Timestamp(delivery_day).tz_localize(None).normalize()
     return day.tz_localize(ERCOT_TZ).tz_convert("UTC")
-
-
-def delivery_day_of(ts: pd.Timestamp | pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Return the ERCOT-local delivery day for each interval."""
-    return (pd.DatetimeIndex(pd.to_datetime(ts)).tz_convert(ERCOT_TZ)
-            .normalize().tz_localize(None))
-
-
-def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Return DST-aware UTC ``[start, end)`` bounds for one CT delivery day.
-
-    ``DateOffset``, rather than an absolute-time ``Timedelta``, preserves the
-    23/24/25-hour length of spring-forward, ordinary, and fall-back days.
-    """
-    ts = pd.Timestamp(delivery_day)
-    start = (ts.tz_convert(ERCOT_TZ) if ts.tzinfo is not None
-             else ts.tz_localize(ERCOT_TZ)).normalize()
-    return start.tz_convert("UTC"), (start + pd.DateOffset(days=1)).tz_convert("UTC")
 
 
 def dam_close_expr(ts_col: str) -> str:

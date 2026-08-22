@@ -46,6 +46,7 @@ import numpy as np
 import pandas as pd
 
 from compute.mu.features import ERCOT_TZ, ct_day_bounds
+from compute.time import normalize_ct_day
 from compute.mu.score import (
     STD_FLOOR,
     mu_climatology,
@@ -85,8 +86,7 @@ def _as_ct_day(D) -> pd.Timestamp:
     """Normalize any date-ish `D` to the UTC instant marking CT midnight — the
     delivery-day block boundary the whole pipeline slices on (matches
     `daily_forecast._as_ct_day`; single-sourced in `ct_day_bounds`, 0133)."""
-    start, _ = ct_day_bounds(D)
-    return start
+    return normalize_ct_day(D)
 
 
 def _v(x) -> float | None:

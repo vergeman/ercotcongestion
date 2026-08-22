@@ -31,6 +31,7 @@ from compute.forecast_store import (
     upsert_pointer,
 )
 from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
+from compute.time import delivery_date_of
 from compute.sf.project import (
     DRIVERS_K,
     DRIVERS_MAX_DAYS,
@@ -174,7 +175,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
         if want_sf_mu and E_mu is not None:
             # Slice the week's E_mu to each requested operating day and pair it with
             # this window's SF — the per-day artifact forecast_day would emit.
-            dd = _delivery_dates(pd.Series(E_mu.index, index=E_mu.index))
+            dd = delivery_date_of(pd.Series(E_mu.index, index=E_mu.index))
             for day in list(curated):
                 mask = (dd == day).to_numpy()
                 if mask.any():

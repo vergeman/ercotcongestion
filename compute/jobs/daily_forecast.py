@@ -52,6 +52,7 @@ from compute.jobs.grade_day import (
 )
 from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
 from compute.mu.features import ERCOT_TZ, build_panel, ct_day_bounds
+from compute.time import normalize_ct_day
 from compute.mu.mu_model import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
@@ -142,8 +143,7 @@ def _as_ct_day(D) -> pd.Timestamp:
     names the CT calendar date directly, matching the stored `delivery_date`
     label; a tz-aware instant is first mapped to its own CT calendar date, so
     re-anchoring an already-anchored `D` is a no-op — `ct_day_bounds`."""
-    start, _ = ct_day_bounds(D)
-    return start
+    return normalize_ct_day(D)
 
 
 def _ct_block_end(D: pd.Timestamp) -> pd.Timestamp:
