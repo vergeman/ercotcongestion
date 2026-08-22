@@ -53,24 +53,9 @@ import {
 } from "../lib/mapLinks";
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
-
-function useMediaQuery(query: string): boolean {
-  const getMatches = () =>
-    typeof window !== "undefined" && window.matchMedia(query).matches;
-  const [matches, setMatches] = useState(getMatches);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const update = () => setMatches(mediaQuery.matches);
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, [query]);
-
-  return matches;
-}
 
 interface HoveredSp {
   spId: string;

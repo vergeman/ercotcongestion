@@ -33,6 +33,7 @@ import { CURATED_EVENTS } from "../lib/events";
 import { buildMapLink } from "../lib/mapLinks";
 import { ctInputToUtc, formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
   HistoryBars,
@@ -59,22 +60,6 @@ const MOBILE_BREAKPOINT = "(max-width: 700px)";
 // data + the state border) with no payoff on a screen too narrow to show it
 // beside the text — skip mounting it below the breakpoint rather than
 // fetching it just to hide it with CSS.
-function useIsMobile(): boolean {
-  const [matches, setMatches] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia(MOBILE_BREAKPOINT).matches
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(MOBILE_BREAKPOINT);
-    const update = () => setMatches(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  return matches;
-}
-
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return (
     <>
@@ -1415,7 +1400,7 @@ function dateBounds(day: string) {
 // Analysis page. It owns only a delivery day; the map/matrix playback session
 // remains mounted exclusively on those surfaces.
 export default function BriefPage() {
-  const isMobile = useIsMobile();
+  const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
   const [defaultDay, setDefaultDay] = useState<string | null>(null);
