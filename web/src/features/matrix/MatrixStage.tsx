@@ -190,6 +190,15 @@ export default function MatrixStage({
       {state.lens === "read" && (
         <div className="matrix-workspace__read">
           <MatrixReadDetail
+            key={
+              selection
+                ? `${selection.kind}:${
+                    selection.kind === "constraint"
+                      ? selection.key
+                      : selection.point
+                  }:${state.val}`
+                : "empty"
+            }
             selection={selection}
             timestamp={timestamp}
             val={state.val}

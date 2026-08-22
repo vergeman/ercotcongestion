@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+/* eslint-disable react-hooks/set-state-in-effect */
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
   AnalysisBasis,
   AnalysisConstraintRow,
@@ -42,11 +50,30 @@ interface Props {
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
   constraintRow: AnalysisConstraintRow | null;
-  nodeMeta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
+  nodeMeta: {
+    type: string | null;
+    zone: string | null;
+    lat: number | null;
+    lon: number | null;
+  } | null;
   onNavigateToMap: (search: string) => void;
 }
 
-function Fact({ label, value, tone, numeric = false }: {
+function DetailLoading() {
+  return (
+    <div className="mrd mrd--loading" role="status">
+      <span className="mrd-loading__spinner" aria-hidden="true" />
+      <span>Loading detail…</span>
+    </div>
+  );
+}
+
+function Fact({
+  label,
+  value,
+  tone,
+  numeric = false,
+}: {
   label: string;
   value: ReactNode;
   tone?: "pos" | "neg";
@@ -55,19 +82,34 @@ function Fact({ label, value, tone, numeric = false }: {
   return (
     <div className="mrd-kv__row">
       <span className="mrd-kv__label">{label}</span>
-      <span className={`mrd-kv__value${tone ? ` mrd-kv__value--${tone}` : ""}${numeric ? " mrd-kv__value--numeric" : ""}`}>{value}</span>
+      <span
+        className={`mrd-kv__value${tone ? ` mrd-kv__value--${tone}` : ""}${
+          numeric ? " mrd-kv__value--numeric" : ""
+        }`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function DetailSummary({ hourly, structural }: { hourly: ReactNode; structural: ReactNode }) {
+function DetailSummary({
+  hourly,
+  structural,
+}: {
+  hourly: ReactNode;
+  structural: ReactNode;
+}) {
   return (
     <div className="mrd-summary">
       <section className="mrd-summary__section" aria-label="Selected hour">
         <span className="mrd-section-title">Selected hour</span>
         <div className="mrd-kv">{hourly}</div>
       </section>
-      <section className="mrd-summary__section" aria-label="Daily and structural evidence">
+      <section
+        className="mrd-summary__section"
+        aria-label="Daily and structural evidence"
+      >
         <span className="mrd-section-title">Daily / structural</span>
         <div className="mrd-kv">{structural}</div>
       </section>
@@ -80,9 +122,17 @@ const LOBE_VISIBLE = 8;
 function MemberRow({ sp }: { sp: ReachSp }) {
   return (
     <li className="cr-mem-row">
-      <span className="cr-dot" style={{ background: shiftFactorColor(sp.sf) }} />
+      <span
+        className="cr-dot"
+        style={{ background: shiftFactorColor(sp.sf) }}
+      />
       <span className="cr-mem-sp mono">{sp.settlement_point}</span>
-      <span className="cr-mem-sf mono" style={{ color: shiftFactorColor(sp.sf) }}>{sp.sf.toFixed(3)}</span>
+      <span
+        className="cr-mem-sf mono"
+        style={{ color: shiftFactorColor(sp.sf) }}
+      >
+        {sp.sf.toFixed(3)}
+      </span>
     </li>
   );
 }
@@ -92,14 +142,26 @@ function MemberLobe({ title, members }: { title: string; members: ReachSp[] }) {
   const rest = members.slice(LOBE_VISIBLE);
   return (
     <div className="mrd-lobe">
-      <h4>{title} <em>{members.length}</em></h4>
-      {visible.length === 0
-        ? <div className="cr-mem-msg">none located</div>
-        : <ul className="cr-mem" role="list">{visible.map((sp) => <MemberRow key={sp.settlement_point} sp={sp} />)}</ul>}
+      <h4>
+        {title} <em>{members.length}</em>
+      </h4>
+      {visible.length === 0 ? (
+        <div className="cr-mem-msg">none located</div>
+      ) : (
+        <ul className="cr-mem" role="list">
+          {visible.map((sp) => (
+            <MemberRow key={sp.settlement_point} sp={sp} />
+          ))}
+        </ul>
+      )}
       {rest.length > 0 && (
         <details className="mrd-lobe__tail">
           <summary>{rest.length} more</summary>
-          <ul className="cr-mem" role="list">{rest.map((sp) => <MemberRow key={sp.settlement_point} sp={sp} />)}</ul>
+          <ul className="cr-mem" role="list">
+            {rest.map((sp) => (
+              <MemberRow key={sp.settlement_point} sp={sp} />
+            ))}
+          </ul>
         </details>
       )}
     </div>
@@ -110,58 +172,142 @@ function footprintReach(reach: ConstraintReach | null) {
   if (!reach) return reach;
   const floor = Math.max(
     (REACH_THRESHOLD_OPTS.minFrac ?? 0) * (reach.max_abs_sf ?? 0),
-    REACH_THRESHOLD_OPTS.absFloor ?? 0,
+    REACH_THRESHOLD_OPTS.absFloor ?? 0
   );
-  return { ...reach, sps: reach.sps.filter((sp) => Math.abs(sp.sf) >= floor).slice(0, REACH_K) };
+  return {
+    ...reach,
+    sps: reach.sps.filter((sp) => Math.abs(sp.sf) >= floor).slice(0, REACH_K),
+  };
 }
 
 function ConstraintRead({
-  selectionKey, row, timestamp, onNavigateToMap,
-}: { selectionKey: string; row: AnalysisConstraintRow | null; timestamp: Date | null; onNavigateToMap: (search: string) => void }) {
+  selectionKey,
+  row,
+  timestamp,
+  onNavigateToMap,
+  onLoadingChange,
+}: {
+  selectionKey: string;
+  row: AnalysisConstraintRow | null;
+  timestamp: Date | null;
+  onNavigateToMap: (search: string) => void;
+  onLoadingChange: (loading: boolean) => void;
+}) {
   // The scrubbed interval selects the CT delivery day whose artifact backs the
   // reach (0144) — the same day the rest of the Read pane describes.
   const cursorTs = timestamp ?? undefined;
   const { reach, loading } = useFullConstraintReach(selectionKey, cursorTs);
+  useEffect(() => {
+    onLoadingChange(loading);
+  }, [loading, onLoadingChange]);
   const { imp, exp } = dipoleCounts(reach);
   const name = constraintName(selectionKey);
-  const contingency = selectionKey.includes("|") ? selectionKey.split("|")[1] : null;
+  const contingency = selectionKey.includes("|")
+    ? selectionKey.split("|")[1]
+    : null;
   const mapHref = mapLinkTo({ kind: "constraint", value: selectionKey });
 
   const sps = reach?.sps ?? [];
   const mapReach = useMemo(() => footprintReach(reach), [reach]);
-  const importLobe = [...sps].filter((sp) => sp.sf < 0).sort((a, b) => a.sf - b.sf);
-  const exportLobe = [...sps].filter((sp) => sp.sf >= 0).sort((a, b) => b.sf - a.sf);
+  const importLobe = [...sps]
+    .filter((sp) => sp.sf < 0)
+    .sort((a, b) => a.sf - b.sf);
+  const exportLobe = [...sps]
+    .filter((sp) => sp.sf >= 0)
+    .sort((a, b) => b.sf - a.sf);
 
   return (
     <>
       <div className="mrd__main">
         <header className="mrd__head">
           <span className="mrd__eyebrow">Constraint</span>
-          <h2 className="mrd__title">{name}{contingency && <span className="mrd__contingency"> {contingency}</span>}</h2>
+          <h2 className="mrd__title">
+            {name}
+            {contingency && (
+              <span className="mrd__contingency"> {contingency}</span>
+            )}
+          </h2>
         </header>
         <DetailSummary
-          hourly={<>
-            <Fact label="Forecast μ" value={marketValue(reach?.shadow_price)} numeric />
-            <Fact label="DAM μ" value={marketValue(reach?.dam_mu)} numeric />
-            <Fact label="Forecast Error" value={marketValue(reach?.forecast_error)} numeric />
-          </>}
-          structural={<>
-            <Fact label="Forecast μ rank" value={reach?.daily_mu_rank ?? row?.daily_mu_rank ?? "—"} numeric />
-            <Fact label="Daily Σμ" value={reach?.daily_mu_sum == null ? (row ? usd(row.daily_mu_sum, 2) : "—") : usd(reach.daily_mu_sum, 2)} numeric />
-            <Fact label="Binding hours" value={reach?.binding_hours ?? row?.binding_hours ?? "—"} numeric />
-            <Fact label="Peak |SF|" value={reach?.max_abs_sf == null ? "—" : reach.max_abs_sf.toFixed(3)} numeric />
-            <Fact label="Import / export" value={reach ? `${reach.import_members ?? imp} / ${reach.export_members ?? exp}` : "—"} numeric />
-            <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} numeric />
-            <Fact label="kV" value={row?.kv_max == null ? "—" : Math.round(row.kv_max)} numeric />
-          </>}
+          hourly={
+            <>
+              <Fact
+                label="Forecast μ"
+                value={marketValue(reach?.shadow_price)}
+                numeric
+              />
+              <Fact label="DAM μ" value={marketValue(reach?.dam_mu)} numeric />
+              <Fact
+                label="Forecast Error"
+                value={marketValue(reach?.forecast_error)}
+                numeric
+              />
+            </>
+          }
+          structural={
+            <>
+              <Fact
+                label="Forecast μ rank"
+                value={reach?.daily_mu_rank ?? row?.daily_mu_rank ?? "—"}
+                numeric
+              />
+              <Fact
+                label="Daily Σμ"
+                value={
+                  reach?.daily_mu_sum == null
+                    ? row
+                      ? usd(row.daily_mu_sum, 2)
+                      : "—"
+                    : usd(reach.daily_mu_sum, 2)
+                }
+                numeric
+              />
+              <Fact
+                label="Binding hours"
+                value={reach?.binding_hours ?? row?.binding_hours ?? "—"}
+                numeric
+              />
+              <Fact
+                label="Peak |SF|"
+                value={
+                  reach?.max_abs_sf == null ? "—" : reach.max_abs_sf.toFixed(3)
+                }
+                numeric
+              />
+              <Fact
+                label="Import / export"
+                value={
+                  reach
+                    ? `${reach.import_members ?? imp} / ${
+                        reach.export_members ?? exp
+                      }`
+                    : "—"
+                }
+                numeric
+              />
+              <Fact label="Zone" value={zoneLabel(row?.zone ?? null)} numeric />
+              <Fact
+                label="kV"
+                value={row?.kv_max == null ? "—" : Math.round(row.kv_max)}
+                numeric
+              />
+            </>
+          }
         />
 
         <div className="mrd-reach">
           <span className="mrd-section-title">
             Grid reach · import ↔ export{" "}
-            {reach && !loading && <em>{reach.sps.length} located{reach.truncated ? " · truncated" : ""}</em>}
+            {reach && !loading && (
+              <em>
+                {reach.sps.length} located
+                {reach.truncated ? " · truncated" : ""}
+              </em>
+            )}
           </span>
-          <div className="mrd-reach__dipole"><Dipole imp={imp} exp={exp} /></div>
+          <div className="mrd-reach__dipole">
+            <Dipole imp={imp} exp={exp} />
+          </div>
           {loading ? (
             <div className="cr-mem-msg">loading members…</div>
           ) : (
@@ -173,8 +319,15 @@ function ConstraintRead({
         </div>
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap selection={{ geo: "constraint", key: selectionKey }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false} t={cursorTs}
-          constraintReach={mapReach} constraintReachLoading={loading} />
+        <BriefFootprintMap
+          selection={{ geo: "constraint", key: selectionKey }}
+          mapHref={mapHref}
+          onNavigate={onNavigateToMap}
+          showTitle={false}
+          t={cursorTs}
+          constraintReach={mapReach}
+          constraintReachLoading={loading}
+        />
       </div>
     </>
   );
@@ -182,14 +335,28 @@ function ConstraintRead({
 
 function DriverRow({ term }: { term: AnalysisContributionTerm }) {
   const side = term.shift_factor >= 0 ? "export" : "import";
-  const mu = term.shift_factor !== 0 ? -term.contribution / term.shift_factor : null;
+  const mu =
+    term.shift_factor !== 0 ? -term.contribution / term.shift_factor : null;
   return (
     <tr>
-      <td className="mrd-drv__key mono">{constraintName(term.constraint_key)}</td>
-      <td className="mono" style={{ color: shiftFactorColor(term.shift_factor) }}>{term.shift_factor.toFixed(3)}</td>
+      <td className="mrd-drv__key mono">
+        {constraintName(term.constraint_key)}
+      </td>
+      <td
+        className="mono"
+        style={{ color: shiftFactorColor(term.shift_factor) }}
+      >
+        {term.shift_factor.toFixed(3)}
+      </td>
       <td className="mrd-drv__side">{side}</td>
       <td className="mono">{mu == null ? "—" : usd(mu, 0)}</td>
-      <td className={`mono${term.contribution >= 0 ? " mrd-kv__value--pos" : " mrd-kv__value--neg"}`}>{usd(term.contribution, 2)}</td>
+      <td
+        className={`mono${
+          term.contribution >= 0 ? " mrd-kv__value--pos" : " mrd-kv__value--neg"
+        }`}
+      >
+        {usd(term.contribution, 2)}
+      </td>
     </tr>
   );
 }
@@ -199,15 +366,28 @@ function marketValue(value: number | null | undefined): string {
 }
 
 function NodeRead({
-  point, meta, timestamp, val, deliveryDate, damStatus, onNavigateToMap,
+  point,
+  meta,
+  timestamp,
+  val,
+  deliveryDate,
+  damStatus,
+  onNavigateToMap,
+  onLoadingChange,
 }: {
   point: string;
-  meta: { type: string | null; zone: string | null; lat: number | null; lon: number | null } | null;
+  meta: {
+    type: string | null;
+    zone: string | null;
+    lat: number | null;
+    lon: number | null;
+  } | null;
   timestamp: Date | null;
   val: MatrixValTab;
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
   onNavigateToMap: (search: string) => void;
+  onLoadingChange: (loading: boolean) => void;
 }) {
   const basis: AnalysisBasis = val === "dmu" ? "realized" : "predicted";
   // DAM-unavailable must stay unavailable, never a fabricated zero: block the
@@ -218,19 +398,39 @@ function NodeRead({
   const requestId = useRef(0);
 
   useEffect(() => {
-    if (!timestamp || !deliveryDate) { setNode(null); setLoading(false); return; }
+    if (!timestamp || !deliveryDate) {
+      setNode(null);
+      setLoading(false);
+      onLoadingChange(false);
+      return;
+    }
     const controller = new AbortController();
     const id = ++requestId.current;
     setLoading(true);
-    getAnalysisNode(point, deliveryDate, timestamp.toISOString(), basis, controller.signal, true)
-      .then((response) => { if (id === requestId.current) setNode(response); })
+    onLoadingChange(true);
+    getAnalysisNode(
+      point,
+      deliveryDate,
+      timestamp.toISOString(),
+      basis,
+      controller.signal,
+      true
+    )
+      .then((response) => {
+        if (id === requestId.current) setNode(response);
+      })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
         if (id === requestId.current) setNode(null);
       })
-      .finally(() => { if (id === requestId.current) setLoading(false); });
+      .finally(() => {
+        if (id === requestId.current) {
+          setLoading(false);
+          onLoadingChange(false);
+        }
+      });
     return () => controller.abort();
-  }, [point, deliveryDate, timestamp, basis, damPendingBlock]);
+  }, [point, deliveryDate, timestamp, basis, damPendingBlock, onLoadingChange]);
 
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
@@ -246,54 +446,149 @@ function NodeRead({
         </header>
         {node?.available && (
           <DetailSummary
-            hourly={<>
-              <Fact label="Forecast (P50) Congestion" value={marketValue(market?.forecast_congestion)} numeric />
-              <Fact label="Realized Congestion" value={marketValue(market?.realized_congestion)} numeric />
-              <Fact label="Forecast Error" value={marketValue(market?.forecast_error)} numeric />
-              <Fact label="Forecast LMP" value={marketValue(market?.forecast_lmp)} numeric />
-              <Fact label="DAM LMP" value={marketValue(market?.dam_lmp)} numeric />
-              <Fact
-                label={basis === "realized" ? "DAM μ attribution" : "Forecast μ attribution"}
-                value={marketValue(node.total)}
-                tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
-                numeric
-              />
-            </>}
-            structural={<>
-              <Fact label="Zone" value={zoneLabel(meta?.zone ?? null)} numeric />
-              <Fact label="Type" value={meta?.type ?? "—"} numeric />
-              <Fact label="ESSP members" value={node.essp_member_count != null && node.essp_member_count > 1 ? `≈${node.essp_member_count}` : "—"} numeric />
-              <Fact label="SF coverage" value={node.coverage == null ? "—" : percent(node.coverage)} numeric />
-              <Fact label="Current drivers" value={`${node.n_terms ?? terms.length}`} numeric />
-            </>}
+            hourly={
+              <>
+                <Fact
+                  label="Forecast (P50) Congestion"
+                  value={marketValue(market?.forecast_congestion)}
+                  numeric
+                />
+                <Fact
+                  label="Realized Congestion"
+                  value={marketValue(market?.realized_congestion)}
+                  numeric
+                />
+                <Fact
+                  label="Forecast Error"
+                  value={marketValue(market?.forecast_error)}
+                  numeric
+                />
+                <Fact
+                  label="Forecast LMP"
+                  value={marketValue(market?.forecast_lmp)}
+                  numeric
+                />
+                <Fact
+                  label="DAM LMP"
+                  value={marketValue(market?.dam_lmp)}
+                  numeric
+                />
+                <Fact
+                  label={
+                    basis === "realized"
+                      ? "DAM μ attribution"
+                      : "Forecast μ attribution"
+                  }
+                  value={marketValue(node.total)}
+                  tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
+                  numeric
+                />
+              </>
+            }
+            structural={
+              <>
+                <Fact
+                  label="Zone"
+                  value={zoneLabel(meta?.zone ?? null)}
+                  numeric
+                />
+                <Fact label="Type" value={meta?.type ?? "—"} numeric />
+                <Fact
+                  label="ESSP members"
+                  value={
+                    node.essp_member_count != null && node.essp_member_count > 1
+                      ? `≈${node.essp_member_count}`
+                      : "—"
+                  }
+                  numeric
+                />
+                <Fact
+                  label="SF coverage"
+                  value={node.coverage == null ? "—" : percent(node.coverage)}
+                  numeric
+                />
+                <Fact
+                  label="Current drivers"
+                  value={`${node.n_terms ?? terms.length}`}
+                  numeric
+                />
+              </>
+            }
           />
         )}
 
         {damPendingBlock && (
-          <div className="mrd-notice">ERCOT DAM μ has not been published for this delivery day — unavailable, not zero.</div>
+          <div className="mrd-notice">
+            ERCOT DAM μ has not been published for this delivery day —
+            unavailable, not zero.
+          </div>
         )}
-        {!damPendingBlock && basis === "realized" && damStatus === "partial" && (
-          <div className="mrd-notice">ERCOT DAM μ is only partially published for this day; unmatched constraints read as zero here.</div>
+        {!damPendingBlock &&
+          basis === "realized" &&
+          damStatus === "partial" && (
+            <div className="mrd-notice">
+              ERCOT DAM μ is only partially published for this day; unmatched
+              constraints read as zero here.
+            </div>
+          )}
+        {!damPendingBlock && loading && !node && (
+          <div className="mrd-loading">Loading node column…</div>
         )}
-        {!damPendingBlock && loading && !node && <div className="mrd-loading">Loading node column…</div>}
         {!damPendingBlock && !loading && node && !node.available && (
-          <div className="mrd-notice">No forecast artifact for this node on this delivery day.</div>
+          <div className="mrd-notice">
+            No forecast artifact for this node on this delivery day.
+          </div>
         )}
         {!damPendingBlock && node?.available && (
           <>
             <div className="mrd-drivers">
-              <span className="mrd-section-title">Current-hour drivers <em>full column · −SF·μ</em></span>
+              <span className="mrd-section-title">
+                Current-hour drivers <em>full column · −SF·μ</em>
+              </span>
               <table className="mrd-drv">
-                <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
-                <tbody>{terms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
+                <thead>
+                  <tr>
+                    <th>constraint</th>
+                    <th>SF</th>
+                    <th>side</th>
+                    <th>μ</th>
+                    <th>$/MWh</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {terms.map((term) => (
+                    <DriverRow key={term.constraint_key} term={term} />
+                  ))}
+                </tbody>
               </table>
             </div>
             <details className="mrd-structural">
-              <summary>Structural exposure <em>{node.structural_terms ? `${node.structural_n_terms ?? structuralTerms.length} nonzero SF relationships` : "loading…"}</em></summary>
+              <summary>
+                Structural exposure{" "}
+                <em>
+                  {node.structural_terms
+                    ? `${
+                        node.structural_n_terms ?? structuralTerms.length
+                      } nonzero SF relationships`
+                    : "loading…"}
+                </em>
+              </summary>
               {node.structural_terms && (
                 <table className="mrd-drv">
-                  <thead><tr><th>constraint</th><th>SF</th><th>side</th><th>μ</th><th>$/MWh</th></tr></thead>
-                  <tbody>{structuralTerms.map((term) => <DriverRow key={term.constraint_key} term={term} />)}</tbody>
+                  <thead>
+                    <tr>
+                      <th>constraint</th>
+                      <th>SF</th>
+                      <th>side</th>
+                      <th>μ</th>
+                      <th>$/MWh</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {structuralTerms.map((term) => (
+                      <DriverRow key={term.constraint_key} term={term} />
+                    ))}
+                  </tbody>
                 </table>
               )}
             </details>
@@ -301,25 +596,70 @@ function NodeRead({
         )}
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap selection={{ geo: "node", key: point }} mapHref={mapHref} onNavigate={onNavigateToMap} showTitle={false}
-          nodeLocation={meta?.lat != null && meta.lon != null ? { lat: meta.lat, lng: meta.lon } : null} />
+        <BriefFootprintMap
+          selection={{ geo: "node", key: point }}
+          mapHref={mapHref}
+          onNavigate={onNavigateToMap}
+          showTitle={false}
+          nodeLocation={
+            meta?.lat != null && meta.lon != null
+              ? { lat: meta.lat, lng: meta.lon }
+              : null
+          }
+        />
       </div>
     </>
   );
 }
 
 export default function MatrixReadDetail({
-  selection, timestamp, val, deliveryDate, damStatus, constraintRow, nodeMeta, onNavigateToMap,
+  selection,
+  timestamp,
+  val,
+  deliveryDate,
+  damStatus,
+  constraintRow,
+  nodeMeta,
+  onNavigateToMap,
 }: Props) {
+  const [ready, setReady] = useState(false);
+  const handleLoadingChange = useCallback(
+    (loading: boolean) => setReady(!loading),
+    []
+  );
   if (!selection) {
-    return <div className="mrd mrd--empty">Select a constraint or node from the index to see its evidence.</div>;
+    return (
+      <div className="mrd mrd--empty">
+        Select a constraint or node from the index to see its evidence.
+      </div>
+    );
   }
   return (
     <div className="mrd">
       <ConstraintReachStyles />
-      {selection.kind === "constraint"
-        ? <ConstraintRead selectionKey={selection.key} row={constraintRow} timestamp={timestamp} onNavigateToMap={onNavigateToMap} />
-        : <NodeRead point={selection.point} meta={nodeMeta} timestamp={timestamp} val={val} deliveryDate={deliveryDate} damStatus={damStatus} onNavigateToMap={onNavigateToMap} />}
+      {!ready && <DetailLoading />}
+      <div className="mrd__content" hidden={!ready}>
+        {selection.kind === "constraint" ? (
+          <ConstraintRead
+            selectionKey={selection.key}
+            row={constraintRow}
+            timestamp={timestamp}
+            onNavigateToMap={onNavigateToMap}
+            onLoadingChange={handleLoadingChange}
+          />
+        ) : (
+          <NodeRead
+            point={selection.point}
+            meta={nodeMeta}
+            timestamp={timestamp}
+            val={val}
+            deliveryDate={deliveryDate}
+            damStatus={damStatus}
+            onNavigateToMap={onNavigateToMap}
+            onLoadingChange={handleLoadingChange}
+          />
+        )}
+      </div>
       <style>{`
         /* Two columns: a scrolling evidence column on the left and the grid
            footprint pinned full-height on the right. The pane's own
@@ -327,6 +667,10 @@ export default function MatrixReadDetail({
            scrolls within it while the map stays put. */
         .mrd { --mrd-fact-label: 216px; --mrd-fact-value: 130px; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 0; }
         .mrd--empty { color: var(--text-secondary); display: grid; place-items: center; padding: 40px 20px; text-align: center; }
+        .mrd--loading { color: var(--text-secondary); display: flex; grid-column: 1 / -1; align-items: center; justify-content: center; gap: 10px; padding: 40px 20px; }
+        .mrd__content { display: contents; }
+        .mrd-loading__spinner { animation: mrd-spin .8s linear infinite; border: 2px solid var(--border); border-right-color: var(--accent); border-radius: 50%; height: 18px; width: 18px; }
+        @keyframes mrd-spin { to { transform: rotate(360deg); } }
         .mrd__main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px 2px; }
         .mrd__map { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
         /* Fill the column height with the footprint, overriding the Brief
