@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   ScoreboardWeekly,
   ScoreboardHeadline,
@@ -11,6 +11,14 @@ import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
 import Tooltip from "../components/ui/Tooltip";
 import { useScoreboard } from "../hooks/useScoreboard";
+import {
+  METRICS,
+  ScoreboardControls,
+  type MetricKey,
+  useScoreboardControls,
+} from "../features/scoreboard/ScoreboardControls";
+import { useScoreboardChart } from "../features/scoreboard/useScoreboardChart";
+import "../features/scoreboard/scoreboard.css";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
@@ -31,61 +39,6 @@ const SERIES = [
   { source: "oracle", label: "Oracle", color: "#c98500" },
 ] as const;
 
-type MetricKey =
-  | "topdecile_hit"
-  | "rank_spearman"
-  | "sign_agree"
-  | "pooled_r2"
-  | "mae";
-
-const METRICS: Record<
-  MetricKey,
-  {
-    label: string;
-    group: "screening" | "magnitude";
-    fmt: (v: number) => string;
-    domain: (vals: number[]) => [number, number];
-    higher: boolean;
-  }
-> = {
-  topdecile_hit: {
-    label: "Top-Decile Hit",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  rank_spearman: {
-    label: "Rank ρ",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  sign_agree: {
-    label: "Sign Agreement",
-    group: "screening",
-    fmt: (v) => v.toFixed(2),
-    domain: () => [0, 1],
-    higher: true,
-  },
-  pooled_r2: {
-    label: "Pooled R²",
-    group: "magnitude",
-    fmt: (v) => v.toFixed(2),
-    domain: (vals) => [Math.min(0, ...vals), Math.max(1, ...vals)],
-    higher: true,
-  },
-  mae: {
-    label: "MAE ($/MWh)",
-    group: "magnitude",
-    fmt: (v) => `$${v.toFixed(1)}`,
-    domain: (vals) => [0, Math.max(1, ...vals) * 1.05],
-    higher: false,
-  },
-};
-const SCREENING: MetricKey[] = ["rank_spearman", "sign_agree", "topdecile_hit"];
-const MAGNITUDE: MetricKey[] = ["pooled_r2", "mae"];
 
 const REGIMES: { value: string; label: string }[] = [
   { value: "all", label: "All hours" },
@@ -128,19 +81,6 @@ function SeriesChart({
   metric: MetricKey;
   cutover: string;
 }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(720);
-  const [hover, setHover] = useState<number | null>(null);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const measure = () => setWidth(el.clientWidth);
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-
   const weeks = useMemo(
     () => Array.from(new Set(points.map((p) => p.week))).sort(),
     [points]
@@ -176,9 +116,12 @@ function SeriesChart({
   // at the 11px label face) — keep it wide enough that they don't clip.
   const M = { t: 14, r: 116, b: 22, l: 42 };
   const H = 280;
+  const n = weeks.length;
+  const {
+    wrapRef, width, hover, clearHover, moveHover, setHoverFromCoordinate,
+  } = useScoreboardChart(n);
   const plotW = Math.max(1, width - M.l - M.r);
   const plotH = H - M.t - M.b;
-  const n = weeks.length;
 
   const x = (i: number) => M.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) =>
@@ -237,8 +180,7 @@ function SeriesChart({
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
-    const i = Math.round((mx / plotW) * (n - 1));
-    setHover(Math.max(0, Math.min(n - 1, i)));
+    setHoverFromCoordinate(mx, plotW);
   };
 
   return (
@@ -374,7 +316,13 @@ function SeriesChart({
           height={plotH}
           fill="transparent"
           onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
+          onMouseLeave={clearHover}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") moveHover(-1);
+            if (event.key === "ArrowRight") moveHover(1);
+          }}
+          tabIndex={0}
+          aria-label="Use left and right arrow keys to inspect weekly values"
         />
       </svg>
 
@@ -918,9 +866,11 @@ export default function ScoreboardPage() {
   const [regime, setRegime] = useState("all");
   // null = let the server pick the final track; a number is an explicit switch.
   const [horizon, setHorizon] = useState<number | null>(null);
-  const [group, setGroup] = useState<"screening" | "magnitude">("screening");
-  const [metric, setMetric] = useState<MetricKey>("rank_spearman");
-  const { weekly, headline, daily, loading, connectionState, lastUpdated } =
+  const [controls, dispatchControls] = useScoreboardControls();
+  const {
+    weekly, headline, daily, backtestLoading, liveLoading, liveError,
+    connectionState, lastUpdated,
+  } =
     useScoreboard(regime, horizon);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
@@ -952,9 +902,12 @@ export default function ScoreboardPage() {
               onHorizonChange={setHorizon}
             />
           )}
+          {!liveLoading && liveError && (
+            <div className="sb-empty label">live grades could not be loaded.</div>
+          )}
 
-          {loading && <div className="sb-empty label">loading…</div>}
-          {!loading && !weekly && (
+          {backtestLoading && <div className="sb-empty label">loading…</div>}
+          {!backtestLoading && !weekly && (
             <div className="sb-empty label">
               no board loaded for “{regime}”.
             </div>
@@ -975,41 +928,14 @@ export default function ScoreboardPage() {
               <HeadlineTiles headline={headline} />
 
               {/* metric controls: screening leads, magnitude behind a toggle */}
-              <div className="sb-controls">
-                <div className="sb-metric-group">
-                  {(group === "screening" ? SCREENING : MAGNITUDE).map((mk) => (
-                    <button
-                      key={mk}
-                      className={metric === mk ? "active" : ""}
-                      onClick={() => setMetric(mk)}
-                    >
-                      {METRICS[mk].label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="sb-group-toggle"
-                  onClick={() => {
-                    const next =
-                      group === "screening" ? "magnitude" : "screening";
-                    setGroup(next);
-                    setMetric(
-                      next === "screening" ? "rank_spearman" : "pooled_r2"
-                    );
-                  }}
-                >
-                  {group === "screening"
-                    ? "Show magnitude (R²/MAE) →"
-                    : "← Back to screening"}
-                </button>
-              </div>
+              <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Backtest · weekly series ({METRICS[metric].label})
+                Backtest · weekly series ({METRICS[controls.metric].label})
               </div>
               <SeriesChart
                 points={weekly.points}
-                metric={metric}
+                metric={controls.metric}
                 cutover={weekly.rtc_b_cutover}
               />
 
@@ -1028,9 +954,9 @@ export default function ScoreboardPage() {
 
               <div className="sb-section-h label">
                 Backtest · pooled over all weeks, split pre/post-RTC+B (
-                {METRICS[metric].label})
+                {METRICS[controls.metric].label})
               </div>
-              <SplitTable weekly={weekly} metric={metric} />
+              <SplitTable weekly={weekly} metric={controls.metric} />
             </>
           )}
         </main>
