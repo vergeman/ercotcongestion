@@ -47,6 +47,7 @@ from compute.mu.heads import (alloc_bind_matrix as _alloc_bind_matrix,
                               fit_mu_climatology, fit_mu_head, fold_matrix,
                               predict_mu_climatology, predict_mu_head,
                               reliability, target_encoding)
+from compute.mu.scheduling import refit_boundaries, score_chunks
 from compute.mu.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 from compute.sf.config import REFIT_DAYS, WINDOW_DAYS
 
@@ -210,71 +211,6 @@ def arms_for(features: str) -> tuple[str, ...]:
 # --------------------------------------------------------------------------
 # The walk
 # --------------------------------------------------------------------------
-
-# Compatibility exports: callers continue importing these helpers from this module
-# while their implementations live with the model-head responsibility.
-from compute.mu.heads import (alloc_bind_matrix as _alloc_bind_matrix,
-                              apply_encoding, bind_metrics, fit_bind_head,
-                              fit_mu_climatology, fit_mu_head, fold_matrix,
-                              predict_mu_climatology, predict_mu_head,
-                              reliability, target_encoding)
-
-def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
-                     score_from: pd.Timestamp | None = None,
-                     anchor: pd.Timestamp | None = None) -> pd.DatetimeIndex:
-    """The weekly refit grid, phase-locked to `sf/eval`.
-
-    **`score_from` IS a grid point, and that is the whole trick.** Commit 4 scores
-    every mu source in one harness on IDENTICAL weeks, and commit 5 pushes those
-    weeks through an SF map refit on `sf/eval`'s grid — so a grid that is merely
-    *weekly* is not enough, it has to be weekly **in the same phase**.
-
-    `sf/eval` derives its phase from `days[0] + train_days` of whatever panel that
-    run loaded. Reproducing that here means reproducing a start date we do not
-    otherwise need, and getting it wrong is silent: the run still produces 46
-    tidy weeks, just not the same 46. It has now been wrong twice — anchored on
-    the covariate panel the weeks landed 2 days late, and anchored on this run's
-    shadow-price panel (which starts at the covariate range, not the SF sweep's)
-    still 1 day late, at 2025-08-15 against sf's 2025-08-14.
-
-    So stop deriving the phase and take it. `--score-from` is already given a real
-    `sf/eval` week start, which pins the phase exactly with nothing left to infer.
-    `anchor` remains only for the no-`score_from` case (tests, standalone use),
-    where there is no week to lock onto.
-
-    **Generate in the origin's own tz, with a `DateOffset` step, convert after
-    (0133a).** Two independent traps, both silent: (1) converting `origin` to the
-    panel's tz (UTC) *before* calling `date_range` locks the grid onto UTC's wall
-    clock instead of the origin's, so a CT-anchored `score_from` drifts an hour
-    off true CT midnight after crossing a DST transition; (2) a `Timedelta`
-    `freq` is a fixed physical duration (absolute-time stepping, DST-oblivious)
-    — only a calendar-aware step (`DateOffset`, or the `"7D"` string form)
-    preserves wall-clock time across a transition. Both must be right together:
-    neither alone is enough, and getting this wrong still produces tidy-looking
-    weekly rows, just phased an hour off for every boundary past the fold.
-    """
-    days = pd.DatetimeIndex(
-        panel.index.get_level_values("interval_ts").normalize().unique()).sort_values()
-    step = pd.DateOffset(days=refit_days)
-
-    if score_from is not None:
-        origin = pd.Timestamp(score_from)
-        floor = origin - pd.Timedelta(days=train_days)
-        if floor < pd.Timestamp(days[0]).tz_convert(origin.tz):
-            raise ValueError(
-                f"score_from={origin.date()} needs {train_days}d of history back to "
-                f"{floor.date()}, but the panel starts {days[0].date()}. The first "
-                f"week would train on a short window and score anyway — refusing.")
-        end = pd.Timestamp(days[-1]).tz_convert(origin.tz)
-        starts = pd.date_range(origin, end, freq=step, inclusive="left")
-        return starts.tz_convert(days.tz)
-
-    origin = pd.Timestamp(anchor) if anchor is not None else pd.Timestamp(days[0])
-    start = origin + pd.DateOffset(days=train_days)   # wall-clock-preserving add
-    end = pd.Timestamp(days[-1]).tz_convert(origin.tz)
-    starts = pd.date_range(start, end, freq=step, inclusive="left")
-    return starts.tz_convert(days.tz)
-
 
 def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
                   arms: tuple[str, ...] = ("lag", "geo", "wx"),
@@ -618,26 +554,6 @@ def spill_panel_features(panel: pd.DataFrame, spill_dir: str) -> pd.DataFrame:
     log.info("panel features spilled to %s — %d cols now Arrow-mmap file-backed",
              path, len(feat))
     return adf
-
-
-def score_chunks(score_from: pd.Timestamp, end: pd.Timestamp, refit_days: int,
-                 chunk_weeks: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    """Partition the fixed scored grid into exclusive-end chunk windows.
-
-    `DateOffset`, not `Timedelta`, for the step — a `Timedelta` `freq` is fixed
-    physical duration (DST-oblivious absolute-time stepping); `score_from` is
-    generated in its own tz below with no prior conversion, so a CT-anchored
-    origin needs a calendar-aware step to actually stay on CT midnight across a
-    DST transition (0133a — the same trap `refit_boundaries` had).
-    """
-    if chunk_weeks < 1:
-        raise ValueError("chunk_weeks must be positive")
-    end = pd.Timestamp(end).tz_convert(score_from.tz)
-    step = pd.DateOffset(days=refit_days)
-    starts = pd.date_range(score_from, end, freq=step, inclusive="left")
-    return [(block[0], block[-1] + step)
-            for block in (starts[i:i + chunk_weeks]
-                          for i in range(0, len(starts), chunk_weeks)) if len(block)]
 
 
 def walk_forward_chunked(build_panel_for_range, *, score_from: pd.Timestamp,
