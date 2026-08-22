@@ -14,7 +14,7 @@ export class ApiError extends Error {
     cause?: unknown,
   ) {
     super(message);
-    this.name = "ApiError";
+    this.name = kind === "abort" ? "AbortError" : "ApiError";
     this.kind = kind;
     this.status = status;
     this.cause = cause;
