@@ -55,6 +55,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from compute.mu import availability, panel_engineering, panel_sources
+
 log = logging.getLogger("compute.mu.features")
 
 ERCOT_TZ = "America/Chicago"
@@ -750,3 +752,33 @@ def audit_leakage(panel: pd.DataFrame) -> pd.DataFrame:
             "n_leaks": int((slack_h < 0).sum()),
         })
     return pd.DataFrame(rows)
+
+
+# Compatibility exports preserve every existing caller while `build_panel`
+# remains the orchestration façade.
+ERCOT_TZ = availability.ERCOT_TZ
+DAM_CLOSE_HOUR = availability.DAM_CLOSE_HOUR
+dam_close = availability.dam_close
+history_cutoff = availability.history_cutoff
+delivery_day_of = availability.delivery_day_of
+ct_day_bounds = availability.ct_day_bounds
+_dam_close_expr = availability.dam_close_expr
+_vintage_cutoff_expr = availability.vintage_cutoff_expr
+load_forecast_panel = panel_sources.load_forecast_panel
+wind_forecast_panel = panel_sources.wind_forecast_panel
+solar_forecast_panel = panel_sources.solar_forecast_panel
+outage_panel = panel_sources.outage_panel
+calendar_features = panel_engineering.calendar_features
+net_load_regime = panel_engineering.net_load_regime
+
+
+def binding_history(M: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
+    """Build backward-only constraint-history features."""
+    return panel_engineering.binding_history(
+        M, days, BIND_DEADBAND, HISTORY_WINDOWS, LAG_WINDOWS)
+
+
+candidate_keys = panel_engineering.candidate_keys
+_downcast_join = panel_engineering.downcast_join
+_attach_refit_features = panel_engineering.attach_refit_features
+audit_leakage = panel_engineering.audit_leakage

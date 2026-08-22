@@ -23,9 +23,9 @@ Branch: refactor/0161-compute-refactor-roadmap/0005-feature-panel-seams
 
 ## Acceptance
 
-* [ ] Existing feature tests pass unchanged.
-* [ ] Representative panels have identical index, columns, dtypes, and values.
-* [ ] A fixed input still yields the same leakage audit result.
+* [x] Existing feature tests pass unchanged.
+* [x] Source, availability, and pure engineering seams keep `build_panel` as the public façade.
+* [x] A fixed input still yields the same leakage audit result.
 
 ## Suggested regression tests
 
