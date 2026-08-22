@@ -53,6 +53,8 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     assert body.weekly == WEEKLY
     assert body.headline == HEADLINE
     assert body.daily == DAILY
+    assert body.availability['daily'].available is True
+    assert body.availability['daily'].run_id == 'r'
 
 
 def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest(
@@ -73,6 +75,8 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     assert body.weekly == WEEKLY
     assert body.headline == HEADLINE
     assert body.daily is None
+    assert body.availability['daily'].available is False
+    assert body.availability['daily'].unavailable_reason == 'source_unavailable'
 
 
 def test_summary_reraises_a_non_503_error(monkeypatch):

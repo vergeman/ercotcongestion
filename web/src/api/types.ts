@@ -608,14 +608,24 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
+// Explicitly describes a bootstrap section's soft-fail state and, where the
+// resource has one, the source artifact identity behind its payload.
+export interface BootstrapSectionStatus {
+  available: boolean;
+  unavailable_reason: string | null;
+  run_id: string | null;
+  delivery_date: string | null;
+  horizon: number | null;
+}
+
 // /scoreboard/summary — one bundled payload for the Scoreboard page's
-// load-time requests (0137). Each field keeps its single-section shape; null
-// exactly when that section's own endpoint would 503 (that board has no rows
-// yet).
+// load-time requests (0137). `availability` makes every nullable section's
+// soft-fail state explicit.
 export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
   headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
+  availability: Record<string, BootstrapSectionStatus>;
 }
 
 // /map/summary — one bundled payload for the Map workspace's load-time
@@ -627,6 +637,7 @@ export interface MapSummary {
   overview: MapOverview | null;
   meta: MapMeta | null;
   headline: ScoreboardHeadline | null;
+  availability: Record<string, BootstrapSectionStatus>;
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

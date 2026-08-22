@@ -55,7 +55,7 @@ from models import (
     ExposuresResponse,
     MapMeta,
     MapOverview,
-    MapSummaryResponse,
+    BootstrapSectionStatus, MapSummaryResponse,
     OverviewConstraint,
     RankedConstraint,
     RankedConstraints,
@@ -860,6 +860,18 @@ def _soft_fail(build: Callable[[], _T]) -> _T | None:
         raise
 
 
+def _bootstrap_status(section: object | None) -> BootstrapSectionStatus:
+    """Describe a bundled section without making its null payload ambiguous."""
+    if section is None:
+        return BootstrapSectionStatus(available=False, unavailable_reason="source_unavailable")
+    return BootstrapSectionStatus(
+        available=True,
+        run_id=getattr(section, "run_id", None),
+        delivery_date=getattr(section, "delivery_date", None),
+        horizon=getattr(section, "horizon", None),
+    )
+
+
 @router.get(
     "/summary",
     response_model=MapSummaryResponse,
@@ -891,9 +903,18 @@ def get_map_summary() -> MapSummaryResponse:
         meta = pool.submit(_soft_fail, get_map_meta)
         headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, "all"))
         topology = get_or_build_topology()
+        overview_result = overview.result()
+        meta_result = meta.result()
+        headline_result = headline.result()
         return MapSummaryResponse(
             topology=topology,
-            overview=overview.result(),
-            meta=meta.result(),
-            headline=headline.result(),
+            overview=overview_result,
+            meta=meta_result,
+            headline=headline_result,
+            availability={
+                "topology": BootstrapSectionStatus(available=True),
+                "overview": _bootstrap_status(overview_result),
+                "meta": _bootstrap_status(meta_result),
+                "headline": _bootstrap_status(headline_result),
+            },
         )

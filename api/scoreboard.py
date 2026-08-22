@@ -35,7 +35,7 @@ from models import (
     HeadlineWindow,
     ScoreboardDaily,
     ScoreboardHeadline,
-    ScoreboardSummaryResponse,
+    BootstrapSectionStatus, ScoreboardSummaryResponse,
     ScoreboardWeekly,
     SourcePooled,
     WeeklyPoint,
@@ -473,6 +473,18 @@ def _soft_fail(build: Callable[[], _T]) -> _T | None:
         raise
 
 
+def _bootstrap_status(section: object | None) -> BootstrapSectionStatus:
+    """Describe a bundled section without making its null payload ambiguous."""
+    if section is None:
+        return BootstrapSectionStatus(available=False, unavailable_reason="source_unavailable")
+    return BootstrapSectionStatus(
+        available=True,
+        run_id=getattr(section, "run_id", None),
+        delivery_date=getattr(section, "delivery_date", None),
+        horizon=getattr(section, "horizon", None),
+    )
+
+
 @router.get(
     "/scoreboard/summary",
     response_model=ScoreboardSummaryResponse,
@@ -510,8 +522,16 @@ def get_scoreboard_summary(
         weekly = pool.submit(_soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
         headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, regime))
         daily = pool.submit(_soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
+        weekly_result = weekly.result()
+        headline_result = headline.result()
+        daily_result = daily.result()
         return ScoreboardSummaryResponse(
-            weekly=weekly.result(),
-            headline=headline.result(),
-            daily=daily.result(),
+            weekly=weekly_result,
+            headline=headline_result,
+            daily=daily_result,
+            availability={
+                "weekly": _bootstrap_status(weekly_result),
+                "headline": _bootstrap_status(headline_result),
+                "daily": _bootstrap_status(daily_result),
+            },
         )

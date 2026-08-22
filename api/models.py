@@ -1176,6 +1176,14 @@ class ScoreboardDaily(BaseModel):
 
 # ---- /scoreboard/summary --------------------------------------------------
 
+class BootstrapSectionStatus(BaseModel):
+    """Availability and source identity for one independently built section."""
+    available: bool
+    unavailable_reason: str | None = None
+    run_id: str | None = None
+    delivery_date: date | None = None
+    horizon: int | None = None
+
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary (0137).
 
@@ -1190,6 +1198,7 @@ class ScoreboardSummaryResponse(BaseModel):
     weekly: ScoreboardWeekly | None
     headline: ScoreboardHeadline | None
     daily: ScoreboardDaily | None
+    availability: dict[str, BootstrapSectionStatus]
 
 
 # ---- /map/summary -----------------------------------------------------------
@@ -1211,6 +1220,7 @@ class MapSummaryResponse(BaseModel):
     overview: MapOverview | None
     meta: MapMeta | None
     headline: ScoreboardHeadline | None
+    availability: dict[str, BootstrapSectionStatus]
 
 
 # ---- /conditions_range -------------------------------------------------------
