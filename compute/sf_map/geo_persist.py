@@ -28,7 +28,7 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.mu_forecast.geo import (
+from compute.sf_map.geography import (
     ZONES,
     constraint_geography,
     constraint_type,

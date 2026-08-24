@@ -55,8 +55,8 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.sf.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
-from compute.sf.panels import load_shadow_prices
+from compute.sf_map.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
+from compute.inputs.dam import load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.coverage")
 

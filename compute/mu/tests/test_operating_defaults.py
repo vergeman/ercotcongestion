@@ -6,9 +6,12 @@ import argparse
 import pytest
 
 from compute.experiments.sf_out_of_window import common as frozen_oos
+from compute.experiments.mu import feature_ablation as ablate
+from compute.experiments.mu import outage_ablation as outage_ablate
+from compute.experiments.sf import coverage as coverage_probe
 from compute.jobs import weekly_map
-from compute.mu import ablate, mu_model, outage_ablate
-from compute.sf import config, coverage_probe
+from compute.mu_forecast import mu_model
+from compute.sf_map import config
 
 
 class _ParserCaptured(Exception):

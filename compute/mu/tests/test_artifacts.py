@@ -4,7 +4,7 @@ import pytest
 
 from compute.artifacts import RunArtifacts
 from compute.jobs import backfill_nodal, daily_forecast
-from compute.mu import mu_model
+from compute.mu_forecast import mu_model
 
 
 @pytest.mark.parametrize("run_id", ["mu-all-v1", "2026-08-22", "nested/run"])

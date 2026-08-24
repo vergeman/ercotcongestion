@@ -22,9 +22,9 @@ import pandas as pd
 import pytest
 
 import compute.jobs.grade_day as gd
-from compute.mu.score import mu_climatology, mu_null, mu_persistence, score_matrix
-from compute.sf.eval import predict
-from compute.sf.project import band_metrics
+from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence, score_matrix
+from compute.evaluation.sf import predict
+from compute.projection.propagate import band_metrics
 
 D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")  # a CT-midnight day
 SPS = [f"SP{i}" for i in range(30)]

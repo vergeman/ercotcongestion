@@ -13,7 +13,7 @@ from psycopg.rows import tuple_row
 
 from compute.analysis.grade import GradeResult, grade_profiles
 from compute.analysis.hero_window import delivery_bounds
-from compute.sf.project import load_sf_mu
+from compute.projection.propagate import load_sf_mu
 
 
 NODE_CONGESTION_EPSILON = 1e-6

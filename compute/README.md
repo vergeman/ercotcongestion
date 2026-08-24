@@ -9,13 +9,17 @@ a new input source.
 | Area | Use it for | Main entry points |
 |---|---|---|
 | `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_day` |
-| `sf/` | Production shift-factor fit, map reads, projection, and evaluation | imported by jobs; `geo_persist`, `eval` |
-| `mu/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; `mu_model`, `score` |
+| `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
+| `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs; legacy `sf/` façades remain |
+| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; legacy `mu/` façades remain |
+| `projection/` | μ sampling, SF projection, nodal panels, and forecast artifacts | imported by forecast/backfill/API paths |
+| `evaluation/` | SF/μ OOS measures and ESSP validation | imported by map/grade jobs |
 | `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
 | `probes/` | External-data feasibility gates | optional, never called by cronjobs |
 
-Legacy `compute.sf.*` and `compute.mu.*` experiment/probe commands remain as
-compatibility launchers; use the paths under `experiments/` and `probes/` for new work.
+The legacy `compute.sf.*` and `compute.mu.*` paths are compatibility façades;
+new library imports should use the stage packages above. Scheduled CLI module
+paths remain unchanged during this migration.
 
 ## Tests
 

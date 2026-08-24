@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.eval import evaluate, evaluate_chunked
-from compute.sf.grouping import group_constraints
-from compute.sf.rolling import fit_refit_window, rolling_sf
+from compute.evaluation.sf import evaluate, evaluate_chunked
+from compute.sf_map.grouping import group_constraints
+from compute.sf_map.rolling import fit_refit_window, rolling_sf
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
            "topdecile_hit", "coverage", "sf_stability", "n_kept"]

@@ -42,8 +42,8 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.sf.eval import evaluate, sf_decay
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.evaluation.sf import evaluate, sf_decay
+from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.sweep")
 

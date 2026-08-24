@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.features import history_cutoff
-from compute.mu.weather import (MIN_WINDOW_HOURS, response_vectors, wx_panel,
+from compute.mu_forecast.features import history_cutoff
+from compute.mu_forecast.weather import (MIN_WINDOW_HOURS, response_vectors, wx_panel,
                                 wx_sources)
 
 
@@ -165,9 +165,9 @@ def test_wx_window_ends_before_the_history_cutoff():
 
 def test_wx_window_is_the_same_length_as_the_maps_fit_window():
     """The acceptance criterion names the map's window, and the default is it."""
-    from compute.mu.geo import WINDOW_DAYS as SF_WINDOW
-    from compute.mu.score import WINDOW_DAYS as SCORE_WINDOW
-    from compute.mu.weather import WINDOW_DAYS as WX_WINDOW
+    from compute.mu_forecast.geo import WINDOW_DAYS as SF_WINDOW
+    from compute.evaluation.mu import WINDOW_DAYS as SCORE_WINDOW
+    from compute.mu_forecast.weather import WINDOW_DAYS as WX_WINDOW
     assert WX_WINDOW == SF_WINDOW == SCORE_WINDOW == 240
 
 

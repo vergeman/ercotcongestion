@@ -1,6 +1,6 @@
 import pandas as pd
 
-from compute.sf.essp import agreement
+from compute.evaluation.essp import agreement
 
 
 def test_agreement_scores_exact_signature_precision_and_recall():

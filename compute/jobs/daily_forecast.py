@@ -51,22 +51,22 @@ from compute.jobs.grade_day import (
     resolve_gradeable_date,
 )
 from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
-from compute.mu.features import ERCOT_TZ, build_panel, ct_day_bounds
+from compute.mu_forecast.features import ERCOT_TZ, build_panel, ct_day_bounds
 from compute.time import normalize_ct_day
-from compute.mu.mu_model import (
+from compute.mu_forecast.mu_model import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
     load_preds,
     predict_day,
     spill_panel_features,
 )
-from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
-from compute.sf.panels import (
+from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
+from compute.inputs.dam import (
     dam_shadow_covers_window,
     load_congestion_panel,
     load_shadow_prices,
 )
-from compute.sf.project import (
+from compute.projection.propagate import (
     MAP_RUN_ID,
     MAX_SF_AGE_DAYS,
     MIN_SF_COVERAGE,

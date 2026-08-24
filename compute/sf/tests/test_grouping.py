@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.grouping import (
+from compute.sf_map.grouping import (
     aggregate_mu,
     constraint_linkage,
     cut_groups,

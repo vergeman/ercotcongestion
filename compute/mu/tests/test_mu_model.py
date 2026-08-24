@@ -22,8 +22,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu import mu_model
-from compute.mu.mu_model import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
+from compute.mu_forecast import mu_model
+from compute.mu_forecast.mu_model import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
                                  combine_pred_chunks, fit_mu_climatology, load_preds,
                                  mu_head_verdict,

@@ -23,7 +23,7 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.sf.panels import (
+from compute.inputs.dam import (
     load_congestion_panel,
     load_shadow_prices,
 )

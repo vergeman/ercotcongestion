@@ -30,9 +30,9 @@ from compute.forecast_store import (
     sf_artifact_to_db,
     upsert_pointer,
 )
-from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
+from compute.evaluation.mu import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.time import delivery_date_of
-from compute.sf.project import (
+from compute.projection.propagate import (
     DRIVERS_K,
     DRIVERS_MAX_DAYS,
     MAP_RUN_ID,
@@ -269,8 +269,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu.mu_model import load_preds
-    from compute.sf.panels import load_congestion_panel, load_shadow_prices
+    from compute.mu_forecast.mu_model import load_preds
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--preds", default=None,

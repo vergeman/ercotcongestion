@@ -40,7 +40,7 @@ from compute.mu import score as score_mod
 from compute.experiments.mu.feature_ablation import (
     PERSISTENCE_TOPDEC, PRODUCT_TOPDEC, _row, check_baselines_identical, run_arm,
 )
-from compute.mu.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
+from compute.mu_forecast.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, feature_cols)
 
 log = logging.getLogger("compute.experiments.mu.outage_ablation")
@@ -97,8 +97,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu.features import build_panel, net_load_regime, system_panel
-    from compute.sf.panels import load_congestion_panel, load_shadow_prices
+    from compute.mu_forecast.features import build_panel, net_load_regime, system_panel
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--start", default="2024-12-11")

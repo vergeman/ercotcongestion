@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 
 from compute.mu_forecast.features import BIND_DEADBAND
-from compute.mu_forecast.geo import refit_grid
+from compute.sf_map.geography import refit_grid
 
 log = logging.getLogger("compute.mu.weather")
 

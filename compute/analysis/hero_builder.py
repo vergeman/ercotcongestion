@@ -20,7 +20,7 @@ from compute.analysis.hero_window import (
     summarize_load_condition,
 )
 from compute.analysis.metadata import load_sp_metadata
-from compute.sf.project import load_sf_mu
+from compute.projection.propagate import load_sf_mu
 
 
 logger = logging.getLogger(__name__)

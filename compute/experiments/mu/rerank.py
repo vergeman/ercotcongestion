@@ -46,13 +46,13 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.sf.project import draw_congestion, residual_pool
-from compute.mu.score import (
+from compute.projection.propagate import draw_congestion, residual_pool
+from compute.evaluation.mu import (
     LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
     topdecile_hit_defined, weeks_from_preds,
 )
-from compute.sf.eval import row_spearman, sign_agreement
-from compute.sf.fit import implied_shift_factors
+from compute.evaluation.sf import row_spearman, sign_agreement
+from compute.sf_map.fit import implied_shift_factors
 
 log = logging.getLogger("compute.experiments.mu.rerank")
 
@@ -201,8 +201,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu.mu_model import load_preds
-    from compute.sf.panels import load_congestion_panel, load_shadow_prices
+    from compute.mu_forecast.mu_model import load_preds
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--preds", default="/compute/mu/mu_preds.npz")

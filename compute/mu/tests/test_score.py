@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.score import (
+from compute.evaluation.mu import (
     SOURCES, mu_climatology, mu_from_preds, mu_persistence, report,
     score_matrix, score_week, walk, weeks_from_preds,
 )
@@ -228,7 +228,7 @@ def test_the_map_is_never_fitted_on_the_week_it_grades():
     s = pd.Timestamp("2025-10-01", tz="UTC")
     seen = {}
 
-    import compute.mu.score as sc
+    import compute.evaluation.mu as sc
     real = sc.implied_shift_factors
 
     def spy(M_fit, C_fit, **kw):

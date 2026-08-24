@@ -8,7 +8,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
-from compute.sf.fit import SF_ABS_CAP
+from compute.sf_map.fit import SF_ABS_CAP
 from db import get_pool
 from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
 from services.sf_artifacts import (

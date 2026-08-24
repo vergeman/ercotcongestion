@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from compute.evaluation.mu import score_matrix
+from compute.metrics import score_matrix
 
 N_DRAWS = 200
 DRAW_CHUNK = 25

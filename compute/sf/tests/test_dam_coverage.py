@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from compute.sf.panels import DAM_SHADOW_MIN_COVER_HOURS, dam_shadow_covers_window
+from compute.inputs.dam import DAM_SHADOW_MIN_COVER_HOURS, dam_shadow_covers_window
 
 LO = pd.Timestamp("2026-07-30", tz="UTC")   # a UTC delivery-window start
 

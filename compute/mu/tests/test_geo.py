@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.geo import (constraint_geography, constraint_type,
+from compute.mu_forecast.geo import (constraint_geography, constraint_type,
                             coverage_by_mu_mass, geo_panel, haversine_km,
                             refit_grid, zone_anchors)
 

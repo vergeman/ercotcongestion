@@ -10,8 +10,8 @@ from compute.forecast_store import (
     nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db, upsert_pointer,
 )
 from compute.jobs.backfill_nodal import existence_test, gate, walk
-from compute.mu.score import REFIT_DAYS, WINDOW_DAYS
-from compute.sf.project import (
+from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
+from compute.projection.propagate import (
     DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
     build_sf_mu_artifact, draw_congestion, load_nodal, load_sf_mu,
     materialize_drivers, node_drivers, parse_curated_days, propagate_window,
@@ -250,7 +250,7 @@ def test_load_forecast_sf_fails_loud_on_missing_stale_empty_or_low_coverage(monk
     """The shared-fit guard (0095-0002 acceptance): a missing / stale / empty /
     low-coverage map raises so the caller keeps the prior pointer; a fresh,
     covered window returns the SF to project through."""
-    import compute.sf.map_store as proj
+    import compute.sf_map.map_store as proj
 
     Dd = pd.Timestamp("2025-09-15", tz="UTC")
     wp = pd.DataFrame({"key": ["K0|Z", "K1|Z"], "p_bind": [0.8, 0.8],
