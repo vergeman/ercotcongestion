@@ -28,9 +28,7 @@ to exactly one SP), and both are *registry* facts, not string heuristics.
 1-MW derates is worthless; the mass is in the thermal trips. Key/row count flatters — see
 0088 — so every number here is denominated in `Effective MW Reduction Due to Outage`.
 
-Run (docker; fetches archive snapshots and reads the SP universe from the DB):
-    docker compose run --rm compute python -m compute.mu.outage_crosswalk
-    docker compose run --rm compute python -m compute.mu.outage_crosswalk --snapshots 8
+The executable coverage gate lives in `compute.probes.outage_crosswalk`.
 """
 from __future__ import annotations
 
@@ -182,74 +180,3 @@ def verdict(rate: float) -> tuple[str, str]:
             "build on the joinable subset only, reporting the unlocated MW every week")
     return "DEAD", ("degrade to `outages_zonal`, which we already have; close this "
                     "branch with no ingest (the 0087 pattern)")
-
-
-# --------------------------------------------------------------------------- CLI
-
-def _sample_docs(idx: pd.DataFrame, n: int) -> pd.DataFrame:
-    """Newest snapshot plus `n-1` spread evenly back through the archive — so coverage is
-    tested against *retired* units in old vintages, not only today's registry."""
-    if n >= len(idx):
-        return idx
-    pos = sorted({int(round(i)) for i in
-                  pd.Series(range(n)).mul((len(idx) - 1) / (n - 1))})
-    return idx.iloc[pos]
-
-
-def main(argv: list[str] | None = None) -> int:
-    import argparse
-
-    # Lazy: these pull the probe's top-level ErcotClient import, which needs the
-    # /ercot_ingest mount — present only in the compute container, at run time.
-    from ErcotClient import ErcotClient  # noqa: E402
-    from compute.mu.outage_probe import (archive_index, fetch_report,
-                                         settlement_points)
-
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--snapshots", type=int, default=6,
-                   help="Archive snapshots to score, spread across the backtest.")
-    args = p.parse_args(argv)
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
-
-    xwalk = load_crosswalk()
-    sp_universe = settlement_points()
-    print(f"\n=== NP1-346 crosswalk — Gate C (by outage MW) ===")
-    print(f"  registry: {len(xwalk.unitcode_to_sp)} unit codes, "
-          f"{len(xwalk.substation_to_sp)} unambiguous substations")
-    print(f"  SF-map SP universe (ercot_dam_spp): {len(sp_universe)}")
-    print(f"  Bar: >={GATE_C_BUILD:.0%} BUILD / {GATE_C_DEAD:.0%}-{GATE_C_BUILD:.0%} "
-          f"flagged / <{GATE_C_DEAD:.0%} DEAD\n")
-
-    c = ErcotClient()
-    idx = archive_index(c)
-    sample = _sample_docs(idx, args.snapshots)
-
-    pooled_total = pooled_located = 0.0
-    for _, doc in sample.iterrows():
-        rep = coverage(fetch_report(c, doc["docId"]), xwalk, sp_universe)
-        pooled_total += rep["total_mw"]
-        pooled_located += rep["located_mw"]
-        methods = "  ".join(f"{k} {v:.0%}" for k, v in sorted(
-            rep["by_method"].items(), key=lambda x: -x[1]))
-        print(f"  {doc['posted'].date()}  {rep['rate']:6.1%} of "
-              f"{rep['total_mw']:8,.0f} MW  ({rep['row_rate']:.0%} rows, "
-              f"{rep['n_sps']} SPs)   {methods}")
-
-    rate = pooled_located / pooled_total if pooled_total else 0.0
-    tag, action = verdict(rate)
-    print(f"\n  POOLED: {rate:.1%} of {pooled_total:,.0f} MW located across "
-          f"{len(sample)} snapshots")
-    print(f"  GATE C: {rate:.1%} -> **{tag}** — {action}")
-
-    # The hole, on the newest snapshot, so the flag rule can see it.
-    newest = coverage(fetch_report(c, idx.iloc[-1]["docId"]), xwalk, sp_universe)
-    if len(newest["unlocated"]):
-        print(f"\n  biggest UNLOCATED resources by MW (newest snapshot):")
-        for k, v in newest["unlocated"].head(10).items():
-            print(f"    {str(k):<20} {v:>8,.0f} MW")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
