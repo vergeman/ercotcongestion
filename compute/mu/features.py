@@ -265,8 +265,8 @@ def build_panel(conn, M: pd.DataFrame, start, end,
         if C is None or C.empty:
             raise ValueError("with_outage needs the congestion panel C — the outage "
                              "exposure is |SF|·MW and the SF is fitted from M and C")
-        from compute.mu.outage_crosswalk import load_crosswalk
-        from compute.mu.outage_exposure import (load_located_outages,
+        from compute.mu.outage.crosswalk import load_crosswalk
+        from compute.mu.outage.exposure import (load_located_outages,
                                                 outage_exposure_panel)
         outages = load_located_outages(conn, load_crosswalk(), set(C.columns),
                                        pd.Timestamp(start).date(),
