@@ -20,7 +20,7 @@ Branch: refactor/0162-compute-lifecycle-layout
 * Create `compute/experiments/sf/` for `sweep_sf`, `coverage_probe`, and `r3_verdict`; retain `sf/grouping.py` beside `sf/eval.py` because the deployed evaluator imports it.
 * Create `compute/probes/` for outage join/feed/crosswalk and RUC feasibility CLIs.
 * Extract reusable outage crosswalk and exposure code into a production-neutral `compute/mu/outage/` package; make `features.py` import only that package.
-* Leave compatibility modules at every existing `compute.sf.*` / `compute.mu.*` CLI path; delegate to the relocated `main` and retain public imports until callers migrate.
+* Remove legacy `compute.sf.*` / `compute.mu.*` experiment and probe paths after production callers have migrated to the lifecycle directories.
 * Update experiment scripts and documentation to use the new paths; add a short production/experiments/probes index to `compute/README.md`.
 * Do NOT move or rename deployed entry points: `compute.jobs.weekly_map`, `compute.jobs.daily_forecast`, `compute.jobs.backfill_nodal`, `compute.jobs.backfill_artifacts`, `compute.jobs.grade_day`, `compute.sf.geo_persist`, or `compute.sf.eval`.
 
@@ -29,7 +29,7 @@ Branch: refactor/0162-compute-lifecycle-layout
 * [x] Production cron manifests and production entry-point module paths are unchanged.
 * [x] 275 runnable SF/μ tests pass in the compute container.
 * [ ] Job tests blocked by the container's missing `api.analysis` import pass once that test environment dependency is restored.
-* [ ] Old and new experiment/probe CLI paths execute the same command and produce equivalent outputs.
+* [x] Production callers use only the new experiment, probe, and outage-library module paths; legacy shims are removed.
 * [x] `daily_forecast` and `build_panel(..., with_outage=True)` import no experiment or probe module.
 
 ## Progress
@@ -39,3 +39,4 @@ Branch: refactor/0162-compute-lifecycle-layout
 * [x] Extract reusable outage crosswalk/exposure code from the probe CLIs; retain compatibility exports and pass focused tests.
 * [x] Move feasibility probes; retain compatibility launchers and pass focused boundary tests.
 * [x] Add the production/experiments/probes directory guide and migrate canonical command references.
+* [x] Remove legacy experiment/probe launchers and outage-library re-export modules after production deployment verification.
