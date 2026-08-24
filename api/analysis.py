@@ -40,7 +40,11 @@ from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.forecast_mu import forecast_mu_rows
-from compute.analysis.grade import GradeResult, grade_profiles
+from compute.analysis.brief_grade import (
+    grade_constraint_profiles as _brief_grade_constraint_profiles,
+    grade_node_profiles as _brief_grade_node_profiles,
+    serialize_grade_half as _serialize_brief_grade_half,
+)
 from compute.sf.project import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
 from services.system_lambda import (
@@ -749,74 +753,12 @@ def _grade_vocabulary(cur, delivery_date: date) -> list[str]:
     return [str(row["constraint_key"]) for row in cur.fetchall()]
 
 
-def _grade_constraint_profiles(cur, run_id: str, delivery_date: date,
-                               horizon: int) -> GradeResult | None:
-    """Build the full-vocabulary constraint inputs for the pure v6 scorer.
-
-    A missing artifact is the only unavailable case now (0133): one artifact
-    covers its whole CT day, so there is no partial-coverage tail to gate on.
-    """
-    profile = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
-    if profile is None:
-        return None
-    settled = _settled_mu_profile(cur, delivery_date)
-    persistence = _settled_mu_profile(cur, delivery_date - timedelta(days=1))
-    model = _ordinal_profile(profile, len(profile))
-    settled = _ordinal_profile(settled, len(profile))
-    persistence = _ordinal_profile(persistence, len(profile))
-    climatology = _trailing_settled_average(
-        delivery_date, len(profile), _windowed_mu_profiles(cur, delivery_date, 30))
-    # The sparse settled profile carries the row-exists labels before values are
-    # zero-filled by grade_profiles; a published zero remains a positive label.
-    return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
-                          climatology=climatology,
-                          universe=_grade_vocabulary(cur, delivery_date))
-
-
 NODE_CONGESTION_EPSILON = 1e-6  # $/MWh; suppresses float residue, not economics.
 MARKET_PEAK_CT_HOURS = tuple(range(7, 23))  # 7×16, every delivery day.
 # Minimum trailing days an element needs before its history yields a trustworthy
 # standout baseline.  Unrelated to the top-k row cap — this gates eligibility,
 # not row count.
 MIN_STANDOUT_HISTORY_DAYS = 10
-
-
-def _grade_node_profiles(cur, run_id: str, delivery_date: date,
-                         horizon: int) -> GradeResult | None:
-    """Score complete-SF nodal congestion without allowing signed error netting.
-
-    A missing artifact is the only unavailable case now (0133) — see
-    ``_grade_constraint_profiles``.
-    """
-    profile = _forecast_node_profile(cur, run_id, delivery_date, horizon)
-    if profile is None:
-        return None
-    settled = _settled_node_profile(cur, delivery_date)
-    persistence = _settled_node_profile(cur, delivery_date - timedelta(days=1))
-    model = _ordinal_profile(profile, len(profile)).abs()
-    settled = _ordinal_profile(settled, len(profile)).abs()
-    persistence = _ordinal_profile(persistence, len(profile)).abs()
-    climatology = _trailing_settled_average(
-        delivery_date, len(profile), _windowed_node_profiles(cur, delivery_date, 30))
-    if climatology is not None:
-        climatology = climatology.abs()
-    # Nodes do not bind.  Their detection labels only filter floating-point
-    # residue; magnitude always consumes the full absolute congestion profile.
-    return grade_profiles(model, settled, persistence,
-                          settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
-                          climatology=climatology,
-                          top_fraction=0.10)
-
-
-def _grade_half(result: GradeResult) -> GradeHalfResponse:
-    return GradeHalfResponse(
-        graded=True,
-        universe_size=len(result.universe),
-        model=result.model.__dict__,
-        persistence=result.persistence.__dict__,
-        climatology=None if result.climatology is None else result.climatology.__dict__,
-        support=None if result.support is None else result.support.__dict__,
-    )
 
 
 @router.get("/node", response_model=NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse,
@@ -1052,8 +994,8 @@ def get_grade(
                 constraints=GradeHalfResponse(**materialized["constraints"]),
                 nodes=GradeHalfResponse(**materialized["nodes"]),
             )
-        constraints = _grade_constraint_profiles(cur, run_id, delivery_date, horizon)
-        nodes = _grade_node_profiles(cur, run_id, delivery_date, horizon)
+        constraints = _brief_grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+        nodes = _brief_grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
         return GradeUnavailableResponse(
             available=False, unavailable_reason="artifact_missing", run_id=run_id,
@@ -1061,8 +1003,8 @@ def get_grade(
         )
     return GradeAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        constraints=_grade_half(constraints),
-        nodes=(_grade_half(nodes) if nodes is not None else
+        constraints=GradeHalfResponse(**_serialize_brief_grade_half(constraints)),
+        nodes=(GradeHalfResponse(**_serialize_brief_grade_half(nodes)) if nodes is not None else
                GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
 
