@@ -846,6 +846,30 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     assert "grade" not in body
 
 
+def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch):
+    """The API owns its response model while compute owns grade serialization."""
+    metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
+                           timing_daily_skill=0.55, timing_hourly_skill=0.34)
+    result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile",
+                        lambda *_: pd.DataFrame([[0.0]]))
+    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
+    fake_pool.cursor.queue([])  # no materialized snapshot: compute must score it.
+
+    response = analysis_module.get_grade(date(2026, 7, 28), "run-x", 1)
+
+    assert response.model_dump(mode="json") == {
+        "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
+        "constraints": {"graded": True, "unavailable_reason": None, "universe_size": 2,
+                        "model": metrics.__dict__, "persistence": metrics.__dict__,
+                        "climatology": None, "support": None},
+        "nodes": {"graded": True, "unavailable_reason": None, "universe_size": 2,
+                  "model": metrics.__dict__, "persistence": metrics.__dict__,
+                  "climatology": None, "support": None},
+    }
+
+
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
     metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
                "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
