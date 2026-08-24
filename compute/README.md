@@ -430,10 +430,10 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 ABLATION FULL RUN
 
 ```
-docker compose run --rm compute python -m compute.mu.ablate \
+docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
     --score-from 2025-08-14 --preds-dir /compute/mu/ablation --out /compute/mu/ablation.csv
 
-python -m compute.mu.outage_ablate --score-from 2025-08-14 --score \
+python -m compute.experiments.mu.outage_ablation --score-from 2025-08-14 --score \
     --preds-dir /compute/runs/outage_ablation \
     --out /compute/runs/outage_ablation.csv
 
