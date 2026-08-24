@@ -30,7 +30,7 @@ aggregates — different granularity, no reason to share a response.
           a daily D-vintage snapshot, not an hourly series, so a day's values
           repeat across its 24 hourly entries. `fuel` is one of gas/wind/
           solar/coal/other/hydro, plus `"total"`. `forecast_mw` is the
-          D-1-admissible vintage (mirrors `compute.mu.outage_exposure`'s
+          D-1-admissible vintage (mirrors `compute.mu.outage.exposure`'s
           leak boundary) summed over still-expected-out events; `actual_mw`
           is the newest vintage through the day itself, summed over
           genuinely-active-at-that-hour events.

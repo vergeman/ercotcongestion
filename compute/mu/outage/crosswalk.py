@@ -1,6 +1,6 @@
 """NP1-346 authoritative crosswalk — resource → settlement point. plan/0089 commit 1.
 
-**This is the gate. Before any ingest.** The probe (`compute/mu/outage_probe.py`)
+**This is the gate. Before any ingest.** The probe (`compute.probes.outage_feed`)
 located outaged MW by *splitting underscores*: `Resource Unit Code` was assumed to BE a
 settlement point (22.6% of MW), and a station-prefix heuristic patched it to 55.8% —
 which is exactly the fuzzy matching R4 warns against (`B` from `B_DAVIS_B_DAVIG1`, 117
@@ -40,7 +40,7 @@ import pandas as pd
 
 log = logging.getLogger("compute.mu.outage.crosswalk")
 
-# Mirrors `compute/mu/outage_probe.py`, which is the pre-registered source of both. Kept
+# Mirrors `compute.probes.outage_feed`, which is the pre-registered source of both. Kept
 # as module constants here — rather than imported — so the pure crosswalk core carries no
 # dependency on the probe's top-level ErcotClient import (network client). The probe's
 # fetchers are pulled in lazily in main(), where the live run pays for them anyway.

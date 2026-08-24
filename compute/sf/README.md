@@ -175,5 +175,6 @@ wipe + refit; drop `--persist-sf` for an exploratory diagnostics-only run.
 fitting each combination in-process and ranking on the honest out-of-window
 metrics from `compute.sf.eval` (default `oos_pooled_r2`). Panels are loaded once
 and reused across combos. `--out` / `--per-week-out` write the summary and
-per-week rows to CSV; `r3_verdict.py` scores a grouped-vs-ungrouped per-week CSV
+per-week rows to CSV; `compute.experiments.sf.grouping_verdict` scores a
+grouped-vs-ungrouped per-week CSV
 against the plan/0083 stability bars.
