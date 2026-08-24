@@ -7,7 +7,7 @@ rather than a second one:
 
   * the panel is built **once** here with `with_outage=True` (and every 0088 arm's columns
     present), and each arm is a column mask over that one object — `run_arm` and
-    `check_baselines_identical` are imported from `compute.mu.ablate` unchanged, and
+    `check_baselines_identical` is imported from `feature_ablation` unchanged, and
     scoring goes through **`compute/mu/score.py`, unimported-around**. There is exactly
     one scoring harness in this package and 0089 does not get to write a second one;
   * the four rows are **`base` / `all` / `out` / `all+out`**. `out` is `base` plus the
@@ -24,7 +24,7 @@ Walk-only by default (build the panel, save each arm's preds npz, memory-frugal)
 `--score` for the assembly pass that scores the cached npz and writes the CSV + verdict.
 `run_outage_ablation.sh` drives the per-arm walks then one `--score` pass.
 
-    docker compose run --rm compute python -m compute.mu.outage_ablate \
+    docker compose run --rm compute python -m compute.experiments.mu.outage_ablation \
       --score-from 2025-08-14 --score --out /compute/mu/outage_ablation.csv
 """
 from __future__ import annotations
@@ -37,12 +37,13 @@ from pathlib import Path
 import pandas as pd
 
 from compute.mu import score as score_mod
-from compute.mu.ablate import (PERSISTENCE_TOPDEC, PRODUCT_TOPDEC,
-                               check_baselines_identical, run_arm, _row)
+from compute.experiments.mu.feature_ablation import (
+    PERSISTENCE_TOPDEC, PRODUCT_TOPDEC, _row, check_baselines_identical, run_arm,
+)
 from compute.mu.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, feature_cols)
 
-log = logging.getLogger("compute.mu.outage_ablate")
+log = logging.getLogger("compute.experiments.mu.outage_ablation")
 
 # base is the zonal fallback (outages_zonal ⊂ base); out/all+out are the arm under test.
 ARMS = ["base", "all", "out", "all+out"]

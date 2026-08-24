@@ -35,7 +35,7 @@ module only re-reads it.
 `mean` is included as the control: it should reproduce commit 4's 0.523, and if
 it does not, this harness is wrong and nothing below it means anything.
 
-    docker compose run --rm compute python -m compute.mu.rerank \
+    docker compose run --rm compute python -m compute.experiments.mu.rerank \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_rerank_weekly.csv
 """
 from __future__ import annotations
@@ -54,7 +54,7 @@ from compute.mu.score import (
 from compute.sf.eval import row_spearman, sign_agreement
 from compute.sf.fit import implied_shift_factors
 
-log = logging.getLogger("compute.mu.rerank")
+log = logging.getLogger("compute.experiments.mu.rerank")
 
 # The middle, and four progressively more pessimistic readings of the same draws.
 STATS = ("mean", "p50", "p75", "p90", "p95", "p99")

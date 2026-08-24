@@ -37,7 +37,7 @@ run_isolated() {
   echo ">>> arm '$arm': running isolated process ($(date -u +%H:%M:%S)Z)"
   # Walk-only is the default: save the npz and stop, freeing M/C/regimes before the
   # fit so the heavy arms clear this node's RAM. Scoring is the --score pass below.
-  python -m compute.mu.outage_ablate \
+  python -m compute.experiments.mu.outage_ablation \
     --score-from "$SCORE_FROM" \
     --arms "$arm" \
     --preds-dir "$PREDS_DIR"
@@ -53,7 +53,7 @@ done
 # Final assembly: --score rebuilds the panel once, reuses all four npz (no walks),
 # scores every arm through the harness, and writes the real CSV + verdict.
 echo ">>> assembling all four arms into $OUT ($(date -u +%H:%M:%S)Z)"
-python -m compute.mu.outage_ablate \
+python -m compute.experiments.mu.outage_ablation \
   --score-from "$SCORE_FROM" \
   --arms base,all,out,all+out \
   --preds-dir "$PREDS_DIR" \

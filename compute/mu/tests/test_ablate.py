@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.ablate import (ARMS, PERSISTENCE_TOPDEC, PRODUCT_TOPDEC,
-                               check_baselines_identical, report)
+from compute.experiments.mu.feature_ablation import (
+    ARMS, PERSISTENCE_TOPDEC, PRODUCT_TOPDEC, check_baselines_identical, report,
+)
 
 
 def _scored(arm_topdec: dict[str, float], baseline_jitter: float = 0.0

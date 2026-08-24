@@ -30,7 +30,7 @@ Persistence's own top-decile is *below* the product bar, so an arm can win the
 existence test, absorb persistence entirely, and **still not ship a product**. The
 report prints both bars next to every arm so that reading is unavoidable.
 
-    docker compose run --rm compute python -m compute.mu.ablate \
+    docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
       --score-from 2025-08-14 --out /compute/mu/ablation.csv
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ from compute.mu.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, arms_for, feature_cols, load_preds,
                                  save_preds, walk_forward)
 
-log = logging.getLogger("compute.mu.ablate")
+log = logging.getLogger("compute.experiments.mu.feature_ablation")
 
 ARMS = ["base", "lag", "geo", "wx", "all"]
 

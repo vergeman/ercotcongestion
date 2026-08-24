@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu.rerank import STATS, rank_stats, score_ranking, verdict
+from compute.experiments.mu.rerank import STATS, rank_stats, score_ranking, verdict
 
 RNG = np.random.default_rng(7)
 

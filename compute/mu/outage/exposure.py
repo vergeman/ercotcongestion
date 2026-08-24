@@ -42,7 +42,7 @@ from compute.mu.geo import (LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
                            refit_grid)
 from compute.sf.fit import implied_shift_factors
 
-log = logging.getLogger("compute.mu.outage_exposure")
+log = logging.getLogger("compute.mu.outage.exposure")
 
 # Fuel buckets for the optional per-fuel split. Congestion responds differently to a
 # thermal trip than a wind derate. Anything unlisted falls in "other" (coal, water, …).

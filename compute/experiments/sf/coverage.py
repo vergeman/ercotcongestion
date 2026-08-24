@@ -42,7 +42,7 @@ days** -- a season, not a year -- so every share it reported at the real
 operating point would be deflated by construction. The band was the bug, not the
 number.
 
-    docker compose run --rm compute python -m compute.sf.coverage_probe
+    docker compose run --rm compute python -m compute.experiments.sf.coverage
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ from compute.config import PG_DSN
 from compute.sf.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
 from compute.sf.panels import load_shadow_prices
 
-log = logging.getLogger("compute.sf.coverage_probe")
+log = logging.getLogger("compute.experiments.sf.coverage")
 
 # Semantic aliases retain the probe's vocabulary while sharing the adopted SF
 # operating point it measures.

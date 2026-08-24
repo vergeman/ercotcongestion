@@ -1,6 +1,6 @@
 """NP1-346 probe — unplanned generation outages. Read-only: no DB writes, no ingest.
 
-plan/0089 commit 1, in the shape of `compute/mu/ruc_probe.py` (0087).
+plan/0089 commit 1, in the shape of `compute.probes.ruc` (0087).
 
 **Answers one question before any ingest is paid for:** can `NP1-346-ER` (Unplanned
 Resource Outages) support a **per-constraint** outage covariate at DAM close, across
@@ -38,7 +38,7 @@ D.  Signal     — does the located covariate carry information a *zonal* aggreg
                  not? A feed that joins perfectly and predicts nothing is still a no.
 
 Run:
-    docker compose run --rm compute python -m compute.mu.outage_probe
+    docker compose run --rm compute python -m compute.probes.outage_feed
 """
 from __future__ import annotations
 

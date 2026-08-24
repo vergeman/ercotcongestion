@@ -170,10 +170,11 @@ wipe + refit; drop `--persist-sf` for an exploratory diagnostics-only run.
 
 ## Sweep
 
-`sweep_sf.py` (`python -m compute.sf.sweep_sf`) orchestrates a grid over
+`compute.experiments.sf.sweep` (`python -m compute.experiments.sf.sweep`) orchestrates a grid over
 `(window-days, refit-days, ridge-lambda, std-floor, min-binding-hours)`,
 fitting each combination in-process and ranking on the honest out-of-window
 metrics from `compute.sf.eval` (default `oos_pooled_r2`). Panels are loaded once
 and reused across combos. `--out` / `--per-week-out` write the summary and
-per-week rows to CSV; `r3_verdict.py` scores a grouped-vs-ungrouped per-week CSV
+per-week rows to CSV; `compute.experiments.sf.grouping_verdict` scores a
+grouped-vs-ungrouped per-week CSV
 against the plan/0083 stability bars.

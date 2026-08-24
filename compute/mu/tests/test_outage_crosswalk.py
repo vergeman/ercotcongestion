@@ -14,8 +14,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from compute.mu.outage_crosswalk import (Crosswalk, coverage, load_crosswalk,
-                                         verdict)
+from compute.mu.outage.crosswalk import Crosswalk, coverage, load_crosswalk, verdict
 
 
 @pytest.fixture

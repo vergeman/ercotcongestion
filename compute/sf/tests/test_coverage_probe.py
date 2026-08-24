@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.sf.coverage_probe import admission_stats, probe
+from compute.experiments.sf.coverage import admission_stats, probe
 
 D0 = pd.Timestamp("2025-01-01")
 WINDOW, REFIT, MIN_HOURS, MIN_HIST = 60, 7, 25, 100

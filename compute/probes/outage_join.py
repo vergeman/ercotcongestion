@@ -45,8 +45,8 @@ it weak (~9%), so localization, if wanted, has to come from the fitted SF map
 electrically near it) — which needs a persisted ``--persist-sf`` run and is
 deliberately NOT done here.
 
-    docker compose run --rm compute python -m compute.mu.outage_join
-    docker compose run --rm compute python -m compute.mu.outage_join --check-catalog
+    docker compose run --rm compute python -m compute.probes.outage_join
+    docker compose run --rm compute python -m compute.probes.outage_join --check-catalog
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ import psycopg
 
 from compute.config import PG_DSN
 
-log = logging.getLogger("compute.mu.outage_join")
+log = logging.getLogger("compute.probes.outage_join")
 
 # plan/0085 commit 1. Fixed before the run; not edited after.
 R4_BUILD_BAR = 0.60

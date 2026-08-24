@@ -57,7 +57,7 @@ compute/runs/<run_id>/
 
 ## Sweep run_id naming
 
-`compute.sf.sweep_sf` writes each grid point to a
+`compute.experiments.sf.sweep` writes each grid point to a
 `run_id` that encodes the fit hyperparameters, so a directory listing is
 self-describing:
 

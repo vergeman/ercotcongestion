@@ -23,7 +23,7 @@ B. Namespace   — mu-mass-weighted match rate of ConstraintName|ContingencyName
 C. Cadence     — distinct RUCTimestamps per day. Repricing, not a gate.
 
 Run:
-    docker compose run --rm compute python /compute/mu/ruc_probe.py
+    docker compose run --rm compute python -m compute.probes.ruc
 """
 from __future__ import annotations
 
