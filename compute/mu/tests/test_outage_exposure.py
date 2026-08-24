@@ -22,8 +22,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from compute.mu.outage_exposure import (_exposure, _vintage,
-                                        outage_exposure_panel)
+from compute.mu.outage.exposure import _exposure, _vintage, outage_exposure_panel
 
 
 # ------------------------------------------------------------- deterministic units

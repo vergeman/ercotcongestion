@@ -11,8 +11,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from compute.mu.outage_join import (R4_BUILD_BAR, R4_FLAGGED_BAR, joinable_mass,
-                                    name_localization, station_resolution, verdict)
+from compute.probes.outage_join import (R4_BUILD_BAR, R4_FLAGGED_BAR, joinable_mass,
+                                        name_localization, station_resolution, verdict)
 
 
 @pytest.fixture
