@@ -49,4 +49,3 @@ def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
         "sign_agree": sign_agreement(Y, Yh),
         "topdecile_hit": topdecile_hit(Y[keep], Yh[keep]) if keep.any() else float("nan"),
     }
-
