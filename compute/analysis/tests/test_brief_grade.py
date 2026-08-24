@@ -32,7 +32,7 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
     }
 
 
-def test_materializer_persists_the_neutral_grade_data(monkeypatch):
+def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
     metrics = GradeMetrics(0.62, 0.50, 0.55, 0.34)
     result = GradeResult(("A|B", "C|D"), metrics, metrics)
     monkeypatch.setattr(materialize_brief_grade, "grade_constraint_profiles", lambda *_: result)
@@ -67,7 +67,19 @@ def test_materializer_persists_the_neutral_grade_data(monkeypatch):
     assert materialize_brief_grade.materialize_day(conn, "run-x", date(2026, 7, 28), 1)
     assert conn.commits == 1
     assert [params[3] for _, params in conn.cursor_.writes] == ["constraints", "nodes"]
-    assert all(params[-1].obj == serialize_grade_half(result) for _, params in conn.cursor_.writes)
+    expected = {
+        "graded": True,
+        "universe_size": 2,
+        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.50,
+                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
+                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
+        "climatology": None,
+        "support": None,
+    }
+    assert all(params[-1].obj == expected for _, params in conn.cursor_.writes)
 
 
 def test_brief_materialization_failure_remains_non_fatal_after_publish(monkeypatch):
