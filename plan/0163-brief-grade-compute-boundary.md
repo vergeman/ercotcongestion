@@ -25,7 +25,7 @@ Branch: refactor/0163-brief-grade-compute-boundary
 
 ## Acceptance
 
-* [ ] `compute.jobs.daily_forecast` and `materialize_brief_grade` import without `/api` on `PYTHONPATH`.
-* [ ] Fixed DB fixtures yield identical persisted `analysis_grade_daily` rows before and after extraction.
-* [ ] API Brief-grade responses preserve their current schema and values on the same fixtures.
-* [ ] Daily forecast publication remains successful when Brief-grade materialization raises after publish.
+* [x] `compute.jobs.daily_forecast` and `materialize_brief_grade` import without `/api` on `PYTHONPATH`.
+* [x] Fixed DB fixtures yield identical persisted `analysis_grade_daily` rows before and after extraction.
+* [x] API Brief-grade responses preserve their current schema and values on the same fixtures.
+* [x] Daily forecast publication remains successful when Brief-grade materialization raises after publish.
