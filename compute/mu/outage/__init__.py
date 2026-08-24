@@ -1,1 +1,2 @@
-"""Reusable, causally bounded outage feature components."""
+"""Compatibility façade; canonical outage features are in ``compute.mu_forecast``."""
+
