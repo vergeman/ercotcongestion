@@ -1,5 +1,22 @@
 # Compute
 
+## Directory guide
+
+Most work belongs to the production surface below. You can ignore `experiments/`
+and `probes/` unless you are reproducing a historical model decision or evaluating
+a new input source.
+
+| Area | Use it for | Main entry points |
+|---|---|---|
+| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_day` |
+| `sf/` | Production shift-factor fit, map reads, projection, and evaluation | imported by jobs; `geo_persist`, `eval` |
+| `mu/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; `mu_model`, `score` |
+| `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
+| `probes/` | External-data feasibility gates | optional, never called by cronjobs |
+
+Legacy `compute.sf.*` and `compute.mu.*` experiment/probe commands remain as
+compatibility launchers; use the paths under `experiments/` and `probes/` for new work.
+
 ## Tests
 
 Run under the `compute` service (mounts the tree, sets `PYTHONPATH`); `--no-deps`
