@@ -32,15 +32,19 @@ from datetime import date, timedelta
 import psycopg
 from psycopg.rows import dict_row
 
-from api.analysis import _grade_constraint_profiles, _grade_half, _grade_node_profiles
+from compute.analysis.brief_grade import (
+    grade_constraint_profiles,
+    grade_node_profiles,
+    serialize_grade_half,
+)
 from shared.settings import settings
 
 
 def materialize_day(conn, run_id: str, delivery_date: date, horizon: int) -> bool:
     """Upsert both independent Brief grade halves for one settled delivery day."""
     with conn.cursor(row_factory=dict_row) as cur:
-        constraints = _grade_constraint_profiles(cur, run_id, delivery_date, horizon)
-        nodes = _grade_node_profiles(cur, run_id, delivery_date, horizon)
+        constraints = grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+        nodes = grade_node_profiles(cur, run_id, delivery_date, horizon)
         if constraints is None or nodes is None:
             return False
         for subject, result in (("constraints", constraints), ("nodes", nodes)):
@@ -54,7 +58,7 @@ def materialize_day(conn, run_id: str, delivery_date: date, horizon: int) -> boo
                 (run_id, delivery_date, horizon, subject,
                  psycopg.types.json.Jsonb(result.model.__dict__),
                  psycopg.types.json.Jsonb(result.persistence.__dict__),
-                 psycopg.types.json.Jsonb(_grade_half(result).model_dump(mode="json"))),
+                 psycopg.types.json.Jsonb(serialize_grade_half(result))),
             )
     conn.commit()
     return True

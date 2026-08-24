@@ -4,6 +4,7 @@ import pandas as pd
 from fastapi import Query
 
 import analysis as analysis_module
+from compute.analysis import brief_grade
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.sf.project import SfMuArtifact
@@ -54,15 +55,15 @@ def test_forecast_mu_profile_is_none_when_the_artifact_is_missing(monkeypatch):
 def test_grade_constraint_profiles_stays_unavailable_when_the_artifact_is_missing(monkeypatch):
     """A missing artifact is the only unavailable case now (0133) — no partial-
     coverage gate to plant a fault in."""
-    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: None)
+    monkeypatch.setattr(brief_grade, "forecast_mu_profile", lambda *_: None)
 
-    assert analysis_module._grade_constraint_profiles(None, "run-x", date(2026, 7, 28), 1) is None
+    assert brief_grade.grade_constraint_profiles(None, "run-x", date(2026, 7, 28), 1) is None
 
 
 def test_grade_node_profiles_stays_unavailable_when_the_artifact_is_missing(monkeypatch):
-    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: None)
+    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: None)
 
-    assert analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1) is None
+    assert brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1) is None
 
 
 def test_windowed_mu_profiles_batches_the_trailing_window_into_per_day_frames(fake_pool):
@@ -814,8 +815,8 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
                            timing_daily_skill=0.55, timing_hourly_skill=0.34)
     result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
-    monkeypatch.setattr(analysis_module, "_grade_constraint_profiles", lambda *_: result)
-    monkeypatch.setattr(analysis_module, "_grade_node_profiles", lambda *_: result)
+    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
@@ -845,6 +846,30 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     assert "grade" not in body
 
 
+def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch):
+    """The API owns its response model while compute owns grade serialization."""
+    metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
+                           timing_daily_skill=0.55, timing_hourly_skill=0.34)
+    result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile",
+                        lambda *_: pd.DataFrame([[0.0]]))
+    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
+    fake_pool.cursor.queue([])  # no materialized snapshot: compute must score it.
+
+    response = analysis_module.get_grade(date(2026, 7, 28), "run-x", 1)
+
+    assert response.model_dump(mode="json") == {
+        "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
+        "constraints": {"graded": True, "unavailable_reason": None, "universe_size": 2,
+                        "model": metrics.__dict__, "persistence": metrics.__dict__,
+                        "climatology": None, "support": None},
+        "nodes": {"graded": True, "unavailable_reason": None, "universe_size": 2,
+                  "model": metrics.__dict__, "persistence": metrics.__dict__,
+                  "climatology": None, "support": None},
+    }
+
+
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
     metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
                "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
@@ -856,7 +881,7 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
         {"subject": "constraints", "detail": detail},
         {"subject": "nodes", "detail": detail},
     ])
-    monkeypatch.setattr(analysis_module, "_grade_constraint_profiles",
+    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles",
                         lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
@@ -936,12 +961,12 @@ def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkey
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)
     settled = pd.DataFrame({"IMPORT": [-10.0, -10.0], "EXPORT": [10.0, 10.0]}, index=hours)
-    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
-    monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
-    monkeypatch.setattr(analysis_module, "_windowed_node_profiles",
-                        lambda *_: _repeated_window(date(2026, 7, 28), settled))
+    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(brief_grade, "_settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(brief_grade, "_windowed_profiles",
+                        lambda *_, **__: _repeated_window(date(2026, 7, 28), settled))
 
-    grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
+    grade = brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
 
     assert grade is not None
     assert grade.model.magnitude_overlap == 2 / 11
@@ -951,12 +976,12 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [0.0, 0.0]}, index=hours)
     settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
-    monkeypatch.setattr(analysis_module, "_forecast_node_profile", lambda *_: forecast)
-    monkeypatch.setattr(analysis_module, "_settled_node_profile", lambda *_: settled)
-    monkeypatch.setattr(analysis_module, "_windowed_node_profiles",
-                        lambda *_: _repeated_window(date(2026, 7, 28), settled))
+    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(brief_grade, "_settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(brief_grade, "_windowed_profiles",
+                        lambda *_, **__: _repeated_window(date(2026, 7, 28), settled))
 
-    grade = analysis_module._grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
+    grade = brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
 
     assert grade is not None
     assert grade.model.detection_ap == 1.0
