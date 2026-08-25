@@ -40,8 +40,8 @@ import pandas as pd
 
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 STD_FLOOR = 100.0
-from compute.sf_map.fit import implied_shift_factors
-from compute.sf_map.map_store import (
+from compute.sf_map.model.fit import implied_shift_factors
+from compute.sf_map.storage.maps import (
     MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE, load_forecast_sf, load_window_sf,
     resolve_sf_window, sf_mass_coverage,
 )

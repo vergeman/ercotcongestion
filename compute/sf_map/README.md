@@ -7,16 +7,16 @@ point) and a per-refit metadata row are persisted to Postgres, where the v3
 explorer map reads them. The served window is always `max(window_start)`.
 
 The adopted operating point (window 240d, refit 7d, ridge-λ 1.0, min-binding-
-hours 25, std-floor 100) lives in `config.py` / `fit.py` and is shared with the
-μ forecast (`compute.mu`) so the two pipelines fit at the same point; see
+hours 25, std-floor 100) lives in `config.py` / `model/fit.py` and is shared with the
+μ forecast (`compute.mu_forecast`) so the two pipelines fit at the same point; see
 `plan/0082-oos-eval-and-resweep.md` for the sweep that selected it.
 
 Method background: `docs/legacy/implied_binding_proximity.md`.
 
 ## Why `system_lambda` and not `zone_local_spp`
 
-`--ref-method` is guarded to `system_lambda` (see `panels.py` and
-`persist.py`), and it must stay that way. This trips people up because the
+`--ref-method` is guarded to `system_lambda` (see `compute.inputs.dam` and
+`storage/persist.py`), and it must stay that way. This trips people up because the
 **congestion-matrix correlation** stage (`compute.mapping.correlation_map`)
 deliberately uses `zone_local_spp` — a sweep there showed that de-meaning
 zonal common-mode captured the real congestion structure better. That result
@@ -140,7 +140,7 @@ fit loop's transaction (committed at the end), so a crash mid-rebuild leaves the
 prior served windows intact.
 
 The map API serves `max(window_start)`; there is no promote pointer. After a
-persist run, `compute.sf_map.geo_persist` writes the constraint-geo overlay and
+persist run, `compute.sf_map.geography.persist` writes the constraint-geo overlay and
 `compute.evaluation.sf` backfills the per-window OOS metrics onto `sf_window_meta`.
 The weekly `ops/deploy/jobs/map_refresh_cronjob.yml` chains those three steps.
 

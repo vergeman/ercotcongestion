@@ -46,7 +46,7 @@ import pandas as pd
 from compute.evaluation.sf import (
     predict, r2, row_spearman, sign_agreement, topdecile_hit,
 )
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
 
@@ -356,8 +356,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.features import net_load_regime, system_panel
-    from compute.mu_forecast.mu_model import load_preds
+    from compute.mu_forecast.panel.build import net_load_regime, system_panel
+    from compute.mu_forecast.model.runner import load_preds
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

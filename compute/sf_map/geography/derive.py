@@ -63,9 +63,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
-log = logging.getLogger("compute.mu_forecast.geo")
+log = logging.getLogger("compute.sf_map.geography.derive")
 
 SP_COORDS = Path("/data/processed/settlement_points_geocoded.csv")
 SP_META = Path("/data/raw/ercot_geocode/Settlement_Points_06112026_122819.csv")
@@ -376,7 +376,7 @@ def coverage_by_mu_mass(M: pd.DataFrame, geo: pd.DataFrame,
     often enough to be fitted. Reporting key count here would understate the arm;
     reporting μ-mass says what the score is actually made of.
     """
-    from compute.mu_forecast.features import delivery_day_of
+    from compute.mu_forecast.panel.availability import delivery_day_of
 
     # The located set is keyed by delivery day. `geo` carries `geo_lat` only when
     # the week's SF actually placed the constraint.
@@ -407,14 +407,14 @@ def coverage_by_mu_mass(M: pd.DataFrame, geo: pd.DataFrame,
 def main(argv: list[str] | None = None) -> int:
     """Report centroid coverage — the acceptance criterion, standalone.
 
-        docker compose run --rm compute python -m compute.mu_forecast.geo
+        docker compose run --rm compute python -m compute.sf_map.geography.derive
     """
     import argparse
     import os
 
     import psycopg
 
-    from compute.mu_forecast.features import delivery_day_of
+    from compute.mu_forecast.panel.availability import delivery_day_of
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

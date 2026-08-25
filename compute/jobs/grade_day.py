@@ -45,7 +45,7 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
-from compute.mu_forecast.features import ERCOT_TZ, ct_day_bounds
+from compute.mu_forecast.panel.build import ERCOT_TZ, ct_day_bounds
 from compute.time import normalize_ct_day
 from compute.evaluation.mu import (
     STD_FLOOR,
@@ -57,7 +57,7 @@ from compute.evaluation.mu import (
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.evaluation.sf import predict
 from compute.evaluation.essp import score_final_essp
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.projection.propagate import band_metrics, load_sf_mu
 

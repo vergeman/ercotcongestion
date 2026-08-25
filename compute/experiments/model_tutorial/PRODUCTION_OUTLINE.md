@@ -48,10 +48,10 @@ stage packages for library imports and CLI commands.
 | When | Command/module | What it does | Main output |
 | --- | --- | --- | --- |
 | Weekly | `python -m compute.jobs.weekly_map` | Loads DAM M/C panels; fits each new rolling SF window; writes diagnostics and, with `--persist-sf`, the map. | `implied_shift_factors`, `sf_window_meta`, run diagnostics |
-| Weekly, after map | `python -m compute.sf_map.geo_persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
+| Weekly, after map | `python -m compute.sf_map.geography.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, samples and projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
-| Historical rebuild | `python -m compute.mu_forecast.mu_model` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
+| Historical rebuild | `python -m compute.mu_forecast.model.runner` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
 | Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
 | Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF, makes nodal panels/bands, and evaluates the product gate. | nodal artifacts, band metrics |
 | Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
@@ -66,10 +66,10 @@ low-coverage map makes the forecast fail before publication.
 
 ### Fit path
 
-1. `sf.panels.load_shadow_prices` reads `M`; `load_congestion_panel` reads
+1. `compute.inputs.dam.load_shadow_prices` reads `M`; `load_congestion_panel` reads
    `C` using `LMP - system_lambda`.
-2. `sf.rolling.fit_refit_window` selects the trailing 240-day training window.
-3. `sf.fit.implied_shift_factors` drops rarely binding constraints, standardizes
+2. `compute.sf_map.model.rolling.fit_refit_window` selects the trailing 240-day training window.
+3. `compute.sf_map.model.fit.implied_shift_factors` drops rarely binding constraints, standardizes
    shadow-price columns, ridge-solves `C = -M × SF.T`, rescales, and caps SF to
    `[-1, 1]`.
 4. `jobs.weekly_map` emits diagnostics and persists complete weekly windows.
@@ -116,13 +116,13 @@ None of these are called by the map-refresh cron job.  In particular,
 
 ### Fit and serving path
 
-1. `sf.panels` reads trailing `M` (and `C` when a geography/outage arm needs
+1. `compute.inputs.dam` reads trailing `M` (and `C` when a geography/outage arm needs
    an honestly fitted SF).
-2. `mu.features.build_panel` constructs one long row per `(delivery hour,
+2. `mu_forecast.panel.build.build_panel` constructs one long row per `(delivery hour,
    candidate constraint)`.  It joins DAM-close-vintaged load/wind/solar/outage
    inputs, calendar values, and backward-only constraint history.  Day D's
    shadow price exists only in `y_bind`/`y_mu`, never in features.
-3. `mu.mu_model.predict_day` uses the same fold implementation as the
+3. `mu_forecast.model.runner.predict_day` uses the same fold implementation as the
    walk-forward validation: pooled classifier for `p_bind`, and a regressor fit
    only on binding rows for conditional `mu_gbm` / `E[μ | bind]`.
 4. `jobs.daily_forecast.forecast_day` loads a causal SF map, builds a residual
@@ -133,23 +133,22 @@ None of these are called by the map-refresh cron job.  In particular,
    samples constraints independently, so coverage evaluation is important for
    correlated constraints.
 
-### Files in `compute/mu`
+### Files in `compute/mu_forecast`
 
 | File | Responsibility | Production role |
 | --- | --- | --- |
-| `availability.py` | DAM-close timestamp, history cutoff, CT delivery-day bounds, SQL vintage predicates. | The time/leakage boundary. |
-| `panel_sources.py` | Database readers for vintaged load, wind, solar, and zonal outage inputs. | Inputs to feature panel. |
-| `panel_engineering.py` | Pure calendar/history/regime/candidate-key engineering and leakage audit. | Feature primitives. |
-| `features.py` | Assembles the long μ panel, targets, and optional feature arms. | Main feature entry point. |
-| `heads.py` | Target encoding; gradient-boosted classifier/regressor fitting and predictions; μ climatology baseline. | Two-head primitives. |
-| `scheduling.py` | Calendar-safe refit boundaries and chunks. | Shared walk scheduling. |
-| `mu_model.py` | Feature-set selection, common fold routine, walk-forward runner, one-day prediction, CLI/artifact paths. | Core μ model and historical entry point. |
-| `artifacts.py` | Serializes/deserializes μ per-row prediction artifacts and combines chunks. | Backtest-to-projection handoff. |
-| `score.py` | Shared historical scoring harness and persistence/climatology/oracle baselines. | Evaluation, not live fitting. |
-| `geo.py` | Builds causal constraint-location features from |SF|-weighted settlement-point geography. | Optional `geo_` arm. |
-| `weather.py` | Builds causal, per-constraint weather-response vectors. | Optional `wx_` arm. |
-| `outage/crosswalk.py` | Loads/covers the authoritative resource-unit → settlement-point crosswalk. | Supports outage exposure. |
-| `outage/exposure.py` | Builds causal, per-constraint `|SF| × located outage MW` features using an admissible D-1 snapshot and planned end dates. | Optional `out_` arm. |
+| `panel/availability.py` | DAM-close timestamp, history cutoff, CT delivery-day bounds, SQL vintage predicates. | The time/leakage boundary. |
+| `panel/sources.py` | Database readers for vintaged load, wind, solar, and zonal outage inputs. | Inputs to feature panel. |
+| `panel/engineering.py` | Pure calendar/history/regime/candidate-key engineering and leakage audit. | Feature primitives. |
+| `panel/build.py` | Assembles the long μ panel, targets, and optional feature arms. | Main feature entry point. |
+| `model/heads.py` | Target encoding; gradient-boosted classifier/regressor fitting and predictions; μ climatology baseline. | Two-head primitives. |
+| `model/scheduling.py` | Calendar-safe refit boundaries and chunks. | Shared walk scheduling. |
+| `model/runner.py` | Feature-set selection, common fold routine, walk-forward runner, one-day prediction, CLI/artifact paths. | Core μ model and historical entry point. |
+| `model/artifacts.py` | Serializes/deserializes μ per-row prediction artifacts and combines chunks. | Backtest-to-projection handoff. |
+| `sf_map/geography/derive.py` | Builds causal constraint-location features from |SF|-weighted settlement-point geography. | Optional `geo_` arm. |
+| `covariates/weather.py` | Builds causal, per-constraint weather-response vectors. | Optional `wx_` arm. |
+| `covariates/outages/crosswalk.py` | Loads/covers the authoritative resource-unit → settlement-point crosswalk. | Supports outage exposure. |
+| `covariates/outages/exposure.py` | Builds causal, per-constraint `|SF| × located outage MW` features using an admissible D-1 snapshot and planned end dates. | Optional `out_` arm. |
 
 ### What the outage code is doing
 
@@ -235,7 +234,7 @@ reproducing historical claims rather than running the production map:
 
 The distinction matters for outage work: `outage_feed.py` and
 `outage_crosswalk.py` decide whether the data source and crosswalk clear their
-gates; `mu/outage/*.py` is the feature implementation that can be run once they
+gates; `mu_forecast/covariates/outages/*.py` is the feature implementation that can be run once they
 do; `experiments/mu/outage_ablation.py` measures whether the resulting feature
 actually improves the model.
 
@@ -245,9 +244,9 @@ For the shortest realistic code tour, read these in order:
 
 1. `walkthrough.py` and this document for the equations and vocabulary.
 2. `jobs/daily_forecast.py:forecast_day` for the served end-to-end path.
-3. `mu/features.py:build_panel`, then `mu/mu_model.py:predict_day` and
+3. `mu_forecast/panel/build.py:build_panel`, then `mu_forecast/model/runner.py:predict_day` and
    `_predict_fold`, for the μ inputs and two heads.
-4. `sf/map_store.py:load_forecast_sf` and `sf/project.py:propagate_window`, for
+4. `sf_map/storage/maps.py:load_forecast_sf` and `projection/propagate.py:propagate_window`, for
    the model handoff and uncertainty bands.
-5. `jobs/weekly_map.py`, `sf/rolling.py`, and `sf/fit.py`, for how SF is built.
+5. `jobs/weekly_map.py`, `sf_map/model/rolling.py`, and `sf_map/model/fit.py`, for how SF is built.
 6. `experiments/*` only when examining a particular design decision or ablation.

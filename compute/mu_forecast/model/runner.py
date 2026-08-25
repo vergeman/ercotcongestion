@@ -41,17 +41,17 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
-from compute.mu_forecast.artifacts import combine_pred_chunks, load_preds, save_preds
-from compute.mu_forecast.heads import (alloc_bind_matrix as _alloc_bind_matrix,
+from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
+from compute.mu_forecast.model.heads import (alloc_bind_matrix as _alloc_bind_matrix,
                               apply_encoding, bind_metrics, fit_bind_head,
                               fit_mu_climatology, fit_mu_head, fold_matrix,
                               predict_mu_climatology, predict_mu_head,
                               reliability, target_encoding)
-from compute.mu_forecast.scheduling import refit_boundaries, score_chunks
-from compute.mu_forecast.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
+from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
+from compute.mu_forecast.panel.build import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 
-log = logging.getLogger("compute.mu_forecast.mu_model")
+log = logging.getLogger("compute.mu_forecast.model.runner")
 
 # Semantic aliases retain the μ forecast vocabulary for callers while sharing
 # the SF operating point that fixes the scored-week boundaries.
@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.features import build_panel
+    from compute.mu_forecast.panel.build import build_panel
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

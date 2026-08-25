@@ -10,7 +10,7 @@ from compute.experiments.mu import feature_ablation as ablate
 from compute.experiments.mu import outage_ablation as outage_ablate
 from compute.experiments.sf import coverage as coverage_probe
 from compute.jobs import weekly_map
-from compute.mu_forecast import mu_model
+from compute.mu_forecast.model import runner as mu_model
 from compute.sf_map import config
 
 

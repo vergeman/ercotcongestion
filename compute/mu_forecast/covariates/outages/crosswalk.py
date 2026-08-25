@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pandas as pd
 
-log = logging.getLogger("compute.mu_forecast.outage.crosswalk")
+log = logging.getLogger("compute.mu_forecast.covariates.outages.crosswalk")
 
 # Mirrors `compute.probes.outage_feed`, which is the pre-registered source of both. Kept
 # as module constants here — rather than imported — so the pure crosswalk core carries no

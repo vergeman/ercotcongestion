@@ -1,7 +1,7 @@
 """Shared rig for the out-of-window SF experiments.
 
 Every script here imports the production fit unmodified
-(`compute.sf_map.fit.implied_shift_factors`) and the
+(`compute.sf_map.model.fit.implied_shift_factors`) and the
 production panels. The *only* departure from `rolling.rolling_sf` is the
 window boundary:
 

@@ -54,10 +54,10 @@ import logging
 import numpy as np
 import pandas as pd
 
-from compute.mu_forecast import availability, panel_engineering, panel_sources
+from compute.mu_forecast.panel import availability, engineering as panel_engineering, sources as panel_sources
 from compute.time import normalize_ct_day
 
-log = logging.getLogger("compute.mu_forecast.features")
+log = logging.getLogger("compute.mu_forecast.panel.build")
 
 ERCOT_TZ = "America/Chicago"
 
@@ -233,7 +233,7 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     # so a constraint the week's SF could not locate keeps its hole rather than
     # borrowing another constraint's position.
     if C is not None and not C.empty:
-        from compute.mu_forecast.geo import geo_panel
+        from compute.sf_map.geography.derive import geo_panel
         geo_panel(
             M, C, days, anchor=score_from,
             on_refit=lambda week_days, values: _attach_refit_features(
@@ -248,7 +248,7 @@ def build_panel(conn, M: pd.DataFrame, start, end,
     # weather-response correlations from those columns, so downcasting them first
     # would change the covariate, not just its storage. Only the join copy is slimmed.
     if with_weather:
-        from compute.mu_forecast.weather import wx_panel
+        from compute.mu_forecast.covariates.weather import wx_panel
         wx_panel(
             M, sys_panel, days, anchor=score_from,
             on_refit=lambda week_days, values: _attach_refit_features(
@@ -265,8 +265,8 @@ def build_panel(conn, M: pd.DataFrame, start, end,
         if C is None or C.empty:
             raise ValueError("with_outage needs the congestion panel C — the outage "
                              "exposure is |SF|·MW and the SF is fitted from M and C")
-        from compute.mu_forecast.outage.crosswalk import load_crosswalk
-        from compute.mu_forecast.outage.exposure import (load_located_outages,
+        from compute.mu_forecast.covariates.outages.crosswalk import load_crosswalk
+        from compute.mu_forecast.covariates.outages.exposure import (load_located_outages,
                                                 outage_exposure_panel)
         outages = load_located_outages(conn, load_crosswalk(), set(C.columns),
                                        pd.Timestamp(start).date(),

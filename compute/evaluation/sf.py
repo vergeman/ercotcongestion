@@ -54,14 +54,14 @@ from compute.config import PG_DSN
 from compute.sf_map.config import (
     REFIT_DAYS as DEFAULT_REFIT_DAYS, WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
 )
-from compute.sf_map.fit import (
+from compute.sf_map.model.fit import (
     MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR, implied_shift_factors,
 )
-from compute.sf_map.grouping import (
+from compute.sf_map.model.grouping import (
     aggregate_mu, constraint_linkage, cut_groups, group_members, project_sf,
 )
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-from compute.sf_map.persist import count_null_eval, update_eval_metrics
+from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.evaluation.sf")
 
