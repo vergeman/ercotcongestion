@@ -47,7 +47,7 @@ from pathlib import Path
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 
 from compute.sf_map.config import (
     REFIT_DAYS as DEFAULT_REFIT_DAYS,
@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     existing_ns: set[int] = set()
     if args.persist_sf:
         check_ref_method(args.ref_method)
-        sf_conn = psycopg.connect(PG_DSN)
+        sf_conn = psycopg.connect(settings.pg_dsn)
         if args.rebuild:
             # Full wipe then refit every complete window. The delete shares the
             # fit loop's transaction (committed at the end), so the prior served
@@ -287,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         # Discover only the endpoints of the panel clock, then construct the
         # exact same fixed grid `rolling_sf` would.  The full dense pivot is no
         # longer needed merely to skip already-persisted refits.
-        with psycopg.connect(PG_DSN) as conn:
+        with psycopg.connect(settings.pg_dsn) as conn:
             bounds = panel_bounds(conn, read_start, end)
         if bounds is None:
             log.error("empty panel clock in [%s, %s)", read_start, end)
@@ -325,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
                      n // args.chunk_weeks + 1,
                      (len(pending) + args.chunk_weeks - 1) // args.chunk_weeks,
                      chunk_start.date(), chunk_end.date())
-            with psycopg.connect(PG_DSN) as conn:
+            with psycopg.connect(settings.pg_dsn) as conn:
                 M = load_shadow_prices(conn, chunk_start, chunk_end)
                 C = load_congestion_panel(conn, chunk_start, chunk_end,
                                           ref_method=args.ref_method)
@@ -350,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
             "loading panels: read=[%s, %s), score=[%s, %s), ref=%s",
             read_start, end, start, end, args.ref_method,
         )
-        with psycopg.connect(PG_DSN) as conn:
+        with psycopg.connect(settings.pg_dsn) as conn:
             M = load_shadow_prices(conn, read_start, end)
             C = load_congestion_panel(conn, read_start, end,
                                       ref_method=args.ref_method)

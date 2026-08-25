@@ -50,7 +50,7 @@ import pandas as pd
 import psycopg
 from scipy.stats import rankdata
 
-from compute.config import PG_DSN
+from shared.settings import settings
 from compute.sf_map.config import (
     REFIT_DAYS as DEFAULT_REFIT_DAYS, WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
 )
@@ -568,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.chunk_weeks:
         score_from = pd.Timestamp(args.start, tz="UTC")
         end = pd.Timestamp(args.end, tz="UTC")
-        with psycopg.connect(PG_DSN) as conn:
+        with psycopg.connect(settings.pg_dsn) as conn:
             def load_chunk(read_start, chunk_end):
                 return (load_shadow_prices(conn, read_start, chunk_end),
                         load_congestion_panel(conn, read_start, chunk_end))
@@ -588,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
         read_start = args.start - timedelta(days=2 * args.window_days)
         log.info("loading panels: read=[%s, %s), score=[%s, %s)",
                  read_start, args.end, args.start, args.end)
-        with psycopg.connect(PG_DSN) as conn:
+        with psycopg.connect(settings.pg_dsn) as conn:
             M = load_shadow_prices(conn, read_start, args.end)
             C = load_congestion_panel(conn, read_start, args.end)
         if M.empty or C.empty:
@@ -617,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
              _clean(r.coverage), _clean(r.sf_stability))
             for r in df_full.itertuples()
         ]
-        with psycopg.connect(PG_DSN) as conn:
+        with psycopg.connect(settings.pg_dsn) as conn:
             matched = update_eval_metrics(conn, args.run_id, rows)
             conn.commit()
             remaining = count_null_eval(conn, args.run_id)
@@ -673,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
             read_start = args.start - timedelta(days=2 * args.window_days)
             log.info("loading full panel for requested decay: [%s, %s)",
                      read_start, args.end)
-            with psycopg.connect(PG_DSN) as conn:
+            with psycopg.connect(settings.pg_dsn) as conn:
                 M = load_shadow_prices(conn, read_start, args.end)
                 C = load_congestion_panel(conn, read_start, args.end)
         deltas = tuple(int(x) for x in args.deltas.split(",") if x.strip())

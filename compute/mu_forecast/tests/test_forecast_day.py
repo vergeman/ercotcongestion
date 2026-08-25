@@ -27,7 +27,7 @@ import pytest
 
 import compute.jobs.daily_forecast as fd
 from compute.jobs.daily_forecast import ForecastResult, forecast_day, persist_forecast
-from compute.mu_forecast.panel.build import ct_day_bounds
+from compute.time import ct_day_bounds
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
 from compute.projection.propagate import NodalPanel, build_sf_mu_artifact, load_sf_mu
 

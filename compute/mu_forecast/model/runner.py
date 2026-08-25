@@ -48,7 +48,8 @@ from compute.mu_forecast.model.heads import (alloc_bind_matrix as _alloc_bind_ma
                               predict_mu_climatology, predict_mu_head,
                               reliability, target_encoding)
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
-from compute.mu_forecast.panel.build import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
+from compute.mu_forecast.panel.build import BIND_DEADBAND
+from compute.time import ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 
 log = logging.getLogger("compute.mu_forecast.model.runner")

@@ -16,11 +16,21 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu_forecast.panel.build import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
-                                 binding_history, calendar_features, ct_day_bounds,
-                                 dam_close, delivery_day_of, history_cutoff,
-                                 net_load_regime, _attach_refit_features,
-                                 _dam_close_expr, _vintage_cutoff_expr)
+from compute.mu_forecast.panel.availability import (
+    _dam_close_expr,
+    _vintage_cutoff_expr,
+    dam_close,
+    history_cutoff,
+)
+from compute.mu_forecast.panel.build import (
+    BIND_DEADBAND,
+    _attach_refit_features,
+    audit_leakage,
+    binding_history,
+    net_load_regime,
+)
+from compute.mu_forecast.panel.engineering import calendar_features
+from compute.time import ERCOT_TZ, ct_day_bounds, delivery_day_of
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
