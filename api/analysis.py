@@ -45,7 +45,7 @@ from compute.analysis.brief_grade import (
     grade_node_profiles as _brief_grade_node_profiles,
     serialize_grade_half as _serialize_brief_grade_half,
 )
-from compute.projection.propagate import node_contributions
+from compute.projection.codecs import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
 from services.system_lambda import (
     forecast_system_lambda,

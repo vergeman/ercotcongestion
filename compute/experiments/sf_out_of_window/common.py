@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 from compute.inputs.dam import (
     load_congestion_panel,
     load_shadow_prices,
@@ -36,7 +36,7 @@ REFIT_DAYS = 7
 
 def load_panels(start: date = START, end: date = END):
     """(M, C) aligned onto the union hour axis, as `rolling._align` does."""
-    with psycopg.connect(PG_DSN) as conn:
+    with psycopg.connect(settings.pg_dsn) as conn:
         M = load_shadow_prices(conn, start, end)
         C = load_congestion_panel(conn, start, end)
     idx = M.index.union(C.index).sort_values()

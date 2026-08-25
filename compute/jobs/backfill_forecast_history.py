@@ -16,8 +16,8 @@ import os
 import pandas as pd
 import psycopg
 
-from compute.jobs.daily_forecast import _as_ct_day
 from compute.jobs.forecast_history import load_artifact, persist_rollup, rollup_rows
+from compute.time import normalize_ct_day
 
 
 log = logging.getLogger("compute.jobs.backfill_forecast_history")
@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    lo, hi = _as_ct_day(args.start), _as_ct_day(args.end)
+    lo, hi = normalize_ct_day(args.start), normalize_ct_day(args.end)
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
 

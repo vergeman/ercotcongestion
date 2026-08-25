@@ -7,7 +7,7 @@ import analysis as analysis_module
 from compute.analysis import brief_grade
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
-from compute.projection.propagate import SfMuArtifact
+from compute.projection.codecs import SfMuArtifact
 
 
 def _artifact():

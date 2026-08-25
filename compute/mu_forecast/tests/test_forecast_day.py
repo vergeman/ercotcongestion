@@ -27,9 +27,9 @@ import pytest
 
 import compute.jobs.daily_forecast as fd
 from compute.jobs.daily_forecast import ForecastResult, forecast_day, persist_forecast
-from compute.mu_forecast.panel.build import ct_day_bounds
+from compute.time import ct_day_bounds
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
-from compute.projection.propagate import NodalPanel, build_sf_mu_artifact, load_sf_mu
+from compute.projection.codecs import NodalPanel, build_sf_mu_artifact, load_sf_mu
 
 # An arbitrary CT-midnight delivery day, expressed in UTC (0133) — not a DST
 # transition day, so it is 24 hours and `D + pd.Timedelta(days=1)` coincides with
@@ -663,7 +663,8 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     from compute.mu_forecast.panel.build import build_panel
     from compute.mu_forecast.model.runner import load_preds, predict_day
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-    from compute.projection.propagate import N_DRAWS, propagate_window, residual_pool
+    from compute.projection.propagate import propagate_window
+    from compute.projection.sampling import N_DRAWS, residual_pool
 
     conn = pg[0]
     # Reconciliation fixture: a real walk-derived residual pool with enough weeks.

@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 from compute.sf_map.geography.derive import (
     ZONES,
     constraint_geography,
@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     sp = load_sp_geography()
-    with psycopg.connect(PG_DSN) as conn:
+    with psycopg.connect(settings.pg_dsn) as conn:
         windows = _load_windows(conn, args.run_id)
         if not windows:
             log.error("no sf_window_meta rows for run_id=%s — run "

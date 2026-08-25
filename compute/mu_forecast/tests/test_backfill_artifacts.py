@@ -27,7 +27,7 @@ def test_preview_fire_time_is_2015z_on_d_minus_2():
 def test_final_fire_time_is_after_dam_close_a_no_op_cap():
     """h1's fire time sits after D's DAM close (10:00 CT on D−1), so `LEAST` in
     the vintage predicate always picks DAM close — the cap changes nothing."""
-    from compute.mu_forecast.panel.build import dam_close
+    from compute.mu_forecast.panel.availability import dam_close
     d = date(2026, 7, 27)
     assert _fire_time_for(d, 1) > dam_close(pd.Timestamp(d))
 
@@ -35,7 +35,7 @@ def test_final_fire_time_is_after_dam_close_a_no_op_cap():
 def test_preview_fire_time_is_well_before_dam_close_a_real_cap():
     """h2's fire time sits before D's DAM close, so `LEAST` genuinely restricts
     the read — the whole point of the vintage-faithful backfill."""
-    from compute.mu_forecast.panel.build import dam_close
+    from compute.mu_forecast.panel.availability import dam_close
     d = date(2026, 7, 27)
     assert _fire_time_for(d, 2) < dam_close(pd.Timestamp(d))
 

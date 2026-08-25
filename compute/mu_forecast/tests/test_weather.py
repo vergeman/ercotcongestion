@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu_forecast.panel.build import history_cutoff
+from compute.mu_forecast.panel.availability import history_cutoff
 from compute.mu_forecast.covariates.weather import (MIN_WINDOW_HOURS, response_vectors, wx_panel,
                                 wx_sources)
 

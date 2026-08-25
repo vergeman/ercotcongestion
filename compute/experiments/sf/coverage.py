@@ -54,7 +54,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 from compute.sf_map.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
 from compute.inputs.dam import load_shadow_prices
 
@@ -416,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     # Default the load range to the full available NP4-191 history.
-    with psycopg.connect(PG_DSN) as conn:
+    with psycopg.connect(settings.pg_dsn) as conn:
         if args.start is None or args.end is None:
             with conn.cursor() as cur:
                 cur.execute("SELECT min(interval_ts)::date, max(interval_ts)::date "

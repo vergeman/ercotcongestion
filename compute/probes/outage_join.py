@@ -58,7 +58,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 
 log = logging.getLogger("compute.probes.outage_join")
 
@@ -359,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    with psycopg.connect(PG_DSN) as conn:
+    with psycopg.connect(settings.pg_dsn) as conn:
         if args.start is None or args.end is None:
             with conn.cursor() as cur:
                 cur.execute("SELECT min(interval_ts)::date, max(interval_ts)::date "

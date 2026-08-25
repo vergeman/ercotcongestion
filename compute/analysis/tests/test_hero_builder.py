@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 
 from compute.analysis import hero_builder
-from compute.projection.propagate import SfMuArtifact
+from compute.projection.codecs import SfMuArtifact
 
 
 def _artifact():

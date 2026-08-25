@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import psycopg
 
-from compute.config import PG_DSN
+from shared.settings import settings
 from compute.evaluation.sf import evaluate, sf_decay
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     read_start = args.start - timedelta(days=2 * max(windows))
     log.info("loading panels once: read=[%s, %s), %d combos",
              read_start, args.end, len(combos))
-    with psycopg.connect(PG_DSN) as conn:
+    with psycopg.connect(settings.pg_dsn) as conn:
         M = load_shadow_prices(conn, read_start, args.end)
         C = load_congestion_panel(conn, read_start, args.end)
     if M.empty or C.empty:

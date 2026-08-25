@@ -16,11 +16,24 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu_forecast.panel.build import (BIND_DEADBAND, ERCOT_TZ, audit_leakage,
-                                 binding_history, calendar_features, ct_day_bounds,
-                                 dam_close, delivery_day_of, history_cutoff,
-                                 net_load_regime, _attach_refit_features,
-                                 _dam_close_expr, _vintage_cutoff_expr)
+from compute.mu_forecast.panel.availability import (
+    dam_close,
+    dam_close_expr as _dam_close_expr,
+    history_cutoff,
+    vintage_cutoff_expr as _vintage_cutoff_expr,
+)
+from compute.mu_forecast.panel.build import (
+    BIND_DEADBAND,
+    binding_history,
+)
+from compute.mu_forecast.panel.engineering import (
+    attach_refit_features as _attach_refit_features,
+    audit_leakage,
+    calendar_features,
+    candidate_keys,
+    net_load_regime,
+)
+from compute.time import ERCOT_TZ, ct_day_bounds, delivery_day_of
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
@@ -377,7 +390,6 @@ def test_candidate_policy_changes_the_base_rate_not_just_the_row_count():
     headline number in commit 4. A reader must not mistake this for a free
     row-count optimisation.
     """
-    from compute.mu_forecast.panel.build import candidate_keys
     hist = pd.DataFrame(
         {"binds_28d": [10, 0, 3, 0, 0]},
         index=pd.MultiIndex.from_product([[D], list("abcde")],
@@ -387,7 +399,6 @@ def test_candidate_policy_changes_the_base_rate_not_just_the_row_count():
 
 
 def test_unknown_candidate_policy_is_refused():
-    from compute.mu_forecast.panel.build import candidate_keys
     with pytest.raises(ValueError, match="unknown candidate policy"):
         candidate_keys(pd.DataFrame(), "whatever_looks_best")
 

@@ -47,7 +47,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from compute.sf_map.model.fit import SF_ABS_CAP
-from compute.projection.propagate import node_contributions
+from compute.projection.codecs import node_contributions
 from config import MAP_RUN_ID
 from db import get_pool
 from models import (

@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.panel.build import build_panel, net_load_regime, system_panel
+    from compute.mu_forecast.panel.build import build_panel, system_panel
+    from compute.mu_forecast.panel.engineering import net_load_regime
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
