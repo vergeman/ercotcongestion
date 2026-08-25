@@ -16,7 +16,7 @@ window (runner ``--persist-sf``), never a global fit — the geography is
 walk-forward-honest by construction (memory sf-map-as-geographic-crosswalk).
 
     docker compose run --rm compute \
-      python -m compute.sf_map.geo_persist --run-id map-v1
+      python -m compute.sf_map.geography.persist --run-id map-v1
 """
 from __future__ import annotations
 
@@ -28,16 +28,16 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.sf_map.geography import (
+from compute.sf_map.geography.derive import (
     ZONES,
     constraint_geography,
     constraint_type,
     load_sp_geography,
 )
 from compute.inputs.dam import load_shadow_prices
-from compute.sf_map.persist import copy_constraint_geo_rows, delete_constraint_geo
+from compute.sf_map.storage.persist import copy_constraint_geo_rows, delete_constraint_geo
 
-log = logging.getLogger("compute.sf_map.geo_persist")
+log = logging.getLogger("compute.sf_map.geography.persist")
 
 # |SF| at or above this is "railed" — pinned at the ridge clamp (SF_ABS_CAP=1.0).
 RAIL_CAP = 0.999

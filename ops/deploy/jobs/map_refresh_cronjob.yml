@@ -95,7 +95,7 @@ spec:
                     --ridge-lambda 1.0 --min-binding-hours 25 \
                     --persist-sf --chunk-weeks 32
 
-                  python -m compute.sf_map.geo_persist --run-id map-v1
+                  python -m compute.sf_map.geography.derive.persist --run-id map-v1
 
                   python -m compute.evaluation.sf \
                     --run-id map-v1 \

@@ -922,7 +922,7 @@ class MatrixFrame(BaseModel):
     contribution_day_max_abs: float = 0.0
     # The fit's |SF| clip. Cells sitting exactly here were pinned by the ridge
     # rather than measured, and the client marks them; sent so the threshold has
-    # one source (compute.sf_map.fit.SF_ABS_CAP) instead of a hardcoded 1.0 on both
+    # one source (compute.sf_map.model.fit.SF_ABS_CAP) instead of a hardcoded 1.0 on both
     # sides of the wire.
     sf_abs_cap: float = 0.0
     rows: list[MatrixRow] = []

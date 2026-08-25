@@ -53,19 +53,19 @@ from compute.sf_map.config import (
     REFIT_DAYS as DEFAULT_REFIT_DAYS,
     WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
 )
-from compute.sf_map.diagnostics import diagnostics_filename, refit_diagnostics
-from compute.sf_map.fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
+from compute.sf_map.model.diagnostics import diagnostics_filename, refit_diagnostics
+from compute.sf_map.model.fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
 from compute.inputs.dam import (
     load_congestion_panel, load_shadow_prices, panel_bounds,
 )
-from compute.sf_map.persist import (
+from compute.sf_map.storage.persist import (
     check_ref_method,
     copy_sf_rows,
     delete_sf_run,
     existing_sf_windows,
     write_window_meta,
 )
-from compute.sf_map.rolling import RefitWindow, fit_refit_window, rolling_sf
+from compute.sf_map.model.rolling import RefitWindow, fit_refit_window, rolling_sf
 
 log = logging.getLogger("compute.jobs.weekly_map")
 

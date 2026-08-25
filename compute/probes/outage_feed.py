@@ -306,7 +306,7 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
     print("\n=== LEG D — does the located covariate carry signal? ===")
 
     from compute.mu_forecast.geo import load_sp_geography  # noqa: F401  (import check)
-    from compute.sf_map.fit import implied_shift_factors
+    from compute.sf_map.model.fit import implied_shift_factors
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     recent = idx[idx["posted"] >= idx["posted"].max() - pd.Timedelta(days=n_days)]

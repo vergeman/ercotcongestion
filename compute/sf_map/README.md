@@ -140,7 +140,7 @@ fit loop's transaction (committed at the end), so a crash mid-rebuild leaves the
 prior served windows intact.
 
 The map API serves `max(window_start)`; there is no promote pointer. After a
-persist run, `compute.sf_map.geo_persist` writes the constraint-geo overlay and
+persist run, `compute.sf_map.geography.derive.persist` writes the constraint-geo overlay and
 `compute.evaluation.sf` backfills the per-window OOS metrics onto `sf_window_meta`.
 The weekly `ops/deploy/jobs/map_refresh_cronjob.yml` chains those three steps.
 

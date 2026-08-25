@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import MIN_HOURS as MIN_BINDING_HOURS, RIDGE_LAMBDA
+from compute.sf_map.config import MIN_HOURS as MIN_BINDING_HOURS, RIDGE_LAMBDA
 
 # The admission floor (`min_hours`) and ridge (`λ`) are the adopted operating
 # point (`compute.sf_map.config`) — single-sourced so the μ forecast and the SF map

@@ -38,9 +38,9 @@ import numpy as np
 import pandas as pd
 
 from compute.mu_forecast.features import ERCOT_TZ
-from compute.sf_map.geography import (LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
+from compute.sf_map.geography.derive import (LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
                            refit_grid)
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.mu_forecast.outage.exposure")
 

@@ -46,7 +46,7 @@ import pandas as pd
 from compute.evaluation.sf import (
     predict, r2, row_spearman, sign_agreement, topdecile_hit,
 )
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
 

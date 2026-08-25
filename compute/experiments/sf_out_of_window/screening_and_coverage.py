@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import rankdata
 
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
 from .common import (
     REFIT_DAYS, WINDOW_DAYS, last_day, load_panels, mu_climatology, mu_oracle,

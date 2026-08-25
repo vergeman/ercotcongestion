@@ -163,7 +163,7 @@ does not already have.
 ```
 MAP_RUN_ID=map-v1
 
-python -m compute.sf_map.geo_persist --run-id map-v1
+python -m compute.sf_map.geography.derive.persist --run-id map-v1
 
 python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
     --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval

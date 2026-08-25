@@ -54,7 +54,7 @@ from compute.evaluation.mu import (
     topdecile_hit_defined, weeks_from_preds,
 )
 from compute.evaluation.sf import row_spearman, sign_agreement
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.experiments.mu.rerank")
 

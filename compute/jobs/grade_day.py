@@ -57,7 +57,7 @@ from compute.evaluation.mu import (
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.evaluation.sf import predict
 from compute.evaluation.essp import score_final_essp
-from compute.sf_map.fit import implied_shift_factors
+from compute.sf_map.model.fit import implied_shift_factors
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.projection.propagate import band_metrics, load_sf_mu
 
