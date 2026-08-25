@@ -4,11 +4,14 @@ Canonical artifact tree for pipeline outputs. One subdirectory per `run_id`. The
 directory itself is gitignored (only this README is tracked) — runs are local
 working state, not source.
 
-Each run owns a self-contained set of artifacts keyed by `<run_id>`, with stage
-subdirs that mirror the source package names (`congestion`, `matrix`,
-`clustering`). A run produced by the orchestrator (`compute/run_pipeline.py`)
-also carries `meta.json` (provenance: git sha, dates-file SHA-256, per-stage
-status + elapsed) and a copy of the dates file it consumed.
+Each run owns a self-contained set of artifacts keyed by `<run_id>`. Artifact
+directory names are a stable storage contract, not Python package paths: the
+production libraries are `inputs`, `sf_map`, `mu_forecast`, `projection`, and
+`evaluation`, while the `sf/`, `mu/`, and `forecast/` artifact directories
+remain intentionally named for their stored model outputs. A run produced by
+the orchestrator (`compute/run_pipeline.py`) also carries `meta.json`
+(provenance: git sha, dates-file SHA-256, per-stage status + elapsed) and a
+copy of the dates file it consumed.
 
 ```
 compute/runs/<run_id>/
@@ -35,15 +38,15 @@ compute/runs/<run_id>/
     summary.json
     cluster_labels_<ref>_<algo>_k<K>.npz        # bus_id → cluster_id (per sweep row)
     zones_<ref>_<algo>_k<K>.geojson             # optional cluster polygons
-  sf/
+  sf/                                           # SF-map artifacts (map run)
     diagnostics_YYYYMMDD.json                   # one per refit boundary: R², kept/dropped constraints, n_sf_clipped
     eval.csv                                     # honest out-of-window eval (compute.evaluation.sf)
-  mu/                                           # the μ forecast stage (plan/0113)
+  mu/                                           # μ-forecast artifacts (forecast run)
     mu_weekly.csv                               # mu_model --out: walk calibration metrics (brier/ece/mae_mu_*)
     mu_score_weekly.csv                         # compute.evaluation.mu: score currencies (source/regime/pooled_r2 …)
     mu_preds.npz                                # mu_model --preds-out: predictions / residual pool
     spill/                                      # on-disk bind-matrix / panel spill (transient)
-  forecast/                                     # the nodal-projection stage (plan/0113)
+  forecast/                                     # nodal-projection artifacts (forecast run)
     mu_bands_weekly.csv                         # backfill_nodal --out: P50 band metrics
     mu_nodal.npz                                # backfill_nodal --nodal-out: nodal P10/P50/P90 + point panel
 ```
@@ -73,14 +76,13 @@ sf_sweep_w{window}_r{refit}_l{lambda:g}_s{std_floor:g}_h{min_hours}
 Example: `sf_sweep_w60_r7_l0.001_s50_h100` is a 60-day window, weekly
 refit, λ=1e-3, std_floor=50, min_binding_hours=100. Older sweep dirs may
 omit the `_s.._h..` suffix — those predate the std_floor/min_hours grid
-and used the fit.py defaults for those knobs.
+and used the then-current fit defaults for those knobs.
 
-**Calibrated production combo:** `sf_sweep_w60_r7_l0.1_s100_h25`
-(window=60, refit=7, λ=1e-1, std_floor=100, min_binding_hours=25). These
-are the values `fit.py` bakes in as defaults and what the runner produces
-when you don't override any knob. Ingest / promote this run_id (or one
-produced with the same knobs under a friendlier `run_id`) when serving to
-the API.
+**Current production operating point:** window=240 days, refit=7 days,
+λ=1, std_floor=100, and min_binding_hours=25. `compute.sf_map.config`
+owns the shared defaults; the map and μ-forecast stages use them unless a
+CLI explicitly overrides a knob. The older 60-day / λ=0.1 sweep remains a
+historical experiment, not the serving default.
 
 See `docs/legacy/implied_binding_proximity.md` for what each knob means
 and the "Trial findings" table for how these values were chosen.

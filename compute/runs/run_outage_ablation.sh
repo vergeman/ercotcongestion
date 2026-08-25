@@ -17,13 +17,13 @@
 set -euo pipefail
 
 SCORE_FROM="${SCORE_FROM:-2025-08-14}"
-PREDS_DIR="${PREDS_DIR:-/compute/runs/outage_ablation}"
-OUT="${OUT:-/compute/runs/outage_ablation.csv}"
-SCRATCH="${SCRATCH:-/compute/runs/_ablation_scratch.csv}"
+PREDS_DIR="${PREDS_DIR:-/compute/runs/experiments/mu/outage_ablation}"
+OUT="${OUT:-/compute/runs/experiments/mu/outage_ablation.csv}"
+SCRATCH="${SCRATCH:-/compute/runs/experiments/mu/_ablation_scratch.csv}"
 
 mkdir -p "$PREDS_DIR"
 
-# Map an arm name to its cached npz filename (outage_ablate replaces '+' with '_').
+# Map an arm name to its cached npz filename (the experiment replaces '+' with '_').
 npz_for() { echo "$PREDS_DIR/preds_${1//+/_}.npz"; }
 
 run_isolated() {

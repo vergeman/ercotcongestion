@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Run the ablation while a 100ms sampler records the peak RSS of the
-# outage_ablate python process to /compute/runs/ablation_peak.txt. The sampler
-# only matches the `python -m compute.experiments.mu.outage_ablation` process (not this wrapper
-# or run.sh, whose cmdlines don't contain the dotted module path).
-echo 0 > /compute/runs/ablation_peak.txt
+# Run the ablation while a 100ms sampler records peak RSS for the canonical
+# experiment module. Keep this output beside the experiment's cached artifacts.
+OUTAGE_RUN_DIR="${OUTAGE_RUN_DIR:-/compute/runs/experiments/mu}"
+PEAK_FILE="${PEAK_FILE:-$OUTAGE_RUN_DIR/outage_ablation.peak_rss_mb.txt}"
+mkdir -p "$OUTAGE_RUN_DIR"
+echo 0 > "$PEAK_FILE"
 (
   peak=0
   while true; do
@@ -14,11 +15,11 @@ echo 0 > /compute/runs/ablation_peak.txt
       rss=$(awk '/VmRSS/{print int($2/1024)}' "/proc/$pid/status" 2>/dev/null)
       [ -n "$rss" ] && [ "$rss" -gt "$cur" ] && cur=$rss
     done
-    [ "$cur" -gt "$peak" ] && { peak=$cur; echo "$peak" > /compute/runs/ablation_peak.txt; }
+    [ "$cur" -gt "$peak" ] && { peak=$cur; echo "$peak" > "$PEAK_FILE"; }
     sleep 0.1
   done
 ) &
 sampler=$!
 bash /compute/runs/run_outage_ablation.sh
 kill "$sampler" 2>/dev/null
-echo ">>> wrapper done. peak RSS: $(cat /compute/runs/ablation_peak.txt) MB"
+echo ">>> wrapper done. peak RSS: $(cat "$PEAK_FILE") MB"

@@ -43,3 +43,4 @@ Branch: refactor/0164-top-level-compute-stage-layout
 * [x] Legacy façade files are removed; no tracked source, tests, docs, or deploy manifests refer to `compute.sf.*` or `compute.mu.*`.
 * [x] Fixed-input SF matrices, fixed-seed projection draws/percentiles/artifact bytes, feature-panel frames, μ predictions, and map-store failure guards match pre-refactor fixtures exactly.
 * [x] Focused SF and μ suites pass (`325 passed, 1 skipped`); no scheduled command, DB write contract, or artifact schema changes.
+* [x] `compute/runs` distinguishes stable artifact names from source-package paths, and outage-ablation wrappers use the canonical experiment artifact defaults.
