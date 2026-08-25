@@ -17,7 +17,7 @@ Everything is also split pre/post the RTC+B cutover (2025-12-05): DAM virtual AS
 can move the mu patterns, so a number pooled across it hides a regime change.
 
     docker compose run --rm compute python -m compute.experiments.sf.grouping_verdict \\
-      --per-week /compute/sf/sf_sweep_grouping_weekly.csv
+      --per-week /compute/runs/experiments/sf/sf_sweep_grouping_weekly.csv
 """
 from __future__ import annotations
 

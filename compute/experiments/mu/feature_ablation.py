@@ -11,7 +11,7 @@ construction rather than by care:
     is a **column mask** over that one object (`mu_model.feature_cols`). Rebuilding it
     per arm would leave five separately-constructed panels whose differences are not
     *guaranteed* to be only the arm;
-  * scoring goes through **`compute/mu/score.py`, unchanged and unimported-around**.
+  * scoring goes through **`compute.evaluation.mu`, unchanged and unimported-around**.
     The whole reason 0085's numbers are trustable is that there is exactly one
     harness, and 0088 does not get to write a second one;
   * the baselines (oracle, persistence, climatology, null) do not depend on the arm at
@@ -31,7 +31,7 @@ existence test, absorb persistence entirely, and **still not ship a product**. T
 report prints both bars next to every arm so that reading is unavoidable.
 
     docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
-      --score-from 2025-08-14 --out /compute/mu/ablation.csv
+      --score-from 2025-08-14 --out /compute/runs/experiments/mu/ablation.csv
 """
 from __future__ import annotations
 
@@ -197,8 +197,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d")
     p.add_argument("--arms", default=",".join(ARMS))
-    p.add_argument("--preds-dir", default="/compute/mu/ablation")
-    p.add_argument("--out", default="/compute/mu/ablation.csv")
+    p.add_argument("--preds-dir", default="/compute/runs/experiments/mu/ablation")
+    p.add_argument("--out", default="/compute/runs/experiments/mu/ablation.csv")
     p.add_argument("--bands", action="store_true",
                    help="also propagate to nodal P10/P50/P90 and report coverage80")
     p.add_argument("--no-resume", action="store_true")

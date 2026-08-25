@@ -9,7 +9,8 @@ as temporary compatibility re-exports. The projection math it drives lives in
 `compute.projection.propagate`.
 
     docker compose run --rm compute python -m compute.jobs.backfill_nodal \
-      --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_bands_weekly.csv
+      --preds /compute/runs/mu-all-v1/mu/mu_preds.npz \
+      --out /compute/runs/mu-all-v1/forecast/mu_bands_weekly.csv
 
 """
 from __future__ import annotations

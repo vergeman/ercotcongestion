@@ -8,7 +8,7 @@ rather than a second one:
   * the panel is built **once** here with `with_outage=True` (and every 0088 arm's columns
     present), and each arm is a column mask over that one object — `run_arm` and
     `check_baselines_identical` is imported from `feature_ablation` unchanged, and
-    scoring goes through **`compute/mu/score.py`, unimported-around**. There is exactly
+    scoring goes through **`compute.evaluation.mu`, unimported-around**. There is exactly
     one scoring harness in this package and 0089 does not get to write a second one;
   * the four rows are **`base` / `all` / `out` / `all+out`**. `out` is `base` plus the
     per-constraint outage exposure; `all+out` is 0088's `all` plus it.
@@ -25,7 +25,7 @@ Walk-only by default (build the panel, save each arm's preds npz, memory-frugal)
 `run_outage_ablation.sh` drives the per-arm walks then one `--score` pass.
 
     docker compose run --rm compute python -m compute.experiments.mu.outage_ablation \
-      --score-from 2025-08-14 --score --out /compute/mu/outage_ablation.csv
+      --score-from 2025-08-14 --score --out /compute/runs/experiments/mu/outage_ablation.csv
 """
 from __future__ import annotations
 
@@ -108,8 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
     p.add_argument("--policy", default="active_28d")
     p.add_argument("--arms", default=",".join(ARMS))
-    p.add_argument("--preds-dir", default="/compute/mu/outage_ablation")
-    p.add_argument("--out", default="/compute/mu/outage_ablation.csv")
+    p.add_argument("--preds-dir", default="/compute/runs/experiments/mu/outage_ablation")
+    p.add_argument("--out", default="/compute/runs/experiments/mu/outage_ablation.csv")
     p.add_argument("--no-resume", action="store_true")
     # Walk-only is the DEFAULT: build the panel, run each arm's walk, save its preds
     # npz, then stop — freeing M/C/regimes first (the walk reads only the panel) so

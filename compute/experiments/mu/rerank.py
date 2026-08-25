@@ -36,7 +36,9 @@ module only re-reads it.
 it does not, this harness is wrong and nothing below it means anything.
 
     docker compose run --rm compute python -m compute.experiments.mu.rerank \
-      --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_rerank_weekly.csv
+      --preds /compute/runs/mu-all-v1/mu/mu_preds.npz \
+      --scores /compute/runs/mu-all-v1/mu/mu_score_weekly.csv \
+      --out /compute/runs/experiments/mu/mu_rerank_weekly.csv
 """
 from __future__ import annotations
 
@@ -205,8 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--preds", default="/compute/mu/mu_preds.npz")
-    p.add_argument("--scores", default="/compute/mu/mu_score_weekly.csv")
+    p.add_argument("--preds", default="/compute/runs/mu-all-v1/mu/mu_preds.npz")
+    p.add_argument("--scores", default="/compute/runs/mu-all-v1/mu/mu_score_weekly.csv")
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--draws", type=int, default=200)

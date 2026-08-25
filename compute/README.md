@@ -10,8 +10,8 @@ a new input source.
 |---|---|---|
 | `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_day` |
 | `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
-| `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs; legacy `sf/` façades remain |
-| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; legacy `mu/` façades remain |
+| `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs |
+| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs |
 | `projection/` | μ sampling, SF projection, nodal panels, and forecast artifacts | imported by forecast/backfill/API paths |
 | `evaluation/` | SF/μ OOS measures and ESSP validation | imported by map/grade jobs |
 | `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
@@ -86,8 +86,8 @@ forecast.
 ## Prediction data — the 240-day window
 
 Both stages fit on a **trailing 240-day window**, single-sourced as `WINDOW_DAYS`
-in `compute/sf/config.py` (the SF map) and `DEFAULT_TRAIN_DAYS` in
-`compute/mu/mu_model.py` (μ). **Every feed obeys that same window** — the DAM
+in `compute/sf_map/config.py` (the SF map) and `DEFAULT_TRAIN_DAYS` in
+`compute/mu_forecast/mu_model.py` (μ). **Every feed obeys that same window** — the DAM
 inputs (`ercot_dam_shadow_prices`, `ercot_dam_spp`, `dam_system_lambda`) and the
 forecast vintages the μ weather feature correlates against (zonal load, regional
 wind/solar) are all read over the same `[D − 240d, D)` span. No feed has a
@@ -451,7 +451,8 @@ ABLATION FULL RUN
 
 ```
 docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
-    --score-from 2025-08-14 --preds-dir /compute/mu/ablation --out /compute/mu/ablation.csv
+    --score-from 2025-08-14 --preds-dir /compute/runs/experiments/mu/ablation \
+    --out /compute/runs/experiments/mu/ablation.csv
 
 python -m compute.experiments.mu.outage_ablation --score-from 2025-08-14 --score \
     --preds-dir /compute/runs/outage_ablation \

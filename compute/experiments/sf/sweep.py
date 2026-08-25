@@ -29,7 +29,7 @@ R3's stability bar is actually judged against.
         [--window-days 60,120,240,365] [--refit-days 7,14] \\
         [--ridge-lambda 0.1,1,10,100,1000] [--rank-by oos_pooled_r2] \\
         [--rho-min none,0.7,0.8,0.9 --control] \\
-        [--out /compute/sf/sf_sweep_summary.csv]
+        [--out /compute/runs/experiments/sf/sf_sweep_summary.csv]
 """
 from __future__ import annotations
 
