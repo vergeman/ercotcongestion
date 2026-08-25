@@ -57,7 +57,7 @@ import pandas as pd
 from compute.mu_forecast import availability, panel_engineering, panel_sources
 from compute.time import normalize_ct_day
 
-log = logging.getLogger("compute.mu.features")
+log = logging.getLogger("compute.mu_forecast.features")
 
 ERCOT_TZ = "America/Chicago"
 

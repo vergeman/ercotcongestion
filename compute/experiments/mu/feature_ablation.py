@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from compute.mu import score as score_mod
+from compute.evaluation import mu as score_mod
 from compute.mu_forecast.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, arms_for, feature_cols, load_preds,
                                  save_preds, walk_forward)

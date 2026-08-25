@@ -6,7 +6,7 @@ point panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-
 `forecast_nodal` and flip `forecast_current[ercot]`, plus the pre-registered R5
 gate. Shared DB writers live in `compute.forecast_store`; they remain imported here
 as temporary compatibility re-exports. The projection math it drives lives in
-`compute.sf.project`.
+`compute.projection.propagate`.
 
     docker compose run --rm compute python -m compute.jobs.backfill_nodal \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_bands_weekly.csv
@@ -67,7 +67,7 @@ def preds_path_for(run_id: str) -> str:
 def scores_path_for(run_id: str) -> str:
     """The μ weekly score CSV for `run_id` — `runs/<run_id>/mu/mu_score_weekly.csv`.
 
-    The per-(week × source × regime) currencies `compute.mu.score` writes and `r5`
+    The per-(week × source × regime) currencies `compute.evaluation.mu` writes and `r5`
     reads. A μ-stage artifact (score schema: source/regime/pooled_r2/…), so it lives
     under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
     which is `mu_model`'s calibration output."""

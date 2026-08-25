@@ -2,7 +2,7 @@
 
 Run inside the compute container:
     docker compose run --rm compute python -m pytest \\
-        /compute/sf/tests/test_grouping.py -v
+        /compute/sf_map/tests/test_grouping.py -v
 """
 import numpy as np
 import pandas as pd

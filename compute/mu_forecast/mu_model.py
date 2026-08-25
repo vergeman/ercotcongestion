@@ -51,7 +51,7 @@ from compute.mu_forecast.scheduling import refit_boundaries, score_chunks
 from compute.mu_forecast.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 
-log = logging.getLogger("compute.mu.mu_model")
+log = logging.getLogger("compute.mu_forecast.mu_model")
 
 # Semantic aliases retain the μ forecast vocabulary for callers while sharing
 # the SF operating point that fixes the scored-week boundaries.

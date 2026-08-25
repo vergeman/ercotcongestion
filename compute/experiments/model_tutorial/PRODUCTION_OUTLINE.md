@@ -40,19 +40,19 @@ Production code is now organized by the direction data moves: `compute.inputs`
 owns shared DAM readers; `compute.sf_map` fits and stores the weekly map;
 `compute.mu_forecast` builds daily features and predicts μ; `compute.projection`
 turns μ and SF into nodal artifacts; and `compute.evaluation` scores them.
-`compute.sf.*` and `compute.mu.*` remain compatibility façades while callers
-migrate, and scheduled CLI module paths are intentionally unchanged.
+The former `compute.sf.*` and `compute.mu.*` paths have been removed; use these
+stage packages for library imports and CLI commands.
 
 ## Production entry points and order
 
 | When | Command/module | What it does | Main output |
 | --- | --- | --- | --- |
 | Weekly | `python -m compute.jobs.weekly_map` | Loads DAM M/C panels; fits each new rolling SF window; writes diagnostics and, with `--persist-sf`, the map. | `implied_shift_factors`, `sf_window_meta`, run diagnostics |
-| Weekly, after map | `python -m compute.sf.geo_persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
-| Weekly, after map | `python -m compute.sf.eval` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
+| Weekly, after map | `python -m compute.sf_map.geo_persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
+| Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, samples and projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
-| Historical rebuild | `python -m compute.mu.mu_model` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
-| Historical rebuild | `python -m compute.mu.score` | Scores μ predictions against common baselines. | score CSV |
+| Historical rebuild | `python -m compute.mu_forecast.mu_model` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
+| Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
 | Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF, makes nodal panels/bands, and evaluates the product gate. | nodal artifacts, band metrics |
 | Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
 | After delivery | `python -m compute.jobs.grade_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |

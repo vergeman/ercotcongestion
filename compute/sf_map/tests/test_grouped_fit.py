@@ -7,7 +7,7 @@ than by the grouping itself.
 
 Run inside the compute container:
     docker compose run --rm compute python -m pytest \\
-        /compute/sf/tests/test_grouped_fit.py -v
+        /compute/sf_map/tests/test_grouped_fit.py -v
 """
 import numpy as np
 import pandas as pd

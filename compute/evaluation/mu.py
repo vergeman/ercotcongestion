@@ -32,7 +32,7 @@ Two currencies, always together (handoff §7):
 Leading with magnitude alone would make a working screener read as a failing
 forecast; leading with screening alone would sell a forecast we do not have.
 
-    docker compose run --rm compute python -m compute.mu.score \
+    docker compose run --rm compute python -m compute.evaluation.mu \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_score_weekly.csv
 """
 from __future__ import annotations
@@ -48,10 +48,10 @@ from compute.evaluation.sf import (
 )
 from compute.sf_map.fit import implied_shift_factors
 
-log = logging.getLogger("compute.mu.score")
+log = logging.getLogger("compute.evaluation.mu")
 
 # The adopted operating point (0082 S1.5 / R1), single-sourced in
-# `compute.sf.config` so the μ forecast and the SF map cannot drift.
+# `compute.sf_map.config` so the μ forecast and the SF map cannot drift.
 from compute.sf_map.config import (  # noqa: E402
     MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, WINDOW_DAYS,
 )

@@ -55,7 +55,7 @@ from compute.projection.codecs import (
     node_contributions, node_drivers, parse_curated_days, save_nodal, save_sf_mu,
 )
 
-log = logging.getLogger("compute.sf.project")
+log = logging.getLogger("compute.projection.propagate")
 
 
 

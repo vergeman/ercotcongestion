@@ -36,7 +36,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from compute.mu import score as score_mod
+from compute.evaluation import mu as score_mod
 from compute.experiments.mu.feature_ablation import (
     PERSISTENCE_TOPDEC, PRODUCT_TOPDEC, _row, check_baselines_identical, run_arm,
 )

@@ -607,7 +607,7 @@ def test_meta_reports_configured_run(real_client):
     body = r.json()
     assert body["run_id"] == "map-v1"
     assert body["fit_r2"] is not None
-    # backfilled by compute.sf.eval (0003 Commit D)
+    # backfilled by compute.evaluation.sf (0003 Commit D)
     assert body["oos_r2"] is not None
     assert body["coverage"] is not None
     assert body["sf_stability"] is not None

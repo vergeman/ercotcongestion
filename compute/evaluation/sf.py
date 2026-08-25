@@ -35,7 +35,7 @@ The pure metric fns are lifted (not imported) from the frozen harness so this
 kept module carries no dependency on ``experiments/``.
 
     docker compose run --rm compute \
-      python -m compute.sf.eval --run-id <id> --start 2025-01-01 --end 2026-01-01
+      python -m compute.evaluation.sf --run-id <id> --start 2025-01-01 --end 2026-01-01
 """
 from __future__ import annotations
 
@@ -63,13 +63,13 @@ from compute.sf_map.grouping import (
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.sf_map.persist import count_null_eval, update_eval_metrics
 
-log = logging.getLogger("compute.sf.eval")
+log = logging.getLogger("compute.evaluation.sf")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
 # DEFAULT_WINDOW_DAYS / DEFAULT_REFIT_DAYS: the adopted operating point, imported
-# from `compute.sf.config` above (single-sourced with the μ forecast + map runner).
+# from `compute.sf_map.config` above (single-sourced with the μ forecast + map runner).
 SIGN_DEADBAND = 1.0   # $/MWh — ignore congestion-quiet node-hours
 
 

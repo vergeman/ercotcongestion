@@ -20,7 +20,7 @@ import pandas as pd
 from .config import MIN_HOURS as MIN_BINDING_HOURS, RIDGE_LAMBDA
 
 # The admission floor (`min_hours`) and ridge (`λ`) are the adopted operating
-# point (`compute.sf.config`) — single-sourced so the μ forecast and the SF map
+# point (`compute.sf_map.config`) — single-sourced so the μ forecast and the SF map
 # cannot drift. The sweep in `compute.experiments.sf.sweep` (see README "Trial findings")
 # originally tuned `min=25 / λ=0.1 / std_floor=100` on a 60-day / weekly-refit
 # schedule; the honest OOS re-sweep (plan/0082 S1.5) then selected λ=1.0 on a

@@ -189,7 +189,7 @@ export interface ForecastRangeResponse {
 //           the source table is a daily snapshot, so a day's values repeat
 //           across its 24 hourly entries. `fuel` is one of gas/wind/solar/
 //           coal/other/hydro, plus "total". `forecast_mw` is the D-1
-//           no-lookahead vintage (mirrors compute.mu.outage_exposure's leak
+//           no-lookahead vintage (mirrors compute.mu_forecast.outage_exposure's leak
 //           boundary); `actual_mw` is the newest vintage through the day.
 //
 // Any list may be empty for an hour with nothing from that source — the

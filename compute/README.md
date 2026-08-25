@@ -17,9 +17,8 @@ a new input source.
 | `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
 | `probes/` | External-data feasibility gates | optional, never called by cronjobs |
 
-The legacy `compute.sf.*` and `compute.mu.*` paths are compatibility façades;
-new library imports should use the stage packages above. Scheduled CLI module
-paths remain unchanged during this migration.
+The old `compute.sf/` and `compute.mu/` packages have been removed. New library
+imports and CLI commands use the stage packages above.
 
 ## Tests
 
@@ -31,10 +30,10 @@ skips the DB container since the suites don't need it:
 docker compose run --rm --no-deps compute python -m pytest /compute -q
 
 # just the SF + μ suites
-docker compose run --rm --no-deps compute python -m pytest /compute/sf/tests /compute/mu/tests -q
+docker compose run --rm --no-deps compute python -m pytest /compute/sf_map/tests /compute/mu_forecast/tests -q
 
 # a single file / test
-docker compose run --rm --no-deps compute python -m pytest /compute/mu/tests/test_forecast_day.py -q
+docker compose run --rm --no-deps compute python -m pytest /compute/mu_forecast/tests/test_forecast_day.py -q
 ```
 
 ## Runbook — build & deploy the μ forecast
@@ -164,9 +163,9 @@ does not already have.
 ```
 MAP_RUN_ID=map-v1
 
-python -m compute.sf.geo_persist --run-id map-v1
+python -m compute.sf_map.geo_persist --run-id map-v1
 
-python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
+python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
     --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval
 ```
 
@@ -187,7 +186,7 @@ its own run ID, `map-v1`.
 
 `--run-id` is the canonical namespace (plan/0113): `mu_model` derives its outputs
 under `runs/<run-id>/mu/` (`mu_weekly.csv`, `mu_preds.npz`) and creates that tree
-itself — no `ART_DIR` / `mkdir`. `compute.mu.score` has no `--run-id`, so point it at
+itself — no `ART_DIR` / `mkdir`. `compute.evaluation.mu` has no `--run-id`, so point it at
 the same derived paths explicitly; it writes `mu/mu_score_weekly.csv` (the *score*
 schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output).
 
@@ -200,10 +199,10 @@ schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output
 RUN_ID=mu-all-v1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.mu.mu_model --run-id ${RUN_ID} \
+python -m compute.mu_forecast.mu_model --run-id ${RUN_ID} \
     --start 2025-01-01 --end <YYYY-MM-DD>
 
-python -m compute.mu.score \
+python -m compute.evaluation.mu \
     --preds /compute/runs/${RUN_ID}/mu/mu_preds.npz \
     --out   /compute/runs/${RUN_ID}/mu/mu_score_weekly.csv \
     --start 2025-01-01 --end <YYYY-MM-DD>

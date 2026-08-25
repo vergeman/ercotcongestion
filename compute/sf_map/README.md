@@ -140,8 +140,8 @@ fit loop's transaction (committed at the end), so a crash mid-rebuild leaves the
 prior served windows intact.
 
 The map API serves `max(window_start)`; there is no promote pointer. After a
-persist run, `compute.sf.geo_persist` writes the constraint-geo overlay and
-`compute.sf.eval` backfills the per-window OOS metrics onto `sf_window_meta`.
+persist run, `compute.sf_map.geo_persist` writes the constraint-geo overlay and
+`compute.evaluation.sf` backfills the per-window OOS metrics onto `sf_window_meta`.
 The weekly `ops/deploy/jobs/map_refresh_cronjob.yml` chains those three steps.
 
 ### Numerical guardrails
@@ -173,7 +173,7 @@ wipe + refit; drop `--persist-sf` for an exploratory diagnostics-only run.
 `compute.experiments.sf.sweep` (`python -m compute.experiments.sf.sweep`) orchestrates a grid over
 `(window-days, refit-days, ridge-lambda, std-floor, min-binding-hours)`,
 fitting each combination in-process and ranking on the honest out-of-window
-metrics from `compute.sf.eval` (default `oos_pooled_r2`). Panels are loaded once
+metrics from `compute.evaluation.sf` (default `oos_pooled_r2`). Panels are loaded once
 and reused across combos. `--out` / `--per-week-out` write the summary and
 per-week rows to CSV; `compute.experiments.sf.grouping_verdict` scores a
 grouped-vs-ungrouped per-week CSV

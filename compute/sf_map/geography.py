@@ -65,12 +65,12 @@ import pandas as pd
 
 from compute.sf_map.fit import implied_shift_factors
 
-log = logging.getLogger("compute.mu.geo")
+log = logging.getLogger("compute.mu_forecast.geo")
 
 SP_COORDS = Path("/data/processed/settlement_points_geocoded.csv")
 SP_META = Path("/data/raw/ercot_geocode/Settlement_Points_06112026_122819.csv")
 
-# The SF operating point, single-sourced in `compute.sf.config` — the same fit the
+# The SF operating point, single-sourced in `compute.sf_map.config` — the same fit the
 # scoring harness uses for the week a delivery day belongs to. Identical to
 # `score.py`'s import, and that shared source is the point.
 from compute.sf_map.config import (  # noqa: E402
@@ -407,7 +407,7 @@ def coverage_by_mu_mass(M: pd.DataFrame, geo: pd.DataFrame,
 def main(argv: list[str] | None = None) -> int:
     """Report centroid coverage — the acceptance criterion, standalone.
 
-        docker compose run --rm compute python -m compute.mu.geo
+        docker compose run --rm compute python -m compute.mu_forecast.geo
     """
     import argparse
     import os

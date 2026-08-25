@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-log = logging.getLogger("compute.sf.project")
+log = logging.getLogger("compute.projection.propagate")
 
 MAP_RUN_ID = "map-v1"
 MAX_SF_AGE_DAYS = 14

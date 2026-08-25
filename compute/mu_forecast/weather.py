@@ -45,7 +45,7 @@ import pandas as pd
 from compute.mu_forecast.features import BIND_DEADBAND
 from compute.sf_map.geography import refit_grid
 
-log = logging.getLogger("compute.mu.weather")
+log = logging.getLogger("compute.mu_forecast.weather")
 
 # Same trailing span and cadence as the SF map's fit window. The plan's acceptance
 # criterion asks for this explicitly, and the reason is not tidiness: a constraint's
