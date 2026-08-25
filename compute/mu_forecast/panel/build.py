@@ -54,7 +54,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-from compute.mu_forecast.panel import availability, engineering as panel_engineering, sources as panel_sources
+from compute.mu_forecast.panel import (
+    availability,
+    engineering as panel_engineering,
+    sources as panel_sources,
+)
 from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.mu_forecast.panel.build")
