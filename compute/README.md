@@ -20,6 +20,20 @@ a new input source.
 The old `compute.sf/` and `compute.mu/` packages have been removed. New library
 imports and CLI commands use the stage packages above.
 
+### Stage internals
+
+`sf_map/` separates the rolling estimator (`model/`), persisted-map reads and
+writes (`storage/`), and derived constraint geography (`geography/`). `weekly_map`
+fits and persists maps; projection loads them through `storage/maps.py`; the
+post-map geography materialization is `python -m compute.sf_map.geography.persist`.
+
+`mu_forecast/` separates causal panel construction (`panel/`), optional
+model-facing predictor families (`covariates/`), and head fitting/prediction
+artifacts (`model/`). Raw reusable DAM access remains in `inputs/`; weather,
+outage exposure, and SF-derived geography are covariates because they transform
+those inputs into model features. The historical μ walk is
+`python -m compute.mu_forecast.model.runner`.
+
 ## Tests
 
 Run under the `compute` service (mounts the tree, sets `PYTHONPATH`); `--no-deps`
@@ -87,7 +101,7 @@ forecast.
 
 Both stages fit on a **trailing 240-day window**, single-sourced as `WINDOW_DAYS`
 in `compute/sf_map/config.py` (the SF map) and `DEFAULT_TRAIN_DAYS` in
-`compute/mu_forecast/mu_model.py` (μ). **Every feed obeys that same window** — the DAM
+`compute/mu_forecast/model/runner.py` (μ). **Every feed obeys that same window** — the DAM
 inputs (`ercot_dam_shadow_prices`, `ercot_dam_spp`, `dam_system_lambda`) and the
 forecast vintages the μ weather feature correlates against (zonal load, regional
 wind/solar) are all read over the same `[D − 240d, D)` span. No feed has a
