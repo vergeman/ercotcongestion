@@ -17,10 +17,10 @@ import pandas as pd
 import pytest
 
 from compute.mu_forecast.panel.availability import (
-    _dam_close_expr,
-    _vintage_cutoff_expr,
     dam_close,
+    dam_close_expr as _dam_close_expr,
     history_cutoff,
+    vintage_cutoff_expr as _vintage_cutoff_expr,
 )
 from compute.mu_forecast.panel.build import (
     BIND_DEADBAND,
