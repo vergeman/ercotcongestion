@@ -21,6 +21,11 @@ _FORWARDED_IMPORTS = {
         "solar_forecast_panel",
         "outage_panel",
         "calendar_features",
+        "net_load_regime",
+        "candidate_keys",
+        "_downcast_join",
+        "_attach_refit_features",
+        "audit_leakage",
     },
     "compute.projection.propagate": {
         "MAP_RUN_ID",
@@ -53,21 +58,22 @@ _FORWARDED_IMPORTS = {
 
 
 def test_reviewed_compatibility_aliases_are_not_imported_indirectly():
-    compute_dir = Path(__file__).parents[2]
+    repo_dir = Path(__file__).parents[3]
     violations = []
-    for path in compute_dir.rglob("*.py"):
-        if path.name.startswith(".#"):
-            continue
-        tree = ast.parse(path.read_text())
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or node.module is None:
+    for package in ("api", "compute"):
+        for path in (repo_dir / package).rglob("*.py"):
+            if path.name.startswith(".#"):
                 continue
-            aliases = _FORWARDED_IMPORTS.get(node.module, set())
-            imported = {name.name for name in node.names}
-            indirect = sorted(imported & aliases)
-            if indirect:
-                violations.append(
-                    f"{path.relative_to(compute_dir.parent)}:{node.lineno}: "
-                    f"{node.module}: {', '.join(indirect)}")
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or node.module is None:
+                    continue
+                aliases = _FORWARDED_IMPORTS.get(node.module, set())
+                imported = {name.name for name in node.names}
+                indirect = sorted(imported & aliases)
+                if indirect:
+                    violations.append(
+                        f"{path.relative_to(repo_dir)}:{node.lineno}: "
+                        f"{node.module}: {', '.join(indirect)}")
 
     assert not violations, "\n".join(violations)

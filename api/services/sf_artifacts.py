@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from compute.projection.propagate import SfMuArtifact, load_sf_mu
+from compute.projection.codecs import SfMuArtifact, load_sf_mu
 
 
 # A typical decoded daily artifact is roughly 5 MiB (dense float32 SF, hourly
