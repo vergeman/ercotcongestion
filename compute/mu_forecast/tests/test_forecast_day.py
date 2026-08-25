@@ -27,7 +27,7 @@ import pytest
 
 import compute.jobs.daily_forecast as fd
 from compute.jobs.daily_forecast import ForecastResult, forecast_day, persist_forecast
-from compute.mu_forecast.features import ct_day_bounds
+from compute.mu_forecast.panel.build import ct_day_bounds
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
 from compute.projection.propagate import NodalPanel, build_sf_mu_artifact, load_sf_mu
 
@@ -660,7 +660,7 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     artifact — while pinning the same guarantee for the code this branch owns. The
     unchanged refit path (`predict_day`/heads) is pinned by `mu_model`'s own tests.
     """
-    from compute.mu_forecast.features import build_panel
+    from compute.mu_forecast.panel.build import build_panel
     from compute.mu_forecast.mu_model import load_preds, predict_day
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
     from compute.projection.propagate import N_DRAWS, propagate_window, residual_pool

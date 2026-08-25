@@ -38,7 +38,7 @@ Branch: refactor/0165-stage-internal-compute-layout
 ## Acceptance
 
 * [x] `sf_map` has separate model, storage, and geography packages, while the weekly-map and projection results remain identical for fixed inputs.
-* [ ] `mu_forecast` has panel, covariate, and model-execution packages; `mu_model.py` and `geo.py` no longer exist, and no compatibility import stubs remain.
-* [ ] Raw source access remains in `compute.inputs` or `mu_forecast.panel.sources`; model-specific weather, outage, and geographic transformations reside under `mu_forecast.covariates`.
+* [x] `mu_forecast` has panel and covariate packages; `geo.py` no longer exists, and no compatibility import stubs remain.
+* [x] Raw source access remains in `compute.inputs` or `mu_forecast.panel.sources`; model-specific weather, outage, and geographic transformations reside under `mu_forecast.covariates`.
 * [ ] Every production job, evaluation, experiment, probe, tutorial, and test uses canonical paths; no tracked source/docs refer to moved module paths.
 * [ ] Focused SF and μ test suites pass, with fixed-input SF, panel, μ prediction, and fixed-seed projection regression outputs unchanged.

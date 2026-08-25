@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from compute import forecast_store
-from compute.mu_forecast.features import ct_day_bounds
+from compute.mu_forecast.panel.build import ct_day_bounds
 
 
 class _Copy:

@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.features import net_load_regime, system_panel
+    from compute.mu_forecast.panel.build import net_load_regime, system_panel
     from compute.mu_forecast.mu_model import load_preds
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 

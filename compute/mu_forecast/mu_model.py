@@ -48,7 +48,7 @@ from compute.mu_forecast.heads import (alloc_bind_matrix as _alloc_bind_matrix,
                               predict_mu_climatology, predict_mu_head,
                               reliability, target_encoding)
 from compute.mu_forecast.scheduling import refit_boundaries, score_chunks
-from compute.mu_forecast.features import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
+from compute.mu_forecast.panel.build import BIND_DEADBAND, ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 
 log = logging.getLogger("compute.mu_forecast.mu_model")
@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.features import build_panel
+    from compute.mu_forecast.panel.build import build_panel
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

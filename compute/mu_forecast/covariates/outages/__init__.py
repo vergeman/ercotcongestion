@@ -1,0 +1,1 @@
+"""Located outage predictor construction."""
