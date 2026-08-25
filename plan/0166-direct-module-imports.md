@@ -27,6 +27,7 @@ Branch: refactor/0166-direct-module-imports
 * Migrate API and test imports of artifact codecs to `projection.codecs`; retain only `propagate_window` and its required local dependencies in `projection.propagate`.
 * Migrate panel-engineering consumers to `panel.engineering`, then remove `panel.build`'s compatibility assignments and qualify its internal calls through the owning modules.
 * Extend the import-boundary check to scan API as well as compute and assert that removed aliases are no longer attributes of their former façade modules.
+* Point job consumers at `forecast_store`, `compute.time`, model defaults, map defaults, and sampling defaults instead of forwarding them through sibling jobs.
 * Do NOT touch: `compute/config.py`, `api/config.py`, helper algorithms, timestamp storage/CT delivery-date behavior, SQL, CLI arguments, or artifact formats.
 
 ## Acceptance
@@ -37,3 +38,4 @@ Branch: refactor/0166-direct-module-imports
 * [x] The import-boundary check fails when a newly reviewed indirect alias is imported through an intermediary module.
 * [x] `panel.build` exposes only panel-building behavior it owns, and every production or test consumer imports availability, engineering, or sources directly.
 * [x] `projection.propagate` exposes only propagation behavior it owns, and API plus test consumers import codecs directly.
+* [x] Job modules import storage, time, and operating defaults from their owning modules; only job-owned orchestration remains imported from sibling jobs.

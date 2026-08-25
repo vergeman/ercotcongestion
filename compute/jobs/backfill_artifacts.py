@@ -33,16 +33,14 @@ import pandas as pd
 import psycopg
 
 from compute.jobs.daily_forecast import (
-    DEFAULT_TRAIN_DAYS,
-    MAP_RUN_ID,
-    MAX_SF_AGE_DAYS,
-    MIN_SF_COVERAGE,
-    N_DRAWS,
-    _as_ct_day,
     arms_for,
     forecast_day,
     persist_forecast,
 )
+from compute.mu_forecast.model.runner import DEFAULT_TRAIN_DAYS
+from compute.projection.sampling import N_DRAWS
+from compute.sf_map.storage.maps import MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE
+from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.jobs.backfill_artifacts")
 
@@ -122,14 +120,14 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    lo, hi = _as_ct_day(args.start), _as_ct_day(args.end)
+    lo, hi = normalize_ct_day(args.start), normalize_ct_day(args.end)
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
     # Calendar dates, not the tz-aware CT-midnight instants themselves: `lo`/`hi`
     # carry a UTC offset that changes across a DST transition, and stepping by
     # `freq="D"` on THOSE (fixed-offset) timestamps would silently drift off CT
     # midnight the day after the transition. Iterating tz-naive dates and letting
-    # `forecast_day` (via `_as_ct_day`) re-derive each day's own CT-midnight
+    # `forecast_day` normalizes each day's own CT-midnight
     # instant keeps every day exact (0133).
     days = pd.date_range(lo.date(), hi.date(), freq="D")
     arms = arms_for(args.features)

@@ -23,14 +23,7 @@ import numpy as np
 import pandas as pd
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
-# Compatibility re-exports while external callers migrate to compute.forecast_store.
-from compute.forecast_store import (
-    FORECAST_LAYER,
-    nodal_to_db,
-    persist_sf_mu_artifact,
-    sf_artifact_to_db,
-    upsert_pointer,
-)
+from compute import forecast_store
 from compute.evaluation.mu import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.time import delivery_date_of
 from compute.projection.codecs import (
@@ -360,12 +353,12 @@ def main(argv: list[str] | None = None) -> int:
         # run is (re)written and the pointer flipped LAST, one transaction, so a
         # reader never sees a half-loaded run (same discipline as --to-db).
         with psycopg.connect(dsn) as conn:
-            n = nodal_to_db(args.load_nodal_npz, conn, run_id=args.run_id)
-            upsert_pointer(conn, FORECAST_LAYER, args.run_id)
+            n = forecast_store.nodal_to_db(args.load_nodal_npz, conn, run_id=args.run_id)
+            forecast_store.upsert_pointer(conn, forecast_store.FORECAST_LAYER, args.run_id)
             conn.commit()
         log.info("forecast_nodal <- %s rows from %s (run_id=%s); "
                  "forecast_current[%s] -> %s", n, args.load_nodal_npz, args.run_id,
-                 FORECAST_LAYER, args.run_id)
+                 forecast_store.FORECAST_LAYER, args.run_id)
         return 0
 
     log.info("loading residual pool from %s", args.preds)
@@ -425,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             frames.append(materialize_drivers(art, args.drivers_k).assign(
                 delivery_date=day))
             if conn is not None:
-                persist_sf_mu_artifact(conn, art.SF, art.E_mu,
+                forecast_store.persist_sf_mu_artifact(conn, art.SF, art.E_mu,
                                        run_id=args.run_id, delivery_date=day)
         if conn is not None:
             conn.commit()
@@ -441,11 +434,11 @@ def main(argv: list[str] | None = None) -> int:
         # Load the panel just written to disk, then flip the pointer LAST — one
         # transaction, so a reader never sees a half-written run.
         with psycopg.connect(dsn) as conn:
-            n = nodal_to_db(args.nodal_out, conn, run_id=args.run_id)
-            upsert_pointer(conn, FORECAST_LAYER, args.run_id)
+            n = forecast_store.nodal_to_db(args.nodal_out, conn, run_id=args.run_id)
+            forecast_store.upsert_pointer(conn, forecast_store.FORECAST_LAYER, args.run_id)
             conn.commit()
         log.info("forecast_nodal <- %s rows (run_id=%s); forecast_current[%s] -> %s",
-                 n, args.run_id, FORECAST_LAYER, args.run_id)
+                 n, args.run_id, forecast_store.FORECAST_LAYER, args.run_id)
     return 0
 
 
