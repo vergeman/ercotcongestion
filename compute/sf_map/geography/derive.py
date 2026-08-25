@@ -376,7 +376,7 @@ def coverage_by_mu_mass(M: pd.DataFrame, geo: pd.DataFrame,
     often enough to be fitted. Reporting key count here would understate the arm;
     reporting μ-mass says what the score is actually made of.
     """
-    from from compute.mu_forecast.panel.availability import delivery_day_of
+    from compute.mu_forecast.panel.availability import delivery_day_of
 
     # The located set is keyed by delivery day. `geo` carries `geo_lat` only when
     # the week's SF actually placed the constraint.
@@ -414,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from from compute.mu_forecast.panel.availability import delivery_day_of
+    from compute.mu_forecast.panel.availability import delivery_day_of
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
