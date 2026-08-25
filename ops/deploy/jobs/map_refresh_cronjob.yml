@@ -21,7 +21,7 @@
 # landed) is included; days not yet ingested contribute nothing and the runner
 # clips --end to available data. The --window-days 240 / --refit-days 7 /
 # --ridge-lambda 1.0 / --min-binding-hours 25 flags are belt-and-suspenders:
-# they equal the module defaults (compute.sf.config, the single operating point
+# they equal the module defaults (compute.sf_map.config, the single operating point
 # shared with the forecast). Kept explicit so the served point is legible here.
 #
 # Hand-run / backfill on the identical path:
@@ -95,9 +95,9 @@ spec:
                     --ridge-lambda 1.0 --min-binding-hours 25 \
                     --persist-sf --chunk-weeks 32
 
-                  python -m compute.sf.geo_persist --run-id map-v1
+                  python -m compute.sf_map.geo_persist --run-id map-v1
 
-                  python -m compute.sf.eval \
+                  python -m compute.evaluation.sf \
                     --run-id map-v1 \
                     --start 2024-12-25 --end "${END}" \
                     --window-days 240 --refit-days 7 \

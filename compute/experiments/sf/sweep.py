@@ -3,7 +3,7 @@
 Selection target changed (S1.4): the old sweep sorted on ``bp_max`` and reported
 in-sample ``mean_r2`` — an in-sample DOF curve, monotone in ``n_kept``, i.e.
 cosmetics. The config was never picked against anything held out. This version
-ranks on the honest out-of-window metrics from ``compute.sf.eval`` (default the
+ranks on the honest out-of-window metrics from ``compute.evaluation.sf`` (default the
 oracle-μ pooled R², the SF map's ceiling), so the operating point is chosen on
 what the pivot actually needs.
 
@@ -42,8 +42,8 @@ import pandas as pd
 import psycopg
 
 from compute.config import PG_DSN
-from compute.sf.eval import evaluate, sf_decay
-from compute.sf.panels import load_congestion_panel, load_shadow_prices
+from compute.evaluation.sf import evaluate, sf_decay
+from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.sweep")
 

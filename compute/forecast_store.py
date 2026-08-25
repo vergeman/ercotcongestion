@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from compute.time import ct_day_bounds, delivery_date_of
-from compute.sf.project import build_sf_mu_artifact, load_nodal
+from compute.projection.propagate import build_sf_mu_artifact, load_nodal
 
 log = logging.getLogger(__name__)
 

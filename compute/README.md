@@ -9,13 +9,16 @@ a new input source.
 | Area | Use it for | Main entry points |
 |---|---|---|
 | `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_day` |
-| `sf/` | Production shift-factor fit, map reads, projection, and evaluation | imported by jobs; `geo_persist`, `eval` |
-| `mu/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; `mu_model`, `score` |
+| `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
+| `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs; legacy `sf/` façades remain |
+| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs; legacy `mu/` façades remain |
+| `projection/` | μ sampling, SF projection, nodal panels, and forecast artifacts | imported by forecast/backfill/API paths |
+| `evaluation/` | SF/μ OOS measures and ESSP validation | imported by map/grade jobs |
 | `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
 | `probes/` | External-data feasibility gates | optional, never called by cronjobs |
 
-Legacy `compute.sf.*` and `compute.mu.*` experiment/probe commands remain as
-compatibility launchers; use the paths under `experiments/` and `probes/` for new work.
+The old `compute.sf/` and `compute.mu/` packages have been removed. New library
+imports and CLI commands use the stage packages above.
 
 ## Tests
 
@@ -27,10 +30,10 @@ skips the DB container since the suites don't need it:
 docker compose run --rm --no-deps compute python -m pytest /compute -q
 
 # just the SF + μ suites
-docker compose run --rm --no-deps compute python -m pytest /compute/sf/tests /compute/mu/tests -q
+docker compose run --rm --no-deps compute python -m pytest /compute/sf_map/tests /compute/mu_forecast/tests -q
 
 # a single file / test
-docker compose run --rm --no-deps compute python -m pytest /compute/mu/tests/test_forecast_day.py -q
+docker compose run --rm --no-deps compute python -m pytest /compute/mu_forecast/tests/test_forecast_day.py -q
 ```
 
 ## Runbook — build & deploy the μ forecast
@@ -160,9 +163,9 @@ does not already have.
 ```
 MAP_RUN_ID=map-v1
 
-python -m compute.sf.geo_persist --run-id map-v1
+python -m compute.sf_map.geo_persist --run-id map-v1
 
-python -m compute.sf.eval --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
+python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
     --window-days 240 --refit-days 7 --ridge-lambda 1.0 --min-binding-hours 25 --persist-eval
 ```
 
@@ -183,7 +186,7 @@ its own run ID, `map-v1`.
 
 `--run-id` is the canonical namespace (plan/0113): `mu_model` derives its outputs
 under `runs/<run-id>/mu/` (`mu_weekly.csv`, `mu_preds.npz`) and creates that tree
-itself — no `ART_DIR` / `mkdir`. `compute.mu.score` has no `--run-id`, so point it at
+itself — no `ART_DIR` / `mkdir`. `compute.evaluation.mu` has no `--run-id`, so point it at
 the same derived paths explicitly; it writes `mu/mu_score_weekly.csv` (the *score*
 schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output).
 
@@ -196,10 +199,10 @@ schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output
 RUN_ID=mu-all-v1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.mu.mu_model --run-id ${RUN_ID} \
+python -m compute.mu_forecast.mu_model --run-id ${RUN_ID} \
     --start 2025-01-01 --end <YYYY-MM-DD>
 
-python -m compute.mu.score \
+python -m compute.evaluation.mu \
     --preds /compute/runs/${RUN_ID}/mu/mu_preds.npz \
     --out   /compute/runs/${RUN_ID}/mu/mu_score_weekly.csv \
     --start 2025-01-01 --end <YYYY-MM-DD>

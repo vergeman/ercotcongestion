@@ -922,7 +922,7 @@ class MatrixFrame(BaseModel):
     contribution_day_max_abs: float = 0.0
     # The fit's |SF| clip. Cells sitting exactly here were pinned by the ridge
     # rather than measured, and the client marks them; sent so the threshold has
-    # one source (compute.sf.fit.SF_ABS_CAP) instead of a hardcoded 1.0 on both
+    # one source (compute.sf_map.fit.SF_ABS_CAP) instead of a hardcoded 1.0 on both
     # sides of the wire.
     sf_abs_cap: float = 0.0
     rows: list[MatrixRow] = []
@@ -1204,7 +1204,7 @@ class MapSummaryResponse(BaseModel):
 #        not an hourly series, so a day's values repeat across its 24 hourly
 #        entries. `fuel` is one of gas/wind/solar/coal/other/hydro, plus
 #        `"total"`. `forecast_mw` is the D-1-admissible vintage (mirrors
-#        compute.mu.outage.exposure's leak boundary) summed over still-
+#        compute.mu_forecast.outage.exposure's leak boundary) summed over still-
 #        expected-out events; `actual_mw` is the newest vintage through the
 #        day itself, summed over genuinely-active-at-that-hour events.
 

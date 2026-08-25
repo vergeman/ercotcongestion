@@ -133,7 +133,7 @@ def resolve_board_paths(run_id: str, score: str | None, bands: str | None,
     """Default the score/bands CSVs to `run_id`'s canonical `runs/<run-id>/` paths.
 
     The score CSV is a μ-stage artifact (`mu/mu_score_weekly.csv`, the score schema
-    `compute.mu.score` writes — NOT `mu_weekly.csv`, which is `mu_model`'s
+    `compute.evaluation.mu` writes — NOT `mu_weekly.csv`, which is `mu_model`'s
     calibration output); the bands CSV is the forecast-stage output
     (`forecast/mu_bands_weekly.csv`, `backfill_nodal --out`). Explicit `--score` /
     `--bands` always win.

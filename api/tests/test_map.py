@@ -20,7 +20,7 @@ from fastapi import HTTPException
 import pandas as pd
 
 import map as map_module
-from compute.sf.project import build_sf_mu_artifact
+from compute.projection.propagate import build_sf_mu_artifact
 from models import MapMeta, MapOverview, ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
@@ -510,7 +510,7 @@ def _ranked_blob():
     (+0.8) vs N2 source (−0.6); N3 (+0.01) sits below the 0.05·peak floor.
     """
     import pandas as pd
-    from compute.sf.project import build_sf_mu_artifact
+    from compute.projection.propagate import build_sf_mu_artifact
 
     SF = pd.DataFrame(
         {"N1": [0.8, 0.2], "N2": [-0.6, 0.0], "N3": [0.01, 0.5]},
@@ -607,7 +607,7 @@ def test_meta_reports_configured_run(real_client):
     body = r.json()
     assert body["run_id"] == "map-v1"
     assert body["fit_r2"] is not None
-    # backfilled by compute.sf.eval (0003 Commit D)
+    # backfilled by compute.evaluation.sf (0003 Commit D)
     assert body["oos_r2"] is not None
     assert body["coverage"] is not None
     assert body["sf_stability"] is not None

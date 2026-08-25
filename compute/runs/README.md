@@ -37,10 +37,10 @@ compute/runs/<run_id>/
     zones_<ref>_<algo>_k<K>.geojson             # optional cluster polygons
   sf/
     diagnostics_YYYYMMDD.json                   # one per refit boundary: R², kept/dropped constraints, n_sf_clipped
-    eval.csv                                     # honest out-of-window eval (compute.sf.eval)
+    eval.csv                                     # honest out-of-window eval (compute.evaluation.sf)
   mu/                                           # the μ forecast stage (plan/0113)
     mu_weekly.csv                               # mu_model --out: walk calibration metrics (brier/ece/mae_mu_*)
-    mu_score_weekly.csv                         # compute.mu.score: score currencies (source/regime/pooled_r2 …)
+    mu_score_weekly.csv                         # compute.evaluation.mu: score currencies (source/regime/pooled_r2 …)
     mu_preds.npz                                # mu_model --preds-out: predictions / residual pool
     spill/                                      # on-disk bind-matrix / panel spill (transient)
   forecast/                                     # the nodal-projection stage (plan/0113)

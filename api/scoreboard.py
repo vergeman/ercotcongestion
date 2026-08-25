@@ -55,7 +55,7 @@ def _server_selected_run() -> None:
 # so the client reads model → its delta → the ceiling.
 _SOURCES = ("model", "persistence", "climatology", "oracle")
 
-# The RTC+B structural break (compute.mu.score.RTC_B) — pooled stats are split on
+# The RTC+B structural break (compute.evaluation.mu.RTC_B) — pooled stats are split on
 # it so the post-cutover number can't be laundered into the pooled figure (§5).
 RTC_B_CUTOVER = date(2025, 12, 5)
 

@@ -6,7 +6,7 @@ point panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-
 `forecast_nodal` and flip `forecast_current[ercot]`, plus the pre-registered R5
 gate. Shared DB writers live in `compute.forecast_store`; they remain imported here
 as temporary compatibility re-exports. The projection math it drives lives in
-`compute.sf.project`.
+`compute.projection.propagate`.
 
     docker compose run --rm compute python -m compute.jobs.backfill_nodal \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_bands_weekly.csv
@@ -30,9 +30,9 @@ from compute.forecast_store import (
     sf_artifact_to_db,
     upsert_pointer,
 )
-from compute.mu.score import REFIT_DAYS, RTC_B, weeks_from_preds
+from compute.evaluation.mu import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.time import delivery_date_of
-from compute.sf.project import (
+from compute.projection.propagate import (
     DRIVERS_K,
     DRIVERS_MAX_DAYS,
     MAP_RUN_ID,
@@ -67,7 +67,7 @@ def preds_path_for(run_id: str) -> str:
 def scores_path_for(run_id: str) -> str:
     """The μ weekly score CSV for `run_id` — `runs/<run_id>/mu/mu_score_weekly.csv`.
 
-    The per-(week × source × regime) currencies `compute.mu.score` writes and `r5`
+    The per-(week × source × regime) currencies `compute.evaluation.mu` writes and `r5`
     reads. A μ-stage artifact (score schema: source/regime/pooled_r2/…), so it lives
     under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
     which is `mu_model`'s calibration output."""
@@ -269,8 +269,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu.mu_model import load_preds
-    from compute.sf.panels import load_congestion_panel, load_shadow_prices
+    from compute.mu_forecast.mu_model import load_preds
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--preds", default=None,

@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import matrix as matrix_module
-from compute.sf.project import build_sf_mu_artifact
+from compute.projection.propagate import build_sf_mu_artifact
 
 
 T0 = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)  # midnight Central

@@ -49,30 +49,30 @@ import psycopg
 
 from compute.config import PG_DSN
 
-from compute.sf.config import (
+from compute.sf_map.config import (
     REFIT_DAYS as DEFAULT_REFIT_DAYS,
     WINDOW_DAYS as DEFAULT_WINDOW_DAYS,
 )
-from compute.sf.diagnostics import diagnostics_filename, refit_diagnostics
-from compute.sf.fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
-from compute.sf.panels import (
+from compute.sf_map.diagnostics import diagnostics_filename, refit_diagnostics
+from compute.sf_map.fit import MIN_BINDING_HOURS, RIDGE_LAMBDA, STD_FLOOR
+from compute.inputs.dam import (
     load_congestion_panel, load_shadow_prices, panel_bounds,
 )
-from compute.sf.persist import (
+from compute.sf_map.persist import (
     check_ref_method,
     copy_sf_rows,
     delete_sf_run,
     existing_sf_windows,
     write_window_meta,
 )
-from compute.sf.rolling import RefitWindow, fit_refit_window, rolling_sf
+from compute.sf_map.rolling import RefitWindow, fit_refit_window, rolling_sf
 
 log = logging.getLogger("compute.jobs.weekly_map")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
-# Window/refit cadence come from the adopted operating point (`compute.sf.config`,
+# Window/refit cadence come from the adopted operating point (`compute.sf_map.config`,
 # imported above): window=240 / refit=7 with λ=1.0 (fit.RIDGE_LAMBDA), the honest
 # OOS re-sweep's selection (plan/0082 S1.5), single-sourced with the μ forecast.
 DEFAULT_REF_METHOD = "system_lambda"

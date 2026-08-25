@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from compute.mu.outage.crosswalk import GATE_C_BUILD, GATE_C_DEAD, coverage, load_crosswalk, verdict
+from compute.mu_forecast.outage.crosswalk import GATE_C_BUILD, GATE_C_DEAD, coverage, load_crosswalk, verdict
 from compute.probes.outage_feed import archive_index, fetch_report, settlement_points
 
 
