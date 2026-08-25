@@ -53,7 +53,7 @@ from compute.jobs.grade_day import (
 from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
 from compute.mu_forecast.panel.build import ERCOT_TZ, build_panel, ct_day_bounds
 from compute.time import normalize_ct_day
-from compute.mu_forecast.mu_model import (
+from compute.mu_forecast.model.runner import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
     load_preds,

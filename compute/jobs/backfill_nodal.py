@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.mu_model import load_preds
+    from compute.mu_forecast.model.runner import load_preds
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

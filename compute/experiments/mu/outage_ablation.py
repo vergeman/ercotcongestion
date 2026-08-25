@@ -40,7 +40,7 @@ from compute.evaluation import mu as score_mod
 from compute.experiments.mu.feature_ablation import (
     PERSISTENCE_TOPDEC, PRODUCT_TOPDEC, _row, check_baselines_identical, run_arm,
 )
-from compute.mu_forecast.mu_model import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
+from compute.mu_forecast.model.runner import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, feature_cols)
 
 log = logging.getLogger("compute.experiments.mu.outage_ablation")

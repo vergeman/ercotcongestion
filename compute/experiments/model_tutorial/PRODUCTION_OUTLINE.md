@@ -51,7 +51,7 @@ stage packages for library imports and CLI commands.
 | Weekly, after map | `python -m compute.sf_map.geography.derive.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, samples and projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
-| Historical rebuild | `python -m compute.mu_forecast.mu_model` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
+| Historical rebuild | `python -m compute.mu_forecast.model.runner` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
 | Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
 | Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF, makes nodal panels/bands, and evaluates the product gate. | nodal artifacts, band metrics |
 | Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |

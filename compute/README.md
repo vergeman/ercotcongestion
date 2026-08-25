@@ -199,7 +199,7 @@ schema — a different file from `mu_model`'s `mu_weekly.csv` calibration output
 RUN_ID=mu-all-v1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.mu_forecast.mu_model --run-id ${RUN_ID} \
+python -m compute.mu_forecast.model.runner --run-id ${RUN_ID} \
     --start 2025-01-01 --end <YYYY-MM-DD>
 
 python -m compute.evaluation.mu \

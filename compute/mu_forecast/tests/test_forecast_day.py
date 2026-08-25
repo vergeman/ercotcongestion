@@ -661,7 +661,7 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     unchanged refit path (`predict_day`/heads) is pinned by `mu_model`'s own tests.
     """
     from compute.mu_forecast.panel.build import build_panel
-    from compute.mu_forecast.mu_model import load_preds, predict_day
+    from compute.mu_forecast.model.runner import load_preds, predict_day
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
     from compute.projection.propagate import N_DRAWS, propagate_window, residual_pool
 
