@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from compute.projection.propagate import load_sf_mu
+from compute.projection.codecs import load_sf_mu
 
 
 def rollup_rows(artifact) -> list[tuple[str, float, int]]:

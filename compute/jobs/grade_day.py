@@ -58,7 +58,8 @@ from compute.evaluation.sf import predict
 from compute.evaluation.essp import score_final_essp
 from compute.sf_map.model.fit import implied_shift_factors
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-from compute.projection.propagate import band_metrics, load_sf_mu
+from compute.projection.codecs import load_sf_mu
+from compute.projection.sampling import band_metrics
 
 log = logging.getLogger(__name__)
 

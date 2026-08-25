@@ -66,17 +66,18 @@ from compute.inputs.dam import (
     load_congestion_panel,
     load_shadow_prices,
 )
-from compute.projection.propagate import (
-    MAP_RUN_ID,
-    MAX_SF_AGE_DAYS,
-    MIN_SF_COVERAGE,
-    N_DRAWS,
+from compute.projection.codecs import (
     NodalPanel,
     _NodalAccumulator,
     build_sf_mu_artifact,
+)
+from compute.projection.propagate import propagate_window
+from compute.projection.sampling import N_DRAWS, residual_pool
+from compute.sf_map.storage.maps import (
+    MAP_RUN_ID,
+    MAX_SF_AGE_DAYS,
+    MIN_SF_COVERAGE,
     load_forecast_sf,
-    propagate_window,
-    residual_pool,
     resolve_sf_window,
 )
 

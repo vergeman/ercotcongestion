@@ -1,7 +1,7 @@
 import pandas as pd
 
 from compute.analysis.forecast_mu import forecast_mu_rows
-from compute.projection.propagate import SfMuArtifact
+from compute.projection.codecs import SfMuArtifact
 
 
 def test_forecast_mu_rows_returns_every_requested_fit_value():

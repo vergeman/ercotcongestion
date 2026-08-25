@@ -11,12 +11,22 @@ from compute.forecast_store import (
 )
 from compute.jobs.backfill_nodal import existence_test, gate, walk
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
-from compute.projection.propagate import (
-    DRIVERS_MAX_DAYS, NodalPanel, SfMuArtifact, _NodalAccumulator, band_metrics,
-    build_sf_mu_artifact, draw_congestion, load_nodal, load_sf_mu,
-    materialize_drivers, node_drivers, parse_curated_days, propagate_window,
-    residual_pool, save_sf_mu, sf_mass_coverage,
+from compute.projection.codecs import (
+    DRIVERS_MAX_DAYS,
+    NodalPanel,
+    SfMuArtifact,
+    _NodalAccumulator,
+    build_sf_mu_artifact,
+    load_nodal,
+    load_sf_mu,
+    materialize_drivers,
+    node_drivers,
+    parse_curated_days,
+    save_sf_mu,
 )
+from compute.projection.propagate import propagate_window
+from compute.projection.sampling import band_metrics, draw_congestion, residual_pool
+from compute.sf_map.storage.maps import sf_mass_coverage
 
 RNG = np.random.default_rng(11)
 KEYS = [f"C{i}|X" for i in range(5)]

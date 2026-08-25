@@ -33,20 +33,17 @@ from compute.forecast_store import (
 )
 from compute.evaluation.mu import REFIT_DAYS, RTC_B, weeks_from_preds
 from compute.time import delivery_date_of
-from compute.projection.propagate import (
+from compute.projection.codecs import (
     DRIVERS_K,
     DRIVERS_MAX_DAYS,
-    MAP_RUN_ID,
-    N_DRAWS,
     SfMuArtifact,
     _NodalAccumulator,
-    load_window_sf,
     materialize_drivers,
     parse_curated_days,
-    propagate_window,
-    residual_pool,
-    resolve_sf_window,
 )
+from compute.projection.propagate import propagate_window
+from compute.projection.sampling import N_DRAWS, residual_pool
+from compute.sf_map.storage.maps import MAP_RUN_ID, load_window_sf, resolve_sf_window
 
 log = logging.getLogger("compute.jobs.backfill_nodal")
 

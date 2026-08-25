@@ -3,7 +3,7 @@ from datetime import date
 import pandas as pd
 
 from compute.jobs.forecast_history import persist_rollup, rollup_rows
-from compute.projection.propagate import SfMuArtifact
+from compute.projection.codecs import SfMuArtifact
 
 
 def _artifact():
