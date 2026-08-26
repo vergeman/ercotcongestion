@@ -25,24 +25,69 @@ def target_encoding(train: pd.DataFrame) -> tuple[pd.Series, float]:
     Returns `(per-key rate, pooled mean)`. The pooled mean is the fallback for a
     key the training window never saw — the honest answer for a constraint we know
     nothing about is "whatever a typical constraint does".
+
+    Toy working example to visualize commands below.
+
+train:
+                                              net_load  hour       y_mu  y_bind
+interval_ts               key
+2025-07-01 00:00:00+00:00 north_line  52001.845230     0        NaN       0
+                          west_line   52001.845230     0        NaN       0
+                          coast_line  52001.845230     0        NaN       0
+2025-07-01 01:00:00+00:00 north_line  55553.946847     1        NaN       0
+                          west_line   55553.946847     1  20.390796       1
+...                                            ...   ...        ...     ...
+2025-08-09 22:00:00+00:00 west_line   47212.614390    22        NaN       0
+                          coast_line  47212.614390    22        NaN       0
+2025-08-09 23:00:00+00:00 north_line  48416.955499    23        NaN       0
+                          west_line   48416.955499    23        NaN       0
+                          coast_line  48416.955499    23        NaN       0
+
+    return per key hours soothed k / n, and pooled_rate
+    "smoothed fraction of hours each key bound, one value per key."
+
+    key
+    coast_line    0.295593
+    north_line    0.387672
+    west_line     0.489652
+    Name: y_bind, dtype: float32
     """
     grouped = train.groupby(level="key")["y_bind"]
+
+    # n: count: num of rows (bind + non-bind) - "trials"
+    # k: sum: # of bind hours - "successes"
+    # n,k are Series, grouped by key.
+    #
+    # (Pdb) grouped.sum()
+    # key
+    # coast_line    279
+    # north_line    372
+    # west_line     475
+    # Name: y_bind, dtype: int64
+
     n, k = grouped.count(), grouped.sum()
+
+    # mean() = sum() / count
+    # total binding hours / total hours, per constraint
+    # pooled: pools all the rows together - notime, no key distinction - just y_bind
+    # pooled here is a single value (not grouped)
     pooled = float(train["y_bind"].mean()) if len(train) else 0.0
+
+    # returning a smoothed result
+    # not smoothed: return (k / n) binding hours / total hours
+    # smoothing: add PRIOR_STRENGTH - ghost rows to add extra observations of
+    # binding / total
+    #
+    # when adding PRIOR_STRENGTH * pooled - apply same binding percentage to
+    # extra obsevations why, because when k and n is small, we get biased
+    # binding. If sample is large, the k gets swallowed up in total. each n and
+    # k get's
     return ((k + PRIOR_STRENGTH * pooled) / (n + PRIOR_STRENGTH)).astype("float32"), pooled
 
 
 def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float,
                    columns: list[str] | None = None) -> pd.DataFrame:
     """Attach the target-encoded `key_bind_rate`, on a copy of the fold.
-
-    `columns` slims that copy to the columns the walk will actually read. The
-    ablation panel carries **every** arm's columns (~90), but a single arm's fold
-    consumes only its own features plus the two targets (~50) — copying all 90 per
-    fold was a ~2x-wider allocation than the walk uses, and per-fold copies are the
-    peak-memory line of the walk. Under copy-on-write `panel[columns]` shares data
-    until `.copy()`, so this stays a single slim materialisation rather than two.
-    `columns=None` keeps the old whole-fold behaviour for callers that want it.
     """
     out = (panel if columns is None else panel[columns]).copy()
     keys = out.index.get_level_values("key")
@@ -90,10 +135,13 @@ def alloc_bind_matrix(shape: tuple[int, int], spill_dir: str | None) -> np.ndarr
 
 def fit_bind_head(x: np.ndarray, y: np.ndarray,
                   seed: int = 0) -> HistGradientBoostingClassifier:
-    """Gradient-boosted classifier. NaN goes in natively — see `build_panel`'s note
-    on why the covariate holes must not be filled. `x` is the fold's float64 feature
-    matrix from `fold_matrix`, built by the caller so the float32 fold copy is freed
-    before this fit; positional columns, so the caller keeps `cols` order stable."""
+    """Histogram Gradient-boosted classifier. NaN goes in natively — see
+    `build_panel`'s note on why the covariate holes must not be filled. `x` is
+    the fold's float64 feature matrix from `fold_matrix`, built by the caller
+    so the float32 fold copy is freed before this fit; positional columns, so
+    the caller keeps `cols` order stable.
+
+    """
     model = HistGradientBoostingClassifier(
         max_iter=200, learning_rate=0.06, max_leaf_nodes=31,
         min_samples_leaf=100, l2_regularization=1.0,
