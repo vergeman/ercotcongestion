@@ -684,7 +684,7 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
 
     monkeypatch.setattr(map_module, "get_map_overview", _fake("overview", OVERVIEW))
     monkeypatch.setattr(map_module, "get_map_meta", _fake("meta", META))
-    monkeypatch.setattr(map_module, "get_scoreboard_headline", _fake("headline", HEADLINE))
+    monkeypatch.setattr(map_module, "build_headline", _fake("headline", HEADLINE))
     monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
@@ -713,7 +713,7 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
 
     monkeypatch.setattr(map_module, "get_map_overview", _unavailable)
     monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
-    monkeypatch.setattr(map_module, "get_scoreboard_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(map_module, "build_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
@@ -732,7 +732,7 @@ def test_summary_does_not_soft_fail_a_topology_build_error(monkeypatch):
     that instead of inventing a new empty state for it."""
     monkeypatch.setattr(map_module, "get_map_overview", lambda *a: OVERVIEW)
     monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
-    monkeypatch.setattr(map_module, "get_scoreboard_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(map_module, "build_headline", lambda *a: HEADLINE)
 
     def _broken():
         raise RuntimeError("topology cache build failed")

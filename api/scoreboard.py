@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
@@ -32,8 +32,6 @@ from dependencies import server_selected_run as _server_selected_run
 from schemas.common import BootstrapSectionStatus
 from schemas.scoreboard import (
     DailyPoint,
-    HeadlineCurrency,
-    HeadlineWindow,
     ScoreboardDaily,
     ScoreboardHeadline,
     ScoreboardSummaryResponse,
@@ -43,6 +41,7 @@ from schemas.scoreboard import (
     WeeklySplit,
 )
 from services.bootstrap import availability_status, soft_fail
+from services.scoreboard_headline import build_headline
 
 log = logging.getLogger(__name__)
 
@@ -66,79 +65,6 @@ _POOL_METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_h
 # (top-decile / rank / sign); pooled_r2 rides along as the magnitude diagnostic.
 # All four are higher-is-better, so a positive persistence delta is the model
 # winning. mae (lower-is-better magnitude) is deliberately left to the full board.
-_CURRENCIES: tuple[tuple[str, bool], ...] = (
-    ("topdecile_hit", True),
-    ("rank_spearman", True),
-    ("sign_agree", True),
-    ("pooled_r2", True),
-)
-
-# Trailing windows, in days. Weekly rows land ~7 days apart, so 30d ≈ 4–5 weeks
-# and 90d ≈ 13 weeks.
-_WINDOWS = (30, 90)
-
-
-def _wmean(pairs: list[tuple[float | None, float | None]]) -> float | None:
-    """n_hours-weighted mean, skipping NULL values / weights. None if nothing to
-    pool — so a currency a source never scored in the window comes back None
-    rather than 0 (a flat/declined cell must not read as a real score, §6)."""
-    num = 0.0
-    den = 0.0
-    for value, weight in pairs:
-        if value is None or not weight:
-            continue
-        num += value * weight
-        den += weight
-    return num / den if den else None
-
-
-def _build_windows(rows: list[dict], as_of: date) -> list[HeadlineWindow]:
-    """Roll the weekly rows into the trailing 30/90-day tiles."""
-    windows: list[HeadlineWindow] = []
-    for wdays in _WINDOWS:
-        lo = as_of - timedelta(days=wdays)
-        in_window = [r for r in rows if lo <= r["week"] <= as_of]
-        weeks = sorted({r["week"] for r in in_window})
-
-        currencies: list[HeadlineCurrency] = []
-        for name, higher in _CURRENCIES:
-            # Pool each source separately over its own weekly cells + n_hours.
-            pooled: dict[str, float | None] = {}
-            for src in _SOURCES:
-                pooled[src] = _wmean(
-                    [(r[name], r["n_hours"]) for r in in_window if r["source"] == src]
-                )
-            model = pooled["model"]
-            persistence = pooled["persistence"]
-            delta = (
-                model - persistence
-                if model is not None and persistence is not None
-                else None
-            )
-            currencies.append(
-                HeadlineCurrency(
-                    currency=name,
-                    higher_is_better=higher,
-                    model=model,
-                    persistence=persistence,
-                    climatology=pooled["climatology"],
-                    oracle=pooled["oracle"],
-                    persistence_delta=delta,
-                )
-            )
-
-        windows.append(
-            HeadlineWindow(
-                window_days=wdays,
-                weeks=len(weeks),
-                week_start=weeks[0] if weeks else as_of,
-                week_end=weeks[-1] if weeks else as_of,
-                currencies=currencies,
-            )
-        )
-    return windows
-
-
 def _resolve_run_id(cur, run_id: str | None) -> str:
     """Resolve the most recent board (max week).
     Raises 503 when scoreboard_weekly is empty (no board loaded), matching the
@@ -170,38 +96,7 @@ def get_scoreboard_headline(
         description="Regime slice — `all` or a net-load quintile / named regime.",
     ),
 ) -> ScoreboardHeadline:
-    pool = get_pool()
-    with pool.connection() as conn:
-        with conn.cursor(row_factory=dict_row) as cur:
-            run_id = _resolve_run_id(cur, run_id)
-            cur.execute(
-                """
-                SELECT week, source, n_hours,
-                       topdecile_hit, rank_spearman, sign_agree, pooled_r2
-                FROM scoreboard_weekly
-                WHERE run_id = %s AND regime = %s AND source = ANY(%s)
-                ORDER BY week
-                """,
-                (run_id, regime, list(_SOURCES)),
-            )
-            rows = cur.fetchall()
-
-    if not rows:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"no scoreboard_weekly rows for run_id={run_id} regime={regime}. "
-                "Load the board first (compute.jobs.load_scoreboard)."
-            ),
-        )
-
-    as_of = max(r["week"] for r in rows)
-    return ScoreboardHeadline(
-        run_id=run_id,
-        regime=regime,
-        as_of_week=as_of,
-        windows=_build_windows(rows, as_of),
-    )
+    return build_headline(run_id, regime)
 
 
 def _mean(rows: list[dict], key: str) -> float | None:

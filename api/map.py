@@ -63,7 +63,6 @@ from schemas.map import (
     ReachSp,
     SpExposure,
 )
-from scoreboard import get_scoreboard_headline
 from services.bootstrap import availability_status, soft_fail
 from services.constraint_keys import normalize_constraint_key
 from services.sf_artifacts import (
@@ -73,6 +72,7 @@ from services.sf_artifacts import (
 )
 from services.settlement_points import coordinates as settlement_point_coordinates
 from services.settlement_points import metadata as settlement_point_metadata
+from services.scoreboard_headline import build_headline
 from services.topology_builder import get_or_build_topology
 
 router = APIRouter(prefix="/map")
@@ -842,7 +842,7 @@ def get_map_summary() -> MapSummaryResponse:
     with ThreadPoolExecutor(max_workers=3) as pool:
         overview = pool.submit(soft_fail, lambda: get_map_overview(70, 6, 0.15))
         meta = pool.submit(soft_fail, get_map_meta)
-        headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None, "all"))
+        headline = pool.submit(soft_fail, lambda: build_headline(None, "all"))
         topology = get_or_build_topology()
         overview_result = overview.result()
         meta_result = meta.result()
