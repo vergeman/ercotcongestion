@@ -36,6 +36,7 @@ Branch: refactor/0167-api-route-module-boundaries
 * [ ] `analysis`, `map`, and schema modules are split by domain, with root-mounted routes, tags, request parameters, response models, and JSON payloads unchanged.
 * [x] One shared implementation owns each duplicated UTC/CT rule, constraint-key parser, server-selected-run dependency, settlement-point metadata cache, bootstrap soft-fail, and bootstrap availability status.
 * [x] Production route modules import schemas through domain-specific `api/schemas/` modules while `api/models.py` remains the temporary compatibility source.
+* [x] Map bootstrap calls the Scoreboard headline service directly rather than invoking its decorated route handler.
 * [ ] Brief and Map/Scoreboard composition call non-route service functions; no composition path passes FastAPI `Query(...)` sentinel defaults to another handler.
 * [ ] Matrix, Map, and Analysis retain their current artifact availability, horizon, CT delivery-date, interval-gate, and nearest-past fallback behavior.
 * [ ] Schema definitions resolve from their owning modules, with `api/models.py` reduced to compatibility exports only where migration requires them.
