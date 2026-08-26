@@ -50,13 +50,13 @@ from __future__ import annotations
 
 import bisect
 import logging
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
+from services.time import CENTRAL, coerce_utc
 
 from models import (
     ConditionsEntry,
@@ -69,8 +69,6 @@ from models import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-CENTRAL = ZoneInfo("America/Chicago")
 
 WEATHER_ZONES = (
     "coast", "east", "far_west", "north",
@@ -96,14 +94,8 @@ def _bucket_of(fuel_type: str | None) -> str:
     return FUEL_BUCKETS.get(fuel_type or "", "other")
 
 
-def _coerce_utc(ts: datetime) -> datetime:
-    if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc)
-
-
 def _ct_date(ts: datetime) -> date:
-    return ts.astimezone(CENTRAL).date()
+    return coerce_utc(ts).astimezone(CENTRAL).date()
 
 
 def _vintage_on_or_before(posted_sorted: list[date], target: date) -> date | None:
@@ -145,8 +137,8 @@ def _load_rows(cur, start_u: datetime, end_u: datetime):
 
 
 def _load_by_ts(actual_rows, forecast_rows) -> dict[datetime, list[ZoneLoad]]:
-    actual_by_ts = {_coerce_utc(r["interval_ts"]): r for r in actual_rows}
-    forecast_by_ts = {_coerce_utc(r["interval_ts"]): r for r in forecast_rows}
+    actual_by_ts = {coerce_utc(r["interval_ts"]): r for r in actual_rows}
+    forecast_by_ts = {coerce_utc(r["interval_ts"]): r for r in forecast_rows}
     out: dict[datetime, list[ZoneLoad]] = {}
     for ts in set(actual_by_ts) | set(forecast_by_ts):
         a = actual_by_ts.get(ts)
@@ -210,8 +202,8 @@ def _region_rows(cur, start_u, end_u, actual_table, forecast_table, regions):
 
 
 def _region_by_ts(actual_rows, forecast_rows, fc_col, regions) -> dict[datetime, list[RegionGen]]:
-    actual_by_ts = {_coerce_utc(r["interval_ts"]): r for r in actual_rows}
-    forecast_by_ts = {_coerce_utc(r["interval_ts"]): r for r in forecast_rows}
+    actual_by_ts = {coerce_utc(r["interval_ts"]): r for r in actual_rows}
+    forecast_by_ts = {coerce_utc(r["interval_ts"]): r for r in forecast_rows}
     out: dict[datetime, list[RegionGen]] = {}
     for ts in set(actual_by_ts) | set(forecast_by_ts):
         a = actual_by_ts.get(ts)
@@ -316,8 +308,8 @@ def get_conditions_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),
     end: datetime = Query(..., description="ISO-8601 UTC end (inclusive)"),
 ) -> ConditionsRangeResponse:
-    start_u = _coerce_utc(start)
-    end_u = _coerce_utc(end)
+    start_u = coerce_utc(start)
+    end_u = coerce_utc(end)
 
     # Headroom before `start` so outages' D-1 forecast vintage is resolvable
     # even for the window's first hour, and gaps in daily posting (weekends/

@@ -23,12 +23,12 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
-from typing import Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
+from dependencies import server_selected_run as _server_selected_run
 from models import (
     DailyPoint,
     HeadlineCurrency,
@@ -41,15 +41,12 @@ from models import (
     WeeklyPoint,
     WeeklySplit,
 )
+from services.bootstrap import availability_status, soft_fail
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-def _server_selected_run() -> None:
-    """Keep board selection behind the server boundary for public reads."""
-    return None
 
 # The comparators that ride with every model figure (spec §6). Ordered model-first
 # so the client reads model → its delta → the ceiling.
@@ -451,33 +448,6 @@ def get_scoreboard_daily(
 # /scoreboard/summary — the Scoreboard page's load-time trio in one call (0137)
 # --------------------------------------------------------------------------
 
-_T = TypeVar("_T")
-
-
-def _soft_fail(build: Callable[[], _T]) -> _T | None:
-    """Run one section's builder; a 503 (that board has no rows yet) becomes
-    ``None`` here instead of failing the whole bundle — the same soft-fail the
-    client already applies per single-section endpoint, just moved server-side."""
-    try:
-        return build()
-    except HTTPException as exc:
-        if exc.status_code == 503:
-            return None
-        raise
-
-
-def _bootstrap_status(section: object | None) -> BootstrapSectionStatus:
-    """Describe a bundled section without making its null payload ambiguous."""
-    if section is None:
-        return BootstrapSectionStatus(available=False, unavailable_reason="source_unavailable")
-    return BootstrapSectionStatus(
-        available=True,
-        run_id=getattr(section, "run_id", None),
-        delivery_date=getattr(section, "delivery_date", None),
-        horizon=getattr(section, "horizon", None),
-    )
-
-
 @router.get(
     "/scoreboard/summary",
     response_model=ScoreboardSummaryResponse,
@@ -512,9 +482,9 @@ def get_scoreboard_summary(
     another.
     """
     with ThreadPoolExecutor(max_workers=3) as pool:
-        weekly = pool.submit(_soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
-        headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, regime))
-        daily = pool.submit(_soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
+        weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
+        headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None, regime))
+        daily = pool.submit(soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
         weekly_result = weekly.result()
         headline_result = headline.result()
         daily_result = daily.result()
@@ -523,8 +493,8 @@ def get_scoreboard_summary(
             headline=headline_result,
             daily=daily_result,
             availability={
-                "weekly": _bootstrap_status(weekly_result),
-                "headline": _bootstrap_status(headline_result),
-                "daily": _bootstrap_status(daily_result),
+                "weekly": availability_status(weekly_result, BootstrapSectionStatus),
+                "headline": availability_status(headline_result, BootstrapSectionStatus),
+                "daily": availability_status(daily_result, BootstrapSectionStatus),
             },
         )

@@ -15,6 +15,7 @@ import pandas as pd
 from psycopg.rows import dict_row, tuple_row
 
 from db import get_pool
+from dependencies import server_selected_run as _server_selected_run
 from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableResponse,
                     GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
@@ -47,6 +48,7 @@ from compute.analysis.brief_grade import (
 )
 from compute.projection.codecs import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
+from services.constraint_keys import split_constraint_key
 from services.system_lambda import (
     forecast_system_lambda,
     persisted_system_lambdas_by_ct_hour,
@@ -95,11 +97,6 @@ def _resolve_run(cur, run_id: str | None) -> str:
     if row is None:
         raise HTTPException(status_code=503, detail="no forecast run is published yet.")
     return str(row["run_id"])
-
-
-def _server_selected_run() -> None:
-    """Keep run selection behind the server boundary for public read routes."""
-    return None
 
 
 def _resolve_horizon(cur, run_id: str, delivery_date: date, horizon: int | None) -> int | None:
@@ -232,12 +229,6 @@ def _essp_member_count(cur, settlement_point: str, timestamp: datetime) -> int |
     row = cur.fetchone()
     count = 0 if row is None else int(row["member_count"])
     return count or None
-
-
-def _split_constraint_key(key: str) -> tuple[str, str | None]:
-    """Mirrors ``matrix.py::_split_constraint_key`` for the search index row."""
-    name, sep, contingency = str(key).partition("|")
-    return name, contingency if sep else None
 
 
 def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
@@ -906,7 +897,7 @@ def get_constraints(
     rows: list[AnalysisConstraintRow] = []
     for rank, key in enumerate(ranked.index, start=1):
         key = str(key)
-        name, contingency = _split_constraint_key(key)
+        name, contingency = split_constraint_key(key)
         geo = geography.get(key, {})
         rows.append(AnalysisConstraintRow(
             constraint_key=key, name=name, contingency=contingency,
