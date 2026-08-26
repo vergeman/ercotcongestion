@@ -70,33 +70,82 @@ def implied_shift_factors(
         at the cost of over-shrinking their signal. Ignored when
         ``standardize=False``.
     """
+    # toggle all cells for > 0, then sum column-wise for count
+    # test for min_hours
     keep = (M > 0).sum() >= min_hours
     kept_cols = keep[keep].index
+
+    # check for empty cols (shape[1])
     Mk = M.loc[:, kept_cols]
     if Mk.shape[1] == 0:
         out = pd.DataFrame(columns=C.columns)
         out.attrs["n_clipped"] = 0
         return out
 
+    # filter M & C for same hourly row
     idx = M.index.intersection(C.index)
-    X = Mk.loc[idx].to_numpy(dtype=float)
-    Y = C.loc[idx].fillna(0.0).to_numpy(dtype=float)
-    K = X.shape[1]
+    X = Mk.loc[idx].to_numpy(dtype=float)              # (hours, constraints)
+    Y = C.loc[idx].fillna(0.0).to_numpy(dtype=float)   # (hours, nodes)
+    K = X.shape[1]                                     # num cols
 
     if standardize:
         # Column-wise std over the fitted rows, floored so both zero-variance
         # and low-variance columns get the same treatment. Without the floor,
         # a near-quiet column's `1/scale` rescale inflates its coefficient
         # into the physically-impossible range.
+        #
+        # X.std takes range of each columns shadow prices, then computes
+        # columnwise (constraint) shadow price ranges over time (rows)
+        #
+        # X / scale normalizes values ~ 1
         scale = np.maximum(X.std(axis=0, ddof=0), std_floor)
         Xs = X / scale
     else:
         scale = np.ones(K)
         Xs = X
 
+    #
+    # ridge regression
+    #
+    # Ax=B
+    # x = np.linalg.solve(A, B)
+    # sf = np.linalg.solve(M, C)
+    #
+    # A: Xs.T @ Xs + lam * np.eye(K)
+    #
+    #   Xᵀ * X      (NB: X is M hours/constraints)
+    #
+    #   ridge penalty: lam * np.eye
+    #                  lambda * I (identity matrix)
+    #
+    # B: Xs.T @ Y
+    #
+    #    Xᵀ * Y     (NB: Y is C hours/nodes)
+    #
+    #
+    # 1. C = −M · SFᵀ
+    # 2. Y =  X · B         (B = -SFᵀ)
+    #
+    # 3. r = Y - XB        (r residual)
+    # 4. min ||r||^2
+    #    Xᵀ r = 0          (least squares) - r is perpendicular to X
+    # 5. Xᵀ(Y − XB) = 0    (sub no. 3)
+    #
+    # 6. XᵀY − XᵀX B = 0
+    # 7. XᵀX B  = XᵀY
+    # 8. (XᵀX + λI)β = XᵀY  (add ridge penalty)
+    # 9. A   x  = B
+    #    x = solve(A, B)
+    #
+    # x is the -sf. [-1, 1] (beta / out)
+
     beta = np.linalg.solve(Xs.T @ Xs + lam * np.eye(K), Xs.T @ Y)
-    # Undo the scaling so SF is returned in $/MWh-per-MW units regardless of
-    # `standardize`. Sign flip matches the identity C = −M · SFᵀ.
+    # Undo the scaling so SF is returned regardless of `standardize`.
+    # we scale so lambda can equally affect all cells e.g. 500k vs 50
+    # lambda is order of magnitude difference
+    #
+    # Sign flip matches the identity C = −M · SFᵀ.
+    #
     beta = beta / scale[:, None]
     sf = -beta
     n_clipped = int(np.sum(np.abs(sf) > SF_ABS_CAP))

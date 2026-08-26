@@ -73,27 +73,22 @@ low-coverage map makes the forecast fail before publication.
    shadow-price columns, ridge-solves `C = -M × SF.T`, rescales, and caps SF to
    `[-1, 1]`.
 4. `jobs.weekly_map` emits diagnostics and persists complete weekly windows.
-5. `sf.map_store.load_forecast_sf` selects the newest window ending no later
+5. `compute.sf_map.storage.maps.load_forecast_sf` selects the newest window ending no later
    than the delivery date and checks age and predicted μ-mass coverage.
 
-### Files in `compute/sf`
+### SF-map and downstream files
 
 | File | Responsibility | Production role |
 | --- | --- | --- |
-| `config.py` | Single source for the adopted window/refit/minimum-history/ridge operating point. | Shared by SF and μ schedules. |
-| `panels.py` | Database reads, date bounds, and DAM coverage checks for M and C. | SF inputs; also reused by forecast/backfill jobs. |
-| `fit.py` | The actual standardized ridge solver and SF cap. | Core SF model. |
-| `rolling.py` | Rolling-window/refit scheduling and optional co-binding grouping before fitting. | Used by map runner and evaluation. |
-| `diagnostics.py` | Per-refit R², kept/dropped constraints, clipping diagnostics. | Written by `weekly_map`. |
-| `persist.py` | Postgres writes/reads for SF matrices, window metadata, and evaluation fields. | Map persistence. |
-| `map_store.py` | Resolves and loads a causal map, plus freshness/coverage safety guards. | Used by `daily_forecast`. |
-| `geo_persist.py` | Computes/persists constraint geographic summaries from each map window. | Post-map job. |
-| `eval.py` | Honest out-of-window SF metrics, chunking, decay/stability measures, and CLI. | Post-map evaluation and sweep backend. |
-| `project.py` | Turns μ predictions/draws into nodal panels and SF+μ artifacts. | Shared by daily forecast and historical nodal backfill. |
-| `sampling.py` | Residual-pool construction, Monte Carlo draw logic, percentiles, band metrics. | Used by `project.py`. |
-| `codecs.py` | Compact NPZ-like artifact encodings, node drivers, and artifact reads. | Used by projection, APIs, and jobs. |
-| `essp.py` | Independent validation against final ERCOT ESSP labels. | Used by served-forecast grading. |
-| `grouping.py` | Identifies co-binding/collinear constraints and can aggregate/project group maps. | An experimental option to the SF fit, not the default map path. |
+| `inputs/dam.py` | Database reads, date bounds, and DAM coverage checks for M and C. | Shared SF and forecast inputs. |
+| `sf_map/config.py` | Single source for the adopted window/refit/minimum-history/ridge operating point. | Shared by SF and μ schedules. |
+| `sf_map/model/fit.py` | Standardized ridge solver and SF cap. | Core SF model. |
+| `sf_map/model/{rolling,grouping,diagnostics}.py` | Refit scheduling, optional co-binding grouping, and fit diagnostics. | Used by `weekly_map` and SF evaluation. |
+| `sf_map/storage/{persist,maps}.py` | Postgres map persistence plus causal map resolution/loading guards. | Map writes and daily-forecast reads. |
+| `sf_map/geography/{derive,persist}.py` | Derives and materializes constraint geographic summaries from each map window. | Post-map geography job and μ `geo_` arm. |
+| `evaluation/sf.py` | Honest out-of-window SF metrics, chunking, decay/stability measures, and CLI. | Post-map evaluation and sweep backend. |
+| `projection/` | Turns μ predictions/draws into nodal panels, bands, and SF+μ artifacts. | Daily forecast and historical nodal backfill. |
+| `evaluation/essp.py` | Independent validation against final ERCOT ESSP labels. | Served-forecast grading. |
 
 ### Is there SF ablation code?
 
@@ -101,9 +96,9 @@ Yes, but it is model-selection/diagnostic work rather than the ordinary weekly
 map job.
 
 * `experiments/sf/sweep.py` varies the SF hyperparameters and ranks candidates
-  on the out-of-window measures from `sf.eval`.
+  on the out-of-window measures from `compute.evaluation.sf`.
 * `experiments/sf/grouping_verdict.py` evaluates whether the optional
-  co-binding grouping in `sf.grouping` improves stability enough to justify it.
+  co-binding grouping in `compute.sf_map.model.grouping` improves stability enough to justify it.
 * `experiments/sf/coverage.py` explains coverage gaps and admission history.
 * `experiments/sf_out_of_window/` is a self-contained historical study:
   `oos_gate.py`, `screening_and_coverage.py`, and `sf_stability.py` share
@@ -126,7 +121,7 @@ None of these are called by the map-refresh cron job.  In particular,
    walk-forward validation: pooled classifier for `p_bind`, and a regressor fit
    only on binding rows for conditional `mu_gbm` / `E[μ | bind]`.
 4. `jobs.daily_forecast.forecast_day` loads a causal SF map, builds a residual
-   pool from **prior out-of-sample** μ errors, and calls `sf.project` to sample
+   pool from **prior out-of-sample** μ errors, and calls `compute.projection` to sample
    and project nodal congestion.
 5. The deterministic expectation is `p_bind × mu_gbm`; uncertainty uses a
    Bernoulli binding draw plus log-space residual draw for μ.  The code currently
@@ -188,7 +183,7 @@ cron jobs.  They answer different questions:
 * **`experiments/`** asks *does a model configuration or feature improve an
   existing, reproducible historical harness?* It uses the project panels and
   metrics, writes local CSV/NPZ results, and is where a configuration earns a
-  promotion into `sf/` or `mu/`.
+  promotion into the appropriate production stage.
 * **`probes/`** asks *is a proposed external input even available, timely, and
   joinable enough to justify ingest/model work?* They are read-only discovery
   and feasibility scripts. They may read the database and ERCOT public API, but
@@ -198,7 +193,7 @@ cron jobs.  They answer different questions:
 
 | File | Question it answers |
 | --- | --- |
-| `sweep.py` | Which `(window, refit cadence, ridge λ, std floor, admission threshold, optional grouping)` configuration performs best out of sample? It uses `sf.eval` rather than in-sample fit quality. |
+| `sweep.py` | Which `(window, refit cadence, ridge λ, std floor, admission threshold, optional grouping)` configuration performs best out of sample? It uses `compute.evaluation.sf` rather than in-sample fit quality. |
 | `grouping_verdict.py` | Does grouping collinear/co-binding constraints materially improve refit stability without damaging OOS accuracy/locality? It consumes the sweep's per-week CSV. |
 | `coverage.py` | What part of predicted μ mass is missing from the current SF map, and how much could a historical warm-start library realistically recover? |
 
