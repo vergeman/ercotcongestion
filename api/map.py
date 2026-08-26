@@ -37,10 +37,9 @@ returns an empty result, not an error.
 """
 from __future__ import annotations
 
-import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_t, datetime as datetime_t
-from typing import Callable, Literal, TypeVar
+from typing import Literal
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -50,78 +49,46 @@ from compute.sf_map.model.fit import SF_ABS_CAP
 from compute.projection.codecs import node_contributions
 from config import MAP_RUN_ID
 from db import get_pool
-from models import (
+from dependencies import server_selected_run as _server_selected_run
+from schemas.common import BootstrapSectionStatus
+from schemas.map import (
     ConstraintReach,
     ExposuresResponse,
     MapMeta,
     MapOverview,
-    BootstrapSectionStatus, MapSummaryResponse,
+    MapSummaryResponse,
     OverviewConstraint,
     RankedConstraint,
     RankedConstraints,
     ReachSp,
     SpExposure,
 )
-from scoreboard import get_scoreboard_headline
+from services.bootstrap import availability_status, soft_fail
+from services.constraint_keys import normalize_constraint_key
 from services.sf_artifacts import (
     coerce_utc,
     delivery_date_for,
     load_daily_artifact,
-    normalize_constraint_key,
 )
+from services.settlement_points import coordinates as settlement_point_coordinates
+from services.settlement_points import metadata as settlement_point_metadata
+from services.scoreboard_headline import build_headline
 from services.topology_builder import get_or_build_topology
-from shared.settings import settings
-
-log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/map")
 
-
-def _server_selected_run() -> None:
-    """Keep forecast-run selection behind the server boundary for public reads."""
-    return None
-
-# In-process cache of the geocoded SP coordinates (settlement_point → (lat,
-# lon)), for the /map/reach join. The CSV only changes when we re-geocode, so
-# a process-lifetime cache is fine (mirrors topology_builder's source).
+# Compatibility hooks for route tests. Production cache ownership lives in
+# services.settlement_points; a non-None value is an explicit test override.
 _SP_COORDS: dict[str, tuple[float, float]] | None = None
 _SP_METADATA: dict[str, tuple[str | None, str | None]] | None = None
 
 
 def _sp_coords() -> dict[str, tuple[float, float]]:
-    global _SP_COORDS
-    if _SP_COORDS is None:
-        try:
-            df = pd.read_csv(settings.settlement_points_geocoded_csv)
-        except FileNotFoundError:
-            log.warning("settlement_points geocoded csv missing; reach coords empty")
-            _SP_COORDS = {}
-            return _SP_COORDS
-        df = df.dropna(subset=["lat", "lon"])
-        _SP_COORDS = {
-            str(r.settlement_point): (float(r.lat), float(r.lon))
-            for r in df.itertuples(index=False)
-        }
-    return _SP_COORDS
+    return _SP_COORDS if _SP_COORDS is not None else settlement_point_coordinates()
 
 
 def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
-    global _SP_METADATA
-    if _SP_METADATA is None:
-        try:
-            df = pd.read_csv(settings.settlement_points_geocoded_csv)
-        except FileNotFoundError:
-            log.warning("settlement_points geocoded csv missing; reach metadata empty")
-            _SP_METADATA = {}
-            return _SP_METADATA
-        _SP_METADATA = {
-            str(r.settlement_point): (
-                None if pd.isna(getattr(r, 'sp_type', None)) else str(getattr(r, 'sp_type')),
-                None if pd.isna(getattr(r, 'load_zone', None)) else str(getattr(r, 'load_zone')),
-            )
-            for r in df.itertuples(index=False)
-        }
-    return _SP_METADATA
+    return _SP_METADATA if _SP_METADATA is not None else settlement_point_metadata()
 
 
 def _resolve(cur) -> tuple[str, object]:
@@ -846,33 +813,6 @@ def get_map_constraints_ranked(
 # /map/summary — the Map workspace's load-time quartet in one call (0137)
 # --------------------------------------------------------------------------
 
-_T = TypeVar("_T")
-
-
-def _soft_fail(build: Callable[[], _T]) -> _T | None:
-    """Run one section's builder; a 503 (nothing built/loaded for it yet)
-    becomes ``None`` here instead of failing the whole bundle — the same
-    soft-fail the client already applies per single-section endpoint."""
-    try:
-        return build()
-    except HTTPException as exc:
-        if exc.status_code == 503:
-            return None
-        raise
-
-
-def _bootstrap_status(section: object | None) -> BootstrapSectionStatus:
-    """Describe a bundled section without making its null payload ambiguous."""
-    if section is None:
-        return BootstrapSectionStatus(available=False, unavailable_reason="source_unavailable")
-    return BootstrapSectionStatus(
-        available=True,
-        run_id=getattr(section, "run_id", None),
-        delivery_date=getattr(section, "delivery_date", None),
-        horizon=getattr(section, "horizon", None),
-    )
-
-
 @router.get(
     "/summary",
     response_model=MapSummaryResponse,
@@ -900,9 +840,9 @@ def get_map_summary() -> MapSummaryResponse:
     fourth concurrent path without a fourth pool slot.
     """
     with ThreadPoolExecutor(max_workers=3) as pool:
-        overview = pool.submit(_soft_fail, lambda: get_map_overview(70, 6, 0.15))
-        meta = pool.submit(_soft_fail, get_map_meta)
-        headline = pool.submit(_soft_fail, lambda: get_scoreboard_headline(None, "all"))
+        overview = pool.submit(soft_fail, lambda: get_map_overview(70, 6, 0.15))
+        meta = pool.submit(soft_fail, get_map_meta)
+        headline = pool.submit(soft_fail, lambda: build_headline(None, "all"))
         topology = get_or_build_topology()
         overview_result = overview.result()
         meta_result = meta.result()
@@ -914,8 +854,8 @@ def get_map_summary() -> MapSummaryResponse:
             headline=headline_result,
             availability={
                 "topology": BootstrapSectionStatus(available=True),
-                "overview": _bootstrap_status(overview_result),
-                "meta": _bootstrap_status(meta_result),
-                "headline": _bootstrap_status(headline_result),
+                "overview": availability_status(overview_result, BootstrapSectionStatus),
+                "meta": availability_status(meta_result, BootstrapSectionStatus),
+                "headline": availability_status(headline_result, BootstrapSectionStatus),
             },
         )

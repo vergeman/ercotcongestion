@@ -10,13 +10,15 @@ from psycopg.rows import dict_row
 
 from compute.sf_map.model.fit import SF_ABS_CAP
 from db import get_pool
-from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
+from schemas.matrix import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
+from services.constraint_keys import split_constraint_key
 from services.sf_artifacts import (
-    coerce_utc as _coerce_utc,
     delivery_date_for as _delivery_date,
     load_daily_artifact,
     load_realized_mu,
 )
+from services.settlement_points import metadata as settlement_point_metadata
+from services.time import coerce_utc as _coerce_utc
 
 
 router = APIRouter(prefix='/matrix')
@@ -43,42 +45,19 @@ DEFAULT_ANCHORS = [
 # ranking rather than shown as an all-blank row.
 ANCHOR_REACH_EPS = 5e-4
 
-# Metadata is deliberately best-effort: the artifact is authoritative for the
-# matrix itself, and an absent topology record must not change its shape.
+# Compatibility hook for route tests. Production cache ownership lives in
+# services.settlement_points; a non-None value is an explicit test override.
 _SP_METADATA: dict[str, tuple[str | None, str | None]] | None = None
 
+
+def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
+    return _SP_METADATA if _SP_METADATA is not None else settlement_point_metadata()
 
 def _round_matrix_value(value: float) -> float:
     """The matrix UI renders these values to three decimal places."""
     return float(
         Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     )
-
-
-def _split_constraint_key(key: str) -> tuple[str, str | None]:
-    name, sep, contingency = str(key).partition('|')
-    return name, contingency if sep else None
-
-
-def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
-    global _SP_METADATA
-    if _SP_METADATA is None:
-        # Keep this import local: pandas and the topology CSV are not needed to
-        # resolve missing artifacts.
-        from shared.settings import settings
-        try:
-            df = pd.read_csv(settings.settlement_points_geocoded_csv)
-        except FileNotFoundError:
-            _SP_METADATA = {}
-        else:
-            _SP_METADATA = {
-                str(r.settlement_point): (
-                    None if pd.isna(getattr(r, 'sp_type', None)) else str(getattr(r, 'sp_type')),
-                    None if pd.isna(getattr(r, 'load_zone', None)) else str(getattr(r, 'load_zone')),
-                )
-                for r in df.itertuples(index=False)
-            }
-    return _SP_METADATA
 
 
 def _unavailable(run_id: str, delivery_date, interval_ts: datetime, reason: str) -> MatrixFrame:
@@ -416,7 +395,7 @@ def get_matrix_frame(
     matched_dam = 0
     daily_ranks = {key: rank for rank, key in enumerate(contribution_ranked, start=1)}
     for key in row_keys:
-        name, contingency = _split_constraint_key(str(key))
+        name, contingency = split_constraint_key(str(key))
         dam_mu = dam_by_key.get(str(key))
         matched_dam += dam_mu is not None
         rows.append(MatrixRow(

@@ -5,22 +5,17 @@ response rather than once per hour and per view.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
-from models import ErcotRangeEntry, ErcotRangeResponse
+from schemas.forecast import ErcotRangeEntry, ErcotRangeResponse
+from services.time import coerce_utc
 
 router = APIRouter()
-
-
-def _coerce_utc(ts: datetime) -> datetime:
-    if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc)
 
 
 def _round_congestion_difference(spp: object, system_lambda: object) -> float:
@@ -38,8 +33,8 @@ def get_ercot_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),
     end: datetime = Query(..., description="ISO-8601 UTC end (inclusive)"),
 ) -> ErcotRangeResponse:
-    start_u = _coerce_utc(start)
-    end_u = _coerce_utc(end)
+    start_u = coerce_utc(start)
+    end_u = coerce_utc(end)
 
     pool = get_pool()
     with pool.connection() as conn:
@@ -78,7 +73,7 @@ def get_ercot_range(
     sp_index = {sp_id: index for index, sp_id in enumerate(sp_ids)}
     by_ts: dict[datetime, ErcotRangeEntry] = {}
     for row in rows:
-        ts = _coerce_utc(row["interval_ts"])
+        ts = coerce_utc(row["interval_ts"])
         entry = by_ts.get(ts)
         if entry is None:
             entry = ErcotRangeEntry(

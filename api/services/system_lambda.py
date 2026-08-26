@@ -2,12 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from services.sf_artifacts import coerce_utc
-
-
-CENTRAL = ZoneInfo("America/Chicago")
+from services.time import CENTRAL, coerce_utc
 
 
 def settled_system_lambdas(cur, start: datetime, end: datetime) -> dict[datetime, float | None]:

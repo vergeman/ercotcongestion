@@ -16,13 +16,14 @@ for a day that has since been finalized.
 from __future__ import annotations
 
 from collections import OrderedDict
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from threading import Lock
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from compute.projection.codecs import SfMuArtifact, load_sf_mu
+from services.constraint_keys import normalize_constraint_key
+from services.time import CENTRAL, coerce_utc
 
 
 # A typical decoded daily artifact is roughly 5 MiB (dense float32 SF, hourly
@@ -30,14 +31,6 @@ from compute.projection.codecs import SfMuArtifact, load_sf_mu
 # node-history window (31 artifacts ~= 150 MiB) fits without thrashing, which is
 # what let /analysis/standouts warm across a multi-day Brief page load (0137).
 ARTIFACT_CACHE_MAX_BYTES = 256 * 1024 * 1024
-
-
-CENTRAL = ZoneInfo('America/Chicago')
-
-
-def coerce_utc(ts: datetime) -> datetime:
-    """Interpret a naive timestamp as UTC; convert an aware one."""
-    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
 
 
 def delivery_date_for(ts: datetime) -> date:
@@ -50,11 +43,6 @@ def delivery_date_for(ts: datetime) -> date:
     to a UTC cut, and blanked the day's last five hours (0143.1, 0144).
     """
     return coerce_utc(ts).astimezone(CENTRAL).date()
-
-
-def normalize_constraint_key(constraint_name: str, contingency_name: str) -> str:
-    """Return the canonical ``constraint|contingency`` key used by SF artifacts."""
-    return f"{str(constraint_name).strip()}|{str(contingency_name).strip()}"
 
 
 def load_realized_mu(cur, timestamps, constraint_keys) -> pd.Series:

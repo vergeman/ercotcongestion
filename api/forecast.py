@@ -35,14 +35,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
-from services.sf_artifacts import coerce_utc as _coerce_utc
+from dependencies import server_selected_run as _server_selected_run
+from services.time import coerce_utc as _coerce_utc
 from services.system_lambda import (
     forecast_system_lambda,
     persisted_system_lambdas_by_ct_hour,
     settled_system_lambdas,
 )
 
-from models import (
+from schemas.forecast import (
     ForecastRangeEntry,
     ForecastRangeResponse,
     ForecastSpState,
@@ -52,10 +53,6 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-def _server_selected_run() -> None:
-    """Keep forecast-run selection behind the server boundary for public reads."""
-    return None
 
 def _round_congestion(value: float | None) -> float | None:
     """The map has cent resolution; don't ship model float noise."""
