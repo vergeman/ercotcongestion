@@ -29,13 +29,14 @@ from psycopg.rows import dict_row
 
 from db import get_pool
 from dependencies import server_selected_run as _server_selected_run
-from models import (
+from schemas.common import BootstrapSectionStatus
+from schemas.scoreboard import (
     DailyPoint,
     HeadlineCurrency,
     HeadlineWindow,
     ScoreboardDaily,
     ScoreboardHeadline,
-    BootstrapSectionStatus, ScoreboardSummaryResponse,
+    ScoreboardSummaryResponse,
     ScoreboardWeekly,
     SourcePooled,
     WeeklyPoint,

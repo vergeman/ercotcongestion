@@ -16,7 +16,7 @@ from psycopg.rows import dict_row, tuple_row
 
 from db import get_pool
 from dependencies import server_selected_run as _server_selected_run
-from models import (AnalysisContributionTerm, NodeMarketState, GradeAvailableResponse,
+from schemas.analysis import (AnalysisContributionTerm, NodeMarketState, GradeAvailableResponse,
                     GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,

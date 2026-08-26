@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row
 
 from db import get_pool
-from models import ErcotRangeEntry, ErcotRangeResponse
+from schemas.forecast import ErcotRangeEntry, ErcotRangeResponse
 from services.time import coerce_utc
 
 router = APIRouter()

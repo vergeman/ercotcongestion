@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 
 from compute.sf_map.model.fit import SF_ABS_CAP
 from db import get_pool
-from models import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
+from schemas.matrix import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
 from services.constraint_keys import split_constraint_key
 from services.sf_artifacts import (
     delivery_date_for as _delivery_date,

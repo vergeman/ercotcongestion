@@ -43,7 +43,7 @@ from services.system_lambda import (
     settled_system_lambdas,
 )
 
-from models import (
+from schemas.forecast import (
     ForecastRangeEntry,
     ForecastRangeResponse,
     ForecastSpState,

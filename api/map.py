@@ -50,12 +50,13 @@ from compute.projection.codecs import node_contributions
 from config import MAP_RUN_ID
 from db import get_pool
 from dependencies import server_selected_run as _server_selected_run
-from models import (
+from schemas.common import BootstrapSectionStatus
+from schemas.map import (
     ConstraintReach,
     ExposuresResponse,
     MapMeta,
     MapOverview,
-    BootstrapSectionStatus, MapSummaryResponse,
+    MapSummaryResponse,
     OverviewConstraint,
     RankedConstraint,
     RankedConstraints,

@@ -58,7 +58,7 @@ from psycopg.rows import dict_row
 from db import get_pool
 from services.time import CENTRAL, coerce_utc
 
-from models import (
+from schemas.conditions import (
     ConditionsEntry,
     ConditionsRangeResponse,
     FuelOutage,
