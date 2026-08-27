@@ -24,7 +24,6 @@ import pytest
 import compute.jobs.grade_day as gd
 from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence, score_matrix
 from compute.evaluation.sf import predict
-from compute.projection.sampling import band_metrics
 
 D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")  # a CT-midnight day
 SPS = [f"SP{i}" for i in range(30)]
@@ -32,9 +31,7 @@ KEYS = ["K0|c", "K1|c", "K2|c"]
 
 
 def _scenario(seed: int = 0):
-    """A fixed (M, C, SF, served-forecast) world. `point` and `p50` are deliberately
-    distinct so a test can tell whether the model was scored on the deterministic
-    point (correct) or the sampling median."""
+    """A fixed (M, C, SF, served-point-forecast) world."""
     rng = np.random.default_rng(seed)
 
     # Shadow prices over D−1 and D (48 h) — nonneg with zeros, so persistence (D−1)
@@ -51,8 +48,7 @@ def _scenario(seed: int = 0):
                       index=KEYS, columns=SPS).astype("f4")
 
     point = pd.DataFrame(rng.normal(0, 8, size=(24, 30)), index=hoursD, columns=SPS)
-    p50 = point + 1.0                    # distinct from point on purpose
-    fc = {"point": point, "p10": p50 - 5, "p50": p50, "p90": p50 + 5}
+    fc = {"point": point}
     return M, C, SF, fc, hoursD
 
 
@@ -84,13 +80,10 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
     cols = M.loc[hours].columns
     Y = C.loc[hours, SPS].to_numpy(float)
 
-    # model: the served deterministic point (NOT p50) — the discriminating check.
+    # model: the served deterministic point.
     want = score_matrix(Y, fc["point"].loc[hours, SPS].to_numpy(float))
     for k, v in want.items():
         _eq(by_src["model"][k], v)
-    # p50 would give a different pooled_r2 — prove we did not use it.
-    p50_r2 = score_matrix(Y, fc["p50"].loc[hours, SPS].to_numpy(float))["pooled_r2"]
-    assert not np.isclose(by_src["model"]["pooled_r2"], p50_r2)
 
     # comparators: each mu source projected through SF, same metric.
     srcs = {
@@ -111,24 +104,14 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
                and "elapsed_s=" in message for message in messages)
 
 
-def test_model_carries_live_bands_comparators_do_not(monkeypatch):
+def test_rows_do_not_expose_retired_band_metrics(monkeypatch):
     M, C, SF, fc, hoursD = _scenario()
     _install(monkeypatch, M, C, SF, fc)
     rows = grade_rows(monkeypatch, M, C, SF, fc)
     by_src = {r["source"]: r for r in rows}
 
-    Y = C.loc[hoursD, SPS].to_numpy(float)
-    want = band_metrics(Y,
-                        fc["p10"].loc[hoursD, SPS].to_numpy(float),
-                        fc["p50"].loc[hoursD, SPS].to_numpy(float),
-                        fc["p90"].loc[hoursD, SPS].to_numpy(float))
-    for k in ("coverage80", "band_width", "pinball"):
-        _eq(by_src["model"][k], want[k])
-        assert 0.0 <= by_src["model"]["coverage80"] <= 1.0
-    # Bands are a model-only, quantile quantity — NULL on every comparator.
-    for name in ("oracle", "persistence", "climatology", "null"):
-        for k in ("coverage80", "band_width", "pinball"):
-            assert by_src[name][k] is None
+    for row in by_src.values():
+        assert not {"coverage80", "band_width", "pinball"} & set(row)
 
 
 def test_essp_agreement_is_stamped_on_model_row_only(monkeypatch):
