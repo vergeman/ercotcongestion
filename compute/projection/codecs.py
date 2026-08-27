@@ -13,9 +13,6 @@ class NodalPanel:
     """One window's ragged settlement-point forecast grid."""
     ts: np.ndarray
     settlement_points: np.ndarray
-    p10: np.ndarray
-    p50: np.ndarray
-    p90: np.ndarray
     point: np.ndarray
     sf_r2: np.ndarray | None
 
@@ -33,7 +30,7 @@ class _NodalAccumulator:
     def __init__(self) -> None:
         self._sp_code: dict[str, int] = {}
         self._buf: dict[str, list[np.ndarray]] = {
-            k: [] for k in ("ts", "sp_code", "p10", "p50", "p90", "point", "week")}
+            k: [] for k in ("ts", "sp_code", "point", "week")}
 
     def add(self, panel: NodalPanel, week: pd.Timestamp) -> None:
         H, N = len(panel.ts), len(panel.settlement_points)
@@ -43,9 +40,6 @@ class _NodalAccumulator:
         b = self._buf
         b["ts"].append(np.repeat(_epoch_us(panel.ts), N))
         b["sp_code"].append(np.tile(code, H))
-        b["p10"].append(panel.p10.ravel())
-        b["p50"].append(panel.p50.ravel())
-        b["p90"].append(panel.p90.ravel())
         b["point"].append(panel.point.ravel())
         b["week"].append(np.full(H * N, int(_epoch_us(pd.DatetimeIndex([week]))[0]),
                                  dtype=np.int64))
@@ -61,8 +55,7 @@ def save_nodal(path: str, cols: dict[str, np.ndarray], sp_vocab: np.ndarray) -> 
     np.savez_compressed(
         path, ts=cols["ts"].astype("int64"), sp_code=cols["sp_code"].astype("int32"),
         sp_vocab=np.asarray(sp_vocab, dtype=object).astype("U"),
-        p10=cols["p10"].astype("float32"), p50=cols["p50"].astype("float32"),
-        p90=cols["p90"].astype("float32"), point=cols["point"].astype("float32"),
+        point=cols["point"].astype("float32"),
         week=cols["week"].astype("int64"))
 
 
@@ -72,7 +65,7 @@ def load_nodal(path: str) -> pd.DataFrame:
     return pd.DataFrame({
         "ts": pd.to_datetime(z["ts"], unit="us", utc=True),
         "settlement_point": z["sp_vocab"][z["sp_code"]],
-        "p10": z["p10"], "p50": z["p50"], "p90": z["p90"], "point": z["point"],
+        "point": z["point"],
         "week": pd.to_datetime(z["week"], unit="us", utc=True)})
 
 

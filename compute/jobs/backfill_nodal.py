@@ -1,16 +1,15 @@
 """Backtest walk → nodal panel seed, and the R5 verdict, against the bar as written.
 
 The one-time historical backfill runner (README §A): walk the validated
-predictions forward through the SF map, stream the per-week nodal P10/P50/P90 +
-point panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-seed
+predictions forward through the SF map, stream the per-week deterministic point
+panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-seed
 `forecast_nodal` and flip `forecast_current[ercot]`, plus the pre-registered R5
 gate. Shared DB writers live in `compute.forecast_store`; they remain imported here
 as temporary compatibility re-exports. The projection math it drives lives in
 `compute.projection.propagate`.
 
     docker compose run --rm compute python -m compute.jobs.backfill_nodal \
-      --preds /compute/runs/mu-all-v1/mu/mu_preds.npz \
-      --out /compute/runs/mu-all-v1/forecast/mu_bands_weekly.csv
+      --preds /compute/runs/mu-all-v1/mu/mu_preds.npz
 
 """
 from __future__ import annotations
@@ -19,7 +18,6 @@ import logging
 import os
 import time
 
-import numpy as np
 import pandas as pd
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
@@ -35,7 +33,6 @@ from compute.projection.codecs import (
     parse_curated_days,
 )
 from compute.projection.propagate import propagate_window
-from compute.projection.sampling import N_DRAWS, residual_pool
 from compute.sf_map.storage.maps import MAP_RUN_ID, load_window_sf, resolve_sf_window
 
 log = logging.getLogger("compute.jobs.backfill_nodal")
@@ -45,7 +42,7 @@ RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 def preds_path_for(run_id: str) -> str:
-    """The μ predictions/residual-pool npz for `run_id` on the runs PVC.
+    """The offline μ walk-forward prediction NPZ for `run_id` on the runs PVC.
 
     Same layout every stage uses — `runs/<run_id>/mu/mu_preds.npz`, where
     `mu_model --preds-out` writes it (runbook step 2) — so passing `--run-id`
@@ -65,46 +62,38 @@ def scores_path_for(run_id: str) -> str:
     return str(RunArtifacts(run_id, RUNS_ROOT).scores)
 
 
-def bands_path_for(run_id: str) -> str:
-    """The P50 band-metrics CSV for `run_id` — `runs/<run_id>/forecast/mu_bands_weekly.csv`.
-    A forecast-stage output (this job produces it), so it lives under `forecast/`."""
-    return str(RunArtifacts(run_id, RUNS_ROOT).bands)
-
-
 def nodal_path_for(run_id: str) -> str:
-    """The per-week nodal P10/P50/P90 + point panel npz for `run_id` —
+    """The per-week deterministic point panel npz for `run_id` —
     `runs/<run_id>/forecast/mu_nodal.npz`. The forecast-stage seed/reload artifact."""
     return str(RunArtifacts(run_id, RUNS_ROOT).nodal_panel)
 
 
 def resolve_walk_paths(run_id: str | None, preds: str | None, scores: str | None,
-                       out: str | None, nodal_out: str | None,
+                       nodal_out: str | None,
                        *, load_nodal_npz: bool = False,
-                       ) -> tuple[str | None, str | None, str | None, str | None]:
+                       ) -> tuple[str | None, str | None, str | None]:
     """Resolve the walk's inputs/outputs from `--run-id` (canonical `runs/<id>/`
     tree), falling back to the legacy bundled `compute/mu` paths run-id-less.
 
     Explicit values always win. Inputs (`preds`, `scores`) always resolve to *a*
     path so the run-id-less metrics mode keeps reading the legacy bundle; the
-    derived OUTPUT paths (`out`, `nodal_out`) are filled only under a run id, so a
+    derived nodal output is filled only under a run id, so a
     run-id-less run keeps them opt-in (None) — its current behavior, unchanged.
     `--load-nodal-npz` is a standalone seed mode that runs no walk and derives
     nothing here (its own guard refuses the walk flags)."""
     if load_nodal_npz:
-        return preds, scores, out, nodal_out
+        return preds, scores, nodal_out
     legacy = RUNS_ROOT.parent / "mu"
     preds = preds or (preds_path_for(run_id) if run_id
                       else str(legacy / "mu_preds.npz"))
     scores = scores or (scores_path_for(run_id) if run_id
                         else str(legacy / "mu_score_weekly.csv"))
     if run_id:
-        out = out or bands_path_for(run_id)
         nodal_out = nodal_out or nodal_path_for(run_id)
-    return preds, scores, out, nodal_out
+    return preds, scores, nodal_out
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
-         n_draws: int = N_DRAWS, seed: int = 0,
          nodal_out: str | None = None,
          curated: dict | None = None,
          sf_loader=None) -> pd.DataFrame:
@@ -119,13 +108,9 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
     weeks = weeks_from_preds(preds)
-    rng = np.random.default_rng(seed)
-    log.info("propagating %d weeks × %d draws (week 1 has no residual pool → no "
-             "bands); SF %s", len(weeks), n_draws,
+    log.info("deterministically projecting %d weeks; SF %s", len(weeks),
              "from persisted map" if sf_loader is not None else "refit per window")
 
-    # Emitting the panel only tees the arrays already computed — same rng draws,
-    # so the metrics row (and `mu_bands_weekly.csv`) is byte-identical either way.
     sink = _NodalAccumulator() if nodal_out else None
     # `curated` is {delivery_date: None} for the --drivers days; the walk fills the
     # ones whose operating day falls inside a scored window with that day's SF+μ
@@ -135,15 +120,6 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     rows: list[dict] = []
     t0 = time.perf_counter()
     for i, s in enumerate(weeks):
-        # The pool is every week the model has ALREADY scored — out-of-sample
-        # errors, strictly in the past. Empty on week 1, by construction.
-        prior = preds[preds["week"] < s]
-        eps = residual_pool(prior, rng=rng)
-        if not len(eps):
-            log.info("  week %2d/%d %s  no residual pool yet — skipped",
-                     i + 1, len(weeks), s.date())
-            continue
-
         sf = None
         if sf_loader is not None:
             sf = sf_loader(s)
@@ -154,7 +130,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
         end = s + pd.Timedelta(days=REFIT_DAYS)
         row, panel, SF, E_mu = propagate_window(
-            s, end, M, C, by_week[s], eps, n_draws, rng, sf=sf,
+            s, end, M, C, by_week[s], sf=sf,
             want_panel=sink is not None, want_sf_mu=want_sf_mu)
         if row is None:
             continue
@@ -172,9 +148,9 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
                 if mask.any():
                     curated[day] = SfMuArtifact(SF=SF, E_mu=E_mu.loc[mask])
         done, el = i + 1, time.perf_counter() - t0
-        log.info("  week %2d/%d %s  cov80 %.3f  P50 R2 %+.3f  eta %.0fm",
-                 done, len(weeks), s.date(), rows[-1]["coverage80"],
-                 rows[-1]["pooled_r2"], (el / done) * (len(weeks) - done) / 60)
+        log.info("  week %2d/%d %s  point R2 %+.3f  eta %.0fm",
+                 done, len(weeks), s.date(), rows[-1]["pooled_r2"],
+                 (el / done) * (len(weeks) - done) / 60)
     if sink is not None and nodal_out is not None:
         sink.save(nodal_out)
         log.info("wrote nodal panel → %s", nodal_out)
@@ -217,7 +193,7 @@ def existence_test(model: dict, persistence: dict) -> tuple[bool, str]:
     return all(wins.values()), detail
 
 
-def r5(score_csv: pd.DataFrame, bands: pd.DataFrame) -> str:
+def r5(score_csv: pd.DataFrame) -> str:
     """Both readings of R5, printed together, in the currency each was set in."""
     a = score_csv[score_csv["regime"] == "all"]
     out = ["\n=== R5 — does the covariate μ-model beat persistence? ===\n"]
@@ -243,15 +219,6 @@ def r5(score_csv: pd.DataFrame, bands: pd.DataFrame) -> str:
                 f"  existence test  : {'PASS' if beat else 'FAIL'} — {detail}",
                 ""]
 
-    if not bands.empty:
-        out += ["=== BANDS (P10/P50/P90) ===",
-                f"  weeks {len(bands)}   coverage80 {bands.coverage80.mean():.3f} "
-                f"(target 0.800)   mean width ${bands.band_width.mean():.2f}",
-                f"  P50: R² {bands.pooled_r2.mean():+.3f}   MAE "
-                f"${bands.mae.mean():.2f}   pinball {bands.pinball.mean():.3f}",
-                f"  SF coverage {bands.sf_coverage.mean():.3f} — μ-mass the map "
-                f"has a column for; the rest is the map's blind spot, not the "
-                f"forecast's miss", ""]
     return "\n".join(out)
 
 
@@ -274,14 +241,8 @@ def main(argv: list[str] | None = None) -> int:
                         "the legacy compute/mu bundle")
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
-    p.add_argument("--draws", type=int, default=N_DRAWS)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--out", default=None,
-                   help="P50 band-metrics CSV; defaults to "
-                        "runs/<run-id>/forecast/mu_bands_weekly.csv when --run-id "
-                        "is given, else opt-in (nothing written)")
     p.add_argument("--nodal-out", default=None,
-                   help="stream the per-week nodal P10/P50/P90 + point panel to "
+                   help="stream the per-week deterministic nodal point panel to "
                         "this flat vocab-coded .npz; defaults to "
                         "runs/<run-id>/forecast/mu_nodal.npz with --run-id, else "
                         "opt-in — omit run-id-less and nothing changes (no panel, "
@@ -320,9 +281,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Resolve the walk's inputs/outputs from --run-id before the flag checks below,
     # so a run id derives --nodal-out (which --to-db then requires). --preds/--scores
-    # always resolve to a path; --out/--nodal-out derive only under a run id.
-    args.preds, args.scores, args.out, args.nodal_out = resolve_walk_paths(
-        args.run_id, args.preds, args.scores, args.out, args.nodal_out,
+    # always resolve to a path; --nodal-out derives only under a run id.
+    args.preds, args.scores, args.nodal_out = resolve_walk_paths(
+        args.run_id, args.preds, args.scores, args.nodal_out,
         load_nodal_npz=bool(args.load_nodal_npz))
 
     if args.to_db and not (args.nodal_out and args.run_id):
@@ -361,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
                  forecast_store.FORECAST_LAYER, args.run_id)
         return 0
 
-    log.info("loading residual pool from %s", args.preds)
+    log.info("loading historical walk-forward μ predictions from %s", args.preds)
     preds = load_preds(args.preds)
     lo = pd.Timestamp(args.start, tz="America/Chicago")
     hi = pd.Timestamp(args.end, tz="America/Chicago")
@@ -389,17 +350,13 @@ def main(argv: list[str] | None = None) -> int:
         os.makedirs(os.path.dirname(os.path.abspath(args.nodal_out)) or ".",
                     exist_ok=True)
     try:
-        bands = walk(M, C, preds, args.draws, args.seed, nodal_out=args.nodal_out,
+        walk(M, C, preds, nodal_out=args.nodal_out,
                      curated=curated, sf_loader=sf_loader)
     finally:
         if sf_conn is not None:
             sf_conn.close()
     scores = pd.read_csv(args.scores, parse_dates=["week"])
-    print(r5(scores, bands))
-    if args.out and not bands.empty:
-        os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
-        bands.to_csv(args.out, index=False)
-        print(f"wrote {args.out}")
+    print(r5(scores))
 
     if curated is not None:
         # Curated-day debug: the walk filled `curated` with each requested day's
