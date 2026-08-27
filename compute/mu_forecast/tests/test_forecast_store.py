@@ -56,10 +56,7 @@ def test_nodal_store_scopes_ct_day_horizon_and_copy_rows(monkeypatch):
             "2026-07-31 05:00:00+00:00",  # 07-31 00:00 CT
         ]),
         "settlement_point": ["A", "B", "C"],
-        "p10": [1.0, float("nan"), 3.0],
-        "p50": [2.0, 3.0, 4.0],
-        "p90": [3.0, 4.0, 5.0],
-        "point": [2.5, 3.5, 4.5],
+        "point": [2.5, float("nan"), 4.5],
     })
     monkeypatch.setattr(forecast_store, "load_nodal", lambda _: frame)
     conn = _Connection()

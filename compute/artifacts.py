@@ -36,9 +36,5 @@ class RunArtifacts:
         return self.mu_dir / "mu_score_weekly.csv"
 
     @property
-    def bands(self) -> Path:
-        return self.forecast_dir / "mu_bands_weekly.csv"
-
-    @property
     def nodal_panel(self) -> Path:
         return self.forecast_dir / "mu_nodal.npz"

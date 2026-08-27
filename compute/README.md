@@ -60,7 +60,7 @@ forecast loud and leaves the prior served day intact.
 
 | | SF map (`map-v1`) | Forecast (`mu-all-v1`) |
 |---|---|---|
-| What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: per-SP P10/P50/P90 congestion forecast |
+| What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: deterministic per-SP congestion forecast |
 | Cadence | weekly, Sun 18:00 UTC | daily ×2: final 17:00 UTC (h1) + preview 19:45 UTC (h2) |
 | Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `forecast_cronjob.yml` (final), `forecast_preview_cronjob.yml` (preview) |
 | Entry | `weekly_map` → `geo_persist` → `eval` | `daily_forecast` |
@@ -187,7 +187,7 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
   `/compute/runs/<run_id>`.
 
 
-### Step 2 — Build the μ residual pool and score inputs
+### Step 2 — Build offline μ evaluation inputs
 
 **Does:** walks μ forward over history and writes out-of-sample `(p_bind, mu_gbm)`
 predictions, then scores them into the per-`(week × source × regime)` currencies. The
@@ -222,15 +222,9 @@ python -m compute.evaluation.mu \
     --start 2025-01-01 --end <YYYY-MM-DD>
 ```
 
-**`mu_preds.npz` is a live dependency**, not merely a seed artifact: the daily job
-loads it every run as the out-of-sample residual pool that draws the P10/P90 bands.
-It lives on the **`compute-runs` PVC** (`ops/deploy/base/compute/runs-pvc.yml`,
-mounted at `/compute/runs`), and the daily job resolves it **by run ID** —
-`runs/<run-id>/mu/mu_preds.npz`, the same path `mu_model --run-id` just derived.
-Writing it there on that PVC is all that is needed; **refreshing the pool is a file
-drop, not an image rebuild** (override the path with `daily_forecast --preds` if
-ever needed). Any pod that runs `daily_forecast` must mount the PVC — the daily
-cronjob does (`forecast_cronjob.yml`); hand-runs must too (see Step 6).
+`mu_preds.npz` is retained only for offline walk-forward μ evaluation and historical
+backfill. The daily forecast never reads it: serving computes
+`E_mu = p_bind × mu_gbm`, then `point = −(E_mu · SF)` directly.
 
 > **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `model.runner` and
 > `backfill_nodal` never read the DB max or `now()`. With `--score-from` set (above),
@@ -241,13 +235,12 @@ cronjob does (`forecast_cronjob.yml`); hand-runs must too (see Step 6).
 
 **Needs:** step 1's persisted `map-v1` and step 2's predictions + score CSV.
 **Does:** projects every eligible walk-forward prediction through its causal persisted
-SF window, writes the P10/P50/P90/point panel for `mu-all-v1`, then promotes that same
+SF window, writes the deterministic point panel for `mu-all-v1`, then promotes that same
 run only after the bulk write succeeds. This is the historical price backfill.
 
-With `--run-id ${RUN_ID}` every path derives (plan/0113): the residual pool and score
-CSV are read from `runs/${RUN_ID}/mu/`, and the bands CSV + nodal panel are written to
-`runs/${RUN_ID}/forecast/` (`mu_bands_weekly.csv`, `mu_nodal.npz`) — the job creates
-that tree itself. Pass `--preds` / `--scores` / `--out` / `--nodal-out` only to point
+With `--run-id ${RUN_ID}` every path derives: offline predictions and score CSV are
+read from `runs/${RUN_ID}/mu/`, and the nodal panel is written to
+`runs/${RUN_ID}/forecast/mu_nodal.npz`. Pass `--preds` / `--scores` / `--nodal-out` only to point
 somewhere else.
 
 ```
@@ -458,6 +451,51 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
   week's single fit; the daily job (step 6) refits every day. Both are honest (the two
   `propagate_window` modes reconcile given identical inputs), but a historic panel row is
   not bit-for-bit "what the live job would have emitted that day."
+
+---
+
+
+# Walkthrough Notes
+
+* `jobs/daily_forecast.py:forecast_day()`:
+    * query and build data panel (split train / test based on days)
+      * `arms`: features
+      * `M = load_shadow_prices()`
+      * `C = load_congestion_panel()`
+      * `panel = build_panel()`
+    * `wp = predict_day(panel, D, train_days, arms)`: (`interval_ts`, `key`, `p_bind`, `mu_gbm`) frame
+      * "wp" : "working prediction" - return p_bind, p_mu and climatology counterpart
+      * - `compute/mu_forecast/model/runner.py:predict_day()` -
+        * `fold = _predict_fold(train, score, arms, seed, spill_dir)`
+          * `fold`:  data frame:{p_bind, mu_clim, mu_gbm}, index=score_e.index)
+            * `score_e.index`: (interval_ts, key (constraint)) -> p_bind...
+          * `target_encoding()` / `apply_encoding()`: bind_rate
+          * `_alloc_bind_matrix()`
+          * `bind = fit_bind_head(x_tr, y_bind_tr, seed)`
+          * `p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]`
+          * `cells, edges, grand = fit_mu_climatology(clim_e)`
+          * `mu_clim = predict_mu_climatology(score_e, cells, edges, grand)`
+          * `mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)`
+
+    * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
+    * `sf_win=resolve_sf_window()_`: SF window - just for run log summary
+
+-- pausing here because we want to remove to p10/p50/p90 simulated value
+
+    * `preds = load_preds()`: load prediction artifact - not from current train
+      day, but `walk_forward()`
+      * `walk_forward()`: historical training path
+        * for each historical scoring week S:
+          * train model on data before S
+          * predict rows during week S
+          * later join those predictions to the actual outcomes
+
+
+    * `eps = residual_pool()`: epsilon - error.
+    * `propagate_window(D, block_end, M, C, wp, eps....)`
+    * `sf_mu = build_sf_mu_artifact(SF, E_mu)`
+    * return `ForecastResult`
+
 
 ---
 
