@@ -1010,9 +1010,6 @@ class WeeklyPoint(BaseModel):
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
-    coverage80: float | None = None
-    band_width: float | None = None
-    pinball: float | None = None
     sf_coverage: float | None = None
     model_coverage: float | None = None
     n_hours: int | None = None
@@ -1077,9 +1074,7 @@ class ScoreboardWeekly(BaseModel):
 class DailyPoint(BaseModel):
     """One ``scoreboard_daily`` row — one (delivery_date, source) live grade.
 
-    Same currency columns as ``WeeklyPoint``. The band columns (``coverage80`` /
-    ``band_width`` / ``pinball``) are populated on the model source only — measured
-    live from the served p10/p50/p90 vs realized. ``model_coverage`` is NULL for
+    Same point-metric currency columns as ``WeeklyPoint``. ``model_coverage`` is NULL for
     now (it needs the prediction-time key set, the deferred snapshot); ``sf_coverage``
     rides along so a collapse day reads as a coverage gap, not lost skill. All
     nullable — a declined/flat cell (e.g. the ``null`` source's screening) is ``None``.
@@ -1096,9 +1091,6 @@ class DailyPoint(BaseModel):
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
-    coverage80: float | None = None
-    band_width: float | None = None
-    pinball: float | None = None
     sf_coverage: float | None = None
     model_coverage: float | None = None
     n_hours: int | None = None

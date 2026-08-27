@@ -59,7 +59,6 @@ from compute.evaluation.essp import score_final_essp
 from compute.sf_map.model.fit import implied_shift_factors
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.projection.codecs import load_sf_mu
-from compute.projection.sampling import band_metrics
 
 log = logging.getLogger(__name__)
 
@@ -72,14 +71,12 @@ _BASELINES = ("oracle", "persistence", "climatology", "null")
 _COLS = (
     "run_id", "delivery_date", "source", "horizon",
     "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
-    "coverage80", "band_width", "pinball",
     "sf_coverage", "model_coverage", "n_hours", "n_nodes",
     "essp_precision", "essp_recall",
 )
 
 # The currency keys score_matrix emits, in table order.
 _METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
-_BANDS = ("coverage80", "band_width", "pinball")
 
 
 def _as_ct_day(D) -> pd.Timestamp:
@@ -101,7 +98,7 @@ def _v(x) -> float | None:
 def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
                          horizon: int = 1) -> dict[str, pd.DataFrame]:
     """Read the served nodal panel for (run_id, delivery_date=D, horizon) back into
-    wide (ts × settlement_point) frames for point / p10 / p50 / p90.
+    a wide (ts × settlement_point) deterministic point frame.
 
     Each horizon is its own scoreboard track, so grading reads only the horizon's
     own rows (0123). Empty dict if nothing was served for that day+run+horizon — the
@@ -110,7 +107,7 @@ def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT ts, settlement_point, point, p10, p50, p90
+            SELECT ts, settlement_point, point
             FROM forecast_nodal
             WHERE run_id = %s AND delivery_date = %s AND horizon = %s
             ORDER BY ts, settlement_point
@@ -120,14 +117,11 @@ def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
         rows = cur.fetchall()
     if not rows:
         return {}
-    df = pd.DataFrame(rows, columns=["ts", "sp", "point", "p10", "p50", "p90"])
+    df = pd.DataFrame(rows, columns=["ts", "sp", "point"])
     df["ts"] = pd.to_datetime(df["ts"], utc=True)
-    out: dict[str, pd.DataFrame] = {}
-    for q in ("point", "p10", "p50", "p90"):
-        w = df.pivot(index="ts", columns="sp", values=q).sort_index()
-        w.columns.name = None
-        out[q] = w
-    return out
+    point = df.pivot(index="ts", columns="sp", values="point").sort_index()
+    point.columns.name = None
+    return {"point": point}
 
 
 def score_served_essp(conn, run_id: str, D: pd.Timestamp,
@@ -248,29 +242,20 @@ def grade_day(
     sf_coverage = (float(M_score[in_cols].abs().to_numpy(float).sum()) / mass_all
                    if mass_all > 0 else np.nan)
 
-    def _row(source: str, metrics: dict, bands: dict | None = None) -> dict:
+    def _row(source: str, metrics: dict) -> dict:
         row = {"run_id": run_id, "delivery_date": D.date(), "source": source,
                "horizon": horizon,
                **{k: metrics.get(k) for k in _METRICS},
-               "coverage80": None, "band_width": None, "pinball": None,
                "sf_coverage": sf_coverage, "model_coverage": None,
                "n_hours": len(hours), "n_nodes": len(N),
                "essp_precision": None, "essp_recall": None}
-        if bands is not None:
-            row.update({k: bands.get(k) for k in _BANDS})
         return row
 
     rows: list[dict] = []
 
-    # --- model: the served deterministic point, plus live P50 bands ---------
+    # --- model: the served deterministic point ------------------------------
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
-    bm = band_metrics(
-        Y,
-        fc["p10"].reindex(index=hours, columns=N).to_numpy(float),
-        fc["p50"].reindex(index=hours, columns=N).to_numpy(float),
-        fc["p90"].reindex(index=hours, columns=N).to_numpy(float),
-    )
-    rows.append(_row("model", score_matrix(Y, Yh_model), bands=bm))
+    rows.append(_row("model", score_matrix(Y, Yh_model)))
     rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
     # --- comparators: recomputed on D, projected through the trailing-window SF -
