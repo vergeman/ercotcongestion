@@ -1,21 +1,10 @@
 """The two heads: P(bind) and E[mu | bind].
 
-plan/0085 commit 3.
-
 **Pooled, not per-constraint.** One model over all constraints, with constraint
 identity entering as *features* (its own binding history, plus a target-encoded
-binding rate) rather than as N separate models. A per-constraint GBM for something
-that binds 5 hours in 240 days is hopeless, and 0084's guard sweep has now made
-that the common case rather than the exception: `min_hours=25` is dead, so the map
-carries ~1,650-2,200 columns and roughly half of them are thin binders. Pooling
-borrows strength across constraints and is robust to either operating point.
+binding rate) rather than as N separate models.
 
-**Head 1 — P(bind at h).** Gradient-boosted classifier. The headline metric is
-**calibration**, not AUC, and the distinction is not pedantry: commit 5 samples
-binding sets from these probabilities and pushes them through the SF map to get
-nodal P10/P50/P90. A model that ranks perfectly but says 0.9 when it means 0.5
-produces beautifully ordered, systematically wrong bands. AUC cannot see that;
-Brier and the reliability curve can.
+**Head 1 — P(bind at h).** Gradient-boosted classifier.
 
 **Head 2 — E[mu | bind].** The plan says conditional climatology FIRST, quantile
 regression only if the simple version is beaten — so both are built and scored
@@ -23,12 +12,9 @@ head-to-head here, and `mu_head` reports which won rather than assuming. The
 climatology is bucketed on net load, which is the physical driver: congestion
 magnitude is a function of how hard the system is being pushed.
 
-**Honest walk-forward.** Train on the trailing window ending STRICTLY BEFORE the
-scored week — the same convention as `sf/eval.evaluate`, whose refit grid this
-deliberately mirrors so the two can be compared week-for-week in commit 4. Every
-quantity fitted on training data (including the target encoding and the
-climatology buckets) is fitted inside the window and applied forward. There are no
-exceptions and no "just for the sweep".
+**walk-forward.** Train on the trailing window ending STRICTLY BEFORE the
+scored week — the same convention as `sf/eval.evaluate`.
+
 """
 from __future__ import annotations
 
@@ -59,11 +45,6 @@ log = logging.getLogger("compute.mu_forecast.model.runner")
 DEFAULT_TRAIN_DAYS = WINDOW_DAYS
 DEFAULT_REFIT_DAYS = REFIT_DAYS
 
-# build_panel drops its first delivery day(s) to DAM/tz edges — the covariate panel
-# starts a day after the shadow-price read floor. Read this many extra days behind
-# the origin so days[0] lands comfortably before `origin − train_days`. Reading early
-# is free (it only widens the first fold's training history) and never shifts the
-# scored grid, which is pinned by score_from.
 PANEL_LEADIN_DAYS = 7
 
 # Columns that are targets or bookkeeping, never inputs.
@@ -135,19 +116,13 @@ def persist_outputs(weekly: pd.DataFrame, preds: pd.DataFrame,
 # --------------------------------------------------------------------------
 # The ablation arms (plan/0088)
 # --------------------------------------------------------------------------
-# **Build the panel once; express an arm as a subset of its columns.** This is
-# the load-bearing engineering decision of 0088 and it is worth being explicit
-# about why: `build_panel` materialises ~10M rows and is the peak-memory line of
-# the package. Rebuilding it five times to run five arms would cost five walks'
-# worth of the most expensive step in the branch — and, far worse, would leave
-# five *separately constructed* panels whose differences are not guaranteed to be
-# only the arm. Here the panel is a fixed object and the arm is a column mask, so
-# "the only thing that varies is the feature set" is a fact about the code rather
-# than a claim in a docstring.
+# **Build the panel once; express an arm as a subset of its columns.**
+# `build_panel` materialises ~10M rows and is the peak-memory line of the
+# package. Rebuilding it five times to run five arms would cost five walks'
+# worth of the most expensive step in the branch.
 #
 # Each arm owns a column-name prefix. A new covariate joins an arm by being named
-# for it; there is no registry to update and no way for a column to be silently
-# claimed by the wrong arm.
+# for it.
 ARM_PREFIXES = {
     "lag": "lag_",   # commit 2 — lagged realized mu (the persistence content)
     "geo": "geo_",   # commit 3 — constraint geography via the |SF| centroid
@@ -159,12 +134,11 @@ ARM_PREFIXES = {
 # against. `all` is every arm at once. The single-arm rows are what make the
 # contributions attributable.
 #
-# **The first five keys are 0088's pre-registered arms (`plan/s6-gate.md`) and are
-# frozen — do not edit them.** `out` and `all+out` are plan/0089's additions, and
-# they are additive on purpose: because `out` joins `ARM_PREFIXES`, every existing
-# arm now *drops* the `out_` columns, so `base` and `all` are byte-identical to 0088
-# on a panel that carries the outage covariate. The new arms are the only ones that
-# can see it.
+# **The first five keys are frozen — do not edit them.** `out` and `all+out`
+# are plan/0089's additions, and they are additive on purpose: because `out`
+# joins `ARM_PREFIXES`, every existing arm now *drops* the `out_` columns, so
+# `base` and `all` are byte-identical to 0088 on a panel that carries the
+# outage covariate. The new arms are the only ones that can see it.
 FEATURE_SETS = {
     "base": (),
     "lag": ("lag",),
@@ -221,43 +195,36 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
     `spill_dir`, when given, puts the float64 bind matrix on that disk PVC instead
     of anonymous RAM (see `_alloc_bind_matrix`) — the walk's peak-memory line.
 
-    This is the body `walk_forward`'s loop used to inline, lifted out verbatim so
-    the production forward path (`predict_day`) and the validated backtest fit are
-    literally the same code — a re-fit that drifts from the walk is the failure the
-    extraction exists to prevent. Returns one row per scored `(interval_ts, key)`
-    with `p_bind`, `mu_clim`, `mu_gbm`, indexed by `score`'s index. The realized
-    `y_bind`/`y_mu` join stays with the caller that holds the labels.
+    Returns one row per scored `(interval_ts, key)` with `p_bind`, `mu_clim`,
+    `mu_gbm`, indexed by `score`'s index. The realized `y_bind`/`y_mu` join
+    stays with the caller that holds the labels.
 
-    `keep` slims the per-fold copy to this arm's features plus the two targets: the
-    ablation panel carries ~90 columns, but a single arm's fold reads only ~50, and
-    per-fold copies are the peak-memory line of the walk — see `apply_encoding`.
     """
     feat = feature_cols(train, arms)
     cols = feat + ["key_bind_rate"]
     keep = feat + ["y_bind", "y_mu"]
+
+    # `target_encoding`: historic "default" bind rate
+    # `apply_encoding` only *adds* one column - `key_bind_rate`, (bind per constraint)
+    # *_e:  "encoded" - added the bind_rate
+    # *_tr: "training"
 
     enc, pooled = target_encoding(train)
     score_e = apply_encoding(score, enc, pooled, keep)
 
     # Never materialise the full-width float32 fold copy. On the wide `all` arm
     # (86 features) that copy is ~1.7 GB and it has to coexist with the ~3.3 GB
-    # float64 bind matrix while the matrix is filled — together, on top of the
-    # ~4 GB panel, that tips the densest late-walk folds over this node's RAM.
-    # `apply_encoding` only *adds* one column (`key_bind_rate`); every other fold
-    # column is a raw panel column already in `train`. So the bind matrix is filled
-    # straight from the panel view plus that one encoded column, and only the small
-    # consumers are encoded in full: the mu head trains on binding rows alone (a few
-    # percent), and the climatology reads four base columns off the view. Each value
-    # is exactly what a full `apply_encoding` then `fold_matrix` produced — same
-    # float32 columns, same float32 `key_bind_rate` upcast to float64, same `cols`
-    # order — so every fitted value is unchanged; `test`/`compare_base` pin it.
+    # float64 bind matrix while the matrix is filled.
     binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
-    clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()
+    clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()   # climatology
     y_bind_tr = train["y_bind"].to_numpy()
 
     key_rate = enc.reindex(
         train.index.get_level_values("key")).fillna(pooled).to_numpy("float32")
+
+    # x_tr: binding classifier’s training feature matrix: all selected features plus key_rate
     x_tr = _alloc_bind_matrix((len(train), len(cols)), spill_dir)
+
     for j, c in enumerate(feat):
         x_tr[:, j] = train[c].to_numpy()
     x_tr[:, len(feat)] = key_rate  # last column of `cols`; float32 → float64
@@ -266,12 +233,24 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
                       # unreclaimable against the node/cgroup, clean ones it can
                       # evict — the flush is what averts the OOM, not the move alone.
 
+    #
+    # cols: features + key_bind_rate
+    #
+    # p_bind HistGradientBoostingClassifier model.fit()
+    #
     bind = fit_bind_head(x_tr, y_bind_tr, seed)
     del x_tr, y_bind_tr, key_rate
     p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
 
+    # climatology: historic baseline from typical conditions
+    # edges: quantiles of net load; divide training net_load into buckets.
+    # cells: avg mu when bound, per (net-load bucket, hour)
+    # grand: fallback avg mu when no (bucket, hour) observation
     cells, edges, grand = fit_mu_climatology(clim_e)
     mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
+
+    # prob mu HistGradientBoostingRegressor NB: fit and predict
+    # "gmb" gradient boosted mu E[mu]
     mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
 
     return pd.DataFrame(
@@ -392,48 +371,28 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
                 seed: int = 0, spill_dir: str | None = None) -> pd.DataFrame:
     """Fit both heads on the trailing window and predict delivery day `D`.
 
-    This is `walk_forward`'s fold (`_predict_fold`) with the prediction block set to
-    D's 24 hours — the same fit path the backtest validated, run forward one day.
-    `train` = `[D − train_days, D)`, `score` = the 24 hours of `[D, D+1d)`. The
-    panel is handed in already built at the DAM-close vintage (0013 builds it); this
-    function reads no live inputs and holds no cutoff logic.
+    This is `walk_forward`'s fold (`_predict_fold`) with `train` = `[D −
+    train_days, D)`, `score` = the 24 hours of `[D, D+1d)`.
 
-    `spill_dir`, when given, puts the fold's ~3.4 GB float64 bind matrix on that
-    disk PVC instead of anonymous RAM (see `_alloc_bind_matrix`). The daily refit
-    trains on the same 240-day window the backtest's late folds do, so its fold is
-    the same peak-memory line — a per-day serving/backfill job that omits this
-    coexists the bind matrix with the resident panel and OOMs exactly as the walk
-    did. `None` keeps the in-RAM allocation for the path tests.
+    `spill_dir`, puts the fold's ~3.4 GB float64 bind matrix on that disk PVC
+    instead of anonymous RAM.
 
-    **Candidate universe = keys present in the trailing window's binding history.**
-    A constraint the fit never saw bind has no target-encoded identity and no μ-head
-    signal, so it gets no row rather than a silently-zero one — the coverage gap is
-    reported (the novelty count below), not buried. The fit itself uses the *full*
-    train (every key's target encoding, every binder), exactly as `walk_forward`
-    does; only the scored rows are narrowed to the universe.
+    **Novelty** is surfaced, not fatal: the number of keys enforced on D−1
+    (present in the panel that day, whether or not they bound) that the fit
+    never saw bind. `wp.attrs["novelty"]` / `wp.attrs["novel_keys"]` is logged,
+    for summary to widen bands or flag rather than silently zero them.
 
-    **Novelty** is surfaced, not fatal: the number of keys *enforced* on D−1 (present
-    in the panel that day, whether or not they bound) that the fit universe never
-    saw bind — a constraint active right now with no history to learn from. It rides
-    on the result as `wp.attrs["novelty"]` / `wp.attrs["novel_keys"]` and is logged,
-    for 0013's run summary to widen bands or flag rather than silently zero them.
+    Returns `wp` = `(interval_ts, key, p_bind, mu_gbm)` the flat frame that
+    `propagate_window` consumes; `mu_clim` and the realized labels are dropped
+    from the served shape (propagation reads `p_bind` and `mu_gbm` only).
 
-    Returns `wp` = the flat `(interval_ts, key, p_bind, mu_gbm)` frame
-    `propagate_window` consumes — `mu_clim` and the realized labels are dropped from
-    the served shape (propagation reads `p_bind` and `mu_gbm` only).
     """
     ts = panel.index.get_level_values("interval_ts")
     if not ts.is_monotonic_increasing:
         raise ValueError("panel must be sorted by interval_ts")
     D = pd.Timestamp(D)
     D = D.tz_localize(ts.tz) if D.tz is None else D.tz_convert(ts.tz)
-    # Anchor on D's own CT calendar day (0133), not a blind UTC `.normalize()`,
-    # which would smash an already-correct CT-midnight instant (e.g. 05:00Z CDT)
-    # back to UTC midnight — a caller passing the real block boundary would then
-    # silently score an hour-shifted day. Re-deriving from `ct_day_bounds` is a
-    # no-op on an already-anchored D (idempotent), and the score-block end (`hi`)
-    # and the D−1 boundary come out DST-aware for free — `D + 24h`/`D − 24h` would
-    # each land an hour off on a spring-forward/fall-back day.
+
     ct_date = D.tz_convert(ERCOT_TZ).date()
     D, hi = (pd.Timestamp(b).tz_convert(ts.tz) for b in ct_day_bounds(ct_date))
     dm1, _ = ct_day_bounds(ct_date - timedelta(days=1))
@@ -446,6 +405,13 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
         return out
 
     lo = D - pd.Timedelta(days=train_days)
+
+    # p: position
+    # p_lo: first row at D - train_days
+    # p_dm1: first row of CT day D−1
+    # p_d: first row of CT day D
+    # p_hi: first row after CT day D (the next CT midnight)
+    # subdividing the panel between train and forecast date ranges
     p_lo, p_dm1, p_d, p_hi = ts.searchsorted([lo, dm1, D, hi], side="left")
     train, score = panel.iloc[p_lo:p_d], panel.iloc[p_d:p_hi]
     if train.empty or score.empty:
@@ -454,9 +420,10 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     universe = pd.Index(
         train.index[train["y_bind"] == 1].get_level_values("key").unique())
 
-    # Enforced on D−1 = keys present in that day's rows (candidates ERCOT carried),
-    # bound or not. Those with no binding history in the fit universe are novel — a
-    # live constraint the model has no basis to score. `[p_dm1:p_d)` is D−1's slice.
+    # Enforced on D−1 = keys present in that day's rows (candidates ERCOT
+    # carried), bound or not. Those with no binding history in the fit universe
+    # are novel — a live constraint the model has no basis to score.
+    # `[p_dm1:p_d)` is D−1's slice.
     enforced_dm1 = panel.index[p_dm1:p_d].get_level_values("key").unique()
     novel_keys = sorted(enforced_dm1.difference(universe))
     if novel_keys:
@@ -468,10 +435,8 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
         return _empty(novel_keys)
 
     fold = _predict_fold(train, score, arms, seed, spill_dir)
-    # Drop the on-disk bind matrix so a per-day backfill loop does not leave a stale
-    # ~3.4 GB file on the PVC — the fold has already read it. Mirrors walk_forward's
-    # end-of-walk unlink; the fixed filename is overwritten (mode="w+") each call, so
-    # this never races a concurrent fold in the single-threaded serving path.
+    # Drop the on-disk bind matrix so a per-day backfill loop does not leave a
+    # stale ~3.4 GB file on the PVC.
     if spill_dir is not None:
         try:
             os.remove(os.path.join(spill_dir, _BIND_MATRIX_FILE))

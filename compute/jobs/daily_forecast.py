@@ -1,29 +1,13 @@
 """The `forecast_day` production job — fit-then-predict for one delivery day D.
 
 At/after DAM close on D−1, produce the forecast for CT delivery day D: the nodal
-P10/P50/P90 + point panel and the per-day SF+μ artifact. This module is stage-1 +
-stage-2 wired end to end **in memory**; persistence and the self-owned pointer flip
-are added in the next commit (spec-phase2b §6).
+P10/P50/P90 + point panel and the per-day SF+μ artifact.
 
-**Why fit-then-predict, not load-and-serve.** The μ-model persists *predictions*,
-never fitted boosters (`mu_model.py` has no `joblib.dump`), so there is no weight
-file to serve. `forecast_day` refits the heads at run time on the trailing window —
-cheap, and honest by construction: `features.py` reads every covariate at its
-DAM-close vintage, so tomorrow's panel is fully buildable today (spec §1).
-
-**UTC storage, CT delivery day.** Every `interval_ts` in the DB is a true UTC
-instant (migration 17) and the model slices the UTC-normalized index, but a
 "delivery day" here is the **CT calendar day**: `[ct_day_bounds(D)]`, DST-aware
-(23/24/25 hours), not a fixed 24-hour UTC block (0133). `delivery_date = D.date()`
-is that CT calendar date — CT midnight, expressed in UTC, always falls within the
-same UTC calendar date (Chicago sits behind UTC), so the label and the DB's UTC
-storage never disagree. One DAM auction clears all 24 hours of a CT day, so
-cutting the block on CT midnight (not UTC midnight) is also what keeps every
-served hour on the causal side of its own auction — a UTC-midnight cut split five
-CT-evening hours into the following block, which then leaked (0133). The DAM-close
-vintage cutoff in `features.py` stays a CT wall-clock event; it pins each
-covariate's publication time per interval and is independent of this day label
-(spec §5).
+(23/24/25 hours), not a fixed 24-hour UTC block. `delivery_date = D.date()` is
+that CT calendar date - a UTC-midnight cut split five CT-evening hours into the
+following block.
+
 """
 from __future__ import annotations
 
@@ -89,38 +73,20 @@ RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 def preds_path_for(run_id: str) -> str:
     """Resolve the μ residual-pool npz for `run_id` on the runs PVC.
-
-    The validated backtest's out-of-sample residuals, sampled to form the forward
-    error pool (panel spec §7). It is the model-VERSION artifact — produced once per
-    `run_id` (runbook step 2) and reused by every daily run — so it lives with the
-    rest of the run's artifacts under `runs/<run_id>/mu/`, the same path
-    `mu_model --preds-out` and `backfill_nodal --preds` write and read. Loading it
-    from the mounted PVC by `run_id` replaces the old image-baked `compute/mu`
-    copy, so refreshing the pool no longer needs an image rebuild. Pass `--preds`
-    to override (parity with backfill_nodal/score/rerank).
     """
     return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 
-# `run_id` names the MODEL VERSION, not the day (spec §4). Each daily run appends a
-# new `delivery_date` under the same `run_id`; the `forecast_current` pointer only
-# moves when the model *config* changes (arms, retune, RTC+B re-fit). Bump `run_id`
-# on any change that would make two days' forecasts non-comparable — that is what
-# keeps the whole forward track one queryable id and the scoreboard from splicing
-# two different models. A re-run of a day under an unchanged `run_id` is an
-# idempotent replace, and the pointer does not move.
-
+# `run_id` names the MODEL VERSION. Each daily run appends a new
+# `delivery_date` under the same `run_id`
 
 @dataclass
 class ForecastResult:
     """One delivery day's forecast, held in memory (nothing written yet).
 
     `panel` is the nodal P10/P50/P90 + point over D's 24 UTC hours; `SF`/`E_mu` are
-    the day's fitted SF map and μ head that `sf_mu` serializes (panel spec §4a).
-    `novelty`/`novel_keys` ride along for the run summary — constraints enforced in
-    D−1's data that the fit universe never saw bind (spec §7); they are surfaced,
-    not fatal.
+    the day's fitted SF map and μ head that `sf_mu` serializes.
     """
 
     run_id: str
@@ -138,12 +104,11 @@ class ForecastResult:
 
 
 def _as_ct_day(D) -> pd.Timestamp:
-    """Normalize any date-ish `D` to the UTC instant marking CT midnight — the
+    """Normalize any date-ish `D` to the UTC instant marking CT midnight - the
     delivery-day block boundary the whole pipeline slices on (`predict_day`
-    anchors the same way, 0133). A tz-naive `D` (or a plain `YYYY-MM-DD` string)
-    names the CT calendar date directly, matching the stored `delivery_date`
-    label; a tz-aware instant is first mapped to its own CT calendar date, so
-    re-anchoring an already-anchored `D` is a no-op — `ct_day_bounds`."""
+    anchors the same way).
+
+    """
     return normalize_ct_day(D)
 
 
@@ -157,13 +122,11 @@ def _ct_block_end(D: pd.Timestamp) -> pd.Timestamp:
 def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
     """Fail loud if delivery day D−1 has no `ercot_dam_shadow_prices` rows yet.
 
-    The horizon-2 (preview) tick fires the same afternoon T+1's DAM is due (~13:30
-    CT); the fit's freshest history day is D−1 (= T+1). A late ERCOT post would let
-    the fit run with that day silently missing — a quietly degraded forecast. So
-    before the fit, assert D−1's DAM has published (spec §8 pattern: fail, write
-    nothing, prior rows intact). D−1's CT hours are `ct_day_bounds(D−1)` — one CT
-    calendar day before D; `D − 1 day` as a `Timedelta` would land an hour off
-    D−1's own CT midnight on a spring-forward/fall-back day (0133).
+    The horizon-2 (preview) tick fires the same afternoon T+1's DAM is due
+    (~13:30 CT); the fit's freshest history day is D−1 (= T+1). A late ERCOT
+    post would let the fit run with that day silently missing. So before the
+    fit, assert D−1's DAM has published.
+
     """
     lo, _ = ct_day_bounds(D.tz_convert(ERCOT_TZ).date() - timedelta(days=1))
     with conn.cursor() as cur:
@@ -171,9 +134,10 @@ def _assert_freshest_history_published(conn, D: pd.Timestamp) -> None:
             "SELECT max(interval_ts) FROM ercot_dam_shadow_prices "
             "WHERE interval_ts >= %s AND interval_ts < %s", (lo, D))
         ts_max = cur.fetchone()[0]
-    # Not merely "any row": D−1's UTC window always catches the ~5h tail of the op-day
-    # before it, so a bare existence check false-passes when T+1's own DAM has not yet
-    # landed (0127). Require the shadow prices to actually span D−1's window.
+    # Not merely "any row": D−1's UTC window always catches the ~5h tail of the
+    # op-day before it, so a bare existence check false-passes when T+1's own
+    # DAM has not yet landed. Require the shadow prices to actually span D−1's
+    # window.
     if not dam_shadow_covers_window(ts_max, lo):
         raise RuntimeError(
             f"horizon-2 gate: ercot_dam_shadow_prices does not span delivery day "
@@ -201,58 +165,40 @@ def forecast_day(
 ) -> ForecastResult:
     """Fit the heads on the trailing window and forecast CT delivery day D.
 
-    Two stages (spec §3), reusing the validated fit path and the shared window
-    propagator:
+    Two stages:
 
       1. **μ inference** — `build_panel` at the DAM-close vintage over
          `[D−train_days, D+1)`; `predict_day(panel, D)` fits both heads on the
          trailing window and predicts D's 24 hours (`wp`: `p_bind`, `mu_gbm`).
-      2. **propagation** — load the weekly map's persisted SF (run `map_run_id`) via
-         `load_forecast_sf` and draw the nodal panel through it with
-         `propagate_window` in forward mode (no realized `Y`, hours from D's UTC
-         calendar). No per-day SF refit (0095-0002): the map fits this SF weekly, it
-         is stationary within the refit interval, and the loader guards freshness /
-         coverage and fails loud (prior pointer intact) on a stale, missing, or
-         low-coverage map. The residual pool is the validated backtest's OOS errors,
-         strictly before D.
+         2. **propagation** — load the weekly map's persisted SF (run
+         `map_run_id`) via `load_forecast_sf` and draw the nodal panel through
+         it with `propagate_window`; the map fits this SF weekly, and is
+         stationary within the refit interval.
 
     `fire_time` is this run's instant, standing in for "now" — the covariate
-    vintage cutoff (`build_panel`'s `vintage_cutoff`, 0133). It defaults to the
-    actual wall clock (`pd.Timestamp.now`), which for every live tick is already
-    well after D's DAM close, so the cap is a no-op there and for the CLI's
-    default single-day backfill (horizon 1). It matters for a **historical h2
-    backfill**: passed the day's real historical fire instant (20:15Z on D−2, the
-    live h2 cron's own schedule), it reproduces exactly what that live run could
-    have seen — one daily load/wind/solar snapshot and up to a day of outage
-    snapshots earlier than the DAM-close default would read — so a re-backfilled
-    preview stays a genuinely disadvantaged preview instead of collapsing into a
-    re-labeled final (`compute/jobs/backfill_artifacts.py` computes it).
+    vintage cutoff (`build_panel`'s `vintage_cutoff`). It defaults to the
+    actual wall clock (`pd.Timestamp.now`), which for every live tick is
+    already well after D's DAM close. It matters for a **historical h2
+    backfill**: it reproduces exactly what that live run could have seen — one
+    daily load/wind/solar snapshot and up to a day of outage snapshots earlier
+    than the DAM-close default would read — so a re-backfilled preview stays a
+    genuinely disadvantaged preview instead of collapsing into a re-labeled
+    final (`compute/jobs/backfill_artifacts.py` computes it).
 
     Reads only; writes nothing and does not touch the pointer (the next commit adds
-    persistence). Every read — `M`/`C` end at D exclusive, and the SF window is
-    causal (`window_end ≤ D`) — sees only intervals < D (spec §5 — the honest path).
+    persistence). Every read sees only intervals < D.
+
     """
     D = _as_ct_day(D)
     fire_time = fire_time if fire_time is not None else pd.Timestamp.now(tz="UTC")
-    block_end = _ct_block_end(D)      # D's next CT midnight — DST-aware (0133)
-    # Horizon-2 (preview) fires while D−1's DAM is still landing; gate before the fit
-    # so a late ERCOT post fails loud rather than fitting on a missing freshest day
-    # (0123). Horizon 1 fires two hours after D−1 closed — no gate needed.
+    block_end = _ct_block_end(D)      # D's next CT midnight — DST-aware
+    # Horizon-2 (preview) fires while D−1's DAM is still landing; a late ERCOT
+    # post fails loud rather than fitting on a missing freshest day. Horizon 1
+    # fires two hours after D−1 closed.
     if horizon == 2:
         _assert_freshest_history_published(conn, D)
     preds_path = preds_path or preds_path_for(run_id)
-    # Reproducing the validated model means reproducing how it built its TRAIN rows.
-    # The geo/wx arms fit a per-boundary SF/weather-response on
-    # `[boundary − WINDOW_DAYS, boundary)`; the boundary covering the earliest train
-    # day (`D − train_days`) sits up to `REFIT_DAYS` before it, so its fit window
-    # reaches back `train_days + WINDOW_DAYS + REFIT_DAYS`. All of the shadow prices,
-    # congestion, AND the system/weather panel (`build_panel` loads the last from its
-    # `start`) must span that whole depth — anything shallower leaves the early train
-    # margin with NaN geo/weather and short candidate history, the heads fit on
-    # different features, and the forward forecast silently diverges from the model
-    # the backtest validated (the reconciliation test, spec §9, pins this). The
-    # `predict_day` train window is still `[D − train_days, D)`; the earlier panel
-    # rows are built only to give the arms their history and are then sliced off.
+
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
     log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  "
              "fire_time=%s  preds=%s",
@@ -260,9 +206,6 @@ def forecast_day(
              preds_path)
 
     # --- stage 1: μ inference ------------------------------------------------
-    # M and C end at D (exclusive): the SF fit window and every covariate see only
-    # intervals < D. `score_from=D` phase-locks the geo/wx refit grid so D is itself
-    # a boundary — the arm SF for D closes at D, matching the propagation SF below.
     try:
         M = load_shadow_prices(conn, read_start, D)
         C = load_congestion_panel(conn, read_start, D) if "geo" in arms else None
@@ -282,27 +225,16 @@ def forecast_day(
     if panel.empty:
         raise RuntimeError(f"empty feature panel for {D.date()} — no covariate "
                            f"vintage at DAM close (spec §8: fail, keep pointer)")
-    # `build_panel` needed the deep read-margin `[read_start, D − train_days)` only
-    # to give the geo/wx arms their per-boundary fit history; `predict_day` trains on
-    # `[D − train_days, D)` and never reads an earlier row (its `searchsorted` skips
-    # them). But they stay resident in the wide panel — ~2× the rows we use — and
-    # coexist with the ~3.3 GB float64 fold matrix in `_predict_fold`, the walk's
-    # peak-memory step, which tips a 16 GB node over. Drop them now; the fold fit and
-    # `wp` are byte-identical (those rows were already outside every window it reads).
+
     keep_from = D - pd.Timedelta(days=train_days)
     panel = panel.loc[panel.index.get_level_values("interval_ts") >= keep_from]
     gc.collect()
 
     # The daily refit trains on the same 240-day window the backtest's late folds do,
-    # so `_predict_fold`'s ~3.4 GB float64 bind matrix is the same peak-memory line —
-    # in anonymous RAM it coexists with the resident panel and OOMs a 16 GB node (the
-    # exact break the backtest's spill fixed but the serving path never inherited).
+    # in anonymous RAM it coexists with the resident panel and OOMs a 16 GB node.
     # Spill it to disk always: MU_SPILL_DIR when set, else the system temp dir, which
-    # is always writable. Values are bit-identical (every cell is filled), so the
-    # forward forecast the reconciliation test pins is unchanged — only where the
-    # matrix lives moves. The larger resident-panel spill stays opt-in (MU_SPILL_PANEL)
-    # since it pays a one-time pyarrow copy; enable it when the bind spill alone leaves
-    # too little headroom.
+    # is always writable.
+
     spill_dir = os.environ.get("MU_SPILL_DIR") or tempfile.gettempdir()
     if os.environ.get("MU_SPILL_PANEL"):
         panel = spill_panel_features(panel, spill_dir)
@@ -319,25 +251,20 @@ def forecast_day(
     log.info("stage 1: panel %s rows, wp %d scored keys, novelty=%d",
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
 
-    # Load the weekly map's persisted SF instead of refitting it here (0095-0002).
-    # Causal (window_end ≤ D) and guarded: a stale / missing / low-coverage map
-    # raises, and no write has happened yet, so the prior pointer stays intact.
+    # Load the weekly map's persisted SF
     SF_map = load_forecast_sf(conn, D, wp, run_id=map_run_id,
                               max_age_days=max_sf_age_days,
                               min_coverage=min_sf_coverage)
-    # Pin the SF vintage in the result for the run log: a preview-vs-final diff for a
-    # day is only clean if BOTH runs projected through the same weekly map window —
-    # if a weekly refit landed between them the diff also carries a map change (0123).
+    # Pin the SF vintage in the result for the run log
     sf_win = resolve_sf_window(conn, map_run_id, as_of=D)
     sf_window_end = sf_win[1].date() if sf_win is not None else None
 
-    # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature `panel`,
-    # and no longer M/C for an SF fit. In one
-    # process `forecast_day` still holds the wide feature panel that built `wp`;
-    # free it before propagation so the peak doesn't sum. With the SF now loaded
-    # (not fit), M/C no longer feed an SF solve — they're kept only so
-    # `propagate_window`'s forward-mode bookkeeping (`M_score`, empty for D) has a
-    # frame — so trim them to the recent tail to bound memory.
+    # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature
+    # `panel`, and no longer M/C for an SF fit. `forecast_day` still holds the
+    # wide feature panel that built `wp`; free it before propagation so the
+    # peak doesn't sum. With the SF now loaded (not fit), M/C no longer feed an
+    # SF solve — they're kept only so `propagate_window`'s forward-mode
+    # bookkeeping (`M_score`, empty for D) has a frame.
     del panel
     fit_lo = D - pd.Timedelta(days=WINDOW_DAYS)
     M = M.loc[M.index >= fit_lo]
@@ -345,14 +272,28 @@ def forecast_day(
         C = C.loc[C.index >= fit_lo]
     gc.collect()
 
-    # --- stage 2: propagation ------------------------------------------------
+    # --- STAGE 2: PROPAGATION ------------------------------------------------
+    # stage 1 wp; for (hour, constraint) -> p_bind and E(mu) if bind
+    # stage 2: propagation
+    # 1. Uses p_bind to randomly decide whether each constraint binds in each simulation draw.
+    # 2. Uses mu_gbm plus a sampled past residual from eps to generate a plausible μ magnitude for bindings.
+    # 3. Applies the persisted shift-factor map (SF_map) to translate each
+    #    constraint’s μ into effects at every settlement point.
+    # 4. Repeats this many times (n_draws, normally 200).
+    # 5. Takes the P10, P50, and P90 across those simulated outcomes for each hour and settlement point.
+
+
     rng = np.random.default_rng(seed)
+
+    # load prediction artifact
+    # preds is not the current train panel. It is a saved record from walk_forward
     preds = load_preds(preds_path)
+
+    # epsilon - load errors
     eps = residual_pool(preds[preds["week"] < D], rng=rng)      # OOS, strictly < D
 
     # D's score-block hours — D's CT calendar day, 23/24/25 hours across a DST
-    # transition (0133). Absolute-time hourly steps between two true UTC instants
-    # land on the correct count either way: CT wall-clock jumps, UTC does not.
+    # transition.
     forward_hours = pd.date_range(D, block_end, freq="h", inclusive="left")
     _, panel_out, SF, E_mu = propagate_window(     # forward mode → no metrics row
         s=D, end=block_end, M=M, C=C, wp=wp, eps=eps,
@@ -365,9 +306,7 @@ def forecast_day(
              SF.shape[0], SF.shape[1], len(panel_out.ts),
              len(panel_out.settlement_points))
 
-    # Degenerate μ head → an all-zero (flat) panel. The backtest scorer already
-    # declines flat rows; forward, there is nothing downstream to catch it, so
-    # assert non-flat before this becomes a publishable result (spec §8).
+    # Degenerate μ head → an all-zero (flat) panel..
     finite = panel_out.point[np.isfinite(panel_out.point)]
     if finite.size == 0 or float(np.abs(finite).max()) == 0.0:
         raise RuntimeError(
@@ -395,26 +334,24 @@ def _write_nodal_npz(result: ForecastResult, path: str) -> None:
 def persist_forecast(conn, result: ForecastResult, *,
                      npz_dir: str | None = None,
                      layer: str = FORECAST_LAYER) -> int:
-    """Land one day's forecast and flip this feature's own pointer **last** (§6).
+    """Land one day's forecast and flip this feature's own pointer **last**.
 
     Order is the contract: `forecast_nodal` rows, then the `forecast_sf_artifact`
-    blob, then `upsert_pointer(forecast_current[layer])`, then one `commit()`. The
-    commit is the atomic publish — under MVCC a reader resolving the pointer sees
-    the whole day or none of it, never a half-written panel; and any failure before
-    the commit rolls the transaction back, leaving the **prior pointer intact** with
-    no degraded day written (spec §8).
+    blob, then `upsert_pointer(forecast_current[layer])`, then one `commit()`.
 
     Idempotent per `(run_id, delivery_date, horizon)`: `nodal_to_db`/
-    `persist_sf_mu_artifact` both replace-in-place scoped to the CT delivery date and
-    horizon, so a re-run of D under the same `run_id` overwrites only that horizon's
-    rows and blob — a horizon-1 (final) publish never touches the preserved horizon-2
-    (preview) rows and vice versa (0123) — and leaves the pointer where it is.
-    `npz_dir` (optional) is the on-disk artifact of record (spec §5c) — the nodal and
-    SF+μ npz land there too, byte-identical to the DB, each tagged with an `h{horizon}`
-    suffix so the two tracks never share a filename; omitted, only the DB is written (a
-    throwaway temp file carries the nodal panel into `COPY`). `layer`
-    defaults to the served `ercot` pointer; a test overrides it to a scratch layer so
-    it never touches the live one. Returns rows written.
+    `persist_sf_mu_artifact` both replace-in-place scoped to the CT delivery
+    date and horizon, so a re-run of D under the same `run_id` overwrites only
+    that horizon's rows and blob — a horizon-1 (final) publish never touches
+    the preserved horizon-2 (preview) rows and vice versa — and leaves the
+    pointer where it is. `npz_dir` (optional) is the on-disk artifact of record
+    — the nodal and SF+μ npz land there too, byte-identical to the DB, each
+    tagged with an `h{horizon}` suffix so the two tracks never share a
+    filename; omitted, only the DB is written (a throwaway temp file carries
+    the nodal panel into `COPY`). `layer` defaults to the served `ercot`
+    pointer; a test overrides it to a scratch layer so it never touches the
+    live one. Returns rows written.
+
     """
     D = result.delivery_date
     run_id = result.run_id
@@ -458,11 +395,7 @@ def _resolve_delivery_date(spec: str, *, horizon: int = 1,
     `tomorrow` means what an operator standing in Texas means: horizon 1 (final) is
     the CT calendar date after today's (T+1, the classic next day); horizon 2
     (preview) is two CT days out (T+2 — the run lands inside D's decision window,
-    before D's DAM closes). Resolving off the UTC clock instead is a live footgun —
-    after 19:00 CT (18:00 CST) the UTC date has already rolled, so an evening
-    hand-run silently resolved a day late and skipped one entirely (a real prod
-    hole on 2026-07-27). An explicit `YYYY-MM-DD` names the day directly and
-    ignores horizon. The CT date is normalized *before* the offset is added, so
+    before D's DAM closes). The CT date is normalized *before* the offset is added, so
     the arithmetic is naive and a 23-/25-hour DST day cannot shift the answer.
     """
     if spec == "tomorrow":
@@ -489,11 +422,9 @@ def _day_already_published(conn, run_id: str, D: pd.Timestamp,
     """True when `(run_id, delivery_date, horizon)` already has rows in
     `forecast_nodal`.
 
-    Scoped to horizon (0123) so the check is per-track: the preview's existence must
-    never block the final run for the same day and vice versa — they publish side by
-    side. The write is a replace-in-place, so a re-run overwrites a published day with
-    no confirmation. Cheap enough to check before the fit, so an unintended re-run
-    costs a query instead of 20 minutes and a clobbered panel.
+    The preview's existence must never block the final run for the same day and
+    vice versa — they publish side by side.
+
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -503,15 +434,13 @@ def _day_already_published(conn, run_id: str, D: pd.Timestamp,
 
 
 def _summary(result: ForecastResult) -> str:
-    """The run-log coverage/novelty line (spec §7): what the day covered and what it
-    could not. A sudden coverage drop is an ingest problem surfacing, not silent
-    skill loss — so it is reported every run, not buried."""
+
     seen = result.n_scored_keys
     cov = seen / (seen + result.novelty) if (seen + result.novelty) else float("nan")
     sample = ", ".join(result.novel_keys[:5])
     # map_run_id + SF window pin the geography vintage: a preview(h2)-vs-final(h1) diff
     # for a day is only a clean covariate-vintage delta if BOTH projected through the
-    # same weekly map window (0123).
+    # same weekly map window.
     return (f"horizon {result.horizon}; coverage: {result.SF.shape[0]} SF "
             f"constraints x {len(result.panel.settlement_points)} SPs over "
             f"{len(result.panel.ts)} h; scored {seen} keys, "
@@ -529,15 +458,9 @@ def _grade_latest(conn, run_id: str, horizon: int = 1) -> "pd.Timestamp | None":
     after-action now that its DAM has landed), or None when nothing was gradeable
     or grading failed.
 
-    Horizon-scoped (0123): the h2 tick grades the h2 track and the h1 tick the h1
-    track, two independent scoreboards — a day the preview already graded does not
-    stop the final from grading it and vice versa.
-
-    Non-fatal by contract. The forecast has already been published and committed by
-    the time this runs, so a grading failure must NOT fail the publish or move the
-    pointer — it logs and the transaction rolls back. The next tick retries on its
-    own: `grade_day` is idempotent and `resolve_gradeable_date` self-selects the
-    latest still-ungraded day, so a transient miss heals without any retry logic.
+    Horizon-scoped: the h2 tick grades the h2 track and the h1 tick the h1
+    track, two independent scoreboards — a day the preview already graded does
+    not stop the final from grading it and vice versa.
     """
     try:
         D = resolve_gradeable_date(conn, run_id, horizon)
@@ -566,8 +489,8 @@ def _forecast_history_latest(conn, run_id: str, published: "pd.Timestamp",
     """Append the just-published day's queryable forecast history, fail-soft.
 
     This runs only after ``persist_forecast`` has committed the artifact and
-    pointer.  Rollup failure therefore cannot retract or poison a published
-    forecast; the idempotent backfill job repairs any skipped day.
+    pointer. The idempotent backfill job repairs any skipped day.
+
     """
     try:
         artifact = load_artifact(conn, run_id, published.date(), horizon)
@@ -651,6 +574,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
+    # prep dates
     D = _resolve_delivery_date(args.delivery_date, horizon=args.horizon)
     log.info("delivery_date=%s (%s) from --delivery-date %s (horizon %d)",
              D.date(), _ct_span(D), args.delivery_date, args.horizon)
@@ -659,7 +583,10 @@ def main(argv: list[str] | None = None) -> int:
         fire_time = pd.Timestamp(args.fire_time)
         if fire_time.tzinfo is None:      # a bare instant with no offset is UTC
             fire_time = fire_time.tz_localize("UTC")
+
+    # prep features
     arms = arms_for(args.features)
+
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
