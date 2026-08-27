@@ -480,8 +480,6 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
     * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
     * `sf_win=resolve_sf_window()_`: SF window - just for run log summary
 
--- pausing here because we want to remove to p10/p50/p90 simulated value
-
     * `preds = load_preds()`: load prediction artifact - not from current train
       day, but `walk_forward()`
       * `walk_forward()`: historical training path

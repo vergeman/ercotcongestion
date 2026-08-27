@@ -87,9 +87,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
   // Two orthogonal axes (0130). `view` picks the layout: `forecast` (default
-  // landing) is a single map of the model's own P50 prediction; `market` is a
+  // landing) is a single map of the model's deterministic prediction; `market` is a
   // single map of ERCOT's realized DAM values; `compare` is the prediction |
-  // ERCOT split; `error` is a single map of P50 forecast − realized congestion.
+  // ERCOT split; `error` is a single map of forecast − realized congestion.
   // `dataMode` picks the ERCOT quantity a single/compare pane colors by; `error`
   // is congestion-based regardless (forced below). Mobile is forced-single and
   // always resolves to the Forecast layout, following whichever `dataMode` is
@@ -139,7 +139,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   });
 
   const [showConstraints, setShowConstraints] = useState(true);
-  // Forecast-error (P50 forecast − realized congestion) delivery-day stats, for
+  // Forecast-error (forecast − realized congestion) delivery-day stats, for
   // the diverging palette centered at 0 in the forecast-error view. The per-hour
   // error rows are derived below.
   // The per-day ranked constraint list for the side panel's `Constraints` tab
@@ -266,7 +266,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
 
-  // Forecast-error rows for the current hour: P50 forecast − realized congestion
+  // Forecast-error rows for the current hour: forecast − realized congestion
   // per SP, derived client-side from the two series already in state (no new API).
   // An SP without both a forecast and a realized value rides through with a null
   // error. Empty when no forecast covers the hour (the error needs a prediction).
@@ -880,7 +880,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     </>
   );
 
-  // Forecast-error view: a single full-width map colored by P50 forecast −
+  // Forecast-error view: a single full-width map colored by forecast −
   // realized congestion on the diverging palette (forced congestion, its own
   // error-anchored stats), SF overlay on. Interactions route through the
   // prediction handlers so the card carries the decomposition + SF drivers, same

@@ -391,7 +391,7 @@ export function shiftFactorColor(sf: number): string {
 }
 
 // =============================================================================
-// Forecast error (diverging): P50 forecast − realized congestion
+// Forecast error (diverging): forecast − realized congestion
 // =============================================================================
 //
 // Same diverging math as congestionColor, but a DIFFERENT hue axis on

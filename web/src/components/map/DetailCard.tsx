@@ -11,7 +11,7 @@ interface HoveredSp {
   spId: string;
   props: Record<string, unknown>;
   // The full decomposition for the clicked SP, carried in every view so the
-  // forecast error never hides raw magnitude: forecast (P50) / realized
+  // forecast error never hides raw magnitude: forecast / realized
   // congestion, their difference (error = forecast − realized), and the
   // realized side's raw DAM SPP.
   spState: {
@@ -123,7 +123,7 @@ function SpBody({
       <Row label="Load Zone" value={String(sp.props.load_zone ?? "—")} />
       {/* forecast / realized / error — the decomposition carried in every view. */}
       <Row
-        label="Forecast (P50) Congestion"
+        label="Forecast Congestion"
         value={fmtCong(s?.predicted)}
         deemphasized={!forecastMode}
       />

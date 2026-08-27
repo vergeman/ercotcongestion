@@ -86,17 +86,17 @@ export interface ErcotRangeResponse {
 
 // The Data axis (0130): which ERCOT quantity a map pane colors by.
 //   congestion → SPP − system_λ  (diverging palette)
-//   lmp        → raw DAM SPP / (for the forecast pane) P50 + system_λ, the
+//   lmp        → raw DAM SPP / (for the forecast pane) forecast congestion + system_λ, the
 //                predicted counterpart — see `ForecastRangeEntry.lambda_source`
 //                for its persistence-λ provenance pre-settlement.
 export type MapDataMode = "congestion" | "lmp";
 
 // The View axis (0130), orthogonal to `MapDataMode`. Exactly one is active:
-//   forecast → single map, the model's own P50 prediction (the bare `/map`
+//   forecast → single map, the model's deterministic prediction (the bare `/map`
 //              default landing view).
 //   market   → single map, ERCOT's realized DAM values.
 //   compare  → the prediction | ERCOT side-by-side split (formerly `dual`).
-//   error    → single map, P50 forecast − realized congestion (the product
+//   error    → single map, forecast − realized congestion (the product
 //              thesis, "where we missed the market"). Because both panes
 //              subtract the same system-λ, LMP forecast error collapses
 //              exactly to congestion forecast error, so this view locks
