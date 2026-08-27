@@ -61,7 +61,7 @@ export function useExplorerSession(opts?: {
         };
         return {
           forecast_congestion_abs_total: forecast
-            ? absoluteTotal(forecast.sps.map((sp) => sp.p50))
+            ? absoluteTotal(forecast.sps.map((sp) => sp.forecast_congestion))
             : null,
           market_congestion_abs_total: market
             ? absoluteTotal(market.sps.map((sp) => sp.congestion))
@@ -162,10 +162,10 @@ export function useExplorerSession(opts?: {
       const forecast = getForecastCached(timestamp);
       if (forecast) {
         for (const sp of forecast.sps) {
-          forecastCongestion.push(sp.p50);
+          forecastCongestion.push(sp.forecast_congestion);
           forecastLmp.push(
-            sp.p50 != null && forecast.system_lambda != null
-              ? sp.p50 + forecast.system_lambda
+            sp.forecast_congestion != null && forecast.system_lambda != null
+              ? sp.forecast_congestion + forecast.system_lambda
               : null
           );
         }
@@ -174,7 +174,7 @@ export function useExplorerSession(opts?: {
         const marketById = new Map(congestion.sps.map((sp) => [sp.sp_id, sp.congestion]));
         for (const sp of forecast.sps) {
           const market = marketById.get(sp.sp_id);
-          if (sp.p50 != null && market != null) forecastError.push(sp.p50 - market);
+          if (sp.forecast_congestion != null && market != null) forecastError.push(sp.forecast_congestion - market);
         }
       }
     }

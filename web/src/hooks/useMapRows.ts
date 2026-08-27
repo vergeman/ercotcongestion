@@ -18,8 +18,8 @@ export function useMapRows(timestamps: Date[], currentIndex: number) {
     }
     const forecast = getForecastCached(timestamp);
     const forecastRows = forecast?.sps.map((row) => ({
-      sp_id: row.sp_id, congestion: row.p50,
-      spp: row.p50 != null && forecast.system_lambda != null ? row.p50 + forecast.system_lambda : null,
+      sp_id: row.sp_id, congestion: row.forecast_congestion,
+      spp: row.forecast_congestion != null && forecast.system_lambda != null ? row.forecast_congestion + forecast.system_lambda : null,
     })) ?? [];
     return { spRows: [...rows.values()], forecastRows, lambdaSource: forecast?.lambda_source ?? null };
   }, [timestamps, currentIndex]);

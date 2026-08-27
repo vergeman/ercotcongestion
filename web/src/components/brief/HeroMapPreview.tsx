@@ -63,7 +63,7 @@ async function loadForecastValues(t: Date, windowEnd: Date): Promise<Map<string,
   if (entry?.system_lambda != null) {
     const lam = entry.system_lambda;
     for (const sp of entry.sps) {
-      if (sp.p50 != null) values.set(sp.sp_id, sp.p50 + lam);
+      if (sp.forecast_congestion != null) values.set(sp.sp_id, sp.forecast_congestion + lam);
     }
   }
   return values;

@@ -572,7 +572,7 @@ def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
-    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([{"point": 5.0}])
     fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 30.0}])
     fake_pool.cursor.queue([{"dam_spp": 35.0}])
 
@@ -597,7 +597,7 @@ def test_node_detail_expansion_combines_structural_terms_and_essp_count(client, 
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
-    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([{"point": 5.0}])
     fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 30.0}])
     fake_pool.cursor.queue([{"dam_spp": 35.0}])
     fake_pool.cursor.queue([{"member_count": 3}])
@@ -645,7 +645,7 @@ def test_node_market_state_uses_persisted_forecast_lambda(client, fake_pool, mon
     monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
-    fake_pool.cursor.queue([{"p50": 5.0}])
+    fake_pool.cursor.queue([{"point": 5.0}])
     fake_pool.cursor.queue([])  # exact forecast lambda is not yet published
     fake_pool.cursor.queue([{"interval_ts": ts0, "system_lambda": 25.0}])
     fake_pool.cursor.queue([])  # DAM SPP is not yet published
