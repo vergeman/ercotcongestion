@@ -191,7 +191,7 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
 
 **Does:** walks μ forward over history and writes out-of-sample `(p_bind, mu_gbm)`
 predictions, then scores them into the per-`(week × source × regime)` currencies. The
-predictions are both the input to the historical nodal backfill and the residual pool
+predictions are the input to the historical nodal backfill and offline evaluation
 used to draw P10/P90 bands in the daily job; the score CSV feeds the R5 verdict
 (step 3) and the weekly scoreboard (step 4). Prod-side (~16 GiB).
 
@@ -268,14 +268,14 @@ This fast historical path writes `forecast_nodal`, but does not write
 ### Step 4 — Load the weekly scoreboard
 
 **Needs:** step 2's score CSV (`mu/mu_score_weekly.csv`) and step 3's bands CSV
-(`forecast/mu_bands_weekly.csv`).
+(`mu/mu_score_weekly.csv`).
 **Does:** joins the two weekly CSVs and COPYs them into `scoreboard_weekly` under
 `${RUN_ID}`, so the API serves indexed board rows rather than files. Reshape-and-serve,
 not new measurement — the numbers are transcribed as-is. Idempotent by
 delete-then-copy scoped to `run_id`.
 
 With `--run-id ${RUN_ID}` both inputs derive from `runs/${RUN_ID}/` (plan/0113); pass
-`--score` / `--bands` only to override.
+`--score` only to override.
 
 ```
 python -m compute.jobs.load_scoreboard --run-id "${RUN_ID}"
@@ -491,8 +491,8 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
           * later join those predictions to the actual outcomes
 
 
-    * `eps = residual_pool()`: epsilon - error.
-    * `propagate_window(D, block_end, M, C, wp, eps....)`
+    * `propagate_window(D, block_end, M, C, wp, sf=SF_map)` computes
+      `E_mu = p_bind × mu_gbm` then `point = −(E_mu · SF)`.
     * `sf_mu = build_sf_mu_artifact(SF, E_mu)`
     * return `ForecastResult`
 

@@ -1,35 +1,7 @@
-"""SF projection — deterministically push expected μ through the SF map.
+"""Deterministic SF projection: ``point = −(E_mu · SF)``.
 
-This is the projection library extracted from the old `compute.mu.propagate`
-(0095): the math that turns the two μ heads into a nodal distribution through the
-shift-factor map, plus the on-disk panel/artifact encodings. It writes nothing to
-a DB and owns no CLI — the runners in `compute/jobs/` (`backfill_nodal`,
-`daily_forecast`) import it. The verdict/`walk`/DB-write orchestration lives in
-`compute.jobs.backfill_nodal`.
-
-The point forecast (commit 4) answers "how sure are you of the number" by turning
-the two heads back into the distribution they were always implicitly describing:
-
-    for each draw d:
-        bind[k,h] ~ Bernoulli(p_bind[k,h])              # head 1
-        μ[k,h]    ~ E[μ|bind][k,h] · exp(ε),  ε ~ residuals   # head 2 + spread
-        C[·,h]    = −μ[·,h] · SF                        # the map, unchanged
-    P10/P50/P90 = percentiles of C across draws
-
-**Where the spread comes from, and why not from the training window.** Head 2 is a
-GBM; its residuals *on its own training window* are the residuals of a model that
-has already fitted them, so they are too small, and bands built from them would be
-confidently narrow — the exact failure the 0085 summary calls "a confident wrong
-band is worse than an honest wide one". Instead the residual pool for week `s` is
-the log-space error the model made on **the weeks it already scored, all strictly
-before `s`** — genuinely out-of-sample errors, from the same model, on the same
-market.
-
-**The known understatement.** Head 1 is sampled independently per constraint. The
-constraints are collinear (0083 — that is *why* R3 failed), so the true joint
-binding set is far more correlated than independent Bernoullis, and a sum of
-independent draws has too thin a tail. This makes coverage a *measurement*, not a
-formality: if the bands are too narrow, this is the first place to look.
+The serving and historical-backfill paths share this point-only projection. It
+owns no database writes; runners in ``compute.jobs`` handle persistence.
 """
 from __future__ import annotations
 

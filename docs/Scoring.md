@@ -44,7 +44,7 @@ Enough to read the rest of this page.
 * **OOS (out-of-sample)** — scored on data outside the fit's training window. Every
   prediction in a walk-forward is OOS by construction.
 * **Residual** — the error of one prediction: `realized − predicted`. The
-  **residual pool** is the bag of the backtest's out-of-sample residuals, which
+  **walk-forward predictions** are the offline backtest artifact, which
   the forward run samples to draw the P10/P90 band around each point. It is
   filtered to weeks strictly before D (`daily_forecast.py:350`), so a day's band
   is never widened or narrowed by its own outcome. Point forecasts do not depend
@@ -421,7 +421,7 @@ other is a decode.
 (`backfill_artifacts.py:172-179`). For each delivery day D that means: build the
 panel over `[D−240d, D+1)` at the correct vintage, **refit both μ heads** on the
 trailing window, predict D's hours, then propagate through the weekly SF map to
-per-node P10/P50/P90 + point. It writes `forecast_nodal` rows and the
+per-node deterministic point forecast. It writes `forecast_nodal` rows and the
 `forecast_sf_artifact` blob via `persist_forecast`. This is the ~8 min / ~16 GiB
 per day, and it is why each day is causally honest: the fit for 2025-06-01 sees only
 data ending 2025-06-01.

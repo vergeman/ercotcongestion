@@ -24,7 +24,7 @@ interface ErcotSppEntry {
 
 const ercotCache = new Map<string, ErcotCongestionEntry>();
 const ercotSppCache = new Map<string, ErcotSppEntry>();
-// Forecast (prediction) side — per-hour P10/P50/P90 + system-λ for the current
+// Forecast (prediction) side — deterministic congestion + system-λ for the current
 // forecast run. Aligned to the same interval keys as the realized caches so the
 // left pane reads it hour for hour off the scrubber.
 const forecastCache = new Map<string, ForecastRangeEntry>();
