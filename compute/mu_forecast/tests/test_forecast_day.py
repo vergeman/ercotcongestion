@@ -88,10 +88,6 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
         wp.attrs["novel_keys"] = [f"N{i}|c" for i in range(novel)]
         return wp
 
-    def fake_load_preds(path):
-        return pd.DataFrame({"week": [D - pd.Timedelta(days=7)],
-                             "y_bind": [1], "y_mu": [5.0], "mu_gbm": [4.0]})
-
     def fake_load_forecast_sf(conn, D_, wp, **kw):
         # The persisted-SF read (0095-0002) is exercised by its own unit tests; here
         # it just returns a valid map so `forecast_day`'s orchestration proceeds.
@@ -105,7 +101,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
         seen["sf_window_run_id"] = run_id
         return (D - pd.Timedelta(days=7), D - pd.Timedelta(days=1))
 
-    def fake_propagate(s, end, M, C, wp, eps, n_draws, rng, **kw):
+    def fake_propagate(s, end, M, C, wp, **kw):
         seen["prop_s"] = s
         seen["prop_end"] = end
         seen["prop_M_max"] = None if M is None or M.empty else M.index.max()
@@ -114,7 +110,7 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
         H = len(fh)
         pt = np.full((H, 1), point_value, "f4")
         panel = NodalPanel(ts=fh.to_numpy(), settlement_points=np.array(["SP0"]),
-                           p10=pt - 1, p50=pt, p90=pt + 1, point=pt, sf_r2=None)
+                           point=pt, sf_r2=None)
         SF = pd.DataFrame([[1.0]], index=["K0|c"], columns=["SP0"]).astype("f4")
         E_mu = pd.DataFrame(np.ones((H, 1), "f4"), index=fh, columns=["K0|c"])
         return (None, None if panel_none else panel, SF, E_mu)
@@ -123,7 +119,6 @@ def _install_fakes(monkeypatch, *, novel=0, wp_rows=24, point_value=3.0,
     monkeypatch.setattr(fd, "load_congestion_panel", fake_load_cong)
     monkeypatch.setattr(fd, "build_panel", fake_build_panel)
     monkeypatch.setattr(fd, "predict_day", fake_predict_day)
-    monkeypatch.setattr(fd, "load_preds", fake_load_preds)
     monkeypatch.setattr(fd, "load_forecast_sf", fake_load_forecast_sf)
     monkeypatch.setattr(fd, "resolve_sf_window", fake_resolve_sf_window)
     monkeypatch.setattr(fd, "propagate_window", fake_propagate)
@@ -496,11 +491,9 @@ def _synthetic_result(run_id, day=D, point_value=2.5, horizon=1, seed=0):
     sps = np.array(["SP_A", "SP_B", "SP_C"])
     keys = ["K1|c", "K2|c"]
     rng = np.random.default_rng(seed)
-    p50 = rng.random((24, 3)).astype("f4") + point_value
-    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=sps,
-                       p10=(p50 - 0.5).astype("f4"), p50=p50,
-                       p90=(p50 + 0.5).astype("f4"),
-                       point=(p50 * 1.1).astype("f4"), sf_r2=None)
+    point = (rng.random((24, 3)).astype("f4") + point_value) * 1.1
+    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=sps, point=point,
+                       sf_r2=None)
     SF = pd.DataFrame(rng.random((2, 3)).astype("f4"), index=keys, columns=sps)
     E_mu = pd.DataFrame(rng.random((24, 2)).astype("f4"), index=ts, columns=keys)
     return ForecastResult(run_id=run_id, delivery_date=day.date(), panel=panel,

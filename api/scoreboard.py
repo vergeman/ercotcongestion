@@ -191,7 +191,7 @@ def get_scoreboard_weekly(
             cur.execute(
                 """
                 SELECT week, source, pooled_r2, mae, rank_spearman, sign_agree,
-                       topdecile_hit, coverage80, band_width, pinball,
+                       topdecile_hit,
                        sf_coverage, model_coverage, n_hours, n_nodes
                 FROM scoreboard_weekly
                 WHERE run_id = %s AND regime = %s
@@ -308,7 +308,7 @@ def get_scoreboard_daily(
             # the null tripwire; a lone model figure can't be rendered (spec §6).
             sql = (
                 "SELECT delivery_date, source, horizon, pooled_r2, mae, rank_spearman, "
-                "sign_agree, topdecile_hit, coverage80, band_width, pinball, "
+                "sign_agree, topdecile_hit, "
                 "sf_coverage, model_coverage, n_hours, n_nodes "
                 "FROM scoreboard_daily WHERE run_id = %s AND horizon = %s"
             )

@@ -52,22 +52,20 @@ def nodal_to_db(npz_path: str, conn, *, run_id: str,
     ts_iso = df["ts"].astype(str).to_numpy()
     dd_iso = df["delivery_date"].astype(str).to_numpy()
     sp = df["settlement_point"].to_numpy()
-    p10, p50, p90 = (df[c].to_numpy(np.float64) for c in ("p10", "p50", "p90"))
     point = df["point"].to_numpy(np.float64)
 
     def _f(v) -> float | None:
         return v if np.isfinite(v) else None
 
     sql = ("COPY forecast_nodal (run_id, delivery_date, ts, settlement_point, "
-           "p10, p50, p90, point, horizon) FROM STDIN")
+           "point, horizon) FROM STDIN")
     n = len(df)
     hint = " — this can take a minute" if n > 1_000_000 else ""
     log.info("writing %s rows to forecast_nodal for run_id=%s (horizon %d)%s",
              f"{n:,}", run_id, horizon, hint)
     with conn.cursor() as cur, cur.copy(sql) as cp:
         for i in range(n):
-            cp.write_row((run_id, dd_iso[i], ts_iso[i], sp[i],
-                          _f(p10[i]), _f(p50[i]), _f(p90[i]), _f(point[i]), horizon))
+            cp.write_row((run_id, dd_iso[i], ts_iso[i], sp[i], _f(point[i]), horizon))
     return n
 
 

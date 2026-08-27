@@ -5,6 +5,12 @@ They measure different quantities, come from different pipelines, and are *not*
 comparable to each other. This document lines each one up with the job that
 writes it, the table it lands in, and the endpoint that serves it.
 
+Serving uses one deterministic forecast: `point = −(E_mu · SF)`, where
+`E_mu = p_bind × mu_gbm`. Walk-forward `mu_preds.npz` remains offline-only for μ
+evaluation. The retired simulated P50 achieved $3.185/MWh h1 trailing-90-day MAE
+versus $3.229/MWh for point (1.36%); its nine high-congestion h1 days had a 4.64%
+advantage. That did not justify the residual-pool dependency or inconsistent UI.
+
 If you are looking at a number and want to know what it means, start with the
 table in [The three surfaces](#the-three-surfaces).
 
@@ -21,10 +27,8 @@ Enough to read the rest of this page.
   shift factor.
 * **SF (shift factor)** — how much a given constraint's price lands on a given
   node. `SF < 0` = import = red, `SF > 0` = export = blue (see `docs/SF.md`).
-* **Point vs band** — the *point* is the single deterministic number per
-  (hour, node): `E[μ]·SF`. The *band* is the uncertainty around it (p10/p90).
-  They are graded by different metrics: `mae`/`pooled_r2`/`rank_spearman` grade the
-  point, `coverage80`/`band_width`/`pinball` grade the band.
+* **Point forecast** — the single deterministic congestion number per (hour, node):
+  `−(E[μ]·SF)`. Point metrics are `mae`, `pooled_r2`, and `rank_spearman`.
 * **Horizon** — how far ahead the forecast fired. **h1** is the final forecast
   (fires 17:00Z on D−1, after DAM close). **h2** is the preview (fires 20:15Z on
   D−2, before D's DAM auction clears, so it is genuinely disadvantaged).
@@ -40,7 +44,7 @@ Enough to read the rest of this page.
 * **OOS (out-of-sample)** — scored on data outside the fit's training window. Every
   prediction in a walk-forward is OOS by construction.
 * **Residual** — the error of one prediction: `realized − predicted`. The
-  **residual pool** is the bag of the backtest's out-of-sample residuals, which
+  **walk-forward predictions** are the offline backtest artifact, which
   the forward run samples to draw the P10/P90 band around each point. It is
   filtered to weeks strictly before D (`daily_forecast.py:350`), so a day's band
   is never widened or narrowed by its own outcome. Point forecasts do not depend
@@ -122,9 +126,8 @@ compute.evaluation.mu --preds mu_preds.npz   -> runs/<run-id>/mu/mu_score_weekly
     scores those preds into two currencies per (week x source x regime):
     magnitude (pooled_r2, mae) and screening (rank_spearman, sign_agree, topdecile_hit)
 
-compute.jobs.backfill_nodal                  -> runs/<run-id>/forecast/mu_bands_weekly.csv
-                                             -> runs/<run-id>/forecast/mu_nodal.npz
-    band quality for the P50 track (coverage80, band_width, pinball)
+compute.jobs.backfill_nodal                  -> runs/<run-id>/forecast/mu_nodal.npz
+    deterministic −(E_mu · SF) historical nodal point panel
 
 compute.jobs.load_scoreboard --run-id ...    -> scoreboard_weekly  (the DB table)
     delete-then-copy, scoped to run_id; transcription only
@@ -418,7 +421,7 @@ other is a decode.
 (`backfill_artifacts.py:172-179`). For each delivery day D that means: build the
 panel over `[D−240d, D+1)` at the correct vintage, **refit both μ heads** on the
 trailing window, predict D's hours, then propagate through the weekly SF map to
-per-node P10/P50/P90 + point. It writes `forecast_nodal` rows and the
+per-node deterministic point forecast. It writes `forecast_nodal` rows and the
 `forecast_sf_artifact` blob via `persist_forecast`. This is the ~8 min / ~16 GiB
 per day, and it is why each day is causally honest: the fit for 2025-06-01 sees only
 data ending 2025-06-01.

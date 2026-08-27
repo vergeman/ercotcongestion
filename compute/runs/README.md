@@ -44,11 +44,10 @@ compute/runs/<run_id>/
   mu/                                           # μ-forecast artifacts (forecast run)
     mu_weekly.csv                               # mu_model --out: walk calibration metrics (brier/ece/mae_mu_*)
     mu_score_weekly.csv                         # compute.evaluation.mu: score currencies (source/regime/pooled_r2 …)
-    mu_preds.npz                                # mu_model --preds-out: predictions / residual pool
+    mu_preds.npz                                # mu_model --preds-out: offline walk-forward predictions
     spill/                                      # on-disk bind-matrix / panel spill (transient)
   forecast/                                     # nodal-projection artifacts (forecast run)
-    mu_bands_weekly.csv                         # backfill_nodal --out: P50 band metrics
-    mu_nodal.npz                                # backfill_nodal --nodal-out: nodal P10/P50/P90 + point panel
+    mu_nodal.npz                                # backfill_nodal --nodal-out: deterministic nodal point panel
 ```
 
 > **`mu-all-v1` (forecast) vs `map-v1` (SF).** A forecast run and the SF map it

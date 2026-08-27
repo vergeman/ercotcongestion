@@ -1,4 +1,4 @@
-"""GET /forecast_range — per-hour forecast congestion (P10/P50/P90) for a window.
+"""GET /forecast_range — deterministic per-hour forecast congestion for a window.
 
 The prediction counterpart to ``/ercot_range``: same range shape, read from
 ``forecast_nodal``. ``run_id`` names the *model version* (not a day — one run
@@ -11,10 +11,10 @@ default landing view. The left ("prediction") map pane consumes it through the s
 prefetch/scrubber path the realized ranges use, so the two panes align hour for
 hour instead of both rendering one realized quantity.
 
-Expanded for prediction vs ``/ercot_range``: each SP carries the P10/P50/P90
-triple, and each hour carries the DAM ``system_lambda`` (NP4-523-CD) at that
-interval — ``DISTINCT ON`` keeping the ``dst_flag = FALSE`` variant, matching
-``/ercot_range`` — so predicted LMP = P50 + system_λ resolves on the client
+Each SP carries explicitly named deterministic congestion, and each hour carries
+the DAM ``system_lambda`` (NP4-523-CD) at that interval — ``DISTINCT ON`` keeping
+the ``dst_flag = FALSE`` variant, matching ``/ercot_range`` — so predicted LMP =
+forecast_congestion + system_λ resolves on the client
 against the same reference the market side subtracts. On an unsettled hour (no
 DAM row yet) ``system_lambda`` falls back to the most recent settled day's λ at
 the same Central hour — a persistence display convention (0130), never a model
@@ -66,7 +66,7 @@ def _round_congestion(value: float | None) -> float | None:
 @router.get(
     "/forecast_range",
     response_model=ForecastRangeResponse,
-    summary="Per-hour forecast congestion (P10/P50/P90) per SP; "
+    summary="Per-hour deterministic forecast congestion per SP; "
     "defaults to the latest delivery day",
 )
 def get_forecast_range(
@@ -168,7 +168,8 @@ def get_forecast_range(
             cur.execute(
                 f"""
                 SELECT DISTINCT ON (ts, settlement_point)
-                       ts, settlement_point, p10, p50, p90, delivery_date, horizon
+                       ts, settlement_point, point AS forecast_congestion,
+                       delivery_date, horizon
                 FROM forecast_nodal
                 WHERE run_id = %s AND ts >= %s AND ts <= %s{hz_clause}
                 ORDER BY ts, settlement_point, horizon ASC
@@ -215,9 +216,7 @@ def get_forecast_range(
         by_ts.setdefault(ts, []).append(
             ForecastSpState(
                 sp_id=str(r["settlement_point"]),
-                p10=_round_congestion(r["p10"]),
-                p50=_round_congestion(r["p50"]),
-                p90=_round_congestion(r["p90"]),
+                forecast_congestion=_round_congestion(r["forecast_congestion"]),
             )
         )
 

@@ -168,7 +168,7 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
     """One node's Map-equivalent congestion/LMP values at the Detail cursor."""
     cur.execute(
         """
-        SELECT p50 FROM forecast_nodal
+        SELECT point FROM forecast_nodal
         WHERE run_id = %s AND delivery_date = %s AND horizon = %s
           AND settlement_point = %s AND ts = %s
         """,
@@ -176,8 +176,8 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
     )
     forecast_row = cur.fetchone()
     forecast_congestion = (
-        None if forecast_row is None or forecast_row["p50"] is None
-        else float(forecast_row["p50"])
+        None if forecast_row is None or forecast_row["point"] is None
+        else float(forecast_row["point"])
     )
 
     settled_by_ts = settled_system_lambdas(cur, timestamp, timestamp)

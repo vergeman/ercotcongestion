@@ -38,7 +38,6 @@ from compute.jobs.daily_forecast import (
     persist_forecast,
 )
 from compute.mu_forecast.model.runner import DEFAULT_TRAIN_DAYS
-from compute.projection.sampling import N_DRAWS
 from compute.sf_map.storage.maps import MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE
 from compute.time import normalize_ct_day
 
@@ -107,11 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="abort on the first failing date (default logs + skips it).")
     p.add_argument("--features", default="all")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
-    p.add_argument("--draws", type=int, default=N_DRAWS)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--preds", default=None,
-                   help="residual pool .npz (default: the run's "
-                        "runs/<run-id>/mu/mu_preds.npz)")
     p.add_argument("--npz-dir", default=None)
     p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS)
     p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE)
@@ -170,8 +165,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = forecast_day(
                     conn, D, run_id=args.run_id, horizon=args.horizon,
                     train_days=args.train_days,
-                    arms=arms, seed=args.seed, n_draws=args.draws,
-                    preds_path=args.preds, map_run_id=args.map_run_id,
+                    arms=arms, seed=args.seed, map_run_id=args.map_run_id,
                     max_sf_age_days=args.max_sf_age_days,
                     min_sf_coverage=args.min_sf_coverage,
                     fire_time=fire_time)

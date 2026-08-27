@@ -15,9 +15,9 @@ import pytest
 import forecast as forecast_module
 
 
-def _frow(ts, sp, dd, horizon, p50=1.0):
+def _frow(ts, sp, dd, horizon, forecast_congestion=1.0):
     return {"ts": ts, "settlement_point": sp,
-            "p10": p50 - 0.5, "p50": p50, "p90": p50 + 0.5,
+            "forecast_congestion": forecast_congestion,
             "delivery_date": dd, "horizon": horizon}
 
 

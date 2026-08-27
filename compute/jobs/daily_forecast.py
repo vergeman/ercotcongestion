@@ -1,7 +1,7 @@
 """The `forecast_day` production job — fit-then-predict for one delivery day D.
 
-At/after DAM close on D−1, produce the forecast for CT delivery day D: the nodal
-P10/P50/P90 + point panel and the per-day SF+μ artifact.
+At/after DAM close on D−1, produce the deterministic nodal forecast for CT
+delivery day D and the per-day SF+μ artifact.
 
 "delivery day" here is the **CT calendar day**: `[ct_day_bounds(D)]`, DST-aware
 (23/24/25 hours), not a fixed 24-hour UTC block. `delivery_date = D.date()` is
@@ -21,7 +21,7 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
+from compute.artifacts import DEFAULT_RUNS_ROOT
 from compute.forecast_store import (
     FORECAST_LAYER,
     nodal_to_db,
@@ -40,7 +40,6 @@ from compute.time import ERCOT_TZ, ct_day_bounds, normalize_ct_day
 from compute.mu_forecast.model.runner import (
     DEFAULT_TRAIN_DAYS,
     arms_for,
-    load_preds,
     predict_day,
     spill_panel_features,
 )
@@ -56,7 +55,6 @@ from compute.projection.codecs import (
     build_sf_mu_artifact,
 )
 from compute.projection.propagate import propagate_window
-from compute.projection.sampling import N_DRAWS, residual_pool
 from compute.sf_map.storage.maps import (
     MAP_RUN_ID,
     MAX_SF_AGE_DAYS,
@@ -71,11 +69,6 @@ log = logging.getLogger(__name__)
 RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
-def preds_path_for(run_id: str) -> str:
-    """Resolve the μ residual-pool npz for `run_id` on the runs PVC.
-    """
-    return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
-
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
 
 # `run_id` names the MODEL VERSION. Each daily run appends a new
@@ -85,7 +78,7 @@ DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SET
 class ForecastResult:
     """One delivery day's forecast, held in memory (nothing written yet).
 
-    `panel` is the nodal P10/P50/P90 + point over D's 24 UTC hours; `SF`/`E_mu` are
+    `panel` is the deterministic nodal point forecast over D's CT hours; `SF`/`E_mu` are
     the day's fitted SF map and μ head that `sf_mu` serializes.
     """
 
@@ -156,8 +149,6 @@ def forecast_day(
     train_days: int = DEFAULT_TRAIN_DAYS,
     arms: tuple[str, ...] = DEFAULT_ARMS,
     seed: int = 0,
-    n_draws: int = N_DRAWS,
-    preds_path: str | None = None,
     map_run_id: str = MAP_RUN_ID,
     max_sf_age_days: int = MAX_SF_AGE_DAYS,
     min_sf_coverage: float = MIN_SF_COVERAGE,
@@ -171,7 +162,7 @@ def forecast_day(
          `[D−train_days, D+1)`; `predict_day(panel, D)` fits both heads on the
          trailing window and predicts D's 24 hours (`wp`: `p_bind`, `mu_gbm`).
          2. **propagation** — load the weekly map's persisted SF (run
-         `map_run_id`) via `load_forecast_sf` and draw the nodal panel through
+         `map_run_id`) via `load_forecast_sf` and project the nodal panel through
          it with `propagate_window`; the map fits this SF weekly, and is
          stationary within the refit interval.
 
@@ -197,13 +188,11 @@ def forecast_day(
     # fires two hours after D−1 closed.
     if horizon == 2:
         _assert_freshest_history_published(conn, D)
-    preds_path = preds_path or preds_path_for(run_id)
-
     read_start = D - pd.Timedelta(days=train_days + WINDOW_DAYS + REFIT_DAYS)
     log.info("forecast_day %s  run_id=%s  horizon=%d  arms=%s  train_days=%d  "
-             "fire_time=%s  preds=%s",
+             "fire_time=%s",
              D.date(), run_id, horizon, ",".join(arms), train_days, fire_time,
-             preds_path)
+             )
 
     # --- stage 1: μ inference ------------------------------------------------
     try:
@@ -272,32 +261,13 @@ def forecast_day(
         C = C.loc[C.index >= fit_lo]
     gc.collect()
 
-    # --- STAGE 2: PROPAGATION ------------------------------------------------
-    # stage 1 wp; for (hour, constraint) -> p_bind and E(mu) if bind
-    # stage 2: propagation
-    # 1. Uses p_bind to randomly decide whether each constraint binds in each simulation draw.
-    # 2. Uses mu_gbm plus a sampled past residual from eps to generate a plausible μ magnitude for bindings.
-    # 3. Applies the persisted shift-factor map (SF_map) to translate each
-    #    constraint’s μ into effects at every settlement point.
-    # 4. Repeats this many times (n_draws, normally 200).
-    # 5. Takes the P10, P50, and P90 across those simulated outcomes for each hour and settlement point.
-
-
-    rng = np.random.default_rng(seed)
-
-    # load prediction artifact
-    # preds is not the current train panel. It is a saved record from walk_forward
-    preds = load_preds(preds_path)
-
-    # epsilon - load errors
-    eps = residual_pool(preds[preds["week"] < D], rng=rng)      # OOS, strictly < D
+    # --- STAGE 2: DETERMINISTIC PROJECTION -----------------------------------
 
     # D's score-block hours — D's CT calendar day, 23/24/25 hours across a DST
     # transition.
     forward_hours = pd.date_range(D, block_end, freq="h", inclusive="left")
     _, panel_out, SF, E_mu = propagate_window(     # forward mode → no metrics row
-        s=D, end=block_end, M=M, C=C, wp=wp, eps=eps,
-        n_draws=n_draws, rng=rng, sf=SF_map,
+        s=D, end=block_end, M=M, C=C, wp=wp, sf=SF_map,
         want_panel=True, want_sf_mu=True, forward_hours=forward_hours)
     if panel_out is None:
         raise RuntimeError(f"propagation produced no panel for {D.date()} — the "
@@ -533,7 +503,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all",
                    help="ablation arm set (default 'all' = the shipped lag+geo+wx)")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
-    p.add_argument("--draws", type=int, default=N_DRAWS)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--npz-dir", default=None,
                    help="also write the nodal + SF+mu npz here (disk of record, "
@@ -542,10 +511,6 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"weekly SF-map run to project through (default "
                         f"{MAP_RUN_ID!r}); the forecast reads its persisted SF "
                         f"instead of refitting (0095-0002)")
-    p.add_argument("--preds", default=None,
-                   help="μ residual-pool npz (the OOS error pool for the P10/P90 "
-                        "bands); defaults to runs/<run-id>/mu/mu_preds.npz on the "
-                        "runs PVC")
     p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS,
                    help=f"fail loud if the latest map window closes more than this "
                         f"many days before D (default {MAX_SF_AGE_DAYS})")
@@ -601,8 +566,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         result = forecast_day(conn, D, run_id=args.run_id, horizon=args.horizon,
                               train_days=args.train_days, arms=arms,
-                              seed=args.seed, n_draws=args.draws,
-                              preds_path=args.preds,
+                              seed=args.seed,
                               map_run_id=args.map_run_id,
                               max_sf_age_days=args.max_sf_age_days,
                               min_sf_coverage=args.min_sf_coverage,

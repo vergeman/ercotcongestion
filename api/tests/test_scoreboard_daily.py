@@ -21,12 +21,11 @@ def _horizons(*values):
     return [{"horizon": h} for h in values]
 
 
-def test_daily_serves_all_sources_with_bands_on_model_only(client, fake_pool):
+def test_daily_serves_all_sources_with_point_metrics_only(client, fake_pool):
     # Explicit run_id → no run-resolve query; horizons first, then the per-day rows.
     fake_pool.cursor.queue(_horizons(1, 2))
     fake_pool.cursor.queue([
-        _row("model", topdecile_hit=0.61, coverage80=0.72, band_width=12.0,
-             pinball=3.1, sf_coverage=0.9, model_coverage=None, n_hours=24,
+        _row("model", topdecile_hit=0.61, sf_coverage=0.9, model_coverage=None, n_hours=24,
              n_nodes=900),
         _row("persistence", topdecile_hit=0.56, sf_coverage=0.9),
         _row("climatology", topdecile_hit=0.30, sf_coverage=0.9),
@@ -44,9 +43,8 @@ def test_daily_serves_all_sources_with_bands_on_model_only(client, fake_pool):
     # Integrity rule (§6): baselines + oracle + tripwire ride with the model.
     assert {"model", "persistence", "climatology", "oracle", "null"} <= set(by_src)
 
-    # Bands live on the model source only.
-    assert by_src["model"]["coverage80"] == 0.72
-    assert by_src["persistence"]["coverage80"] is None
+    # Retired band metrics are absent from every source.
+    assert "coverage80" not in by_src["model"]
 
     # The null tripwire's declined screening rides through as null, never a number.
     assert by_src["null"]["topdecile_hit"] is None

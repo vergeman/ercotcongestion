@@ -421,7 +421,7 @@ function NodeRead({
             hourly={
               <>
                 <Fact
-                  label="Forecast (P50) Congestion"
+                  label="Forecast Congestion"
                   value={marketValue(market?.forecast_congestion)}
                   numeric
                 />

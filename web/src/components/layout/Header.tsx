@@ -19,7 +19,7 @@ interface Props {
   activeWorkspace?: "map" | "matrix";
   onNavigate?: (workspace: "map" | "matrix") => void;
   // The two orthogonal axes (0130): `view` picks the layout — Forecast | Market
-  // (single maps), Compare (the prediction | ERCOT split), Error (P50 forecast −
+  // (single maps), Compare (the prediction | ERCOT split), Error (forecast −
   // realized congestion); `dataMode` picks the ERCOT quantity a single/compare
   // pane colors by. A selected view remains selected when its data is absent;
   // its map renders its normal empty state. Error forces `dataMode` to congestion (both sides

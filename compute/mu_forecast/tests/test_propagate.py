@@ -167,29 +167,25 @@ def _window_frames(n_keys=4, n_sp=6, seed=7):
     return s, s + pd.Timedelta(days=REFIT_DAYS), M, C, wp, shours
 
 
-def test_panel_reduces_to_the_same_metrics_as_the_row():
-    """The panel and the scored row read one `np.percentile` call, so the served
-    p10/p90 re-reduced must reproduce the row's coverage80/band_width."""
+def test_panel_reduces_to_the_deterministic_point_metrics():
+    """The served panel and scored row use the same direct point projection."""
     s, end, M, C, wp, shours = _window_frames()
-    row, panel, _, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
-                                        64, np.random.default_rng(0), want_panel=True)
+    row, panel, _, _ = propagate_window(s, end, M, C, wp, want_panel=True)
     assert isinstance(panel, NodalPanel)
     assert list(panel.settlement_points) == list(C.columns)   # == SF.columns
     assert len(panel.ts) == len(shours) == row["n_hours"]
 
     Y = C.loc[shours, list(panel.settlement_points)].to_numpy(np.float32)
-    inside = (Y >= panel.p10) & (Y <= panel.p90)
-    assert np.nanmean(inside) == pytest.approx(row["coverage80"], abs=1e-3)
-    assert np.nanmean(panel.p90 - panel.p10) == pytest.approx(row["band_width"],
-                                                              rel=1e-3)
+    from compute.metrics import score_matrix
+    assert row["mae"] == pytest.approx(score_matrix(Y, panel.point)["mae"])
 
 
 def test_want_panel_does_not_perturb_the_metrics_row():
     """Emission is a tee, not a fork: the row must be identical whether or not the
     panel is built (same seed, same draws, same percentiles)."""
-    args = (*_window_frames()[:5], np.zeros(4, np.float32), 64)
-    r0, p0, _, _ = propagate_window(*args, np.random.default_rng(5))
-    r1, p1, _, _ = propagate_window(*args, np.random.default_rng(5), want_panel=True)
+    args = _window_frames()[:5]
+    r0, p0, _, _ = propagate_window(*args)
+    r1, p1, _, _ = propagate_window(*args, want_panel=True)
     assert p0 is None and isinstance(p1, NodalPanel)
     assert r0 is not None and r0.keys() == r1.keys()
     for k in r0:                                    # nan_ok: some metrics are nan
@@ -197,22 +193,17 @@ def test_want_panel_does_not_perturb_the_metrics_row():
             r0[k], float) else r0[k] == r1[k]
 
 
-def test_panel_is_bit_for_bit_deterministic_under_fixed_seed():
+def test_panel_is_bit_for_bit_deterministic():
     s, end, M, C, wp, _ = _window_frames()
-    a = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 64,
-                         np.random.default_rng(3), want_panel=True)[1]
-    b = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 64,
-                         np.random.default_rng(3), want_panel=True)[1]
-    for q in ("p10", "p50", "p90", "point"):
-        np.testing.assert_array_equal(getattr(a, q), getattr(b, q))
+    a = propagate_window(s, end, M, C, wp, want_panel=True)[1]
+    b = propagate_window(s, end, M, C, wp, want_panel=True)[1]
+    np.testing.assert_array_equal(a.point, b.point)
 
 
 def test_propagate_window_skips_when_the_fit_window_is_empty():
     _, _, M, C, wp, _ = _window_frames()
     s2 = M.index.max() + pd.Timedelta(days=365)     # fit window lands past all data
-    row, panel, _, _ = propagate_window(s2, s2 + pd.Timedelta(days=REFIT_DAYS),
-                                        M, C, wp, np.zeros(4, np.float32), 8,
-                                        np.random.default_rng(0))
+    row, panel, _, _ = propagate_window(s2, s2 + pd.Timedelta(days=REFIT_DAYS), M, C, wp)
     assert row is None and panel is None
 
 
@@ -228,8 +219,7 @@ def test_propagate_window_projects_through_injected_sf():
     nodes = list(C.columns[:3])
     inj = pd.DataFrame(RNG.normal(0, 0.2, (4, len(nodes))),
                        index=[f"K{i}|Z" for i in range(4)], columns=nodes)
-    _, panel, SF, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32), 16,
-                                       np.random.default_rng(0), want_panel=True,
+    _, panel, SF, _ = propagate_window(s, end, M, C, wp, want_panel=True,
                                        want_sf_mu=True, sf=inj)
     assert SF is inj                                  # used verbatim, never refit
     assert list(panel.settlement_points) == list(inj.columns)
@@ -239,8 +229,8 @@ def test_propagate_window_projects_through_injected_sf():
     s2 = M.index.max() + pd.Timedelta(days=365)
     fh = pd.date_range(s2, periods=24, freq="h", tz="UTC")
     _, panel2, SF2, _ = propagate_window(
-        s2, s2 + pd.Timedelta(days=REFIT_DAYS), M, C, wp, np.zeros(4, np.float32), 8,
-        np.random.default_rng(0), want_panel=True, want_sf_mu=True, sf=inj,
+        s2, s2 + pd.Timedelta(days=REFIT_DAYS), M, C, wp,
+        want_panel=True, want_sf_mu=True, sf=inj,
         forward_hours=fh)
     assert panel2 is not None and SF2 is inj
 
@@ -299,12 +289,11 @@ def test_load_forecast_sf_fails_loud_on_missing_stale_empty_or_low_coverage(monk
 # -------------------------------------------------------- the nodal npz sink
 
 def test_nodal_npz_round_trips_the_panel(tmp_path):
-    """`save_nodal → load_nodal` recovers a window's `ts`/SP/percentiles/`point`
+    """`save_nodal → load_nodal` recovers a window's `ts`/SP/`point`
     exactly, and the node axis for the week is `SF.columns` in order — the flat
     vocab coding is lossless (spec §2)."""
     s, end, M, C, wp, _ = _window_frames()
-    _, panel, _, _ = propagate_window(s, end, M, C, wp, np.zeros(4, np.float32),
-                                      32, np.random.default_rng(0), want_panel=True)
+    _, panel, _, _ = propagate_window(s, end, M, C, wp, want_panel=True)
     sink = _NodalAccumulator()
     sink.add(panel, s)
     path = str(tmp_path / "nodal.npz")
@@ -319,13 +308,9 @@ def test_nodal_npz_round_trips_the_panel(tmp_path):
     assert list(wk0["settlement_point"]) == list(panel.settlement_points)
     assert (df["week"] == pd.Timestamp(s).tz_convert("UTC")).all()
     assert (df["ts"].iloc[:N] == pd.to_datetime(panel.ts[0], utc=True)).all()
-    # values line up with the (H,N) C-order ravel, and point ≠ p50
-    np.testing.assert_allclose(df["p10"].to_numpy(), panel.p10.ravel(), rtol=1e-6)
-    np.testing.assert_allclose(df["p50"].to_numpy(), panel.p50.ravel(), rtol=1e-6)
-    np.testing.assert_allclose(df["p90"].to_numpy(), panel.p90.ravel(), rtol=1e-6)
+    # values line up with the (H,N) C-order ravel.
     np.testing.assert_allclose(df["point"].to_numpy(), panel.point.ravel(),
                                rtol=1e-6)
-    assert not np.array_equal(df["point"].to_numpy(), df["p50"].to_numpy())
 
 
 def test_accumulator_keeps_ragged_node_axes_per_week(tmp_path):
@@ -333,8 +318,7 @@ def test_accumulator_keeps_ragged_node_axes_per_week(tmp_path):
     axis, never a union-and-fill, and a shared SP is coded once in `sp_vocab`."""
     def _panel(ts, sps, val):
         arr = np.full((len(ts), len(sps)), val, np.float32)
-        return NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps),
-                          p10=arr, p50=arr + 1, p90=arr + 2, point=arr + 3,
+        return NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps), point=arr,
                           sf_r2=None)
     w1 = pd.Timestamp("2025-10-01", tz="UTC")
     w2 = pd.Timestamp("2025-10-08", tz="UTC")
@@ -387,9 +371,9 @@ def test_walk_metrics_are_byte_identical_with_and_without_nodal_out(tmp_path):
     the returned weekly-metrics frame (→ `mu_bands_weekly.csv`) must be identical
     whether or not the panel is emitted (spec §7 no-flag invariance)."""
     M, C, preds = _walk_frames()
-    b0 = walk(M, C, preds, n_draws=32, seed=1)
+    b0 = walk(M, C, preds)
     path = str(tmp_path / "n.npz")
-    b1 = walk(M, C, preds, n_draws=32, seed=1, nodal_out=path)
+    b1 = walk(M, C, preds, nodal_out=path)
 
     pd.testing.assert_frame_equal(b0, b1)
     assert not b0.empty                              # week 2 scored (has a pool)
@@ -409,7 +393,7 @@ def test_walk_metrics_are_byte_identical_with_and_without_nodal_out(tmp_path):
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS forecast_nodal (
   run_id text NOT NULL, delivery_date date NOT NULL, ts timestamptz NOT NULL,
-  settlement_point text NOT NULL, p10 real, p50 real, p90 real, point real,
+  settlement_point text NOT NULL, point real,
   PRIMARY KEY (run_id, ts, settlement_point));
 CREATE TABLE IF NOT EXISTS forecast_current (
   layer text PRIMARY KEY, run_id text NOT NULL,
@@ -464,12 +448,12 @@ def pg():
 
 def _panel_npz(tmp_path, name="panel.npz", n_hours=30, seed=0):
     """A small real panel on disk: 30 UTC hours (spanning >1 UTC day) ×
-    3 SPs, p50 offset from point so the two columns are provably distinct."""
+    3 SPs with deterministic point values."""
     ts = pd.date_range("2025-06-01", periods=n_hours, freq="h", tz="UTC")
     sps = ["N0", "N1", "N2"]
     a = np.random.default_rng(seed).normal(0, 5, (n_hours, len(sps))).astype("f4")
-    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps),
-                       p10=a - 1, p50=a, p90=a + 1, point=a + 0.5, sf_r2=None)
+    panel = NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(sps), point=a,
+                       sf_r2=None)
     sink = _NodalAccumulator()
     sink.add(panel, ts[0])
     path = str(tmp_path / name)
@@ -486,8 +470,7 @@ def _count(conn, run_id):
 
 def test_nodal_to_db_round_trips_and_is_idempotent(pg, tmp_path):
     """A re-run for the same run_id replaces via delete-then-copy: the row count
-    equals `load_nodal` and does not double, and `point` is stored distinct from
-    the sampling median `p50` (spec §4, acceptance)."""
+    equals `load_nodal` and does not double."""
     conn, run_id, _ = pg
     path = _panel_npz(tmp_path)
     expect = len(load_nodal(path))
@@ -500,17 +483,13 @@ def test_nodal_to_db_round_trips_and_is_idempotent(pg, tmp_path):
 
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM forecast_nodal "
-                    "WHERE run_id = %s AND (p50 IS NULL OR point IS NULL)",
-                    (run_id,))
-        assert cur.fetchone()[0] == 0                 # both populated
-        cur.execute("SELECT count(*) FROM forecast_nodal "
-                    "WHERE run_id = %s AND p50 <> point", (run_id,))
-        assert int(cur.fetchone()[0]) == expect       # every row distinct
+                    "WHERE run_id = %s AND point IS NULL", (run_id,))
+        assert cur.fetchone()[0] == 0
 
 
 def test_re_run_overwrites_prior_values_not_appends(pg, tmp_path):
     """Idempotency must be replacement, not accumulation: a second load with
-    different values leaves the new p50 in place at the same PK, not two rows."""
+    different values leaves the new point in place at the same PK, not two rows."""
     conn, run_id, _ = pg
     a = _panel_npz(tmp_path, "a.npz", seed=1)
     b = _panel_npz(tmp_path, "b.npz", seed=2)         # same axes, different values
@@ -523,9 +502,9 @@ def test_re_run_overwrites_prior_values_not_appends(pg, tmp_path):
         cur.execute("SELECT count(*) FROM forecast_nodal WHERE run_id = %s",
                     (run_id,))
         assert int(cur.fetchone()[0]) == len(got)     # not len(a)+len(b)
-        cur.execute("SELECT p50 FROM forecast_nodal WHERE run_id = %s "
+        cur.execute("SELECT point FROM forecast_nodal WHERE run_id = %s "
                     "ORDER BY ts, settlement_point LIMIT 1", (run_id,))
-        assert cur.fetchone()[0] == pytest.approx(float(got["p50"].iloc[0]),
+        assert cur.fetchone()[0] == pytest.approx(float(got["point"].iloc[0]),
                                                   rel=1e-5)
 
 
@@ -566,9 +545,9 @@ def test_seam_hour_from_a_pre_cutover_row_is_replaced_not_collided(pg, tmp_path)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO forecast_nodal "
-            "(run_id, delivery_date, ts, settlement_point, p10, p50, p90, point, horizon) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (run_id, "2026-07-31", seam_ts, "SP0", 1.0, 1.0, 1.0, 1.0, 1))
+            "(run_id, delivery_date, ts, settlement_point, point, horizon) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (run_id, "2026-07-31", seam_ts, "SP0", 1.0, 1))
     conn.commit()
 
     # 2026-07-30's OWN CT-day block legitimately covers seam_ts too (its 19:00
@@ -578,7 +557,7 @@ def test_seam_hour_from_a_pre_cutover_row_is_replaced_not_collided(pg, tmp_path)
     assert seam_ts in ts
     a = np.random.default_rng(3).normal(0, 5, (24, 1)).astype("f4")
     panel = NodalPanel(ts=ts.to_numpy(), settlement_points=np.array(["SP0"]),
-                       p10=a - 1, p50=a, p90=a + 1, point=a + 0.5, sf_r2=None)
+                       point=a, sf_r2=None)
     sink = _NodalAccumulator()
     sink.add(panel, ts[0])
     path = str(tmp_path / "seam.npz")

@@ -86,17 +86,17 @@ export interface ErcotRangeResponse {
 
 // The Data axis (0130): which ERCOT quantity a map pane colors by.
 //   congestion → SPP − system_λ  (diverging palette)
-//   lmp        → raw DAM SPP / (for the forecast pane) P50 + system_λ, the
+//   lmp        → raw DAM SPP / (for the forecast pane) forecast congestion + system_λ, the
 //                predicted counterpart — see `ForecastRangeEntry.lambda_source`
 //                for its persistence-λ provenance pre-settlement.
 export type MapDataMode = "congestion" | "lmp";
 
 // The View axis (0130), orthogonal to `MapDataMode`. Exactly one is active:
-//   forecast → single map, the model's own P50 prediction (the bare `/map`
+//   forecast → single map, the model's deterministic prediction (the bare `/map`
 //              default landing view).
 //   market   → single map, ERCOT's realized DAM values.
 //   compare  → the prediction | ERCOT side-by-side split (formerly `dual`).
-//   error    → single map, P50 forecast − realized congestion (the product
+//   error    → single map, forecast − realized congestion (the product
 //              thesis, "where we missed the market"). Because both panes
 //              subtract the same system-λ, LMP forecast error collapses
 //              exactly to congestion forecast error, so this view locks
@@ -127,23 +127,19 @@ export interface SPFeatureProperties {
 // /forecast_range — per-hour forecast congestion for the current forecast run,
 // the prediction counterpart to /ercot_range. Feeds the left ("prediction")
 // pane through the same prefetch/scrubber path as the realized ranges, so the
-// two panes align hour for hour. Expanded for prediction: P10/P50/P90 per SP,
+// two panes align hour for hour. Each SP carries deterministic congestion,
 // plus each hour's system-λ. Mirrors api/models.py ForecastSpState /
 // ForecastRangeEntry / ForecastRangeResponse.
 // =============================================================================
 
-// One SP's forecast congestion at one hour. `p50` (sampling median) is the pane
-// fill; `p10`/`p90` bracket it. Nullable — a NULL percentile rides through
-// rather than dropping the SP.
+// One SP's deterministic forecast congestion at one hour: −(E_mu · SF).
 export interface ForecastSpState {
   sp_id: string;
-  p10: number | null;
-  p50: number | null;
-  p90: number | null;
+  forecast_congestion: number | null;
 }
 
 // All SPs' forecast congestion at one interval, plus that hour's system-λ.
-// Predicted LMP = p50 + system_lambda (same reference the market side
+// Predicted LMP = forecast_congestion + system_lambda (same reference the market side
 // subtracts). On an unsettled hour `system_lambda` falls back to the most
 // recent settled day's λ at the same Central hour (0130's persistence display
 // convention — never a model input); `lambda_source` says which curve served

@@ -15,7 +15,6 @@ def test_run_artifacts_use_the_canonical_mu_and_forecast_layout(run_id, root):
     assert artifacts.weekly_metrics == root / run_id / "mu" / "mu_weekly.csv"
     assert artifacts.predictions == root / run_id / "mu" / "mu_preds.npz"
     assert artifacts.scores == root / run_id / "mu" / "mu_score_weekly.csv"
-    assert artifacts.bands == root / run_id / "forecast" / "mu_bands_weekly.csv"
     assert artifacts.nodal_panel == root / run_id / "forecast" / "mu_nodal.npz"
 
 
@@ -28,8 +27,6 @@ def test_path_wrappers_delegate_to_run_artifacts(run_id, tmp_path, monkeypatch):
 
     assert mu_model.weekly_path_for(run_id) == str(artifacts.weekly_metrics)
     assert mu_model.preds_path_for(run_id) == str(artifacts.predictions)
-    assert daily_forecast.preds_path_for(run_id) == str(artifacts.predictions)
     assert backfill_nodal.preds_path_for(run_id) == str(artifacts.predictions)
     assert backfill_nodal.scores_path_for(run_id) == str(artifacts.scores)
-    assert backfill_nodal.bands_path_for(run_id) == str(artifacts.bands)
     assert backfill_nodal.nodal_path_for(run_id) == str(artifacts.nodal_panel)

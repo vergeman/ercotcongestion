@@ -526,16 +526,16 @@ class ErcotRangeResponse(BaseModel):
 
 # ---- /forecast_range -----------------------------------------------------
 #
-# Per-hour, per-SP forecast congestion (P10/P50/P90) over a window — the
+# Per-hour, per-SP deterministic forecast congestion over a window — the
 # prediction counterpart to ``/ercot_range``, read from ``forecast_nodal``
 # at the current ``forecast_current[ercot]`` run. Same range shape (start / end /
 # count / per-hour ``entries``) so the left ("prediction") map pane aligns to the
 # same scrubber the realized right pane does, hour for hour, instead of both
 # rendering one realized quantity.
 #
-# Expanded for prediction: each SP carries the P10/P50/P90 triple (not a single
-# price), and each hour carries the DAM ``system_lambda`` (NP4-523-CD) at that
-# interval so the client resolves predicted LMP = P50 + system_λ — the same
+# Each SP carries deterministic congestion, and each hour carries the DAM
+# ``system_lambda`` (NP4-523-CD) so predicted LMP = forecast_congestion + system_λ.
+# This is the same
 # reference the market side subtracts, so the LMP-basis comparison collapses to
 # the congestion-basis one (plan 0096/0098). ``run_id`` labels which refit is
 # serving; the served day is the cursor hour's date.
@@ -543,14 +543,11 @@ class ErcotRangeResponse(BaseModel):
 class ForecastSpState(BaseModel):
     """One SP's forecast congestion at one hour — a ``forecast_nodal`` row.
 
-    ``p50`` is the sampling-median congestion the prediction pane fills with;
-    ``p10``/``p90`` bracket it. All nullable — a NaN percentile persisted as NULL
-    rides through as ``None`` rather than dropping the SP.
+    ``forecast_congestion`` is ``−(E_mu · SF)``. It is nullable so an invalid
+    persisted value remains explicit rather than dropping the settlement point.
     """
     sp_id: str
-    p10: float | None = None
-    p50: float | None = None
-    p90: float | None = None
+    forecast_congestion: float | None = None
 
 
 class ForecastRangeEntry(BaseModel):
@@ -1010,9 +1007,6 @@ class WeeklyPoint(BaseModel):
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
-    coverage80: float | None = None
-    band_width: float | None = None
-    pinball: float | None = None
     sf_coverage: float | None = None
     model_coverage: float | None = None
     n_hours: int | None = None
@@ -1077,9 +1071,7 @@ class ScoreboardWeekly(BaseModel):
 class DailyPoint(BaseModel):
     """One ``scoreboard_daily`` row — one (delivery_date, source) live grade.
 
-    Same currency columns as ``WeeklyPoint``. The band columns (``coverage80`` /
-    ``band_width`` / ``pinball``) are populated on the model source only — measured
-    live from the served p10/p50/p90 vs realized. ``model_coverage`` is NULL for
+    Same point-metric currency columns as ``WeeklyPoint``. ``model_coverage`` is NULL for
     now (it needs the prediction-time key set, the deferred snapshot); ``sf_coverage``
     rides along so a collapse day reads as a coverage gap, not lost skill. All
     nullable — a declined/flat cell (e.g. the ``null`` source's screening) is ``None``.
@@ -1096,9 +1088,6 @@ class DailyPoint(BaseModel):
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
-    coverage80: float | None = None
-    band_width: float | None = None
-    pinball: float | None = None
     sf_coverage: float | None = None
     model_coverage: float | None = None
     n_hours: int | None = None
