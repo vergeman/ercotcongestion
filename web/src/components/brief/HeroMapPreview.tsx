@@ -51,7 +51,7 @@ async function loadSettledValues(t: Date, windowEnd: Date): Promise<Map<string, 
   return values;
 }
 
-// The model's own P50 + that hour's system-λ (the same implied-LMP
+// The model's deterministic forecast congestion + that hour's system-λ (the same implied-LMP
 // convention the Map's forecast pane already renders — 0130's persisted-λ
 // fallback included, since this is display, not a graded signal).
 async function loadForecastValues(t: Date, windowEnd: Date): Promise<Map<string, number>> {
