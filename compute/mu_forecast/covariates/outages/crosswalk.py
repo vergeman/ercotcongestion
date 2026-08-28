@@ -34,8 +34,8 @@ import pandas as pd
 log = logging.getLogger("compute.mu_forecast.covariates.outages.crosswalk")
 
 MW = "Effective MW Reduction Due to Outage"
-LOCATABLE_MW_BUILD_SHARE = 0.60    # >= this share locatable -> BUILD
-LOCATABLE_MW_FLAGGED_SHARE = 0.30  # below BUILD: build only as a flagged subset
+LOCATABLE_OUTAGE_MW_BUILD_SHARE = 0.60    # >= this share locatable -> BUILD
+LOCATABLE_OUTAGE_MW_FLAGGED_SHARE = 0.30  # below BUILD: build only as a flagged subset
 
 # The authoritative registries, mounted at /data in the compute container (see
 # docker-compose.yml `./data:/data`). Same directory geo.py and the geocode
@@ -165,9 +165,9 @@ def coverage(df: pd.DataFrame, xwalk: Crosswalk, sp_universe: set[str],
 
 def verdict(rate: float) -> tuple[str, str]:
     """Return the pre-registered locatable-outage-MW coverage decision."""
-    if rate >= LOCATABLE_MW_BUILD_SHARE:
+    if rate >= LOCATABLE_OUTAGE_MW_BUILD_SHARE:
         return "BUILD", "build the per-constraint outage covariate"
-    if rate >= LOCATABLE_MW_FLAGGED_SHARE:
+    if rate >= LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:
         return "BUILD (flagged subset)", (
             "build on the joinable subset only, reporting the unlocated MW every week")
     return "DEAD", ("degrade to `outages_zonal`, which we already have; close this "

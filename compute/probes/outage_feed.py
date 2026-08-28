@@ -69,8 +69,8 @@ PANEL_START = date(2024, 12, 11)
 BACKTEST_START = date(2025, 8, 14)
 
 # Pre-registered locatable-outage-MW coverage thresholds — R4's bar, restated.
-LOCATABLE_MW_BUILD_SHARE = 0.60
-LOCATABLE_MW_FLAGGED_SHARE = 0.30
+LOCATABLE_OUTAGE_MW_BUILD_SHARE = 0.60
+LOCATABLE_OUTAGE_MW_FLAGGED_SHARE = 0.30
 
 DAM_CLOSE_HOUR = 10     # CT, on D-1
 
@@ -253,8 +253,8 @@ def crosswalk(units: pd.Series, sps: set[str]) -> pd.DataFrame:
 
 def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
     print("\n=== LEG C — the resource-to-settlement-point join ===")
-    print(f"  Bar, pre-registered: ≥{LOCATABLE_MW_BUILD_SHARE:.0%} of outage MW locatable → build;")
-    print(f"  <{LOCATABLE_MW_FLAGGED_SHARE:.0%} → it degrades to `outages_zonal`, which we already "
+    print(f"  Bar, pre-registered: ≥{LOCATABLE_OUTAGE_MW_BUILD_SHARE:.0%} of outage MW locatable → build;")
+    print(f"  <{LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:.0%} → it degrades to `outages_zonal`, which we already "
           f"have, and the arm is DEAD.")
 
     doc = idx.iloc[-1]
@@ -281,8 +281,8 @@ def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
         for k, v in miss.items():
             print(f"    {str(k):<20} {v:>7,.0f} MW")
 
-    verdict = ("BUILD" if rate >= LOCATABLE_MW_BUILD_SHARE else
-               "BUILD (flagged subset)" if rate >= LOCATABLE_MW_FLAGGED_SHARE else "DEAD")
+    verdict = ("BUILD" if rate >= LOCATABLE_OUTAGE_MW_BUILD_SHARE else
+               "BUILD (flagged subset)" if rate >= LOCATABLE_OUTAGE_MW_FLAGGED_SHARE else "DEAD")
     print(f"\n  LOCATABLE MW: {rate:.1%} of outage MW locatable → **{verdict}**")
     return rate
 
