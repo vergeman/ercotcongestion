@@ -118,7 +118,7 @@ daily cron touches it. Everything lives on the runs PVC under
 `compute/runs/<run-id>/` (`RUNS_ROOT`, `backfill_nodal.py:48`):
 
 ```
-compute.mu_forecast.model.runner  (walk_forward) -> runs/<run-id>/mu/mu_preds.npz
+compute.mu_forecast.model.backtest  (walk_forward) -> runs/<run-id>/mu/mu_preds.npz
     the walk itself: refit every 7 days (REFIT_DAYS) on the trailing 240d and predict
     the next week — ~83 folds over 19 months, not one per day — keeping the OOS preds
 
@@ -149,7 +149,7 @@ steps, in order, all on the runs PVC:
 
 ```bash
 # 1. the walk (the expensive step) — refits weekly, chunked to bound memory
-python -m compute.mu_forecast.model.runner --run-id mu-all-v1 \
+python -m compute.mu_forecast.model.backtest --run-id mu-all-v1 \
     --start 2025-01-01 --end 2026-08-01 --features all --chunk-weeks 32
 
 # 2. score the OOS predictions into the weekly currencies
