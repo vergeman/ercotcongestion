@@ -21,5 +21,5 @@ Branch: refactor/0172-outage-crosswalk-coverage-names
 
 ## Acceptance
 
-* [ ] No `GATE_C_*` identifiers remain in the three scoped modules.
-* [ ] The build/flagged/dead outcomes remain 60% / 30% / below 30%.
+* [x] No `GATE_C_*` identifiers remain in the three scoped modules.
+* [x] The build/flagged/dead outcomes remain 60% / 30% / below 30%.
