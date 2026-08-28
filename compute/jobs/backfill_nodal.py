@@ -8,6 +8,10 @@ gate. Shared DB writers live in `compute.forecast_store`; they remain imported h
 as temporary compatibility re-exports. The projection math it drives lives in
 `compute.projection.propagate`.
 
+Run ``compute.mu_forecast.model.backtest`` first: this job consumes that initial
+offline walk's ``mu_preds.npz`` artifact and cannot produce the historical nodal
+backfill without it.
+
     docker compose run --rm compute python -m compute.jobs.backfill_nodal \
       --preds /compute/runs/mu-all-v1/mu/mu_preds.npz
 

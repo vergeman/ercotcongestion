@@ -1,4 +1,15 @@
-"""Historical μ model backtesting."""
+"""Historical μ model backtesting.
+
+This is an operator-run, one-off historical build used to create the initial
+offline μ prediction/residual artifacts; it is not part of the daily serving
+path.  Its primary downstream consumer is ``compute.jobs.backfill_nodal``,
+which reads ``mu_preds.npz`` to backfill the historical nodal forecast panel.
+``daily_forecast`` and ``backfill_artifacts`` instead use ``runner.predict_day``
+to produce individual production-equivalent delivery days.
+
+Run it as ``python -m compute.mu_forecast.model.backtest --run-id <run-id>
+--start <YYYY-MM-DD> --end <YYYY-MM-DD>``.
+"""
 from __future__ import annotations
 
 import gc

@@ -40,6 +40,7 @@ log = logging.getLogger("compute.mu_forecast.model.runner")
 DEFAULT_TRAIN_DAYS = WINDOW_DAYS
 DEFAULT_REFIT_DAYS = REFIT_DAYS
 
+# buffer for training days, ensure extra data exists behind a training window
 PANEL_LEADIN_DAYS = 7
 
 # Columns that are targets or bookkeeping, never inputs.
