@@ -77,3 +77,18 @@ def test_reviewed_compatibility_aliases_are_not_imported_indirectly():
                         f"{node.module}: {', '.join(indirect)}")
 
     assert not violations, "\n".join(violations)
+
+
+def test_serving_modules_do_not_import_backtest_orchestration():
+    repo_dir = Path(__file__).parents[3]
+    serving = (
+        repo_dir / "compute/jobs/daily_forecast.py",
+        repo_dir / "compute/jobs/backfill_artifacts.py",
+    )
+    for path in serving:
+        modules = {
+            node.module
+            for node in ast.walk(ast.parse(path.read_text()))
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert "compute.mu_forecast.model.backtest" not in modules
