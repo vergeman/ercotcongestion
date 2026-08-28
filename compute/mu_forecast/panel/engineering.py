@@ -9,7 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from compute.mu_forecast.panel.availability import ERCOT_TZ, dam_close, delivery_day_of, history_cutoff
+from compute.mu_forecast.panel.availability import ERCOT_TZ, dam_close, history_cutoff
+from compute.time import delivery_day_of
 
 
 def calendar_features(idx: pd.DatetimeIndex) -> pd.DataFrame:

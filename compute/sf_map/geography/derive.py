@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 
 from compute.sf_map.model.fit import implied_shift_factors
+from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.sf_map.geography.derive")
 
@@ -360,8 +361,8 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
     frames, skipped = [], 0
     for s in grid:
         lo = s - pd.Timedelta(days=window_days)
-        s_utc = s.tz_localize("UTC") if s.tzinfo is None else s
-        lo_utc = lo.tz_localize("UTC") if lo.tzinfo is None else lo
+        s_utc = normalize_ct_day(s)
+        lo_utc = normalize_ct_day(lo)
 
         M_fit = M.loc[(M.index >= lo_utc) & (M.index < s_utc)]
         C_fit = C.loc[(C.index >= lo_utc) & (C.index < s_utc)]
@@ -421,7 +422,7 @@ def coverage_by_mu_mass(M: pd.DataFrame, geo: pd.DataFrame,
     often enough to be fitted. Reporting key count here would understate the arm;
     reporting μ-mass says what the score is actually made of.
     """
-    from compute.mu_forecast.panel.availability import delivery_day_of
+    from compute.time import delivery_day_of
 
     # The located set is keyed by delivery day. `geo` carries `geo_lat` only when
     # the week's SF actually placed the constraint.
@@ -459,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.panel.availability import delivery_day_of
+    from compute.time import delivery_day_of
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])

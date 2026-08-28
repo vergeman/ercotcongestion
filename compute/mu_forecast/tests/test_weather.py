@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import compute.mu_forecast.covariates.weather as weather
 from compute.mu_forecast.panel.availability import history_cutoff
 from compute.mu_forecast.covariates.weather import (MIN_WINDOW_HOURS, response_vectors, wx_panel,
                                 wx_sources)
@@ -194,3 +195,29 @@ def test_wx_panel_is_constant_within_a_delivery_day():
     wx = wx_panel(M, X, days, window_days=60, refit_days=7, anchor=days[70])
     # one row per (day, key) — the feature is a property of the day, not the hour
     assert not wx.index.duplicated().any()
+
+
+@pytest.mark.parametrize(("day", "boundary"), [
+    ("2026-07-07", "2026-07-07 05:00"),
+    ("2026-12-07", "2026-12-07 06:00"),
+])
+def test_wx_fit_window_uses_ct_midnight_utc_bounds(monkeypatch, day, boundary):
+    s = pd.Timestamp(day)
+    lo = s - pd.Timedelta(days=28)
+    start = pd.Timestamp(f"{lo.date()} {boundary[-5:]}", tz="UTC")
+    end = pd.Timestamp(boundary, tz="UTC")
+    hours = pd.date_range(start - pd.Timedelta(hours=1), end, freq="h")
+    M = pd.DataFrame({"K": 1.0}, index=hours)
+    seen = []
+
+    def response(M_win, X_win):
+        seen.append((M_win.index, X_win.index))
+        return pd.DataFrame({"wx_corr_net_load": [1.0]}, index=["K"])
+
+    monkeypatch.setattr(weather, "response_vectors", response)
+    weather.wx_panel(M, _sys(hours), pd.DatetimeIndex([s]), window_days=28, anchor=s)
+
+    expected = pd.date_range(start, end, freq="h", inclusive="left")
+    assert len(seen) == 1
+    pd.testing.assert_index_equal(seen[0][0], expected)
+    pd.testing.assert_index_equal(seen[0][1], expected)

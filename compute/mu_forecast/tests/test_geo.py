@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import compute.sf_map.geography.derive as derive
 from compute.sf_map.geography.derive import (constraint_geography, constraint_type,
                             coverage_by_mu_mass, geo_panel, haversine_km,
                             refit_grid, zone_anchors)
@@ -240,6 +241,33 @@ def test_refit_grid_covers_the_training_margin_and_keeps_the_scored_phase():
     assert anchor in grid                       # phase preserved
     assert grid[0] <= days[0]                   # training margin covered
     assert ((grid - anchor) % pd.Timedelta(days=7) == pd.Timedelta(0)).all()
+
+
+@pytest.mark.parametrize(("day", "boundary"), [
+    ("2026-07-07", "2026-07-07 05:00"),
+    ("2026-12-07", "2026-12-07 06:00"),
+])
+def test_geo_fit_window_uses_ct_midnight_utc_bounds(monkeypatch, sp, day, boundary):
+    s = pd.Timestamp(day)
+    lo = s - pd.Timedelta(days=7)
+    start = pd.Timestamp(f"{lo.date()} {boundary[-5:]}", tz="UTC")
+    end = pd.Timestamp(boundary, tz="UTC")
+    hours = pd.date_range(start - pd.Timedelta(hours=1), end, freq="h")
+    M = pd.DataFrame({"K": 1.0}, index=hours)
+    C = pd.DataFrame({"HOU": 1.0}, index=hours)
+    seen = []
+
+    def fit(M_fit, C_fit, **kwargs):
+        seen.append((M_fit.index, C_fit.index))
+        return pd.DataFrame([[1.0]], index=["K"], columns=["HOU"])
+
+    monkeypatch.setattr(derive, "implied_shift_factors", fit)
+    geo_panel(M, C, pd.DatetimeIndex([s]), sp=sp, window_days=7, min_hours=1, anchor=s)
+
+    expected = pd.date_range(start, end, freq="h", inclusive="left")
+    assert len(seen) == 1
+    pd.testing.assert_index_equal(seen[0][0], expected)
+    pd.testing.assert_index_equal(seen[0][1], expected)
 
 
 # --------------------------------------------------------------- coverage

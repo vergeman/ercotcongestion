@@ -41,6 +41,7 @@ import pandas as pd
 
 from compute.mu_forecast.panel.build import BIND_DEADBAND
 from compute.sf_map.geography.derive import refit_grid
+from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.mu_forecast.covariates.weather")
 
@@ -172,8 +173,9 @@ def wx_panel(M: pd.DataFrame, sys_panel: pd.DataFrame, days: pd.DatetimeIndex,
     # for each delivery *day* start
     frames, skipped = [], 0
     for s in grid:
-        s_utc = s.tz_localize("UTC") if s.tzinfo is None else s
-        lo_utc = s_utc - pd.Timedelta(days=window_days)
+        lo = s - pd.Timedelta(days=window_days)
+        s_utc = normalize_ct_day(s)
+        lo_utc = normalize_ct_day(lo)
 
         # M_win: constraint shadow prices, (hour x constraint)
         # X_win: system/weather input features (hour x feature)
