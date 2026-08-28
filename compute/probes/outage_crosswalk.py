@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 
 from compute.mu_forecast.covariates.outages.crosswalk import (
-    LOCATABLE_MW_BUILD_SHARE, LOCATABLE_MW_FLAGGED_SHARE,
+    LOCATABLE_OUTAGE_MW_BUILD_SHARE, LOCATABLE_OUTAGE_MW_FLAGGED_SHARE,
     coverage, load_crosswalk, verdict,
 )
 from compute.probes.outage_feed import archive_index, fetch_report, settlement_points
@@ -38,9 +38,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  registry: {len(xwalk.unitcode_to_sp)} unit codes, "
           f"{len(xwalk.substation_to_sp)} unambiguous substations")
     print(f"  SF-map SP universe (ercot_dam_spp): {len(sp_universe)}")
-    print(f"  Bar: >={LOCATABLE_MW_BUILD_SHARE:.0%} BUILD / "
-          f"{LOCATABLE_MW_FLAGGED_SHARE:.0%}-{LOCATABLE_MW_BUILD_SHARE:.0%} "
-          f"flagged / <{LOCATABLE_MW_FLAGGED_SHARE:.0%} DEAD\n")
+    print(f"  Bar: >={LOCATABLE_OUTAGE_MW_BUILD_SHARE:.0%} BUILD / "
+          f"{LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:.0%}-{LOCATABLE_OUTAGE_MW_BUILD_SHARE:.0%} "
+          f"flagged / <{LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:.0%} DEAD\n")
 
     client = ErcotClient()
     idx = archive_index(client)
