@@ -1,59 +1,45 @@
 """Constraint geography, via the |SF|-weighted centroid.
 
-plan/0088 commit 3.
+A constraint key is an opaque string (`ConstraintName|ContingencyName`). The
+model knows how often it bound and how big, but nothing about where it is.
 
-**The problem.** A constraint key is an opaque string (`ConstraintName|ContingencyName`).
-The model knows *how often it bound* and *how big it was*, but nothing about **where
-it is** — so every covariate it has (load, wind, solar, outages) is system-wide or
-zonal, **identical for every constraint in a given hour.** That asymmetry is the
-whole of 0085 §5.6: the model cannot tell two constraints apart except by their own
-history, which is why persistence — which implicitly carries topology state, because
-a line out yesterday is still out today — beat it on the tail.
+Every covariate it has (load, wind, solar, outages) is system-wide or zonal,
+identical for every constraint in a given hour: the model cannot tell two
+constraints apart except by their own history, which is why persistence - which
+implicitly carries topology state - tends to beat the model: because a line out
+yesterday is still out today.
 
-**The route that does not work, and is not attempted here.** Shadow-price rows carry
-`from_station`/`to_station`, and it is tempting to join those to plant names. **Only
-4.3% of binding μ-mass joins** (R4): those are *plant* names, constraint endpoints
-are *transmission substations*, and they are different namespaces. Do not spend a day
-on fuzzy matching. `plan/0088` says so; this module obeys it.
+Shadow-price rows carry `from_station`/`to_station`, and it's tempting to join
+those to plant names. But only ~4.3% of binding μ-mass join; those are *plant*
+names, while constraint endpoints are *transmission substations*. They're
+different namespaces.
 
-**The route that works.** We already have a map from constraints to space: **`SF`
-itself.** The fitted shift-factor row for a constraint says how strongly it pushes
-congestion at every settlement point, and settlement points have coordinates. The
-|SF|-weighted centroid of those coordinates is therefore *the market's own estimate*
-of where the constraint lives — recovered from prices, with no crosswalk, no
-geocoding of station names, and no namespace to reconcile.
+But have a map from constraints to space: `SF` itself. The shift-factor row for
+a constraint says how strongly it pushes congestion at every settlement point,
+and settlement points have coordinates. The |SF|-weighted centroid of those
+coordinates is *the market's own estimate* of where the constraint lives,
+recovered from prices, with no crosswalk, no geocoding of station names, and no
+namespace to reconcile.
 
-  ⚠ **THE LEAK TRAP — the one that will look like a win.**
-  `SF` is *fitted*. Fit it on all the data and the geography of every constraint
-  encodes the future, and **it will not look like a bug — it will look like a
-  result.** So the `SF` handed to a delivery day here is the one fitted on the
-  **honest trailing window that had already closed before that day**, exactly as
-  `score.py` refits it. A global fit is not merely discouraged in this module: it is
-  **unreachable**, because `geo_panel` never accepts an `SF`, only the raw panels and
-  a refit cadence, and it fits them itself, per week, walking forward.
+Trap: using a global SF calculation to identify a constraint location
+throughout the entire dataset. SF is calculated and fitted per window, and
+contributes depending on the bind - so location can change weekly. Recall this
+isn't realism, not trying to locate a constraint, but generate a feature for
+mu.
 
-**What the geography is made of — all of it sourced, none of it remembered.**
+Geography data components:
 
   coordinates   `data/processed/settlement_points_geocoded.csv` — 1,092 SPs with
-                lat/lon, covering **97.9%** of the 1,115 SPs in the congestion panel.
-  zone + kV     `data/raw/ercot_geocode/Settlement_Points_*.csv`, joined on
-                **`RESOURCE_NODE`** (*not* `NODE_NAME`, which is the electrical bus
-                and matches **zero** settlement points) — 1,024 SPs, **91.8%**, each
-                mapping to exactly one zone and one voltage.
-  zone anchors  the four load zones' reference points are the **mean position of
-                their own settlement points** — derived from the data above, so
-                there is not one hand-typed coordinate in this file.
+                lat/lon, covering 97.9% of the 1,115 SPs in the congestion panel.
 
-**What is deliberately NOT built: distance to the wind and solar regions.** The plan
-asks for it, and it is being skipped on purpose rather than forgotten. We hold no
-authoritative geography for ERCOT's wind regions (Panhandle/Coastal/South/West/North)
-or solar regions (CenterWest/NorthWest/FarWest/FarEast/SouthEast/CenterEast) — only
-the four *load-zone* polygons. Supplying those region centroids would mean **typing
-coordinates in from memory**, which is precisely the error `0087` paid for when the
-remembered RUC schema turned out to be wrong in five fields. And it is not needed:
-**commit 4's weather-response vectors deliver exactly that information directly** —
-a per-constraint sensitivity to each wind and solar region, learned from prices, with
-no crosswalk at all. Geography as a *coordinate* is the weaker way to say it.
+  zone + kV     `data/raw/ercot_geocode/Settlement_Points_*.csv`, joined on
+                `RESOURCE_NODE` (*not* `NODE_NAME`, which is the electrical bus
+                and matches zero settlement points) — 1,024 SPs, 91.8%, each
+                mapping to exactly one zone and one voltage.
+
+  zone anchors  the four load zones' reference points are the mean position of
+                their own settlement points, derived from the data above, so
+                there is not one hand-typed coordinate in this file.
 """
 from __future__ import annotations
 
@@ -146,76 +132,120 @@ def haversine_km(lat1, lon1, lat2, lon2) -> np.ndarray:
 def constraint_geography(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
     """|SF|-weighted geography, one row per constraint in `SF`.
 
-    `SF` is (constraints × settlement points) from one honest window. The weights
-    are **|SF|**: a shift factor's sign says which way the constraint pushes price,
-    its magnitude says how hard, and *where a constraint lives* is a question about
-    magnitude only. Signing the weights would let a constraint that pushes two
-    regions in opposite directions — which is what a transmission constraint *does* —
-    place its centroid in the Gulf of Mexico.
+    `SF` is (constraints × settlement points). The weights are |SF|: a shift
+    factor's sign says which way the constraint pushes price, its magnitude
+    says how hard. Where a constraint lives is about (abs) magnitude only.
 
     Columns (all prefixed `geo_`, which is how the ablation selects them):
 
-      geo_lat/geo_lon    the centroid — the market's own estimate of where it is
-      geo_spread_km      |SF|-weighted RMS distance from that centroid. **A local
-                         constraint and a system-wide one are different objects**,
+      geo_lat/geo_lon    the eletrical centroid — implied location estimate
+
+      geo_spread_km      |SF|-weighted RMS distance from that centroid. A local
+                         constraint and a system-wide one are different objects,
                          and the centroid alone cannot tell them apart: a constraint
                          with mass in Amarillo and Brownsville has a centroid near
-                         Austin and lives in neither.
-      geo_sp_eff         effective number of settlement points (inverse Simpson on
-                         the weights). Concentration, not extent — the other half of
-                         the same question.
+                         Austin but lives in neither. lo - close, hi - distributed.
+
+      geo_sp_eff         effective number of settlement points: 1 / sum(weights^2)
+                         1 / sum(w1^2 + w2^2...)
+                         Measures concentration, while geo_spread_km measures extent
+
       geo_kv_mean/max    voltage class, |SF|-weighted. 345 kV backbone vs 138 kV.
-      geo_zone_<z>       share of |SF| mass in each load zone. **This is the useful
-                         one and it needs no coordinates at all** — it is the
-                         constraint's exposure expressed in the same zones the load
-                         forecast is published in, which is the only way the model
-                         can connect "the north zone is hot today" to "this
-                         constraint".
-      geo_dist_<z>       km from the centroid to each zone's anchor.
+
+      geo_zone_<z>       share of |SF| mass in each load zone. The constraint's
+                         exposure expressed in the same zones the load forecast
+                         is published in. This enabled model to connect "the
+                         north zone is hot today" to "this constraint".
+                         geo_dist_<z> km from the centroid to each zone's
+                         anchor.
 
     A constraint whose |SF| mass lands entirely on settlement points we have no
     coordinates for gets **NaN, not a fallback**. It is a real hole; `build_panel`'s
     law is that holes stay holes, and the gradient booster reads NaN natively.
+
     """
-    known = SF.columns.intersection(sp.index)
+
+    known = SF.columns.intersection(sp.index)  # matching sp (our geolocation sp data and in SF)
     if known.empty:
         return pd.DataFrame(index=SF.index)
 
-    W = SF[known].abs().to_numpy(float, copy=True)
-    W[~np.isfinite(W)] = 0.0
-    g = sp.loc[known]
+    W = SF[known].abs().to_numpy(float, copy=True)  # W "weights" = filter and copy SF to known sp - (Note abs)
+    W[~np.isfinite(W)] = 0.0                        # clean W: missing, nan, inifite -> 0.0
+    g = sp.loc[known]                               # g "geography" = filtered sp's to known
 
-    total = W.sum(axis=1)
-    ok = total > 0
-    # Row-normalised weights. The `where` keeps the all-zero rows from dividing by
-    # zero; they are masked back to NaN at the end.
+    total = W.sum(axis=1)                           # single num per constraint
+                                                    # constraint x sum(sp) - (axis=1 horizontal sum)
+
+    ok = total > 0                                  # constraints[bool]
+
+    # P: row-normalised "(P) probability like" weights. `where` keeps the
+    # all-zero rows from dividing by zero;
+    #
+    # constraint x sp; W normalized by np.where
+    #    np.where(condition, X true, Y false) x if condition, else Y
     P = W / np.where(ok, total, 1.0)[:, None]
+
+    #
+    # CALC WEIGHTED AVG LAT/LNG COORDINATES
+    #
+    # geo_spread_km: spread - weighted RMS (root mean square) distance from
+    # weighted electric centroid. RMS emphasizes more distant points.
+    #
+    # geo_sp_eff: sp_eff:  effective settlement point
+    # how many settlement points are represented by a constraint’s SF weights
+    # node = 1 / sum(P**2):
 
     lat = P @ g["lat"].to_numpy(float)
     lon = P @ g["lon"].to_numpy(float)
 
+    # d: distance matrix - constraint x sp, val km
     d = haversine_km(lat[:, None], lon[:, None],
                      g["lat"].to_numpy(float)[None, :],
                      g["lon"].to_numpy(float)[None, :])
+
     spread = np.sqrt((P * d ** 2).sum(axis=1))
+
     sp_eff = 1.0 / np.maximum((P ** 2).sum(axis=1), 1e-12)
 
     out = pd.DataFrame({"geo_lat": lat, "geo_lon": lon,
-                        "geo_spread_km": spread, "geo_sp_eff": sp_eff},
+                        "geo_spread_km": spread,
+                        "geo_sp_eff": sp_eff},
                        index=SF.index)
+
+    #
+    # KV
+    #
+    # geo_kv_mean
+    # geo_kv_max
+    #
 
     kv = g["kv"].to_numpy(float)
     has_kv = np.isfinite(kv)
+
     # Renormalise over the SPs that HAVE a voltage, so a constraint is not penalised
     # for sitting partly on nodes whose kV we happen not to know.
+    # simply exclude sp's with no kv
     Wk = W[:, has_kv]
-    tk = Wk.sum(axis=1)
-    okk = tk > 0
+    tk = Wk.sum(axis=1)  # "total known kv" horizontal sum (across cols)
+    okk = tk > 0         # mask
     Pk = Wk / np.where(okk, tk, 1.0)[:, None]
-    out["geo_kv_mean"] = np.where(okk, Pk @ kv[has_kv], np.nan)
-    # The heaviest-weighted single node's voltage — "is this a 345 kV problem?"
+    out["geo_kv_mean"] = np.where(okk, Pk @ kv[has_kv], np.nan)   # mean because normalized above
+
+    # The heaviest-weighted single node's voltage:
+    # SF max (highest weighted exposure) not max raw kv
     top = kv[has_kv][np.argmax(Wk, axis=1)] if has_kv.any() else np.full(len(SF), np.nan)
     out["geo_kv_max"] = np.where(okk & (Wk.max(axis=1) > 0), top, np.nan)
+
+
+    #
+    # ZONES
+    #
+    # geo_zone_<zone>: share of a constraint’s SF exposure per <zone>
+    # settlement points
+    #
+    # geo_dist_<zone>: distance from the constraint’s exposure centroid to the
+    # <zone> anchor
+    #
 
     zone = g["zone"].to_numpy()
     for z in ZONES:
@@ -223,7 +253,8 @@ def constraint_geography(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
         out[f"geo_zone_{z.removeprefix('LZ_').lower()}"] = (
             W[:, m].sum(axis=1) / np.where(ok, total, 1.0) if m.any() else np.nan)
 
-    anchors = zone_anchors(sp)
+
+    anchors = zone_anchors(sp)    # mean lat/lng from points assigned in zone
     for z in ZONES:
         if z not in anchors.index:
             continue
@@ -231,35 +262,33 @@ def constraint_geography(SF: pd.DataFrame, sp: pd.DataFrame) -> pd.DataFrame:
         out[f"geo_dist_{z.removeprefix('LZ_').lower()}"] = haversine_km(
             lat, lon, a["lat"], a["lon"])
 
-    # Constraints with no mass on any known coordinate: honest NaN, every column.
-    # `.where(Series)` would align the mask on COLUMNS and blank the whole frame;
-    # the mask is over rows, so it is applied by position.
+    # Constraints with no mass on any known coordinate: honest NaN
     out.loc[~ok, :] = np.nan
     return out
 
 
-# --------------------------------------------------------------------------
-# Overview primitive — the type of each constraint (plan/0092-0002). A summary
-# of the SAME honest per-window SF; no new fit. (The |SF|²-core geometric median
-# that used to live here was removed in 0112 — the overview now anchors the
-# radial mark on its peak-|SF| node, so no persisted medoid is needed.)
-# --------------------------------------------------------------------------
-
 def constraint_type(geo: pd.DataFrame) -> pd.Series:
     """Classify each constraint's *form* from fields already derived per window,
-    so the overview can pick a mark: ``gtc`` / ``transmission`` / ``radial``.
+    so the overview can pick a mark: gtc / transmission / radial.
 
-    * **gtc** — the contingency component of the `constraint_key`
-      (``constraint_name|contingency_name``) is ``BASE CASE``: a generic /
+    * gtc: the contingency component of the `constraint_key`
+      (constraint_name|contingency_name) is BASE CASE: a generic /
       interface constraint with a large regional footprint (drawn as a region).
-    * **radial** — ``n_rail >= 1 AND peak_offrail < 0.25``: a rail with little
+
+    * radial: n_rail >= 1 AND peak_offrail < 0.25: a rail with little
       graded body beneath it, a pocket/resource (drawn as a point).
-    * **transmission** — everything else: a real line + real contingency,
+
+      * "Rail": RAIL_CAP = 0.999, so "railed" is when SF is pinned to magnitude 1.0
+      * n_rail: number of railed
+      * peak_offrail: largest value (abs) that's not railed.
+
+      -> one settlement point dominates at 1.0, with little distributed SF structure
+      beneath it. localized pocket/resource-style constraint and draws it as a
+      point - radial.
+
+    * transmission: everything else: a real line + real contingency,
       co-located (drawn as an MST corridor).
 
-    Pure classifier over `geo` (indexed by `constraint_key`, with `n_rail` and
-    `peak_offrail` columns) — no coordinates, no new fit. Counts on the live
-    window: gtc 87, transmission 952, radial 5 (`spike/type_sign_probe.py`).
     """
     contingency = geo.index.to_series().str.split("|", n=1).str[-1].str.strip().str.upper()
     nr = geo["n_rail"].fillna(0)
@@ -267,23 +296,26 @@ def constraint_type(geo: pd.DataFrame) -> pd.Series:
 
     ctype = pd.Series("transmission", index=geo.index)
     ctype[(nr >= 1) & (po < 0.25)] = "radial"
+
     ctype[contingency == "BASE CASE"] = "gtc"  # last: a BASE CASE is always gtc
     return ctype
 
-
-# --------------------------------------------------------------------------
-# The honest walk — the only way this module will produce an SF
-# --------------------------------------------------------------------------
 
 def refit_grid(days: pd.DatetimeIndex, refit_days: int = REFIT_DAYS,
                anchor: pd.Timestamp | None = None) -> pd.DatetimeIndex:
     """Weekly SF-refit boundaries covering `days`, phase-locked to `anchor`.
 
-    `anchor` is normally the first **scored** week, so the geography's refit
-    boundaries coincide with the scoring harness's: the SF behind a scored week's
-    geography is then literally the same fit `score.py` uses for that week, rather
-    than one up to six days staler. The grid is extended *backwards* from the anchor
-    to cover the training margin, which needs geography too.
+    "grid" is a synchronized, recurring date range (anchor - 7, anchor, anchor
+    + 7, anchor + 14...)
+
+    `anchor` is normally the first **scored** week; goal is to have the
+    geography's date boundaries coincide with the scoring harness's, so the SF
+    behind a scored week's geography is the same fit `score.py` uses for that
+    week, and not one up to six days staler.
+
+    The grid extends *backwards* from the anchor to cover the training margin
+    (lo, hi), which needs geography too.
+
     """
     lo, hi = days.min(), days.max()
     a = pd.Timestamp(anchor).tz_localize(None).normalize() if anchor is not None else lo
@@ -298,26 +330,31 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
               lam: float = LAM, min_hours: int = MIN_HOURS,
               anchor: pd.Timestamp | None = None,
               on_refit=None) -> pd.DataFrame:
-    """Per (delivery_day, constraint) geography, from honestly-refit SFs.
+    """Per (delivery_day, constraint) geography, from SFs.
 
-    **This function takes the raw panels and fits the SF itself, on purpose.** It
-    does not accept an `SF` argument, because the single thing that can go wrong
-    here is being handed one that saw the future — and an API that cannot express
-    the mistake is worth more than a comment warning against it.
+    This function takes the raw panels and fits the SF itself. It does not
+    accept an `SF` argument, so we don't contaminate our panel using an SF with
+    a constraint that wasn't seen at that time. Remember this a electric
+    "exposure centroid", so it's not static, but generated from the weekly SF.
+    Some constraints may disappear, or "move" because of different weights.
 
-    For each refit boundary `s`, `SF` is fitted on the window `[s - window_days, s)`
-    — **strictly before `s`** — and used for the delivery days in `[s, s + refit_days)`.
-    So a delivery day `d` is always described by a map fitted on data that closed on
-    or before `d`. (Fitting *up to* `d` is legal, not merely tolerated: day D-1's DAM
-    cleared on D-2 and is public at the D-1 10:00 close. Same rule as
-    `features.history_cutoff`, and `test_geo_sf_window_ends_before_the_week` pins it.)
+    For each refit boundary `s`, `SF` is fitted on the window `[s -
+    window_days, s)` and used for the delivery days in `[s, s + refit_days)`.
+    So a delivery day `d` is always described by a map fitted on data that
+    closed on or before `d`.
 
-    Days before the first boundary with a fittable window get **no rows** — and so,
-    after the left join in `build_panel`, NaN geography. That is the honest answer
-    for the earliest training margin, where the congestion panel (which starts
-    2025-01-01, months after the shadow prices) cannot support a fit at all.
+    Days before the first boundary with a fittable window get no rows; the left
+    join in `build_panel` gives a NaN geography. For the earliest training
+    margin, where the congestion panel (which starts 2025-01-01, months after
+    the shadow prices) cannot support a fit at all.
+
     """
+
+    # sp -> (lat, lon, zone, kv) via csv data lookups
     sp = load_sp_geography() if sp is None else sp
+
+    # grid: is a pd.DatetimeIndex; synchronized b/w SF weekly refit and mu walk
+    # forward refit) recurrent step date range (list of dates)
     grid = refit_grid(days, refit_days, anchor)
 
     frames, skipped = [], 0
@@ -332,14 +369,22 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
             skipped += 1
             continue
 
-        SF = implied_shift_factors(M_fit, C_fit, lam=lam, min_hours=min_hours,
-                                   standardize=True, std_floor=STD_FLOOR)
+        SF = implied_shift_factors(M_fit, C_fit,
+                                   lam=lam,  # lam is penalty for ridge regression
+                                   min_hours=min_hours,
+                                   standardize=True,
+                                   std_floor=STD_FLOOR)
         if SF.empty:
             skipped += 1
             continue
 
-        g = constraint_geography(SF, sp)
+        g = constraint_geography(SF, sp)     # sets geo_* features
+
+        # NB: two masks (&) to yield list of days
         week_days = days[(days >= s) & (days < s + pd.Timedelta(days=refit_days))]
+
+        # on_refit is our callback "attach_refit_features", where we append our
+        # geographical data
         if on_refit is not None:
             on_refit(week_days, g)
         else:

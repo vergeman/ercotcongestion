@@ -1,32 +1,28 @@
-"""Per-constraint outage exposure, via the |SF| crosswalk. plan/0089 commit 3.
+"""Per-constraint outage exposure, via the |SF| crosswalk.
 
-**The covariate R4 wanted and could not build.** `features.outage_panel` hands the model
-four zonal MW numbers, *identical for every constraint in an hour* — 0085 §5.6's diagnosis
-of why persistence beat us. NP1-346 is unit-level, so with the |SF| map it becomes genuinely
-per-constraint:
+`features.outage_panel` hands the model four zonal MW numbers, identical for
+every constraint in an hour. NP1-346 is unit-level, so with the |SF| map
+outages become genuinely per-constraint:
 
     out_exposure[D, c] = Σ_sp |SF[c, sp]| · outage_MW_at_D[sp]
 
-the same operation `geo.constraint_geography` uses to place a constraint in space — a
-constraint's |SF| row says how strongly it feels congestion at each settlement point, so
-the outaged MW it is exposed to is that row dotted with the outaged MW located at each SP.
-This module reuses `geo`'s honest walk (`refit_grid`, the same window/refit/λ) rather than
-writing a second one; the harness is the control.
+`geo.constraint_geography` places a constraint in space: a constraint's |SF|
+row says how strongly it feels congestion at each settlement point, so the
+outaged MW it is exposed to is that row dotted with the outaged MW located at
+each SP.
 
-**Two flavours, and the second is the point:**
   out_exposure_now      MW out in the newest snapshot admissible at DAM close (the D-4
                         vintage — posted_date ≤ D-1).
-  out_exposure_planned  of that snapshot, only the MW whose Planned End Date ≥ D — i.e.
-                        *expected still out on the delivery day*. This is the forward-
-                        looking content Gate B found, and the thing RUC could not provide.
 
-⚠ **LEAK TRAP — identical to 0088 commit 3, asserted below, not just commented.**
-  * |SF| for delivery day D is fitted on the trailing window that closed **on or before D**
-    (inherited from `geo_panel`'s structure: fit on [s-window, s), used for days ≥ s).
-  * The outage snapshot is the **D-4 vintage** — the newest posted_date ≤ D-1, never a
-    later one. NP1-346 posts ~05:00 CT, before the 10:00 DAM close, so a report posted on
-    D-1 is admissible for delivery day D; one posted on D is not. A fresher snapshot leaks
-    the future and *it will look like a result.*
+  out_exposure_planned  of that snapshot, only the MW whose Planned End Date ≥ D.
+
+⚠ **LEAK TRAP:
+
+  * |SF| for delivery day D is fitted on the trailing window that closed **on
+    or before D** NP1-346 posts ~05:00 CT, before the 10:00 DAM close, so a
+    report posted on D-1 is admissible for delivery day D; one posted on D is
+    not.
+
 """
 from __future__ import annotations
 
@@ -86,14 +82,12 @@ def load_located_outages(conn, xwalk, sp_universe: set[str],
     return df
 
 
-# --------------------------------------------------------------------------
-# The exposure, on the honest walk
-# --------------------------------------------------------------------------
-
 def _exposure(W: pd.DataFrame, x: pd.Series) -> np.ndarray:
-    """Σ_sp |SF[c, sp]| · x[sp] for every constraint. Zero where a constraint's |SF| mass
-    lands on no outaged SP — a real zero (nothing out near it), distinct from the NaN a
-    missing snapshot produces upstream."""
+    """Σ_sp |SF[c, sp]| · x[sp] for every constraint. Zero where a
+    constraint's |SF| mass lands on no outaged SP. Constraint's outage exposure is
+    summed  SF x sp outage.
+
+    """
     if x.empty:
         return np.zeros(len(W))
     cols = W.columns.intersection(x.index)
@@ -103,8 +97,11 @@ def _exposure(W: pd.DataFrame, x: pd.Series) -> np.ndarray:
 
 
 def _vintage(posted_sorted: list[date], d: pd.Timestamp) -> date | None:
-    """The D-4 rule: newest posted_date ≤ D-1 (a report posted on D-1 ~05:00 CT is public
-    before the D-1 10:00 DAM close for delivery day D; one posted on D is not)."""
+    """newest posted_date ≤ D-1 (a report posted on D-1 ~05:00 CT is public
+    before the D-1 10:00 DAM close for delivery day D; one posted on D is
+    not).
+
+    """
     target = (pd.Timestamp(d).normalize() - pd.Timedelta(days=1)).date()
     i = bisect.bisect_right(posted_sorted, target) - 1
     return posted_sorted[i] if i >= 0 else None
@@ -116,21 +113,31 @@ def outage_exposure_panel(M: pd.DataFrame, C: pd.DataFrame, outages: pd.DataFram
                           lam: float = LAM, min_hours: int = MIN_HOURS,
                           anchor: pd.Timestamp | None = None,
                           by_fuel: bool = False) -> pd.DataFrame:
-    """Per (delivery_day, constraint) outage exposure, from honestly-refit SFs.
+    """Per (delivery_day, constraint) outage exposure from SFs.
 
-    Mirrors `geo.geo_panel`: for each refit boundary `s`, fit `SF` on `[s - window, s)`
-    (strictly before `s`) and use it for delivery days in `[s, s + refit_days)`. The one
-    addition is the inner per-day step — pick the D-4 vintage snapshot and dot |SF| against
-    its located MW — because exposure depends on the day's outages, not only the week's SF.
+    Mirrors `geo.geo_panel`: for each refit boundary `s`, fit `SF` on `[s -
+    window, s)` (strictly before `s`) and use it for delivery days in `[s, s +
+    refit_days)`.
 
-    `by_fuel` additionally emits `out_exposure_<bucket>` for the *planned* flavour."""
+    The one addition is the inner per-day step - pick the snapshot and dot |SF|
+    against its located MW, because exposure depends on the day's outages, not
+    only the week's SF.
+
+    We set two features now and planned, since they could be very different
+    values. We want the ablation to decide what's more important - neither
+    added any lift.
+
+    `by_fuel` additionally emits `out_exposure_<bucket>`.
+
+    """
     if outages.empty:
         return pd.DataFrame()
 
+    # snaps maps each outage report posted_date to its outage rows
     snaps = {p: g for p, g in outages.groupby("posted_date")}
     posted_sorted = sorted(snaps)
 
-    grid = refit_grid(days, refit_days, anchor)
+    grid = refit_grid(days, refit_days, anchor)  # sycn dates, list of dates
     frames, skipped = [], 0
     for s in grid:
         lo = s - pd.Timedelta(days=window_days)
@@ -147,20 +154,28 @@ def outage_exposure_panel(M: pd.DataFrame, C: pd.DataFrame, outages: pd.DataFram
         if SF.empty:
             skipped += 1
             continue
+
         W = SF.abs()
 
         week_days = days[(days >= s) & (days < s + pd.Timedelta(days=refit_days))]
+
+        # per day
         for d in week_days:
-            v = _vintage(posted_sorted, d)
+            v = _vintage(posted_sorted, d)    # newest posted outage report for day d
             if v is None:
                 continue                      # no admissible snapshot -> NaN after join
-            # LEAK GUARDS — the two the plan says will look like a result if wrong.
+
+            # LEAK GUARDS
             assert v <= (pd.Timestamp(d).normalize() - pd.Timedelta(days=1)).date(), (
                 f"outage vintage {v} is not ≤ D-1 for delivery day {d.date()}")
             assert s <= d, f"SF boundary {s} fitted past delivery day {d}"
 
+            # calcualte outages now: sum of all outages in report
             snap = snaps[v]
-            now = snap.groupby("sp")["mw"].sum()
+            now = snap.groupby("sp")["mw"].sum()   # sum up outage by settlment point
+
+            # calculate outages planned; subset of now, those still out after "d_start",
+            # start of delivery_day
             d_start = pd.Timestamp(d).tz_localize(ERCOT_TZ).tz_convert("UTC")
             still_out = snap[snap["planned_end"] >= d_start]
             planned = still_out.groupby("sp")["mw"].sum()
@@ -168,6 +183,9 @@ def outage_exposure_panel(M: pd.DataFrame, C: pd.DataFrame, outages: pd.DataFram
             f = pd.DataFrame({"out_exposure_now": _exposure(W, now),
                               "out_exposure_planned": _exposure(W, planned)},
                              index=SF.index)
+
+            # repeat outage exposure per fuel bucket:
+            # _exposure(W, sub.groupby("sp")["mw"].sum())
             if by_fuel:
                 for bucket in ("gas", "wind", "solar", "other"):
                     sub = still_out[still_out["fuel"].map(

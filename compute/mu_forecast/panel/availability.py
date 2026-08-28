@@ -11,7 +11,7 @@ from datetime import date
 
 import pandas as pd
 
-from compute.time import ERCOT_TZ, ct_day_bounds, delivery_day_of
+from compute.time import ERCOT_TZ
 
 DAM_CLOSE_HOUR = 10
 

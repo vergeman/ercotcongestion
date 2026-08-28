@@ -29,7 +29,7 @@ B.  Vintage    — **the leg that killed RUC.** Is the report readable *before* 
                  not on history but on **timing**.
 C.  Join       — **the open gate, and the likely killer.** Resource → settlement
                  point, weighted by **outage MW**, never by row count.
-                 Gate C (pre-registered, mirroring R4's bar):
+                 Locatable-outage-MW coverage gate (pre-registered, mirroring R4's bar):
                    ≥60% of outage MW locatable → build the per-constraint covariate
                    30–60%                      → build it, flagged, on the joinable subset
                    <30%                        → **it degrades to `outages_zonal`, which
@@ -68,9 +68,9 @@ MW = "Effective MW Reduction Due to Outage"
 PANEL_START = date(2024, 12, 11)
 BACKTEST_START = date(2025, 8, 14)
 
-# Gate C, pre-registered here, before the number is known — R4's bar, restated.
-GATE_C_BUILD = 0.60
-GATE_C_DEAD = 0.30
+# Pre-registered locatable-outage-MW coverage thresholds — R4's bar, restated.
+LOCATABLE_MW_BUILD_SHARE = 0.60
+LOCATABLE_MW_FLAGGED_SHARE = 0.30
 
 DAM_CLOSE_HOUR = 10     # CT, on D-1
 
@@ -252,9 +252,9 @@ def crosswalk(units: pd.Series, sps: set[str]) -> pd.DataFrame:
 
 
 def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
-    print("\n=== LEG C — the join (Gate C) ===")
-    print(f"  Bar, pre-registered: ≥{GATE_C_BUILD:.0%} of outage MW locatable → build;")
-    print(f"  <{GATE_C_DEAD:.0%} → it degrades to `outages_zonal`, which we already "
+    print("\n=== LEG C — the resource-to-settlement-point join ===")
+    print(f"  Bar, pre-registered: ≥{LOCATABLE_MW_BUILD_SHARE:.0%} of outage MW locatable → build;")
+    print(f"  <{LOCATABLE_MW_FLAGGED_SHARE:.0%} → it degrades to `outages_zonal`, which we already "
           f"have, and the arm is DEAD.")
 
     doc = idx.iloc[-1]
@@ -281,9 +281,9 @@ def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
         for k, v in miss.items():
             print(f"    {str(k):<20} {v:>7,.0f} MW")
 
-    verdict = ("BUILD" if rate >= GATE_C_BUILD else
-               "BUILD (flagged subset)" if rate >= GATE_C_DEAD else "DEAD")
-    print(f"\n  GATE C: {rate:.1%} of outage MW locatable → **{verdict}**")
+    verdict = ("BUILD" if rate >= LOCATABLE_MW_BUILD_SHARE else
+               "BUILD (flagged subset)" if rate >= LOCATABLE_MW_FLAGGED_SHARE else "DEAD")
+    print(f"\n  LOCATABLE MW: {rate:.1%} of outage MW locatable → **{verdict}**")
     return rate
 
 
@@ -418,7 +418,7 @@ def main() -> None:
     dump_schema(c, idx)
 
     print("\n" + "=" * 70)
-    print(f"SUMMARY: Gate C (the join) = {rate:.1%} of outage MW located.")
+    print(f"SUMMARY: locatable outage MW = {rate:.1%}.")
     print("Gates A and B are the ones RUC failed; this feed passes both.")
     print("=" * 70)
 

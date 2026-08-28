@@ -227,16 +227,19 @@ def forecast_day(
     spill_dir = os.environ.get("MU_SPILL_DIR") or tempfile.gettempdir()
     if os.environ.get("MU_SPILL_PANEL"):
         panel = spill_panel_features(panel, spill_dir)
+
     wp = predict_day(panel, D, train_days=train_days, arms=arms, seed=seed,
                      spill_dir=spill_dir)
     novelty = int(wp.attrs.get("novelty", 0))
     novel_keys = list(wp.attrs.get("novel_keys", []))
+
     if len(wp) == 0:
         raise RuntimeError(
             f"no scorable constraints for {D.date()} — either no covariate vintage "
             f"for D's hours, or every enforced key is novel with no binding history "
             f"to fit ({novelty} novel). Refusing to publish an empty forecast "
             f"(spec §8: novel keys are surfaced, but an all-novel day has no map).")
+
     log.info("stage 1: panel %s rows, wp %d scored keys, novelty=%d",
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
 
@@ -244,16 +247,14 @@ def forecast_day(
     SF_map = load_forecast_sf(conn, D, wp, run_id=map_run_id,
                               max_age_days=max_sf_age_days,
                               min_coverage=min_sf_coverage)
+
     # Pin the SF vintage in the result for the run log
     sf_win = resolve_sf_window(conn, map_run_id, as_of=D)
     sf_window_end = sf_win[1].date() if sf_win is not None else None
 
     # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature
     # `panel`, and no longer M/C for an SF fit. `forecast_day` still holds the
-    # wide feature panel that built `wp`; free it before propagation so the
-    # peak doesn't sum. With the SF now loaded (not fit), M/C no longer feed an
-    # SF solve — they're kept only so `propagate_window`'s forward-mode
-    # bookkeeping (`M_score`, empty for D) has a frame.
+    # wide feature panel that built `wp`
     del panel
     fit_lo = D - pd.Timedelta(days=WINDOW_DAYS)
     M = M.loc[M.index >= fit_lo]
