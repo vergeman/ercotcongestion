@@ -28,8 +28,9 @@ def resolve_sf_window(conn, run_id: str, *, as_of=None
     return None if row is None else (pd.Timestamp(row[0]), pd.Timestamp(row[1]))
 
 
-def load_window_sf(conn, run_id: str, window_start) -> pd.DataFrame:
-    """Load one threshold-sparsified persisted map as a dense matrix."""
+def load_window_sf(conn, run_id: str, window_start, *,
+                   fill_value: float | None = 0.0) -> pd.DataFrame:
+    """Load one threshold-sparsified persisted map, filling omitted cells if set."""
     with conn.cursor() as cur:
         cur.execute("SELECT constraint_key, settlement_point, sf FROM implied_shift_factors "
                     "WHERE run_id = %s AND window_start = %s",
@@ -39,7 +40,9 @@ def load_window_sf(conn, run_id: str, window_start) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows, columns=["constraint_key", "settlement_point", "sf"])
     SF = df.pivot_table(index="constraint_key", columns="settlement_point", values="sf",
-                        aggfunc="mean").fillna(0.0)
+                        aggfunc="mean")
+    if fill_value is not None:
+        SF = SF.fillna(fill_value)
     SF.index.name = SF.columns.name = None
     return SF
 

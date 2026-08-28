@@ -35,6 +35,7 @@ from compute.sf_map.geography.derive import (
     load_sp_geography,
 )
 from compute.inputs.dam import load_shadow_prices
+from compute.sf_map.storage.maps import load_window_sf
 from compute.sf_map.storage.persist import copy_constraint_geo_rows, delete_constraint_geo
 
 log = logging.getLogger("compute.sf_map.geography.persist")
@@ -58,27 +59,6 @@ def _load_windows(conn, run_id: str) -> list[tuple]:
             (run_id,),
         )
         return cur.fetchall()
-
-
-def _load_sf_window(conn, run_id: str, window_start) -> pd.DataFrame:
-    """Reconstruct one window's SF matrix (constraint_key × settlement_point).
-
-    Threshold-sparsified at persist time (|sf| < --sf-threshold dropped), so the
-    pivot carries NaN for the negligible entries; constraint_geography masks
-    those to zero weight, and the |SF|-weighted centroid is dominated by the
-    large entries that survived anyway.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT constraint_key, settlement_point, sf "
-            "FROM implied_shift_factors WHERE run_id = %s AND window_start = %s",
-            (run_id, window_start),
-        )
-        rows = cur.fetchall()
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows, columns=["constraint_key", "settlement_point", "sf"])
-    return df.pivot(index="constraint_key", columns="settlement_point", values="sf")
 
 
 def _zone_shares(g_row: pd.Series) -> dict:
@@ -157,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
 
         total = 0
         for window_start, window_end in windows:
-            SF = _load_sf_window(conn, args.run_id, window_start)
+            SF = load_window_sf(conn, args.run_id, window_start, fill_value=None)
             if SF.empty:
                 log.warning("no SF rows for window %s; skipping", window_start)
                 continue
