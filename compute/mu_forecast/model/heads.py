@@ -58,7 +58,6 @@ interval_ts               key
     # k: sum: # of bind hours - "successes"
     # n,k are Series, grouped by key.
     #
-    # (Pdb) grouped.sum()
     # key
     # coast_line    279
     # north_line    372
@@ -97,11 +96,10 @@ def apply_encoding(panel: pd.DataFrame, enc: pd.Series, pooled: float,
 
 def fold_matrix(frame: pd.DataFrame, cols: list[str]) -> np.ndarray:
     """A feature matrix as float64, built column by column into a pre-allocated
-    F-order array. HistGBM upcasts X to float64 for binning regardless of input
-    dtype — there is no float32 path — so handing it the float64 directly changes no
-    value. Used for the scored week (small); the train-side bind matrix is filled
-    inline in `walk_forward` straight from the panel view to skip the wide float32
-    fold copy the wide `all` arm cannot afford. F-order matches HistGBM's binning.
+    array. Used for the scored week; the train-side bind matrix is filled in
+    `walk_forward()` straight from the panel view to skip the wide float32 fold
+    copy. F-order matches HistGBM's binning.
+
     """
     x = np.empty((len(frame), len(cols)), dtype=np.float64, order="F")
     for j, col in enumerate(cols):
@@ -151,11 +149,9 @@ def fit_bind_head(x: np.ndarray, y: np.ndarray,
 
 
 def reliability(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> pd.DataFrame:
-    """The reliability curve: in the bucket where we said ~x, how often did it happen?
+    """The reliability curve: in the bucket where we said ~x, how often did it
+    happen?
 
-    Reported alongside Brier because Brier is a single number that mixes
-    calibration and resolution; the curve says *where* the model lies, which is
-    what tells you whether the downstream bands are trustworthy at the high-p end.
     """
     edges = np.linspace(0, 1, n_bins + 1)
     bins = np.clip(np.digitize(p, edges[1:-1]), 0, n_bins - 1)
@@ -166,9 +162,11 @@ def reliability(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> pd.DataFrame:
 
 
 def bind_metrics(y: np.ndarray, p: np.ndarray) -> dict:
-    """Calibration first, discrimination second — deliberately in that order."""
+    """Weight each bin's miscalibration by how much of the mass sits in it.
+
+    """
     rel = reliability(y, p)
-    # Weight each bin's miscalibration by how much of the mass sits in it.
+
     return {
         "brier": float(brier_score_loss(y, p)),
         "ece": float((rel["n"] / rel["n"].sum() * rel["gap"].abs()).sum()),

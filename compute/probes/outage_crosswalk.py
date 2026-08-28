@@ -6,7 +6,10 @@ import logging
 
 import pandas as pd
 
-from compute.mu_forecast.covariates.outages.crosswalk import GATE_C_BUILD, GATE_C_DEAD, coverage, load_crosswalk, verdict
+from compute.mu_forecast.covariates.outages.crosswalk import (
+    LOCATABLE_MW_BUILD_SHARE, LOCATABLE_MW_FLAGGED_SHARE,
+    coverage, load_crosswalk, verdict,
+)
 from compute.probes.outage_feed import archive_index, fetch_report, settlement_points
 
 
@@ -31,12 +34,13 @@ def main(argv: list[str] | None = None) -> int:
 
     xwalk = load_crosswalk()
     sp_universe = settlement_points()
-    print(f"\n=== NP1-346 crosswalk — Gate C (by outage MW) ===")
+    print("\n=== NP1-346 crosswalk — locatable outage-MW coverage ===")
     print(f"  registry: {len(xwalk.unitcode_to_sp)} unit codes, "
           f"{len(xwalk.substation_to_sp)} unambiguous substations")
     print(f"  SF-map SP universe (ercot_dam_spp): {len(sp_universe)}")
-    print(f"  Bar: >={GATE_C_BUILD:.0%} BUILD / {GATE_C_DEAD:.0%}-{GATE_C_BUILD:.0%} "
-          f"flagged / <{GATE_C_DEAD:.0%} DEAD\n")
+    print(f"  Bar: >={LOCATABLE_MW_BUILD_SHARE:.0%} BUILD / "
+          f"{LOCATABLE_MW_FLAGGED_SHARE:.0%}-{LOCATABLE_MW_BUILD_SHARE:.0%} "
+          f"flagged / <{LOCATABLE_MW_FLAGGED_SHARE:.0%} DEAD\n")
 
     client = ErcotClient()
     idx = archive_index(client)
@@ -56,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     tag, action = verdict(rate)
     print(f"\n  POOLED: {rate:.1%} of {pooled_total:,.0f} MW located across "
           f"{len(sample)} snapshots")
-    print(f"  GATE C: {rate:.1%} -> **{tag}** — {action}")
+    print(f"  LOCATABLE MW: {rate:.1%} -> **{tag}** — {action}")
     newest = coverage(fetch_report(client, idx.iloc[-1]["docId"]), xwalk, sp_universe)
     if len(newest["unlocated"]):
         print("\n  biggest UNLOCATED resources by MW (newest snapshot):")

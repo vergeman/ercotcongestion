@@ -1,34 +1,27 @@
-"""NP1-346 authoritative crosswalk — resource → settlement point. plan/0089 commit 1.
+"""NP1-346 authoritative crosswalk — resource → settlement point.
 
-**This is the gate. Before any ingest.** The probe (`compute.probes.outage_feed`)
-located outaged MW by *splitting underscores*: `Resource Unit Code` was assumed to BE a
-settlement point (22.6% of MW), and a station-prefix heuristic patched it to 55.8% —
-which is exactly the fuzzy matching R4 warns against (`B` from `B_DAVIS_B_DAVIG1`, 117
-rows on stations that carry several settlement points). This module throws that away and
-uses the **authoritative RESOURCE_NODE registries** the geocode layer already trusts
-(`preprocess/geocode_ercot_layer.py`, `compute/mu/geo.py`), the same map that turns an
-opaque key into a place without name matching.
+Uses the authoritative RESOURCE_NODE registries the geocode layer already
+trusts (`preprocess/geocode_ercot_layer.py`, `compute/mu/geo.py`)
 
-**The one join that is authoritative and unambiguous.** ERCOT's `Resource Unit Code` is
-`{UNIT_SUBSTATION}_{UNIT_NAME}`, and `Resource_Node_to_Unit` maps that pair straight to a
-`RESOURCE_NODE` — the priced settlement point. No prefix guessing, no namespace to
-reconcile: it is a lookup in ERCOT's own registry. Two weaker registry routes back it up
-(the resource name is itself a priced SP; the resource name is a substation that resolves
-to exactly one SP), and both are *registry* facts, not string heuristics.
+ERCOT's `Resource Unit Code` is `{UNIT_SUBSTATION}_{UNIT_NAME}`, and
+`Resource_Node_to_Unit` maps that pair straight to a `RESOURCE_NODE` - the
+priced settlement point.
 
-**Gate C, pre-registered (the probe's bars, restated — R4's bar):**
+The probe's bars:
 
     >= 60% of outage MW cleanly locatable -> BUILD the per-constraint covariate
+
     30-60%                                -> BUILD it, flagged, on the joinable subset,
                                              and report the unlocated MW every week
+
     <  30%                                -> DEAD: it degrades to `outages_zonal`, which
                                              we already have; this branch closes, no ingest
 
-**By outage MW, never row count.** A crosswalk that reaches 95% of rows but only the
-1-MW derates is worthless; the mass is in the thermal trips. Key/row count flatters — see
-0088 — so every number here is denominated in `Effective MW Reduction Due to Outage`.
+Validate by outage MW, never row count. A crosswalk that reaches 95% of rows
+but only the 1 MW derates is worthless; the mass is in the thermal trips.
 
 The executable coverage gate lives in `compute.probes.outage_crosswalk`.
+
 """
 from __future__ import annotations
 
@@ -40,16 +33,13 @@ import pandas as pd
 
 log = logging.getLogger("compute.mu_forecast.covariates.outages.crosswalk")
 
-# Mirrors `compute.probes.outage_feed`, which is the pre-registered source of both. Kept
-# as module constants here — rather than imported — so the pure crosswalk core carries no
-# dependency on the probe's top-level ErcotClient import (network client). The probe's
-# fetchers are pulled in lazily in main(), where the live run pays for them anyway.
 MW = "Effective MW Reduction Due to Outage"
-GATE_C_BUILD = 0.60     # >= this share of outage MW locatable -> BUILD
-GATE_C_DEAD = 0.30      # <  this -> DEAD (degrade to outages_zonal)
+LOCATABLE_MW_BUILD_SHARE = 0.60    # >= this share locatable -> BUILD
+LOCATABLE_MW_FLAGGED_SHARE = 0.30  # below BUILD: build only as a flagged subset
 
 # The authoritative registries, mounted at /data in the compute container (see
-# docker-compose.yml `./data:/data`). Same directory geo.py and the geocode layer read.
+# docker-compose.yml `./data:/data`). Same directory geo.py and the geocode
+# layer read.
 REGISTRY_DIR = Path("/data/raw/ercot_geocode")
 RN_UNIT_GLOB = "Resource_Node_to_Unit_*.csv"
 SP_META_GLOB = "Settlement_Points_*.csv"
@@ -114,6 +104,7 @@ def load_crosswalk(registry_dir: Path = REGISTRY_DIR) -> Crosswalk:
 
     # Substation -> the settlement points behind it, from both registries. Ambiguous
     # substations (>1 SP) are dropped, never guessed.
+    # zip creates tuple
     sub_sps: dict[str, set[str]] = {}
     for sub, sp in zip(rn_unit["UNIT_SUBSTATION"], rn_unit["RESOURCE_NODE"]):
         if sub and sp:
@@ -128,6 +119,7 @@ def load_crosswalk(registry_dir: Path = REGISTRY_DIR) -> Crosswalk:
         if sub and sp:
             sub_sps.setdefault(sub, set()).add(sp)
 
+    # substation -> sp
     substation_to_sp = {s: next(iter(v)) for s, v in sub_sps.items() if len(v) == 1}
 
     log.info("crosswalk: %d unit codes, %d unambiguous substations, %d SPs in registry",
@@ -172,10 +164,10 @@ def coverage(df: pd.DataFrame, xwalk: Crosswalk, sp_universe: set[str],
 
 
 def verdict(rate: float) -> tuple[str, str]:
-    """The pre-registered Gate-C decision. Bars are constants; this only reads them."""
-    if rate >= GATE_C_BUILD:
+    """Return the pre-registered locatable-outage-MW coverage decision."""
+    if rate >= LOCATABLE_MW_BUILD_SHARE:
         return "BUILD", "build the per-constraint outage covariate"
-    if rate >= GATE_C_DEAD:
+    if rate >= LOCATABLE_MW_FLAGGED_SHARE:
         return "BUILD (flagged subset)", (
             "build on the joinable subset only, reporting the unlocated MW every week")
     return "DEAD", ("degrade to `outages_zonal`, which we already have; close this "

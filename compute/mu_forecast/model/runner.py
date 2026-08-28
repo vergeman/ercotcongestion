@@ -27,14 +27,13 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
-from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
+from compute.mu_forecast.model.artifacts import combine_pred_chunks, save_preds
 from compute.mu_forecast.model.heads import (alloc_bind_matrix as _alloc_bind_matrix,
-                              apply_encoding, bind_metrics, fit_bind_head,
-                              fit_mu_climatology, fit_mu_head, fold_matrix,
-                              predict_mu_climatology, predict_mu_head,
-                              reliability, target_encoding)
+                                             apply_encoding, bind_metrics, fit_bind_head,
+                                             fit_mu_climatology, fit_mu_head, fold_matrix,
+                                             predict_mu_climatology, predict_mu_head,
+                                             reliability, target_encoding)
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
-from compute.mu_forecast.panel.build import BIND_DEADBAND
 from compute.time import ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 
@@ -114,9 +113,9 @@ def persist_outputs(weekly: pd.DataFrame, preds: pd.DataFrame,
 
 
 # --------------------------------------------------------------------------
-# The ablation arms (plan/0088)
+# The ablation arms
 # --------------------------------------------------------------------------
-# **Build the panel once; express an arm as a subset of its columns.**
+# Build the panel once; express an arm as a subset of its columns.
 # `build_panel` materialises ~10M rows and is the peak-memory line of the
 # package. Rebuilding it five times to run five arms would cost five walks'
 # worth of the most expensive step in the branch.
@@ -124,29 +123,24 @@ def persist_outputs(weekly: pd.DataFrame, preds: pd.DataFrame,
 # Each arm owns a column-name prefix. A new covariate joins an arm by being named
 # for it.
 ARM_PREFIXES = {
-    "lag": "lag_",   # commit 2 — lagged realized mu (the persistence content)
-    "geo": "geo_",   # commit 3 — constraint geography via the |SF| centroid
-    "wx": "wx_",     # commit 4 — per-constraint weather-response vectors
-    "out": "out_",   # plan/0089 — per-constraint generation-outage exposure
+    "lag": "lag_",   # lagged realized mu (the persistence content)
+    "geo": "geo_",   # constraint geography via the |SF| centroid
+    "wx": "wx_",     # per-constraint weather-response vectors
+    "out": "out_",   # per-constraint generation-outage exposure
 }
 
-# `base` is 0085's feature set exactly — the thing every arm must be measured
-# against. `all` is every arm at once. The single-arm rows are what make the
-# contributions attributable.
+# `base` is what every arm is measured against. `all` is every arm at once.
 #
-# **The first five keys are frozen — do not edit them.** `out` and `all+out`
-# are plan/0089's additions, and they are additive on purpose: because `out`
-# joins `ARM_PREFIXES`, every existing arm now *drops* the `out_` columns, so
-# `base` and `all` are byte-identical to 0088 on a panel that carries the
-# outage covariate. The new arms are the only ones that can see it.
+# The first five keys are frozen — do not edit them. out and all+out are used
+# in ablation
 FEATURE_SETS = {
     "base": (),
     "lag": ("lag",),
     "geo": ("geo",),
     "wx": ("wx",),
     "all": ("lag", "geo", "wx"),
-    "out": ("out",),                        # plan/0089 — outage exposure alone
-    "all+out": ("lag", "geo", "wx", "out"),  # plan/0089 — 0088's `all` + outage
+    "out": ("out",),                         # outage exposure alone
+    "all+out": ("lag", "geo", "wx", "out"),  # `all` + outage
 }
 
 
@@ -155,12 +149,8 @@ def feature_cols(panel: pd.DataFrame, arms: tuple[str, ...] = ("lag", "geo", "wx
     """The feature columns for one arm.
 
     A column belongs to an arm iff it carries that arm's prefix; everything else
-    is `base`. Selecting an arm therefore means *dropping* the prefixed columns of
-    the arms not selected — the base features are always present, in every arm.
+    is `base`.
 
-    The default is every arm, so a caller that does not care about the ablation
-    (the tests, any downstream user) keeps the old behaviour of "all the columns
-    there are".
     """
     unknown = set(arms) - set(ARM_PREFIXES)
     if unknown:
@@ -377,10 +367,9 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     `spill_dir`, puts the fold's ~3.4 GB float64 bind matrix on that disk PVC
     instead of anonymous RAM.
 
-    **Novelty** is surfaced, not fatal: the number of keys enforced on D−1
-    (present in the panel that day, whether or not they bound) that the fit
-    never saw bind. `wp.attrs["novelty"]` / `wp.attrs["novel_keys"]` is logged,
-    for summary to widen bands or flag rather than silently zero them.
+    **Novelty** is the number of keys that the fit never saw bind.
+    `wp.attrs["novelty"]` / `wp.attrs["novel_keys"]` is logged, for summary to
+    widen bands or flag rather than silently zero them.
 
     Returns `wp` = `(interval_ts, key, p_bind, mu_gbm)` the flat frame that
     `propagate_window` consumes; `mu_clim` and the realized labels are dropped
@@ -434,7 +423,11 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     if score.empty:
         return _empty(novel_keys)
 
+    #
+    # predict_fold is where actual prediction, model.fit/predict occurs
+    #
     fold = _predict_fold(train, score, arms, seed, spill_dir)
+
     # Drop the on-disk bind matrix so a per-day backfill loop does not leave a
     # stale ~3.4 GB file on the PVC.
     if spill_dir is not None:
@@ -450,7 +443,7 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
 
 
 # --------------------------------------------------------------------------
-# Persisting the predictions — the input to commits 4 and 5
+# Persisting the predictions
 # --------------------------------------------------------------------------
 
 def _fmt_reliability(rel: pd.DataFrame) -> str:
@@ -465,26 +458,6 @@ def _fmt_reliability(rel: pd.DataFrame) -> str:
 def spill_panel_features(panel: pd.DataFrame, spill_dir: str) -> pd.DataFrame:
     """Rewrite the panel's float32 feature block as a memory-mapped Arrow file.
 
-    The covariate columns are ~3.9 GB and resident for the whole walk. Held as a
-    numpy block they are anonymous RAM the node can only reclaim by OOM-killing the
-    process; written to an Arrow IPC file on the disk PVC and reopened via
-    `pa.memory_map` + `ArrowDtype`, they become CLEAN file-backed page cache the node
-    evicts under pressure and re-faults on demand — the reclaimability the bind
-    matrix gets from `_alloc_bind_matrix`, applied to the resident panel itself.
-
-    Zero-copy and value-preserving, both verified on this stack: HistGBM (both
-    heads), the raw `to_numpy` reads that fill the bind matrix, `np.digitize` /
-    `np.quantile` in the climatology, and the target-encoding groupby all consume
-    `ArrowDtype` columns with results bit-identical to the numpy panel — NaN
-    covariate holes included, so HistGBM's native-missing handling is unchanged.
-    Only the feature columns move; the NaN-bearing `y_mu` target and the `y_bind`
-    label stay numpy exactly as the walk and the leak audit expect them.
-
-    Guarded: the one-time `from_pandas` copy briefly coexists with the numpy panel
-    (~8 GB, below `build_panel`'s own peak, so a run that built the panel can spill
-    it). And if the Arrow wrap does not stay file-backed — a future pandas/pyarrow
-    could materialise it into anonymous RAM — the spill has bought nothing, so we
-    log and hand back the in-RAM panel rather than pay disk I/O for no benefit.
     """
     import pyarrow as pa
 

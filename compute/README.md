@@ -457,12 +457,21 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 
 # Walkthrough Notes
 
+## Daily Forecast Job
+
+* Default inputs are "all", which consists of ["lag", "geo", "wx"]
+  * `lag`: historical behavior, `lag_` prefix
+  * `geo`: SF-derived geographic/electrical context
+  * `wx`: weather-response inputs
+  * `outage`: outage info (skipped)
+
+
 * `jobs/daily_forecast.py:forecast_day()`:
     * query and build data panel (split train / test based on days)
       * `arms`: features
       * `M = load_shadow_prices()`
       * `C = load_congestion_panel()`
-      * `panel = build_panel()`
+      * `panel = build_panel()`  **see `mu_forecast/panel/build.py:build_panel()` below**
     * `wp = predict_day(panel, D, train_days, arms)`: (`interval_ts`, `key`, `p_bind`, `mu_gbm`) frame
       * "wp" : "working prediction" - return p_bind, p_mu and climatology counterpart
       * - `compute/mu_forecast/model/runner.py:predict_day()` -
@@ -480,19 +489,106 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
     * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
     * `sf_win=resolve_sf_window()_`: SF window - just for run log summary
 
-    * `preds = load_preds()`: load prediction artifact - not from current train
-      day, but `walk_forward()`
-      * `walk_forward()`: historical training path
-        * for each historical scoring week S:
-          * train model on data before S
-          * predict rows during week S
-          * later join those predictions to the actual outcomes
+    * Step 2: Point Congestion
+      * `_, panel_out, SF, E_mu = propagate_window(D, block_end, M, C, wp, sf=SF_map)`
+        * given all the inputs; wp contains P(bind) and mu_gbm
+        * `E mu` (hr x constraint) = p(bind) * mu_gbm
+        * `SF`: constraint x settlement point
+        * `point` = E mu x SF -> congestion (hr x settlement point), attach to `panel`
 
+    * check for all-zero result panel (`panel_out`) throws
 
-    * `propagate_window(D, block_end, M, C, wp, sf=SF_map)` computes
-      `E_mu = p_bind × mu_gbm` then `point = −(E_mu · SF)`.
     * `sf_mu = build_sf_mu_artifact(SF, E_mu)`
-    * return `ForecastResult`
+      * serializes SF, ts, E_mu, etc.
+    * return `ForecastResult`: `run_id`, `D.date`, `panel`,` SF`, `E_mu`,
+      `sf_mu`, `horizon`, `novelty`, etc..
+  * `persist_forecast()`, `_grade_latest()`, `_forecast_history_latest()`
+
+
+## Mu Forecast Panel
+
+* `mu_forecast/panel/build.py:build_panel()`:
+  * `M`: shadow price matrix (hours x constraint, values mu)
+  * `C`: congestion (hours x settlement points, values congestion)
+  * `start`, `end`: time range
+  * `policy`: which constraints are valid: "all" vs "active_28d" - bind once in
+    prior 28 days
+  * `score_from`: timestamp of first scoring week (e,g, start date for a weekly
+    iteration (every 7 days from))
+  * `vintage_cutoff`: caps available dates (e.g. for backfill)
+  * `with_weather`, `with_outage`: weather, generation outage arm
+
+  * `sys_panel = system_panel(conn, start, end, vintage_cutoff)`: builds covariate panel
+    * queries for load, wind, solar forecasts, outage, and net load.
+    * `panel_engineering.calendar_features()`: appends calendar bits
+
+  * `panel_engineering.candidate_keys(binding_history(M, days), policy)`
+    * `binding_history(M, days, BIND_DEADBAND=1.0, HISTORY_WINDOWS=(1,7,28),
+      LAG_WINDOWS=(1,7))`: constraint history features for (delivery_day, constraint)
+      * `BIND_DEADBAND`: shadow price threshold for a constraint to bind (1.0 MW/h)
+      * `HISTORY_WINDOWS`: lookback over 1, 7 and 28 days to calculate binding
+        frequency history - count hours where constraint exceed BIND_DEADBAND.
+        This is how often.
+      * `LAG_WINDOWS`: lookback type over 1, 7 days: measures how large over
+        time; max or avg binding price magnitude. This is how severe.
+      * returns dataframe index by day `(delivery_day, key)`: - key is
+        constraint, columns: `binds_1d | binds_7d | binds_28d | bind_rate_life |
+        mean_mu_28d | lag_mu_1d | lag_mu_7d | lag_max_mu_1d | lag_max_mu_7d |
+        days_since_bind |`
+    * `candidate_keys()`: takes above binding history dataframe and filters for
+      `all` or the `binds_28d` column(s)
+
+* Data / ablation
+    * NB: `on_refit = attach_refit_features` - passing function as callback (as
+      `on_refit`), enclosing `panel`
+    * GEOGRAPHY: `sf_map.geography.derive.py:geo_panel()`: use each of the settlement point geo lat/lng along the
+      constraint, and their SF to make a weighted avg geolocation. (e.g. .8 *
+      lat sp1 + .1* lat sp2), etc. This becomes an implied "exposure centroid"
+      of the constraint. It's not used on map, only as a feature for calculating
+      mu.
+      * `sp = load_sp_geography()`: `sp -> (lat, lon, zone, kv)` from csvs
+      * `refit_grid()`: synchronized b/w SF weekly refit and mu walk forward
+        refit) recurrent step date range (list of dates)
+      * filter M and C for proper lo/hi range - TODO: fix bug 0170
+      * `SF = implied_shift_factors()`: calculate our fresh, date restricted shift factors
+      * `constraint_geography()`: add geo lat/lng and related geo features; kv, returns `g`
+      * callback `on_refit`:
+    * WEATHER: `mu_forecast.covariates.weather.py:wx_panel()`:
+      * `M_win`, `X_win`: time filtered shadows vs weather input matrices (hour
+        x constraint/input feature)
+      * `response_vectors(M_win, X_win)`: constraint x weather feature with
+        "correlation" - how constraint's mu moves with feature's value
+        * filters constraints for binding-ness, weather sources, and hours to
+          find mutual matrix of valid data
+        * standardize matrices:
+          * `Zm`: hour x constraint shadow
+          * `Zx`: hour x weather
+        * Pearson correlation matrix: `R = (Zm.T @ Zx) / n`
+          * (constraint x hour) @ (hour x weather) -> constraint x weather
+          * shows strength and direction relationship between two variables (shadow and weather input)
+          * return `out`, clipped matrix from [-1, 1]
+    * OUTAGES: see outage ablation but this was determined to not contribute anything
+      * `mu_forecast.covariates.outages.crosswalk.py:load_crosswalk`:
+        loads Crosswalk dict mapping UNIT_SUBSTATION + UNIT_NAME -> RESOURCE_NODE
+
+      * `mu_forecast.covariates.outages.exposure.py:load_located_outages`:
+        queries `resource_outages` table, looks up settlement point via
+        `xwalk.locate()` and set outage info to dataframe
+
+      * `mu_forecast.covariates.outages.exposure.py:outage_exposure_panel`: turns
+          outages plus fitted SFs into per-constraint features
+        * constraint’s |SF| at outage location × outage MW - large outage at a
+          settlement point heavily associated with a constraint produces higher
+          exposure for that constraint.
+        * basically sum up mw outages for `now` and `planned`, append to "frame", `f`
+
+    * Targets - training targets, `y_mu`, `y_bind` append to panel
+      * get `ri`, `ci` rows and columns
+      * `y = mu[ri, ci]` -> row | constraint | mu |, set in `panel[y_mu]`
+      * set panel[`y_bind`] (filter y_mu for bind)
+      * `y_` are actual historical train data which `p_bind` and `mu_gbm`
+        forecast.
+
 
 
 ---
