@@ -10,6 +10,7 @@ from compute.experiments.mu import feature_ablation as ablate
 from compute.experiments.mu import outage_ablation as outage_ablate
 from compute.experiments.sf import coverage as coverage_probe
 from compute.jobs import weekly_map
+from compute.mu_forecast.model import backtest as mu_backtest
 from compute.mu_forecast.model import runner as mu_model
 from compute.sf_map import config
 
@@ -42,7 +43,7 @@ def test_mu_aliases_share_the_sf_operating_point():
 @pytest.mark.parametrize(
     ("main", "window_name", "refit_name"),
     [
-        (mu_model.main, "train_days", "refit_days"),
+        (mu_backtest.main, "train_days", "refit_days"),
         (ablate.main, "train_days", "refit_days"),
         (outage_ablate.main, "train_days", "refit_days"),
         (coverage_probe.main, "window_days", "refit_days"),

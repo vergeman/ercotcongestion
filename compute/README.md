@@ -32,7 +32,7 @@ model-facing predictor families (`covariates/`), and head fitting/prediction
 artifacts (`model/`). Raw reusable DAM access remains in `inputs/`; weather,
 outage exposure, and SF-derived geography are covariates because they transform
 those inputs into model features. The historical μ walk is
-`python -m compute.mu_forecast.model.runner`.
+`python -m compute.mu_forecast.model.backtest`.
 
 ## Tests
 
@@ -78,7 +78,7 @@ forecast.
 > it is built — μ needs that week as a residual seed, and the map needs a persisted SF
 > window ending `≤ X`. So:
 >
-> * **Origin — one week back.** `weekly_map`, `eval`, `model.runner`, `score`, and
+> * **Origin — one week back.** `weekly_map`, `eval`, `model.backtest`, `score`, and
 >   `backfill_nodal` take `--start = X − 7d` (an unserved pre-roll week). Only
 >   `backfill_artifacts` (per-day) and the live daily job start at `X` itself.
 >   (`load_scoreboard` has no `--start` — it just reshapes the CSVs it is handed.)
@@ -116,7 +116,7 @@ window closes.
 > **Ingest `train_days + 14` back, not exactly `train_days`.** μ's covariate
 > panel drops its first day(s) to DAM/tz edges, so aim the ingest floor at
 > `origin − 247d` (`2024-04-25` for a 2025-01-01 origin). And then additional 7
-> for downstream step 3 backfill_nodal alignment to `2024-04-18`. `model.runner`
+> for downstream step 3 backfill_nodal alignment to `2024-04-18`. `model.backtest`
 > already reads from there; this just ensures the data is actually present.
 
 Build and deploy in this order.
@@ -135,13 +135,13 @@ The stages take dates literally (they never read `now()` or the DB max). `--star
 now means the **same thing** in all three — the *series origin* — so one date
 (**2025-01-01**, the product origin) drives the whole run:
 
-* **`--start`** (`weekly_map`, `eval`, `model.runner`, `score`) — the *series origin*: the
+* **`--start`** (`weekly_map`, `eval`, `model.backtest`, `score`) — the *series origin*: the
   first day you want scored, **not** the data floor. Each stage extends the read back on
-  its own (`weekly_map`/`eval`: `read_start = start − window_days`; `model.runner`:
+  its own (`weekly_map`/`eval`: `read_start = start − window_days`; `model.backtest`:
   `start − train_days − leadin`), so `--start 2025-01-01` scores from 2025-01-01
   while reading whatever history it needs behind that. Leave it at the product
   origin; you never hand-compute a data floor.
-* **`--score-from`** (`model.runner`, optional) — overrides *only* the scored-grid phase
+* **`--score-from`** (`model.backtest`, optional) — overrides *only* the scored-grid phase
   and defaults to `--start`. Rarely needed — set it only to pin a phase different
   from the origin (e.g. an ablation on a specific sf week).
 * **`--end`** — a *fixed* completed date, deliberately not "today," so a rebuild is
@@ -198,11 +198,11 @@ used to draw P10/P90 bands in the daily job; the score CSV feeds the R5 verdict
 Use `mu-all-v1` for every forecast artifact and DB write. The SF map deliberately has
 its own run ID, `map-v1`.
 
-`--run-id` is the canonical namespace (plan/0113): `model.runner` derives its outputs
+`--run-id` is the canonical namespace (plan/0113): `model.backtest` derives its outputs
 under `runs/<run-id>/mu/` (`mu_weekly.csv`, `mu_preds.npz`) and creates that tree
 itself — no `ART_DIR` / `mkdir`. `compute.evaluation.mu` has no `--run-id`, so point it at
 the same derived paths explicitly; it writes `mu/mu_score_weekly.csv` (the *score*
-schema — a different file from `model.runner`'s `mu_weekly.csv` calibration output).
+schema — a different file from `model.backtest`'s `mu_weekly.csv` calibration output).
 
 ```
 # --start is the series origin (product origin, 2025-01-01) — the same date the SF
@@ -213,7 +213,7 @@ schema — a different file from `model.runner`'s `mu_weekly.csv` calibration ou
 RUN_ID=mu-all-v1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.mu_forecast.model.runner --run-id ${RUN_ID} \
+python -m compute.mu_forecast.model.backtest --run-id ${RUN_ID} \
     --start 2025-01-01 --end <YYYY-MM-DD>
 
 python -m compute.evaluation.mu \
@@ -226,7 +226,7 @@ python -m compute.evaluation.mu \
 backfill. The daily forecast never reads it: serving computes
 `E_mu = p_bind × mu_gbm`, then `point = −(E_mu · SF)` directly.
 
-> **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `model.runner` and
+> **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `model.backtest` and
 > `backfill_nodal` never read the DB max or `now()`. With `--score-from` set (above),
 > the scored walk begins there; without it, the walk begins at `--start + 240d` (the
 > training warm-up), so the first residual week is about eight months after `--start`.

@@ -23,16 +23,22 @@ import pandas as pd
 import pytest
 
 from compute.mu_forecast.model import runner as mu_model
+from compute.mu_forecast.model.backtest import (
+    mu_head_verdict,
+    walk_forward,
+    walk_forward_chunked,
+)
+from compute.mu_forecast.model.artifacts import combine_pred_chunks
 from compute.mu_forecast.model.runner import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
-                                 combine_pred_chunks, fit_mu_climatology, load_preds,
-                                 mu_head_verdict,
+                                 fit_mu_climatology, load_preds,
                                  persist_outputs, predict_day,
                                  predict_mu_climatology, preds_path_for,
-                                 refit_boundaries, reliability, score_chunks,
+                                 reliability,
                                  resolve_output_paths, save_preds,
-                                 target_encoding, walk_forward, walk_forward_chunked,
+                                 target_encoding,
                                  weekly_path_for)
+from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
 
 
 def _panel(n_days: int = 60, keys=("A|c", "B|c"), seed: int = 0) -> pd.DataFrame:
