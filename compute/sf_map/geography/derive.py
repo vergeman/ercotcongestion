@@ -50,6 +50,7 @@ import numpy as np
 import pandas as pd
 
 from compute.sf_map.model.fit import implied_shift_factors
+from compute.time import normalize_ct_day
 
 log = logging.getLogger("compute.sf_map.geography.derive")
 
@@ -360,8 +361,8 @@ def geo_panel(M: pd.DataFrame, C: pd.DataFrame, days: pd.DatetimeIndex,
     frames, skipped = [], 0
     for s in grid:
         lo = s - pd.Timedelta(days=window_days)
-        s_utc = s.tz_localize("UTC") if s.tzinfo is None else s
-        lo_utc = lo.tz_localize("UTC") if lo.tzinfo is None else lo
+        s_utc = normalize_ct_day(s)
+        lo_utc = normalize_ct_day(lo)
 
         M_fit = M.loc[(M.index >= lo_utc) & (M.index < s_utc)]
         C_fit = C.loc[(C.index >= lo_utc) & (C.index < s_utc)]

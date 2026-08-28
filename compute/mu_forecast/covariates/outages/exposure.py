@@ -33,7 +33,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from compute.time import ERCOT_TZ
+from compute.time import ERCOT_TZ, normalize_ct_day
 from compute.sf_map.geography.derive import (LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
                            refit_grid)
 from compute.sf_map.model.fit import implied_shift_factors
@@ -141,8 +141,8 @@ def outage_exposure_panel(M: pd.DataFrame, C: pd.DataFrame, outages: pd.DataFram
     frames, skipped = [], 0
     for s in grid:
         lo = s - pd.Timedelta(days=window_days)
-        s_utc = s.tz_localize("UTC") if s.tzinfo is None else s
-        lo_utc = lo.tz_localize("UTC") if lo.tzinfo is None else lo
+        s_utc = normalize_ct_day(s)
+        lo_utc = normalize_ct_day(lo)
 
         M_fit = M.loc[(M.index >= lo_utc) & (M.index < s_utc)]
         C_fit = C.loc[(C.index >= lo_utc) & (C.index < s_utc)]

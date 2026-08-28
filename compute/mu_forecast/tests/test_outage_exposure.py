@@ -22,6 +22,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
+import compute.mu_forecast.covariates.outages.exposure as exposure
 from compute.mu_forecast.covariates.outages.exposure import _exposure, _vintage, outage_exposure_panel
 
 
@@ -121,7 +122,8 @@ def test_sf_window_excludes_the_delivery_day():
     fit strictly before it."""
     M, C = _panels()
     base = _panel(_outages()).loc[(D0, "K1"), "out_exposure_now"]
-    spike_hours = pd.DatetimeIndex([D0.tz_localize("UTC") + pd.Timedelta(hours=h)
+    d_start = D0.tz_localize(CT).tz_convert("UTC")
+    spike_hours = pd.DatetimeIndex([d_start + pd.Timedelta(hours=h)
                                     for h in range(6)])
     M2 = pd.concat([M, pd.DataFrame(5000.0, index=spike_hours, columns=M.columns)])
     C2 = pd.concat([C, pd.DataFrame(5000.0, index=spike_hours, columns=C.columns)])
@@ -138,3 +140,36 @@ def test_two_constraints_get_different_exposure():
     k1 = p.loc[(D0, "K1"), "out_exposure_now"]
     k2 = p.loc[(D0, "K2"), "out_exposure_now"]
     assert k1 != k2 and k1 > k2
+
+
+@pytest.mark.parametrize(("day", "boundary"), [
+    ("2026-07-07", "2026-07-07 05:00"),
+    ("2026-12-07", "2026-12-07 06:00"),
+])
+def test_outage_fit_window_uses_ct_midnight_utc_bounds(monkeypatch, day, boundary):
+    s = pd.Timestamp(day)
+    lo = s - pd.Timedelta(days=7)
+    start = pd.Timestamp(f"{lo.date()} {boundary[-5:]}", tz="UTC")
+    end = pd.Timestamp(boundary, tz="UTC")
+    hours = pd.date_range(start - pd.Timedelta(hours=1), end, freq="h")
+    M = pd.DataFrame({"K": 1.0}, index=hours)
+    C = pd.DataFrame({"SP": 1.0}, index=hours)
+    outages = pd.DataFrame({
+        "posted_date": [(s - pd.Timedelta(days=1)).date()],
+        "sp": ["SP"], "mw": [1.0],
+        "planned_end": [end], "fuel": ["Natural Gas"],
+    })
+    seen = []
+
+    def fit(M_fit, C_fit, **kwargs):
+        seen.append((M_fit.index, C_fit.index))
+        return pd.DataFrame([[1.0]], index=["K"], columns=["SP"])
+
+    monkeypatch.setattr(exposure, "implied_shift_factors", fit)
+    outage_exposure_panel(M, C, outages, pd.DatetimeIndex([s]), window_days=7,
+                          min_hours=1, anchor=s)
+
+    expected = pd.date_range(start, end, freq="h", inclusive="left")
+    assert len(seen) == 1
+    pd.testing.assert_index_equal(seen[0][0], expected)
+    pd.testing.assert_index_equal(seen[0][1], expected)
