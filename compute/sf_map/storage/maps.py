@@ -6,9 +6,13 @@ import logging
 import numpy as np
 import pandas as pd
 
-log = logging.getLogger("compute.projection.propagate")
+from shared.settings import settings
 
-MAP_RUN_ID = "map-v1"
+log = logging.getLogger(__name__)
+
+# Keep the established production map as the fallback, while allowing the
+# deployed MAP_RUN_ID setting to select a different persisted map run.
+MAP_RUN_ID = settings.map_run_id or "map-v1"
 MAX_SF_AGE_DAYS = 14
 MIN_SF_COVERAGE = 0.5
 

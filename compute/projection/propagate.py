@@ -50,6 +50,8 @@ def _aligned_score_inputs(s: pd.Timestamp, end: pd.Timestamp, M: pd.DataFrame,
                  "(retired/renamed, e.g. %s)", s.date(), len(absent),
                  ", ".join(map(str, absent[:3])))
         SF = SF.loc[:, SF.columns.intersection(C_score.columns)]
+
+    # M, mutual hours, SF
     return M_score, M_score.index.intersection(C_score.index), SF
 
 
@@ -89,23 +91,23 @@ def propagate_window(
     historic/self-contained path), or the persisted weekly map passed in via
     ``sf``
 
-    Forward mode: the scored hours are the caller's delivery-day calendar (D's
-    24 intervals rather than ``M_score ∩ C_score``; it does not read future
-    realized congestion and returns no metrics row.  Empty fit/map/hour inputs
-    return ``(None, None, None, None)``.
+    Forward mode: the scored hours are the caller's (daily_forecast.py)
+    delivery-day calendar (D's 24 intervals rather than ``M_score ∩ C_score``;
+    it does not read future realized congestion and returns no metrics row.
+    Empty fit/map/hour inputs return ``(None, None, None, None)``.
 
     """
     forward = forward_hours is not None
-    SF = _sf_for_window(s, M, C, sf)
+    SF = _sf_for_window(s, M, C, sf)    # date-aligned SF
     if SF.empty:
         return None, None, None, None
 
-    M_score, hours, SF = _aligned_score_inputs(s, end, M, C, SF, forward_hours)
+    M_score, hours, SF = _aligned_score_inputs(s, end, M, C, SF, forward_hours)  # M, SF - aligned w/ C
     if SF.empty or not len(hours):
         return None, None, None, None
 
-    sf_coverage = _sf_coverage(M_score, SF)
-    E_mu = _expected_mu(wp, SF, hours)
+    sf_coverage = _sf_coverage(M_score, SF)  # single number threshold: mu (M in SF) / total M
+    E_mu = _expected_mu(wp, SF, hours)       # calc p_bind * mu_gbm
     point = -(E_mu.to_numpy(np.float32) @ SF.to_numpy(np.float32))
     panel = NodalPanel(ts=hours.to_numpy(),
                        settlement_points=SF.columns.to_numpy(),
