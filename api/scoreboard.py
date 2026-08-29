@@ -4,7 +4,7 @@ The thin serving slice of the self-grading track record (plan/0102 §0001,
 spec-phase3-scoreboard.md §3). Reads ``scoreboard_weekly`` (loaded by
 ``compute.jobs.load_scoreboard`` from the pre-registered weekly CSVs) and rolls
 the trailing weeks into per-currency tiles. This is the *panel* headline — the
-full weekly series, regime selector, coverage strip and pre/post-RTC+B split are
+full weekly series, coverage strip and pre/post-RTC+B split are
 the scoreboard page (0002), not here.
 
 Integrity rule (spec §6): the API never serves a model number without its
@@ -15,8 +15,8 @@ the client physically cannot render a lone model figure.
 ``run_id`` names the model version whose backtest is served. Omit it and the
 endpoint serves the most recent board present (max ``week``) — this feature's own
 default, independent of the forecast pointer, since a board's ``run_id`` lives in
-its own namespace. 503 (not empty) when no board is loaded / the regime has no
-rows, matching the realized ranges' soft-fail contract.
+its own namespace. 503 (not empty) when no board is loaded, matching the
+realized ranges' soft-fail contract.
 """
 from __future__ import annotations
 
@@ -84,12 +84,8 @@ def _resolve_run_id(cur, run_id: str | None) -> str:
 )
 def get_scoreboard_headline(
     run_id: str | None = Depends(_server_selected_run),
-    regime: str = Query(
-        "all",
-        description="Regime slice — `all` or a net-load quintile / named regime.",
-    ),
 ) -> ScoreboardHeadline:
-    return build_headline(run_id, regime)
+    return build_headline(run_id)
 
 
 def _mean(rows: list[dict], key: str) -> float | None:
@@ -158,17 +154,13 @@ def get_scoreboard_weekly(
         description="The series the page foregrounds. Comparators (persistence / "
         "climatology / oracle) ride along regardless — never a lone model figure.",
     ),
-    regime: str = Query(
-        "all",
-        description="Regime slice — `all` or a net-load quintile / named regime.",
-    ),
     run_id: str | None = Depends(_server_selected_run),
 ) -> ScoreboardWeekly:
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             run_id = _resolve_run_id(cur, run_id)
-            # All sources for the regime — the chart draws model + baselines +
+            # All sources — the chart draws model + baselines +
             # oracle, and the summary pools them. Ordered (week, source) for the
             # series.
             cur.execute(
@@ -176,10 +168,10 @@ def get_scoreboard_weekly(
                 SELECT week, source, rank_spearman, sign_agree, topdecile_hit,
                        sf_coverage, model_coverage, n_hours, n_nodes
                 FROM scoreboard_weekly
-                WHERE run_id = %s AND regime = %s
+                WHERE run_id = %s
                 ORDER BY week, source
                 """,
-                (run_id, regime),
+                (run_id,),
             )
             rows = cur.fetchall()
 
@@ -187,7 +179,7 @@ def get_scoreboard_weekly(
         raise HTTPException(
             status_code=503,
             detail=(
-                f"no scoreboard_weekly rows for run_id={run_id} regime={regime}. "
+                f"no scoreboard_weekly rows for run_id={run_id}. "
                 "Load the board first (compute.jobs.load_scoreboard)."
             ),
         )
@@ -195,7 +187,6 @@ def get_scoreboard_weekly(
     points = [WeeklyPoint(**r) for r in rows]
     return ScoreboardWeekly(
         run_id=run_id,
-        regime=regime,
         primary_source=source,
         rtc_b_cutover=RTC_B_CUTOVER,
         points=points,
@@ -332,10 +323,6 @@ def get_scoreboard_daily(
     summary="One bundled payload for the Scoreboard page summary (0137)",
 )
 def get_scoreboard_summary(
-    regime: str = Query(
-        "all",
-        description="Regime slice — `all` or a net-load quintile / named regime.",
-    ),
     horizon: int | None = Query(
         None,
         ge=1,
@@ -360,8 +347,8 @@ def get_scoreboard_summary(
     another.
     """
     with ThreadPoolExecutor(max_workers=3) as pool:
-        weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", regime, None))
-        headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None, regime))
+        weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", None))
+        headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None))
         daily = pool.submit(soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
         weekly_result = weekly.result()
         headline_result = headline.result()

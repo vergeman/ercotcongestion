@@ -18,8 +18,8 @@ honest out-of-sample product. The comparators (`oracle`, `persistence`,
 `climatology`, `null`) are recomputed on D "for context": an SF map fit on the
 trailing window ending at D, each baseline μ projected through it and scored
 against the same realized C. This reuses `score.py`'s source constructors and
-metric — never redefining a gate or re-measuring a baseline outside the shared
-harness (spec §6). The `null` (flat) source is the integrity tripwire: a flat map
+metric — never re-measuring a baseline outside the shared harness (spec §6). The
+`null` (flat) source is the integrity tripwire: a flat map
 ranks nothing, so `score_matrix` returns NaN screening cells — a live `null` that
 scores above chance means the metric path regressed.
 

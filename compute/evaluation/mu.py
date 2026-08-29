@@ -1,7 +1,7 @@
 """Commit 4 — one harness, every μ source, identical weeks.
 
 The question this branch exists to answer is *does a covariate μ-model beat the
-naive baselines once you push it through the SF map* (R5). That question is only
+naive baselines once you push it through the SF map*. That question is only
 meaningful if every contender is measured the same way, and the numbers we have
 been quoting are **not**:
 
@@ -118,8 +118,7 @@ def mu_from_preds(week_preds: pd.DataFrame, hours: pd.DatetimeIndex,
 
 
 def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
-    """Predict zero congestion. Its R² is negative, not zero: R² is measured
-    against the mean, and zero is not the mean."""
+    """Predict zero congestion."""
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 

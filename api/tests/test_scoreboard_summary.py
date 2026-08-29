@@ -16,9 +16,9 @@ from fastapi import HTTPException
 import scoreboard as scoreboard_module
 from models import ScoreboardDaily, ScoreboardHeadline, ScoreboardWeekly
 
-WEEKLY = ScoreboardWeekly(run_id="r", regime="all", primary_source="model",
+WEEKLY = ScoreboardWeekly(run_id="r", primary_source="model",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
-HEADLINE = ScoreboardHeadline(run_id="r", regime="all", as_of_week=date(2026, 7, 1), windows=[])
+HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=date(2026, 7, 1), windows=[])
 DAILY = ScoreboardDaily(run_id="r", primary_source="model", horizon=1,
                         horizons=[1, 2], points=[])
 
@@ -41,11 +41,11 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", _fake("headline", HEADLINE))
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _fake("daily", DAILY))
 
-    body = scoreboard_module.get_scoreboard_summary(regime="south", horizon=None)
+    body = scoreboard_module.get_scoreboard_summary(horizon=None)
 
     assert calls == {
-        "weekly": ("model", "south", None),
-        "headline": (None, "south"),
+        "weekly": ("model", None),
+        "headline": (None,),
         # The live board is the only section with a horizon; it is threaded
         # through so the page can switch tracks with one bundled request.
         "daily": (None, None, "model", None),
@@ -70,7 +70,7 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _unavailable)
 
-    body = scoreboard_module.get_scoreboard_summary(regime="all", horizon=None)
+    body = scoreboard_module.get_scoreboard_summary(horizon=None)
 
     assert body.weekly == WEEKLY
     assert body.headline == HEADLINE
@@ -90,7 +90,7 @@ def test_summary_reraises_a_non_503_error(monkeypatch):
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", lambda *a: DAILY)
 
     try:
-        scoreboard_module.get_scoreboard_summary(regime="all", horizon=None)
+        scoreboard_module.get_scoreboard_summary(horizon=None)
         assert False, "expected HTTPException to propagate"
     except HTTPException as exc:
         assert exc.status_code == 500

@@ -22,9 +22,8 @@ import "../features/scoreboard/scoreboard.css";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets: headline tiles, the weekly
-// metric-vs-baselines-vs-oracle series (screening default, magnitude behind a
-// toggle), a coverage strip on the shared x-axis, and the pooled pre/post-RTC+B
-// split with the pre-registered gate verdict. Reads scoreboard_weekly only —
+// metric-vs-baselines-vs-oracle series, a coverage strip on the shared x-axis,
+// and the pooled pre/post-RTC+B split. Reads scoreboard_weekly only —
 // independent of the forecast run. Integrity (§6): a model figure never appears
 // without persistence + oracle in frame.
 
@@ -39,15 +38,6 @@ const SERIES = [
   { source: "oracle", label: "Oracle", color: "#c98500" },
 ] as const;
 
-
-const REGIMES: { value: string; label: string }[] = [
-  { value: "all", label: "All hours" },
-  { value: "net_load_0", label: "Net-load Q1 (low)" },
-  { value: "net_load_1", label: "Net-load Q2" },
-  { value: "net_load_2", label: "Net-load Q3" },
-  { value: "net_load_3", label: "Net-load Q4" },
-  { value: "net_load_4", label: "Net-load Q5 (peak)" },
-];
 
 const SPLIT_LABELS: Record<string, string> = {
   all: "All weeks",
@@ -374,22 +364,17 @@ const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
   { name: "topdecile_hit", label: "Top-Decile Hit" },
-  { name: "pooled_r2", label: "Pooled R²" },
 ];
 
 function LiveGradePanel({
   daily,
   weekly,
   headlineWin,
-  regime,
-  onRegimeChange,
   onHorizonChange,
 }: {
   daily: ScoreboardDaily;
   weekly: ScoreboardWeekly | null;
   headlineWin: HeadlineWindow | undefined;
-  regime: string;
-  onRegimeChange: (v: string) => void;
   onHorizonChange: (v: number) => void;
 }) {
   // Delivery days present, most-recent first — the selector's options and default.
@@ -436,7 +421,7 @@ function LiveGradePanel({
             one track exists, so a number is never ambiguous about its vintage. */}
         {daily.horizons.length > 1 ? (
           <select
-            className="sb-regime sb-live__day"
+            className="sb-select sb-live__day"
             value={daily.horizon}
             onChange={(e) => onHorizonChange(Number(e.target.value))}
             aria-label="Forecast track"
@@ -453,7 +438,7 @@ function LiveGradePanel({
           </span>
         )}
         <select
-          className="sb-regime sb-live__day"
+          className="sb-select sb-live__day"
           value={selected}
           onChange={(e) => setDay(e.target.value)}
           aria-label="Delivery day"
@@ -486,62 +471,6 @@ function LiveGradePanel({
               <span className="sb-meta__val">{headlineWin.window_days} days</span>
             </span>
           )}
-          <span className="sb-meta sb-meta--sub">
-            <span className="sb-meta__label label">
-              <Term
-                def={
-                  <>
-                    <span className="sb-pop-p">
-                      Filters the whole board to a slice of hours by{" "}
-                      <b>net load</b> — the demand that dispatchable (thermal +
-                      battery) units must actually serve, and the main driver of
-                      congestion.
-                    </span>
-                    <span className="sb-pop-p">
-                      Hours are split into five equal buckets (quintiles) by net
-                      load:
-                    </span>
-                    <span className="sb-pop-li">
-                      <b>Net load</b> = demand − wind − solar.
-                    </span>
-                    <span className="sb-pop-li">
-                      <b>Q1</b> — lowest net load; a slack, low-risk grid.
-                    </span>
-                    <span className="sb-pop-li">
-                      <b>Q2–Q4</b> — the middle range.
-                    </span>
-                    <span className="sb-pop-li">
-                      <b>Q5</b> — peak net load; the tightest, highest-risk hours.
-                    </span>
-                    <span className="sb-pop-p">
-                      <b>All hours</b> pools every hour together.
-                    </span>
-                  </>
-                }
-              >
-                Net-load Bucket
-              </Term>
-            </span>
-            {headlineWin && (
-              <Tooltip
-                className="sb-meta__val"
-                tip="Graded weeks in the current selection — changes with the Hours filter."
-              >
-                {headlineWin.weeks} wk
-              </Tooltip>
-            )}
-            <select
-              className="sb-regime"
-              value={regime}
-              onChange={(e) => onRegimeChange(e.target.value)}
-            >
-              {REGIMES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </span>
         </div>
       </div>
 
@@ -836,34 +765,11 @@ function Glossary() {
         </dl>
       </div>
 
-      <div className="sb-guide__block">
-        <div className="sb-guide__h">
-          Magnitude: how close are the numbers to ERCOT historic?
-        </div>
-        <dl className="sb-guide__dl">
-          <dt>
-            <Term def="Scored over every node×hour cell together in one bucket, not computed per node and averaged.">
-              Pooled
-            </Term>{" "}
-            R²
-          </dt>
-          <dd>
-            Share of the real variation the forecast explains. 1 = perfect, 0 =
-            no better than the average, below 0 = worse.
-          </dd>
-          <dt>MAE (Mean Absolute Error)</dt>
-          <dd>
-            The average gap between forecast and actual, in $/MWh. Typical miss;
-            lower is better.
-          </dd>
-        </dl>
-      </div>
     </aside>
   );
 }
 
 export default function ScoreboardPage() {
-  const [regime, setRegime] = useState("all");
   // null = let the server pick the final track; a number is an explicit switch.
   const [horizon, setHorizon] = useState<number | null>(null);
   const [controls, dispatchControls] = useScoreboardControls();
@@ -871,7 +777,7 @@ export default function ScoreboardPage() {
     weekly, headline, daily, backtestLoading, liveLoading, liveError,
     connectionState, lastUpdated,
   } =
-    useScoreboard(regime, horizon);
+    useScoreboard(horizon);
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
@@ -897,8 +803,6 @@ export default function ScoreboardPage() {
               daily={daily}
               weekly={weekly}
               headlineWin={headlineWin}
-              regime={regime}
-              onRegimeChange={setRegime}
               onHorizonChange={setHorizon}
             />
           )}
@@ -909,7 +813,7 @@ export default function ScoreboardPage() {
           {backtestLoading && <div className="sb-empty label">loading…</div>}
           {!backtestLoading && !weekly && (
             <div className="sb-empty label">
-              no board loaded for “{regime}”.
+              no board loaded.
             </div>
           )}
 
@@ -927,7 +831,6 @@ export default function ScoreboardPage() {
               </div>
               <HeadlineTiles headline={headline} />
 
-              {/* metric controls: screening leads, magnitude behind a toggle */}
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">

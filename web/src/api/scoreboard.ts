@@ -12,36 +12,24 @@ const headlineCache = new QueryCache<ScoreboardHeadline | null>({ maxSize: 12, t
 const dailyCache = new QueryCache<ScoreboardDaily | null>({ maxSize: 4, ttlMs: 60_000 });
 
 export function fetchScoreboardSummary(
-  regime = "all",
   horizon?: number | null,
   signal?: AbortSignal,
 ): Promise<ScoreboardSummary | null> {
-  const query = new URLSearchParams({ regime });
+  const query = new URLSearchParams();
   if (horizon != null) query.set("horizon", String(horizon));
   return requestJson("/scoreboard/summary", { query, signal });
 }
 
-export function fetchScoreboardWeekly(
-  regime = "all",
-  _signal?: AbortSignal,
-): Promise<ScoreboardWeekly | null> {
-  return weeklyCache.load(regime, (signal) => requestJson("/scoreboard/weekly", {
-    query: new URLSearchParams({ regime }), signal,
-  }));
+export function fetchScoreboardWeekly(): Promise<ScoreboardWeekly | null> {
+  return weeklyCache.load("weekly", (signal) => requestJson("/scoreboard/weekly", { signal }));
 }
 
-export function fetchScoreboardHeadline(
-  regime = "all",
-  _signal?: AbortSignal,
-): Promise<ScoreboardHeadline | null> {
-  return headlineCache.load(regime, (signal) => requestJson("/scoreboard/headline", {
-    query: new URLSearchParams({ regime }), signal,
-  }));
+export function fetchScoreboardHeadline(): Promise<ScoreboardHeadline | null> {
+  return headlineCache.load("headline", (signal) => requestJson("/scoreboard/headline", { signal }));
 }
 
 export function fetchScoreboardDaily(
   horizon?: number | null,
-  _signal?: AbortSignal,
 ): Promise<ScoreboardDaily | null> {
   const query = new URLSearchParams();
   if (horizon != null) query.set("horizon", String(horizon));

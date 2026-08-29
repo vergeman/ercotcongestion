@@ -971,14 +971,12 @@ class HeadlineWindow(BaseModel):
 
 
 class ScoreboardHeadline(BaseModel):
-    """The rolling headline for one board (``run_id``) and ``regime``.
+    """The rolling headline for one board (``run_id``).
 
     ``run_id`` is the model version whose backtest this is; ``as_of_week`` is the
-    latest week on the board (the anchor the rolling windows trail from). The
-    served ``regime`` echoes the request (default ``all``).
+    latest week on the board (the anchor the rolling windows trail from).
     """
     run_id: str
-    regime: str
     as_of_week: date
     windows: list[HeadlineWindow]
 
@@ -1032,7 +1030,7 @@ class WeeklySplit(BaseModel):
 
 
 class ScoreboardWeekly(BaseModel):
-    """The weekly series + pooled summary for one board and ``regime``.
+    """The weekly series + pooled summary for one board.
 
     ``primary_source`` echoes the requested ``source`` (the series the page
     foregrounds); the comparators ride along in ``points`` regardless, so the
@@ -1040,7 +1038,6 @@ class ScoreboardWeekly(BaseModel):
     date the ``pre_``/``post_rtc_b`` summaries divide on.
     """
     run_id: str
-    regime: str
     primary_source: str
     rtc_b_cutover: date
     points: list[WeeklyPoint]

@@ -40,7 +40,7 @@ def _windows(rows: list[dict], as_of: date) -> list[HeadlineWindow]:
     return result
 
 
-def build_headline(run_id: str | None, regime: str) -> ScoreboardHeadline:
+def build_headline(run_id: str | None) -> ScoreboardHeadline:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         if run_id is None:
             cur.execute("SELECT run_id FROM scoreboard_weekly ORDER BY week DESC, run_id LIMIT 1")
@@ -48,9 +48,9 @@ def build_headline(run_id: str | None, regime: str) -> ScoreboardHeadline:
             if row is None:
                 raise HTTPException(status_code=503, detail="no scoreboard board is loaded (scoreboard_weekly is empty).")
             run_id = row["run_id"]
-        cur.execute("SELECT week, source, n_hours, topdecile_hit, rank_spearman, sign_agree FROM scoreboard_weekly WHERE run_id = %s AND regime = %s AND source = ANY(%s) ORDER BY week", (run_id, regime, list(SOURCES)))
+        cur.execute("SELECT week, source, n_hours, topdecile_hit, rank_spearman, sign_agree FROM scoreboard_weekly WHERE run_id = %s AND source = ANY(%s) ORDER BY week", (run_id, list(SOURCES)))
         rows = cur.fetchall()
     if not rows:
-        raise HTTPException(status_code=503, detail=f"no scoreboard_weekly rows for run_id={run_id} regime={regime}. Load the board first (compute.jobs.load_scoreboard).")
+        raise HTTPException(status_code=503, detail=f"no scoreboard_weekly rows for run_id={run_id}. Load the board first (compute.jobs.load_scoreboard).")
     as_of = max(row["week"] for row in rows)
-    return ScoreboardHeadline(run_id=run_id, regime=regime, as_of_week=as_of, windows=_windows(rows, as_of))
+    return ScoreboardHeadline(run_id=run_id, as_of_week=as_of, windows=_windows(rows, as_of))

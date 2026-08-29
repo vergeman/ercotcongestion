@@ -28,7 +28,8 @@ Enough to read the rest of this page.
 * **SF (shift factor)** — how much a given constraint's price lands on a given
   node. `SF < 0` = import = red, `SF > 0` = export = blue (see `docs/SF.md`).
 * **Point forecast** — the single deterministic congestion number per (hour, node):
-  `−(E[μ]·SF)`. Point metrics are `mae`, `pooled_r2`, and `rank_spearman`.
+  `−(E[μ]·SF)`. The scoreboard measures its screening performance with rank,
+  sign agreement, and top-decile hit.
 * **Horizon** — how far ahead the forecast fired. **h1** is the final forecast
   (fires 17:00Z on D−1, after DAM close). **h2** is the preview (fires 20:15Z on
   D−2, before D's DAM auction clears, so it is genuinely disadvantaged).
@@ -89,7 +90,7 @@ Prod coverage as of 2026-08-19, to give a feel for the shapes:
 
 | Surface | Coverage |
 |---|---|
-| `scoreboard_weekly` | 2025-01-01 → 2026-07-15, 5 sources × ~80 weeks × regimes |
+| `scoreboard_weekly` | 2025-01-01 → 2026-07-15, 5 sources × ~80 weeks |
 | `scoreboard_daily` | h1 2026-07-20→08-18 (30d) · h2 2026-07-31→08-19 (20d) |
 | `analysis_grade_daily` | h1 2025-01-01 → 2026-08-18 · h2 2026-07-30 → present |
 
@@ -98,14 +99,13 @@ Prod coverage as of 2026-08-19, to give a feel for the shapes:
 **Graded thing:** nodal congestion in $/MWh. The model's E[μ] projected through the
 SF map to every settlement point, versus realized `SPP − system_λ`.
 
-**Metrics:** `pooled_r2`, `mae`, `rank_spearman`, `sign_agree`, `topdecile_hit`,
-plus P50 band quality (`coverage80`, `band_width`, `pinball`).
+**Metrics:** `rank_spearman`, `sign_agree`, and `topdecile_hit`.
 
 **Provenance:** a pre-registered **offline walk-forward backtest**. `load_scoreboard`
 is explicit that it is "Reshape-and-serve, NOT new measurement" — it transcribes
-`mu_score_weekly.csv` as-is and "never redefines a gate or re-measures a baseline."
+`mu_score_weekly.csv` as-is and never re-measures a baseline.
 
-Sliced by week × source × regime, five sources: `model`, `persistence`,
+One all-hours row per week × source, five sources: `model`, `persistence`,
 `climatology`, `oracle`, `null`. This is the months-long "model efficacy" view, and
 it is an evaluation of the **model**, not of the live service. It has no `horizon`
 column at all, which is why it can span 19 months while the live preview track only
@@ -123,8 +123,8 @@ compute.mu_forecast.model.backtest  (walk_forward) -> runs/<run-id>/mu/mu_preds.
     the next week — ~83 folds over 19 months, not one per day — keeping the OOS preds
 
 compute.evaluation.mu --preds mu_preds.npz   -> runs/<run-id>/mu/mu_score_weekly.csv
-    scores those preds into two currencies per (week x source x regime):
-    magnitude (pooled_r2, mae) and screening (rank_spearman, sign_agree, topdecile_hit)
+    scores those preds into screening metrics per (week x source):
+    rank_spearman, sign_agree, topdecile_hit
 
 compute.jobs.backfill_nodal                  -> runs/<run-id>/forecast/mu_nodal.npz
     deterministic −(E_mu · SF) historical nodal point panel
@@ -233,7 +233,7 @@ The comparison you would want — *how much does the extra day of information bu
 has to be made by eye, or by querying both horizons for the same dates:
 
 ```sql
-SELECT delivery_date, horizon, mae, rank_spearman
+SELECT delivery_date, horizon, rank_spearman
 FROM scoreboard_daily
 WHERE run_id = 'mu-all-v1' AND source = 'model'
 ORDER BY delivery_date, horizon;
@@ -268,7 +268,7 @@ For the job behind each block and how often it moves, see
 Specifics that are easy to misread:
 
 **The two tile rows are not the same thing.** The top row is *live* — one served day,
-four currencies (Rank ρ, Sign Agreement, Top-Decile Hit, Pooled R²), read from
+three currencies (Rank ρ, Sign Agreement, Top-Decile Hit), read from
 `scoreboard_daily`. The second row is *backtest* — three screening currencies pooled
 over a rolling 90-day window of `scoreboard_weekly`
 (`HeadlineTiles` picks `window_days === 90`). Same tile shape, same colors,
@@ -284,8 +284,8 @@ look-back over `scoreboard_weekly`, so it changes only when that table changes, 
 when a new walk is loaded. On a static board it returns the same numbers forever.
 
 **Both tile rows read model-with-comparators, never a lone figure.** The big number
-is the model; `▲ vs persist` is the model−persistence delta (positive = model wins,
-since all four are higher-is-better); `ceiling` is the oracle.
+is the model; `▲ vs persist` is the model−persistence delta (positive = model wins);
+`ceiling` is the oracle.
 
 **The chart ends where the walk ended.** Its last week is 2026-07-15 because that is
 the last week in `scoreboard_weekly`, and nothing advances that table on a schedule —
@@ -297,13 +297,8 @@ Pre-RTC+B, Post-RTC+B — each with its week count, pooled across the whole walk
 whichever metric is selected. RTC+B (2025-12-05) is the market's structural break;
 the split exists so a pre-break result cannot be quietly carried through it.
 
-**The metric buttons drive the chart and the table only.** `Rank ρ / Sign Agreement /
-Top-Decile Hit` are the screening group; the toggle swaps in the magnitude group
-(`Pooled R² / MAE`). Neither tile row responds to it — both are fixed sets.
-
-**The Net-load Bucket selector filters the backtest sections only.** The live board
-has no regime dimension; the server ignores `regime` for that section, so the top
-tiles are unchanged by it even though the control sits in their header.
+**The metric buttons drive the chart and the table only.** Choose `Rank ρ`,
+`Sign Agreement`, or `Top-Decile Hit`; neither tile row responds to the selection.
 
 **Two selectors, two meanings, both in the live header.** The delivery-day dropdown
 picks which served day the top tiles grade. The track dropdown picks the horizon —
