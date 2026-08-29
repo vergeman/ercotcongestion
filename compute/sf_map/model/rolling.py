@@ -29,14 +29,6 @@ class RefitWindow:
     # the membership the persistence side (S2 commit 4) writes out.
     labels: pd.Series | None = None
 
-
-def _align(M: pd.DataFrame, C: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Reindex M and C onto the union hour axis. Zero-mu hours are real
-    (all constraints slack); NaN congestion hours are missing observations."""
-    idx = M.index.union(C.index).sort_values()
-    return M.reindex(idx).fillna(0.0), C.reindex(idx)
-
-
 def fit_refit_window(
     M_all: pd.DataFrame,
     C_all: pd.DataFrame,
@@ -57,8 +49,8 @@ def fit_refit_window(
     M_all, C_all
         Shadow-price and congestion panels. They may be a bounded chunk; only
         ``[score_end - window_days, score_end)`` participates in this fit.
-        `_align` restores the same zero-μ / missing-congestion hour semantics
-        as slicing from a larger panel.
+        They are aligned on their union hour axis: missing μ is zero and
+        missing congestion remains `NaN`.
     refit_start, score_end
         The associated score-period bounds. The fit window ends at
         ``score_end``.
@@ -67,27 +59,9 @@ def fit_refit_window(
     rho_min
         When set, collinear μ columns are grouped before the ridge solve.
     """
-    M_all, C_all = _align(M_all, C_all)
-    return _fit_refit_window_aligned(
-        M_all, C_all, refit_start=refit_start, score_end=score_end,
-        window_days=window_days, lam=lam, min_hours=min_hours,
-        standardize=standardize, std_floor=std_floor, rho_min=rho_min,
-    )
-
-def _fit_refit_window_aligned(
-    M_all: pd.DataFrame,
-    C_all: pd.DataFrame,
-    *,
-    refit_start: pd.Timestamp,
-    score_end: pd.Timestamp,
-    window_days: int,
-    lam: float,
-    min_hours: int,
-    standardize: bool,
-    std_floor: float,
-    rho_min: float | None,
-) -> RefitWindow:
-    """`fit_refit_window` implementation for already aligned panel chunks."""
+    idx = M_all.index.union(C_all.index).sort_values()
+    M_all = M_all.reindex(idx).fillna(0.0)
+    C_all = C_all.reindex(idx)
     window_end = score_end
     window_start = window_end - pd.Timedelta(days=window_days)
     win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
