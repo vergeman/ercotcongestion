@@ -459,6 +459,8 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 
 ## Daily Forecast Job
 
+* unlike SF, we do treat the D+1 as a forecast, so that day is held out.
+
 * Default inputs are "all", which consists of ["lag", "geo", "wx"]
   * `lag`: historical behavior, `lag_` prefix
   * `geo`: SF-derived geographic/electrical context
@@ -487,14 +489,36 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
           * `mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)`
 
     * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
+      * `resolve_sf_window()` -> queries win: (`window_start`, `window_end`) from `sf_window_meta limit 1`
+      * `SF = load_window_sf(run_id, window_start)`: load the SF map from `implied_shift_factors` table
+      * `cov = sf_mass_coverage(SF, wp)` - calculate SF coverage
+        * calculates the E[mu] value from the panel for each constraint row: `E_mu = _p_bind * mu_gbm`
+        * total = sum mu for all constraints (single number)
+        * `covered`: filter to mutual SF constraints with panel constraints
+        * return coverage: `np.nansum(e_mu[covered]) / total`: sum of mu's / total
+          * this is used because there are min_coverage thresholds to meet in order to use the map
+      * return `SF`
+
     * `sf_win=resolve_sf_window()_`: SF window - just for run log summary
 
     * Step 2: Point Congestion
-      * `_, panel_out, SF, E_mu = propagate_window(D, block_end, M, C, wp, sf=SF_map)`
-        * given all the inputs; wp contains P(bind) and mu_gbm
-        * `E mu` (hr x constraint) = p(bind) * mu_gbm
+      * here called by `daily_forecast.py` job, but also called by
+        `backfill_nodal.py` job (with no forward_hours)
+      * "propagate_window": "propagate" mu against SF to get *congestion* per that
+        bounded window interval [s, end).
+      * `_, panel_out, SF, E_mu = propagate_window(D, block_end, M, C, wp, sf=SF_map,
+                                                   want_panel=True, want_sf_mu=True,
+                                                   forward_hours=forward_hours)`
+        * `_aligned_score_inputs()`:
+          * `backfill_nodal.py` caller: filter hours and nodes for mutual
+            between `M`, `C` and `SF`
+          * `daily_forecast.py`: return filtered-hourly `M` (no `C`, no `SF`
+            work).
+
         * `SF`: constraint x settlement point
+        * `E mu` (hr x constraint) = P(`bind`) * `mu_gbm`
         * `point` = E mu x SF -> congestion (hr x settlement point), attach to `panel`
+      * turns predicted constraint-level congestion into settlement-point (nodal) congestion.
 
     * check for all-zero result panel (`panel_out`) throws
 
@@ -590,6 +614,93 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
         forecast.
 
 
+## Weekly Map Job
+
+The production `fit_refit_window()` training set is [`window_start`,
+`window_end`] - the entire 240d period. [`score_start`, `score_end`] isn't a
+hold out (test) set, it's included in the training. This is because we're
+looking back to get a historical mapping; the SF is not a forecast.
+
+The "final week" indicates the refit period, done every week.
+
+For evaluation purposes (`/compute/evaluation/sf.py`) [`score_start`,
+`score_end`] is treated as a holdout set, but not here.
+
+
+```
+     score period: the interval associated with a refit.
+                                          refit_start
+     window_start                         score_start          score_end
+     │                                    │                    │
+     ├────── 240-day data used to fit ────┼──── final week ────┤
+     │                                    │                    │
+     └──────────────────── window_end = score_end ─────────────┘
+
+     refit_starts: sequence of weekly (freq refit) start-day timestamps.
+```
+
+* `jobs/weekly_map.py`:
+  * setup start/end date ranges
+  * if `args.persist_sf` setup (connect db, delete existing sf if overwrite)
+
+  * bounded chunked execution (`--chunk-weeks` must be positive):
+    * `window start --- 240 days ----------------  | score start/refit_start   ---  score end / window end`
+
+    * `inputs/dam.py:panel_bounds()`: query min,max of interval_ts over dam tables
+    * extract hours, start, day, timezone, etc.
+    * score period: the forward time period tied to the refit
+    * `refit_starts`: first day, next start day (+7 days), next (+14 days)
+    * collect refits and chunk - split up start and end dates in specified chunks
+
+    * for each chunk:
+      * `M = load_shadow_prices(conn, chunk_start, chunk_end)`
+      * `C = load_congestion_panel(conn, chunk_start, chunk_end, ..)`
+      * for `refit_start`, `score_end` in `chunk`:
+
+        * `refitWindow` = `sf_map/model/rolling.py:fit_refit_window(M,C, refit_start, score_end,...)`
+
+        * `on_refit(refitWindow)`: handles each fitted window immediately
+          * `_write_diagnostic()`: window start/end, score start/end out to json
+          * create binding stats; num `binding`, `n_kept`, `n_dropped`
+          * `r2 = sf_map/model/diagnostics.py:refit_diagnostics()`: filter
+            common rows (hours), columns (constraints); compare actual (Y) vs
+            prediction (Y_hat) to get R^2
+            * returns bunch of diagnostic stats, counts post-fit.
+          * persist SF via `copy_sf_rows`, and `window_meta` to db; notably
+            window and score dates, `fit_r2`, `oos_rt`, `coverage` stats.
+
+* `sf_map/model/rolling.py:fit_refit_window()`:
+  * intersect and align `M` and `C` hours, mask on window start/end dates
+  * Grouping `rho_min`: ablation result — **not enabled in production**. Across
+    63 weekly refits at `(window_days=240, refit_days=7, lambda=1.0)`, grouping
+    improved stability by only `+0.005` at `rho_min=0.7`, `+0.003` at `0.8`, and
+    `+0.006` at `0.9`, versus the pre-registered `+0.10` bar. Accuracy guards
+    passed, but grouping compressed only `1.18x`, `1.13x`, and `1.09x`; it is
+    retained for evaluation/diagnostics, while the production map fits raw
+    constraint columns (`rho_min=None`).
+    * `rho_min`: floating point correlation cutoff - this is to handle
+      collinearity; mu columns that move together with high correlations can't
+      independently estimate SF's, so they are grouped together into a single
+      predictor.
+    * `None`: fits directly on raw constraint columns in M_window
+    * e.g 0.8: merge constraints whose mu correlates at least 0.8
+    * >= 1.0: every constraint stays separate - no merge
+    * `link = sf_map/model/grouping.py:constraint_linkage(M_win)`:
+      * `corr=constraint_corr(M[keys]), 0.0, 2.0)`: pairwise constraint correlation matrix
+      * `dist = np.clip(1.0 - constraint_corr(M[keys]), 0.0, 2.0)`: 1 - corr,
+        flips correlation to distance. (high correlation, now has 0 distance)
+        this is because clustering expects distance. This is clamped by
+        `np.clip(c, 0, 2.0)` - bounding x between 0 and 2.
+      * `scipy_linkage`: takes dist matrix to be `Z`, hiearchical clustering tree as array
+      * returns `link`, data class `ConstraintLinkage`, packs `Z`, constraints,
+        groups, etc.
+    * `labels = sf_map/model/grouping.py:cut_groups(link, rho_min)`:
+      * takes the hierarchical clusters and filters by `rho_min`
+      * `labels` is constraints, with cluster group label membership ("head constraint")
+    * `M_fit = aggregate_mu(M_win, labels)`
+      * groups constraints by membership; summing mu and returning condensed `M_fit`
+   * `SF = fit.py:implied_shift_factors`: calculate SF.
+   * return `RefitWindow`.
 
 ---
 
