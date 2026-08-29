@@ -57,6 +57,22 @@ def test_map_and_mu_cli_defaults_match_the_operating_point(
     assert defaults[refit_name] == config.REFIT_DAYS
 
 
+def test_weekly_map_requires_positive_chunk_weeks(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(weekly_map, "RUNS_ROOT", tmp_path)
+    for chunk_weeks in (0, -1):
+        with pytest.raises(SystemExit) as exc_info:
+            weekly_map.main([
+                "--run-id", "test", "--start", "2025-01-01", "--end", "2025-01-02",
+                "--chunk-weeks", str(chunk_weeks),
+            ])
+        assert exc_info.value.code == 2
+    assert "--chunk-weeks must be positive" in capsys.readouterr().err
+
+
+def test_weekly_map_chunk_weeks_default_is_bounded(monkeypatch):
+    assert _defaults(monkeypatch, weekly_map.main)["chunk_weeks"] == 32
+
+
 def test_frozen_out_of_window_experiment_keeps_its_own_window():
     assert frozen_oos.WINDOW_DAYS == 60
     assert frozen_oos.REFIT_DAYS == 7

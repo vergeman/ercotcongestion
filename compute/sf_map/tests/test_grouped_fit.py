@@ -15,7 +15,7 @@ import pytest
 
 from compute.evaluation.sf import evaluate, evaluate_chunked
 from compute.sf_map.model.grouping import group_constraints
-from compute.sf_map.model.rolling import fit_refit_window, rolling_sf
+from compute.sf_map.model.rolling import fit_refit_window
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
            "topdecile_hit", "coverage", "sf_stability", "n_kept"]
@@ -146,15 +146,16 @@ def test_chunked_evaluation_matches_the_full_history_run(panels):
                                    equal_nan=True)
 
 
-# ------------------------------------------------------------------- callback
+# ------------------------------------------------------------------- refit window
 
 def test_refit_window_carries_labels_and_fit_panel(panels):
     M, C = panels
-    seen = []
-    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
-               rho_min=0.8, on_refit_window=seen.append)
-    assert seen
-    w = seen[0]
+    score_end = M.index[0].normalize() + pd.Timedelta(days=21)
+    w = fit_refit_window(
+        M, C, refit_start=score_end - pd.Timedelta(days=7),
+        score_end=score_end, window_days=14, lam=1.0, min_hours=10,
+        rho_min=0.8,
+    )
     # M_fit is the grouped panel and its columns are what SF's rows are keyed by
     # — that is the invariant runner's diagnostics depend on.
     assert w.labels is not None
@@ -165,27 +166,29 @@ def test_refit_window_carries_labels_and_fit_panel(panels):
 
 def test_refit_window_ungrouped_fit_panel_is_the_raw_panel(panels):
     M, C = panels
-    seen = []
-    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
-               on_refit_window=seen.append)
-    w = seen[0]
+    score_end = M.index[0].normalize() + pd.Timedelta(days=21)
+    w = fit_refit_window(
+        M, C, refit_start=score_end - pd.Timedelta(days=7),
+        score_end=score_end, window_days=14, lam=1.0, min_hours=10,
+    )
     assert w.labels is None
     assert w.M_fit is w.M_window
 
 
-def test_single_refit_fit_matches_the_full_panel_walker(panels):
-    """A bounded panel must produce the same fit as the legacy full walk."""
+def test_single_refit_fit_matches_a_larger_panel(panels):
+    """Data outside a refit's fit interval cannot change its result."""
     M, C = panels
-    seen = []
-    rolling_sf(M, C, window_days=14, refit_days=7, lam=1.0, min_hours=10,
-               on_refit_window=seen.append)
-    expected = seen[4]
-    lo, hi = expected.window_start, expected.window_end
+    score_end = M.index[0].normalize() + pd.Timedelta(days=35)
+    refit_start = score_end - pd.Timedelta(days=7)
+    window_start = score_end - pd.Timedelta(days=14)
+    expected = fit_refit_window(
+        M, C, refit_start=refit_start, score_end=score_end, window_days=14,
+        lam=1.0, min_hours=10,
+    )
     actual = fit_refit_window(
-        M.loc[(M.index >= lo) & (M.index < hi)],
-        C.loc[(C.index >= lo) & (C.index < hi)],
-        refit_start=pd.Timestamp(expected.score_start),
-        score_end=pd.Timestamp(expected.score_end), window_days=14,
+        M.loc[(M.index >= window_start) & (M.index < score_end)],
+        C.loc[(C.index >= window_start) & (C.index < score_end)],
+        refit_start=refit_start, score_end=score_end, window_days=14,
         lam=1.0, min_hours=10,
     )
     pd.testing.assert_frame_equal(actual.SF, expected.SF)
