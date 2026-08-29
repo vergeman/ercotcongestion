@@ -1102,6 +1102,32 @@ class ScoreboardDaily(BaseModel):
     points: list[DailyPoint]
 
 
+# ---- /scoreboard/summary history -----------------------------------------
+
+class ScoreHistoryPoint(BaseModel):
+    """One chart point from the weekly backtest or a served final grade."""
+    source: str
+    cadence: Literal["backtest_weekly", "served_daily"]
+    week: date | None = None
+    delivery_date: date | None = None
+    rank_spearman: float | None = None
+    sign_agree: float | None = None
+    topdecile_hit: float | None = None
+    sf_coverage: float | None = None
+    model_coverage: float | None = None
+    n_hours: int | None = None
+    n_nodes: int | None = None
+
+
+class ScoreboardHistory(BaseModel):
+    """Weekly walk-forward history followed by final served-day grades."""
+    primary_source: str
+    weekly_run_id: str
+    daily_run_id: str | None = None
+    boundary_date: date | None = None
+    points: list[ScoreHistoryPoint]
+
+
 # ---- /scoreboard/summary --------------------------------------------------
 
 class BootstrapSectionStatus(BaseModel):
@@ -1115,17 +1141,14 @@ class BootstrapSectionStatus(BaseModel):
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary (0137).
 
-    Each field keeps the exact shape its single-section endpoint already
-    served. ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` reads
-    the separate ``scoreboard_daily`` live board, so it is not forced onto the
-    same ``run_id`` the other two resolve. A field is ``null`` exactly when its
-    single-section endpoint would 503 (that board has no rows yet) — the same
-    soft-fail the client already handles per section, just carried inside one
-    response instead of three.
+    ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` and the final
+    served tail of ``history`` resolve independently from ``scoreboard_daily``.
+    A field is ``null`` exactly when its source section would 503.
     """
     weekly: ScoreboardWeekly | None
     headline: ScoreboardHeadline | None
     daily: ScoreboardDaily | None
+    history: ScoreboardHistory | None
     availability: dict[str, BootstrapSectionStatus]
 
 

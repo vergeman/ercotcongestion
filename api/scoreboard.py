@@ -34,8 +34,10 @@ from schemas.scoreboard import (
     DailyPoint,
     ScoreboardDaily,
     ScoreboardHeadline,
+    ScoreboardHistory,
     ScoreboardSummaryResponse,
     ScoreboardWeekly,
+    ScoreHistoryPoint,
     SourcePooled,
     WeeklyPoint,
     WeeklySplit,
@@ -314,7 +316,62 @@ def get_scoreboard_daily(
 
 
 # --------------------------------------------------------------------------
-# /scoreboard/summary — the Scoreboard page's load-time trio in one call (0137)
+# Scoreboard history — an internal section of /scoreboard/summary
+# --------------------------------------------------------------------------
+
+def build_scoreboard_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
+    """Append final served grades to an already-resolved weekly board.
+
+    The live tail intentionally queries horizon 1 directly. Missing live grades
+    are an empty tail, not a failure of the backtest chart.
+    """
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT run_id FROM scoreboard_daily
+                WHERE horizon = 1
+                ORDER BY delivery_date DESC, run_id
+                LIMIT 1
+                """
+            )
+            live_run = cur.fetchone()
+            daily_run_id = live_run["run_id"] if live_run else None
+            daily_rows: list[dict] = []
+            if daily_run_id is not None:
+                cur.execute(
+                    """
+                    SELECT delivery_date, source, rank_spearman, sign_agree,
+                           topdecile_hit, sf_coverage, model_coverage, n_hours, n_nodes
+                    FROM scoreboard_daily
+                    WHERE run_id = %s AND horizon = 1
+                    ORDER BY delivery_date, source
+                    """,
+                    (daily_run_id,),
+                )
+                daily_rows = cur.fetchall()
+
+    points = [
+        ScoreHistoryPoint(cadence="backtest_weekly", **point.model_dump())
+        for point in weekly.points
+    ]
+    points.extend(
+        ScoreHistoryPoint(cadence="served_daily", **row)
+        for row in daily_rows
+    )
+    boundary_date = min((row["delivery_date"] for row in daily_rows), default=None)
+    return ScoreboardHistory(
+        primary_source=weekly.primary_source,
+        weekly_run_id=weekly.run_id,
+        daily_run_id=daily_run_id,
+        boundary_date=boundary_date,
+        points=points,
+    )
+
+
+# --------------------------------------------------------------------------
+# /scoreboard/summary — the Scoreboard page's load-time sections in one call
 # --------------------------------------------------------------------------
 
 @router.get(
@@ -331,20 +388,20 @@ def get_scoreboard_summary(
         "have no horizon). Omit for the final track.",
     ),
 ) -> ScoreboardSummaryResponse:
-    """Compose the Scoreboard's three load-time requests behind one call.
+    """Compose the Scoreboard's load-time sections behind one call.
 
     ``weekly``/``headline`` both resolve their own latest ``run_id`` from
     ``scoreboard_weekly``; ``daily`` resolves independently from the separate
     ``scoreboard_daily`` live board. Unlike the Brief's per-day sections, these
     are not forced onto one shared run — that already-independent resolution
     is exactly what today's three separate requests do, so this composition
-    preserves it rather than unifying it.
+    preserves it rather than unifying it. ``history`` reuses the resolved
+    weekly section and independently resolves only final live grades.
 
     Each handler is called directly as a plain function, bypassing FastAPI's
     request-time dependency injection, so every parameter is passed an
-    explicit literal (see ``get_brief_day``'s docstring for why) — and the
-    three run on a thread pool so one slow section can't serialize behind
-    another.
+    explicit literal (see ``get_brief_day``'s docstring for why). The three
+    primitive sections run concurrently; history then reuses the weekly result.
     """
     with ThreadPoolExecutor(max_workers=3) as pool:
         weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", None))
@@ -353,13 +410,20 @@ def get_scoreboard_summary(
         weekly_result = weekly.result()
         headline_result = headline.result()
         daily_result = daily.result()
+        history_result = (
+            soft_fail(lambda: build_scoreboard_history(weekly_result))
+            if weekly_result is not None
+            else None
+        )
         return ScoreboardSummaryResponse(
             weekly=weekly_result,
             headline=headline_result,
             daily=daily_result,
+            history=history_result,
             availability={
                 "weekly": availability_status(weekly_result, BootstrapSectionStatus),
                 "headline": availability_status(headline_result, BootstrapSectionStatus),
                 "daily": availability_status(daily_result, BootstrapSectionStatus),
+                "history": availability_status(history_result, BootstrapSectionStatus),
             },
         )

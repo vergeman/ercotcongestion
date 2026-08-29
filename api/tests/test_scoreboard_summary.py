@@ -14,13 +14,14 @@ from datetime import date
 from fastapi import HTTPException
 
 import scoreboard as scoreboard_module
-from models import ScoreboardDaily, ScoreboardHeadline, ScoreboardWeekly
+from models import ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly
 
 WEEKLY = ScoreboardWeekly(run_id="r", primary_source="model",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
 HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=date(2026, 7, 1), windows=[])
 DAILY = ScoreboardDaily(run_id="r", primary_source="model", horizon=1,
                         horizons=[1, 2], points=[])
+HISTORY = ScoreboardHistory(primary_source="model", weekly_run_id="r", points=[])
 
 
 def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypatch):
@@ -40,6 +41,7 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", _fake("weekly", WEEKLY))
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", _fake("headline", HEADLINE))
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _fake("daily", DAILY))
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", _fake("history", HISTORY))
 
     body = scoreboard_module.get_scoreboard_summary(horizon=None)
 
@@ -49,10 +51,12 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
         # The live board is the only section with a horizon; it is threaded
         # through so the page can switch tracks with one bundled request.
         "daily": (None, None, "model", None),
+        "history": (WEEKLY,),
     }
     assert body.weekly == WEEKLY
     assert body.headline == HEADLINE
     assert body.daily == DAILY
+    assert body.history == HISTORY
     assert body.availability['daily'].available is True
     assert body.availability['daily'].run_id == 'r'
 
@@ -69,12 +73,14 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", lambda *a: WEEKLY)
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _unavailable)
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", lambda *a: HISTORY)
 
     body = scoreboard_module.get_scoreboard_summary(horizon=None)
 
     assert body.weekly == WEEKLY
     assert body.headline == HEADLINE
     assert body.daily is None
+    assert body.history == HISTORY
     assert body.availability['daily'].available is False
     assert body.availability['daily'].unavailable_reason == 'source_unavailable'
 
@@ -88,6 +94,7 @@ def test_summary_reraises_a_non_503_error(monkeypatch):
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", _broken)
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", lambda *a: DAILY)
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", lambda *a: HISTORY)
 
     try:
         scoreboard_module.get_scoreboard_summary(horizon=None)
