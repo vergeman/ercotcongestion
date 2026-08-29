@@ -6,24 +6,18 @@ and writes per-refit-window diagnostics to
 
     runs/<run_id>/sf/diagnostics_YYYYMMDD.json   # per-refit-window
 
-Reference-price method is fixed at ``system_lambda`` (NP4-523-CD) —
-distributed-slack, comparable to the model-side distributed-slack PTDFs from
-CM.7 / plan 0057. Other refs would need per-hour hub/load state that isn't
-required here.
+Reference-price method is fixed at ``system_lambda``
 
 SF matrix persistence: pass ``--persist-sf`` to write the per-refit ``SF``
 matrix into ``implied_shift_factors`` and one row per refit into
 ``sf_window_meta``, keyed by ``run_id``. Entries below ``--sf-threshold`` are
-dropped. This is what the downstream v3 map surfaces read.
+dropped.
 
 Incremental append (the default under ``--persist-sf``): a run fits and
-persists only the refit boundaries it does not already have — the
-already-persisted ``window_start``s are skipped in the fit loop, and only
-COMPLETE windows (a full ``refit_days`` week on the fixed grid) are written.
-The clamped terminal week is never persisted, so every persisted
-``window_start`` is immutable and the served map is the newest complete week,
-advancing one week per run. Pass ``--rebuild`` for an explicit full wipe +
-refit (the old delete-then-rewrite behavior).
+persists only new refit boundaries
+
+Pass ``--rebuild`` for an explicit full wipe + refit (the old
+delete-then-rewrite behavior).
 
 Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
 
@@ -33,6 +27,7 @@ Usage (runs inside the ``compute`` docker service; needs psycopg + db)::
         --start 2025-01-01 --end 2025-07-23 \
         [--window-days 240] [--refit-days 7] \
         --persist-sf [--rebuild]
+
 """
 from __future__ import annotations
 
@@ -72,9 +67,8 @@ log = logging.getLogger("compute.jobs.weekly_map")
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
 
-# Window/refit cadence come from the adopted operating point (`compute.sf_map.config`,
-# imported above): window=240 / refit=7 with λ=1.0 (fit.RIDGE_LAMBDA), the honest
-# OOS re-sweep's selection (plan/0082 S1.5), single-sourced with the μ forecast.
+# Window/refit cadence come from `compute.sf_map.config`:
+# window=240 / refit=7 with RIDGE_LAMBDA=1.0
 DEFAULT_REF_METHOD = "system_lambda"
 DEFAULT_SF_THRESHOLD = 1e-3
 
@@ -198,18 +192,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.chunk_weeks < 0:
         p.error("--chunk-weeks must be non-negative")
 
-    # SF persistence (S0b) streams each refit window to the DB as it's fit,
-    # inside one transaction opened before the fit loop and committed after.
-    # This keeps memory flat (no buffering ~52 dense SF matrices) and shares
-    # the on_refit callback that already carries SF.
+    # SF persistence streams each refit window to the DB as it's fit, inside
+    # one transaction opened before the fit loop and committed after. This
+    # keeps memory flat and shares the on_refit callback that already carries
+    # SF.
     sf_conn = None
     sf_stats = {"windows": 0, "rows": 0}
-    # window_start ns-instants already persisted for this run_id — skipped in
-    # the fit loop and never re-COPYed. Empty under --rebuild (everything wiped).
+
+    # window_start ns-instants already persisted for this run_id (ns: nanoseconds)
     existing_ns: set[int] = set()
     if args.persist_sf:
-        check_ref_method(args.ref_method)
+        check_ref_method(args.ref_method)      # reference-price method system lambda
         sf_conn = psycopg.connect(settings.pg_dsn)
+
         if args.rebuild:
             # Full wipe then refit every complete window. The delete shares the
             # fit loop's transaction (committed at the end), so the prior served
@@ -220,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
                 n_sf, n_meta, args.run_id,
             )
         else:
+            # { } set comprehension; where pd.Timestamp(ws).value turns ns to
+            # epoch integer
             existing_ns = {
                 pd.Timestamp(ws).value for ws in existing_sf_windows(sf_conn, args.run_id)
             }
@@ -234,14 +231,20 @@ def main(argv: list[str] | None = None) -> int:
         # falls entirely outside the requested range.
         if window.score_end <= start_ts:
             return
+
+        # json files: runs/<run_id>/sf/diagnostics_YYYYMMDD.json
         _write_diagnostics(out_dir, args.run_id, window, args.min_binding_hours)
+
+        # binding stats
         binding = (window.M_fit > 0).sum()
         n_kept = int(binding.ge(args.min_binding_hours).sum())
         n_dropped = int(binding.lt(args.min_binding_hours).sum())
         n_clipped = int(window.SF.attrs.get("n_clipped", 0))
+
         r2 = refit_diagnostics(
             window.M_fit, window.C_window, window.SF, args.min_binding_hours,
         )["r2_overall"]
+
         log.info(
             "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
             window.window_start.date(), window.window_end.date(),
@@ -249,13 +252,11 @@ def main(argv: list[str] | None = None) -> int:
             n_kept, n_dropped, n_clipped,
             f"{r2:.3f}" if r2 is not None else "nan",
         )
+
         if sf_conn is None:
             return
-        # Persist COMPLETE windows only. The refit grid is anchored at a fixed
-        # past date and steps forward, so the terminal window's score span is
-        # clamped to available data (< refit_days) → an off-grid window_start
-        # that would shift once more DAM lands. Skipping it makes every persisted
-        # window_start final; the served map is the newest complete week.
+
+        # persist only complete windows
         if (window.score_end - window.score_start) != timedelta(days=args.refit_days):
             log.info(
                 "skip incomplete tail: window_start=%s score=[%s,%s) < %dd",
@@ -263,13 +264,18 @@ def main(argv: list[str] | None = None) -> int:
                 window.score_end.date(), args.refit_days,
             )
             return
+
         # Belt-and-suspenders: skip_window_starts already prevents re-fitting an
         # already-persisted boundary, so this never triggers on the incremental
         # path — but it guarantees no re-COPY (no PK clash) if it ever did.
         if pd.Timestamp(window.window_start).value in existing_ns:
             return
+
         ws = window.window_start.isoformat()
+
+        # copy here is postgres COPY to bulk "insert" the SF matrix
         n = copy_sf_rows(sf_conn, args.run_id, ws, window.SF, args.sf_threshold)
+
         write_window_meta(sf_conn, args.run_id, {
             "window_start": ws,
             "window_end": window.window_end.isoformat(),
@@ -284,14 +290,20 @@ def main(argv: list[str] | None = None) -> int:
         sf_stats["rows"] += n
 
     if args.chunk_weeks:
-        # Discover only the endpoints of the panel clock, then construct the
-        # exact same fixed grid `rolling_sf` would.  The full dense pivot is no
-        # longer needed merely to skip already-persisted refits.
+
+        # Discover the endpoints of the panel, then construct the exact same
+        # fixed grid `rolling_sf` would.
+        #
+        # bounds: (lo, hi) datetime: queried min/max interval_ts
+        #   from dam_shadow_prices union dam_system_lambda + dam_spp
         with psycopg.connect(settings.pg_dsn) as conn:
             bounds = panel_bounds(conn, read_start, end)
+
         if bounds is None:
             log.error("empty panel clock in [%s, %s)", read_start, end)
             return 3
+
+        # date conversion
         first_hour, last_hour = bounds
         panel_tz = pd.Timestamp(first_hour).tz
         start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
@@ -300,27 +312,41 @@ def main(argv: list[str] | None = None) -> int:
         refit = pd.Timedelta(days=args.refit_days)
         window = pd.Timedelta(days=args.window_days)
         day = pd.Timedelta(days=1)
+
+        #
+        # score: this is a time period tied to refit - the forward component
+        #
+        # window_start                         score_start          score_end
+        # │                                    │                    │
+        # ├────── 240-day data used to fit ────┼──── final week ────┤
+        # │                                    │                    │
+        # └──────────────────── window_end = score_end ─────────────┘
+        #
+        # refit_starts: sequence of weekly (freq refit) start day timestamps
         refit_starts = pd.date_range(first_day, last_day, freq=refit, inclusive="left")
         if not len(refit_starts):
             refit_starts = pd.DatetimeIndex([first_day])
         pending: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+
         for refit_start in refit_starts:
             score_end = min(refit_start + refit, last_day + day)
             window_start = score_end - window
-            # The callback has always ignored these pre-origin refits; omit
-            # them before loading a chunk rather than fitting work that cannot
+            # omit loading a chunk rather than fitting work that cannot
             # produce a diagnostic or persisted row.
             if score_end <= start_ts:
                 continue
             if window_start.value not in existing_ns:
                 pending.append((refit_start, score_end))
 
+        # chunk the collected valid refits pushed to pending above
         log.info("chunked fit: %d pending refit(s), %d week(s) per panel",
                  len(pending), args.chunk_weeks)
+
         for n in range(0, len(pending), args.chunk_weeks):
             chunk = pending[n:n + args.chunk_weeks]
             chunk_start = min(score_end - window for _, score_end in chunk)
             chunk_end = max(score_end for _, score_end in chunk)
+
             log.info("fit chunk %d/%d: windows [%s, %s)",
                      n // args.chunk_weeks + 1,
                      (len(pending) + args.chunk_weeks - 1) // args.chunk_weeks,
@@ -334,14 +360,16 @@ def main(argv: list[str] | None = None) -> int:
                           chunk_start, chunk_end, M.shape, C.shape)
                 return 3
             log.info("fit chunk M=%s, C=%s", M.shape, C.shape)
+
             try:
                 for refit_start, score_end in chunk:
-                    on_refit(fit_refit_window(
+                    refitWindow = fit_refit_window(
                         M, C, refit_start=refit_start, score_end=score_end,
                         window_days=args.window_days, lam=args.ridge_lambda,
                         min_hours=args.min_binding_hours,
                         standardize=args.standardize, std_floor=args.std_floor,
-                    ))
+                    )
+                    on_refit(refitWindow)
             finally:
                 del M, C
                 gc.collect()

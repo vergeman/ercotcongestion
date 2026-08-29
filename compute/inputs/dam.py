@@ -2,12 +2,12 @@
 
 Two Postgres reads, one per side of the identity ``C = −M · SFᵀ``:
 
-* ``load_shadow_prices`` — pivot ``ercot_dam_shadow_prices`` (NP4-191-CD) to
+* ``load_shadow_prices``: pivot ``ercot_dam_shadow_prices`` (NP4-191-CD) to
   ``(hours × key)`` where ``key = constraint_name + '|' + contingency_name``.
-* ``load_congestion_panel`` — SP-level congestion from ``ercot_dam_spp`` under
-  a chosen reference-price method. Default ``system_lambda`` (NP4-523-CD): the
-  distributed-slack convention so implied SFs are directly comparable to the
-  model-side distributed-slack PTDFs.
+
+* ``load_congestion_panel``: SP-level congestion from ``ercot_dam_spp`` under a
+  chosen reference-price method. Default ``system_lambda``
+
 """
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ def panel_bounds(
     """First/last hour in the same union clock used by the two SF panels.
 
     The map runner needs these bounds to construct the stable refit grid before
-    it loads any dense pivot.  This small aggregate query replaces the previous
-    full-panel load solely used to discover the grid's endpoints.
+    it loads any dense pivot.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -56,8 +55,6 @@ def panel_bounds(
     return (lo, hi) if lo is not None and hi is not None else None
 
 
-# ---------------------------------------------------------------- shadow prices
-
 def load_shadow_prices(
     conn,
     start: date | datetime,
@@ -65,13 +62,12 @@ def load_shadow_prices(
 ) -> pd.DataFrame:
     """Pivot NP4-191-CD to ``(hours × key)`` of shadow prices.
 
-    ``start`` inclusive, ``end`` exclusive. ``key`` collides only if the same
-    ``(constraint_name, contingency_name)`` shows up twice at the same
-    ``interval_ts`` — surfaced as an AssertionError rather than silently
-    summed the way the prototype did, because that would mask duplicate ingest.
+    [start, end): ``key`` collides only if the same ``(constraint_name,
+    contingency_name)`` shows up twice at the same ``interval_ts`` — surfaced
+    as an AssertionError.
 
-    Non-binding hours arrive as zeros (missing rows filled after pivot); the
-    NP4-191 feed only publishes binding rows, so absence == μ=0 by construction.
+    Non-binding hours arrive as zeros (missing rows filled after pivot)
+
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -113,8 +109,7 @@ def load_shadow_prices(
 # A UTC delivery window always catches the ~5h tail (00:00–04:00Z) of the prior CT
 # op-day's shadow report, so a non-empty window is not proof the day's own DAM has
 # landed. Require the latest interval to reach ≥12h in — well past the tail (~4h),
-# well below a normal day's afternoon-peak max (~23h). Erring to "not covered" is
-# safe: the brief leaves after-action off and the h2 gate retries.
+# well below a normal day's afternoon-peak max (~23h).
 DAM_SHADOW_MIN_COVER_HOURS = 12
 
 
@@ -130,8 +125,6 @@ def dam_shadow_covers_window(ts_max, lo) -> bool:
         hours=DAM_SHADOW_MIN_COVER_HOURS)
 
 
-# ---------------------------------------------------------------- congestion panel
-
 def load_congestion_panel(
     conn,
     start: date | datetime,
@@ -141,13 +134,17 @@ def load_congestion_panel(
     """Build the SP-level congestion panel over ``[start, end)``.
 
     Only ``system_lambda`` is supported: per hour,
-    ``congestion[sp] = dam_spp[sp] − system_lambda``. This matches the
-    ``system_lambda`` column that ``compute.matrix`` writes to the ERCOT
-    congestion npz. Other ref methods (hub_avg, load_weighted, …) are computed
-    against per-hour hub / load / dispatch state that is not needed here — the
-    fit assumes the distributed-slack convention.
+    ``congestion[sp] = dam_spp[sp] − system_lambda``.
+
+    This matches the ``system_lambda`` column that ``compute.matrix`` writes to
+    the ERCOT congestion npz.
+
+    Other ref methods (hub_avg, load_weighted) are computed against per-hour
+    hub / load / dispatch state that is not needed here — the fit assumes the
+    distributed-slack convention.
 
     Returns a DataFrame indexed by ``interval_ts`` with SP columns.
+
     """
     if ref_method != "system_lambda":
         raise ValueError(

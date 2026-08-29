@@ -75,6 +75,10 @@ def fit_refit_window(
         standardize=standardize, std_floor=std_floor, rho_min=rho_min,
     )
 
+#
+# _fit_refit_window_aligned is the workhorse, called by other wrappers.
+# this actually fits the SF and returns a RefitWindow instance
+#
 
 def _fit_refit_window_aligned(
     M_all: pd.DataFrame,
@@ -145,20 +149,18 @@ def rolling_sf(
     refit_days
         Days between successive fits.
     rho_min
-        When set, collinear-group the window's μ columns (S2 / plan 0083) and
-        fit on the group aggregate: co-binding constraints are not separately
-        identifiable, so the group is the unit that can carry a signed claim.
-        ``None`` (the default) is the ungrouped path, byte-identical to before.
+        When set, collinear-group the window's μ columns and fit on the group
+        aggregate: co-binding constraints are not separately identifiable, so
+        the group is the unit that can carry a sign. ``None`` (the default) is
+        the ungrouped path.
     on_refit_window
         Callback receiving a ``RefitWindow`` after each fit — where the caller
         persists the SF matrix and per-window diagnostics without repeating the
         window-walking bookkeeping here.
     skip_window_starts
         Set of ``window_start`` ns-instants (``pd.Timestamp(ws).value``) to skip
-        entirely — neither fit nor fire the callback. ``window_start`` fully
-        determines a fit, so a boundary already persisted is byte-identical to
-        recompute; the incremental map runner passes the already-persisted
-        boundaries here so a weekly tick only fits the new ones.
+        entirely — neither fit nor fire the callback.
+
     """
     M_all, C_all = _align(M_all, C_all)
     if M_all.empty:
@@ -185,14 +187,10 @@ def rolling_sf(
     skip = skip_window_starts or set()
     for refit_start in refit_starts:
         score_end = min(refit_start + refit_dt, last_day + day_dt)
-        # Trailing `window_days` ending at the score-period end. This reflects
-        # the doc's retrospective framing ("60-day window, re-fit weekly") and,
-        # at refit_days=1, matches the prototype's day-inclusive window.
         window_end = score_end
         window_start = window_end - window_dt
 
-        # Already-persisted boundary: same window_start → byte-identical fit, so
-        # skip the solve and the callback entirely (incremental map append).
+        # skip the solve and the callback entirely (incremental map append)
         if window_start.value in skip:
             continue
 

@@ -5,9 +5,6 @@ a glance whether the fit on any given week is trustworthy: R² on the fit rows,
 per-SP R², the kept-constraint list with binding-hour counts, and the
 constraints dropped below ``--min-binding-hours``.
 
-The doc's Known Limitations note that R² < 1 is expected — the input
-``congestion = LMP − system_lambda`` absorbs MCL — so a sub-1 R² is a
-"read the residual" flag, not a failure.
 """
 from __future__ import annotations
 
@@ -19,14 +16,27 @@ import pandas as pd
 
 
 def _r2(y: np.ndarray, y_hat: np.ndarray) -> float:
-    """Coefficient of determination over finite pairs."""
+    """Coefficient of determination over finite pairs.
+
+    R² measures how much of the variation in the actual congestion prices the
+    shift-factor model explains:
+
+    R^2 = 1 − (model squared error / baseline squared error)
+    R^2:
+      1: predictions match actual congestion perfectly.
+      0: no improvement over predicting the average congestion.
+    < 0: worse than predicting the average.
+    0.75: the model explains about 75% of the observed variation, under this
+    squared-error comparison.
+
+    """
     mask = np.isfinite(y) & np.isfinite(y_hat)
     if mask.sum() < 2:
         return float("nan")
     y = y[mask]
     y_hat = y_hat[mask]
-    ss_res = float(((y - y_hat) ** 2).sum())
-    ss_tot = float(((y - y.mean()) ** 2).sum())
+    ss_res = float(((y - y_hat) ** 2).sum())    # model squared error
+    ss_tot = float(((y - y.mean()) ** 2).sum()) # baseline squared error
     if ss_tot <= 0.0:
         return float("nan")
     return 1.0 - ss_res / ss_tot
@@ -40,9 +50,12 @@ def refit_diagnostics(
 ) -> dict[str, Any]:
     """Compute per-refit-window diagnostics.
 
+    ``kept_mask``: those that bind gte to min_hours
+
     ``kept_constraints`` reports the surviving fit columns with their binding
-    hour counts (mirrors the ridge-solve's ``min_hours`` filter). Anything in
-    ``M_window`` that was filtered out lands in ``dropped_constraints``.
+    hour counts. Anything in ``M_window`` that was filtered out lands in
+    ``dropped_constraints``.
+
     """
     binding_counts = (M_window > 0).sum()
     kept_mask = binding_counts >= min_hours
@@ -60,16 +73,29 @@ def refit_diagnostics(
 
     # Prediction: C_hat = -M · SFᵀ, restricted to fitted rows / kept cols.
     r2_overall = float("nan")
+
     per_sp_r2: dict[str, float] = {}
     if not SF.empty and not M_window.empty:
-        common_cols = M_window.columns.intersection(SF.index)
-        idx = M_window.index.intersection(C_window.index)
+
+        common_cols = M_window.columns.intersection(SF.index)  # cols: common constraints
+        idx = M_window.index.intersection(C_window.index)      # rows: common hours
+
         if len(common_cols) > 0 and len(idx) > 0:
-            X = M_window.loc[idx, common_cols].to_numpy(dtype=float)
-            SFv = SF.loc[common_cols].to_numpy(dtype=float)
-            Y_hat = -(X @ SFv)                              # (hours × SPs)
-            Y = C_window.loc[idx, SF.columns].to_numpy(dtype=float)
+
+            X = M_window.loc[idx, common_cols].to_numpy(dtype=float)  # hrs x constraints
+
+            SFv = SF.loc[common_cols].to_numpy(dtype=float)          # SF: (constraints x SPs)
+
+            Y_hat = -(X @ SFv)                                       # (hours × SPs)
+
+            Y = C_window.loc[idx, SF.columns].to_numpy(dtype=float)  # Y =  C: (hrs x SP)
+
+            # .ravel() flattens a N-D numpy array into a 1-d array
+            # r^2 correlation (0, 1) between actual (Y) and predicted (Y_hat)
+            # overall: single number
             r2_overall = _r2(Y.ravel(), Y_hat.ravel())
+
+            # for each SP, calculate the R^2
             for j, sp in enumerate(SF.columns):
                 per_sp_r2[str(sp)] = _r2(Y[:, j], Y_hat[:, j])
 

@@ -56,9 +56,9 @@ def existing_sf_windows(conn, run_id: str) -> set:
     for ``run_id``.
 
     The incremental map runner passes these (as ns-instants) to
-    ``rolling_sf(skip_window_starts=...)`` so a weekly tick re-fits only the new
-    complete boundaries — each ``window_start`` fully determines its fit, so an
-    already-persisted boundary is byte-identical to recompute.
+    ``rolling_sf(skip_window_starts=...)`` so a weekly tick re-fits only the
+    new complete boundaries
+
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -79,9 +79,9 @@ def copy_sf_rows(
 
     ``SF`` is (constraint_key × settlement_point); it is unpivoted to
     ``(run_id, window_start, constraint_key, settlement_point, sf)``. Entries
-    with ``|sf| < threshold`` or non-finite are skipped — the matrix is dense
-    but mostly negligible, and ``sf REAL NOT NULL`` would reject NaN. Returns
-    the number of rows written.
+    with ``|sf| < threshold`` or non-finite are skipped. Returns the number of
+    rows written.
+
     """
     if SF.empty:
         return 0
