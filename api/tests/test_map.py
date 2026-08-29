@@ -672,7 +672,7 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     object instead of the literal default. Assert the exact args every
     section receives — overview at (70, 6, 0.15), matching MapWorkspace.tsx's
     own override of the single-section endpoint's k=16 default; headline at
-    (None, "all"). Keyed by name since overview/meta/headline run on a thread
+    its default run. Keyed by name since overview/meta/headline run on a thread
     pool (not in submission order)."""
     calls: dict[str, tuple] = {}
 
@@ -692,7 +692,7 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     assert calls == {
         "overview": (70, 6, 0.15),
         "meta": (),
-        "headline": (None, "all"),
+        "headline": (None,),
     }
     assert body.topology == TOPOLOGY
     assert body.overview == OVERVIEW

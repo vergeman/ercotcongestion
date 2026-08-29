@@ -842,7 +842,7 @@ def get_map_summary() -> MapSummaryResponse:
     with ThreadPoolExecutor(max_workers=3) as pool:
         overview = pool.submit(soft_fail, lambda: get_map_overview(70, 6, 0.15))
         meta = pool.submit(soft_fail, get_map_meta)
-        headline = pool.submit(soft_fail, lambda: build_headline(None, "all"))
+        headline = pool.submit(soft_fail, lambda: build_headline(None))
         topology = get_or_build_topology()
         overview_result = overview.result()
         meta_result = meta.result()
