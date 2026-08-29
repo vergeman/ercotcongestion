@@ -287,6 +287,9 @@ def main(argv: list[str] | None = None) -> int:
         sf_stats["windows"] += 1
         sf_stats["rows"] += n
 
+    # Discover the panel endpoints, then construct the fixed refit grid.
+    # `bounds` is `(lo, hi)` from the DAM shadow-price, system-lambda, and SPP
+    # tables over the requested read range.
     with psycopg.connect(settings.pg_dsn) as conn:
         bounds = panel_bounds(conn, read_start, end)
     if bounds is None:
@@ -301,6 +304,16 @@ def main(argv: list[str] | None = None) -> int:
     refit = pd.Timedelta(days=args.refit_days)
     window = pd.Timedelta(days=args.window_days)
     day = pd.Timedelta(days=1)
+
+    # score period: the interval associated with a refit.
+    #
+    # window_start                         score_start          score_end
+    # │                                    │                    │
+    # ├────── 240-day data used to fit ────┼──── final week ────┤
+    # │                                    │                    │
+    # └──────────────────── window_end = score_end ─────────────┘
+    #
+    # refit_starts: sequence of weekly (freq refit) start-day timestamps.
     refit_starts = pd.date_range(first_day, last_day, freq=refit, inclusive="left")
     if not len(refit_starts):
         refit_starts = pd.DatetimeIndex([first_day])

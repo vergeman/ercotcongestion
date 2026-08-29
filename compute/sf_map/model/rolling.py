@@ -52,9 +52,20 @@ def fit_refit_window(
 ) -> RefitWindow:
     """Fit one refit boundary from a panel containing its trailing history.
 
-    Giving it only the fit interval is
-    numerically identical to slicing it from a full panel: `_align` restores
-    the same zero-μ / missing-congestion hour semantics before the solve.
+    Parameters
+    ----------
+    M_all, C_all
+        Shadow-price and congestion panels. They may be a bounded chunk; only
+        ``[score_end - window_days, score_end)`` participates in this fit.
+        `_align` restores the same zero-μ / missing-congestion hour semantics
+        as slicing from a larger panel.
+    refit_start, score_end
+        The associated score-period bounds. The fit window ends at
+        ``score_end``.
+    window_days
+        Length of the trailing fit window.
+    rho_min
+        When set, collinear μ columns are grouped before the ridge solve.
     """
     M_all, C_all = _align(M_all, C_all)
     return _fit_refit_window_aligned(
