@@ -25,8 +25,6 @@ the reduced panel.
     M_g     = aggregate_mu(M_window, labels)
     members = group_members(M_window, labels)   # persistence / the explorer
 
-``group_constraints`` bundles both stages for single-shot callers.
-
 """
 from __future__ import annotations
 
@@ -51,21 +49,21 @@ def mu_mass(M: pd.DataFrame) -> pd.Series:
 
 @dataclass
 class ConstraintLinkage:
-  """Z is the hierarchical clustering tree encoded as a NumPy array.
+    """Z is the hierarchical clustering tree encoded as a NumPy array.
 
-  For n input constraints, it has n - 1 rows and four columns:
+    For n input constraints, it has n - 1 rows and four columns:
 
-  [left_child, right_child, merge_distance, number_of_members]
+    [left_child, right_child, merge_distance, number_of_members]
 
-  Example with three constraints A, B, C:
+    Example with three constraints A, B, C:
 
-  Z =
-  [
-    [0, 1, 0.10, 2],   # merge A and B at distance 0.10
-    [2, 3, 0.70, 3],   # merge C with the A+B cluster at distance 0.70
-  ]
+    Z =
+    [
+      [0, 1, 0.10, 2],   # merge A and B at distance 0.10
+      [2, 3, 0.70, 3],   # merge C with the A+B cluster at distance 0.70
+    ]
 
-  """
+    """
     Z: np.ndarray          # SciPy linkage tree over 1 − correlation.
     keys: pd.Index         # Clusterable constraints, in Z's row order.
     singletons: pd.Index   # Window-inactive (non-binding) constraints held out of the tree.
@@ -205,14 +203,6 @@ def cut_groups(link: ConstraintLinkage, rho_min: float) -> pd.Series:
         ranked = sorted(members, key=lambda k: (-float(mass[k]), str(k)))  # mu then lex
         out.loc[members] = ranked[0]   # key to (top) representative member of group
     return out
-
-
-def group_constraints(
-    M: pd.DataFrame, rho_min: float, linkage: str = "complete"
-) -> pd.Series:
-    """Single-shot convenience: build the tree and cut it once."""
-    return cut_groups(constraint_linkage(M, linkage=linkage), rho_min)
-
 
 def aggregate_mu(M: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:
     """Sum ``M``'s columns within each group: ``(hours × groups)``.

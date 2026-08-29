@@ -12,7 +12,6 @@ from compute.sf_map.model.grouping import (
     aggregate_mu,
     constraint_linkage,
     cut_groups,
-    group_constraints,
     group_members,
     project_sf,
 )
@@ -25,11 +24,15 @@ def _blocks(labels: pd.Series) -> list[set]:
     return [set(g.index) for _, g in labels.groupby(labels)]
 
 
+def _labels(M: pd.DataFrame, rho_min: float) -> pd.Series:
+    return cut_groups(constraint_linkage(M), rho_min)
+
+
 # ------------------------------------------------------------------ clustering
 
 def test_recovers_planted_blocks(planted):
     M, expected = planted
-    got = _blocks(group_constraints(M, rho_min=RHO))
+    got = _blocks(_labels(M, rho_min=RHO))
     assert sorted(map(sorted, got)) == sorted(map(sorted, expected))
 
 
@@ -37,21 +40,21 @@ def test_exactly_collinear_pair_merges(planted):
     """D1 = 3·D0 — the degenerate case the ridge cannot separate at all."""
     M, _ = planted
     for rho in [r for r in SWEEP if r < 1.0]:
-        labels = group_constraints(M, rho_min=rho)
+        labels = _labels(M, rho_min=rho)
         assert labels["D0|C"] == labels["D1|C"], f"failed to merge at rho={rho}"
 
 
 def test_independent_constraint_never_merges(planted):
     M, _ = planted
     for rho in SWEEP:
-        labels = group_constraints(M, rho_min=rho)
+        labels = _labels(M, rho_min=rho)
         assert (labels == labels["C0|C"]).sum() == 1, f"C0 merged at rho={rho}"
 
 
 def test_degenerate_columns_stay_singletons(planted):
     """A never-binding column and a one-hour column have no usable correlation;
     they must not merge on noise."""
-    labels = group_constraints(planted[0], rho_min=RHO)
+    labels = _labels(planted[0], rho_min=RHO)
     for key in ("E_never|C", "F_thin|C"):
         assert (labels == labels[key]).sum() == 1
         assert labels[key] == key
@@ -62,7 +65,7 @@ def test_complete_linkage_guarantee(planted):
     constraints sharing a group correlate at >= rho_min."""
     M, _ = planted
     corr = M.corr()
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     for _, grp in labels.groupby(labels):
         members = sorted(grp.index)
         for i, a in enumerate(members):
@@ -73,33 +76,23 @@ def test_complete_linkage_guarantee(planted):
 def test_rho_min_one_is_identity(planted):
     """The no-op the grouped/ungrouped A/B depends on."""
     M, _ = planted
-    labels = group_constraints(M, rho_min=1.0)
+    labels = _labels(M, rho_min=1.0)
     assert labels.nunique() == M.shape[1]
     assert (labels.index == labels.to_numpy()).all()
 
 
 def test_n_groups_monotone_in_rho_min(planted):
     M, _ = planted
-    counts = [group_constraints(M, rho_min=r).nunique() for r in SWEEP]
+    counts = [_labels(M, rho_min=r).nunique() for r in SWEEP]
     assert counts == sorted(counts)
 
 
 def test_group_named_for_dominant_member(planted):
     M, _ = planted
     mass = M.abs().sum()
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     for key, grp in labels.groupby(labels):
         assert key == max(grp.index, key=lambda k: (mass[k], k))
-
-
-def test_two_stage_matches_single_shot(planted):
-    """The tree is built once per window and cut per threshold; that must agree
-    with the single-shot path exactly, or the rho sweep is measuring a different
-    object than the fit uses."""
-    M, _ = planted
-    link = constraint_linkage(M)
-    for rho in SWEEP:
-        assert cut_groups(link, rho).equals(group_constraints(M, rho))
 
 
 def test_inactive_columns_do_not_change_the_grouping(planted):
@@ -115,8 +108,8 @@ def test_inactive_columns_do_not_change_the_grouping(planted):
     padded["ONE_HOUR|C"] = 0.0
     padded.iloc[3, padded.columns.get_loc("ONE_HOUR|C")] = 250.0
 
-    base = group_constraints(M, rho_min=RHO)
-    padded_labels = group_constraints(padded, rho_min=RHO)
+    base = _labels(M, rho_min=RHO)
+    padded_labels = _labels(padded, rho_min=RHO)
 
     # Original constraints: labels unchanged.
     pd.testing.assert_series_equal(base, padded_labels.loc[base.index],
@@ -139,7 +132,7 @@ def test_linkage_holds_out_inactive_columns(planted):
 
 def test_single_column_panel():
     M = pd.DataFrame({"only|C": [1.0, 0.0, 3.0]})
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     assert labels.to_dict() == {"only|C": "only|C"}
 
 
@@ -147,7 +140,7 @@ def test_single_column_panel():
 
 def test_aggregate_mu_is_the_member_sum(planted):
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     Mg = aggregate_mu(M, labels)
     assert Mg.shape == (M.shape[0], labels.nunique())
     a_key = labels["A0|C"]
@@ -159,13 +152,13 @@ def test_aggregate_mu_preserves_mass(planted):
     """Mass-preserving aggregation is what lets coverage mean the same thing
     before and after grouping."""
     M, _ = planted
-    Mg = aggregate_mu(M, group_constraints(M, rho_min=RHO))
+    Mg = aggregate_mu(M, _labels(M, rho_min=RHO))
     assert np.isclose(Mg.to_numpy().sum(), M.to_numpy().sum())
 
 
 def test_aggregate_mu_columns_deterministic(planted):
     M, _ = planted
-    Mg = aggregate_mu(M, group_constraints(M, rho_min=RHO))
+    Mg = aggregate_mu(M, _labels(M, rho_min=RHO))
     assert list(Mg.columns) == sorted(Mg.columns)
 
 
@@ -176,7 +169,7 @@ def test_aggregate_mu_identity_labels_return_the_panel_untouched(planted):
     That is enough to make rho_min=1.0 a non-exact no-op, which would confound
     every grouped-vs-ungrouped comparison in the R3 measurement."""
     M, _ = planted
-    identity = group_constraints(M, rho_min=1.0)
+    identity = _labels(M, rho_min=1.0)
     Mg = aggregate_mu(M, identity)
     assert Mg is M                                   # same object, no copy
     assert list(Mg.columns) == list(M.columns)       # original order preserved
@@ -187,7 +180,7 @@ def test_aggregate_mu_drops_constraints_absent_from_labels(planted):
     that first appears in the scored week has no group and no SF column — it is
     the novel μ-mass that `coverage` reports, not a new column to predict with."""
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     Mg = aggregate_mu(M, labels)
 
     M_score = M.copy()
@@ -202,14 +195,14 @@ def test_aggregate_mu_drops_constraints_absent_from_labels(planted):
 
 def test_group_members_shares_sum_to_one(planted):
     M, _ = planted
-    mem = group_members(M, group_constraints(M, rho_min=RHO))
+    mem = group_members(M, _labels(M, rho_min=RHO))
     shares = mem.groupby("group_key")["mu_mass_share"].sum()
     assert np.allclose(shares.to_numpy(), 1.0)
 
 
 def test_group_members_expands_to_full_constraint_set(planted):
     M, _ = planted
-    mem = group_members(M, group_constraints(M, rho_min=RHO))
+    mem = group_members(M, _labels(M, rho_min=RHO))
     assert len(mem) == M.shape[1]
     assert set(mem["constraint_key"]) == set(M.columns)
 
@@ -217,7 +210,7 @@ def test_group_members_expands_to_full_constraint_set(planted):
 def test_group_members_zero_mass_group_splits_uniformly(planted):
     """E_never carries no mass; the share must not be a division by zero."""
     M, _ = planted
-    mem = group_members(M, group_constraints(M, rho_min=RHO))
+    mem = group_members(M, _labels(M, rho_min=RHO))
     assert mem["mu_mass_share"].notna().all()
     never = mem[mem["group_key"] == "E_never|C"]
     assert np.isclose(never["mu_mass_share"].sum(), 1.0)
@@ -240,7 +233,7 @@ def _fake_sf(keys, n_sp=4) -> pd.DataFrame:
 
 def test_project_sf_is_the_mass_weighted_member_average(planted):
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     members = group_members(M, labels)
     SF = _fake_sf(M.columns)
 
@@ -255,7 +248,7 @@ def test_project_sf_is_the_mass_weighted_member_average(planted):
 
 def test_project_sf_singleton_group_is_the_constraint_itself(planted):
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     SF = _fake_sf(M.columns)
     proj = project_sf(SF, group_members(M, labels))
     assert np.allclose(proj.loc["C0|C"].to_numpy(), SF.loc["C0|C"].to_numpy())
@@ -266,7 +259,7 @@ def test_project_sf_renormalizes_over_members_the_fit_kept(planted):
     represented by the members that were actually estimated — not diluted toward
     zero by missing rows."""
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     members = group_members(M, labels)
     a_key = labels["A0|C"]
 
@@ -283,7 +276,7 @@ def test_project_sf_renormalizes_over_members_the_fit_kept(planted):
 
 def test_project_sf_drops_groups_with_no_surviving_member(planted):
     M, _ = planted
-    labels = group_constraints(M, rho_min=RHO)
+    labels = _labels(M, rho_min=RHO)
     members = group_members(M, labels)
     SF = _fake_sf([k for k in M.columns if k != "C0|C"])
     assert "C0|C" not in project_sf(SF, members).index
