@@ -34,8 +34,10 @@ from schemas.scoreboard import (
     DailyPoint,
     ScoreboardDaily,
     ScoreboardHeadline,
+    ScoreboardHistory,
     ScoreboardSummaryResponse,
     ScoreboardWeekly,
+    ScoreHistoryPoint,
     SourcePooled,
     WeeklyPoint,
     WeeklySplit,
@@ -310,6 +312,89 @@ def get_scoreboard_daily(
         horizon=horizon,
         horizons=horizons,
         points=[DailyPoint(**r) for r in rows],
+    )
+
+
+# --------------------------------------------------------------------------
+# /scoreboard/history — chart history across backtest and served final grades
+# --------------------------------------------------------------------------
+
+@router.get(
+    "/scoreboard/history",
+    response_model=ScoreboardHistory,
+    summary="Weekly walk-forward history followed by final served-day grades",
+)
+def get_scoreboard_history(
+    source: str = Query("model"),
+    run_id: str | None = Depends(_server_selected_run),
+) -> ScoreboardHistory:
+    """Compose chart-only history without coupling the two board run IDs.
+
+    The live tail intentionally queries horizon 1 directly: previews remain in
+    storage and the daily panel, but never enter the product track record.
+    Missing live grades are an empty tail, not a failure of the backtest chart.
+    """
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            weekly_run_id = _resolve_run_id(cur, run_id)
+            cur.execute(
+                """
+                SELECT week, source, rank_spearman, sign_agree, topdecile_hit,
+                       sf_coverage, model_coverage, n_hours, n_nodes
+                FROM scoreboard_weekly
+                WHERE run_id = %s
+                ORDER BY week, source
+                """,
+                (weekly_run_id,),
+            )
+            weekly_rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT run_id FROM scoreboard_daily
+                WHERE horizon = 1
+                ORDER BY delivery_date DESC, run_id
+                LIMIT 1
+                """
+            )
+            live_run = cur.fetchone()
+            daily_run_id = live_run["run_id"] if live_run else None
+            daily_rows: list[dict] = []
+            if daily_run_id is not None:
+                cur.execute(
+                    """
+                    SELECT delivery_date, source, rank_spearman, sign_agree,
+                           topdecile_hit, sf_coverage, model_coverage, n_hours, n_nodes
+                    FROM scoreboard_daily
+                    WHERE run_id = %s AND horizon = 1
+                    ORDER BY delivery_date, source
+                    """,
+                    (daily_run_id,),
+                )
+                daily_rows = cur.fetchall()
+
+    if not weekly_rows:
+        raise HTTPException(
+            status_code=503,
+            detail=f"no scoreboard_weekly rows for run_id={weekly_run_id}.",
+        )
+
+    points = [
+        ScoreHistoryPoint(cadence="backtest_weekly", **row)
+        for row in weekly_rows
+    ]
+    points.extend(
+        ScoreHistoryPoint(cadence="served_daily", **row)
+        for row in daily_rows
+    )
+    boundary_date = min((row["delivery_date"] for row in daily_rows), default=None)
+    return ScoreboardHistory(
+        primary_source=source,
+        weekly_run_id=weekly_run_id,
+        daily_run_id=daily_run_id,
+        boundary_date=boundary_date,
+        points=points,
     )
 
 

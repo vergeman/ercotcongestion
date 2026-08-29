@@ -1102,6 +1102,32 @@ class ScoreboardDaily(BaseModel):
     points: list[DailyPoint]
 
 
+# ---- /scoreboard/history -------------------------------------------------
+
+class ScoreHistoryPoint(BaseModel):
+    """One chart point from the weekly backtest or a served final grade."""
+    source: str
+    cadence: Literal["backtest_weekly", "served_daily"]
+    week: date | None = None
+    delivery_date: date | None = None
+    rank_spearman: float | None = None
+    sign_agree: float | None = None
+    topdecile_hit: float | None = None
+    sf_coverage: float | None = None
+    model_coverage: float | None = None
+    n_hours: int | None = None
+    n_nodes: int | None = None
+
+
+class ScoreboardHistory(BaseModel):
+    """Weekly walk-forward history followed by final served-day grades."""
+    primary_source: str
+    weekly_run_id: str
+    daily_run_id: str | None = None
+    boundary_date: date | None = None
+    points: list[ScoreHistoryPoint]
+
+
 # ---- /scoreboard/summary --------------------------------------------------
 
 class BootstrapSectionStatus(BaseModel):
