@@ -554,9 +554,9 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
-// /scoreboard/history — the chart-only sequence. Weekly backtest and daily
-// served grades retain distinct date fields and provenance; the final track is
-// the only live cadence included.
+// The `/scoreboard/summary` chart sequence. Weekly backtest and daily served
+// grades retain distinct date fields and provenance; the final track is the
+// only live cadence included.
 export type ScoreCadence = "backtest_weekly" | "served_daily";
 
 export interface ScoreHistoryPoint {
@@ -598,6 +598,7 @@ export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
   headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
+  history: ScoreboardHistory | null;
   availability: Record<string, BootstrapSectionStatus>;
 }
 

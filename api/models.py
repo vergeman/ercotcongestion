@@ -1102,7 +1102,7 @@ class ScoreboardDaily(BaseModel):
     points: list[DailyPoint]
 
 
-# ---- /scoreboard/history -------------------------------------------------
+# ---- /scoreboard/summary history -----------------------------------------
 
 class ScoreHistoryPoint(BaseModel):
     """One chart point from the weekly backtest or a served final grade."""
@@ -1141,17 +1141,14 @@ class BootstrapSectionStatus(BaseModel):
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary (0137).
 
-    Each field keeps the exact shape its single-section endpoint already
-    served. ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` reads
-    the separate ``scoreboard_daily`` live board, so it is not forced onto the
-    same ``run_id`` the other two resolve. A field is ``null`` exactly when its
-    single-section endpoint would 503 (that board has no rows yet) — the same
-    soft-fail the client already handles per section, just carried inside one
-    response instead of three.
+    ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` and the final
+    served tail of ``history`` resolve independently from ``scoreboard_daily``.
+    A field is ``null`` exactly when its source section would 503.
     """
     weekly: ScoreboardWeekly | None
     headline: ScoreboardHeadline | None
     daily: ScoreboardDaily | None
+    history: ScoreboardHistory | None
     availability: dict[str, BootstrapSectionStatus]
 
 
