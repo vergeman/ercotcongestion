@@ -28,8 +28,8 @@ Branch: refactor/0175-remove-legacy-rolling-sf-path
 
 ## Acceptance
 
-* [ ] `weekly_map` has one, positive-chunk-only execution path and no import or call to `rolling_sf`.
-* [ ] Omitting `--chunk-weeks` uses 32; zero and negative values fail argument validation with a clear message.
-* [ ] `rolling_sf` and its callback/skip API have no remaining source, test, or documentation references.
-* [ ] Direct single-window tests preserve grouped/ungrouped `RefitWindow` invariants and bounded-versus-larger-panel SF equivalence.
-* [ ] Focused SF-map and operating-default tests pass.
+* [x] `weekly_map` has one, positive-chunk-only execution path and no import or call to `rolling_sf`.
+* [x] Omitting `--chunk-weeks` uses 32; zero and negative values fail argument validation with a clear message.
+* [x] `rolling_sf` and its callback/skip API have no remaining source, test, or documentation references.
+* [x] Direct single-window tests preserve grouped/ungrouped `RefitWindow` invariants and bounded-versus-larger-panel SF equivalence.
+* [x] Focused SF-map and operating-default tests pass.
