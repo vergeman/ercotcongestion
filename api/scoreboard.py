@@ -220,6 +220,23 @@ def _resolve_daily_run_id(cur, run_id: str | None) -> str:
     return row["run_id"]
 
 
+def _resolve_latest_final_daily_run_id(cur, run_id: str | None) -> str:
+    """Resolve the run containing the newest final served grade."""
+    if run_id is not None:
+        return run_id
+    cur.execute(
+        "SELECT run_id FROM scoreboard_daily WHERE horizon = 1 "
+        "ORDER BY delivery_date DESC, run_id LIMIT 1"
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=503,
+            detail="no final live grades yet (scoreboard_daily has no horizon=1 rows).",
+        )
+    return row["run_id"]
+
+
 def _resolve_daily_horizon(cur, run_id: str, horizon: int | None) -> tuple[int, list[int]]:
     """The horizon to serve, plus every horizon this run has graded.
 
@@ -273,12 +290,21 @@ def get_scoreboard_daily(
         "figure.",
     ),
     run_id: str | None = Depends(_server_selected_run),
+    latest_only: bool = Query(
+        False,
+        description="Serve only the newest final (horizon 1) delivery date and all "
+        "of its comparator rows.",
+    ),
 ) -> ScoreboardDaily:
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            run_id = _resolve_daily_run_id(cur, run_id)
-            horizon, horizons = _resolve_daily_horizon(cur, run_id, horizon)
+            if latest_only:
+                run_id = _resolve_latest_final_daily_run_id(cur, run_id)
+                horizon, horizons = 1, [1]
+            else:
+                run_id = _resolve_daily_run_id(cur, run_id)
+                horizon, horizons = _resolve_daily_horizon(cur, run_id, horizon)
             # Every source for the run — the page draws model + baselines + oracle +
             # the null tripwire; a lone model figure can't be rendered (spec §6).
             sql = (
@@ -288,7 +314,13 @@ def get_scoreboard_daily(
                 "FROM scoreboard_daily WHERE run_id = %s AND horizon = %s"
             )
             params: list[object] = [run_id, horizon]
-            if since is not None:
+            if latest_only:
+                sql += (
+                    " AND delivery_date = (SELECT max(delivery_date) "
+                    "FROM scoreboard_daily WHERE run_id = %s AND horizon = 1)"
+                )
+                params.append(run_id)
+            elif since is not None:
                 sql += " AND delivery_date >= %s"
                 params.append(since)
             sql += " ORDER BY delivery_date, source"
@@ -311,6 +343,7 @@ def get_scoreboard_daily(
         primary_source=source,
         horizon=horizon,
         horizons=horizons,
+        selected_delivery_date=rows[0]["delivery_date"] if latest_only else None,
         points=[DailyPoint(**r) for r in rows],
     )
 
@@ -380,13 +413,6 @@ def build_scoreboard_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
     summary="One bundled payload for the Scoreboard page summary (0137)",
 )
 def get_scoreboard_summary(
-    horizon: int | None = Query(
-        None,
-        ge=1,
-        le=2,
-        description="Forecast track for the live board only (the backtest sections "
-        "have no horizon). Omit for the final track.",
-    ),
 ) -> ScoreboardSummaryResponse:
     """Compose the Scoreboard's load-time sections behind one call.
 
@@ -406,7 +432,7 @@ def get_scoreboard_summary(
     with ThreadPoolExecutor(max_workers=3) as pool:
         weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", None))
         headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None))
-        daily = pool.submit(soft_fail, lambda: get_scoreboard_daily(None, horizon, "model", None))
+        daily = pool.submit(soft_fail, lambda: get_scoreboard_daily(None, 1, "model", None, True))
         weekly_result = weekly.result()
         headline_result = headline.result()
         daily_result = daily.result()

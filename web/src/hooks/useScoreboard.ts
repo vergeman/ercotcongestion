@@ -32,7 +32,7 @@ const isAbort = (error: unknown) =>
   error instanceof DOMException && error.name === "AbortError";
 
 /** Owns the Scoreboard's single bundled response. */
-export function useScoreboard(horizon: number | null) {
+export function useScoreboard() {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function useScoreboard(horizon: number | null) {
     dispatch({ type: "patch", patch: {
       backtestLoading: true, liveLoading: true, backtestError: false, liveError: false,
     } });
-    fetchScoreboardSummary(horizon)
+    fetchScoreboardSummary()
       .then((summary) => {
         if (!controller.signal.aborted) {
           dispatch({
@@ -66,7 +66,7 @@ export function useScoreboard(horizon: number | null) {
         }
       });
     return () => controller.abort();
-  }, [horizon]);
+  }, []);
 
   return useMemo(() => {
     const loading = state.backtestLoading || state.liveLoading;

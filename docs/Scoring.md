@@ -246,8 +246,9 @@ ORDER BY delivery_date, horizon;
 > whichever arrived last, meaning the live board could show a **preview** grade
 > labeled as the served forecast. The endpoint now resolves and filters a single
 > horizon (defaulting to the final track, falling back to whatever the run has
-> graded), returns `horizon` on every point plus a `horizons` list, and the page
-> carries a track selector that is labeled even when only one track exists.
+> graded), and returns `horizon` on every point plus a `horizons` list. The
+> Scoreboard summary now requests the separate `latest_only` reduction, which
+> selects only the newest h1 date and never falls back to preview data.
 
 ## Reading the Scoreboard page
 
@@ -257,7 +258,7 @@ Top to bottom:
 
 | Block | Header | Endpoint → table | Span | What it says |
 |---|---|---|---|---|
-| 4 tiles | **Live · per-delivery-day grade** | `/scoreboard/daily` → `scoreboard_daily` | **one** delivery day, one horizon (both selectable) | how the forecast we actually served did on that day |
+| 3 tiles | **Live · latest final served grade** | `/scoreboard/summary` → `scoreboard_daily` | newest h1 delivery day | how the latest forecast we actually served did |
 | 3 tiles | **Backtest · rolling 90-day headline** | `/scoreboard/headline` → `scoreboard_weekly` | the last 90 days of the walk | the backtest's recent form, pooled |
 | line chart | **Backtest · weekly series** | `/scoreboard/weekly` → `scoreboard_weekly` | every week of the walk | week-by-week trend, 4 sources |
 | table | **Backtest · pooled over all weeks, split pre/post-RTC+B** | same weekly payload (`splits`) | **lifetime** of the walk | the whole-history verdict, and whether RTC+B changed it |
@@ -267,7 +268,7 @@ For the job behind each block and how often it moves, see
 
 Specifics that are easy to misread:
 
-**The two tile rows are not the same thing.** The top row is *live* — one served day,
+**The two tile rows are not the same thing.** The top row is *live* — the newest final served day,
 three currencies (Rank ρ, Sign Agreement, Top-Decile Hit), read from
 `scoreboard_daily`. The second row is *backtest* — three screening currencies pooled
 over a rolling 90-day window of `scoreboard_weekly`
@@ -300,10 +301,10 @@ the split exists so a pre-break result cannot be quietly carried through it.
 **The metric buttons drive the chart and the table only.** Choose `Rank ρ`,
 `Sign Agreement`, or `Top-Decile Hit`; neither tile row responds to the selection.
 
-**Two selectors, two meanings, both in the live header.** The delivery-day dropdown
-picks which served day the top tiles grade. The track dropdown picks the horizon —
-`Final · fires D−1` versus `Preview · fires D−2`. When a run has graded only one
-track, the label still shows, so a tile is never ambiguous about its vintage.
+**The live tiles are final-only.** The server selects the newest fully persisted h1
+delivery date and its comparator rows; it never falls back to an h2 preview. To
+inspect earlier final grades, hover the unified score-history graph or focus it and
+use the left and right arrow keys.
 
 ## Which panel comes from which job
 
@@ -332,7 +333,7 @@ the oldest ungraded day. So every artifact-backed panel self-heals on a daily ca
 
 | Panel | Dataset | Advanced by | Cadence | Backfilled by |
 |---|---|---|---|---|
-| Live · per-delivery-day grade (4 tiles) | `scoreboard_daily` | `grade_day`, step 3 of the tick | daily, one day per tick | **no bulk CLI** — `grade_day --delivery-date` one day at a time |
+| Live · latest final served grade (3 tiles) | `scoreboard_daily` | `grade_day`, step 3 of the tick | daily, one day per tick | **no bulk CLI** — `grade_day --delivery-date` one day at a time |
 | Backtest · rolling 90-day headline (3 tiles) | `scoreboard_weekly` | `load_scoreboard` (window pooled per request) | **manual only** | re-run the offline walk, then reload |
 | Backtest · weekly series (chart) | `scoreboard_weekly` | `load_scoreboard` | **manual only** | same |
 | Backtest · pooled pre/post-RTC+B (table) | `scoreboard_weekly` (`splits`) | `load_scoreboard` | **manual only** | same |
@@ -511,9 +512,10 @@ tick and nothing bulk-refreshes it, so its window is however long the relevant c
 has been running — and after a change to the forecast, its older rows describe the
 old behavior until they age out.
 
-**One live board shows one horizon.** `/scoreboard/daily` serves a single track and
-labels it; the final forecast is the default. Do not reintroduce an unfiltered query —
-it silently interleaves final and preview grades for the same day.
+**One direct daily-board response shows one horizon.** `/scoreboard/daily` serves a
+single track; the final forecast is the default. Do not reintroduce an unfiltered
+query — it silently interleaves final and preview grades for the same day. The
+Scoreboard page uses `latest_only` to show the newest h1 grade only.
 
 **h2 exists only from the day the preview cron went live.** It is a serving-track
 concept. There is no h2 history behind that date unless someone pays for 575 fits to

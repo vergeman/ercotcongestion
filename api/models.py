@@ -1081,7 +1081,7 @@ class DailyPoint(BaseModel):
 
 
 class ScoreboardDaily(BaseModel):
-    """The live per-day grade series for one run since an optional date.
+    """The live per-day grade series, or a latest-final reduction for one run.
 
     ``run_id`` is the model version being graded live (the same version the forecast
     served). ``primary_source`` echoes the requested ``source`` (the series the page
@@ -1089,16 +1089,15 @@ class ScoreboardDaily(BaseModel):
     can never render a lone model figure. ``since`` echoes the request (``None`` ==
     the run's full live history).
 
-    ``horizon`` is the single track these points grade; ``horizons`` lists every
-    track this run has graded, so a client can offer the switch without a second
-    request. One board is one horizon: a series mixing final and preview grades
-    would silently compare two differently-informed forecasts.
+    ``selected_delivery_date`` is set when the server reduces the response to the
+    newest final grade. ``horizon`` remains the provenance for every point.
     """
     run_id: str
     since: date | None = None
     primary_source: str
     horizon: int
     horizons: list[int] = []
+    selected_delivery_date: date | None = None
     points: list[DailyPoint]
 
 
@@ -1141,8 +1140,9 @@ class BootstrapSectionStatus(BaseModel):
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary (0137).
 
-    ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` and the final
-    served tail of ``history`` resolve independently from ``scoreboard_daily``.
+    ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` is the latest
+    final served grade and the final served tail of ``history`` resolves
+    independently from ``scoreboard_daily``.
     A field is ``null`` exactly when its source section would 503.
     """
     weekly: ScoreboardWeekly | None

@@ -547,10 +547,12 @@ export interface ScoreboardDaily {
   run_id: string;
   since: string | null;
   primary_source: string;
-  // The single track `points` grades, and every track this run has graded — so
-  // the page can offer the switch without a second request.
+  // The track `points` grades and the available tracks for direct daily API
+  // consumers. Scoreboard summary uses the final-only reduction below.
   horizon: number;
   horizons: number[];
+  // Present when the server selected one newest final delivery date.
+  selected_delivery_date: string | null;
   points: DailyPoint[];
 }
 

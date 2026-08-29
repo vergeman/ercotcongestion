@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type {
   ScoreboardWeekly,
   ScoreboardHeadline,
   ScoreboardDaily,
   DailyPoint,
   ScoreHistoryPoint,
-  HeadlineWindow,
 } from "../api/types";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
@@ -364,25 +363,12 @@ function SeriesChart({
 }
 
 // ── live per-delivery-day grade panel (plan/0102 §0004, spec-phase3 §5) ──────
-// "How did yesterday's forecast do." Reads /scoreboard/daily (live grades of the
-// SERVED forecast) — the live counterpart to the backtest tiles below. The day is
-// selectable; each metric carries its persistence delta + oracle ceiling so a lone
-// model figure can't be read (§6). Renders server-served values only — no grade is
-// recomputed here. Same tile form + validated colors as HeadlineTiles, so the live
-// half reads as one system with the backtest half.
+// "How did the latest served forecast do." The server selects the newest final
+// grade and its comparator rows; the chart below carries the historical series.
 
-// The four graded currencies foregrounded per day. All higher-is-better, so a
+// The graded currencies foregrounded for the latest final day. All higher-is-better, so a
 // positive model−persistence delta is the model winning (matches HeadlineTiles +
 // the _CURRENCIES orientation the API pools on).
-// The two served tracks. h1 is what the product actually published for D; h2 is
-// the preview that fired a day earlier, before D's DAM auction cleared. They are
-// never merged into one series — a preview and a final are differently-informed
-// forecasts, so one board shows one track (api/scoreboard.py `_resolve_daily_horizon`).
-const HORIZON_LABELS: Record<number, string> = {
-  1: "Final · fires D−1",
-  2: "Preview · fires D−2",
-};
-
 const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
@@ -391,29 +377,10 @@ const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
 
 function LiveGradePanel({
   daily,
-  weekly,
-  headlineWin,
-  onHorizonChange,
 }: {
   daily: ScoreboardDaily;
-  weekly: ScoreboardWeekly | null;
-  headlineWin: HeadlineWindow | undefined;
-  onHorizonChange: (v: number) => void;
 }) {
-  // Delivery days present, most-recent first — the selector's options and default.
-  const days = useMemo(
-    () =>
-      Array.from(new Set(daily.points.map((p) => p.delivery_date)))
-        .sort()
-        .reverse(),
-    [daily]
-  );
-  const [day, setDay] = useState<string>(days[0]);
-  // Keep the selection valid when the run's live history changes underneath us.
-  const selected = days.includes(day) ? day : days[0];
-
-  // The selected day's rows, keyed by source, so a tile can read model /
-  // persistence / oracle for one metric.
+  const selected = daily.selected_delivery_date ?? daily.points[0]?.delivery_date;
   const bySource = useMemo(() => {
     const m = new Map<string, DailyPoint>();
     for (const p of daily.points) {
@@ -435,65 +402,15 @@ function LiveGradePanel({
 
   return (
     <section className="sb-live">
-      {/* Its own line, in the same `.sb-section-h` block every other section
-          heading uses, so all four headings share one left edge; the controls
-          sit on the row beneath rather than inline with the heading. */}
-      <div className="sb-section-h label">Live · per-delivery-day grade</div>
+      <div className="sb-section-h label">Live · latest final served grade</div>
       <div className="sb-live__head">
-        {/* Which served track is being graded. Always labeled, even when only
-            one track exists, so a number is never ambiguous about its vintage. */}
-        {daily.horizons.length > 1 ? (
-          <select
-            className="sb-select sb-live__day"
-            value={daily.horizon}
-            onChange={(e) => onHorizonChange(Number(e.target.value))}
-            aria-label="Forecast track"
-          >
-            {daily.horizons.map((h) => (
-              <option key={h} value={h}>
-                {HORIZON_LABELS[h] ?? `Horizon ${h}`}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="sb-live__ctx label">
-            {HORIZON_LABELS[daily.horizon] ?? `Horizon ${daily.horizon}`}
-          </span>
-        )}
-        <select
-          className="sb-select sb-live__day"
-          value={selected}
-          onChange={(e) => setDay(e.target.value)}
-          aria-label="Delivery day"
-        >
-          {days.map((d) => (
-            <option key={d} value={d}>
-              {fmtDay(d)}
-            </option>
-          ))}
-        </select>
+        <span className="sb-live__ctx label">
+          Final served {selected ? fmtDay(selected) : "grade"}
+        </span>
         <div className="sb-live__meta">
           <span className="sb-live__ctx label">
             {model?.n_nodes != null ? `${model.n_nodes} nodes` : ""}
           </span>
-          <span className="sb-meta sb-meta--sub">
-            <span className="sb-meta__label label">
-              <Term def="The model run whose backtest is scored on this page.">
-                Backtest run
-              </Term>
-            </span>
-            <span className="sb-meta__val">{weekly ? weekly.run_id : "—"}</span>
-          </span>
-          {headlineWin && (
-            <span className="sb-meta sb-meta--sub">
-              <span className="sb-meta__label label">
-                <Term def="The rolling look-back the headline tiles average over — the length of backtest history scored on this page.">
-                  Window
-                </Term>
-              </span>
-              <span className="sb-meta__val">{headlineWin.window_days} days</span>
-            </span>
-          )}
         </div>
       </div>
 
@@ -793,14 +710,12 @@ function Glossary() {
 }
 
 export default function ScoreboardPage() {
-  // null = let the server pick the final track; a number is an explicit switch.
-  const [horizon, setHorizon] = useState<number | null>(null);
   const [controls, dispatchControls] = useScoreboardControls();
   const {
     weekly, headline, daily, history, backtestLoading, liveLoading, liveError,
     connectionState, lastUpdated,
   } =
-    useScoreboard(horizon);
+    useScoreboard();
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
@@ -824,9 +739,6 @@ export default function ScoreboardPage() {
           {daily && (
             <LiveGradePanel
               daily={daily}
-              weekly={weekly}
-              headlineWin={headlineWin}
-              onHorizonChange={setHorizon}
             />
           )}
           {!liveLoading && liveError && (

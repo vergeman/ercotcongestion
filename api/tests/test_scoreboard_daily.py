@@ -142,3 +142,36 @@ def test_daily_503_when_the_requested_horizon_has_no_grades(client, fake_pool):
     r = client.get("/scoreboard/daily", params={"run_id": "r", "horizon": 2})
     assert r.status_code == 503
     assert "horizon=2" in r.json()["detail"]
+
+
+def test_daily_latest_only_selects_newest_final_grade_in_sql(client, fake_pool):
+    newest = date(2026, 7, 19)
+    fake_pool.cursor.queue([{"run_id": "mu-all-v2"}])
+    fake_pool.cursor.queue([
+        _row("model", delivery_date=newest, topdecile_hit=0.6),
+        _row("persistence", delivery_date=newest, topdecile_hit=0.5),
+        _row("oracle", delivery_date=newest, topdecile_hit=0.8),
+    ])
+
+    r = client.get("/scoreboard/daily", params={"latest_only": "true"})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["run_id"] == "mu-all-v2"
+    assert body["horizon"] == 1
+    assert body["horizons"] == [1]
+    assert body["selected_delivery_date"] == "2026-07-19"
+    assert {point["delivery_date"] for point in body["points"]} == {"2026-07-19"}
+    sql, params = fake_pool.cursor.queries[-1]
+    assert "SELECT max(delivery_date)" in sql
+    assert "horizon = 1" in sql
+    assert params == ("mu-all-v2", 1, "mu-all-v2")
+
+
+def test_daily_latest_only_does_not_fall_back_to_preview(client, fake_pool):
+    fake_pool.cursor.queue([])
+
+    r = client.get("/scoreboard/daily", params={"latest_only": "true"})
+
+    assert r.status_code == 503
+    assert "no final live grades" in r.json()["detail"]
