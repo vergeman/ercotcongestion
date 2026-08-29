@@ -203,8 +203,8 @@ def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
 
 
 def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
-               week_preds: pd.DataFrame, regimes: pd.Series | None = None,
-               window_days: int = WINDOW_DAYS, refit_days: int = REFIT_DAYS,
+               week_preds: pd.DataFrame, window_days: int = WINDOW_DAYS,
+               refit_days: int = REFIT_DAYS,
                lam: float = LAM, extra_sources: bool = False) -> list[dict]:
     """One week, every source, one SF fit.
 
@@ -267,23 +267,13 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                "regime": "all", **score_matrix(Y, Yh)}
+                **score_matrix(Y, Yh)}
         rows.append(base)
-
-        if regimes is not None:
-            r = regimes.reindex(hours)
-            for lab in sorted(x for x in r.dropna().unique() if x >= 0):
-                m = (r == lab).to_numpy()
-                if m.sum() < 24:          # under a day of hours proves nothing
-                    continue
-                rows.append({**base, "regime": f"net_load_{int(lab)}",
-                             "n_hours": int(m.sum()),
-                             **score_matrix(Y[m], Yh[m])})
     return rows
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
-         regimes: pd.Series | None = None, window_days: int = WINDOW_DAYS,
+         window_days: int = WINDOW_DAYS,
          refit_days: int = REFIT_DAYS, lam: float = LAM,
          extra_sources: bool = False) -> pd.DataFrame:
     # `load_preds` hands back a (interval_ts, key) MultiIndex; the sources want
@@ -300,7 +290,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     rows: list[dict] = []
     t0 = time.perf_counter()
     for i, s in enumerate(weeks):
-        rows.extend(score_week(M, C, s, by_week[s], regimes, window_days,
+        rows.extend(score_week(M, C, s, by_week[s], window_days,
                                refit_days, lam, extra_sources))
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  eta %.0fm", done, len(weeks), s.date(),
@@ -328,19 +318,15 @@ def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
 
 
 def report(df: pd.DataFrame) -> str:
-    """The two currencies, side by side, always. Then the splits."""
+    """The two currencies, side by side."""
     order = [s for s in ["oracle", "model", "model_clim", "climatology",
                          "persistence", "null"] if (df["source"] == s).any()]
-    a = df[df["regime"] == "all"]
+    a = df
     out = [_table(a, "=== ALL WEEKS (magnitude | screening) ===", order)]
 
     pre, post = a[a["week"] < RTC_B], a[a["week"] >= RTC_B]
     out.append(_table(pre, f"=== PRE-RTC+B (< {RTC_B.date()}) ===", order))
     out.append(_table(post, f"=== POST-RTC+B (≥ {RTC_B.date()}) ===", order))
-
-    for lab in sorted(df.loc[df["regime"] != "all", "regime"].unique()):
-        out.append(_table(df[df["regime"] == lab],
-                          f"=== REGIME {lab} (net-load quintile) ===", order))
 
     out.append(f"\n  SF coverage {a.sf_coverage.mean():.3f}   "
                f"model key-coverage {a.model_coverage.mean():.3f}   "
@@ -356,8 +342,6 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.panel.build import system_panel
-    from compute.mu_forecast.panel.engineering import net_load_regime
     from compute.mu_forecast.model.runner import load_preds
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
@@ -367,7 +351,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--window-days", type=int, default=WINDOW_DAYS)
     p.add_argument("--lam", type=float, default=LAM)
-    p.add_argument("--no-regimes", action="store_true")
     p.add_argument("--extra-sources", action="store_true",
                    help="also score head1 × head2-climatology (diagnostic)")
     p.add_argument("--out", default=None)
@@ -385,20 +368,11 @@ def main(argv: list[str] | None = None) -> int:
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
-    regimes = None
     with psycopg.connect(dsn) as conn:
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)
         log.info("M = %s   C = %s", M.shape, C.shape)
-        if not args.no_regimes:
-            sysp = system_panel(conn, lo, hi)
-            # Edges from the whole span, not per-fold: a *reporting* split, not a
-            # feature. Nothing is fitted on it — it only decides which rows get
-            # averaged together, and a split whose boundaries move week to week
-            # would not be one split.
-            regimes = net_load_regime(sysp, fit_index=sysp.index)
-
-    df = walk(M, C, preds, regimes, args.window_days, REFIT_DAYS, args.lam,
+    df = walk(M, C, preds, args.window_days, REFIT_DAYS, args.lam,
               args.extra_sources)
     if df.empty:
         print("no scorable weeks")

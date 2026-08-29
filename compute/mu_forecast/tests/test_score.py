@@ -243,26 +243,13 @@ def test_the_map_is_never_fitted_on_the_week_it_grades():
     assert seen["max_ts"] < s
 
 
-def test_regime_split_partitions_the_week():
-    M, C, _ = _world(days=300)
-    s = pd.Timestamp("2025-10-01", tz="UTC")
-    hours = M.loc[(M.index >= s) & (M.index < s + pd.Timedelta(days=7))].index
-    regimes = pd.Series(np.where(hours.hour < 12, 0, 1), index=hours)
-    rows = score_week(M, C, s, _preds(M, pd.DatetimeIndex([s])), regimes=regimes)
-
-    oracle = [r for r in rows if r["source"] == "oracle"]
-    all_row = next(r for r in oracle if r["regime"] == "all")
-    parts = [r for r in oracle if r["regime"] != "all"]
-    assert sum(r["n_hours"] for r in parts) == all_row["n_hours"]
-
-
 def test_report_prints_every_source_and_both_splits():
     """RTC+B (2025-12-05) is a structural break; a number pooled across it hides a
     regime change. The weeks here straddle it on a real weekly phase."""
     M, C, _ = _world(start="2025-01-01", days=420)
     weeks = pd.date_range(pd.Timestamp("2025-11-13", tz="UTC"), periods=6,
                           freq=pd.Timedelta(days=7))     # 3 pre, 3 post
-    df = walk(M, C, _preds(M, weeks), None)
+    df = walk(M, C, _preds(M, weeks))
     txt = report(df)
     for src in SOURCES:
         assert src in txt
