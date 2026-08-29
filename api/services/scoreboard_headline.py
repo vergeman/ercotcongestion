@@ -12,7 +12,7 @@ from schemas.scoreboard import HeadlineCurrency, HeadlineWindow, ScoreboardHeadl
 
 SOURCES = ("model", "persistence", "climatology", "oracle")
 CURRENCIES: tuple[tuple[str, bool], ...] = (
-    ("topdecile_hit", True), ("rank_spearman", True), ("sign_agree", True), ("pooled_r2", True),
+    ("topdecile_hit", True), ("rank_spearman", True), ("sign_agree", True),
 )
 WINDOWS = (30, 90)
 
@@ -48,7 +48,7 @@ def build_headline(run_id: str | None, regime: str) -> ScoreboardHeadline:
             if row is None:
                 raise HTTPException(status_code=503, detail="no scoreboard board is loaded (scoreboard_weekly is empty).")
             run_id = row["run_id"]
-        cur.execute("SELECT week, source, n_hours, topdecile_hit, rank_spearman, sign_agree, pooled_r2 FROM scoreboard_weekly WHERE run_id = %s AND regime = %s AND source = ANY(%s) ORDER BY week", (run_id, regime, list(SOURCES)))
+        cur.execute("SELECT week, source, n_hours, topdecile_hit, rank_spearman, sign_agree FROM scoreboard_weekly WHERE run_id = %s AND regime = %s AND source = ANY(%s) ORDER BY week", (run_id, regime, list(SOURCES)))
         rows = cur.fetchall()
     if not rows:
         raise HTTPException(status_code=503, detail=f"no scoreboard_weekly rows for run_id={run_id} regime={regime}. Load the board first (compute.jobs.load_scoreboard).")

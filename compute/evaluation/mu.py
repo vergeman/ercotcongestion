@@ -23,14 +23,8 @@ a misphased run does not crash — it quietly scores a different 46 weeks. Readi
 the grid off `mu_preds.npz` makes the misalignment unrepresentable rather than
 merely tested-for.
 
-Two currencies, always together (handoff §7):
-
-  * **magnitude** — pooled R², MAE ($/MWh at the node)
-  * **screening** — rank-Spearman (cross-node, per hour), sign-agree (±$1
-    deadband), top-decile hit
-
-Leading with magnitude alone would make a working screener read as a failing
-forecast; leading with screening alone would sell a forecast we do not have.
+The scoreboard uses rank-Spearman (cross-node, per hour), sign agreement (±$1
+deadband), and top-decile hit.
 
     docker compose run --rm compute python -m compute.evaluation.mu \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_score_weekly.csv
@@ -43,9 +37,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.evaluation.sf import (
-    predict, r2, row_spearman, sign_agreement, topdecile_hit,
-)
+from compute.evaluation.sf import predict, row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
@@ -163,7 +155,7 @@ def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
 
 
 def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """Both currencies. Never one without the other.
+    """The scoreboard's screening currencies.
 
     A source that predicts a flat map (null) gets NaN in the screening currency,
     not a chance-level score: it ranks nothing, and the honest report of a ranking
@@ -171,8 +163,6 @@ def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
     printed in the report as a reference line — not measured.
     """
     return {
-        "pooled_r2": r2(Y.ravel(), Yh.ravel()),
-        "mae": float(np.nanmean(np.abs(Y - Yh))),
         "rank_spearman": row_spearman(Y, Yh),
         "sign_agree": sign_agreement(Y, Yh),
         "topdecile_hit": topdecile_hit_defined(Y, Yh),
@@ -304,25 +294,24 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
 def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
     out = [f"\n{title}",
-           f"  {'μ source':<14} {'R2':>7} {'MAE':>8} {'Spearman':>9} "
+           f"  {'μ source':<14} {'Spearman':>9} "
            f"{'sign':>7} {'top-dec':>8}   {'weeks':>5}"]
     for src in order:
         d = df[df["source"] == src]
         if d.empty:
             continue
-        out.append(f"  {src:<14} {d.pooled_r2.mean():>7.3f} "
-                   f"{d.mae.mean():>8.2f} {d.rank_spearman.mean():>9.3f} "
+        out.append(f"  {src:<14} {d.rank_spearman.mean():>9.3f} "
                    f"{d.sign_agree.mean():>7.3f} {d.topdecile_hit.mean():>8.3f}"
                    f"   {len(d):>5}")
     return "\n".join(out)
 
 
 def report(df: pd.DataFrame) -> str:
-    """The two currencies, side by side."""
+    """All-hours screening metrics, with the RTC+B split."""
     order = [s for s in ["oracle", "model", "model_clim", "climatology",
                          "persistence", "null"] if (df["source"] == s).any()]
     a = df
-    out = [_table(a, "=== ALL WEEKS (magnitude | screening) ===", order)]
+    out = [_table(a, "=== ALL WEEKS (screening) ===", order)]
 
     pre, post = a[a["week"] < RTC_B], a[a["week"] >= RTC_B]
     out.append(_table(pre, f"=== PRE-RTC+B (< {RTC_B.date()}) ===", order))

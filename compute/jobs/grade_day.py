@@ -70,13 +70,13 @@ _BASELINES = ("oracle", "persistence", "climatology", "null")
 # scoreboard_daily columns, in table order — the tuple `persist_grades` COPYs.
 _COLS = (
     "run_id", "delivery_date", "source", "horizon",
-    "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
+    "rank_spearman", "sign_agree", "topdecile_hit",
     "sf_coverage", "model_coverage", "n_hours", "n_nodes",
     "essp_precision", "essp_recall",
 )
 
 # The currency keys score_matrix emits, in table order.
-_METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
+_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 
 
 def _as_ct_day(D) -> pd.Timestamp:

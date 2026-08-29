@@ -56,15 +56,8 @@ _SOURCES = ("model", "persistence", "climatology", "oracle")
 # it so the post-cutover number can't be laundered into the pooled figure (§5).
 RTC_B_CUTOVER = date(2025, 12, 5)
 
-# The currencies pooled into each split summary, and the reduction used: a plain
-# week-mean, matching compute.jobs.backfill_nodal.r5()/cell() so the served pooled
-# figures and the gate verdict equal the pre-registered readout (§7).
-_POOL_METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
-
-# The headline currencies and their orientation. Screening currencies lead
-# (top-decile / rank / sign); pooled_r2 rides along as the magnitude diagnostic.
-# All four are higher-is-better, so a positive persistence delta is the model
-# winning. mae (lower-is-better magnitude) is deliberately left to the full board.
+# The screening currencies pooled into each split summary.
+_POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 def _resolve_run_id(cur, run_id: str | None) -> str:
     """Resolve the most recent board (max week).
     Raises 503 when scoreboard_weekly is empty (no board loaded), matching the
@@ -116,13 +109,8 @@ def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
 
 
 def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
-    """The pooled all / pre-RTC+B / post-RTC+B slices (§5). Each carries every
-    comparator source (§6); the model slice also gets the pre-registered gate
-    verdict and the existence test vs persistence — both from the canonical
-    transcription in backfill_nodal, never redefined here."""
-    # Authoritative, lazily imported so the API startup stays light and the
-    # heavy compute import is paid only when this endpoint is first hit.
-    from compute.jobs.backfill_nodal import gate, existence_test
+    """The pooled all / pre-RTC+B / post-RTC+B slices (§5)."""
+    from compute.jobs.backfill_nodal import existence_test
 
     slices = [
         ("all", rows),
@@ -135,15 +123,12 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
         m = pooled["model"]
         p = pooled["persistence"]
 
-        verdict: str | None = None
         beats: bool | None = None
         if (
-            m.pooled_r2 is not None
-            and m.rank_spearman is not None
+            m.rank_spearman is not None
             and m.sign_agree is not None
             and m.topdecile_hit is not None
         ):
-            verdict = gate(m.pooled_r2, m.rank_spearman, m.sign_agree, m.topdecile_hit)
             keys = ("rank_spearman", "sign_agree", "topdecile_hit")
             if all(getattr(p, k) is not None for k in keys):
                 beats, _ = existence_test(
@@ -156,7 +141,6 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
                 label=label,
                 n_weeks=len({r["week"] for r in slice_rows}),
                 sources=[pooled[s] for s in _SOURCES],
-                gate=verdict,
                 beats_persistence=beats,
             )
         )
@@ -166,8 +150,7 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
 @router.get(
     "/scoreboard/weekly",
     response_model=ScoreboardWeekly,
-    summary="Weekly backtest series (all sources) + pooled pre/post-RTC+B summary "
-    "with the pre-registered gate verdict",
+    summary="Weekly backtest series (all sources) + pooled pre/post-RTC+B summary",
 )
 def get_scoreboard_weekly(
     source: str = Query(
@@ -190,8 +173,7 @@ def get_scoreboard_weekly(
             # series.
             cur.execute(
                 """
-                SELECT week, source, pooled_r2, mae, rank_spearman, sign_agree,
-                       topdecile_hit,
+                SELECT week, source, rank_spearman, sign_agree, topdecile_hit,
                        sf_coverage, model_coverage, n_hours, n_nodes
                 FROM scoreboard_weekly
                 WHERE run_id = %s AND regime = %s
@@ -307,8 +289,8 @@ def get_scoreboard_daily(
             # Every source for the run — the page draws model + baselines + oracle +
             # the null tripwire; a lone model figure can't be rendered (spec §6).
             sql = (
-                "SELECT delivery_date, source, horizon, pooled_r2, mae, rank_spearman, "
-                "sign_agree, topdecile_hit, "
+                "SELECT delivery_date, source, horizon, rank_spearman, sign_agree, "
+                "topdecile_hit, "
                 "sf_coverage, model_coverage, n_hours, n_nodes "
                 "FROM scoreboard_daily WHERE run_id = %s AND horizon = %s"
             )

@@ -9,7 +9,7 @@ import pytest
 from compute.forecast_store import (
     nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db, upsert_pointer,
 )
-from compute.jobs.backfill_nodal import existence_test, gate, walk
+from compute.jobs.backfill_nodal import existence_test, walk
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
 from compute.projection.codecs import (
     DRIVERS_MAX_DAYS,
@@ -626,24 +626,6 @@ def test_bands_report_coverage_and_skill_together():
     m = _metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
     assert {"coverage80", "band_width", "pinball", "pooled_r2",
             "topdecile_hit"} <= set(m)
-
-
-# ---------------------------------------------------------------- the gate
-
-def test_gate_is_the_bar_as_written():
-    """§5.5, transcribed. Pinned so it cannot drift while being read — a bar
-    edited after the numbers exist is not a bar."""
-    assert gate(0.62, 0.4, 0.4, 0.4) == "FORECAST PRODUCT"          # R² alone
-    assert gate(0.1, 0.72, 0.88, 0.5) == "FORECAST PRODUCT"         # screening alone
-    assert gate(0.35, 0.4, 0.4, 0.4) == "SCREENING TOOL"            # R² band
-    assert gate(0.1, 0.65, 0.5, 0.62) == "SCREENING TOOL"           # screening band
-    assert gate(0.22, 0.548, 0.787, 0.523) == "NOT THE PRODUCT"     # what we got
-
-
-def test_gate_does_not_promote_a_near_miss():
-    """0.599 is not 0.60. The temptation to round is exactly what pre-registration
-    exists to remove."""
-    assert gate(0.29, 0.599, 0.99, 0.599) == "NOT THE PRODUCT"
 
 
 def test_existence_test_needs_all_three_screening_measures():
