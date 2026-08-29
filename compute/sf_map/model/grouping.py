@@ -1,29 +1,30 @@
-"""Collinear grouping of co-binding constraints (S2 / plan 0083).
+"""Collinear grouping of co-binding constraints.
+
+STATUS: INACTIVE IN PRODUCTION.
+
+The 63-week ablation at the adopted ``(window_days=240, refit_days=7,
+lambda=1.0)`` operating point found that grouping improved fair cross-window SF
+stability by only +0.003 to +0.006 (depending on ``rho_min``), far below the
+pre-registered +0.10 bar. Accuracy guards passed, but the groups were too small
+(1.09–1.18× compression) for the collinearity fix to address the dominant
+source of drift: changing congestion regimes. Keep this module for evaluation
+and diagnostics; the production ``weekly_map`` runner leaves ``rho_min=None``
+and fits raw constraint columns.
 
 Constraints that co-bind within a fit window are collinear columns of ``M``.
 Only the mass-weighted sum ``Σ_c a_c·SF[c, sp]`` over such a block is
 identifiable; the ridge's split of that sum across the block's members is
-arbitrary and flips between refits. Every signed, named claim (node explorer,
-error attribution) is therefore blocked until the fit's unit is a *group*.
+arbitrary and flips between refits.
 
-The fix is **aggregate-then-fit**: cluster the μ columns, sum each block into
-one composite column ``m_g[h] = Σ_{c∈g} μ[h, c]``, and solve the existing ridge
-on the reduced panel. Averaging per-constraint SFs *after* the fit would leave
-the arbitrary allocation inside the solve and fix nothing.
-
-Pure functions over a window's ``M`` — no I/O, no DB. ``fit.py`` is untouched;
-callers (``rolling``, ``eval``) map ``M → M_g`` before handing it to the ridge.
-
-Two-stage API, because the correlation matrix and the linkage tree do not depend
-on ``rho_min`` — only the *cut* does. The rho sweep (S2's whole point) would
-otherwise recompute a ~1000×1000 correlation per threshold per refit window::
+The fix is 'aggregate-then-fit': cluster the μ columns, sum each block into one
+composite column ``m_g[h] = Σ_{c∈g} μ[h, c]``, and solve the existing ridge on
+the reduced panel.
 
     link    = constraint_linkage(M_window)      # expensive, once per window
     labels  = cut_groups(link, rho_min=0.8)     # cheap, once per threshold
     M_g     = aggregate_mu(M_window, labels)
     members = group_members(M_window, labels)   # persistence / the explorer
 
-``group_constraints`` bundles both stages for single-shot callers.
 """
 from __future__ import annotations
 
@@ -40,53 +41,78 @@ MIN_CORR_HOURS = 2
 
 
 def mu_mass(M: pd.DataFrame) -> pd.Series:
-    """Per-constraint μ-mass over the window — ``Σ_h |μ[h, c]|``.
+    """Per-constraint sum mu; μ-mass over the window: ``Σ_h |μ[h, c]|``.
 
-    The weight behind every ranking here: the dominant member that names a
-    group, and the within-group shares in ``group_members``. Matches the mass
-    definition ``eval.evaluate`` already uses for coverage, so "the group
-    carries this constraint's mass" means the same thing on both sides.
     """
     return M.abs().sum(axis=0)
 
 
 @dataclass
 class ConstraintLinkage:
-    """A window's clustering tree, cuttable at any ``rho_min``.
+    """Z is the hierarchical clustering tree encoded as a NumPy array.
 
-    ``Z`` is the scipy linkage over ``1 − corr``; ``keys`` are the *clusterable*
-    constraints in ``Z``'s row order; ``singletons`` are the window-inactive
-    columns held out of the tree (see ``constraint_linkage``); ``mass`` is the
-    per-constraint μ-mass used to name each group by its dominant member.
+    For n input constraints, it has n - 1 rows and four columns:
+
+    [left_child, right_child, merge_distance, number_of_members]
+
+    Example with three constraints A, B, C:
+
+    Z =
+    [
+      [0, 1, 0.10, 2],   # merge A and B at distance 0.10
+      [2, 3, 0.70, 3],   # merge C with the A+B cluster at distance 0.70
+    ]
+
     """
-    Z: np.ndarray
-    keys: pd.Index
-    singletons: pd.Index
-    mass: pd.Series
-    linkage: str
+    Z: np.ndarray          # SciPy linkage tree over 1 − correlation.
+    keys: pd.Index         # Clusterable constraints, in Z's row order.
+    singletons: pd.Index   # Window-inactive (non-binding) constraints held out of the tree.
+    mass: pd.Series        # Per-constraint μ-mass; names groups by dominant member.
+    linkage: str           # Linkage method used to build Z.
 
 
 def constraint_corr(M: pd.DataFrame) -> np.ndarray:
-    """Correlation between ``M``'s columns over the window's rows.
+    """Calculates pairwise constraint correlations from M
 
-    Taken over *all* rows, zeros included. The non-binding hours are real
-    observations (NP4-191 publishes binding rows only, so absence is μ=0 by
-    construction) and they are what conditions ``XᵀX`` — the matrix whose
-    collinearity we are here to fix.
+    if M looks like (hour x constraints, mu)
+      hour       μ_A    μ_B    μ_C
+       1          100     90      0
+       2          200    180     50
+       3            0      0     10
+
+    the pairwise correlation looks like: constraint x constraint
+
+                   A       B       C
+         A       1.00    0.99    0.20
+         B       0.99    1.00    0.15
+         C       0.20    0.15    1.00
+
 
     ``np.corrcoef`` (BLAS) rather than ``DataFrame.corr`` (pairwise): at ~1,000
     constraints × ~5,800 hours the pandas path costs ~30s per call, and the rho
     sweep calls this once per refit window.
 
     Columns that never bind, or bind too few hours to correlate with anything,
-    come back as 0 (→ distance 1, beyond any cut with ``rho_min > 0``) rather
-    than NaN, so they can only ever be singletons.
+    come back as 0 (so distance 1) rather than NaN, so they can only ever be
+    singletons.
+
     """
-    X = M.to_numpy(dtype=float)
+    X = M.to_numpy(dtype=float) # hours x constraint, mu
+
+    # rowVar=False: each column is the variable, calculate pearson correlation
+    # with every column pair
+
     with np.errstate(invalid="ignore", divide="ignore"):
         corr = np.corrcoef(X, rowvar=False)
+
+    # convert to float, and ensure corr is a matrix (even if only a single
+    # constraint). copy() means in-place modification is safe.
     corr = np.atleast_2d(np.asarray(corr, dtype=float)).copy()
-    corr[~np.isfinite(corr)] = 0.0
+    corr[~np.isfinite(corr)] = 0.0  # set runaway values to 0.0
+
+    # thin: of binding hours, count column wise (axis=0) - label constraint as
+    # thin (bool), set those constraints in corr matrix to 0, and set diagonal
+    # (same constraints) to 1
 
     thin = ((M != 0).sum(axis=0) < MIN_CORR_HOURS).to_numpy()
     corr[thin, :] = 0.0
@@ -98,33 +124,46 @@ def constraint_corr(M: pd.DataFrame) -> np.ndarray:
 def constraint_linkage(
     M: pd.DataFrame, linkage: str = "complete"
 ) -> ConstraintLinkage:
-    """Build the clustering tree for one window. The expensive half.
+    """Build the clustering tree for one window.
 
-    **Only window-active columns enter the tree.** ``M`` is keyed by every
-    constraint in the loaded history — 8,445 of them over 2.5 years — but inside
-    any one 240-day window most never bind, and a column with fewer than
-    ``MIN_CORR_HOURS`` binding hours has no usable correlation with anything and
-    is forced to a singleton regardless. Clustering them anyway means an
-    8,445² correlation per window instead of ~3,900², for provably identical
-    labels. The held-out columns are recorded in ``singletons`` and mapped to
-    themselves by ``cut_groups``.
+    Only window-active columns enter the tree. ``M`` is keyed by every
+    constraint in the loaded history — 8,445 of them over 2.5 years — but
+    inside any one 240-day window most never bind, and a column with fewer than
+    ``MIN_CORR_HOURS`` binding hours has no usable correlation and is not
+    grouped anyway.
+
+    Clustering them means an 8,445² correlation per window instead of ~3,900²,
+    for provably identical labels. So the held-out columns are recorded in
+    ``singletons`` and mapped to themselves by ``cut_groups``.
+
     """
     all_keys = pd.Index(M.columns)
-    mass = mu_mass(M)
+    mass = mu_mass(M)  # per constraint, sum all mu per hour. Series of constraint, mu sum values
+
+    # NB: active_mask MIN_CORR_HOURS is over entire 240d window - low bar
     active_mask = ((M != 0).sum(axis=0) >= MIN_CORR_HOURS).to_numpy()
     keys = all_keys[active_mask]
-    singletons = all_keys[~active_mask]
+    singletons = all_keys[~active_mask]  # non-binders in window
 
     if len(keys) <= 1:
         return ConstraintLinkage(Z=np.empty((0, 4)), keys=keys,
                                  singletons=all_keys.difference(keys),
                                  mass=mass, linkage=linkage)
 
+    #
+    # correlation matrix for eligible constraints, then converts it to distance:
+    #
     dist = np.clip(1.0 - constraint_corr(M[keys]), 0.0, 2.0)
+
     # squareform demands an exactly symmetric, zero-diagonal matrix; corrcoef
     # can leave float asymmetry in the last bit.
-    dist = (dist + dist.T) / 2.0
-    np.fill_diagonal(dist, 0.0)
+    dist = (dist + dist.T) / 2.0   # avg floating point noise
+    np.fill_diagonal(dist, 0.0)    # set distance to same point to 0
+
+    # squareform is scipy pairwise distance format - convert to that
+    # scipy_linkage: distances to Z - the hierarhical clustering tree as an
+    # array
+
     Z = scipy_linkage(squareform(dist, checks=False), method=linkage)
     return ConstraintLinkage(Z=Z, keys=keys, singletons=singletons,
                              mass=mass, linkage=linkage)
@@ -133,82 +172,88 @@ def constraint_linkage(
 def cut_groups(link: ConstraintLinkage, rho_min: float) -> pd.Series:
     """Cut the tree at ``rho_min``. Returns constraint_key → group_key.
 
-    The cut is ``criterion="distance"`` at ``t = 1 − rho_min``. Under
-    ``complete`` linkage that is a guarantee about every pair, not just the
-    cluster average: **any two constraints in a group correlate at ≥ rho_min**.
-    Which also means only positively-correlated columns ever merge (for
-    ``rho_min > 0``), so a summed group column can never cancel itself out.
-
     ``rho_min >= 1.0`` short-circuits to the identity mapping (every constraint
-    its own group). Requiring corr ≥ 1 to merge means no merging, and making
-    that exact — rather than "merges only bit-identical columns" — gives callers
-    a true no-op for A/B-ing the grouped path against the ungrouped one.
+    its own group). Requiring corr ≥ 1 to merge means no merging.
 
     Group key = the group's highest-μ-mass member's ``constraint_key`` (ties
-    broken lexicographically, so the labeling is deterministic). Readable in the
-    UI ("this block is basically <that constraint>"), and a singleton group keys
-    to itself — so the ungrouped case is schema-identical to today and the
-    ``implied_shift_factors.constraint_key`` TEXT column absorbs both.
+    broken lexicographically, so the labeling is deterministic).
+
     """
     keys = link.keys
     all_keys = keys.append(link.singletons)
     if len(keys) <= 1 or rho_min >= 1.0:
         return pd.Series(all_keys, index=all_keys, dtype=object)
 
+    # fcluster: flat clusters from hierarchical
+    # labels indicate group membership
+    #
+    # keys:   A B C D
+    # labels: 1 1 2 3
+
     labels = fcluster(link.Z, t=1.0 - rho_min, criterion="distance")
-    mass = link.mass
+    mass = link.mass  # mu
     out = pd.Series(index=all_keys, dtype=object)
     # Window-inactive columns were held out of the tree; they are singletons by
     # construction, so they key to themselves.
     out.loc[link.singletons] = link.singletons
+
+    # loop through each group, build out: keys => group
     for lab in np.unique(labels):
         members = keys[labels == lab]
-        ranked = sorted(members, key=lambda k: (-float(mass[k]), str(k)))
-        out.loc[members] = ranked[0]
+        ranked = sorted(members, key=lambda k: (-float(mass[k]), str(k)))  # mu then lex
+        out.loc[members] = ranked[0]   # key to (top) representative member of group
     return out
 
-
-def group_constraints(
-    M: pd.DataFrame, rho_min: float, linkage: str = "complete"
-) -> pd.Series:
-    """Single-shot convenience: build the tree and cut it once."""
-    return cut_groups(constraint_linkage(M, linkage=linkage), rho_min)
-
-
 def aggregate_mu(M: pd.DataFrame, labels: pd.Series) -> pd.DataFrame:
-    """Sum ``M``'s columns within each group → ``(hours × groups)``.
+    """Sum ``M``'s columns within each group: ``(hours × groups)``.
 
     ``m_g[h] = Σ_{c∈g} μ[h, c]`` — the mass-preserving aggregation, so a group's
     column carries exactly the μ-mass of its members and coverage means the same
     thing before and after grouping.
 
-    Columns of ``M`` absent from ``labels`` are dropped. That is the intended
-    behavior at *score* time: ``labels`` come from the fit window, and a
-    constraint that shows up in the scored week without ever appearing in the
-    fit window has no SF column to score against either — it is exactly the
-    novel μ-mass that ``coverage`` is there to report. Callers must therefore
-    compute coverage against the raw ``M``, not this reduced panel.
+    Columns of ``M`` absent from ``labels`` are dropped.
 
     Group columns are sorted so the panel's column order is deterministic.
+
+    M =
+    hour     A     B     C
+    h1      10     5     2
+    h2      20    10     0
+
+    and labels says:
+
+    A → A
+    B → A
+    C → C
+
+    So A and B are one group, named A.
+
+    The result is:
+
+    grouped =
+    hour     A     C
+    h1      15     2
+    h2      30     0
+
     """
     if M.empty or labels.empty:
         return pd.DataFrame(index=M.index)
-    cols = M.columns.intersection(labels.index)
+
+    cols = M.columns.intersection(labels.index)   # constraints
     if len(cols) == 0:
         return pd.DataFrame(index=M.index)
 
-    lab = labels.loc[cols]
-    if lab.is_unique:
-        # Nothing merged, so the mapping is the identity (a singleton group is
-        # named for its only member) and the "aggregate" IS the panel. Return it
-        # untouched rather than round-tripping through groupby-sum: that rebuilds
-        # the array with a different memory layout, which changes the BLAS
-        # reduction order inside the ridge and moves the solution by ~1e-13.
-        # Numerically trivial — but it would make `rho_min=1.0` an approximate
-        # rather than an exact no-op, and the grouped-vs-ungrouped comparison
-        # this whole section turns on assumes that baseline is exact.
+    lab = labels.loc[cols]                        # group assignments
+    if lab.is_unique:                             # no grouping, no sum needed
         return M if len(cols) == M.shape[1] else M[cols]
 
+    #
+    # aggregation
+    # M transpose -> constraint x hour
+    # lab.to_numpy() drops the index, so get an array of group labels
+    # groupby - groups rows (hence the double transpose to return back original dims)
+    # sum mu across cols (hours  in this case) per group
+    #
     grouped = M[cols].T.groupby(lab.to_numpy()).sum().T
     grouped.columns.name = None
     return grouped.reindex(columns=sorted(grouped.columns))

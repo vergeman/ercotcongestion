@@ -20,8 +20,9 @@ class RefitWindow:
     M_window: pd.DataFrame    # trailing shadow-price panel, RAW (constraints)
     C_window: pd.DataFrame    # trailing congestion panel used for the fit
     SF: pd.DataFrame          # (constraints × SPs), or (groups × SPs) if grouped
-    # The panel actually handed to the ridge: `M_window` when ungrouped, its
-    # group aggregate when `rho_min` is set. Diagnostics must use this one — its
+
+    # The panel handed to the ridge: `M_window` when ungrouped.
+    # Diagnostics use this one — its
     # columns are what `SF`'s rows are keyed by. Identical object to `M_window`
     # when grouping is off, so ungrouped callers see no change.
     M_fit: pd.DataFrame
@@ -59,9 +60,11 @@ def fit_refit_window(
     rho_min
         When set, collinear μ columns are grouped before the ridge solve.
     """
+
     idx = M_all.index.union(C_all.index).sort_values()
     M_all = M_all.reindex(idx).fillna(0.0)
     C_all = C_all.reindex(idx)
+
     window_end = score_end
     window_start = window_end - pd.Timedelta(days=window_days)
     win_mask = (M_all.index >= window_start) & (M_all.index < window_end)
@@ -72,9 +75,16 @@ def fit_refit_window(
     if M_win.empty:
         SF = pd.DataFrame(columns=C_all.columns)
     else:
+
+        #
+        # NB: rho_min collinear grouping branch does not execute in prod
+        # see compute/grouping.py
+        #
         if rho_min is not None:
-            labels = cut_groups(constraint_linkage(M_win), rho_min)
-            M_fit = aggregate_mu(M_win, labels)
+            link = constraint_linkage(M_win)    # Z hierarchical cluster
+            labels = cut_groups(link, rho_min)  # keys -> group
+            M_fit = aggregate_mu(M_win, labels) # now grouped M with mu
+
         SF = implied_shift_factors(
             M_fit, C_win, lam=lam, min_hours=min_hours,
             standardize=standardize, std_floor=std_floor,

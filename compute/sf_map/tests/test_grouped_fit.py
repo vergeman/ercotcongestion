@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from compute.evaluation.sf import evaluate, evaluate_chunked
-from compute.sf_map.model.grouping import group_constraints
+from compute.sf_map.model.grouping import constraint_linkage, cut_groups
 from compute.sf_map.model.rolling import fit_refit_window
 
 METRICS = ["oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
@@ -222,7 +222,7 @@ def test_grouped_coverage_is_measured_against_the_raw_panel(panels):
     grouped = evaluate(M, C, rho_min=0.8, **kw)
     # Same planted panel, no novel constraints: every constraint is in some kept
     # group, so coverage is 1.0 in both arms — not inflated by the aggregation.
-    labels = group_constraints(M, rho_min=0.8)
+    labels = cut_groups(constraint_linkage(M), rho_min=0.8)
     assert labels.nunique() < M.shape[1]
     np.testing.assert_allclose(base["coverage"].to_numpy(float),
                                grouped["coverage"].to_numpy(float),
