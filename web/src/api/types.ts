@@ -554,6 +554,33 @@ export interface ScoreboardDaily {
   points: DailyPoint[];
 }
 
+// /scoreboard/history — the chart-only sequence. Weekly backtest and daily
+// served grades retain distinct date fields and provenance; the final track is
+// the only live cadence included.
+export type ScoreCadence = "backtest_weekly" | "served_daily";
+
+export interface ScoreHistoryPoint {
+  source: string;
+  cadence: ScoreCadence;
+  week: string | null;
+  delivery_date: string | null;
+  rank_spearman: number | null;
+  sign_agree: number | null;
+  topdecile_hit: number | null;
+  sf_coverage: number | null;
+  model_coverage: number | null;
+  n_hours: number | null;
+  n_nodes: number | null;
+}
+
+export interface ScoreboardHistory {
+  primary_source: string;
+  weekly_run_id: string;
+  daily_run_id: string | null;
+  boundary_date: string | null;
+  points: ScoreHistoryPoint[];
+}
+
 // Explicitly describes a bootstrap section's soft-fail state and, where the
 // resource has one, the source artifact identity behind its payload.
 export interface BootstrapSectionStatus {

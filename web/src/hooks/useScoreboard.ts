@@ -2,15 +2,17 @@ import { useEffect, useMemo, useReducer } from "react";
 import {
   fetchScoreboardDaily,
   fetchScoreboardHeadline,
+  fetchScoreboardHistory,
   fetchScoreboardWeekly,
 } from "../api/scoreboard";
-import type { ScoreboardDaily, ScoreboardHeadline, ScoreboardWeekly } from "../api/types";
+import type { ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly } from "../api/types";
 import type { ConnectionState } from "./useExplorerSession";
 
 type ScoreboardState = {
   weekly: ScoreboardWeekly | null;
   headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
+  history: ScoreboardHistory | null;
   backtestLoading: boolean;
   liveLoading: boolean;
   backtestError: boolean;
@@ -22,7 +24,7 @@ type ScoreboardState = {
 type Action = { type: "patch"; patch: Partial<ScoreboardState> };
 
 const initialState: ScoreboardState = {
-  weekly: null, headline: null, daily: null,
+  weekly: null, headline: null, daily: null, history: null,
   backtestLoading: true, liveLoading: true, backtestError: false, liveError: false,
   connectionState: "loading", lastUpdated: null,
 };
@@ -44,18 +46,19 @@ export function useScoreboard(horizon: number | null) {
     Promise.all([
       fetchScoreboardWeekly(),
       fetchScoreboardHeadline(),
+      fetchScoreboardHistory(),
     ])
-      .then(([weekly, headline]) => {
+      .then(([weekly, headline, history]) => {
         if (!controller.signal.aborted) {
           dispatch({
             type: "patch",
-            patch: { weekly, headline, backtestLoading: false, lastUpdated: new Date() },
+            patch: { weekly, headline, history, backtestLoading: false, lastUpdated: new Date() },
           });
         }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
-          dispatch({ type: "patch", patch: { weekly: null, headline: null, backtestLoading: false, backtestError: true } });
+          dispatch({ type: "patch", patch: { weekly: null, headline: null, history: null, backtestLoading: false, backtestError: true } });
         }
       });
     return () => controller.abort();

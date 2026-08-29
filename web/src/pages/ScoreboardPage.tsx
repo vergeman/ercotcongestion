@@ -3,8 +3,8 @@ import type {
   ScoreboardWeekly,
   ScoreboardHeadline,
   ScoreboardDaily,
-  WeeklyPoint,
   DailyPoint,
+  ScoreHistoryPoint,
   HeadlineWindow,
 } from "../api/types";
 import HeaderNav from "../components/layout/HeaderNav";
@@ -61,29 +61,31 @@ const fmtDay = (d: string): string =>
     timeZone: "UTC",
   });
 
-// ── the weekly series chart (hand-rolled SVG) ───────────────────────────────
+// ── the backtest + served-grade series chart (hand-rolled SVG) ──────────────
 function SeriesChart({
   points,
   metric,
   cutover,
+  boundaryDate,
 }: {
-  points: WeeklyPoint[];
+  points: ScoreHistoryPoint[];
   metric: MetricKey;
   cutover: string;
+  boundaryDate: string | null;
 }) {
-  const weeks = useMemo(
-    () => Array.from(new Set(points.map((p) => p.week))).sort(),
+  const dates = useMemo(
+    () => Array.from(new Set(points.map((p) => p.week ?? p.delivery_date ?? ""))).sort(),
     [points]
   );
   const byKey = useMemo(() => {
-    const m = new Map<string, WeeklyPoint>();
-    for (const p of points) m.set(`${p.week}|${p.source}`, p);
+    const m = new Map<string, ScoreHistoryPoint>();
+    for (const p of points) m.set(`${p.week ?? p.delivery_date}|${p.source}`, p);
     return m;
   }, [points]);
 
   const meta = METRICS[metric];
   const valueAt = (i: number, source: string): number | null => {
-    const p = byKey.get(`${weeks[i]}|${source}`);
+    const p = byKey.get(`${dates[i]}|${source}`);
     const v = p ? (p[metric] as number | null) : null;
     return v == null ? null : v;
   };
@@ -92,9 +94,9 @@ function SeriesChart({
     () =>
       SERIES.map((s) => ({
         ...s,
-        vals: weeks.map((_, i) => valueAt(i, s.source)),
+        vals: dates.map((_, i) => valueAt(i, s.source)),
       })),
-    [weeks, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
+    [dates, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const allVals = seriesVals.flatMap((s) =>
@@ -106,7 +108,7 @@ function SeriesChart({
   // at the 11px label face) — keep it wide enough that they don't clip.
   const M = { t: 14, r: 116, b: 22, l: 42 };
   const H = 280;
-  const n = weeks.length;
+  const n = dates.length;
   const {
     wrapRef, width, hover, clearHover, moveHover, setHoverFromCoordinate,
   } = useScoreboardChart(n);
@@ -151,8 +153,8 @@ function SeriesChart({
       endLabels[i].y = endLabels[i - 1].y + 12;
   }
 
-  // RTC+B cutover → nearest week index.
-  const cutIdx = weeks.findIndex((w) => w >= cutover);
+  const cutIdx = dates.findIndex((d) => d >= cutover);
+  const boundaryIdx = boundaryDate == null ? -1 : dates.findIndex((d) => d >= boundaryDate);
   const zeroInDomain = dMin < 0 && dMax > 0;
 
   // x tick indices: a handful across the span.
@@ -218,7 +220,7 @@ function SeriesChart({
             textAnchor="middle"
             className="sb-axis"
           >
-            {fmtWeek(weeks[i])}
+            {fmtWeek(dates[i])}
           </text>
         ))}
 
@@ -240,6 +242,23 @@ function SeriesChart({
               className="sb-axis sb-axis--mark"
             >
               RTC+B
+            </text>
+          </g>
+        )}
+
+        {boundaryIdx > 0 && (
+          <g>
+            <line
+              x1={x(boundaryIdx)}
+              x2={x(boundaryIdx)}
+              y1={M.t}
+              y2={M.t + plotH}
+              stroke="var(--accent)"
+              strokeWidth={1}
+              strokeDasharray="5 3"
+            />
+            <text x={x(boundaryIdx) + 3} y={M.t + 21} className="sb-axis sb-axis--mark">
+              Served grades
             </text>
           </g>
         )}
@@ -312,7 +331,7 @@ function SeriesChart({
             if (event.key === "ArrowRight") moveHover(1);
           }}
           tabIndex={0}
-          aria-label="Use left and right arrow keys to inspect weekly values"
+          aria-label="Use left and right arrow keys to inspect backtest and served-grade values"
         />
       </svg>
 
@@ -321,7 +340,11 @@ function SeriesChart({
           className="sb-tip"
           style={{ left: Math.min(x(hover) + 8, width - 140), top: M.t }}
         >
-          <div className="sb-tip__wk">{fmtWeek(weeks[hover])}</div>
+          <div className="sb-tip__wk">
+            {points.find((p) => (p.week ?? p.delivery_date) === dates[hover])?.cadence === "served_daily"
+              ? `Served daily grade · ${fmtDay(dates[hover])}`
+              : `Walk-forward backtest week · ${fmtWeek(dates[hover])}`}
+          </div>
           {seriesVals.map((s) => {
             const v = s.vals[hover];
             return (
@@ -774,7 +797,7 @@ export default function ScoreboardPage() {
   const [horizon, setHorizon] = useState<number | null>(null);
   const [controls, dispatchControls] = useScoreboardControls();
   const {
-    weekly, headline, daily, backtestLoading, liveLoading, liveError,
+    weekly, headline, daily, history, backtestLoading, liveLoading, liveError,
     connectionState, lastUpdated,
   } =
     useScoreboard(horizon);
@@ -834,13 +857,18 @@ export default function ScoreboardPage() {
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Backtest · weekly series ({METRICS[controls.metric].label})
+                Track record · weekly backtest and served daily grades ({METRICS[controls.metric].label})
               </div>
-              <SeriesChart
-                points={weekly.points}
-                metric={controls.metric}
-                cutover={weekly.rtc_b_cutover}
-              />
+              {history ? (
+                <SeriesChart
+                  points={history.points}
+                  metric={controls.metric}
+                  cutover={weekly.rtc_b_cutover}
+                  boundaryDate={history.boundary_date}
+                />
+              ) : (
+                <div className="sb-empty label">track history could not be loaded.</div>
+              )}
 
               {/* legend — identity for ≥2 series, alongside the direct end-labels */}
               <div className="sb-legend">

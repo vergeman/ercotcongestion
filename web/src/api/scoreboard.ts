@@ -3,6 +3,7 @@ import { QueryCache } from "./cache";
 import type {
   ScoreboardDaily,
   ScoreboardHeadline,
+  ScoreboardHistory,
   ScoreboardSummary,
   ScoreboardWeekly,
 } from "./types";
@@ -10,6 +11,7 @@ import type {
 const weeklyCache = new QueryCache<ScoreboardWeekly | null>({ maxSize: 12, ttlMs: 60_000 });
 const headlineCache = new QueryCache<ScoreboardHeadline | null>({ maxSize: 12, ttlMs: 60_000 });
 const dailyCache = new QueryCache<ScoreboardDaily | null>({ maxSize: 4, ttlMs: 60_000 });
+const historyCache = new QueryCache<ScoreboardHistory | null>({ maxSize: 4, ttlMs: 60_000 });
 
 export function fetchScoreboardSummary(
   horizon?: number | null,
@@ -22,6 +24,10 @@ export function fetchScoreboardSummary(
 
 export function fetchScoreboardWeekly(): Promise<ScoreboardWeekly | null> {
   return weeklyCache.load("weekly", (signal) => requestJson("/scoreboard/weekly", { signal }));
+}
+
+export function fetchScoreboardHistory(): Promise<ScoreboardHistory | null> {
+  return historyCache.load("history", (signal) => requestJson("/scoreboard/history", { signal }));
 }
 
 export function fetchScoreboardHeadline(): Promise<ScoreboardHeadline | null> {
