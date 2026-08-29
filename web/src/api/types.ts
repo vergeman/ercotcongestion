@@ -436,7 +436,7 @@ export interface RankedConstraints {
 // against `higher_is_better`. `oracle` is the ceiling. Any field is null when a
 // source had no scored week in the window.
 export interface HeadlineCurrency {
-  currency: string; // topdecile_hit | rank_spearman | sign_agree | pooled_r2
+  currency: string; // topdecile_hit | rank_spearman | sign_agree
   higher_is_better: boolean;
   model: number | null;
   persistence: number | null;
@@ -455,11 +455,10 @@ export interface HeadlineWindow {
   currencies: HeadlineCurrency[];
 }
 
-// The rolling headline for one board (`run_id`) and `regime`. `as_of_week` is the
+// The rolling headline for one board (`run_id`). `as_of_week` is the
 // latest week on the board — the anchor the windows trail from.
 export interface ScoreboardHeadline {
   run_id: string;
-  regime: string;
   as_of_week: string;
   windows: HeadlineWindow[];
 }
@@ -471,13 +470,11 @@ export interface ScoreboardHeadline {
 // sources so a lone model figure can't be charted (§6).
 // =============================================================================
 
-// One (week, source) row for the chart. Screening currencies lead; magnitude
-// (pooled_r2 / mae) files under a toggle. Band columns are model/all only.
+// One (week, source) row for the chart. All nullable — a declined screening
+// metric rides through as null.
 export interface WeeklyPoint {
   week: string;
   source: string;
-  pooled_r2: number | null;
-  mae: number | null;
   rank_spearman: number | null;
   sign_agree: number | null;
   topdecile_hit: number | null;
@@ -493,26 +490,21 @@ export interface WeeklyPoint {
 // One source's pooled currencies over a split — the week-mean of each metric.
 export interface SourcePooled {
   source: string;
-  pooled_r2: number | null;
-  mae: number | null;
   rank_spearman: number | null;
   sign_agree: number | null;
   topdecile_hit: number | null;
 }
 
-// A pooled slice (all / pre_rtc_b / post_rtc_b). `gate` is the pre-registered
-// verdict on the model's pooled means; `beats_persistence` the existence test.
+// A pooled slice (all / pre_rtc_b / post_rtc_b) with an existence test.
 export interface WeeklySplit {
   label: string; // all | pre_rtc_b | post_rtc_b
   n_weeks: number;
   sources: SourcePooled[];
-  gate: string | null;
   beats_persistence: boolean | null;
 }
 
 export interface ScoreboardWeekly {
   run_id: string;
-  regime: string;
   primary_source: string;
   rtc_b_cutover: string;
   points: WeeklyPoint[];
@@ -539,8 +531,6 @@ export interface DailyPoint {
   // (fires D−2). One board carries one horizon; it rides on every point so a
   // reader never has to guess which track a number belongs to.
   horizon: number;
-  pooled_r2: number | null;
-  mae: number | null;
   rank_spearman: number | null;
   sign_agree: number | null;
   topdecile_hit: number | null;

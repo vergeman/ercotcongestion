@@ -663,7 +663,7 @@ def test_overview_types_and_node_field(real_client):
 TOPOLOGY = {"type": "FeatureCollection", "features": []}
 OVERVIEW = MapOverview(run_id="map-v1", window_start=WS, window_end=WE, n=70, k=6, constraints=[])
 META = MapMeta(run_id="map-v1", window_start=WS, window_end=WE)
-HEADLINE = ScoreboardHeadline(run_id="r", regime="all", as_of_week=WS.date(), windows=[])
+HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=WS.date(), windows=[])
 
 
 def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypatch):

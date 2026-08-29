@@ -101,7 +101,6 @@ def test_oracle_through_the_map_recovers_the_congestion_it_generated():
     weeks = pd.DatetimeIndex([pd.Timestamp("2025-10-01", tz="UTC")])
     rows = score_week(M, C, weeks[0], _preds(M, weeks))
     oracle = next(r for r in rows if r["source"] == "oracle")
-    assert oracle["pooled_r2"] > 0.99
     assert oracle["rank_spearman"] > 0.95
 
 
@@ -109,16 +108,11 @@ def test_null_predicts_zero_and_scores_like_it():
     """Null is the floor every other row is read against, so it must actually be
     the floor: zero congestion everywhere, no skill, top-decile at chance.
 
-    Its R² is ≤ 0 and cannot be positive — R² is measured against the mean, and a
-    predictor that ignores the data cannot beat the mean. (On real ERCOT data the
-    congestion mean is meaningfully non-zero and it lands at −0.042; here the
-    synthetic mean is ~0 by construction, so it sits just under 0. Asserting the
-    real −0.042 would be pinning the fixture, not the harness.)"""
+    Its screening metrics are undefined because a flat map ranks nothing."""
     M, C, _ = _world(days=300)
     weeks = pd.DatetimeIndex([pd.Timestamp("2025-10-01", tz="UTC")])
     rows = score_week(M, C, weeks[0], _preds(M, weeks))
     null = next(r for r in rows if r["source"] == "null")
-    assert null["pooled_r2"] <= 1e-9
     # Screening is UNDEFINED for a flat map, not chance-level. Left to the raw
     # metric, argsort's index tie-breaking scored this 0.63 against a 0.10 chance
     # rate — the floor row of the table, inventing skill from column order.
@@ -197,13 +191,11 @@ def test_keys_the_model_never_saw_are_zero_and_counted():
 
 # ------------------------------------------------------------- the currencies
 
-def test_both_currencies_are_always_reported():
-    """A screener graded only on R² reads as a failure; a forecast graded only on
-    rank reads as a success. The harness may never emit one without the other."""
+def test_screening_metrics_are_always_reported():
     M, C, _ = _world(days=300)
     s = pd.Timestamp("2025-10-01", tz="UTC")
     rows = score_week(M, C, s, _preds(M, pd.DatetimeIndex([s])))
-    need = {"pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit"}
+    need = {"rank_spearman", "sign_agree", "topdecile_hit"}
     for r in rows:
         assert need <= set(r), f"{r['source']} is missing {need - set(r)}"
     assert {r["source"] for r in rows} == set(SOURCES)
@@ -243,26 +235,13 @@ def test_the_map_is_never_fitted_on_the_week_it_grades():
     assert seen["max_ts"] < s
 
 
-def test_regime_split_partitions_the_week():
-    M, C, _ = _world(days=300)
-    s = pd.Timestamp("2025-10-01", tz="UTC")
-    hours = M.loc[(M.index >= s) & (M.index < s + pd.Timedelta(days=7))].index
-    regimes = pd.Series(np.where(hours.hour < 12, 0, 1), index=hours)
-    rows = score_week(M, C, s, _preds(M, pd.DatetimeIndex([s])), regimes=regimes)
-
-    oracle = [r for r in rows if r["source"] == "oracle"]
-    all_row = next(r for r in oracle if r["regime"] == "all")
-    parts = [r for r in oracle if r["regime"] != "all"]
-    assert sum(r["n_hours"] for r in parts) == all_row["n_hours"]
-
-
 def test_report_prints_every_source_and_both_splits():
     """RTC+B (2025-12-05) is a structural break; a number pooled across it hides a
     regime change. The weeks here straddle it on a real weekly phase."""
     M, C, _ = _world(start="2025-01-01", days=420)
     weeks = pd.date_range(pd.Timestamp("2025-11-13", tz="UTC"), periods=6,
                           freq=pd.Timedelta(days=7))     # 3 pre, 3 post
-    df = walk(M, C, _preds(M, weeks), None)
+    df = walk(M, C, _preds(M, weeks))
     txt = report(df)
     for src in SOURCES:
         assert src in txt
@@ -292,5 +271,4 @@ def test_score_matrix_handles_a_constant_truth_row():
     Y = np.zeros((3, 20))
     Yh = RNG.normal(size=(3, 20))
     m = score_matrix(Y, Yh)
-    assert np.isnan(m["pooled_r2"]) or m["pooled_r2"] < 0
     assert np.isnan(m["rank_spearman"])

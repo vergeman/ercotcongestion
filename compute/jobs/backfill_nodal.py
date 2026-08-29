@@ -1,10 +1,10 @@
-"""Backtest walk → nodal panel seed, and the R5 verdict, against the bar as written.
+"""Backtest walk → nodal panel seed.
 
 The one-time historical backfill runner (README §A): walk the validated
 predictions forward through the SF map, stream the per-week deterministic point
 panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-seed
-`forecast_nodal` and flip `forecast_current[ercot]`, plus the pre-registered R5
-gate. Shared DB writers live in `compute.forecast_store`; they remain imported here
+`forecast_nodal` and flip `forecast_current[ercot]`. Shared DB writers live in
+`compute.forecast_store`; they remain imported here
 as temporary compatibility re-exports. The projection math it drives lives in
 `compute.projection.propagate`.
 
@@ -59,8 +59,8 @@ def preds_path_for(run_id: str) -> str:
 def scores_path_for(run_id: str) -> str:
     """The μ weekly score CSV for `run_id` — `runs/<run_id>/mu/mu_score_weekly.csv`.
 
-    The per-(week × source × regime) currencies `compute.evaluation.mu` writes and `r5`
-    reads. A μ-stage artifact (score schema: source/regime/pooled_r2/…), so it lives
+    The per-(week × source) screening currencies `compute.evaluation.mu` writes.
+    A μ-stage artifact, so it lives
     under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
     which is `mu_model`'s calibration output."""
     return str(RunArtifacts(run_id, RUNS_ROOT).scores)
@@ -72,29 +72,25 @@ def nodal_path_for(run_id: str) -> str:
     return str(RunArtifacts(run_id, RUNS_ROOT).nodal_panel)
 
 
-def resolve_walk_paths(run_id: str | None, preds: str | None, scores: str | None,
-                       nodal_out: str | None,
+def resolve_walk_paths(run_id: str | None, preds: str | None, nodal_out: str | None,
                        *, load_nodal_npz: bool = False,
                        ) -> tuple[str | None, str | None, str | None]:
     """Resolve the walk's inputs/outputs from `--run-id` (canonical `runs/<id>/`
     tree), falling back to the legacy bundled `compute/mu` paths run-id-less.
 
-    Explicit values always win. Inputs (`preds`, `scores`) always resolve to *a*
-    path so the run-id-less metrics mode keeps reading the legacy bundle; the
-    derived nodal output is filled only under a run id, so a
+    Explicit values always win. The prediction input always resolves to a path;
+    the derived nodal output is filled only under a run id, so a
     run-id-less run keeps them opt-in (None) — its current behavior, unchanged.
     `--load-nodal-npz` is a standalone seed mode that runs no walk and derives
     nothing here (its own guard refuses the walk flags)."""
     if load_nodal_npz:
-        return preds, scores, nodal_out
+        return preds, nodal_out
     legacy = RUNS_ROOT.parent / "mu"
     preds = preds or (preds_path_for(run_id) if run_id
                       else str(legacy / "mu_preds.npz"))
-    scores = scores or (scores_path_for(run_id) if run_id
-                        else str(legacy / "mu_score_weekly.csv"))
     if run_id:
         nodal_out = nodal_out or nodal_path_for(run_id)
-    return preds, scores, nodal_out
+    return preds, nodal_out
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
@@ -152,34 +148,13 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
                 if mask.any():
                     curated[day] = SfMuArtifact(SF=SF, E_mu=E_mu.loc[mask])
         done, el = i + 1, time.perf_counter() - t0
-        log.info("  week %2d/%d %s  point R2 %+.3f  eta %.0fm",
-                 done, len(weeks), s.date(), rows[-1]["pooled_r2"],
+        log.info("  week %2d/%d %s  eta %.0fm",
+                 done, len(weeks), s.date(),
                  (el / done) * (len(weeks) - done) / 60)
     if sink is not None and nodal_out is not None:
         sink.save(nodal_out)
         log.info("wrote nodal panel → %s", nodal_out)
     return pd.DataFrame(rows)
-
-
-# --------------------------------------------------------------------------
-# R5 — the verdict, against the bar as written
-# --------------------------------------------------------------------------
-
-def gate(r2: float, spearman: float, sign: float, topdec: float) -> str:
-    """§5.5, transcribed. Either currency can clear a row ("either bar clears").
-
-    Written as code so the bar cannot drift while being read. It was fixed before
-    the numbers existed and is not edited now that they do — that is the whole
-    point of pre-registering it. If this function and the doc ever disagree, the
-    doc wins and this is the bug.
-    """
-    if r2 >= 0.5 or (spearman >= 0.70 and sign >= 0.85):
-        return "FORECAST PRODUCT"
-    if (0.3 <= r2 < 0.5) or (0.60 <= spearman < 0.70 and topdec >= 0.60):
-        return "SCREENING TOOL"
-    if r2 < 0.3 or (spearman < 0.60 and topdec <= 0.649):
-        return "NOT THE PRODUCT"
-    return "BETWEEN BARS — read the table, do not round"
 
 
 def existence_test(model: dict, persistence: dict) -> tuple[bool, str]:
@@ -197,35 +172,6 @@ def existence_test(model: dict, persistence: dict) -> tuple[bool, str]:
     return all(wins.values()), detail
 
 
-def r5(score_csv: pd.DataFrame) -> str:
-    """Both readings of R5, printed together, in the currency each was set in."""
-    a = score_csv[score_csv["regime"] == "all"]
-    out = ["\n=== R5 — does the covariate μ-model beat persistence? ===\n"]
-
-    def cell(src: str, d: pd.DataFrame) -> dict:
-        r = d[d["source"] == src]
-        return {k: float(r[k].mean()) for k in
-                ["pooled_r2", "rank_spearman", "sign_agree", "topdecile_hit"]}
-
-    for label, d in [("ALL 46 WEEKS", a),
-                     ("PRE-RTC+B", a[a["week"] < RTC_B]),
-                     ("POST-RTC+B", a[a["week"] >= RTC_B])]:
-        m, p = cell("model", d), cell("persistence", d)
-        v = gate(m["pooled_r2"], m["rank_spearman"], m["sign_agree"],
-                 m["topdecile_hit"])
-        beat, detail = existence_test(m, p)
-        out += [f"{label}  (n={d['week'].nunique()})",
-                f"  gate            : {v}",
-                f"    R² {m['pooled_r2']:+.3f} (bar 0.50 / 0.30)   "
-                f"Spearman {m['rank_spearman']:.3f} (bar 0.70 / 0.60)   "
-                f"sign {m['sign_agree']:.3f} (bar 0.85)   "
-                f"top-dec {m['topdecile_hit']:.3f} (bar 0.60)",
-                f"  existence test  : {'PASS' if beat else 'FAIL'} — {detail}",
-                ""]
-
-    return "\n".join(out)
-
-
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -239,10 +185,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="μ predictions/residual-pool npz; defaults to "
                         "runs/<run-id>/mu/mu_preds.npz on the runs PVC when "
                         "--run-id is given")
-    p.add_argument("--scores", default=None,
-                   help="μ weekly score CSV (r5); defaults to "
-                        "runs/<run-id>/mu/mu_score_weekly.csv with --run-id, else "
-                        "the legacy compute/mu bundle")
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--nodal-out", default=None,
@@ -284,10 +226,10 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     # Resolve the walk's inputs/outputs from --run-id before the flag checks below,
-    # so a run id derives --nodal-out (which --to-db then requires). --preds/--scores
+    # so a run id derives --nodal-out (which --to-db then requires). --preds
     # always resolve to a path; --nodal-out derives only under a run id.
-    args.preds, args.scores, args.nodal_out = resolve_walk_paths(
-        args.run_id, args.preds, args.scores, args.nodal_out,
+    args.preds, args.nodal_out = resolve_walk_paths(
+        args.run_id, args.preds, args.nodal_out,
         load_nodal_npz=bool(args.load_nodal_npz))
 
     if args.to_db and not (args.nodal_out and args.run_id):
@@ -359,9 +301,6 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if sf_conn is not None:
             sf_conn.close()
-    scores = pd.read_csv(args.scores, parse_dates=["week"])
-    print(r5(scores))
-
     if curated is not None:
         # Curated-day debug: the walk filled `curated` with each requested day's
         # SF+μ artifact; materialize its top-k driver rows to CSV. If --run-id is

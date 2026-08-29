@@ -13,9 +13,7 @@ from compute.jobs.backfill_nodal import scores_path_for
 
 log = logging.getLogger("compute.jobs.load_scoreboard")
 
-_SCORE_METRICS = (
-    "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
-)
+_SCORE_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 _COVERAGE = ("sf_coverage", "model_coverage")
 _COUNTS = ("n_hours", "n_nodes")
 _NA_VALUES = ("", "NaN", "nan", "NA", "N/A", "#N/A")
@@ -30,7 +28,7 @@ def _week_ts(s: pd.Series) -> pd.Series:
 
 
 def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
-    """Build one COPY row per source/regime/week point metric."""
+    """Build one COPY row per source/week screening metric."""
     score = _read_csv(score_csv)
     score["week"] = _week_ts(score["week"])
 
@@ -41,7 +39,7 @@ def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
         return None if pd.isna(x) else int(x)
 
     return [
-        (run_id, r["week"].date(), r["source"], r["regime"],
+        (run_id, r["week"].date(), r["source"],
          *(_v(r[c]) for c in _SCORE_METRICS),
          *(_v(r[c]) for c in _COVERAGE), *(_i(r[c]) for c in _COUNTS))
         for _, r in score.iterrows()
@@ -55,7 +53,7 @@ def resolve_board_paths(run_id: str, score: str | None) -> str:
 def load_scoreboard(score_csv: str, conn, *, run_id: str) -> int:
     """Delete-then-COPY the point-only board for ``run_id``; does not commit."""
     rows = build_rows(score_csv, run_id=run_id)
-    cols = ("run_id", "week", "source", "regime", *_SCORE_METRICS,
+    cols = ("run_id", "week", "source", *_SCORE_METRICS,
             *_COVERAGE, *_COUNTS)
     with conn.cursor() as cur:
         cur.execute("DELETE FROM scoreboard_weekly WHERE run_id = %s", (run_id,))

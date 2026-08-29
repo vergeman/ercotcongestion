@@ -947,7 +947,7 @@ class HeadlineCurrency(BaseModel):
     persistence). ``oracle`` is the ceiling the model is measured against. Any
     value can be ``None`` when a source had no scored week in the window.
     """
-    currency: str            # topdecile_hit | rank_spearman | sign_agree | pooled_r2
+    currency: str            # topdecile_hit | rank_spearman | sign_agree
     higher_is_better: bool
     model: float | None = None
     persistence: float | None = None
@@ -961,7 +961,7 @@ class HeadlineWindow(BaseModel):
     weeks. ``weeks`` is how many weekly rows fed the pool; ``week_start``/
     ``week_end`` bound them. The pool is an ``n_hours``-weighted mean of the weekly
     cells — an approximation of the fully pooled stat, which lives on the full
-    board (0002); the headline never redefines a gate, it summarizes served cells.
+    board (0002).
     """
     window_days: int         # 30 | 90
     weeks: int
@@ -971,14 +971,12 @@ class HeadlineWindow(BaseModel):
 
 
 class ScoreboardHeadline(BaseModel):
-    """The rolling headline for one board (``run_id``) and ``regime``.
+    """The rolling headline for one board (``run_id``).
 
     ``run_id`` is the model version whose backtest this is; ``as_of_week`` is the
-    latest week on the board (the anchor the rolling windows trail from). The
-    served ``regime`` echoes the request (default ``all``).
+    latest week on the board (the anchor the rolling windows trail from).
     """
     run_id: str
-    regime: str
     as_of_week: date
     windows: list[HeadlineWindow]
 
@@ -989,21 +987,18 @@ class ScoreboardHeadline(BaseModel):
 # data behind the scoreboard *page* the panel's "View full scoreboard" link
 # targets. Every response carries all sources (model + baselines + oracle) so a
 # lone model figure can't be rendered (§6), plus a pooled pre/post-RTC+B summary
-# with the pre-registered ``gate()`` verdict transcribed as-is (never redefined).
+# with pooled screening summaries.
 
 
 class WeeklyPoint(BaseModel):
     """One ``scoreboard_weekly`` row served for the chart — one (week, source).
 
     Screening currencies (``rank_spearman``/``sign_agree``/``topdecile_hit``) lead
-    the page; magnitude (``pooled_r2``/``mae``) files under a toggle (§6). The band
-    columns are populated on the model/all rows only. All nullable — a NULL cell
+    the page. All nullable — a NULL cell
     (e.g. the flat ``null`` source's declined top-decile) rides through as ``None``.
     """
     week: date
     source: str
-    pooled_r2: float | None = None
-    mae: float | None = None
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
@@ -1015,11 +1010,8 @@ class WeeklyPoint(BaseModel):
 
 class SourcePooled(BaseModel):
     """One source's pooled currencies over a split — the week-mean of each metric
-    (the same reduction ``r5()``/``cell()`` uses, so the numbers match the
-    pre-registered readout). ``None`` when the source had no scored week."""
+    ``None`` when the source had no scored week."""
     source: str
-    pooled_r2: float | None = None
-    mae: float | None = None
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
@@ -1028,20 +1020,17 @@ class SourcePooled(BaseModel):
 class WeeklySplit(BaseModel):
     """A pooled slice — ``all`` / ``pre_rtc_b`` / ``post_rtc_b`` — so the RTC+B
     structural break is visible on every pooled stat (§5): pooled must not launder
-    the post-cutover number. ``gate`` is the pre-registered ``gate()`` run on the
-    model's pooled means (``None`` when the model source is absent);
-    ``beats_persistence`` is the existence test (model > persistence on all three
+    the post-cutover number. ``beats_persistence`` is the existence test (model > persistence on all three
     screening currencies). ``sources`` always includes model + persistence +
     climatology + oracle (§6)."""
     label: str            # all | pre_rtc_b | post_rtc_b
     n_weeks: int
     sources: list[SourcePooled]
-    gate: str | None = None
     beats_persistence: bool | None = None
 
 
 class ScoreboardWeekly(BaseModel):
-    """The weekly series + pooled summary for one board and ``regime``.
+    """The weekly series + pooled summary for one board.
 
     ``primary_source`` echoes the requested ``source`` (the series the page
     foregrounds); the comparators ride along in ``points`` regardless, so the
@@ -1049,7 +1038,6 @@ class ScoreboardWeekly(BaseModel):
     date the ``pre_``/``post_rtc_b`` summaries divide on.
     """
     run_id: str
-    regime: str
     primary_source: str
     rtc_b_cutover: date
     points: list[WeeklyPoint]
@@ -1083,8 +1071,6 @@ class DailyPoint(BaseModel):
     delivery_date: date
     source: str
     horizon: int
-    pooled_r2: float | None = None
-    mae: float | None = None
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None

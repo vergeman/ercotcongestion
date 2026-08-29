@@ -18,8 +18,8 @@ honest out-of-sample product. The comparators (`oracle`, `persistence`,
 `climatology`, `null`) are recomputed on D "for context": an SF map fit on the
 trailing window ending at D, each baseline μ projected through it and scored
 against the same realized C. This reuses `score.py`'s source constructors and
-metric — never redefining a gate or re-measuring a baseline outside the shared
-harness (spec §6). The `null` (flat) source is the integrity tripwire: a flat map
+metric — never re-measuring a baseline outside the shared harness (spec §6). The
+`null` (flat) source is the integrity tripwire: a flat map
 ranks nothing, so `score_matrix` returns NaN screening cells — a live `null` that
 scores above chance means the metric path regressed.
 
@@ -70,13 +70,13 @@ _BASELINES = ("oracle", "persistence", "climatology", "null")
 # scoreboard_daily columns, in table order — the tuple `persist_grades` COPYs.
 _COLS = (
     "run_id", "delivery_date", "source", "horizon",
-    "pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit",
+    "rank_spearman", "sign_agree", "topdecile_hit",
     "sf_coverage", "model_coverage", "n_hours", "n_nodes",
     "essp_precision", "essp_recall",
 )
 
 # The currency keys score_matrix emits, in table order.
-_METRICS = ("pooled_r2", "mae", "rank_spearman", "sign_agree", "topdecile_hit")
+_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 
 
 def _as_ct_day(D) -> pd.Timestamp:

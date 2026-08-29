@@ -35,15 +35,15 @@ const isAbort = (error: unknown) =>
   error instanceof DOMException && error.name === "AbortError";
 
 /** Owns independently cached live-grade and backtest resources. */
-export function useScoreboard(regime: string, horizon: number | null) {
+export function useScoreboard(horizon: number | null) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {
     const controller = new AbortController();
     dispatch({ type: "patch", patch: { backtestLoading: true, backtestError: false } });
     Promise.all([
-      fetchScoreboardWeekly(regime, controller.signal),
-      fetchScoreboardHeadline(regime, controller.signal),
+      fetchScoreboardWeekly(),
+      fetchScoreboardHeadline(),
     ])
       .then(([weekly, headline]) => {
         if (!controller.signal.aborted) {
@@ -59,12 +59,12 @@ export function useScoreboard(regime: string, horizon: number | null) {
         }
       });
     return () => controller.abort();
-  }, [regime]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     dispatch({ type: "patch", patch: { liveLoading: true, liveError: false } });
-    fetchScoreboardDaily(horizon, controller.signal)
+    fetchScoreboardDaily(horizon)
       .then((daily) => {
         if (!controller.signal.aborted) {
           dispatch({ type: "patch", patch: { daily, liveLoading: false, lastUpdated: new Date() } });

@@ -190,10 +190,10 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
 ### Step 2 — Build offline μ evaluation inputs
 
 **Does:** walks μ forward over history and writes out-of-sample `(p_bind, mu_gbm)`
-predictions, then scores them into the per-`(week × source × regime)` currencies. The
+predictions, then scores them into the per-`(week × source)` screening metrics. The
 predictions are the input to the historical nodal backfill and offline evaluation
-used to draw P10/P90 bands in the daily job; the score CSV feeds the R5 verdict
-(step 3) and the weekly scoreboard (step 4). Prod-side (~16 GiB).
+used to draw P10/P90 bands in the daily job; the score CSV feeds the weekly
+scoreboard (step 4). Prod-side (~16 GiB).
 
 Use `mu-all-v1` for every forecast artifact and DB write. The SF map deliberately has
 its own run ID, `map-v1`.

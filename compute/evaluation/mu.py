@@ -1,7 +1,7 @@
 """Commit 4 — one harness, every μ source, identical weeks.
 
 The question this branch exists to answer is *does a covariate μ-model beat the
-naive baselines once you push it through the SF map* (R5). That question is only
+naive baselines once you push it through the SF map*. That question is only
 meaningful if every contender is measured the same way, and the numbers we have
 been quoting are **not**:
 
@@ -23,14 +23,8 @@ a misphased run does not crash — it quietly scores a different 46 weeks. Readi
 the grid off `mu_preds.npz` makes the misalignment unrepresentable rather than
 merely tested-for.
 
-Two currencies, always together (handoff §7):
-
-  * **magnitude** — pooled R², MAE ($/MWh at the node)
-  * **screening** — rank-Spearman (cross-node, per hour), sign-agree (±$1
-    deadband), top-decile hit
-
-Leading with magnitude alone would make a working screener read as a failing
-forecast; leading with screening alone would sell a forecast we do not have.
+The scoreboard uses rank-Spearman (cross-node, per hour), sign agreement (±$1
+deadband), and top-decile hit.
 
     docker compose run --rm compute python -m compute.evaluation.mu \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_score_weekly.csv
@@ -43,9 +37,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.evaluation.sf import (
-    predict, r2, row_spearman, sign_agreement, topdecile_hit,
-)
+from compute.evaluation.sf import predict, row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
@@ -126,8 +118,7 @@ def mu_from_preds(week_preds: pd.DataFrame, hours: pd.DatetimeIndex,
 
 
 def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
-    """Predict zero congestion. Its R² is negative, not zero: R² is measured
-    against the mean, and zero is not the mean."""
+    """Predict zero congestion."""
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 
@@ -163,7 +154,7 @@ def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
 
 
 def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """Both currencies. Never one without the other.
+    """The scoreboard's screening currencies.
 
     A source that predicts a flat map (null) gets NaN in the screening currency,
     not a chance-level score: it ranks nothing, and the honest report of a ranking
@@ -171,8 +162,6 @@ def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
     printed in the report as a reference line — not measured.
     """
     return {
-        "pooled_r2": r2(Y.ravel(), Yh.ravel()),
-        "mae": float(np.nanmean(np.abs(Y - Yh))),
         "rank_spearman": row_spearman(Y, Yh),
         "sign_agree": sign_agreement(Y, Yh),
         "topdecile_hit": topdecile_hit_defined(Y, Yh),
@@ -203,8 +192,8 @@ def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
 
 
 def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
-               week_preds: pd.DataFrame, regimes: pd.Series | None = None,
-               window_days: int = WINDOW_DAYS, refit_days: int = REFIT_DAYS,
+               week_preds: pd.DataFrame, window_days: int = WINDOW_DAYS,
+               refit_days: int = REFIT_DAYS,
                lam: float = LAM, extra_sources: bool = False) -> list[dict]:
     """One week, every source, one SF fit.
 
@@ -267,23 +256,13 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                "regime": "all", **score_matrix(Y, Yh)}
+                **score_matrix(Y, Yh)}
         rows.append(base)
-
-        if regimes is not None:
-            r = regimes.reindex(hours)
-            for lab in sorted(x for x in r.dropna().unique() if x >= 0):
-                m = (r == lab).to_numpy()
-                if m.sum() < 24:          # under a day of hours proves nothing
-                    continue
-                rows.append({**base, "regime": f"net_load_{int(lab)}",
-                             "n_hours": int(m.sum()),
-                             **score_matrix(Y[m], Yh[m])})
     return rows
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
-         regimes: pd.Series | None = None, window_days: int = WINDOW_DAYS,
+         window_days: int = WINDOW_DAYS,
          refit_days: int = REFIT_DAYS, lam: float = LAM,
          extra_sources: bool = False) -> pd.DataFrame:
     # `load_preds` hands back a (interval_ts, key) MultiIndex; the sources want
@@ -300,7 +279,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     rows: list[dict] = []
     t0 = time.perf_counter()
     for i, s in enumerate(weeks):
-        rows.extend(score_week(M, C, s, by_week[s], regimes, window_days,
+        rows.extend(score_week(M, C, s, by_week[s], window_days,
                                refit_days, lam, extra_sources))
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  eta %.0fm", done, len(weeks), s.date(),
@@ -314,33 +293,28 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
 def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
     out = [f"\n{title}",
-           f"  {'μ source':<14} {'R2':>7} {'MAE':>8} {'Spearman':>9} "
+           f"  {'μ source':<14} {'Spearman':>9} "
            f"{'sign':>7} {'top-dec':>8}   {'weeks':>5}"]
     for src in order:
         d = df[df["source"] == src]
         if d.empty:
             continue
-        out.append(f"  {src:<14} {d.pooled_r2.mean():>7.3f} "
-                   f"{d.mae.mean():>8.2f} {d.rank_spearman.mean():>9.3f} "
+        out.append(f"  {src:<14} {d.rank_spearman.mean():>9.3f} "
                    f"{d.sign_agree.mean():>7.3f} {d.topdecile_hit.mean():>8.3f}"
                    f"   {len(d):>5}")
     return "\n".join(out)
 
 
 def report(df: pd.DataFrame) -> str:
-    """The two currencies, side by side, always. Then the splits."""
+    """All-hours screening metrics, with the RTC+B split."""
     order = [s for s in ["oracle", "model", "model_clim", "climatology",
                          "persistence", "null"] if (df["source"] == s).any()]
-    a = df[df["regime"] == "all"]
-    out = [_table(a, "=== ALL WEEKS (magnitude | screening) ===", order)]
+    a = df
+    out = [_table(a, "=== ALL WEEKS (screening) ===", order)]
 
     pre, post = a[a["week"] < RTC_B], a[a["week"] >= RTC_B]
     out.append(_table(pre, f"=== PRE-RTC+B (< {RTC_B.date()}) ===", order))
     out.append(_table(post, f"=== POST-RTC+B (≥ {RTC_B.date()}) ===", order))
-
-    for lab in sorted(df.loc[df["regime"] != "all", "regime"].unique()):
-        out.append(_table(df[df["regime"] == lab],
-                          f"=== REGIME {lab} (net-load quintile) ===", order))
 
     out.append(f"\n  SF coverage {a.sf_coverage.mean():.3f}   "
                f"model key-coverage {a.model_coverage.mean():.3f}   "
@@ -356,8 +330,6 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.mu_forecast.panel.build import system_panel
-    from compute.mu_forecast.panel.engineering import net_load_regime
     from compute.mu_forecast.model.runner import load_preds
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
@@ -367,7 +339,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--window-days", type=int, default=WINDOW_DAYS)
     p.add_argument("--lam", type=float, default=LAM)
-    p.add_argument("--no-regimes", action="store_true")
     p.add_argument("--extra-sources", action="store_true",
                    help="also score head1 × head2-climatology (diagnostic)")
     p.add_argument("--out", default=None)
@@ -385,20 +356,11 @@ def main(argv: list[str] | None = None) -> int:
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
-    regimes = None
     with psycopg.connect(dsn) as conn:
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)
         log.info("M = %s   C = %s", M.shape, C.shape)
-        if not args.no_regimes:
-            sysp = system_panel(conn, lo, hi)
-            # Edges from the whole span, not per-fold: a *reporting* split, not a
-            # feature. Nothing is fitted on it — it only decides which rows get
-            # averaged together, and a split whose boundaries move week to week
-            # would not be one split.
-            regimes = net_load_regime(sysp, fit_index=sysp.index)
-
-    df = walk(M, C, preds, regimes, args.window_days, REFIT_DAYS, args.lam,
+    df = walk(M, C, preds, args.window_days, REFIT_DAYS, args.lam,
               args.extra_sources)
     if df.empty:
         print("no scorable weeks")
