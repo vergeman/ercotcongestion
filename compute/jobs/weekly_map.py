@@ -306,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     day = pd.Timedelta(days=1)
 
     # score period: the interval associated with a refit.
-    #
+    #                                      refit_start
     # window_start                         score_start          score_end
     # │                                    │                    │
     # ├────── 240-day data used to fit ────┼──── final week ────┤
@@ -314,6 +314,9 @@ def main(argv: list[str] | None = None) -> int:
     # └──────────────────── window_end = score_end ─────────────┘
     #
     # refit_starts: sequence of weekly (freq refit) start-day timestamps.
+    #
+    # to clarify - everythig is in sample; the training set is [window_start, window_end]
+    #
     refit_starts = pd.date_range(first_day, last_day, freq=refit, inclusive="left")
     if not len(refit_starts):
         refit_starts = pd.DatetimeIndex([first_day])
@@ -349,6 +352,19 @@ def main(argv: list[str] | None = None) -> int:
         log.info("fit chunk M=%s, C=%s", M.shape, C.shape)
 
         try:
+            # each iteration moves refit_start num refit_days (~ 7 days) forward
+            # e.g. score_start/refit_start: Aug 1
+            #      score_end: Aug 8
+            #      -- that just means above is the last week; in prod there's no real significance
+            #      except for weekly cadence
+            #
+            #      fit_window: [ Aug 8 - 240d, Aug 8) -> [dec 11, aug 8)
+            #
+            # NB: the “scored week” is not held-out data for the fit; it is
+            # in-sample. We do this because SF isn't really a forecast, but a
+            # map built from historic data. The evaluation is in
+            # evlauation/sf.py:evaluate_chunked()
+            #
             for refit_start, score_end in chunk:
                 refit_window = fit_refit_window(
                     M, C, refit_start=refit_start, score_end=score_end,
