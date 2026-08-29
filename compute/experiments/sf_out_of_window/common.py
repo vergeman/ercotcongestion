@@ -2,10 +2,10 @@
 
 Every script here imports the production fit unmodified
 (`compute.sf_map.model.fit.implied_shift_factors`) and the
-production panels. The *only* departure from `rolling.rolling_sf` is the
+production map fit. The *only* departure is the
 window boundary:
 
-    rolling.py:99-100 (production)   window_end = score_end
+    fit_refit_window() (production)  window_end = score_end
                                      -> the fit window CONTAINS the scored week
 
     honest_window() (here)           window_end = refit_start

@@ -55,9 +55,8 @@ def existing_sf_windows(conn, run_id: str) -> set:
     """Return the DISTINCT ``window_start`` values already in ``sf_window_meta``
     for ``run_id``.
 
-    The incremental map runner passes these (as ns-instants) to
-    ``rolling_sf(skip_window_starts=...)`` so a weekly tick re-fits only the
-    new complete boundaries
+    The incremental map runner converts these to ns-instants before scheduling
+    chunks, so a weekly tick fits only new complete boundaries.
 
     """
     with conn.cursor() as cur:

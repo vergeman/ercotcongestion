@@ -60,7 +60,7 @@ from compute.sf_map.storage.persist import (
     existing_sf_windows,
     write_window_meta,
 )
-from compute.sf_map.model.rolling import RefitWindow, fit_refit_window, rolling_sf
+from compute.sf_map.model.rolling import RefitWindow, fit_refit_window
 
 log = logging.getLogger("compute.jobs.weekly_map")
 
@@ -164,8 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--chunk-weeks", type=int, default=32,
                    help="Load and fit this many refit windows at a time "
                         "(default 32). Bounds dense M/C pivots during rebuilds; "
-                        "an incremental run loads only its new fit window. "
-                        "Use 0 for the legacy full-history path.")
+                        "an incremental run loads only its new fit window.")
     args = p.parse_args(argv)
 
     logging.basicConfig(
@@ -189,8 +188,8 @@ def main(argv: list[str] | None = None) -> int:
     # get truncated fits.
     read_start = start - timedelta(days=args.window_days)
 
-    if args.chunk_weeks < 0:
-        p.error("--chunk-weeks must be non-negative")
+    if args.chunk_weeks < 1:
+        p.error("--chunk-weeks must be positive")
 
     # SF persistence streams each refit window to the DB as it's fit, inside
     # one transaction opened before the fit loop and committed after. This
@@ -265,9 +264,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return
 
-        # Belt-and-suspenders: skip_window_starts already prevents re-fitting an
-        # already-persisted boundary, so this never triggers on the incremental
-        # path — but it guarantees no re-COPY (no PK clash) if it ever did.
+        # Pending-window filtering already excludes persisted boundaries; keep
+        # this guard to prevent a duplicate COPY if that scheduling changes.
         if pd.Timestamp(window.window_start).value in existing_ns:
             return
 
@@ -289,118 +287,79 @@ def main(argv: list[str] | None = None) -> int:
         sf_stats["windows"] += 1
         sf_stats["rows"] += n
 
-    if args.chunk_weeks:
+    # Discover the panel endpoints, then construct the fixed refit grid.
+    # `bounds` is `(lo, hi)` from the DAM shadow-price, system-lambda, and SPP
+    # tables over the requested read range.
+    with psycopg.connect(settings.pg_dsn) as conn:
+        bounds = panel_bounds(conn, read_start, end)
+    if bounds is None:
+        log.error("empty panel clock in [%s, %s)", read_start, end)
+        return 3
 
-        # Discover the endpoints of the panel, then construct the exact same
-        # fixed grid `rolling_sf` would.
-        #
-        # bounds: (lo, hi) datetime: queried min/max interval_ts
-        #   from dam_shadow_prices union dam_system_lambda + dam_spp
+    first_hour, last_hour = bounds
+    panel_tz = pd.Timestamp(first_hour).tz
+    start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
+    first_day = pd.Timestamp(first_hour).normalize()
+    last_day = pd.Timestamp(last_hour).normalize()
+    refit = pd.Timedelta(days=args.refit_days)
+    window = pd.Timedelta(days=args.window_days)
+    day = pd.Timedelta(days=1)
+
+    # score period: the interval associated with a refit.
+    #
+    # window_start                         score_start          score_end
+    # │                                    │                    │
+    # ├────── 240-day data used to fit ────┼──── final week ────┤
+    # │                                    │                    │
+    # └──────────────────── window_end = score_end ─────────────┘
+    #
+    # refit_starts: sequence of weekly (freq refit) start-day timestamps.
+    refit_starts = pd.date_range(first_day, last_day, freq=refit, inclusive="left")
+    if not len(refit_starts):
+        refit_starts = pd.DatetimeIndex([first_day])
+    pending: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+
+    for refit_start in refit_starts:
+        score_end = min(refit_start + refit, last_day + day)
+        window_start = score_end - window
+        if score_end <= start_ts:
+            continue
+        if window_start.value not in existing_ns:
+            pending.append((refit_start, score_end))
+
+    log.info("chunked fit: %d pending refit(s), %d week(s) per panel",
+             len(pending), args.chunk_weeks)
+    for n in range(0, len(pending), args.chunk_weeks):
+        chunk = pending[n:n + args.chunk_weeks]
+        chunk_start = min(score_end - window for _, score_end in chunk)
+        chunk_end = max(score_end for _, score_end in chunk)
+
+        log.info("fit chunk %d/%d: windows [%s, %s)",
+                 n // args.chunk_weeks + 1,
+                 (len(pending) + args.chunk_weeks - 1) // args.chunk_weeks,
+                 chunk_start.date(), chunk_end.date())
         with psycopg.connect(settings.pg_dsn) as conn:
-            bounds = panel_bounds(conn, read_start, end)
-
-        if bounds is None:
-            log.error("empty panel clock in [%s, %s)", read_start, end)
-            return 3
-
-        # date conversion
-        first_hour, last_hour = bounds
-        panel_tz = pd.Timestamp(first_hour).tz
-        start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
-        first_day = pd.Timestamp(first_hour).normalize()
-        last_day = pd.Timestamp(last_hour).normalize()
-        refit = pd.Timedelta(days=args.refit_days)
-        window = pd.Timedelta(days=args.window_days)
-        day = pd.Timedelta(days=1)
-
-        #
-        # score: this is a time period tied to refit - the forward component
-        #
-        # window_start                         score_start          score_end
-        # │                                    │                    │
-        # ├────── 240-day data used to fit ────┼──── final week ────┤
-        # │                                    │                    │
-        # └──────────────────── window_end = score_end ─────────────┘
-        #
-        # refit_starts: sequence of weekly (freq refit) start day timestamps
-        refit_starts = pd.date_range(first_day, last_day, freq=refit, inclusive="left")
-        if not len(refit_starts):
-            refit_starts = pd.DatetimeIndex([first_day])
-        pending: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-
-        for refit_start in refit_starts:
-            score_end = min(refit_start + refit, last_day + day)
-            window_start = score_end - window
-            # omit loading a chunk rather than fitting work that cannot
-            # produce a diagnostic or persisted row.
-            if score_end <= start_ts:
-                continue
-            if window_start.value not in existing_ns:
-                pending.append((refit_start, score_end))
-
-        # chunk the collected valid refits pushed to pending above
-        log.info("chunked fit: %d pending refit(s), %d week(s) per panel",
-                 len(pending), args.chunk_weeks)
-
-        for n in range(0, len(pending), args.chunk_weeks):
-            chunk = pending[n:n + args.chunk_weeks]
-            chunk_start = min(score_end - window for _, score_end in chunk)
-            chunk_end = max(score_end for _, score_end in chunk)
-
-            log.info("fit chunk %d/%d: windows [%s, %s)",
-                     n // args.chunk_weeks + 1,
-                     (len(pending) + args.chunk_weeks - 1) // args.chunk_weeks,
-                     chunk_start.date(), chunk_end.date())
-            with psycopg.connect(settings.pg_dsn) as conn:
-                M = load_shadow_prices(conn, chunk_start, chunk_end)
-                C = load_congestion_panel(conn, chunk_start, chunk_end,
-                                          ref_method=args.ref_method)
-            if M.empty or C.empty:
-                log.error("empty panel chunk [%s, %s): M=%s C=%s",
-                          chunk_start, chunk_end, M.shape, C.shape)
-                return 3
-            log.info("fit chunk M=%s, C=%s", M.shape, C.shape)
-
-            try:
-                for refit_start, score_end in chunk:
-                    refitWindow = fit_refit_window(
-                        M, C, refit_start=refit_start, score_end=score_end,
-                        window_days=args.window_days, lam=args.ridge_lambda,
-                        min_hours=args.min_binding_hours,
-                        standardize=args.standardize, std_floor=args.std_floor,
-                    )
-                    on_refit(refitWindow)
-            finally:
-                del M, C
-                gc.collect()
-    else:
-        log.info(
-            "loading panels: read=[%s, %s), score=[%s, %s), ref=%s",
-            read_start, end, start, end, args.ref_method,
-        )
-        with psycopg.connect(settings.pg_dsn) as conn:
-            M = load_shadow_prices(conn, read_start, end)
-            C = load_congestion_panel(conn, read_start, end,
+            M = load_shadow_prices(conn, chunk_start, chunk_end)
+            C = load_congestion_panel(conn, chunk_start, chunk_end,
                                       ref_method=args.ref_method)
         if M.empty or C.empty:
-            log.error("empty panel(s): shadow_prices=%s, congestion=%s. Ingest "
-                      "NP4-191-CD and NP4-190-CD for the requested range first.",
-                      M.shape, C.shape)
+            log.error("empty panel chunk [%s, %s): M=%s C=%s",
+                      chunk_start, chunk_end, M.shape, C.shape)
             return 3
-        log.info("M=%s, C=%s", M.shape, C.shape)
-        panel_tz = M.index.tz if hasattr(M.index, "tz") else None
-        start_ts = datetime.combine(start, datetime.min.time()).replace(tzinfo=panel_tz)
-        rolling_sf(
-            M, C,
-            window_days=args.window_days,
-            refit_days=args.refit_days,
-            lam=args.ridge_lambda,
-            min_hours=args.min_binding_hours,
-            standardize=args.standardize,
-            std_floor=args.std_floor,
-            on_refit_window=on_refit,
-            skip_window_starts=existing_ns,
-        )
+        log.info("fit chunk M=%s, C=%s", M.shape, C.shape)
+
+        try:
+            for refit_start, score_end in chunk:
+                refit_window = fit_refit_window(
+                    M, C, refit_start=refit_start, score_end=score_end,
+                    window_days=args.window_days, lam=args.ridge_lambda,
+                    min_hours=args.min_binding_hours,
+                    standardize=args.standardize, std_floor=args.std_floor,
+                )
+                on_refit(refit_window)
+        finally:
+            del M, C
+            gc.collect()
 
     if sf_conn is not None:
         sf_conn.commit()

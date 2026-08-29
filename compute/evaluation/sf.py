@@ -1,7 +1,7 @@
 """Honest out-of-window evaluation of an SF configuration — the production
 home of what ``experiments/sf_out_of_window`` proved as one-offs.
 
-The production fit (``rolling.rolling_sf``) uses ``window_end = score_end``: the
+The production map fit uses ``window_end = score_end``: the
 fit window CONTAINS the week it scores, giving an in-sample R2 ~0.986. This
 module fits on the trailing window ending STRICTLY BEFORE the scored week
 (``window_end = refit_start``) and scores the next ``refit_days`` from realized

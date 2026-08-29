@@ -123,6 +123,7 @@ panels for the requested date range, walks the rolling window, and:
 | `--persist-sf` | (off) | Write the per-refit SF matrix to `implied_shift_factors` (+ `sf_window_meta`). Incremental by default. |
 | `--rebuild` | (off) | With `--persist-sf`, wipe all rows for this `run_id` first, then refit + persist every complete window from scratch. |
 | `--sf-threshold` | `1e-3` | With `--persist-sf`, drop SF entries with `\|sf\| <` this. The matrix is dense but mostly negligible; keeps row counts sane. |
+| `--chunk-weeks` | `32` | Required positive number of refit windows to load and fit per chunk. |
 
 ### DB persistence (incremental append)
 
