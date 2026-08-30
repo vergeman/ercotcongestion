@@ -40,7 +40,7 @@ app.add_middleware(
 #   /topology  /ercot_range  /forecast_range
 #   /conditions_range
 #   /map/meta  /map/constraints  /map/exposures  /map/reach
-#   /scoreboard/headline  /scoreboard/weekly  /scoreboard/daily
+#   /scoreboard/summary
 app.include_router(topology.router,    tags=['topology'])
 app.include_router(ercot_range.router, tags=['ercot_range'])
 app.include_router(forecast.router,    tags=['forecast'])

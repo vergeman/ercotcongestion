@@ -1,22 +1,22 @@
-"""GET /scoreboard/headline — the rolling backtest headline (30/90-day tiles).
+"""Scoreboard summary builders.
 
-The thin serving slice of the self-grading track record (plan/0102 §0001,
+The scoreboard summary is the serving slice of the self-grading track record
+(plan/0102 §0001,
 spec-phase3-scoreboard.md §3). Reads ``scoreboard_weekly`` (loaded by
 ``compute.jobs.load_scoreboard`` from the pre-registered weekly CSVs) and rolls
 the trailing weeks into per-currency tiles. This is the *panel* headline — the
 full weekly series, coverage strip and pre/post-RTC+B split are
-the scoreboard page (0002), not here.
+the Scoreboard page (0002).
 
 Integrity rule (spec §6): the API never serves a model number without its
 comparators. Every currency in every window carries ``persistence`` (with the
 ``model - persistence`` delta), ``climatology``, and the ``oracle`` ceiling, so
 the client physically cannot render a lone model figure.
 
-``run_id`` names the model version whose backtest is served. Omit it and the
-endpoint serves the most recent board present (max ``week``) — this feature's own
-default, independent of the forecast pointer, since a board's ``run_id`` lives in
-its own namespace. 503 (not empty) when no board is loaded, matching the
-realized ranges' soft-fail contract.
+The builders select the most recent board present (max ``week``), independent of
+the forecast pointer, since a board's ``run_id`` lives in its own namespace.
+They raise 503 when their source data is unavailable; the summary represents
+that as a typed unavailable section.
 """
 from __future__ import annotations
 
@@ -24,11 +24,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from psycopg.rows import dict_row
 
 from db import get_pool
-from dependencies import server_selected_run as _server_selected_run
 from schemas.common import BootstrapSectionStatus
 from schemas.scoreboard import (
     DailyPoint,
@@ -60,12 +59,10 @@ RTC_B_CUTOVER = date(2025, 12, 5)
 
 # The screening currencies pooled into each split summary.
 _POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
-def _resolve_run_id(cur, run_id: str | None) -> str:
+def _resolve_weekly_run_id(cur) -> str:
     """Resolve the most recent board (max week).
     Raises 503 when scoreboard_weekly is empty (no board loaded), matching the
     realized ranges' soft-fail contract."""
-    if run_id is not None:
-        return run_id
     cur.execute(
         "SELECT run_id FROM scoreboard_weekly ORDER BY week DESC, run_id LIMIT 1"
     )
@@ -76,18 +73,6 @@ def _resolve_run_id(cur, run_id: str | None) -> str:
             detail="no scoreboard board is loaded (scoreboard_weekly is empty).",
         )
     return row["run_id"]
-
-
-@router.get(
-    "/scoreboard/headline",
-    response_model=ScoreboardHeadline,
-    summary="Rolling 30/90-day backtest headline — model with its persistence "
-    "delta and oracle ceiling, per currency",
-)
-def get_scoreboard_headline(
-    run_id: str | None = Depends(_server_selected_run),
-) -> ScoreboardHeadline:
-    return build_headline(run_id)
 
 
 def _mean(rows: list[dict], key: str) -> float | None:
@@ -145,23 +130,12 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
     return splits
 
 
-@router.get(
-    "/scoreboard/weekly",
-    response_model=ScoreboardWeekly,
-    summary="Weekly backtest series (all sources) + pooled pre/post-RTC+B summary",
-)
-def get_scoreboard_weekly(
-    source: str = Query(
-        "model",
-        description="The series the page foregrounds. Comparators (persistence / "
-        "climatology / oracle) ride along regardless — never a lone model figure.",
-    ),
-    run_id: str | None = Depends(_server_selected_run),
-) -> ScoreboardWeekly:
+def build_scoreboard_weekly() -> ScoreboardWeekly:
+    """Build the weekly section embedded in ``/scoreboard/summary``."""
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            run_id = _resolve_run_id(cur, run_id)
+            run_id = _resolve_weekly_run_id(cur)
             # All sources — the chart draws model + baselines +
             # oracle, and the summary pools them. Ordered (week, source) for the
             # series.
@@ -189,7 +163,7 @@ def get_scoreboard_weekly(
     points = [WeeklyPoint(**r) for r in rows]
     return ScoreboardWeekly(
         run_id=run_id,
-        primary_source=source,
+        primary_source="model",
         rtc_b_cutover=RTC_B_CUTOVER,
         points=points,
         splits=_build_splits(rows),
@@ -197,33 +171,11 @@ def get_scoreboard_weekly(
 
 
 # --------------------------------------------------------------------------
-# /scoreboard/daily — the LIVE per-delivery-day board (0003-live-grading)
+# Latest final live grade — an internal section of /scoreboard/summary
 # --------------------------------------------------------------------------
 
-def _resolve_daily_run_id(cur, run_id: str | None) -> str:
-    """Resolve the run with the most recent graded day.
-    Raises 503 when scoreboard_daily is empty (no live grade has run yet),
-    matching the realized ranges' soft-fail contract — the client renders the
-    backtest board / realized pane alone rather than erroring."""
-    if run_id is not None:
-        return run_id
-    cur.execute(
-        "SELECT run_id FROM scoreboard_daily ORDER BY delivery_date DESC, run_id "
-        "LIMIT 1"
-    )
-    row = cur.fetchone()
-    if row is None:
-        raise HTTPException(
-            status_code=503,
-            detail="no live grades yet (scoreboard_daily is empty).",
-        )
-    return row["run_id"]
-
-
-def _resolve_latest_final_daily_run_id(cur, run_id: str | None) -> str:
+def _resolve_latest_final_daily_run_id(cur) -> str:
     """Resolve the run containing the newest final served grade."""
-    if run_id is not None:
-        return run_id
     cur.execute(
         "SELECT run_id FROM scoreboard_daily WHERE horizon = 1 "
         "ORDER BY delivery_date DESC, run_id LIMIT 1"
@@ -237,74 +189,12 @@ def _resolve_latest_final_daily_run_id(cur, run_id: str | None) -> str:
     return row["run_id"]
 
 
-def _resolve_daily_horizon(cur, run_id: str, horizon: int | None) -> tuple[int, list[int]]:
-    """The horizon to serve, plus every horizon this run has graded.
-
-    `scoreboard_daily` is keyed per horizon, and has carried two tracks since the
-    preview cron began grading. A query without a horizon predicate therefore
-    returns *two* rows per (delivery_date, source) — a final grade and a preview
-    grade — which a client keying by source alone silently collapses to whichever
-    arrived last. One board serves one horizon; h1 (the final forecast) is the
-    default because it is what was actually served for D.
-
-    An unknown or ungraded horizon returns no rows and falls through to the
-    caller's existing 503, rather than inventing a second failure mode.
-    """
-    cur.execute(
-        "SELECT DISTINCT horizon FROM scoreboard_daily WHERE run_id = %s "
-        "ORDER BY horizon",
-        (run_id,),
-    )
-    available = [int(r["horizon"] if isinstance(r, dict) else r[0])
-                 for r in cur.fetchall()]
-    if horizon is not None:
-        return horizon, available
-    return (1 if 1 in available else (available[0] if available else 1)), available
-
-
-@router.get(
-    "/scoreboard/daily",
-    response_model=ScoreboardDaily,
-    summary="Live per-delivery-day grades of the served forecast — model with its "
-    "baselines + oracle (and the null tripwire), since a date, for one horizon",
-)
-def get_scoreboard_daily(
-    since: date | None = Query(
-        None,
-        description="Earliest delivery_date to serve (inclusive). Omit for the "
-        "run's full live history.",
-    ),
-    horizon: int | None = Query(
-        None,
-        ge=1,
-        le=2,
-        description="Forecast track to grade: 1 = final (fires D−1), 2 = preview "
-        "(fires D−2). Omit for the final track when it is present. Mixing the two "
-        "in one series would compare a forecast against a differently-informed "
-        "forecast.",
-    ),
-    source: str = Query(
-        "model",
-        description="The series the page foregrounds. Comparators (persistence / "
-        "climatology / oracle / null) ride along regardless — never a lone model "
-        "figure.",
-    ),
-    run_id: str | None = Depends(_server_selected_run),
-    latest_only: bool = Query(
-        False,
-        description="Serve only the newest final (horizon 1) delivery date and all "
-        "of its comparator rows.",
-    ),
-) -> ScoreboardDaily:
+def build_latest_final_daily() -> ScoreboardDaily:
+    """Build the newest fully persisted final grade and all comparator rows."""
     pool = get_pool()
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            if latest_only:
-                run_id = _resolve_latest_final_daily_run_id(cur, run_id)
-                horizon, horizons = 1, [1]
-            else:
-                run_id = _resolve_daily_run_id(cur, run_id)
-                horizon, horizons = _resolve_daily_horizon(cur, run_id, horizon)
+            run_id = _resolve_latest_final_daily_run_id(cur)
             # Every source for the run — the page draws model + baselines + oracle +
             # the null tripwire; a lone model figure can't be rendered (spec §6).
             sql = (
@@ -313,16 +203,11 @@ def get_scoreboard_daily(
                 "sf_coverage, model_coverage, n_hours, n_nodes "
                 "FROM scoreboard_daily WHERE run_id = %s AND horizon = %s"
             )
-            params: list[object] = [run_id, horizon]
-            if latest_only:
-                sql += (
-                    " AND delivery_date = (SELECT max(delivery_date) "
-                    "FROM scoreboard_daily WHERE run_id = %s AND horizon = 1)"
-                )
-                params.append(run_id)
-            elif since is not None:
-                sql += " AND delivery_date >= %s"
-                params.append(since)
+            params: list[object] = [run_id, 1, run_id]
+            sql += (
+                " AND delivery_date = (SELECT max(delivery_date) "
+                "FROM scoreboard_daily WHERE run_id = %s AND horizon = 1)"
+            )
             sql += " ORDER BY delivery_date, source"
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
@@ -331,19 +216,16 @@ def get_scoreboard_daily(
         raise HTTPException(
             status_code=503,
             detail=(
-                f"no scoreboard_daily rows for run_id={run_id} horizon={horizon}"
-                + (f" since {since}" if since else "")
-                + ". Grade a served day first (compute.jobs.grade_day)."
+                f"no final scoreboard_daily rows for run_id={run_id}. "
+                "Grade a served day first (compute.jobs.grade_day)."
             ),
         )
 
     return ScoreboardDaily(
         run_id=run_id,
-        since=since,
-        primary_source=source,
-        horizon=horizon,
-        horizons=horizons,
-        selected_delivery_date=rows[0]["delivery_date"] if latest_only else None,
+        primary_source="model",
+        horizon=1,
+        selected_delivery_date=rows[0]["delivery_date"],
         points=[DailyPoint(**r) for r in rows],
     )
 
@@ -424,15 +306,13 @@ def get_scoreboard_summary(
     preserves it rather than unifying it. ``history`` reuses the resolved
     weekly section and independently resolves only final live grades.
 
-    Each handler is called directly as a plain function, bypassing FastAPI's
-    request-time dependency injection, so every parameter is passed an
-    explicit literal (see ``get_brief_day``'s docstring for why). The three
-    primitive sections run concurrently; history then reuses the weekly result.
+    The three internal section builders run concurrently; history then reuses
+    the weekly result.
     """
     with ThreadPoolExecutor(max_workers=3) as pool:
-        weekly = pool.submit(soft_fail, lambda: get_scoreboard_weekly("model", None))
-        headline = pool.submit(soft_fail, lambda: get_scoreboard_headline(None))
-        daily = pool.submit(soft_fail, lambda: get_scoreboard_daily(None, 1, "model", None, True))
+        weekly = pool.submit(soft_fail, build_scoreboard_weekly)
+        headline = pool.submit(soft_fail, lambda: build_headline(None))
+        daily = pool.submit(soft_fail, build_latest_final_daily)
         weekly_result = weekly.result()
         headline_result = headline.result()
         daily_result = daily.result()

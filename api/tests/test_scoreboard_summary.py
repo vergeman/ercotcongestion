@@ -20,16 +20,11 @@ WEEKLY = ScoreboardWeekly(run_id="r", primary_source="model",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
 HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=date(2026, 7, 1), windows=[])
 DAILY = ScoreboardDaily(run_id="r", primary_source="model", horizon=1,
-                        horizons=[1], selected_delivery_date=date(2026, 7, 18), points=[])
+                        selected_delivery_date=date(2026, 7, 18), points=[])
 HISTORY = ScoreboardHistory(primary_source="model", weekly_run_id="r", points=[])
 
 
-def test_summary_calls_each_section_with_its_latest_final_defaults(monkeypatch):
-    """Each handler is called in-process, bypassing FastAPI's dependency
-    injection, so any omitted parameter would receive its raw ``Query(...)``
-    object instead of the literal default. Assert the exact args every
-    section receives, keyed by name since they run on a thread pool (not in
-    submission order)."""
+def test_summary_calls_each_internal_section(monkeypatch):
     calls: dict[str, tuple] = {}
 
     def _fake(name, result):
@@ -38,17 +33,17 @@ def test_summary_calls_each_section_with_its_latest_final_defaults(monkeypatch):
             return result
         return _handler
 
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", _fake("weekly", WEEKLY))
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", _fake("headline", HEADLINE))
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _fake("daily", DAILY))
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_weekly", _fake("weekly", WEEKLY))
+    monkeypatch.setattr(scoreboard_module, "build_headline", _fake("headline", HEADLINE))
+    monkeypatch.setattr(scoreboard_module, "build_latest_final_daily", _fake("daily", DAILY))
     monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", _fake("history", HISTORY))
 
     body = scoreboard_module.get_scoreboard_summary()
 
     assert calls == {
-        "weekly": ("model", None),
+        "weekly": (),
         "headline": (None,),
-        "daily": (None, 1, "model", None, True),
+        "daily": (),
         "history": (WEEKLY,),
     }
     assert body.weekly == WEEKLY
@@ -68,9 +63,9 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     def _unavailable(*args):
         raise HTTPException(status_code=503, detail="no board loaded")
 
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", lambda *a: WEEKLY)
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", lambda *a: HEADLINE)
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", _unavailable)
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_weekly", lambda *a: WEEKLY)
+    monkeypatch.setattr(scoreboard_module, "build_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(scoreboard_module, "build_latest_final_daily", _unavailable)
     monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", lambda *a: HISTORY)
 
     body = scoreboard_module.get_scoreboard_summary()
@@ -89,9 +84,9 @@ def test_summary_reraises_a_non_503_error(monkeypatch):
     def _broken(*args):
         raise HTTPException(status_code=500, detail="boom")
 
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_weekly", _broken)
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_headline", lambda *a: HEADLINE)
-    monkeypatch.setattr(scoreboard_module, "get_scoreboard_daily", lambda *a: DAILY)
+    monkeypatch.setattr(scoreboard_module, "build_scoreboard_weekly", _broken)
+    monkeypatch.setattr(scoreboard_module, "build_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(scoreboard_module, "build_latest_final_daily", lambda *a: DAILY)
     monkeypatch.setattr(scoreboard_module, "build_scoreboard_history", lambda *a: HISTORY)
 
     try:

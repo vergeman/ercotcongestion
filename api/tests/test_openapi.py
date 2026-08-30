@@ -78,8 +78,7 @@ def test_openapi_documents_contract_migrations_and_bootstrap_availability(client
 def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
     paths = client.get('/openapi.json').json()['paths']
     public_routes = (
-        '/forecast_range', '/map/constraints/ranked', '/scoreboard/headline',
-        '/scoreboard/weekly', '/scoreboard/daily', '/analysis/hero/latest',
+        '/forecast_range', '/map/constraints/ranked', '/analysis/hero/latest',
         '/analysis/hero', '/analysis/brief', '/analysis/brief/hero',
         '/analysis/brief/hero/stats', '/analysis/brief/details', '/analysis/node',
         '/analysis/settlement-points', '/analysis/constraints', '/analysis/grade',
@@ -90,3 +89,9 @@ def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
         names = {parameter['name'] for parameter in paths[route]['get'].get('parameters', [])}
         assert 'run_id' not in names, route
         assert 'run' not in names, route
+
+
+def test_openapi_keeps_scoreboard_as_one_summary_resource(client):
+    paths = client.get('/openapi.json').json()['paths']
+    assert '/scoreboard/summary' in paths
+    assert {'/scoreboard/headline', '/scoreboard/weekly', '/scoreboard/daily'}.isdisjoint(paths)
