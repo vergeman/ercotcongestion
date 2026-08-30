@@ -26,7 +26,7 @@ Branch: refactor/0182-analysis-routes-and-brief-composition
 
 ## Acceptance
 
-* [ ] No Analysis route handler invokes another decorated Analysis route handler.
-* [ ] All existing `/analysis/*` paths, tags, parameters, and response schemas remain present in OpenAPI.
-* [ ] Brief sections still share the exact prior run/day/horizon resolution and availability rules.
-* [ ] Focused Analysis and OpenAPI tests pass.
+* [x] No Analysis route handler invokes another decorated Analysis route handler.
+* [x] All existing `/analysis/*` paths, tags, parameters, and response schemas remain present in OpenAPI.
+* [x] Brief sections still share the exact prior run/day/horizon resolution and availability rules.
+* [x] Focused Analysis and OpenAPI tests pass.
