@@ -21,10 +21,10 @@ from schemas.analysis import (AnalysisContributionTerm, NodeMarketState, GradeAv
                     HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
                     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
                     AnalysisSettlementPointsAvailableResponse,
-                    AnalysisSettlementPointsUnavailableResponse, AnalysisSettlementPointMetadata,
-                    AnalysisConstraintRow, AnalysisConstraintsAvailableResponse,
+                    AnalysisSettlementPointsUnavailableResponse,
+                    AnalysisConstraintsAvailableResponse,
                     AnalysisConstraintsUnavailableResponse, ForecastMuAvailableResponse,
-                    ForecastMuUnavailableResponse, ForecastMuRow, EsspGroup,
+                    ForecastMuUnavailableResponse, EsspGroup,
                     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
                     TopConstraintsUnavailableResponse, TopNodeRow,
@@ -40,7 +40,6 @@ from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
-from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.analysis.brief_grade import (
     grade_constraint_profiles as _brief_grade_constraint_profiles,
     grade_node_profiles as _brief_grade_node_profiles,
@@ -48,11 +47,24 @@ from compute.analysis.brief_grade import (
 )
 from compute.projection.codecs import node_contributions
 from services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
-from services.constraint_keys import split_constraint_key
 from services.system_lambda import (
     forecast_system_lambda,
     persisted_system_lambdas_by_ct_hour,
     settled_system_lambdas,
+)
+from services.analysis.resolution import (
+    dam_landed as _dam_landed,
+    resolve_delivery_date as _resolve_brief_delivery_date,
+    resolve_horizon as _resolve_horizon,
+    resolve_run as _resolve_run,
+    selected_hours as _selected_hours,
+)
+from services.analysis.queries import (
+    constraints_response,
+    essp_groups_response,
+    forecast_mu_response,
+    node_response,
+    settlement_points_response,
 )
 
 router = APIRouter(prefix="/analysis")
@@ -74,70 +86,6 @@ def _cursor(delivery_date: date, artifact) -> dict[str, str]:
     ws, we = delivery_bounds(delivery_date)
     peak = artifact.E_mu.abs().sum(axis=1).idxmax()
     return {"ws": _iso_z(ws), "we": _iso_z(we), "t": _iso_z(peak)}
-
-
-def _dam_landed(cur, delivery_date: date) -> bool:
-    """Require a substantive part of the day, not only the prior CT-day tail."""
-    ws, we = delivery_bounds(delivery_date)
-    cur.execute(
-        "SELECT max(interval_ts) AS ts FROM ercot_dam_shadow_prices "
-        "WHERE interval_ts >= %s AND interval_ts < %s AND dst_flag = FALSE "
-        "AND shadow_price IS NOT NULL",
-        (ws, we),
-    )
-    row = cur.fetchone()
-    return row is not None and row["ts"] is not None and row["ts"] >= ws + (we - ws) / 2
-
-
-def _resolve_run(cur, run_id: str | None) -> str:
-    if run_id is not None:
-        return run_id
-    cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
-    row = cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=503, detail="no forecast run is published yet.")
-    return str(row["run_id"])
-
-
-def _resolve_horizon(cur, run_id: str, delivery_date: date, horizon: int | None) -> int | None:
-    if horizon is not None:
-        return horizon
-    cur.execute(
-        "SELECT min(horizon) AS h FROM forecast_sf_artifact "
-        "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
-    row = cur.fetchone()
-    return None if row is None or row["h"] is None else int(row["h"])
-
-
-def _resolve_brief_delivery_date(
-    delivery_date: date | None,
-    legacy_day: date | None,
-) -> date:
-    """Accept the delivery-date alias without letting conflicting values drift."""
-    # These handlers are also invoked directly by the Brief compositions. In
-    # that path FastAPI has not resolved an omitted Query default, so normalize
-    # its sentinel to the same missing value an HTTP request receives.
-    delivery_date = delivery_date if isinstance(delivery_date, date) else None
-    legacy_day = legacy_day if isinstance(legacy_day, date) else None
-    if delivery_date is None:
-        delivery_date = legacy_day
-    elif legacy_day is not None and legacy_day != delivery_date:
-        raise HTTPException(status_code=422, detail="delivery_date and deprecated day must match.")
-    if delivery_date is None:
-        raise HTTPException(status_code=422, detail="delivery_date is required (deprecated alias: day).")
-
-    return delivery_date
-
-
-def _selected_hours(artifact, hours: list[datetime] | None) -> pd.DatetimeIndex:
-    available = artifact.E_mu.index
-    if hours is None:
-        return available
-    selected = pd.DatetimeIndex(pd.to_datetime(hours, utc=True))
-    missing = selected.difference(available)
-    if len(missing):
-        raise HTTPException(status_code=422, detail="hours must be artifact timestamps for this delivery day.")
-    return selected.unique().sort_values()
 
 
 def _settled_congestion(cur, settlement_points: list[str], timestamps: pd.DatetimeIndex) -> dict[str, float]:
@@ -780,46 +728,14 @@ def get_node(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date, horizon=horizon,
             )
-        if settlement_point not in artifact.SF.columns:
-            raise HTTPException(status_code=404, detail="settlement point is absent from this artifact.")
-        selected = _selected_hours(artifact, hours)
-        mu = (load_realized_mu(cur, selected, artifact.SF.index).reindex(artifact.SF.index).fillna(0.0)
-              if basis == "realized"
-              else artifact.E_mu.loc[selected].sum(axis=0))
-        sf = artifact.SF[settlement_point]
-        contributions = node_contributions(artifact, settlement_point, mu)
-        contributions = contributions[sf.abs() >= min_abs_sf]
-        total = float(contributions.sum())
-        settled = _settled_congestion(cur, [settlement_point], selected).get(settlement_point)
-        market_state = (
-            _node_market_state(cur, settlement_point, run_id, delivery_date, horizon, selected[0].to_pydatetime())
-            if len(selected) == 1 else None
+        return node_response(
+            cur=cur, artifact=artifact, settlement_point=settlement_point, run_id=run_id,
+            delivery_date=delivery_date, horizon=horizon, basis=basis, hours=hours,
+            min_abs_sf=min_abs_sf, mode=mode, include_detail=include_detail,
+            selected_hours=_selected_hours, settled_congestion=_settled_congestion,
+            node_market_state=_node_market_state, essp_member_count=_essp_member_count,
+            terms=_terms, structural_terms=_structural_terms,
         )
-        structural_sf = sf[sf.abs() >= min_abs_sf] if include_detail else None
-        essp_member_count = (
-            _essp_member_count(cur, settlement_point, selected[0].to_pydatetime())
-            if include_detail and len(selected) == 1 else None
-        )
-
-    return NodeAnalysisAvailableResponse(
-        available=True, settlement_point=settlement_point, run_id=run_id,
-        delivery_date=delivery_date, horizon=horizon, basis=basis, hours=list(selected), total=total,
-        n_terms=(
-            int(((sf.abs() >= min_abs_sf) & (sf != 0.0)).sum())
-            if mode == "structural" else int((contributions != 0.0).sum())
-        ),
-        coverage=None if settled in (None, 0.0) else total / settled,
-        terms=(
-            _structural_terms(sf[sf.abs() >= min_abs_sf], contributions)
-            if mode == "structural" else _terms(contributions, sf)
-        ),
-        market_state=market_state,
-        structural_n_terms=None if structural_sf is None else int((structural_sf != 0.0).sum()),
-        structural_terms=(
-            None if structural_sf is None else _structural_terms(structural_sf, contributions)
-        ),
-        essp_member_count=essp_member_count,
-    )
 
 
 @router.get("/settlement-points",
@@ -845,21 +761,8 @@ def get_settlement_points(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date, horizon=horizon,
             )
-    settlement_points = sorted(str(sp) for sp in artifact.SF.columns)
-    metadata = load_sp_metadata(settlement_points)
-    return AnalysisSettlementPointsAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        settlement_points=settlement_points,
-        metadata=[
-            AnalysisSettlementPointMetadata(
-                settlement_point=point,
-                settlement_point_type=metadata[point].get("sp_type"),
-                load_zone=metadata[point].get("load_zone"),
-                lat=metadata[point].get("lat"),
-                lon=metadata[point].get("lon"),
-            )
-            for point in settlement_points
-        ],
+    return settlement_points_response(
+        artifact=artifact, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
     )
 
 
@@ -890,24 +793,9 @@ def get_constraints(
         keys = [str(key) for key in artifact.E_mu.columns]
         geography = _constraint_geo(cur, keys)
 
-    mu_mass = artifact.E_mu.abs().sum(axis=0)
-    ranked = mu_mass.sort_values(ascending=False, kind="stable")
-    binding_hours = artifact.E_mu.ne(0.0).sum(axis=0)
-
-    rows: list[AnalysisConstraintRow] = []
-    for rank, key in enumerate(ranked.index, start=1):
-        key = str(key)
-        name, contingency = split_constraint_key(key)
-        geo = geography.get(key, {})
-        rows.append(AnalysisConstraintRow(
-            constraint_key=key, name=name, contingency=contingency,
-            ctype=geo.get("ctype"), zone=geo.get("zone"), kv_max=geo.get("kv_max"),
-            binding_hours=int(binding_hours.loc[key]),
-            daily_mu_rank=rank, daily_mu_sum=float(mu_mass.loc[key]),
-        ))
-    return AnalysisConstraintsAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        rows=rows, n_total=len(rows),
+    return constraints_response(
+        artifact=artifact, geography=geography, run_id=run_id,
+        delivery_date=delivery_date, horizon=horizon,
     )
 
 
@@ -936,15 +824,7 @@ def get_essp_groups(
             (interval_ts, source == "study"),
         )
         rows = cur.fetchall()
-    if not rows:
-        return AnalysisEsspGroupsUnavailableResponse(
-            available=False, unavailable_reason="essp_missing", interval_ts=interval_ts, source=source,
-        )
-    return AnalysisEsspGroupsAvailableResponse(
-        available=True, interval_ts=interval_ts, source=source,
-        groups=[EsspGroup(group_index=int(row["group_index"]),
-                          settlement_points=list(row["settlement_points"])) for row in rows],
-    )
+    return essp_groups_response(rows=rows, interval_ts=interval_ts, source=source)
 
 
 @router.get("/grade", response_model=GradeAvailableResponse | GradeUnavailableResponse,
@@ -1061,16 +941,9 @@ def get_forecast_mu(
                 delivery_date=delivery_date, horizon=horizon,
             )
 
-    requested = list(dict.fromkeys(constraint_key))
-    values = forecast_mu_rows(artifact, requested)
-    fit_keys = set(str(key) for key in artifact.E_mu.columns)
-    return ForecastMuAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        hours=list(values.index),
-        n_fit_constraints=len(artifact.E_mu.columns),
-        rows=[ForecastMuRow(constraint_key=str(key), mu=[float(v) for v in values[key]],
-                            total=float(values[key].sum())) for key in values.columns],
-        missing_constraint_keys=[key for key in requested if key not in fit_keys],
+    return forecast_mu_response(
+        artifact=artifact, constraint_keys=constraint_key, run_id=run_id,
+        delivery_date=delivery_date, horizon=horizon,
     )
 
 
