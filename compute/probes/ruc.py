@@ -1,26 +1,21 @@
-"""RUC probe — 0087 commit 1. Read-only: no DB writes, no model code.
+"""RUC probe. Read-only: no DB writes, no model code.
 
-Answers one question before any ingest is paid for: can the RUC enforced-constraint
-feed actually support a DAM-close mu forecast over the 46 backtest weeks?
-
-R4 died because Leg B ("can we actually get the feed?") was never probed first, so
-this runs every leg to completion and prints a verdict even when an early leg has
-already failed — a partial "no" hides *why*, and the why is what 0088 needs.
+Question: can the RUC enforced-constraint feed support a DAM-close mu forecast over
+the 46 backtest weeks?
 
 Legs
 ----
-0. Discovery   — which RUC constraint products exist on the public API at all.
-                 Do not take the product IDs on faith; the plan's NP5-753/754 are
-                 not on this access path.
-A. Depth       — earliest retrievable postDatetime, via both the CD endpoint and
-                 the archive endpoint. Gate A: must reach 2025-08-14 (week 1).
+0. Discovery   — which RUC constraint products exist on the public API. Check the
+                 product IDs rather than trusting them.
+A. Depth       — earliest retrievable postDatetime, from both the CD and archive
+                 endpoints. Must reach 2025-08-14 (backtest week 1).
 A2. DAM-close  — does any RUC run at or before DAM close (10:00 CT on D-1) publish
-   feasibility   rows for delivery day D? This leg is not in the plan and it is the
-                 one that decides the arm: a feed we cannot read *before we must
-                 predict* is not a covariate, it is an answer key.
+                 rows for delivery day D? This is the deciding check: a feed we can't
+                 read before we predict is useless as a covariate.
 B. Namespace   — mu-mass-weighted match rate of ConstraintName|ContingencyName
-                 against NP4-191. Gate B: >= 90%. Reachable != joinable.
-C. Cadence     — distinct RUCTimestamps per day. Repricing, not a gate.
+                 against NP4-191. join % >= 90%. Being able to read it isn't the
+                 same as being able to join it.
+C. Cadence     — distinct RUCTimestamps per day. Informational, not a gate.
 
 Run:
     docker compose run --rm compute python -m compute.probes.ruc
@@ -33,18 +28,14 @@ from datetime import date
 import pandas as pd
 import psycopg
 
-# ErcotClient uses flat imports (`from loaders import ...`) and the compute
-# container mounts /ercot_ingest without putting it on PYTHONPATH. Reuse it
-# anyway: it owns the B2C token flow, the Cloudflare proxy, 429 back-off and
-# pagination, and a second HTTP client is how those get re-broken.
 sys.path.insert(0, "/ercot_ingest")
 
 from ErcotClient import BASE_URL, SUB_KEY, ErcotClient  # noqa: E402
 
 from shared.settings import settings  # noqa: E402
 
-# Gate A: backtest week 1. An archive that stops short of this cannot be
-# validated against the existing 46-week harness.
+# backtest week 1. An archive that stops short can't be validated against the
+# existing 46-week harness.
 BACKTEST_START = date(2025, 8, 14)
 
 # DAM closes 10:00 CT on D-1. RUC timestamps are naive Central.
@@ -54,7 +45,7 @@ GATE_B_THRESHOLD = 0.90
 
 HRUC = "/np5-755-cd/hrly_ruc_act_and_bind_tran_const"
 
-# The products the plan is written against. Probed, not assumed.
+# The products the plan is written against. Checked, not assumed.
 PLANNED = ["np5-753-cd", "np5-754-cd"]
 
 
@@ -117,7 +108,7 @@ def legA_depth(client: ErcotClient) -> date | None:
             earliest = pd.to_datetime(oldest).date()
 
     # The CD endpoint serves a rolling window; the archive is the deeper store.
-    # Report both, because "the archive says 2555 days" is metadata, not retention.
+    # Report both — the archive's advertised retention is metadata, not actual rows.
     print("\n  CD-endpoint retention spot-check (rows returned by postedDatetime):")
     for day in ["2025-08-14", "2026-04-01", "2026-05-01", "2026-06-01"]:
         df = client.get(
@@ -143,12 +134,11 @@ def legA_depth(client: ErcotClient) -> date | None:
 # ---------------------------------------------------------------- leg A2
 
 def legA2_dam_close(client: ErcotClient, start: str, end: str) -> None:
-    """The leg that decides the arm.
+    """The deciding leg.
 
-    For the mu-model, delivery day D is predicted at DAM close: 10:00 CT on D-1.
-    A RUC vintage is only a legal covariate if a run at or before that moment
-    already describes day D. Measure it directly rather than reasoning about
-    ERCOT's study horizon from documentation.
+    Delivery day D is predicted at DAM close (10:00 CT on D-1). A RUC run is only a
+    valid covariate if a run at or before that moment already describes day D.
+    Measure it directly rather than trusting ERCOT's documentation.
     """
     print("\n=== LEG A2 — usability at DAM close ===")
     df = client.get(HRUC, postedDatetimeFrom=start, postedDatetimeTo=end)
@@ -183,15 +173,14 @@ def legA2_dam_close(client: ErcotClient, start: str, end: str) -> None:
     if lag > 0:
         print(
             f"  => The first RUC view of day D lands {lag}h AFTER DAM close.\n"
-            f"     Joining it to a DAM-close forecast is a {lag}h lookahead, which is\n"
-            f"     the same class of error that manufactured the retired 0.986."
+            f"     Joining it to a DAM-close forecast is a {lag}h lookahead."
         )
 
 
 # ---------------------------------------------------------------- leg B
 
 def _key(constraint: pd.Series, contingency: pd.Series) -> pd.Series:
-    """Identical construction to compute/sf/panels.py:53. Do not drift."""
+    """Must match compute/sf/panels.py:53 exactly. Keep the two in sync."""
     return (
         constraint.astype(str).str.strip() + "|" + contingency.astype(str).str.strip()
     )
@@ -230,8 +219,8 @@ def legB_namespace(client: ErcotClient, start: str, end: str) -> None:
     matched = mu["key"].isin(ruc_keys)
     total_mass = mu["mu_mass"].sum()
     hit_mass = mu.loc[matched, "mu_mass"].sum()
-    # Weight by mu-mass, not key count: key count flatters, mu-mass is what the
-    # score is actually made of.
+    # Weight by mu-mass, not key count: key count flatters the result, mu-mass is
+    # what the score is actually made of.
     rate = hit_mass / total_mass if total_mass else 0.0
 
     print(f"  RUC keys in window:        {len(ruc_keys)}")
@@ -275,13 +264,12 @@ def dump_schema(client: ErcotClient, start: str, end: str) -> None:
 def main() -> None:
     client = ErcotClient()
 
-    # One week is enough to characterise horizon and cadence (they are structural
-    # and repeat every run), and keeps the pull cheap.
+    # One week is enough for horizon and cadence — they're structural and repeat
+    # every run — and keeps the pull cheap.
     week_start, week_end = "2026-06-01T00:00:00", "2026-06-08T00:00:00"
 
-    # Gate B gets the FULL available overlap between the RUC archive and NP4-191
-    # mu, not a convenient week. A gate that kills an arm is measured on the best
-    # window available, not the cheapest one.
+    # Gate B uses the full overlap between the RUC archive and NP4-191 mu, not a
+    # convenient week: a gate that can kill the arm gets the best window available.
     overlap_start, overlap_end = "2026-05-01T00:00:00", "2026-07-01T00:00:00"
 
     leg0_discovery(client)

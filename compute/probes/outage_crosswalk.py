@@ -1,4 +1,24 @@
-"""Measure NP1-346 outage-MW crosswalk coverage before enabling the feature."""
+"""Measure NP1-346 outage-MW crosswalk coverage before enabling the feature.
+
+Thin CLI over the promoted crosswalk in
+`compute.mu_forecast.covariates.outages.crosswalk`.
+
+Grabs a handful of outage reports spread across history (not just today's —
+--snapshots, default 6).
+
+or each one, tries to match every outaged plant to a map location and adds up
+how much of the down MW it successfully placed.
+
+Prints that percentage per report and pooled, then compares it to the pass/fail
+bars (≥60% good, <30% dead).
+
+This expands and re-scores outage_feed.py across dates, so matches aren't a
+fluke one-time thing, but indicate but a usable, ongoing data source.
+
+verdict() checks pre-determined threshold for functionality, based on scoring;
+(located MW vs total MW)
+
+"""
 from __future__ import annotations
 
 import argparse

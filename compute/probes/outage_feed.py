@@ -1,44 +1,40 @@
 """NP1-346 probe — unplanned generation outages. Read-only: no DB writes, no ingest.
 
-plan/0089 commit 1, in the shape of `compute.probes.ruc` (0087).
+Question: can `NP1-346-ER` (Unplanned Resource Outages) support a per-constraint
+outage covariate at DAM close, across the 46 backtest weeks?
 
-**Answers one question before any ingest is paid for:** can `NP1-346-ER` (Unplanned
-Resource Outages) support a **per-constraint** outage covariate at DAM close, across
-the 46 backtest weeks?
+Why this matters. R4 (outage_join.py) closed as "every outage product is behind
+the MIS Secure Area. That fallback is why `features.outage_panel` hands the
+model four zonal numbers that are identical for every constraint in an hour —
+the model can't tell two constraints apart, so it can't know which one will
+bind.
 
-**Why this arm exists at all.** R4 closed as *"every outage product is behind the MIS
-Secure Area — joinable μ-mass 0.000 → ZONAL FALLBACK"*. That fallback is why
-`features.outage_panel` hands the model **four zonal numbers that are identical for
-every constraint in a given hour**. And that sameness *is* 0085 §5.6's diagnosis of why
-persistence beat us: the model cannot tell two constraints apart, so it cannot know
-*which* one will bind. NP1-346 is **unit-level**, so — if the units can be located —
-the |SF| map crosswalks it into a genuinely per-constraint covariate, the same trick
-`compute/mu/geo.py` uses to locate constraints without name matching.
+NP1-346 is unit-level, so if the units can be located, the |SF| map turns it
+into a genuinely per-constraint covariate (the same trick `compute/mu/geo.py`
+uses to locate constraints without name matching).
 
-**Every leg runs to completion even after a gate fails.** R4 died because "can we
-actually get the feed?" was never probed first; 0087 then proved that a partial "no"
-hides *why*, and the why is the whole finding.
+Every leg runs to the end even after a gate fails, so a "no" also shows why.
 
 Legs
 ----
 0.  Discovery  — is NP1-346-ER on the public API, and what else is there.
-A.  Depth      — archive coverage. **Gate A: must reach 2024-12-11** (panel start —
-                 the training window for backtest week 1, not the week itself).
-B.  Vintage    — **the leg that killed RUC.** Is the report readable *before* we must
+A.  Depth      — archive coverage. Gate A: must reach 2024-12-11 (panel start — the
+                 training window for backtest week 1, not the week itself).
+B.  Vintage    — the leg that killed RUC. Is the report readable before we must
                  predict, and does it say anything about the delivery day? RUC failed
-                 not on history but on **timing**.
-C.  Join       — **the open gate, and the likely killer.** Resource → settlement
-                 point, weighted by **outage MW**, never by row count.
-                 Locatable-outage-MW coverage gate (pre-registered, mirroring R4's bar):
+                 on timing, not history.
+C.  Join       — the open gate, and the likely killer. Resource → settlement point,
+                 weighted by outage MW, never row count. Coverage gate (mirrors R4's):
                    ≥60% of outage MW locatable → build the per-constraint covariate
                    30–60%                      → build it, flagged, on the joinable subset
-                   <30%                        → **it degrades to `outages_zonal`, which
-                                                  we already have. The arm is dead.**
-D.  Signal     — does the located covariate carry information a *zonal* aggregate does
+                   <30%                        → falls back to `outages_zonal`, which we
+                                                  already have. The arm is dead.
+D.  Signal     — does the located covariate carry information a zonal aggregate does
                  not? A feed that joins perfectly and predicts nothing is still a no.
 
 Run:
     docker compose run --rm compute python -m compute.probes.outage_feed
+
 """
 from __future__ import annotations
 
@@ -63,12 +59,12 @@ HEADER_ROW = 4          # the data header sits on row 5 of the sheet
 MW = "Effective MW Reduction Due to Outage"
 
 # Gate A. NOT the first scored week (2025-08-14): the model trains on a 240-day
-# trailing window, so a feature must exist back to the panel's start or the first
-# folds train on a column that is entirely NaN.
+# trailing window, so a feature must exist back to the panel start or the first
+# folds train on an all-NaN column.
 PANEL_START = date(2024, 12, 11)
 BACKTEST_START = date(2025, 8, 14)
 
-# Pre-registered locatable-outage-MW coverage thresholds — R4's bar, restated.
+# Locatable-outage-MW coverage thresholds — same bar as R4.
 LOCATABLE_OUTAGE_MW_BUILD_SHARE = 0.60
 LOCATABLE_OUTAGE_MW_FLAGGED_SHARE = 0.30
 
@@ -100,9 +96,8 @@ def archive_index(c: ErcotClient) -> pd.DataFrame:
 def fetch_report(c: ErcotClient, doc_id: int) -> pd.DataFrame:
     """One archived document → the outage table.
 
-    The payload is a **zip wrapping an xlsx**, and the data header is on row 5.
-    Dumped from the wire rather than remembered — 0087's schema was wrong in five
-    fields precisely because it was remembered.
+    The payload is a zip wrapping an xlsx, with the data header on row 5. Read from
+    the wire rather than from memory — a remembered schema is easy to get wrong.
     """
     r = c._request("GET", f"{BASE_URL}/archive/{PRODUCT}", headers=_hdrs(c),
                    params={"download": int(doc_id)})
@@ -122,9 +117,9 @@ def leg0_discovery(c: ErcotClient) -> None:
         n = (p.get("name") or "")
         if "outage" in n.lower():
             print(f"    {p['emilId']:12} {n}")
-    print("\n  NP1-346-ER is the one R4 never found: it is UNIT-LEVEL, whereas")
-    print("  NP3-233-CD (already ingested as `outages_zonal`) is a 4-number zonal")
-    print("  aggregate — the same value for every constraint in an hour.")
+    print("\n  NP1-346-ER is unit-level, whereas NP3-233-CD (already ingested as")
+    print("  `outages_zonal`) is a 4-number zonal aggregate — the same value for")
+    print("  every constraint in an hour.")
 
 
 # ---------------------------------------------------------------- leg A
@@ -144,8 +139,8 @@ def legA_depth(idx: pd.DataFrame) -> None:
         print(f"\n  GATE A: FAIL — starts {oldest.date()}, {short} days too late.")
         return
 
-    # Depth is not enough: a feed with holes gives NaN weeks. Check DENSITY too —
-    # NP5-755 advertised 2555 days of retention and delivered 259 days short.
+    # Depth alone isn't enough: a feed with holes gives NaN weeks. Check density too
+    # — NP5-755 advertised 2555 days of retention and delivered 259 days short.
     span = idx[idx["posted"].dt.date >= PANEL_START]
     days = pd.date_range(PANEL_START, newest.date(), freq="D")
     have = set(span["posted"].dt.date)
@@ -161,11 +156,9 @@ def legA_depth(idx: pd.DataFrame) -> None:
 # ---------------------------------------------------------------- leg B
 
 def legB_vintage(c: ErcotClient, idx: pd.DataFrame) -> None:
-    """**The leg that killed RUC — and the one this feed has to survive.**
+    """RUC failed on timing, not history: no Hourly RUC run at or before DAM close
+    describes delivery day D, so a deeper archive check fixes nothing.
 
-    RUC failed on *timing*, not history: no HRUC run at or before DAM close ever
-    describes delivery day D, so a deeper archive fixed nothing. Ask the same
-    question here, and answer it from the documents rather than the documentation.
     """
     print("\n=== LEG B — vintage: is it readable BEFORE we must predict? ===")
 
@@ -176,8 +169,8 @@ def legB_vintage(c: ErcotClient, idx: pd.DataFrame) -> None:
     late = (ct.dt.hour >= DAM_CLOSE_HOUR).mean()
     print(f"  posted at/after {DAM_CLOSE_HOUR:02d}:00 CT: {late:.1%} of documents")
 
-    # The D-3 rule, taken from the report's own description and CONFIRMED against a
-    # real document rather than believed.
+    # The D-3 rule, taken from the report's own description and confirmed against a
+    # real document rather than trusted.
     doc = idx.iloc[-1]
     df = fetch_report(c, doc["docId"])
     posted = doc["posted"]
@@ -192,18 +185,18 @@ def legB_vintage(c: ErcotClient, idx: pd.DataFrame) -> None:
     covered = (posted - pd.Timedelta(days=3)).normalize()
     print(f"  => newest report at DAM close for delivery day D describes ~D-4.")
 
-    # Staleness only matters if the state DECAYS. Generation outages persist, and
-    # the report says so itself: measure how much of the outage MW is still expected
-    # to be out four days later.
+    # Staleness only matters if the state decays. Generation outages persist, and
+    # the report says so itself: measure how much outage MW is still expected to be
+    # out four days later.
     horizon = covered + pd.Timedelta(days=4)
     still_out = ends >= horizon
     mw_total = df[MW].sum()
     mw_persist = df.loc[still_out.fillna(False), MW].sum()
     print(f"\n  Of {mw_total:,.0f} MW out in this snapshot, "
           f"{mw_persist:,.0f} MW ({mw_persist/mw_total:.1%}) has a Planned End Date")
-    print(f"  on/after {horizon.date()} — i.e. is STILL EXPECTED OUT on delivery day.")
-    print("  **This is the forward-looking content, and it is what RUC could not")
-    print("  give us: information about tomorrow, published before the close.**")
+    print(f"  on/after {horizon.date()} — i.e. is still expected out on delivery day.")
+    print("  This is the forward-looking content RUC could not give us: information")
+    print("  about tomorrow, published before the close.")
 
     old = (posted - starts).dt.days
     print(f"\n  outage age at posting (days): median {old.median():.0f}  "
@@ -216,14 +209,14 @@ def legB_vintage(c: ErcotClient, idx: pd.DataFrame) -> None:
 def crosswalk(units: pd.Series, sps: set[str]) -> pd.DataFrame:
     """Resource Unit Code → settlement point. Every strategy measured, none assumed.
 
-    **The namespaces are both *generation* names here**, which is why this is worth
-    trying at all: R4's failure was `plant name` vs `transmission substation` — genuinely
-    different namespaces, 4.3% and unfixable. This is resource-vs-resource.
+    Both sides are generation names here, which is why this is worth trying: R4's
+    failure was plant name vs transmission substation — different naming schemes,
+    4.3% and unfixable. This is resource-vs-resource.
 
-    Strategy 1 (exact) is the only one that is unambiguous. Strategy 2 (station
-    prefix) is a heuristic and is reported SEPARATELY and honestly, because it is
-    exactly the fuzzy matching R4 warns against: it derives station `B` from
-    `B_DAVIS_B_DAVIG1`, and several stations carry many settlement points.
+    Strategy 1 (exact) is the only unambiguous one. Strategy 2 (station prefix) is a
+    guess and is reported separately, because it's the kind of fuzzy match R4 warns
+    against: it derives station `B` from `B_DAVIS_B_DAVIG1`, and several stations
+    carry many settlement points.
     """
     u = units.fillna("").astype(str)
     out = pd.DataFrame({"unit": u})
@@ -234,7 +227,7 @@ def crosswalk(units: pd.Series, sps: set[str]) -> pd.DataFrame:
         by_station.setdefault(s.split("_")[0], []).append(s)
 
     # Longest-prefix station match: prefer the most specific station token that
-    # resolves, rather than blindly taking text before the first underscore.
+    # resolves, rather than just taking the text before the first underscore.
     def station_match(code: str) -> str | None:
         if not code:
             return None
@@ -253,9 +246,9 @@ def crosswalk(units: pd.Series, sps: set[str]) -> pd.DataFrame:
 
 def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
     print("\n=== LEG C — the resource-to-settlement-point join ===")
-    print(f"  Bar, pre-registered: ≥{LOCATABLE_OUTAGE_MW_BUILD_SHARE:.0%} of outage MW locatable → build;")
-    print(f"  <{LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:.0%} → it degrades to `outages_zonal`, which we already "
-          f"have, and the arm is DEAD.")
+    print(f"  Bar: ≥{LOCATABLE_OUTAGE_MW_BUILD_SHARE:.0%} of outage MW locatable → build;")
+    print(f"  <{LOCATABLE_OUTAGE_MW_FLAGGED_SHARE:.0%} → falls back to `outages_zonal`, which we already "
+          f"have, and the arm is dead.")
 
     doc = idx.iloc[-1]
     df = fetch_report(c, doc["docId"])
@@ -291,17 +284,17 @@ def legC_join(c: ErcotClient, idx: pd.DataFrame, sps: set[str]) -> float:
 
 def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
                 n_days: int = 90) -> None:
-    """**Does it carry information a zonal aggregate does not?**
+    """Does it carry information a zonal aggregate does not?
 
     A feed that joins perfectly and predicts nothing is still a no. This is the
-    cheapest possible version of the question: locate the outaged MW, push it
-    through the |SF| map to get a **per-constraint outage exposure**, and ask whether
-    that exposure separates the constraints that bind from the ones that do not — on
-    a day the model was never trained on.
+    cheapest version of the question: locate the outaged MW, push it through
+    the |SF| map to get a per-constraint outage exposure, and ask whether that
+    exposure separates the constraints that bind from the ones that don't, on a
+    day the model was never trained on.
 
-    Not a lift measurement, and it must not be quoted as one. It is a screen: if the
-    exposure is uninformative *here*, no amount of ingest will make it informative
-    downstream.
+    This is a screen: if the exposure is uninformative here, no amount of
+    ingest will make it informative downstream.
+
     """
     print("\n=== LEG D — does the located covariate carry signal? ===")
 
@@ -333,8 +326,8 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)
 
-    # One honest SF fit, on the window ENDING before the probed span. Enough for a
-    # screen; the real feature would refit weekly (see geo.geo_panel).
+    # One SF fit, on the window ending before the probed span. Enough for a screen;
+    # the real feature would refit weekly (see geo.geo_panel).
     fit_end = pd.Timestamp(daily.index.min(), tz="UTC")
     fit_lo = fit_end - pd.Timedelta(days=240)
     SF = implied_shift_factors(M.loc[(M.index >= fit_lo) & (M.index < fit_end)],
@@ -361,9 +354,9 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
     keys = expo.columns.intersection(mu.columns)
     E, Y = expo.loc[days, keys], mu.loc[days, keys]
 
-    # Cross-sectional: on a given day, do the MORE outage-exposed constraints bind
-    # harder? That is the question the zonal aggregate structurally cannot answer,
-    # because it gives every constraint the same number.
+    # Cross-sectional: on a given day, do the more outage-exposed constraints bind
+    # harder? The zonal aggregate can't answer this at all, because it gives every
+    # constraint the same number.
     rhos = []
     for d in days:
         e, y = E.loc[d], Y.loc[d]
@@ -374,7 +367,7 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
     print(f"\n  CROSS-SECTIONAL rank corr(outage exposure, realized |μ|), per day:")
     print(f"    mean {rhos.mean():+.3f}   median {rhos.median():+.3f}   "
           f"days {len(rhos)}   days>0 {(rhos > 0).mean():.0%}")
-    print("  A zonal aggregate scores EXACTLY 0 here by construction — it cannot")
+    print("  A zonal aggregate scores exactly 0 here by construction — it can't")
     print("  order constraints within a day. Anything non-zero is information R4")
     print("  concluded we did not have.")
 
@@ -382,7 +375,7 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
 # ---------------------------------------------------------------- schema
 
 def dump_schema(c: ErcotClient, idx: pd.DataFrame) -> None:
-    print("\n=== REAL COLUMN SET (verbatim from the wire) ===")
+    print("\n=== COLUMN SET (verbatim from the wire) ===")
     df = fetch_report(c, idx.iloc[-1]["docId"])
     print(f"  {list(df.columns)}")
     print("\n  sample row:")
@@ -411,9 +404,9 @@ def main() -> None:
     sps = settlement_points()
     rate = legC_join(c, idx, sps)
 
-    # Leg D runs EVEN IF Gate C failed — a partial "no" hides why. If the located
-    # subset carries no signal, that is a second, independent reason to stop, and it
-    # is worth knowing before anyone tries to rescue the join.
+    # Leg D runs even if Gate C failed — a "no" should show why. If the located
+    # subset carries no signal, that's a second, independent reason to stop, worth
+    # knowing before anyone tries to rescue the join.
     legD_signal(c, idx, sps)
     dump_schema(c, idx)
 
