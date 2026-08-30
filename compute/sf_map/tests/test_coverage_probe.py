@@ -10,12 +10,21 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.experiments.sf.coverage import admission_stats, probe
+from compute.experiments.sf.coverage import _rtcb_for, admission_stats, probe
+from compute.sf_map.config import RTC_B
 
 D0 = pd.Timestamp("2025-01-01")
 WINDOW, REFIT, MIN_HOURS, MIN_HIST = 60, 7, 25, 100
 # On the refit grid (anchored at D0 + WINDOW, step 7d) and past the history bar.
 SCORE_WEEK = D0 + pd.Timedelta(days=200)
+
+
+def test_rtcb_cutover_uses_the_shared_date_with_the_row_timezone():
+    local = pd.Timestamp("2025-12-06", tz="America/Chicago")
+    naive = pd.Timestamp("2025-12-06")
+
+    assert _rtcb_for(local) == RTC_B.tz_localize(None).tz_localize(local.tz)
+    assert _rtcb_for(naive) == RTC_B.tz_localize(None)
 
 
 def _panel(n_days: int = 400) -> pd.DataFrame:

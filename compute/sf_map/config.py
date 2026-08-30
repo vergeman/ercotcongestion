@@ -12,7 +12,10 @@ operating point, so a hand-run without the flags fits at the same point.
 """
 from __future__ import annotations
 
+import pandas as pd
+
 WINDOW_DAYS = 240      # trailing SF fit window
 REFIT_DAYS = 7         # refit cadence
 RIDGE_LAMBDA = 1.0     # ridge on the standardized solve (0082 S1.5)
 MIN_HOURS = 25         # min in-window binding hours to admit a constraint
+RTC_B = pd.Timestamp("2025-12-05", tz="UTC")
