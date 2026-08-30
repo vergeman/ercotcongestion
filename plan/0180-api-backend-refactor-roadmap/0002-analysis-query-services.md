@@ -26,7 +26,9 @@ Branch: refactor/0181-analysis-query-services
 
 ## Acceptance
 
-* [ ] Analysis services can be called without importing `api.analysis` or a decorated handler.
+* [x] Analysis services can be called without importing `api.analysis` or a decorated handler.
 * [ ] `api/analysis.py` no longer contains shared profile/history/ranking query policy.
 * [ ] Existing Analysis unit tests pass unchanged or move only their import target to a service boundary.
 * [ ] Availability, selected run/horizon, CT-day, and response-model behavior remain unchanged.
+
+Validation: `docker compose run --rm --no-deps api pytest -q tests/test_analysis.py` — 50 passed, 3 existing failures (Grade fixture sequencing and Top Constraints response expectation mismatch).
