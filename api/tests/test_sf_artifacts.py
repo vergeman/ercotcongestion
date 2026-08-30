@@ -6,8 +6,8 @@ from datetime import date
 import pandas as pd
 
 from compute.projection.codecs import SfMuArtifact, build_sf_mu_artifact
-from services import sf_artifacts as sa
-from services.sf_artifacts import SfArtifactCache, normalize_constraint_key
+from api.services import sf_artifacts as sa
+from api.services.sf_artifacts import SfArtifactCache, normalize_constraint_key
 
 
 def _artifact(value: float) -> SfMuArtifact:

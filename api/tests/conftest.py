@@ -6,10 +6,7 @@ are skipped unless RUN_INTEGRATION=1.
 """
 from __future__ import annotations
 
-import sys, os
-sys.path.insert(0, '/api')
-
-
+import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
@@ -17,8 +14,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-import db as db_module
-from main import app
+from api import db as db_module
+from api.main import app
 
 
 def pytest_configure(config):
@@ -104,9 +101,9 @@ def fake_pool(monkeypatch):
     # Unit-test requests share a process, while decoded artifacts are intentionally
     # process-cached in production. Isolate queued database expectations between
     # tests without changing the production cache lifetime.
-    from services.sf_artifacts import _ARTIFACT_CACHE
+    from api.services.sf_artifacts import _ARTIFACT_CACHE
     _ARTIFACT_CACHE.clear()
-    from services.analysis import brief
+    from api.services.analysis import brief
     brief._BRIEF_CACHE.clear()
     brief._BRIEF_HERO_CACHE.clear()
     brief._BRIEF_HERO_STATS_CACHE.clear()
