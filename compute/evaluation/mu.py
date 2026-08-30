@@ -45,11 +45,9 @@ log = logging.getLogger("compute.evaluation.mu")
 # The adopted operating point (0082 S1.5 / R1), single-sourced in
 # `compute.sf_map.config` so the μ forecast and the SF map cannot drift.
 from compute.sf_map.config import (  # noqa: E402
-    MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, WINDOW_DAYS,
+    MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, RTC_B, WINDOW_DAYS,
 )
 STD_FLOOR = 100.0
-
-RTC_B = pd.Timestamp("2025-12-05", tz="UTC")   # the structural break
 
 SOURCES = ["oracle", "model", "climatology", "persistence", "null"]
 

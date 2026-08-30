@@ -10,6 +10,7 @@ from compute.evaluation.mu import (
     SOURCES, mu_climatology, mu_from_preds, mu_persistence, report,
     score_matrix, score_week, walk, weeks_from_preds,
 )
+from compute.sf_map.config import RTC_B
 
 RNG = np.random.default_rng(7)
 KEYS = [f"C{i}|X" for i in range(6)]
@@ -236,7 +237,7 @@ def test_the_map_is_never_fitted_on_the_week_it_grades():
 
 
 def test_report_prints_every_source_and_both_splits():
-    """RTC+B (2025-12-05) is a structural break; a number pooled across it hides a
+    """RTC+B is a structural break; a number pooled across it hides a
     regime change. The weeks here straddle it on a real weekly phase."""
     M, C, _ = _world(start="2025-01-01", days=420)
     weeks = pd.date_range(pd.Timestamp("2025-11-13", tz="UTC"), periods=6,
@@ -246,7 +247,7 @@ def test_report_prints_every_source_and_both_splits():
     for src in SOURCES:
         assert src in txt
     assert "PRE-RTC+B" in txt and "POST-RTC+B" in txt
-    assert (df[df["week"] < pd.Timestamp("2025-12-05", tz="UTC")]
+    assert (df[df["week"] < RTC_B]
             ["week"].nunique()) == 4        # 11-13, 11-20, 11-27, 12-04
 
 
