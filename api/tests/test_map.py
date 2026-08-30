@@ -20,6 +20,8 @@ from fastapi import HTTPException
 import pandas as pd
 
 import map as map_module
+from services.map import common as map_common
+from services.map import summary as map_summary
 from compute.projection.codecs import build_sf_mu_artifact
 from schemas.map import MapMeta, MapOverview
 from schemas.scoreboard import ScoreboardHeadline
@@ -73,7 +75,7 @@ def _queue_click_artifact(fake_pool, blob: bytes | None, *, geo=None,
 @pytest.fixture
 def configured_run(monkeypatch):
     """Pin the resolved run so _resolve does a single max(window_start) query."""
-    monkeypatch.setattr(map_module, "MAP_RUN_ID", "map-v1")
+    monkeypatch.setattr(map_common, "MAP_RUN_ID", "map-v1")
 
 
 def _meta_row(**over) -> dict:
@@ -115,7 +117,7 @@ def test_meta_503_when_no_window_built(client, fake_pool, configured_run):
 
 def test_resolution_defaults_to_newest_run(client, fake_pool, monkeypatch):
     """MAP_RUN_ID None → resolve newest run_id from sf_window_meta."""
-    monkeypatch.setattr(map_module, "MAP_RUN_ID", None)
+    monkeypatch.setattr(map_common, "MAP_RUN_ID", None)
     fake_pool.cursor.queue([{"run_id": "map-v1"}])  # newest run
     fake_pool.cursor.queue([{"ws": WS}])            # its max window_start
     fake_pool.cursor.queue([_meta_row()])
@@ -678,15 +680,15 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     calls: dict[str, tuple] = {}
 
     def _fake(name, result):
-        def _handler(*args):
+        def _handler(*args, **kwargs):
             calls[name] = args
             return result
         return _handler
 
-    monkeypatch.setattr(map_module, "get_map_overview", _fake("overview", OVERVIEW))
-    monkeypatch.setattr(map_module, "get_map_meta", _fake("meta", META))
-    monkeypatch.setattr(map_module, "build_headline", _fake("headline", HEADLINE))
-    monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
+    monkeypatch.setattr(map_module.aggregate, "overview", _fake("overview", OVERVIEW))
+    monkeypatch.setattr(map_module.aggregate, "meta", _fake("meta", META))
+    monkeypatch.setattr(map_summary, "build_headline", _fake("headline", HEADLINE))
+    monkeypatch.setattr(map_summary, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
 
@@ -709,13 +711,13 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     """No SF window built yet must not take down the sections that do have
     data — same soft-fail the client already applies per single-section
     endpoint (503 -> null)."""
-    def _unavailable(*args):
+    def _unavailable(*args, **kwargs):
         raise HTTPException(status_code=503, detail="no window built")
 
-    monkeypatch.setattr(map_module, "get_map_overview", _unavailable)
-    monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
-    monkeypatch.setattr(map_module, "build_headline", lambda *a: HEADLINE)
-    monkeypatch.setattr(map_module, "get_or_build_topology", lambda: TOPOLOGY)
+    monkeypatch.setattr(map_module.aggregate, "overview", _unavailable)
+    monkeypatch.setattr(map_module.aggregate, "meta", lambda: META)
+    monkeypatch.setattr(map_summary, "build_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(map_summary, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
 
@@ -731,14 +733,14 @@ def test_summary_does_not_soft_fail_a_topology_build_error(monkeypatch):
     """Topology was never a null-and-continue case for the client
     (`fetchTopology` always threw on non-503 failure) — the bundle preserves
     that instead of inventing a new empty state for it."""
-    monkeypatch.setattr(map_module, "get_map_overview", lambda *a: OVERVIEW)
-    monkeypatch.setattr(map_module, "get_map_meta", lambda: META)
-    monkeypatch.setattr(map_module, "build_headline", lambda *a: HEADLINE)
+    monkeypatch.setattr(map_module.aggregate, "overview", lambda *a, **kw: OVERVIEW)
+    monkeypatch.setattr(map_module.aggregate, "meta", lambda: META)
+    monkeypatch.setattr(map_summary, "build_headline", lambda *a: HEADLINE)
 
     def _broken():
         raise RuntimeError("topology cache build failed")
 
-    monkeypatch.setattr(map_module, "get_or_build_topology", _broken)
+    monkeypatch.setattr(map_summary, "get_or_build_topology", _broken)
 
     with pytest.raises(RuntimeError):
         map_module.get_map_summary()
