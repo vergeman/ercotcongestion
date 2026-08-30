@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-import forecast as forecast_module
+from api.routes import forecast as forecast_module
 
 
 def _frow(ts, sp, dd, horizon, forecast_congestion=1.0):

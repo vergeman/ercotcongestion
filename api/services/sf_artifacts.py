@@ -22,8 +22,8 @@ from threading import Lock
 import pandas as pd
 
 from compute.projection.codecs import SfMuArtifact, load_sf_mu
-from services.constraint_keys import normalize_constraint_key
-from services.time import CENTRAL, coerce_utc
+from api.services.constraint_keys import normalize_constraint_key
+from api.services.time import CENTRAL, coerce_utc
 
 
 # A typical decoded daily artifact is roughly 5 MiB (dense float32 SF, hourly

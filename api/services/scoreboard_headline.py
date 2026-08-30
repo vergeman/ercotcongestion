@@ -6,8 +6,8 @@ from datetime import date, timedelta
 from fastapi import HTTPException
 from psycopg.rows import dict_row
 
-from db import get_pool
-from schemas.scoreboard import HeadlineCurrency, HeadlineWindow, ScoreboardHeadline
+from api.db import get_pool
+from api.schemas.scoreboard import HeadlineCurrency, HeadlineWindow, ScoreboardHeadline
 
 
 SOURCES = ("model", "persistence", "climatology", "oracle")

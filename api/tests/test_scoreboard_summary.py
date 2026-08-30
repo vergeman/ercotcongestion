@@ -13,8 +13,8 @@ from datetime import date
 
 from fastapi import HTTPException
 
-from services import scoreboard as scoreboard_service
-from schemas.scoreboard import ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly
+from api.services import scoreboard as scoreboard_service
+from api.schemas.scoreboard import ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly
 
 WEEKLY = ScoreboardWeekly(run_id="r", primary_source="model",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])

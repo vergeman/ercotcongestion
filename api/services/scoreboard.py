@@ -7,9 +7,9 @@ from datetime import date
 from fastapi import HTTPException
 from psycopg.rows import dict_row
 
-from db import get_pool
-from schemas.common import BootstrapSectionStatus
-from schemas.scoreboard import (
+from api.db import get_pool
+from api.schemas.common import BootstrapSectionStatus
+from api.schemas.scoreboard import (
     DailyPoint,
     ScoreboardDaily,
     ScoreboardHistory,
@@ -20,8 +20,8 @@ from schemas.scoreboard import (
     WeeklyPoint,
     WeeklySplit,
 )
-from services.bootstrap import availability_status, soft_fail
-from services.scoreboard_headline import build_headline
+from api.services.bootstrap import availability_status, soft_fail
+from api.services.scoreboard_headline import build_headline
 
 _SOURCES = ("model", "persistence", "climatology", "oracle")
 _POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")

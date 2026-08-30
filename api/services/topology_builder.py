@@ -24,7 +24,7 @@ from typing import Any
 
 import pandas as pd
 
-from config import TOPOLOGY_CACHE
+from api.config import TOPOLOGY_CACHE
 from shared.settings import settings
 
 log = logging.getLogger(__name__)

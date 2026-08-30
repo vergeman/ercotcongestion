@@ -15,7 +15,7 @@ Type: refactor
 4. [0003 - Analysis routes and Brief composition](0003-analysis-routes-and-brief-composition.md) — completed
 5. [0004 - Map domain services](0004-map-domain-services.md)
 6. [0005 - Range and Conditions query services](0005-range-and-conditions-query-services.md)
-7. [0006 - Route package and import migration](0006-route-package-and-import-migration.md)
+7. [0006 - Route package and import migration](0006-route-package-and-import-migration.md) — completed
 
 ## Guardrails
 

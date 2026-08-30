@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-import matrix as matrix_module
+from api.routes import matrix as matrix_module
 from compute.projection.codecs import build_sf_mu_artifact
 
 

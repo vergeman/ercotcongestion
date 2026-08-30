@@ -5,11 +5,11 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from schemas.common import BootstrapSectionStatus
-from schemas.map import MapSummaryResponse
-from services.bootstrap import availability_status, soft_fail
-from services.scoreboard_headline import build_headline
-from services.topology_builder import get_or_build_topology
+from api.schemas.common import BootstrapSectionStatus
+from api.schemas.map import MapSummaryResponse
+from api.services.bootstrap import availability_status, soft_fail
+from api.services.scoreboard_headline import build_headline
+from api.services.topology_builder import get_or_build_topology
 
 
 def build(

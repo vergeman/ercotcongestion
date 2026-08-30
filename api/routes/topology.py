@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from services.topology_builder import get_or_build_topology
+from api.services.topology_builder import get_or_build_topology
 
 router = APIRouter()
 

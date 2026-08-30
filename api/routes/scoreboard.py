@@ -1,8 +1,8 @@
 """Scoreboard summary route."""
 from fastapi import APIRouter
 
-from schemas.scoreboard import ScoreboardSummaryResponse
-from services.scoreboard import build_summary
+from api.schemas.scoreboard import ScoreboardSummaryResponse
+from api.services.scoreboard import build_summary
 
 router = APIRouter()
 

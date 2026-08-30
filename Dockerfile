@@ -58,18 +58,17 @@ COPY --chown=shifty:shifty data/raw/ercot_geocode /data/raw/ercot_geocode/
 RUN mkdir -p /api/static && chown shifty:shifty /api/static
 
 # PYTHONPATH:
-#   /api      → api modules (config, db, state, topology, ...)
+#   /         → api package and compute subpackage
 #   /compute  → compute modules (snapshot, write_snapshots, ...) — bare imports
-#   /         → project root so `import compute.X` resolves (subpackage form)
 #   /opt      → shared package
-ENV PYTHONPATH=/api:/compute:/:/opt \
+ENV PYTHONPATH=/compute:/:/opt \
     MALLOC_ARENA_MAX=2 \
     PYTHONUNBUFFERED=1
 
 USER shifty
-WORKDIR /api
+WORKDIR /
 
 EXPOSE 8000
 
 # Default command runs the API. Cron jobs override with their own commands.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

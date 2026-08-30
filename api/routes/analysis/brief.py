@@ -3,9 +3,9 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 
-from dependencies import server_selected_run as _server_selected_run
-from schemas.analysis import BriefDayResponse, BriefDetailsResponse, BriefHeroShellResponse, BriefHeroStatsResponse
-from services.analysis import brief as brief_service
+from api.dependencies import server_selected_run as _server_selected_run
+from api.schemas.analysis import BriefDayResponse, BriefDetailsResponse, BriefHeroShellResponse, BriefHeroStatsResponse
+from api.services.analysis import brief as brief_service
 
 router = APIRouter(prefix="/analysis")
 
