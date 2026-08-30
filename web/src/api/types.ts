@@ -423,7 +423,7 @@ export interface RankedConstraints {
 }
 
 // =============================================================================
-// /scoreboard/headline — the rolling backtest headline (30/90-day tiles). The
+// /scoreboard/summary headline — the rolling backtest headline (30/90-day tiles). The
 // panel scorecard's data. Mirrors api/models.py HeadlineCurrency /
 // HeadlineWindow / ScoreboardHeadline. The one invariant (spec §6): a model
 // figure never travels without its comparators — every currency carries the
@@ -464,7 +464,7 @@ export interface ScoreboardHeadline {
 }
 
 // =============================================================================
-// /scoreboard/weekly — the full weekly backtest series + pooled pre/post-RTC+B
+// /scoreboard/summary weekly — the full weekly backtest series + pooled pre/post-RTC+B
 // summary (the scoreboard page's data). Mirrors api/models.py WeeklyPoint /
 // SourcePooled / WeeklySplit / ScoreboardWeekly. Every response carries all
 // sources so a lone model figure can't be charted (§6).
@@ -512,7 +512,7 @@ export interface ScoreboardWeekly {
 }
 
 // =============================================================================
-// /scoreboard/daily — the LIVE per-delivery-day board (plan/0102 §0003,
+// /scoreboard/summary daily section — the newest final LIVE grade (plan/0178,
 // spec-phase3 §3). Mirrors api/models.py DailyPoint / ScoreboardDaily. The live
 // counterpart to the weekly backtest board: per-day grades of the SERVED
 // forecast, same currency columns as WeeklyPoint so a live number and a backtest
@@ -545,14 +545,10 @@ export interface DailyPoint {
 
 export interface ScoreboardDaily {
   run_id: string;
-  since: string | null;
   primary_source: string;
-  // The track `points` grades and the available tracks for direct daily API
-  // consumers. Scoreboard summary uses the final-only reduction below.
+  // The track `points` grades; this summary section is always the final track.
   horizon: number;
-  horizons: number[];
-  // Present when the server selected one newest final delivery date.
-  selected_delivery_date: string | null;
+  selected_delivery_date: string;
   points: DailyPoint[];
 }
 

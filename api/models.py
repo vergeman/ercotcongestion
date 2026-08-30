@@ -927,7 +927,7 @@ class MatrixFrame(BaseModel):
     sf: MatrixSfValues
 
 
-# ---- /scoreboard/headline ------------------------------------------------
+# ---- /scoreboard/summary headline ----------------------------------------
 #
 # The backtest scoreboard's rolling headline (plan/0102 §0001, spec-phase3
 # §3/§6). Rolling 30/90-day tiles read from ``scoreboard_weekly`` — the thin
@@ -981,7 +981,7 @@ class ScoreboardHeadline(BaseModel):
     windows: list[HeadlineWindow]
 
 
-# ---- /scoreboard/weekly --------------------------------------------------
+# ---- /scoreboard/summary weekly ------------------------------------------
 #
 # The full weekly backtest series (plan/0102 §0002, spec-phase3 §3/§5/§7) — the
 # data behind the scoreboard *page* the panel's "View full scoreboard" link
@@ -1044,7 +1044,7 @@ class ScoreboardWeekly(BaseModel):
     splits: list[WeeklySplit]
 
 
-# ---- /scoreboard/daily ---------------------------------------------------
+# ---- /scoreboard/summary daily section -----------------------------------
 #
 # The LIVE scoreboard (plan/0102 §0003, spec-phase3 §3) — per-delivery-day grades
 # of the SERVED forecast, scored against realized once DAM publishes, the live
@@ -1081,23 +1081,18 @@ class DailyPoint(BaseModel):
 
 
 class ScoreboardDaily(BaseModel):
-    """The live per-day grade series, or a latest-final reduction for one run.
+    """The newest final live grade for one run.
 
     ``run_id`` is the model version being graded live (the same version the forecast
-    served). ``primary_source`` echoes the requested ``source`` (the series the page
-    foregrounds); every source rides along in ``points`` regardless, so the client
-    can never render a lone model figure. ``since`` echoes the request (``None`` ==
-    the run's full live history).
-
-    ``selected_delivery_date`` is set when the server reduces the response to the
-    newest final grade. ``horizon`` remains the provenance for every point.
+    served). ``primary_source`` identifies the model series the page foregrounds;
+    every source rides along in ``points`` regardless, so the client
+    can never render a lone model figure. ``selected_delivery_date`` and
+    ``horizon`` make the selected final forecast explicit.
     """
     run_id: str
-    since: date | None = None
     primary_source: str
     horizon: int
-    horizons: list[int] = []
-    selected_delivery_date: date | None = None
+    selected_delivery_date: date
     points: list[DailyPoint]
 
 

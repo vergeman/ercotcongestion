@@ -1,4 +1,4 @@
-"""Schemas served by scoreboard routes."""
+"""Schemas served by the Scoreboard summary."""
 from models import (
     DailyPoint, HeadlineCurrency, HeadlineWindow, ScoreboardDaily,
     ScoreboardHeadline, ScoreboardHistory, ScoreboardSummaryResponse,

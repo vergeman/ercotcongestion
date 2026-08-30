@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-import scoreboard as scoreboard_module
+from services import scoreboard as scoreboard_service
 from models import ScoreboardWeekly
 
 
@@ -34,7 +34,7 @@ def test_history_orders_weekly_points_before_final_served_points(fake_pool):
         _daily(date(2026, 7, 19), rank_spearman=0.5),
     ])
 
-    history = scoreboard_module.build_scoreboard_history(_board(
+    history = scoreboard_service.build_history(_board(
         _weekly(date(2026, 7, 4), rank_spearman=0.2),
         _weekly(date(2026, 7, 11), rank_spearman=0.3),
     ))
@@ -54,7 +54,7 @@ def test_history_selects_h1_only(fake_pool):
     fake_pool.cursor.queue([{"run_id": "served-v1"}])
     fake_pool.cursor.queue([_daily(date(2026, 7, 18))])
 
-    scoreboard_module.build_scoreboard_history(_board(_weekly(date(2026, 7, 11))))
+    scoreboard_service.build_history(_board(_weekly(date(2026, 7, 11))))
 
     assert "WHERE horizon = 1" in fake_pool.cursor.queries[0][0]
     assert "horizon = 1" in fake_pool.cursor.queries[1][0]
@@ -63,7 +63,7 @@ def test_history_selects_h1_only(fake_pool):
 def test_history_keeps_backtest_when_no_final_grade_exists(fake_pool):
     fake_pool.cursor.queue([])
 
-    history = scoreboard_module.build_scoreboard_history(_board(_weekly(date(2026, 7, 11))))
+    history = scoreboard_service.build_history(_board(_weekly(date(2026, 7, 11))))
 
     assert history.daily_run_id is None
     assert history.boundary_date is None
@@ -74,7 +74,7 @@ def test_history_preserves_independent_weekly_and_daily_run_provenance(fake_pool
     fake_pool.cursor.queue([{"run_id": "served-v3"}])
     fake_pool.cursor.queue([_daily(date(2026, 7, 18))])
 
-    history = scoreboard_module.build_scoreboard_history(_board(_weekly(date(2026, 7, 11))))
+    history = scoreboard_service.build_history(_board(_weekly(date(2026, 7, 11))))
 
     assert history.weekly_run_id == "walk-v1"
     assert history.daily_run_id == "served-v3"
