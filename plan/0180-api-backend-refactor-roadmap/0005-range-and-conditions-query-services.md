@@ -25,6 +25,6 @@ Branch: refactor/0184-range-and-conditions-query-services
 
 ## Acceptance
 
-* [ ] Forecast, ERCOT range, and Conditions routes contain no SQL or response assembly loops.
-* [ ] Services are unit-testable against the existing fake-pool/cursor seams.
-* [ ] Focused Forecast, ERCOT range, Conditions, and OpenAPI tests pass without contract changes.
+* [x] Forecast, ERCOT range, and Conditions routes contain no SQL or response assembly loops.
+* [x] Services are unit-testable against the existing fake-pool/cursor seams.
+* [x] Focused Forecast, ERCOT range, Conditions, and OpenAPI tests pass without contract changes.
