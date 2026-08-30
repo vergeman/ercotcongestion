@@ -1,27 +1,36 @@
-"""Two questions the pooled-R2 gate cannot answer.
+"""Two questions the main accuracy score (pooled R2) can't answer.
 
-(1) SCREENING CURRENCY. Pooled R2 is a $-magnitude yardstick. The commercial
-    question is which nodes are worst and in which direction -- rank and sign,
-    not variance explained. Measure, per scored hour, cross-node rank-Spearman,
-    sign-agreement, and top-decile hit rate, under each mu source. A model can
-    have near-zero magnitude skill and still screen well; persistence does.
+Pooled R2 tells you how close your dollar predictions are, on average. That's not
+what a screening tool is for. It leaves two things unmeasured.
 
-(2) COVERAGE vs DRIFT. The weekly collapses have two candidate mechanisms with
+(1) SCREENING: which nodes are worst, and in which direction (over- or
+    under-priced)." That's about *ranking and sign*, not average accuracy. So
+    we measure three things instead: did it rank the nodes worst-to-best
+    correctly (rank-Spearman), did it get the direction right (sign-agreement),
+    and of the truly worst 10% did it flag them (top-decile hit). A model can
+    be nearly useless at predicting exact dollars and still be a great screen
+    -- "same as yesterday" (persistence) is exactly that.
+
+(2) COVERAGE OR DRIFT: WHEN A WEEK GOES BAD, WHY? Two different failures, with
     opposite fixes:
-      coverage = share of the scored week's mu-mass carried by constraints that
-                 were IN the fit. Constraints the fit never saw get an implicit
-                 SF=0 -- the model cannot see them at all. Low coverage is a
-                 COVERAGE failure (fix: faster incorporation of new constraints,
-                 shorter refit cadence in shoulder seasons).
-      rotation = corr(SF fit on trailing window, SF refit on the scored week).
-                 Low rotation is a STABILITY failure (fix: the drift product).
 
-    NOTE: rotation refits on 168h at min_hours=5, so it is a noisy estimator --
-    read it as directional. `sf_stability.py` is the trustworthy stability
-    number.
+      coverage = of all the congestion that actually happened this week, how much
+                 landed on constraints the model had even *seen* during training.
+                 Anything it never saw is invisible to it (treated as zero). If
+                 coverage is low, the fix is to pull new constraints in faster --
+                 refit more often, especially in shoulder seasons.
+
+      rotation = how much the shift-factor map *moved* between the training window
+                 and the scored week. If it moved a lot, the map itself is
+                 unstable -- the fix is a drift product, not more data.
+
+    NOTE: the rotation number here is measured on a short, thin window, so it's
+    noisy -- treat it as a rough direction, not a hard figure. For the trustworthy
+    stability number, use `sf_stability.py`.
 
     docker compose run --rm compute \
       python -m compute.experiments.sf_out_of_window.screening_and_coverage
+
 """
 from __future__ import annotations
 
@@ -83,6 +92,9 @@ def main() -> None:
     rows: list[dict] = []
 
     for s in refit_starts(M):
+        #
+        # Filter datetimes, align window
+        #
         score_end = min(s + pd.Timedelta(days=REFIT_DAYS),
                         end_day + pd.Timedelta(days=1))
         fit_w = window(M, s - pd.Timedelta(days=WINDOW_DAYS), s)
@@ -101,6 +113,9 @@ def main() -> None:
         cols = M_score.columns.intersection(SF.index)
         S = SF.loc[cols].to_numpy(float)
 
+        #
+        # METRICS
+        #
         rec: dict = {"week": s.date()}
         mus = {
             "oracle": mu_oracle(M, hours, cols),
@@ -134,7 +149,7 @@ def main() -> None:
     pd.set_option("display.width", 250)
 
     print("=" * 78)
-    print(f"(1) SCREENING CURRENCY — mean over {len(df)} weeks")
+    print(f"(1) SCREENING — mean over {len(df)} weeks")
     print("=" * 78)
     print(f"{'mu source':<14}{'pooled R2':>11}{'rank-Spearman':>16}"
           f"{'sign-agree':>13}{'top-decile hit':>17}")

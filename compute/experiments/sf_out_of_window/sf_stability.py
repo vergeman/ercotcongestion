@@ -1,10 +1,12 @@
 """How fast does the SF map actually move?
 
-`plan/version2-pivot.md` sec 3 asserts SF is "quasi-static, refit weekly". The
-obvious check -- correlate SF between consecutive weekly refits -- gives 0.90
-and appears to confirm it. That number is contaminated: consecutive refits use
-60-day windows that OVERLAP BY 53 OF 60 DAYS, so the correlation is mostly
-measuring shared training data, not stability.
+Correlate SF between consecutive weekly refits gives 0.90 and appears to
+confirm it. That number is contaminated: consecutive refits use 60-day windows
+that OVERLAP BY 53 OF 60 DAYS, so the correlation is mostly measuring shared
+training data, not stability.
+
+"Disjoint adjacent" = two back-to-back 60-day training windows that share no
+days. One right after the other, touching at the edge but not overlapping.
 
 Re-measured on DISJOINT adjacent 60-day windows, SF retains under half its
 structure (0.47). The map is not quasi-static. This is a direct cause of the
@@ -14,6 +16,7 @@ footnote.
 
     docker compose run --rm compute \
       python -m compute.experiments.sf_out_of_window.sf_stability
+
 """
 from __future__ import annotations
 
