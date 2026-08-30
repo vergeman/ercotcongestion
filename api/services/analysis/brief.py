@@ -212,7 +212,17 @@ def details(delivery_date: date | None, run_id: str | None, include_standouts: b
 
 
 def day(delivery_date: date | None, run_id: str | None, day: date | None = None) -> BriefDayResponse:
-    """Compose the Brief sections from their callable Analysis services."""
+    """Compose the Brief's eight per-day requests behind one call.
+
+    Resolves run/horizon once so every section reads the same artifact, then
+    delegates to each section's own handler — pure composition, no duplicated
+    query logic to drift out of sync with the single-section endpoints.
+
+    The seven handlers run on a thread pool, not sequentially. Each is a sync,
+    DB-bound function that opens its own connection (the pool budgets
+    ``max_size=8``, so 7 concurrent checkouts fit); run one after another they
+    would cost ``sum(sections)`` wall-clock instead of ``max(sections)``.
+    """
     delivery_date = analysis._resolve_brief_delivery_date(delivery_date, day)
     started = perf_counter()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
