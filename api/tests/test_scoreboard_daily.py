@@ -5,7 +5,7 @@ from datetime import date
 
 from fastapi import HTTPException
 
-import scoreboard as scoreboard_module
+from services import scoreboard as scoreboard_service
 
 
 def _row(source: str, **kw):
@@ -23,7 +23,7 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
         _row("oracle", delivery_date=newest, topdecile_hit=0.8),
     ])
 
-    daily = scoreboard_module.build_latest_final_daily()
+    daily = scoreboard_service.build_latest_final_daily()
 
     assert daily.run_id == "mu-all-v2"
     assert daily.horizon == 1
@@ -32,14 +32,14 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
     sql, params = fake_pool.cursor.queries[-1]
     assert "SELECT max(delivery_date)" in sql
     assert "horizon = 1" in sql
-    assert params == ("mu-all-v2", 1, "mu-all-v2")
+    assert params == ("mu-all-v2", "mu-all-v2")
 
 
 def test_latest_final_does_not_fall_back_to_preview(fake_pool):
     fake_pool.cursor.queue([])
 
     try:
-        scoreboard_module.build_latest_final_daily()
+        scoreboard_service.build_latest_final_daily()
         assert False, "expected unavailable final grade"
     except HTTPException as exc:
         assert exc.status_code == 503

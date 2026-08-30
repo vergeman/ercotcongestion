@@ -30,6 +30,6 @@ Branch: refactor/0179-remove-dead-scoreboard-routes-and-extract-services
 
 * [x] `/scoreboard/headline`, `/scoreboard/weekly`, and `/scoreboard/daily` are absent from OpenAPI and the route inventory; `/scoreboard/summary` remains available.
 * [x] The summary's daily payload contains only the newest h1 comparator rows and no selector-era `since` or `horizons` fields.
-* [ ] `api/scoreboard.py` contains only router registration and a thin summary handler; no SQL, pooling, date-selection, or history-building helpers remain there.
-* [ ] Scoreboard service builders preserve independent weekly/daily run provenance, 503-to-unavailable summary behavior, and Map's headline behavior.
-* [ ] Focused scoreboard service/summary/OpenAPI tests pass, including latest-final selection and absence of the retired paths.
+* [x] `api/scoreboard.py` contains only router registration and a thin summary handler; no SQL, pooling, date-selection, or history-building helpers remain there.
+* [x] Scoreboard service builders preserve independent weekly/daily run provenance, 503-to-unavailable summary behavior, and Map's headline behavior.
+* [x] Focused scoreboard service/summary/OpenAPI tests pass, including latest-final selection and absence of the retired paths.
