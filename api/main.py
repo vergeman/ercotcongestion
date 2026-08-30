@@ -15,8 +15,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import FRONTEND_ORIGIN
 from db import lifespan
-import topology, ercot_range, forecast, map, matrix, scoreboard, analysis
+import topology, ercot_range, forecast, map, matrix, scoreboard
 import conditions
+from routes.analysis import brief, catalog, grading, hero, insights
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -48,7 +49,11 @@ app.include_router(conditions.router,  tags=['conditions'])
 app.include_router(map.router,         tags=['map'])
 app.include_router(matrix.router,      tags=['matrix'])
 app.include_router(scoreboard.router,  tags=['scoreboard'])
-app.include_router(analysis.router,    tags=['analysis'])
+app.include_router(catalog.router,     tags=['analysis'])
+app.include_router(insights.router,    tags=['analysis'])
+app.include_router(grading.router,     tags=['analysis'])
+app.include_router(hero.router,        tags=['analysis'])
+app.include_router(brief.router,       tags=['analysis'])
 
 
 @app.get('/healthz', tags=['meta'])

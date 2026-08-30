@@ -831,7 +831,7 @@ def get_map_summary() -> MapSummaryResponse:
 
     Each handler is called directly as a plain function, bypassing FastAPI's
     request-time dependency injection, so every parameter is passed an
-    explicit literal (see ``get_brief_day``'s docstring for why). Interaction
+    explicit literal (as in the Brief composition service). Interaction
     endpoints (``/map/reach``, ``/map/exposures``, ``/map/constraints/ranked``)
     are untouched — they fire on hover/click/navigation, not load.
 
