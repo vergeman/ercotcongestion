@@ -1,4 +1,15 @@
-"""Forecast congestion range query service."""
+"""Forecast congestion range query service.
+
+This is the prediction counterpart to ``/ercot_range``: it reads the promoted
+``forecast_current[ercot]`` model run and returns deterministic congestion per
+settlement point.  Each interval also carries the DAM ``system_lambda`` used
+by the client to resolve predicted LMP.  Unsettled hours use the most recent
+settled day's same-Central-hour lambda as a display-only persistence fallback.
+
+An empty coalesced window returns 503 so the client can render the realized
+pane alone.  An explicitly requested horizon returns 404 instead: that is the
+preserved-preview "what changed" view and must not fall back to another track.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -31,6 +42,7 @@ def forecast_range(
 ) -> ForecastRangeResponse:
     """Return forecast congestion for a normalized optional interval."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # Resolve this feature's promoted run, independently of the SF-map run.
         if run_id is None:
             cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
             row = cur.fetchone()
@@ -41,11 +53,17 @@ def forecast_range(
                 )
             run_id = row["run_id"]
 
+        # Omitted horizon coalesces per (ts, SP), preferring final/t+1 over
+        # preview/t+2.  Use the same clause for the default-window probe and
+        # the main read so both select the same served track.
         hz_clause = "" if horizon is None else " AND horizon = %s"
         hz_args: tuple = () if horizon is None else (horizon,)
         if start is not None and end is not None:
             start_u, end_u = start, end
         else:
+            # The landing view is the stored UTC span of the run's latest
+            # delivery date, not a reconstructed Central operating day.  Reading
+            # MIN/MAX keeps short or incomplete published days honest.
             cur.execute(
                 f"""
                 SELECT MIN(ts) AS lo, MAX(ts) AS hi
@@ -69,6 +87,8 @@ def forecast_range(
                 )
             start_u, end_u = coerce_utc(span["lo"]), coerce_utc(span["hi"])
 
+        # DISTINCT ON keeps the lowest available horizon: final when present,
+        # otherwise preview.  With an explicit horizon it is a harmless no-op.
         cur.execute(
             f"""
             SELECT DISTINCT ON (ts, settlement_point)
@@ -81,12 +101,14 @@ def forecast_range(
             (run_id, start_u, end_u, *hz_args),
         )
         rows = cur.fetchall()
+        # DAM lambda is the shared LMP reference for every forecast hour.
         lam_by_ts_raw = settled_system_lambdas(cur, start_u, end_u)
         unsettled = {
             coerce_utc(row["ts"])
             for row in rows
             if coerce_utc(row["ts"]) not in lam_by_ts_raw
         }
+        # Only query the persistence curve when an unsettled hour needs it.
         persisted_by_hour = persisted_system_lambdas_by_ct_hour(cur) if unsettled else {}
 
     if not rows:
@@ -99,6 +121,7 @@ def forecast_range(
             ),
         )
 
+    # Each row of a delivery date carries its coalesced horizon provenance.
     horizons: dict[str, int] = {}
     by_ts: dict[datetime, list[ForecastSpState]] = {}
     for row in rows:

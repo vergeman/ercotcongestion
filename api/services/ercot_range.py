@@ -1,4 +1,8 @@
-"""Realized ERCOT congestion range query service."""
+"""Realized ERCOT congestion range query service.
+
+It reads DAM SPP rows once and sends settlement-point identifiers once per
+response rather than once per hour and per view.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -13,6 +17,7 @@ from services.time import coerce_utc
 
 
 def _round_congestion_difference(spp: object, system_lambda: object) -> float:
+    """Serve map congestion at cent resolution, avoiding float artifacts."""
     value = Decimal(str(spp)) - Decimal(str(system_lambda))
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
@@ -47,6 +52,7 @@ def ercot_range(start: datetime, end: datetime) -> ErcotRangeResponse:
     if not rows:
         raise HTTPException(status_code=503, detail=f"no ercot_dam_spp rows in window {start} .. {end}.")
 
+    # The shared SP index keeps missing values aligned between intervals.
     sp_ids = sorted({str(row["settlement_point"]) for row in rows})
     sp_index = {sp_id: index for index, sp_id in enumerate(sp_ids)}
     by_ts: dict[datetime, ErcotRangeEntry] = {}

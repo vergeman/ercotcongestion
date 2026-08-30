@@ -1,4 +1,14 @@
-"""Conditions panel query service."""
+"""Conditions panel query service.
+
+The response merges the map panel's Load, Wind, Solar, and Outages views.
+Load and generation pair actuals with the latest forecast vintage posted no
+later than each interval, preventing lookahead.  Outages use daily snapshots:
+the forecast side is D-1 admissible while the actual side uses the newest
+vintage available through the delivery day.
+
+Every interval in the inclusive window is emitted.  Individual sources may be
+missing for an hour; 503 is reserved for a window with no rows from any source.
+"""
 from __future__ import annotations
 
 import bisect
@@ -30,7 +40,12 @@ def _vintage_on_or_before(posted: list[date], target: date) -> date | None:
     return posted[index] if index >= 0 else None
 
 
+# --------------------------------------------------------------------------
+# Load by weather zone
+# --------------------------------------------------------------------------
+
 def _load_rows(cur, start: datetime, end: datetime):
+    # Load forecasts use the latest vintage knowable at the interval.
     zone_cols = ", ".join(WEATHER_ZONES)
     cur.execute(
         f"""SELECT DISTINCT ON (interval_ts) interval_ts, {zone_cols}, total
@@ -64,7 +79,12 @@ def _load_by_ts(actual_rows, forecast_rows) -> dict[datetime, list[ZoneLoad]]:
     return out
 
 
+# --------------------------------------------------------------------------
+# Wind / solar by region
+# --------------------------------------------------------------------------
+
 def _region_rows(cur, start, end, actual_table, forecast_table, regions):
+    """Read actual and no-lookahead forecast rows for wind or solar."""
     region_cols = ", ".join(f"gen_{region}" for region in regions)
     cur.execute(
         f"""SELECT DISTINCT ON (interval_ts) interval_ts, {region_cols}, gen_system_wide
@@ -100,6 +120,10 @@ def _region_by_ts(actual_rows, forecast_rows, prefix, regions) -> dict[datetime,
     return out
 
 
+# --------------------------------------------------------------------------
+# Outages by fuel
+# --------------------------------------------------------------------------
+
 def _outage_rows(cur, lo_day: date, hi_day: date):
     cur.execute(
         """SELECT posted_date, fuel_type, effective_mw_reduction, actual_outage_start,
@@ -109,6 +133,11 @@ def _outage_rows(cur, lo_day: date, hi_day: date):
 
 
 def _outage_sums(rows: list[dict], ts: datetime, *, actual: bool) -> dict[str, float]:
+    """Sum outage reductions by fuel bucket for events counted at ``ts``.
+
+    Actuals are genuinely active (start <= ts < end, or no end); forecasts are
+    still expected out according to ``planned_end_date``.
+    """
     sums: dict[str, float] = {}
     for row in rows:
         mw = row["effective_mw_reduction"]
@@ -146,6 +175,7 @@ def _outage_fuels_at(snaps: dict[date, list[dict]], posted: list[date], ts: date
 
 def conditions_range(start: datetime, end: datetime) -> ConditionsRangeResponse:
     """Return all Conditions sources for a normalized inclusive interval."""
+    # Headroom resolves the D-1 outage forecast vintage through posting gaps.
     lo_day, hi_day = _ct_date(start) - timedelta(days=3), _ct_date(end)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         load_actual, load_forecast = _load_rows(cur, start, end)
@@ -161,6 +191,7 @@ def conditions_range(start: datetime, end: datetime) -> ConditionsRangeResponse:
     load = _load_by_ts(load_actual, load_forecast)
     wind = _region_by_ts(wind_actual, wind_forecast, wind_prefix, WIND_REGIONS)
     solar = _region_by_ts(solar_actual, solar_forecast, solar_prefix, SOLAR_REGIONS)
+    # Preserve daily snapshot vintages for the per-hour outage policy.
     snapshots: dict[date, list[dict]] = {}
     for row in outages:
         snapshots.setdefault(row["posted_date"], []).append(row)
