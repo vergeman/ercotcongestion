@@ -1,16 +1,12 @@
 """Query-backed endpoints for the daily Brief's analysis panels."""
 from __future__ import annotations
 
-from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 import logging
-from threading import Lock
 from time import perf_counter
 from typing import Literal, NamedTuple
-from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query
 import pandas as pd
 from psycopg.rows import dict_row, tuple_row
 
@@ -33,8 +29,7 @@ from schemas.analysis import (AnalysisContributionTerm, NodeMarketState, GradeAv
                     VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
                     ContextUnavailableResponse, GradeHistoryHalfResponse,
                     GradeHistoryDayResponse, GradeHistoryAvailableResponse,
-                    GradeHistoryUnavailableResponse, BriefDayResponse,
-                    BriefDetailsResponse, BriefHeroShellResponse, BriefHeroStatsResponse)
+                    GradeHistoryUnavailableResponse)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
@@ -67,7 +62,6 @@ from services.analysis.queries import (
     settlement_points_response,
 )
 
-router = APIRouter(prefix="/analysis")
 logger = logging.getLogger(__name__)
 
 # Emit a single composition breakdown only when an uncached Brief request is
@@ -700,8 +694,6 @@ MARKET_PEAK_CT_HOURS = tuple(range(7, 23))  # 7×16, every delivery day.
 MIN_STANDOUT_HISTORY_DAYS = 10
 
 
-@router.get("/node", response_model=NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse,
-            summary="Full SF-column constraint attribution for a settlement point")
 def get_node(
     settlement_point: str = Query(..., min_length=1),
     delivery_date: date = Query(...),
@@ -738,9 +730,6 @@ def get_node(
         )
 
 
-@router.get("/settlement-points",
-            response_model=AnalysisSettlementPointsAvailableResponse | AnalysisSettlementPointsUnavailableResponse,
-            summary="Full settlement-point vocabulary for a daily SF artifact")
 def get_settlement_points(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -767,9 +756,6 @@ def get_settlement_points(
     )
 
 
-@router.get("/constraints",
-            response_model=AnalysisConstraintsAvailableResponse | AnalysisConstraintsUnavailableResponse,
-            summary="Full constraint vocabulary for a daily SF artifact")
 def get_constraints(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -800,9 +786,6 @@ def get_constraints(
     )
 
 
-@router.get("/essp",
-            response_model=AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse,
-            summary="Hourly ERCOT electrically-similar settlement-point groups")
 def get_essp_groups(
     interval_ts: datetime = Query(...),
     source: str = Query("study", pattern="^(study|final)$"),
@@ -828,8 +811,6 @@ def get_essp_groups(
     return essp_groups_response(rows=rows, interval_ts=interval_ts, source=source)
 
 
-@router.get("/grade", response_model=GradeAvailableResponse | GradeUnavailableResponse,
-            summary="Prototype-defined per-day forecast grade")
 def get_grade(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -881,9 +862,6 @@ def get_grade(
     )
 
 
-@router.get("/grade-history",
-            response_model=GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse,
-            summary="Materialized trailing v6 constraint and node grade")
 def get_grade_history(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -917,8 +895,6 @@ def get_grade_history(
                                          horizon=horizon, days=result)
 
 
-@router.get("/forecast-mu", response_model=ForecastMuAvailableResponse | ForecastMuUnavailableResponse,
-            summary="Hourly forecast μ for selected artifact constraints")
 def get_forecast_mu(
     constraint_key: list[str] = Query(..., min_length=1,
                                       description="One or more canonical constraint|contingency keys."),
@@ -948,9 +924,6 @@ def get_forecast_mu(
     )
 
 
-@router.get("/top-constraints",
-            response_model=TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse,
-            summary="Untruncated daily forecast-μ ranking with same-key DAM evidence")
 def get_top_constraints(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -1030,8 +1003,6 @@ def _voltage_class(kv_max: float | None) -> str:
     return f"{int(round(float(kv_max)))} kV"
 
 
-@router.get("/context", response_model=ContextAvailableResponse | ContextUnavailableResponse,
-            summary="Daily voltage-class distribution and trailing chronic constraints")
 def get_context(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -1110,8 +1081,6 @@ def get_context(
     )
 
 
-@router.get("/standouts", response_model=StandoutsAvailableResponse | StandoutsUnavailableResponse,
-            summary="Forecast standouts against each constraint's own trailing forecast history")
 def get_standouts(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -1325,8 +1294,6 @@ def get_standouts(
     )
 
 
-@router.get("/top-nodes", response_model=TopNodesAvailableResponse | TopNodesUnavailableResponse,
-            summary="Top daily nodal congestion with full-column driver attribution")
 def get_top_nodes(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -1429,8 +1396,6 @@ def get_top_nodes(
                                      grouping=grouping)
 
 
-@router.get("/hero/latest", response_model=HeroLatestResponse,
-            summary="Newest v6 Brief delivery day with a published artifact")
 def get_hero_latest(
     run_id: str | None = Depends(_server_selected_run),
 ) -> HeroLatestResponse:
@@ -1455,9 +1420,6 @@ def get_hero_latest(
     )
 
 
-@router.get("/hero", response_model=(HeroAvailableResponse | HeroUnavailableResponse |
-                                      HeroUnavailableAtHorizonResponse),
-            summary="Server-computed v6 daily-brief hero")
 def get_hero(
     delivery_date: date | None = Query(None, description="ERCOT delivery day."),
     run_id: str | None = Depends(_server_selected_run),
@@ -1531,288 +1493,3 @@ def get_hero(
                 include_condition, artifact_elapsed, builder_elapsed,
             )
         return response
-
-
-_CT = ZoneInfo("America/Chicago")
-
-# A settled delivery day's Brief is immutable: a past day's final artifact and
-# its day-ahead DAM inputs no longer change, so the whole composed payload —
-# decode and all the section pandas — can be memoized (0137). Payloads are small
-# JSON, so this is bounded by count, not bytes. Keyed by (run_id, day, horizon).
-_BRIEF_CACHE_MAX = 512
-_BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDict()
-_BRIEF_HERO_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroShellResponse]" = OrderedDict()
-_BRIEF_HERO_STATS_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroStatsResponse]" = OrderedDict()
-_BRIEF_DETAILS_CACHE: "OrderedDict[tuple[str, date, int], BriefDetailsResponse]" = OrderedDict()
-_BRIEF_CACHE_LOCK = Lock()
-
-
-def _brief_cache_get(key: tuple[str, date, int]) -> "BriefDayResponse | None":
-    with _BRIEF_CACHE_LOCK:
-        response = _BRIEF_CACHE.get(key)
-        if response is not None:
-            _BRIEF_CACHE.move_to_end(key)
-        return response
-
-
-def _brief_cache_put(key: tuple[str, date, int], response: "BriefDayResponse") -> None:
-    with _BRIEF_CACHE_LOCK:
-        _BRIEF_CACHE[key] = response
-        _BRIEF_CACHE.move_to_end(key)
-        while len(_BRIEF_CACHE) > _BRIEF_CACHE_MAX:
-            _BRIEF_CACHE.popitem(last=False)
-
-
-def _brief_section_cache_get(cache: OrderedDict, key: tuple[str, date, int]):
-    with _BRIEF_CACHE_LOCK:
-        response = cache.get(key)
-        if response is not None:
-            cache.move_to_end(key)
-        return response
-
-
-def _brief_section_cache_put(cache: OrderedDict, key: tuple[str, date, int], response) -> None:
-    with _BRIEF_CACHE_LOCK:
-        cache[key] = response
-        cache.move_to_end(key)
-        while len(cache) > _BRIEF_CACHE_MAX:
-            cache.popitem(last=False)
-
-
-def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
-    """A day whose Brief can no longer change. The Brief reads only day-ahead
-    DAM data (shadow prices, SPP) — published before the delivery day and never
-    revised — so it is fixed once (a) the final artifact has landed
-    (``horizon == 1``, not a preview), (b) the day is strictly past in CT, so its
-    DAM is fully ingested (no partial-ingestion race), and (c) that DAM is
-    actually present (guards a stalled feed). Today/preview days recompute."""
-    if horizon != 1 or delivery_date >= datetime.now(_CT).date():
-        return False
-    return _dam_landed(cur, delivery_date)
-
-
-def _timed_brief_section(name: str, handler, *args):
-    """Run one composed section and retain its wall time for slow-request logs."""
-    started = perf_counter()
-    return name, handler(*args), perf_counter() - started
-
-
-def _brief_neighbor_dates(cur, run_id: str, delivery_date: date) -> tuple[date | None, date | None]:
-    """The nearest artifact-backed days for Brief's date controls.
-
-    This replaces full neighbouring Brief prefetches: the controls need only
-    know whether a day can be selected, not its expensive panel payload.
-    """
-    cur.execute(
-        "SELECT delivery_date FROM forecast_sf_artifact "
-        "WHERE run_id = %s AND delivery_date < %s "
-        "ORDER BY delivery_date DESC, horizon ASC LIMIT 1",
-        (run_id, delivery_date),
-    )
-    previous = cur.fetchone()
-    cur.execute(
-        "SELECT delivery_date FROM forecast_sf_artifact "
-        "WHERE run_id = %s AND delivery_date > %s "
-        "ORDER BY delivery_date ASC, horizon ASC LIMIT 1",
-        (run_id, delivery_date),
-    )
-    following = cur.fetchone()
-    return (
-        None if previous is None else previous["delivery_date"],
-        None if following is None else following["delivery_date"],
-    )
-
-
-def _compose_brief_details(day: date, run_id: str, horizon: int | None, *, include_standouts: bool = True) -> BriefDetailsResponse:
-    """Compose secondary panels without delaying the hero shell."""
-    started = perf_counter()
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        sections = {
-            "context": pool.submit(_timed_brief_section, "context", get_context, day, run_id, horizon, 14),
-            "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, day, run_id, horizon, 10),
-            "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, day, run_id, horizon, 10),
-            "grade": pool.submit(_timed_brief_section, "grade", get_grade, day, run_id, horizon),
-            "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, day, run_id, horizon, 30),
-        }
-        if include_standouts:
-            sections["standouts"] = pool.submit(_timed_brief_section, "standouts", get_standouts, day, run_id, horizon, 4)
-        completed = {name: future.result() for name, future in sections.items()}
-    response = BriefDetailsResponse(
-        context=completed["context"][1],
-        standouts=completed["standouts"][1] if include_standouts else None,
-        top_nodes=completed["top_nodes"][1],
-        top_constraints=completed["top_constraints"][1],
-        grade=completed["grade"][1],
-        grade_history=completed["grade_history"][1],
-    )
-    elapsed = perf_counter() - started
-    if elapsed >= _BRIEF_SLOW_REQUEST_SECONDS:
-        timings = ", ".join(
-            f"{name}={result[2]:.3f}s" for name, result in completed.items()
-        )
-        logger.info(
-            "brief_details_profile day=%s run=%s horizon=%s total=%.3fs %s",
-            day, run_id, horizon, elapsed, timings,
-        )
-    return response
-
-
-@router.get("/brief/hero", response_model=BriefHeroShellResponse,
-            summary="Brief hero and available neighbouring delivery dates")
-def get_brief_hero_shell(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    *,
-    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
-) -> BriefHeroShellResponse:
-    """Serve the Brief prose and map before its slower stat-card evidence."""
-    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
-        if horizon is not None and horizon == 1 and delivery_date < datetime.now(_CT).date():
-            cached = _brief_section_cache_get(_BRIEF_HERO_CACHE, (run_id, delivery_date, horizon))
-            if cached is not None:
-                return cached
-        previous, following = _brief_neighbor_dates(cur, run_id, delivery_date)
-    hero = get_hero(delivery_date, run_id, horizon, include_condition=False)
-    response = BriefHeroShellResponse(
-        hero=hero,
-        previous_delivery_date=previous,
-        next_delivery_date=following,
-    )
-    if (horizon is not None and horizon == 1 and delivery_date < datetime.now(_CT).date()
-            and response.hero.available and response.hero.provenance.basis == "settled"):
-        _brief_section_cache_put(_BRIEF_HERO_CACHE, (run_id, delivery_date, horizon), response)
-    return response
-
-
-@router.get("/brief/hero/stats", response_model=BriefHeroStatsResponse,
-            summary="Complete grouped stat-card evidence for a Brief hero")
-def get_brief_hero_stats(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    *,
-    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
-) -> BriefHeroStatsResponse:
-    """Load every hero stat card in one response after prose and map paint."""
-    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
-        if horizon is None:
-            raise HTTPException(status_code=404, detail="artifact_missing")
-        cache_key = (run_id, delivery_date, horizon)
-        if horizon == 1 and delivery_date < datetime.now(_CT).date():
-            cached = _brief_section_cache_get(_BRIEF_HERO_STATS_CACHE, cache_key)
-            if cached is not None:
-                return cached
-    hero = get_hero(delivery_date, run_id, horizon)
-    if not hero["available"]:
-        raise HTTPException(status_code=404, detail="artifact_missing")
-    response = BriefHeroStatsResponse(
-        run_id=run_id,
-        delivery_date=delivery_date,
-        horizon=horizon,
-        slots=hero["slots"],
-    )
-    if horizon == 1 and delivery_date < datetime.now(_CT).date() and hero["provenance"]["basis"] == "settled":
-        _brief_section_cache_put(_BRIEF_HERO_STATS_CACHE, cache_key, response)
-    return response
-
-
-@router.get("/brief/details", response_model=BriefDetailsResponse,
-            summary="Secondary Brief sections for one delivery day")
-def get_brief_details(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    include_standouts: bool = Query(True, description="Include the standouts panel in this bundle."),
-    *,
-    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
-) -> BriefDetailsResponse:
-    """Compose non-hero Brief panels after the reader can see the day’s story."""
-    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
-        cache_key = None if horizon is None else (run_id, delivery_date, horizon)
-        if include_standouts and cache_key is not None and horizon == 1 and delivery_date < datetime.now(_CT).date():
-            cached = _brief_section_cache_get(_BRIEF_DETAILS_CACHE, cache_key)
-            if cached is not None:
-                return cached
-        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
-    response = _compose_brief_details(delivery_date, run_id, horizon, include_standouts=include_standouts)
-    if include_standouts and final and cache_key is not None:
-        _brief_section_cache_put(_BRIEF_DETAILS_CACHE, cache_key, response)
-    return response
-
-
-@router.get("/brief", response_model=BriefDayResponse,
-            summary="One bundled payload for a Brief delivery day (0137)")
-def get_brief_day(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    *,
-    day: date | None = Query(None, deprecated=True, description="Deprecated alias for delivery_date."),
-) -> BriefDayResponse:
-    """Compose the Brief's eight per-day requests behind one call.
-
-    Resolves run/horizon once so every section reads the same artifact, then
-    delegates to each section's own handler — pure composition, no duplicated
-    query logic to drift out of sync with the single-section endpoints.
-
-    Each handler is called directly as a plain function, bypassing FastAPI's
-    request-time dependency injection — so every one of its parameters must be
-    passed an explicit literal value. A parameter left to its declared default
-    would instead receive that default's raw ``Query(...)`` sentinel object,
-    since resolving ``Query(...)`` into its literal is normally FastAPI's job.
-
-    The seven handlers run on a thread pool, not sequentially. Each is a sync,
-    DB-bound function that opens its own connection (the pool budgets
-    ``max_size=8``, so 7 concurrent checkouts fit); run one after another they
-    would cost ``sum(sections)`` wall-clock instead of ``max(sections)`` —
-    strictly worse than the 7 parallel requests this endpoint replaces.
-    """
-    delivery_date = _resolve_brief_delivery_date(delivery_date, day)
-    started = perf_counter()
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, None)
-        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
-    key = (run_id, delivery_date, horizon)
-    if final:
-        cached = _brief_cache_get(key)
-        if cached is not None:
-            return cached
-    with ThreadPoolExecutor(max_workers=7) as pool:
-        sections = {
-            "hero": pool.submit(_timed_brief_section, "hero", get_hero, delivery_date, run_id, horizon),
-            "context": pool.submit(_timed_brief_section, "context", get_context, delivery_date, run_id, horizon, 14),
-            "standouts": pool.submit(_timed_brief_section, "standouts", get_standouts, delivery_date, run_id, horizon, 4),
-            "top_nodes": pool.submit(_timed_brief_section, "top_nodes", get_top_nodes, delivery_date, run_id, horizon, 10),
-            "top_constraints": pool.submit(_timed_brief_section, "top_constraints", get_top_constraints, delivery_date, run_id, horizon, 10),
-            "grade": pool.submit(_timed_brief_section, "grade", get_grade, delivery_date, run_id, horizon),
-            "grade_history": pool.submit(_timed_brief_section, "grade_history", get_grade_history, delivery_date, run_id, horizon, 30),
-        }
-        completed = {name: future.result() for name, future in sections.items()}
-        response = BriefDayResponse(
-            hero=completed["hero"][1],
-            context=completed["context"][1],
-            standouts=completed["standouts"][1],
-            top_nodes=completed["top_nodes"][1],
-            top_constraints=completed["top_constraints"][1],
-            grade=completed["grade"][1],
-            grade_history=completed["grade_history"][1],
-        )
-    elapsed = perf_counter() - started
-    if elapsed >= _BRIEF_SLOW_REQUEST_SECONDS:
-        timings = ", ".join(
-            f"{name}={result[2]:.3f}s" for name, result in completed.items()
-        )
-        logger.info(
-            "brief_profile day=%s run=%s horizon=%s total=%.3fs %s",
-            delivery_date, run_id, horizon, elapsed, timings,
-        )
-    if final:
-        _brief_cache_put(key, response)
-    return response

@@ -815,6 +815,7 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
                            timing_daily_skill=0.55, timing_hourly_skill=0.34)
     result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
     monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
     monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
 
@@ -881,6 +882,7 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
         {"subject": "constraints", "detail": detail},
         {"subject": "nodes", "detail": detail},
     ])
+    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
     monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles",
                         lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
 
@@ -933,7 +935,7 @@ def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_miss
 
     assert body == {
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
-        "n_ranked": 2,
+        "n_ranked": 2, "k": 10,
         "rows": [
             {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
              "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
