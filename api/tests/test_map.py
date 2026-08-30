@@ -21,7 +21,8 @@ import pandas as pd
 
 import map as map_module
 from compute.projection.codecs import build_sf_mu_artifact
-from models import MapMeta, MapOverview, ScoreboardHeadline
+from schemas.map import MapMeta, MapOverview
+from schemas.scoreboard import ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
 WE = datetime(2026, 7, 2, tzinfo=timezone.utc)

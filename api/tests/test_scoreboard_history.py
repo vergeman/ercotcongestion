@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from services import scoreboard as scoreboard_service
-from models import ScoreboardWeekly
+from schemas.scoreboard import ScoreboardWeekly
 
 
 def _weekly(week: date, source: str = "model", **extra):
