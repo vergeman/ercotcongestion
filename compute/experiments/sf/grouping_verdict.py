@@ -13,7 +13,7 @@ before the numbers were seen and are not to be edited after (handoff §10).
     of the ungrouped arm, and oos_pooled_r2 within 0.02. Grouping may not buy
     stability by destroying locality.
 
-Everything is also split pre/post the RTC+B cutover (2025-12-05): DAM virtual AS
+Everything is also split pre/post the RTC+B cutover: DAM virtual AS
 can move the mu patterns, so a number pooled across it hides a regime change.
 
     docker compose run --rm compute python -m compute.experiments.sf.grouping_verdict \\
@@ -25,7 +25,7 @@ import argparse
 
 import pandas as pd
 
-RTCB_CUTOVER = pd.Timestamp("2025-12-05", tz="UTC")
+from compute.sf_map.config import RTC_B
 
 STABILITY_BAR = 0.10          # absolute rise over the projected control
 GUARD_SCREENING = 0.01        # spearman / sign / top-decile
@@ -86,8 +86,8 @@ def main(argv: list[str] | None = None) -> int:
 
     splits = [
         ("ALL", weekly),
-        ("PRE-RTC+B", weekly[weekly["score_start"] < RTCB_CUTOVER]),
-        ("POST-RTC+B", weekly[weekly["score_start"] >= RTCB_CUTOVER]),
+        ("PRE-RTC+B", weekly[weekly["score_start"] < RTC_B]),
+        ("POST-RTC+B", weekly[weekly["score_start"] >= RTC_B]),
     ]
     for name, part in splits:
         if part.empty:
