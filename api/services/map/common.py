@@ -42,6 +42,11 @@ def latest_artifact_day(cur, run_id: str):
     return None if row is None else row["d"]
 
 def nearest_past_artifact_day(cur, run_id: str, day):
+    """Find the structural fallback for a missing requested-day artifact.
+
+    Constraint reach changes slowly with topology, so the nearest earlier build
+    is preferable to an empty card during a lagging or failed forecast job.
+    """
     if day is None:
         return None
     cur.execute("SELECT max(delivery_date) AS d FROM forecast_sf_artifact WHERE run_id = %s AND delivery_date <= %s", (run_id, day))
@@ -49,6 +54,11 @@ def nearest_past_artifact_day(cur, run_id: str, day):
     return None if row is None else row["d"]
 
 def click_artifact(cur, t: datetime | None):
+    """Resolve the forecast artifact for a map click.
+
+    ``t`` maps to its CT delivery day, not its UTC date, so Map and Matrix read
+    the same day artifact for evening hours.
+    """
     run_id = forecast_run_id(cur)
     day = delivery_date_for(t) if t is not None else latest_artifact_day(cur, run_id)
     if day is None:
@@ -56,6 +66,11 @@ def click_artifact(cur, t: datetime | None):
     return run_id, day, load_daily_artifact(cur, run_id, day)
 
 def interval_in_artifact(artifact, t: datetime | None) -> bool:
+    """Keep Map unavailable when the requested interval is absent from its block.
+
+    This prevents a Map/Matrix disagreement for a partial or misaligned
+    artifact.
+    """
     return t is None or pd.Timestamp(coerce_utc(t)) in artifact.E_mu.index
 
 def artifact_window(artifact) -> tuple[datetime, datetime]:
@@ -63,9 +78,11 @@ def artifact_window(artifact) -> tuple[datetime, datetime]:
     return idx.min().to_pydatetime(), idx.max().to_pydatetime()
 
 def hour_mu(artifact, t: datetime | None) -> pd.Series:
+    """Return the selected interval's forecast μ, or the whole-block roll-up."""
     return artifact.E_mu.sum(axis=0) if t is None else artifact.E_mu.loc[pd.Timestamp(coerce_utc(t))]
 
 def geo_metadata(cur, constraint_keys: list[str]) -> dict[str, dict]:
+    """Read structural fields from the newest geo window, not daily magnitudes."""
     if not constraint_keys:
         return {}
     cur.execute("SELECT DISTINCT ON (constraint_key) constraint_key, ctype, n_rail, peak_offrail FROM constraint_geo WHERE constraint_key = ANY(%s) ORDER BY constraint_key, window_start DESC", (constraint_keys,))

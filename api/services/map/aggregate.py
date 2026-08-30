@@ -26,11 +26,14 @@ def overview(n: int, k: int, min_frac: float, *, coordinates: Coordinates, metad
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, window_start = common.resolve(cur)
         meta_row = common.meta_row(cur, run_id, window_start)
+        # NULLS LAST stops unlocatable constraints crowding out the overview.
         cur.execute("SELECT constraint_key, ctype, binding_hours, max_abs_sf FROM constraint_geo WHERE run_id = %s AND window_start = %s ORDER BY binding_hours DESC NULLS LAST LIMIT %s", (run_id, window_start, n))
         rows = cur.fetchall()
         keys = [row["constraint_key"] for row in rows]
         by_key: dict[str, list[ReachSp]] = {key: [] for key in keys}
         if keys:
+            # One indexed slice; the per-constraint floor depends on each row's
+            # peak, so it is applied while building the running top-k buckets.
             cur.execute("SELECT constraint_key, settlement_point, sf FROM implied_shift_factors WHERE run_id = %s AND window_start = %s AND constraint_key = ANY(%s) ORDER BY constraint_key, abs(sf) DESC", (run_id, window_start, keys))
             coords, metadata_rows = coordinates(), metadata()
             floors = {row["constraint_key"]: min_frac * row["max_abs_sf"] if row["max_abs_sf"] else 0.0 for row in rows}
@@ -45,6 +48,7 @@ def overview(n: int, k: int, min_frac: float, *, coordinates: Coordinates, metad
     return MapOverview(run_id=run_id, window_start=meta_row["window_start"], window_end=meta_row["window_end"], n=n, k=k, oos_r2=meta_row["oos_r2"], sf_stability=meta_row["sf_stability"], constraints=constraints)
 
 def _realized_mu_summary(cur, lo, hi) -> dict[str, tuple[float, int]]:
+    """Return (Σ|μ|, binding hours) over the artifact's own interval range."""
     cur.execute("SELECT constraint_name, contingency_name, sum(abs(shadow_price)) AS mass, count(*) FILTER (WHERE abs(shadow_price) > 0) AS binding_hours FROM ercot_dam_shadow_prices WHERE interval_ts >= %s AND interval_ts <= %s AND shadow_price IS NOT NULL GROUP BY constraint_name, contingency_name", (lo, hi))
     return {normalize_constraint_key(row["constraint_name"], row["contingency_name"]): (float(row["mass"]), int(row["binding_hours"])) for row in cur.fetchall() if row["mass"] is not None}
 
@@ -68,12 +72,15 @@ def ranked(day: date | None, basis: str, run_id: str | None, k: int, min_frac: f
         else:
             abs_mu = art.E_mu.abs().reindex(columns=keys, fill_value=0.0)
             mu_mass, binding_hours = abs_mu.sum(axis=0), (abs_mu > 0.0).sum(axis=0).astype(int)
+        # contribution is the day-total magnitude of the −E_mu·SF nodal
+        # decomposition, ranked by each constraint's structural reach.
         reach = art.SF.abs().sum(axis=1)
         contribution = (mu_mass * reach).astype(float)
         ranking = contribution[contribution > 0.0].sort_values(ascending=False)
         top_keys = list(ranking.index[:k])
         geo: dict[str, dict] = {}
         if top_keys:
+            # Overlay marks and ranked rows share this structural type source.
             map_run, map_window = common.resolve(cur)
             cur.execute("SELECT constraint_key, ctype FROM constraint_geo WHERE run_id = %s AND window_start = %s AND constraint_key = ANY(%s)", (map_run, map_window, top_keys))
             geo = {row["constraint_key"]: row for row in cur.fetchall()}

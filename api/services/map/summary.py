@@ -11,6 +11,11 @@ from services.scoreboard_headline import build_headline
 from services.topology_builder import get_or_build_topology
 
 def build(*, overview: Callable[[], object], meta: Callable[[], object]) -> MapSummaryResponse:
+    """Compose Map's load-time quartet without coupling its independent sources.
+
+    Topology runs on the request thread while overview, meta, and headline use
+    the three pool workers; interaction endpoints remain separate.
+    """
     with ThreadPoolExecutor(max_workers=3) as pool:
         overview_future = pool.submit(soft_fail, overview)
         meta_future = pool.submit(soft_fail, meta)
