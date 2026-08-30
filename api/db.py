@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from psycopg_pool import ConnectionPool
 
-from config import PG_DSN
+from api.config import PG_DSN
 
 # Module-level pool; opened in lifespan, closed on shutdown.
 pool: ConnectionPool | None = None
