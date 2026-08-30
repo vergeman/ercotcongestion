@@ -26,7 +26,7 @@ Branch: refactor/0180-authoritative-api-schemas
 
 ## Acceptance
 
-* [ ] No Pydantic response class is defined in `api/models.py`; it is only a documented compatibility shim.
-* [ ] Each `api/schemas/<domain>.py` defines the schemas its routes and services consume.
-* [ ] `api/tests/test_openapi.py` and focused API tests pass with identical OpenAPI component names and paths.
-* [ ] No production module imports a schema from `models`.
+* [x] No Pydantic response class is defined in `api/models.py`; it is only a documented compatibility shim.
+* [x] Each `api/schemas/<domain>.py` defines the schemas its routes and services consume.
+* [x] `api/tests/test_openapi.py` and focused API tests pass with identical OpenAPI component names and paths.
+* [x] No production module imports a schema from `models`.
