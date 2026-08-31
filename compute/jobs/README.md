@@ -15,8 +15,8 @@ review tools are run manually.
 
 | File | Description | Caller |
 | --- | --- | --- |
-| `grade_forecast_day.py` | Grades the served nodal forecast against settled DAM results and writes daily scoreboard metrics. Normally invoked by `daily_forecast.py`; also supports retrying a missed grade. | `daily_forecast.py`; manual retry |
-| `materialize_brief_grade.py` | Writes the Brief’s settled detection, magnitude, and timing grades. Normally invoked after the daily grade and can materialize a requested date range. | `daily_forecast.py`; manual backfill |
+| `grade_forecast_day.py` | Grades the served nodal forecast against settled DAM results and writes the daily Scoreboard metrics; it does not calculate Brief grades. Normally invoked by `daily_forecast.py`; also supports retrying a missed grade. | `daily_forecast.py`; manual retry |
+| `materialize_brief_grade.py` | Writes the Brief’s separate settled detection, magnitude, and timing grades. Normally invoked after the Scoreboard grade and can materialize a requested date range. | `daily_forecast.py`; manual backfill |
 
 ## Shift-factor map — weekly
 

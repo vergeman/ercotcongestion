@@ -8,7 +8,7 @@ a new input source.
 
 | Area | Use it for | Main entry points |
 |---|---|---|
-| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_forecast_day` |
+| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `backfill_scoreboard`, `grade_forecast_day` |
 | `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
 | `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs |
 | `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs |
@@ -191,9 +191,8 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
 
 **Does:** walks μ forward over history and writes out-of-sample `(p_bind, mu_gbm)`
 predictions, then scores them into the per-`(week × source)` screening metrics. The
-predictions are the input to the historical nodal backfill and offline evaluation
-used to draw P10/P90 bands in the daily job; the score CSV feeds the weekly
-scoreboard (step 4). Prod-side (~16 GiB).
+predictions are the input to the historical nodal backfill and offline evaluation;
+the score CSV feeds the weekly scoreboard (step 4). Prod-side (~16 GiB).
 
 Use `mu-all-v1` for every forecast artifact and DB write. The SF map deliberately has
 its own run ID, `map-v1`.
@@ -267,15 +266,14 @@ This fast historical path writes `forecast_nodal`, but does not write
 
 ### Step 4 — Load the weekly scoreboard
 
-**Needs:** step 2's score CSV (`mu/mu_score_weekly.csv`) and step 3's bands CSV
-(`mu/mu_score_weekly.csv`).
-**Does:** joins the two weekly CSVs and COPYs them into `scoreboard_weekly` under
-`${RUN_ID}`, so the API serves indexed board rows rather than files. Reshape-and-serve,
-not new measurement — the numbers are transcribed as-is. Idempotent by
-delete-then-copy scoped to `run_id`.
+**Needs:** step 2's score CSV (`mu/mu_score_weekly.csv`).
+**Does:** COPYs its precomputed weekly rows into `scoreboard_weekly` under
+`${RUN_ID}`, so the API serves indexed board rows rather than files.
+Reshape-and-serve, not new measurement — the numbers are transcribed as-is.
+Idempotent by delete-then-copy scoped to `run_id`.
 
-With `--run-id ${RUN_ID}` both inputs derive from `runs/${RUN_ID}/` (plan/0113); pass
-`--score` only to override.
+With `--run-id ${RUN_ID}` the score CSV derives from `runs/${RUN_ID}/` (plan/0113);
+pass `--score` only to override.
 
 ```
 python -m compute.jobs.backfill_scoreboard --run-id "${RUN_ID}"
@@ -324,7 +322,7 @@ For a single date, `--start`/`--end` may be the same day (equivalent to one
 `runs/<run-id>/mu/` (step 2), with the PVC mounted at `/compute/runs`.
 **Does:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
 window and predicts D's 24 h, loads the map's latest causal SF window, projects μ through
-it and draws the bands, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
+it to a point forecast, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
 `forecast_current[ercot]` **last**. The SF loader is guarded: it takes the latest window
 with `window_end ≤ D` and fails loud (prior pointer intact) if that window is missing,
 stale (`D − window_end > 14d`), or covers `< 50%` of D's predicted binding mass — it
@@ -487,7 +485,7 @@ run into per-settlement-point prices.
 | `mu/mu_preds.npz`        | `mu_model` (`--preds-out`)                          | `evaluation.mu`, `backfill_nodal`             | Walk-forward μ predictions per constraint-hour: bind probability, expected shadow price, and the realized truth. |
 | `mu/mu_weekly.csv`       | `mu_model` (`--out`)                                | human review                                  | Weekly calibration of the μ walk (are the probabilities and prices honest).                                      |
 | `mu/mu_score_weekly.csv` | `evaluation.mu`                                     | `backfill_scoreboard` → `scoreboard_weekly` table | Weekly point scores that feed the scoreboard.                                                                    |
-| `forecast/mu_nodal.npz`  | `backfill_nodal` / `daily_forecast` (`--nodal-out`) | `forecast_store` → DB                         | Per-settlement-point price forecast panel: point estimate plus p10/p50/p90 band.                                 |
+| `forecast/mu_nodal.npz`  | `backfill_nodal` / `daily_forecast` (`--nodal-out`) | `forecast_store` → DB                         | Per-settlement-point point-forecast panel.                                                                         |
 
 The per-day SF-μ blob served by the API is stored in the **database**
 (`forecast_sf_artifact`), written by `daily_forecast`.

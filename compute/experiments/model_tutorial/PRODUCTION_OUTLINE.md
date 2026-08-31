@@ -15,7 +15,7 @@ DAM shadow prices M + SPP congestion C
         │                         │
 DAM-close-safe inputs ─> daily μ heads ─> P(bind), E[μ | bind]
                                                   │
-                                                  └─ samples × SF ─> nodal P10/P50/P90
+                                                  └─ E[μ] × SF ─> nodal point forecast
 ```
 
 * **SF** answers *where* a constraint's shadow price appears as congestion.
@@ -24,9 +24,8 @@ DAM-close-safe inputs ─> daily μ heads ─> P(bind), E[μ | bind]
   pooled, daily-refit pair of gradient-boosted models: a binding-probability
   classifier and a conditional shadow-price regressor.
 * Nodal congestion uses the signed identity
-  `congestion[hour, SP] = -Σ(μ[hour, constraint] × SF[constraint, SP])`.
-  The served bands sample binding and conditional μ, then take P10/P50/P90
-  after that projection.
+  `congestion[hour, SP] = -Σ(E[μ][hour, constraint] × SF[constraint, SP])`.
+  The served product is the resulting deterministic point forecast.
 
 `M` is the wide DAM shadow-price panel (hours × constraints; zero when slack).
 `C` is the wide congestion panel (hours × settlement points), calculated as
@@ -50,10 +49,11 @@ stage packages for library imports and CLI commands.
 | Weekly | `python -m compute.jobs.weekly_map` | Loads DAM M/C panels; fits each new rolling SF window; writes diagnostics and, with `--persist-sf`, the map. | `implied_shift_factors`, `sf_window_meta`, run diagnostics |
 | Weekly, after map | `python -m compute.sf_map.geography.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
-| Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, samples and projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
+| Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
 | Historical rebuild | `python -m compute.mu_forecast.model.backtest` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
 | Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
-| Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF, makes nodal panels/bands, and evaluates the product gate. | nodal artifacts, band metrics |
+| Historical rebuild | `python -m compute.jobs.backfill_scoreboard` | Copies the precomputed weekly μ score CSV into `scoreboard_weekly`; it does not recompute metrics. | weekly Scoreboard rows |
+| Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF to seed nodal forecasts and verdict data. | nodal artifacts, verdict data |
 | Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
 | After delivery | `python -m compute.jobs.grade_forecast_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |
 
@@ -87,7 +87,7 @@ low-coverage map makes the forecast fail before publication.
 | `sf_map/storage/{persist,maps}.py` | Postgres map persistence plus causal map resolution/loading guards. | Map writes and daily-forecast reads. |
 | `sf_map/geography/{derive,persist}.py` | Derives and materializes constraint geographic summaries from each map window. | Post-map geography job and μ `geo_` arm. |
 | `evaluation/sf.py` | Honest out-of-window SF metrics, chunking, decay/stability measures, and CLI. | Post-map evaluation and sweep backend. |
-| `projection/` | Turns μ predictions/draws into nodal panels, bands, and SF+μ artifacts. | Daily forecast and historical nodal backfill. |
+| `projection/` | Turns expected μ and SF into nodal point panels and SF+μ artifacts. | Daily forecast and historical nodal backfill. |
 | `evaluation/essp.py` | Independent validation against final ERCOT ESSP labels. | Served-forecast grading. |
 
 ### Is there SF ablation code?
@@ -120,13 +120,11 @@ None of these are called by the map-refresh cron job.  In particular,
 3. `mu_forecast.model.runner.predict_day` uses the same fold implementation as the
    walk-forward validation: pooled classifier for `p_bind`, and a regressor fit
    only on binding rows for conditional `mu_gbm` / `E[μ | bind]`.
-4. `jobs.daily_forecast.forecast_day` loads a causal SF map, builds a residual
-   pool from **prior out-of-sample** μ errors, and calls `compute.projection` to sample
-   and project nodal congestion.
-5. The deterministic expectation is `p_bind × mu_gbm`; uncertainty uses a
-   Bernoulli binding draw plus log-space residual draw for μ.  The code currently
-   samples constraints independently, so coverage evaluation is important for
-   correlated constraints.
+4. `jobs.daily_forecast.forecast_day` loads a causal SF map and calls
+   `compute.projection` to project expected μ into nodal congestion.
+5. The deterministic expectation is `p_bind × mu_gbm`; the served product uses
+   that point forecast. Coverage evaluation remains important because the map
+   can only project constraint mass it represents.
 
 ### Files in `compute/mu_forecast`
 
@@ -242,6 +240,6 @@ For the shortest realistic code tour, read these in order:
 3. `mu_forecast/panel/build.py:build_panel`, then `mu_forecast/model/runner.py:predict_day` and
    `_predict_fold`, for the μ inputs and two heads.
 4. `sf_map/storage/maps.py:load_forecast_sf` and `projection/propagate.py:propagate_window`, for
-   the model handoff and uncertainty bands.
+   the deterministic model handoff.
 5. `jobs/weekly_map.py`, `sf_map/model/rolling.py`, and `sf_map/model/fit.py`, for how SF is built.
 6. `experiments/*` only when examining a particular design decision or ablation.
