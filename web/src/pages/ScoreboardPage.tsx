@@ -441,12 +441,12 @@ function LiveGradePanel({
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs prior-day nodal persistence{" "}
+                    {good ? "▲" : "▼"} vs prior-day nodal (persistence){" "}
                     {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
                 <span className="sb-ceiling">
-                  settled-μ nodal ceiling {o == null ? "—" : o.toFixed(2)}
+                  settled-μ nodal ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -489,12 +489,12 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
             <div className="sb-tile__cmp">
               {good != null && (
                 <span className="sb-delta" data-good={good}>
-                  {good ? "▲" : "▼"} vs prior-day nodal persistence{" "}
+                  {good ? "▲" : "▼"} vs prior-day nodal (persistence){" "}
                   {c.persistence == null ? "—" : c.persistence.toFixed(2)}
                 </span>
               )}
               <span className="sb-ceiling">
-                settled-μ nodal ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+                settled-μ nodal ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
               </span>
             </div>
           </div>
@@ -658,14 +658,14 @@ function Glossary() {
       <div className="sb-guide__block">
         <div className="sb-guide__h">Model Comparison Graph</div>
         <dl className="sb-guide__dl">
-          <dt>Walk-forward nodal forecast</dt>
+          <dt>Model Nodal Forecast</dt>
           <dd>The offline forecast construction, projected to nodal congestion.</dd>
-          <dt>Prior-day nodal persistence</dt>
+          <dt>Prior-day nodal (persistence)</dt>
           <dd>
             Naïve baseline: tomorrow repeats yesterday. Each node's congestion
             is set to its actual value at the same hour on the prior day.
           </dd>
-          <dt>Trailing-window nodal baseline</dt>
+          <dt>Trailing-window average baseline</dt>
           <dd>
             Historical-average baseline, computed per hour-of-day: how often a
             node has congested at this hour × its typical severity when it does.
@@ -673,7 +673,7 @@ function Glossary() {
             binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
             gets an 8pm climatology of 0.06 × $150 ≈ $9.
           </dd>
-          <dt>Settled-μ nodal ceiling</dt>
+          <dt>Settled-μ nodal ceiling (Oracle)</dt>
           <dd>
             If you already knew the answer: the score you'd get ranking nodes by
             their realized congestion. A ceiling to measure against, not a

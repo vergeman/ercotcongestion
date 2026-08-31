@@ -55,14 +55,14 @@ interpreted alongside its other sources, rather than as a lone number:
 
 | Canonical source ID | Series ID | Display label | Construction and status |
 | --- | --- | --- | --- |
-| `scoreboard_model_backtest_nodal` | `model` | Walk-forward nodal forecast | Offline deployable forecast construction. |
-| `scoreboard_model_served_nodal` | `model` | Served nodal forecast | Forecast actually published for a delivery day; deployable. |
-| `scoreboard_persistence_backtest_nodal` | `persistence` | Prior-day nodal persistence | Backtest baseline, using the fold’s map. |
-| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day nodal persistence | Served-grade baseline, using the trailing map. |
-| `scoreboard_climatology_backtest_nodal` | `climatology` | Trailing-window nodal baseline | Backtest historical baseline. |
-| `scoreboard_climatology_trailing_window_nodal` | `climatology` | Trailing-window nodal baseline | Served-grade historical baseline. |
-| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ nodal ceiling | Non-deployable realized-μ ceiling. |
-| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ nodal ceiling | Non-deployable settled-day ceiling. |
+| `scoreboard_model_backtest_nodal` | `model` | Model Nodal Forecast | Offline deployable forecast construction. |
+| `scoreboard_model_served_nodal` | `model` | Model Nodal Forecast | Forecast actually published for a delivery day; deployable. |
+| `scoreboard_persistence_backtest_nodal` | `persistence` | Prior-day nodal (persistence) | Backtest baseline, using the fold’s map. |
+| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day nodal (persistence) | Served-grade baseline, using the trailing map. |
+| `scoreboard_climatology_backtest_nodal` | `climatology` | Trailing-window average baseline | Backtest historical baseline. |
+| `scoreboard_climatology_trailing_window_nodal` | `climatology` | Trailing-window average baseline | Served-grade historical baseline. |
+| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ nodal ceiling (Oracle) | Non-deployable realized-μ ceiling. |
+| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ nodal ceiling (Oracle) | Non-deployable settled-day ceiling. |
 | `scoreboard_null_flat_nodal` | `null` | Flat nodal control | Non-deployable flat control; ranking metrics are usually undefined. |
 
 Brief profiles use a separate source catalog because they score artifact
