@@ -1,23 +1,24 @@
-"""0086 — a POST-HOC question, asked after R5 failed. It cannot un-fail it.
+"""a POST-HOC question.
 
-**The observation.** In commit 5 the model beat persistence on every measure that
-rewards being right *on average* (R² +0.221 vs −0.013, Spearman 0.548 vs 0.496,
-sign 0.787 vs 0.736) and lost the single measure that asks it to *point at the
-extremes* (top-decile 0.524 vs 0.561). That is a suspicious pattern, and there is
-a mechanical reason it might arise that has nothing to do with the model's skill.
+**The observation.** The model beat persistence on every measure that rewards
+being right *on average* (R² +0.221 vs −0.013, Spearman 0.548 vs 0.496, sign
+0.787 vs 0.736) and lost the single measure that asks it to *point at the
+extremes* (top-decile 0.524 vs 0.561). That is a suspicious pattern, and there
+is a mechanical reason it might arise that has nothing to do with the model's
+skill.
 
 **The hypothesis.** We rank nodes by `E[μ] = P(bind) · E[μ|bind]` — a *mean*. A
 constraint with a 20% chance of a $400 bind contributes $80, the same as a
 certain $80 bind, and the map smears those two into the same nodal number. But
-they are not the same claim, and the top-decile metric only cares about the first
-one. Persistence, meanwhile, ranks by *yesterday's realized* congestion — a draw
-from the tail, sharp and un-smeared. So we may be losing a tail metric because we
-are ranking it with a central statistic, not because we know less than yesterday.
+they are not the same claim, and the top-decile metric only cares about the
+first one. Persistence, meanwhile, ranks by *yesterday's realized* congestion —
+a draw from the tail, sharp and un-smeared. So we may be losing a tail metric
+because we are ranking it with a central statistic, not because we know less
+than yesterday.
 
-If so, the fix is not a model, it is a *decision rule*: rank by an upper quantile
-of the predictive distribution — "where could this plausibly go badly" — rather
-than by its middle. We already draw that distribution in `propagate.py`; this
-module only re-reads it.
+If so, the fix is to rank by an upper quantile of the predictive distribution -
+"where could this plausibly go badly" - rather than by its middle. We already
+draw that distribution in `propagate.py`; this module only re-reads it.
 
 **Pre-registered, before the run:**
 
@@ -25,20 +26,18 @@ module only re-reads it.
     top-decile **on the identical weeks** *without* giving back the Spearman the
     mean ranking already wins. Winning top-decile by wrecking the ranking is not
     a win, it is a different failure.
-  * The hypothesis is REFUTED iff top-decile is flat or falls as the quantile
-    rises. Then the missing-outage-data story (0086 summary) is the whole story.
-  * **Either way §5.5 is unmoved.** The screening bar wants Spearman ≥ 0.60 AND
-    top-decile ≥ 0.60. Even a clean confirmation here does not clear it, and the
-    R5 verdict recorded in 0085 stands. This decides *where the skill went*, not
-    *whether we have a product*.
 
-`mean` is included as the control: it should reproduce commit 4's 0.523, and if
-it does not, this harness is wrong and nothing below it means anything.
+  * The hypothesis is REFUTED iff top-decile is flat or falls as the quantile
+    rises.
+
+  * The screening bar wants Spearman ≥ 0.60 AND top-decile ≥ 0.60. Even a clean
+    confirmation here does not clear it.
 
     docker compose run --rm compute python -m compute.experiments.mu.rerank \
       --preds /compute/runs/mu-all-v1/mu/mu_preds.npz \
       --scores /compute/runs/mu-all-v1/mu/mu_score_weekly.csv \
       --out /compute/runs/experiments/mu/mu_rerank_weekly.csv
+
 """
 from __future__ import annotations
 
@@ -66,8 +65,9 @@ def rank_stats(draws: np.ndarray) -> dict[str, np.ndarray]:
     """The same (draws × hours × nodes) cube, read six ways.
 
     Every one of these is a legitimate summary of the *same* forecast — nothing
-    is refitted, nothing new is learned. Only the question changes, from "what do
-    we expect" to "how bad could this reasonably get".
+    is refitted, nothing new is learned. Only the question changes, from "what
+    do we expect" to "how bad could this reasonably get".
+
     """
     qs = [50, 75, 90, 95, 99]
     p = np.percentile(draws, qs, axis=0)
@@ -77,9 +77,11 @@ def rank_stats(draws: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def score_ranking(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """Screening currency only. A quantile ranking is deliberately *biased* as a
-    magnitude estimate — P90 is not trying to be the price, so grading it with R²
-    would be scoring it on a job it is not applying for."""
+    """Screening metrics. A quantile ranking is deliberately *biased* as a
+    magnitude estimate. P90 is not trying to be the price, so grading it with
+    R² would be scoring it on a job it is not applying for.
+
+    """
     return {
         "rank_spearman": row_spearman(Y, Yh),
         "sign_agree": sign_agreement(Y, Yh),
@@ -91,10 +93,8 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          n_draws: int = 200, seed: int = 0) -> pd.DataFrame:
     """`propagate.walk`, but scoring six readings of the cube instead of one.
 
-    Deliberately re-derived from the same inputs with the same seed rather than
-    cached from commit 5: the weeks, the map, the residual pool and the draws must
-    be *identical* to the ones the R5 verdict was read off, or this is a
-    comparison between two experiments and not between two ranking rules.
+    Deliberately re-derived from the same inputs with the same seed
+
     """
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
