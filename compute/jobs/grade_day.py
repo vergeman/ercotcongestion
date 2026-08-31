@@ -1,41 +1,33 @@
 """The `grade_day` job — grade the SERVED forecast for one delivery day D.
 
-The live half of the scoreboard (plan/0102 Phase 3, 0003-live-grading). Where the
-backtest board (compute.jobs.load_scoreboard → scoreboard_weekly) transcribes a
-pre-registered walk, this grades what `daily_forecast` actually *served*, one day
-behind, once realized DAM prices publish:
+The live half of the scoreboard. Where the backtest board
+(compute.jobs.load_scoreboard -> scoreboard_weekly) transcribes a
+pre-registered walk, this grades what `daily_forecast` actually *served*, one
+day behind, once realized DAM prices publish:
 
   1. pull the served point forecast for D from `forecast_nodal` (the deterministic
      E[μ]·SF the model published at D−1 close);
-  2. build realized nodal congestion for D — `SPP − system_λ`, the same quantity
+  2. build realized nodal congestion for D: `SPP − system_λ`, the same quantity
      the map fits and the realized pane serves;
-  3. score every source with the **same `score_matrix`** the backtest uses, so a
-     live number and a backtest number are the same currency (spec §2.2 / §7);
+  3. score every source with the same `score_matrix` the backtest uses, so a
+     live number and a backtest number are the same currency
   4. write one row per source to `scoreboard_daily`, idempotent per (run_id, D).
 
-**Model vs comparators.** The `model` source is graded on the served point — the
-honest out-of-sample product. The comparators (`oracle`, `persistence`,
-`climatology`, `null`) are recomputed on D "for context": an SF map fit on the
-trailing window ending at D, each baseline μ projected through it and scored
-against the same realized C. This reuses `score.py`'s source constructors and
-metric — never re-measuring a baseline outside the shared harness (spec §6). The
-`null` (flat) source is the integrity tripwire: a flat map
-ranks nothing, so `score_matrix` returns NaN screening cells — a live `null` that
-scores above chance means the metric path regressed.
+Model vs comparators: the `model` source is graded on the served point. The
+comparators (`oracle`, `persistence`, `climatology`, `null`) are recomputed on
+D "for context": an SF map fit on the trailing window ending at D, each
+baseline μ projected through it and scored against the same realized C
+(congestion panel).
 
-**Same node set for every source.** All sources are scored on the intersection of
-the map's nodes, the served forecast's nodes, and the nodes with realized C — so
-the model's Yh and each baseline's Yh sit on the identical (hours × nodes) matrix
-as realized Y, and the per-day `model − persistence` delta is apples-to-apples.
+Same node set for every source. All sources are scored on the intersection of
+the map's nodes, the served forecast's nodes, and the nodes with realized C; so
+the model's Yh and each baseline's Yh sit on the identical (hours x nodes)
+matrix as realized Y.
 
-**No refit.** Grading reads the served panel; it does not re-run the model. The one
+No refit. Grading reads the served panel; it does not re-run the model. The one
 fit here is the cheap trailing-window SF solve for the baselines (the same
-`implied_shift_factors` the backtest and the map use), nowhere near the mu fit's
-peak — which is why the daily tick folds this in as a second step rather than
-standing up a second job (`daily_forecast.main`).
+`implied_shift_factors` the backtest and the map use).
 
-**Deferred.** Miss-attribution (the scoreboard_miss decomposition) is out of 0003;
-the live grade above is the shipped deliverable.
 """
 from __future__ import annotations
 
@@ -62,8 +54,8 @@ from compute.projection.codecs import load_sf_mu
 
 log = logging.getLogger(__name__)
 
-# The comparators recomputed on D alongside the served model (spec §6). `null` is
-# the flat-map tripwire; `oracle` is the ceiling. Model is graded on the served
+# The comparators recomputed on D alongside the served model. `null` is the
+# flat-map tripwire; `oracle` is the ceiling. Model is graded on the served
 # point, so it is not built from an mu source here.
 _BASELINES = ("oracle", "persistence", "climatology", "null")
 
@@ -80,15 +72,16 @@ _METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 
 
 def _as_ct_day(D) -> pd.Timestamp:
-    """Normalize any date-ish `D` to the UTC instant marking CT midnight — the
-    delivery-day block boundary the whole pipeline slices on (matches
-    `daily_forecast._as_ct_day`; single-sourced in `ct_day_bounds`, 0133)."""
+    """Normalize any date-ish `D` to the UTC instant marking CT midnight."""
     return normalize_ct_day(D)
 
 
 def _v(x) -> float | None:
-    """NaN / None → SQL NULL; everything else → float. A declined (flat) or missing
-    cell must land as NULL, never as a number masquerading as a real score."""
+    """NaN / None → SQL NULL; everything else → float. A declined (flat) or
+    missing cell must land as NULL, never as a number masquerading as a real
+    score.
+
+    """
     if x is None:
         return None
     x = float(x)
@@ -97,12 +90,13 @@ def _v(x) -> float | None:
 
 def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
                          horizon: int = 1) -> dict[str, pd.DataFrame]:
-    """Read the served nodal panel for (run_id, delivery_date=D, horizon) back into
-    a wide (ts × settlement_point) deterministic point frame.
+    """Read the served nodal panel for (run_id, delivery_date=D, horizon).
 
-    Each horizon is its own scoreboard track, so grading reads only the horizon's
-    own rows (0123). Empty dict if nothing was served for that day+run+horizon — the
-    caller fails loud, since there is no product to grade.
+    Each horizon is its own scoreboard track, so grading reads only the
+    horizon's own rows. Empty dict if nothing was served for that
+    day+run+horizon — the caller fails loud, since there is no product to
+    grade.
+
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -126,12 +120,9 @@ def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
 
 def score_served_essp(conn, run_id: str, D: pd.Timestamp,
                        horizon: int) -> dict[str, float | None]:
-    """Validate the persisted SF artifact actually served for ``D`` against ESSP.
+    """Validate the persisted SF artifact actually served for ``D`` against
+    ESSP.
 
-    The grading job separately refits a temporary SF only for baseline forecasts;
-    scoring that map would not assess the published product.  ESSP is optional
-    ingest evidence, so an absent artifact or report remains NULL without making
-    an otherwise-valid live grade fail.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -158,13 +149,10 @@ def grade_day(
 ) -> list[dict]:
     """Grade the served forecast for CT delivery day D; return one row per source.
 
-    `horizon` selects the track to grade (1 = final/t+1, 2 = preview/t+2; 0123) —
-    each horizon is graded against the same realized C on its own served rows, so
-    preview and final are two independent scoreboard tracks per run_id.
+    `horizon` selects the track to grade (1 = final/t+1, 2 = preview/t+2) —
+    each horizon is graded against the same realized C on its own served rows,
+    so preview and final are two independent scoreboard tracks per run_id.
 
-    Reads only; the caller persists (`persist_grades`) and owns the transaction.
-    Fails loud when there is nothing to grade — no served panel, no realized
-    congestion, or a degenerate SF fit — rather than writing a hollow row.
     """
     D = _as_ct_day(D)
     started = perf_counter()
@@ -180,11 +168,15 @@ def grade_day(
             f"for D first).")
 
     # --- realized congestion + shadow prices over the fit+score window ------
+    #
     # `hi` is D's next CT midnight, so the score block is D's CT calendar day
-    # (23/24/25 hours across a DST transition, 0133) — not a flat `D + 1 day`,
-    # which would land an hour off on a spring-forward/fall-back day. The fit
-    # window is [D − window_days, D). M reaches back for the SF fit AND the
-    # persistence lag (yesterday's μ), C for the fit and D's realized Y.
+    # (23/24/25 hours across a DST transition), not necessarily a flat `D + 1
+    # day`, which would land an hour off on a spring-forward/fall-back day.
+    #
+    # The fit window is [D − window_days, D). M reaches back for the SF fit AND
+    # the persistence lag (yesterday's μ), C for the fit and D's realized Y.
+    #
+
     lo = D - pd.Timedelta(days=window_days)
     _, hi = ct_day_bounds(D)
     M = load_shadow_prices(conn, lo, hi)
@@ -215,9 +207,9 @@ def grade_day(
     M_score, C_score = M_score.loc[hours], C_score.loc[hours]
     cols = M_score.columns
 
-    # Common node set: nodes the map located AND the forecast served AND that have
-    # realized C — so every source is scored on the identical (hours × nodes)
-    # matrix. Ordered by the SF columns for determinism.
+    # Common node set: nodes the map located AND the forecast served AND that
+    # have realized C, so every source is scored on the identical (hours ×
+    # nodes) matrix. Ordered by the SF columns for determinism.
     served_sps = set(fc["point"].columns)
     realized_sps = set(C_score.columns)
     N = [sp for sp in SF.columns if sp in served_sps and sp in realized_sps]
@@ -232,11 +224,7 @@ def grade_day(
     # Realized Y on the common grid — the target for every source.
     Y = C_score.reindex(columns=N).to_numpy(float)
 
-    # SF coverage: the scored day's |μ|-mass the map has a column for — a miss on a
-    # blind-spot constraint must not be charged to the forecast, so it rides next to
-    # the grade (spec §6 / handoff §5.4). model_coverage (mass on keys the model
-    # predicted) needs the prediction-time key set, which is the deferred snapshot —
-    # NULL here.
+    # SF coverage: the scored day's |μ|-mass the map has a column.
     mass_all = float(M_score.abs().to_numpy(float).sum())
     in_cols = cols.intersection(SF.index)
     sf_coverage = (float(M_score[in_cols].abs().to_numpy(float).sum()) / mass_all
@@ -287,9 +275,11 @@ def grade_day(
 
 def persist_grades(conn, run_id: str, D, rows: list[dict], horizon: int = 1) -> int:
     """Delete-then-COPY the day's grades into scoreboard_daily. Idempotent per
-    (run_id, delivery_date, horizon) — each horizon is its own track, so re-grading
-    one never clears the other (0123); does NOT commit — the caller owns the
-    transaction. Returns rows written."""
+    (run_id, delivery_date, horizon) — each horizon is its own track, so
+    re-grading one never clears the other; does NOT commit — the caller owns
+    the transaction. Returns rows written.
+
+    """
     D = _as_ct_day(D)
     with conn.cursor() as cur:
         cur.execute(
@@ -313,19 +303,11 @@ def persist_grades(conn, run_id: str, D, rows: list[dict], horizon: int = 1) -> 
 def resolve_gradeable_date(conn, run_id: str, horizon: int = 1) -> pd.Timestamp | None:
     """Return the newest forecast day that has not been graded and is complete.
 
-    Scoped to `horizon` (0123): a day counts as gradeable only when it has served
-    rows AND no scoreboard row for THIS horizon, so the two tracks select
-    independently — the final tick never skips a day just because the preview track
-    already graded it.
+    Scoped to `horizon`: a day counts as gradeable only when it has served rows
+    AND no scoreboard row for THIS horizon, so the two tracks select
+    independently. The final tick never skips a day just because the preview
+    track already graded it.
 
-    A CT delivery day's last hour starts one hour before the next CT midnight —
-    DST-aware, so this checks directly for the system-lambda price at that instant
-    (`(delivery_date + 1) AT TIME ZONE 'America/Chicago' − 1h`, not a flat `+23
-    hours` off UTC midnight, which was the pre-0133 UTC-day convention). If it
-    exists, the day is ready to grade; if not, the selector waits. It deliberately
-    does not search the forecast table for each day's latest timestamp, which
-    became slow as forecast history grew. Returning ``None`` simply means there is
-    nothing ready to grade yet.
     """
     started = perf_counter()
     log.info("grade selection start: run_id=%s horizon=%d", run_id, horizon)

@@ -1,10 +1,11 @@
 """Backtest walk → nodal panel seed.
 
-The one-time historical backfill runner (README §A): walk the validated
-predictions forward through the SF map, stream the per-week deterministic point
-panel to a flat npz, and — with `--to-db` / `--load-nodal-npz` — bulk-seed
-`forecast_nodal` and flip `forecast_current[ercot]`. Shared DB writers live in
-`compute.forecast_store`; they remain imported here
+The one-time historical backfill runner: walk the validated predictions forward
+through the SF map, stream the per-week deterministic point panel to a flat
+npz, and — with `--to-db` / `--load-nodal-npz` — bulk-seed `forecast_nodal` and
+flip `forecast_current[ercot]`.
+
+Shared DB writers live in `compute.forecast_store`; they remain imported here
 as temporary compatibility re-exports. The projection math it drives lives in
 `compute.projection.propagate`.
 
@@ -50,20 +51,19 @@ def preds_path_for(run_id: str) -> str:
     """The offline μ walk-forward prediction NPZ for `run_id` on the runs PVC.
 
     Same layout every stage uses — `runs/<run_id>/mu/mu_preds.npz`, where
-    `mu_model --preds-out` writes it (runbook step 2) — so passing `--run-id`
-    is enough and `--preds` need not be spelled out. The shared artifact catalog
+    `mu_model --preds-out` writes it (runbook step 2). Passing `--run-id` is
+    enough and `--preds` need not be spelled out. The shared artifact catalog
     also supplies the matching `daily_forecast` and `mu_model` locations.
+
     """
     return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
 
 
 def scores_path_for(run_id: str) -> str:
-    """The μ weekly score CSV for `run_id` — `runs/<run_id>/mu/mu_score_weekly.csv`.
+    """The μ weekly score CSV for `run_id` —
+    `runs/<run_id>/mu/mu_score_weekly.csv`.
 
-    The per-(week × source) screening currencies `compute.evaluation.mu` writes.
-    A μ-stage artifact, so it lives
-    under `mu/` beside the residual pool — a different file from `mu_weekly.csv`,
-    which is `mu_model`'s calibration output."""
+    """
     return str(RunArtifacts(run_id, RUNS_ROOT).scores)
 
 
@@ -79,9 +79,6 @@ def resolve_walk_paths(run_id: str | None, preds: str | None, nodal_out: str | N
     """Resolve the walk's inputs/outputs from `--run-id` (canonical `runs/<id>/`
     tree), falling back to the legacy bundled `compute/mu` paths run-id-less.
 
-    Explicit values always win. The prediction input always resolves to a path;
-    the derived nodal output is filled only under a run id, so a
-    run-id-less run keeps them opt-in (None) — its current behavior, unchanged.
     `--load-nodal-npz` is a standalone seed mode that runs no walk and derives
     nothing here (its own guard refuses the walk flags)."""
     if load_nodal_npz:
@@ -100,12 +97,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          sf_loader=None) -> pd.DataFrame:
     """Walk the scored weeks forward through the SF map.
 
-    ``sf_loader`` (0095-0002) routes the backfill through the same persisted weekly
-    SF the live forecast reads, so a historic day matches live: a callable
-    ``week → SF | None`` (the causal ``max(window_end ≤ week)`` map window). A week
-    with no causal window is skipped. ``sf_loader=None`` keeps the self-contained
-    path — SF is refit per window inside `propagate_window` (the synthetic tests and
-    the ``--fit-sf`` escape hatch)."""
+    """
     if isinstance(preds.index, pd.MultiIndex):
         preds = preds.reset_index()
     weeks = weeks_from_preds(preds)
@@ -113,9 +105,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
              "from persisted map" if sf_loader is not None else "refit per window")
 
     sink = _NodalAccumulator() if nodal_out else None
-    # `curated` is {delivery_date: None} for the --drivers days; the walk fills the
-    # ones whose operating day falls inside a scored window with that day's SF+μ
-    # artifact (§4a). None ⟹ no artifact requested (the common path, no extra work).
+    # `curated` is {delivery_date: None} for the --drivers days
     want_sf_mu = bool(curated)
     by_week = dict(tuple(preds.groupby("week", sort=False)))
     rows: list[dict] = []
@@ -138,11 +128,12 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
         rows.append(row)
         if sink is not None:
-            assert panel is not None      # want_panel=True ⟹ panel built when row is
+            assert panel is not None      # want_panel=True -> panel built when
+                                          # row is
             sink.add(panel, s)
         if want_sf_mu and E_mu is not None:
-            # Slice the week's E_mu to each requested operating day and pair it with
-            # this window's SF — the per-day artifact forecast_day would emit.
+            # Slice the week's E_mu to each requested operating day and pair it
+            # with this window's SF.
             dd = delivery_date_of(pd.Series(E_mu.index, index=E_mu.index))
             for day in list(curated):
                 mask = (dd == day).to_numpy()
@@ -159,11 +150,12 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
 
 
 def existence_test(model: dict, persistence: dict) -> tuple[bool, str]:
-    """"Beat persistence in the screening currency" (handoff §5.5).
+    """"Beat persistence in the screening currency"
 
     Relative, so persistence must be the one measured in THIS harness — the
     0.581/0.771/0.649 in the handoff came from the old 60-day, λ=0.1 map, and
     grading against those would be grading against a different experiment.
+
     """
     keys = ["rank_spearman", "sign_agree", "topdecile_hit"]
     wins = {k: model[k] > persistence[k] for k in keys}
@@ -279,9 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("M = %s   C = %s", M.shape, C.shape)
 
     # Route the backfill through the same persisted weekly SF the live forecast
-    # reads (0095-0002), so a historic week matches live: per week s, load the
-    # causal (window_end ≤ s) latest map window. `--fit-sf` restores the pre-0002
-    # in-process refit. The loader keeps its own open connection across the walk.
+    # reads, so a historic week matches live.
     sf_loader = None
     sf_conn = None
     if not args.fit_sf:
@@ -291,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             win = resolve_sf_window(_c, _rid, as_of=pd.Timestamp(s))
             return None if win is None else load_window_sf(_c, _rid, win[0])
 
-    # Create the derived forecast/ tree before the walk streams the nodal npz into
+    # Create the derived forecast / tree before the walk streams the nodal npz into
     # it — a first run on a fresh PVC has no runs/<id>/forecast/ dir yet.
     if args.nodal_out:
         os.makedirs(os.path.dirname(os.path.abspath(args.nodal_out)) or ".",
@@ -303,10 +293,10 @@ def main(argv: list[str] | None = None) -> int:
         if sf_conn is not None:
             sf_conn.close()
     if curated is not None:
-        # Curated-day debug: the walk filled `curated` with each requested day's
-        # SF+μ artifact; materialize its top-k driver rows to CSV. If --run-id is
-        # set, also land the artifact in forecast_sf_artifact (the object the
-        # endpoints read; §4a) so a curated day is inspectable end to end.
+        # Curated-day debug: the walk filled `curated` with each requested
+        # day's SF+μ artifact; materialize its top-k driver rows to CSV. If
+        # --run-id is set, also land the artifact in forecast_sf_artifact so a
+        # curated day is inspectable end to end.
         missing = [d for d, a in curated.items() if a is None]
         if missing:
             log.warning("--drivers: %d requested day(s) not covered by the walk "
