@@ -130,7 +130,7 @@ class ScoreboardWeekly(BaseModel):
 # counterpart to the weekly backtest board. Same integrity rule (§6): every
 # response carries all sources (model + persistence + climatology + oracle + the
 # ``null`` flat tripwire), so a lone model figure can't be rendered. Same
-# ``score_matrix`` currency as the weekly board, so a live number and a backtest
+# screening-metric currency as the weekly board, so a live number and a backtest
 # number are directly comparable. (Miss-attribution — /scoreboard/miss — is
 # deferred out of 0003; the per-day grade is the shipped live surface.)
 

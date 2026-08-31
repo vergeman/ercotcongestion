@@ -102,5 +102,5 @@ def test_coverage_is_measured_not_assumed():
 def test_bands_report_coverage_and_skill_together():
     Y = RNG.normal(0, 10, (48, 30))
     m = _metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
-    assert {"coverage80", "band_width", "pinball", "pooled_r2",
+    assert {"coverage80", "band_width", "pinball", "experiment_pooled_r2",
             "topdecile_hit"} <= set(m)

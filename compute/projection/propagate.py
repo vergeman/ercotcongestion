@@ -18,7 +18,7 @@ import pandas as pd
 
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.sf_map.model.fit import implied_shift_factors
-from compute.metrics import score_matrix
+from compute.metrics import screening_metrics
 from compute.projection.codecs import NodalPanel
 
 STD_FLOOR = 100.0
@@ -124,5 +124,5 @@ def propagate_window(
     if not forward:
         Y = C.loc[hours, SF.columns].to_numpy(np.float32)
         row = {"week": s, "n_hours": len(hours), "n_nodes": SF.shape[1],
-               "sf_coverage": sf_coverage, **score_matrix(Y, point)}
+               "sf_coverage": sf_coverage, **screening_metrics(Y, point)}
     return row, panel, (SF if want_sf_mu else None), (E_mu if want_sf_mu else None)

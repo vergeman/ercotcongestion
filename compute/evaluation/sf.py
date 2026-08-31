@@ -52,7 +52,7 @@ from compute.sf_map.model.grouping import (
     aggregate_mu, constraint_linkage, cut_groups, group_members, project_sf,
 )
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-from compute.metrics import r2, row_spearman, sign_agreement, topdecile_hit
+from compute.metrics import row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.evaluation.sf")
@@ -65,6 +65,16 @@ def predict(M_score: pd.DataFrame, SF: pd.DataFrame) -> np.ndarray:
     """C_hat = -M · SFᵀ over the constraints the fit actually kept."""
     cols = M_score.columns.intersection(SF.index)
     return -(M_score[cols].to_numpy(float) @ SF.loc[cols].to_numpy(float))
+
+
+def sf_pooled_r2(y: np.ndarray, y_hat: np.ndarray) -> float:
+    """Map-fit R², local to the SF evaluation that owns this diagnostic."""
+    valid = np.isfinite(y) & np.isfinite(y_hat)
+    y, y_hat = y[valid], y_hat[valid]
+    if y.size < 2:
+        return float("nan")
+    total = float(((y - y.mean()) ** 2).sum())
+    return float("nan") if total <= 0 else 1.0 - float(((y - y_hat) ** 2).sum()) / total
 
 
 def _sf_corr(A: pd.DataFrame, B: pd.DataFrame) -> float:
@@ -166,7 +176,7 @@ def evaluate(
                 return (np.nan,) * 4
         Y = Cs.loc[i, sf.columns].to_numpy(float)
         Yh = predict(Ms, sf)
-        return (r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
+        return (sf_pooled_r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
                 sign_agreement(Y, Yh), topdecile_hit(Y, Yh))
 
     # Keep a fixed refit grid when skipped warmup or chunked loading changes the

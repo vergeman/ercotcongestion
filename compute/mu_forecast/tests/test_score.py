@@ -8,7 +8,7 @@ import pytest
 
 from compute.evaluation.mu import (
     SOURCES, mu_climatology, mu_from_preds, mu_persistence, report,
-    score_matrix, score_week, walk, weeks_from_preds,
+    screening_metrics_for_scoreboard, score_week, walk, weeks_from_preds,
 )
 from compute.sf_map.config import RTC_B
 
@@ -257,18 +257,18 @@ def test_a_flat_prediction_cannot_manufacture_a_top_decile():
     with no kept columns, a week the model had nothing for) must read NaN."""
     Y = RNG.normal(size=(24, 40))
     flat = np.zeros((24, 40))
-    assert np.isnan(score_matrix(Y, flat)["topdecile_hit"])
+    assert np.isnan(screening_metrics_for_scoreboard(Y, flat)["topdecile_hit"])
 
     # ...and a source that DOES rank must still be scored, including when only
     # some of its hours are flat.
     half = np.vstack([np.zeros((12, 40)), Y[12:] + RNG.normal(0, .1, (12, 40))])
-    assert score_matrix(Y, half)["topdecile_hit"] > 0.5
+    assert screening_metrics_for_scoreboard(Y, half)["topdecile_hit"] > 0.5
 
 
-def test_score_matrix_handles_a_constant_truth_row():
+def test_screening_metrics_handle_a_constant_truth_row():
     """A congestion-free hour has zero variance; Spearman is undefined there. It
     must come back NaN and be skipped, not crash the walk 30 weeks in."""
     Y = np.zeros((3, 20))
     Yh = RNG.normal(size=(3, 20))
-    m = score_matrix(Y, Yh)
+    m = screening_metrics_for_scoreboard(Y, Yh)
     assert np.isnan(m["rank_spearman"])

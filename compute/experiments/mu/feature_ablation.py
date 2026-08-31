@@ -115,14 +115,13 @@ def _row(d: pd.DataFrame, label: str) -> str:
     # The two verdicts, printed rather than left to the reader's optimism.
     mark = ("PRODUCT" if td >= PRODUCT_TOPDEC else
             "alive" if td > PERSISTENCE_TOPDEC else "")
-    return (f"  {label:<14} {d.pooled_r2.mean():>7.3f} {d.mae.mean():>8.2f} "
-            f"{d.rank_spearman.mean():>9.3f} {d.sign_agree.mean():>7.3f} "
+    return (f"  {label:<14} {d.rank_spearman.mean():>9.3f} {d.sign_agree.mean():>7.3f} "
             f"{td:>8.3f}   {mark}")
 
 
 def _table(df: pd.DataFrame, title: str) -> str:
     out = [f"\n{title}",
-           f"  {'arm':<14} {'R2':>7} {'MAE':>8} {'Spearman':>9} {'sign':>7} "
+           f"  {'arm':<14} {'Spearman':>9} {'sign':>7} "
            f"{'top-dec':>8}   verdict"]
     for arm in ARMS:
         out.append(_row(df[(df["arm"] == arm) & (df["source"] == "model")],
@@ -167,7 +166,7 @@ def report(df: pd.DataFrame, bands: pd.DataFrame | None = None) -> str:
             b = bands[bands["arm"] == arm]
             if not b.empty:
                 out.append(f"  {arm:<6} coverage80 {b.coverage80.mean():.3f}   "
-                           f"P50 R² {b.pooled_r2.mean():+.3f}")
+                           f"P50 R² {b.experiment_pooled_r2.mean():+.3f}")
         out.append("  0085 measured 0.673 — the sampler treats binding as independent "
                    "across constraints.\n  Out of scope here (plan/0088): a joint "
                    "sampler makes the bands honest, not skillful.")

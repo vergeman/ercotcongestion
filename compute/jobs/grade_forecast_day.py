@@ -9,7 +9,7 @@ day behind, once realized DAM prices publish:
      E[μ]·SF the model published at D−1 close);
   2. build realized nodal congestion for D: `SPP − system_λ`, the same quantity
      the map fits and the realized pane serves;
-  3. score every source with the same `score_matrix` the backtest uses, so a
+  3. score every source with the same screening metrics the backtest uses, so a
      live number and a backtest number are the same currency
   4. write one row per source to `scoreboard_daily`, idempotent per (run_id, D).
 
@@ -46,7 +46,7 @@ from compute.evaluation.mu import (
     mu_climatology,
     mu_null,
     mu_persistence,
-    score_matrix,
+    screening_metrics_for_scoreboard,
 )
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.evaluation.sf import predict
@@ -70,7 +70,7 @@ _COLS = (
     "essp_precision", "essp_recall",
 )
 
-# The currency keys score_matrix emits, in table order.
+# The screening keys emitted by the scoreboard helper, in table order.
 _METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 
 
@@ -246,7 +246,7 @@ def grade_day(
 
     # --- model: the served deterministic point ------------------------------
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
-    rows.append(_row("model", score_matrix(Y, Yh_model)))
+    rows.append(_row("model", screening_metrics_for_scoreboard(Y, Yh_model)))
     rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
     # --- comparators: recomputed on D, projected through the trailing-window SF -
@@ -259,7 +259,7 @@ def grade_day(
     for name in _BASELINES:
         Yh = pd.DataFrame(predict(srcs[name], SF), index=hours, columns=SF.columns)
         Yh = Yh.reindex(columns=N).to_numpy(float)
-        rows.append(_row(name, score_matrix(Y, Yh)))
+        rows.append(_row(name, screening_metrics_for_scoreboard(Y, Yh)))
 
     m = rows[0]
     p = next(r for r in rows if r["source"] == "persistence")

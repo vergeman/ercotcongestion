@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from compute.evaluation.sf import predict
-from compute.metrics import row_spearman, sign_agreement, topdecile_hit
+from compute.metrics import screening_metrics
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
@@ -106,38 +106,9 @@ def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 
-# --------------------------------------------------------------------------
-# scoring
-# --------------------------------------------------------------------------
-
-def _flat_rows(Yh: np.ndarray) -> np.ndarray:
-    """Hours where the prediction is constant across nodes — it ranks nothing."""
-    return np.ptp(Yh, axis=1) == 0
-
-
-def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
-    """`sf/eval.topdecile_hit`, but it declines to score an hour whose prediction
-    is flat across nodes.
-
-    Kept local: `sf/eval` is shared with the sweep, and quietly changing a metric
-    every other result in the repo was measured with is precisely the drift this
-    branch keeps catching.
-    """
-    keep = ~_flat_rows(Yh)
-    if not keep.any():
-        return float("nan")
-    return topdecile_hit(Y[keep], Yh[keep])
-
-
-def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """The scoreboard's screening metrics.
-
-    """
-    return {
-        "rank_spearman": row_spearman(Y, Yh),
-        "sign_agree": sign_agreement(Y, Yh),
-        "topdecile_hit": topdecile_hit_defined(Y, Yh),
-    }
+def screening_metrics_for_scoreboard(Y: np.ndarray, Yh: np.ndarray) -> dict:
+    """The scoreboard's screening metrics."""
+    return screening_metrics(Y, Yh)
 
 
 def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
@@ -211,7 +182,7 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                **score_matrix(Y, Yh)}
+                **screening_metrics_for_scoreboard(Y, Yh)}
         rows.append(base)
     return rows
 
