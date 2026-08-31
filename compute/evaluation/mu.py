@@ -24,7 +24,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.evaluation.sf import predict, row_spearman, sign_agreement, topdecile_hit
+from compute.evaluation.sf import predict
+from compute.metrics import row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")

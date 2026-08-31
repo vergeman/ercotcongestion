@@ -40,7 +40,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psycopg
-from scipy.stats import rankdata
 
 from shared.settings import settings
 from compute.sf_map.config import (
@@ -53,61 +52,13 @@ from compute.sf_map.model.grouping import (
     aggregate_mu, constraint_linkage, cut_groups, group_members, project_sf,
 )
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
+from compute.metrics import r2, row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.evaluation.sf")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
-
-# Shared defaults for the μ forecast and map runner.
-SIGN_DEADBAND = 1.0   # $/MWh — ignore congestion-quiet node-hours
-
-
-# --------------------------------------------------------------- metric fns
-# Kept here to avoid an ``experiments`` dependency.
-
-def r2(y: np.ndarray, y_hat: np.ndarray) -> float:
-    m = np.isfinite(y) & np.isfinite(y_hat)
-    y, y_hat = y[m], y_hat[m]
-    if y.size < 2:
-        return float("nan")
-    ss_tot = float(((y - y.mean()) ** 2).sum())
-    if ss_tot <= 0.0:
-        return float("nan")
-    return 1.0 - float(((y - y_hat) ** 2).sum()) / ss_tot
-
-
-def row_spearman(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    out = []
-    for a, b in zip(Y, Y_hat):
-        m = np.isfinite(a) & np.isfinite(b)
-        if m.sum() < 10 or np.ptp(a[m]) == 0 or np.ptp(b[m]) == 0:
-            continue
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out.append(np.corrcoef(rankdata(a[m]), rankdata(b[m]))[0, 1])
-    return float(np.mean(out)) if out else float("nan")
-
-
-def sign_agreement(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    m = np.isfinite(Y) & np.isfinite(Y_hat) & (np.abs(Y) > SIGN_DEADBAND)
-    if m.sum() == 0:
-        return float("nan")
-    return float((np.sign(Y[m]) == np.sign(Y_hat[m])).mean())
-
-
-def topdecile_hit(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    out = []
-    for a, b in zip(Y, Y_hat):
-        m = np.isfinite(a) & np.isfinite(b)
-        n = int(m.sum())
-        if n < 20:
-            continue
-        k = max(1, n // 10)
-        top_true = set(np.argsort(-a[m])[:k])
-        top_pred = set(np.argsort(-b[m])[:k])
-        out.append(len(top_true & top_pred) / k)
-    return float(np.mean(out)) if out else float("nan")
 
 
 def predict(M_score: pd.DataFrame, SF: pd.DataFrame) -> np.ndarray:
