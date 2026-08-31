@@ -49,10 +49,10 @@ def walk_forward(panel: pd.DataFrame,
     Returns `(predictions, weekly)`:
 
       predictions  one row per scored (hour, constraint), with `p_bind`,
-                   `mu_clim`, `mu_gbm` and the realized `y_bind` / `y_mu`. This is
+                   `mu_gbm` and the realized `y_bind` / `y_mu`. This is
                    what commit 4's harness and commit 5's sampler consume.
-      weekly       one row per scored week: head-1 calibration and head-2 error,
-                   so a bad week is visible as a week rather than averaged away.
+      weekly       one row per scored week: head-1 calibration, so a bad week is
+                   visible as a week rather than averaged away.
     """
     feat = feature_cols(panel, arms)
     cols = feat + ["key_bind_rate"]
@@ -104,14 +104,6 @@ def walk_forward(panel: pd.DataFrame,
 
         row = {"week": s, "n_train": len(train), "n_score": len(score),
                **bind_metrics(out["y_bind"].to_numpy(), out["p_bind"].to_numpy())}
-        hit = out[out["y_bind"] == 1]
-        if len(hit):
-            for name in ("mu_clim", "mu_gbm"):
-                err = hit[name] - hit["y_mu"]
-                row[f"mae_{name}"] = float(err.abs().mean())
-                ss = float(((hit["y_mu"] - hit["y_mu"].mean()) ** 2).sum())
-                row[f"r2_{name}"] = (1.0 - float((err ** 2).sum()) / ss
-                                     if ss > 0 else np.nan)
         weeks.append(row)
 
         # Per week, not every 8th: a 46-week walk is the long pole in this branch
@@ -373,40 +365,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n  reliability curve (said vs happened):")
         print(_fmt_reliability(reliability(y, pr)))
 
-    print("\n=== HEAD 2: E[mu | bind] ===")
-    if preds is None:
-        print("  chunked; values below are weekly means")
-    else:
-        hit = preds[preds["y_bind"] == 1]
-        print(f"  binding rows {len(hit):,}   mean mu ${hit['y_mu'].mean():.2f}")
-    for name in ("mu_clim", "mu_gbm"):
-        mae = (float((hit[name] - hit["y_mu"]).abs().mean())
-               if preds is not None else float(weekly[f"mae_{name}"].mean()))
-        print(f"  {name:8s} MAE ${mae:7.2f}   "
-             f"weekly R2 {weekly[f'r2_{name}'].mean():+.3f}")
-    print(f"\n  VERDICT: {mu_head_verdict(weekly)}")
-
     persist_outputs(weekly, preds if preds is not None else pd.DataFrame(),
                     args.out, None if preds is None else args.preds_out)
     return 0
-
-
-def mu_head_verdict(weekly: pd.DataFrame) -> str:
-    """Which head-2 wins? The plan says climatology unless the GBM beats it.
-
-    Stated as a function so the answer is recorded rather than assumed. A tie goes
-    to the climatology: it is simpler, and the plan pre-registered it as the
-    backbone.
-    """
-    if weekly.empty or "mae_mu_gbm" not in weekly:
-        return "climatology (no comparison available)"
-    clim, gbm = weekly["mae_mu_clim"].mean(), weekly["mae_mu_gbm"].mean()
-    better = weekly["mae_mu_gbm"] < weekly["mae_mu_clim"]
-    if gbm < clim:
-        return (f"GBM (MAE {gbm:.2f} vs climatology {clim:.2f}; "
-                f"wins {int(better.sum())}/{len(weekly)} weeks)")
-    return (f"climatology (MAE {clim:.2f} vs GBM {gbm:.2f}; "
-            f"GBM wins only {int(better.sum())}/{len(weekly)} weeks)")
 
 
 

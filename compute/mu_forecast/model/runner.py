@@ -6,11 +6,8 @@ binding rate) rather than as N separate models.
 
 **Head 1 — P(bind at h).** Gradient-boosted classifier.
 
-**Head 2 — E[mu | bind].** The plan says conditional climatology FIRST, quantile
-regression only if the simple version is beaten — so both are built and scored
-head-to-head here, and `mu_head` reports which won rather than assuming. The
-climatology is bucketed on net load, which is the physical driver: congestion
-magnitude is a function of how hard the system is being pushed.
+**Head 2 — E[mu | bind].** A gradient-boosted regressor predicts conditional
+severity from the causal feature panel.
 
 `_predict_fold` is shared by daily serving and historical backtests.
 
@@ -27,8 +24,7 @@ from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
 from compute.mu_forecast.model.heads import (alloc_bind_matrix as _alloc_bind_matrix,
                                              apply_encoding, bind_metrics, fit_bind_head,
-                                             fit_mu_climatology, fit_mu_head, fold_matrix,
-                                             predict_mu_climatology, predict_mu_head,
+                                             fit_mu_head, fold_matrix, predict_mu_head,
                                              reliability, target_encoding)
 from compute.time import ERCOT_TZ, ct_day_bounds
 from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
@@ -182,8 +178,8 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
     `spill_dir`, when given, puts the float64 bind matrix on that disk PVC instead
     of anonymous RAM (see `_alloc_bind_matrix`) — the walk's peak-memory line.
 
-    Returns one row per scored `(interval_ts, key)` with `p_bind`, `mu_clim`,
-    `mu_gbm`, indexed by `score`'s index. The realized `y_bind`/`y_mu` join
+    Returns one row per scored `(interval_ts, key)` with `p_bind` and `mu_gbm`,
+    indexed by `score`'s index. The realized `y_bind`/`y_mu` join
     stays with the caller that holds the labels.
 
     """
@@ -203,7 +199,6 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
     # (86 features) that copy is ~1.7 GB and it has to coexist with the ~3.3 GB
     # float64 bind matrix while the matrix is filled.
     binders_e = apply_encoding(train[train["y_bind"] == 1], enc, pooled, keep)
-    clim_e = train[["net_load", "hour", "y_mu", "y_bind"]].copy()   # climatology
     y_bind_tr = train["y_bind"].to_numpy()
 
     key_rate = enc.reindex(
@@ -229,19 +224,10 @@ def _predict_fold(train: pd.DataFrame, score: pd.DataFrame,
     del x_tr, y_bind_tr, key_rate
     p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]
 
-    # climatology: historic baseline from typical conditions
-    # edges: quantiles of net load; divide training net_load into buckets.
-    # cells: avg mu when bound, per (net-load bucket, hour)
-    # grand: fallback avg mu when no (bucket, hour) observation
-    cells, edges, grand = fit_mu_climatology(clim_e)
-    mu_clim = predict_mu_climatology(score_e, cells, edges, grand)
-
-    # prob mu HistGradientBoostingRegressor NB: fit and predict
-    # "gmb" gradient boosted mu E[mu]
+    # Conditional severity head: E[μ | bind].
     mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)
 
-    return pd.DataFrame(
-        {"p_bind": p, "mu_clim": mu_clim, "mu_gbm": mu_gbm}, index=score_e.index)
+    return pd.DataFrame({"p_bind": p, "mu_gbm": mu_gbm}, index=score_e.index)
 
 
 # Forward inference — one fold, prediction block = a single delivery day
@@ -264,8 +250,8 @@ def predict_day(panel: pd.DataFrame, D: pd.Timestamp,
     widen bands or flag rather than silently zero them.
 
     Returns `wp` = `(interval_ts, key, p_bind, mu_gbm)` the flat frame that
-    `propagate_window` consumes; `mu_clim` and the realized labels are dropped
-    from the served shape (propagation reads `p_bind` and `mu_gbm` only).
+    `propagate_window` consumes; realized labels are dropped from the served
+    shape (propagation reads `p_bind` and `mu_gbm` only).
 
     """
     ts = panel.index.get_level_values("interval_ts")

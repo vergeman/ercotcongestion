@@ -24,7 +24,6 @@ def save_preds(path: str, preds: pd.DataFrame) -> None:
         key_code=codes.astype("int32"),
         key_vocab=np.asarray(vocab, dtype=object).astype("U"),
         p_bind=df["p_bind"].to_numpy("float32"),
-        mu_clim=df["mu_clim"].to_numpy("float32"),
         mu_gbm=df["mu_gbm"].to_numpy("float32"),
         y_bind=df["y_bind"].to_numpy("int8"),
         y_mu=df["y_mu"].to_numpy("float32"),
@@ -36,7 +35,6 @@ _PRED_ARRAY_DTYPES = {
     "week": np.dtype("int64"),
     "key_code": np.dtype("int32"),
     "p_bind": np.dtype("float32"),
-    "mu_clim": np.dtype("float32"),
     "mu_gbm": np.dtype("float32"),
     "y_bind": np.dtype("int8"),
     "y_mu": np.dtype("float32"),
@@ -90,14 +88,18 @@ def combine_pred_chunks(paths: list[str], output: str) -> int:
 
 
 def load_preds(path: str) -> pd.DataFrame:
-    """Load a prediction artifact written by :func:`save_preds`."""
-    z = np.load(path, allow_pickle=False)
-    vocab = z["key_vocab"]
-    df = pd.DataFrame({
-        "interval_ts": pd.to_datetime(z["interval_ts"], unit="us", utc=True),
-        "key": vocab[z["key_code"]],
-        "week": pd.to_datetime(z["week"], unit="us", utc=True),
-        "p_bind": z["p_bind"], "mu_clim": z["mu_clim"], "mu_gbm": z["mu_gbm"],
-        "y_bind": z["y_bind"], "y_mu": z["y_mu"],
-    })
+    """Load either artifact generation, returning active prediction columns.
+
+    Earlier artifacts include an inactive conditional-climatology array. It is
+    intentionally not exposed so callers have one stable, active contract.
+    """
+    with np.load(path, allow_pickle=False) as z:
+        vocab = z["key_vocab"]
+        df = pd.DataFrame({
+            "interval_ts": pd.to_datetime(z["interval_ts"], unit="us", utc=True),
+            "key": vocab[z["key_code"]],
+            "week": pd.to_datetime(z["week"], unit="us", utc=True),
+            "p_bind": z["p_bind"], "mu_gbm": z["mu_gbm"],
+            "y_bind": z["y_bind"], "y_mu": z["y_mu"],
+        })
     return df.set_index(["interval_ts", "key"])

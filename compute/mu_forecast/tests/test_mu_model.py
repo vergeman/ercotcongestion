@@ -1,13 +1,11 @@
 """The two heads (plan/0085 commit 3).
 
 The risk here is not that the GBM is bad — it is that the GBM looks good for the
-wrong reason. Three things could fake skill, and each gets a test that plants the
+wrong reason. Two things could fake skill, and each gets a test that plants the
 fault rather than asserting its absence:
 
   * the **target encoding** is a per-constraint binding rate, and computed over the
     whole panel it simply *is* the target;
-  * the **climatology buckets** are quantile edges, which leak the scored week's
-    distribution if fitted across it;
   * the **walk itself** must never let the scored week into the fit.
 
 The fourth test is about honesty rather than leakage: head 1's headline metric is
@@ -24,16 +22,13 @@ import pytest
 
 from compute.mu_forecast.model import runner as mu_model
 from compute.mu_forecast.model.backtest import (
-    mu_head_verdict,
     walk_forward,
     walk_forward_chunked,
 )
 from compute.mu_forecast.model.artifacts import combine_pred_chunks
 from compute.mu_forecast.model.runner import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
-                                 fit_mu_climatology, load_preds,
-                                 persist_outputs, predict_day,
-                                 predict_mu_climatology, preds_path_for,
+                                 load_preds, persist_outputs, predict_day, preds_path_for,
                                  reliability,
                                  resolve_output_paths, save_preds,
                                  target_encoding,
@@ -199,38 +194,6 @@ def test_unseen_constraint_falls_back_to_the_pooled_rate():
     assert not np.isnan(unseen).any()
 
 
-# ------------------------------------------------------- the climatology
-
-def test_climatology_edges_come_only_from_the_training_window():
-    """Quantile edges fitted across the scored week leak its distribution."""
-    panel = _panel()
-    ts = panel.index.get_level_values("interval_ts")
-    split = ts[0] + pd.Timedelta(days=50)
-    train = panel[ts < split]
-
-    cells, edges, grand = fit_mu_climatology(train)
-    score = panel[ts >= split].copy()
-    base = predict_mu_climatology(score, cells, edges, grand)
-
-    score["net_load"] = score["net_load"] * 10       # an absurd scored week
-    shifted = predict_mu_climatology(score, cells, edges, grand)
-
-    # Edges are frozen, so the shifted week piles into the top bucket rather than
-    # redrawing the buckets around itself.
-    assert not np.array_equal(base, shifted)
-    assert np.isfinite(shifted).all()
-
-
-def test_climatology_trains_on_binders_only():
-    """`E[mu | bind]` — the unconditional mean is mostly zeros and is a different
-    quantity entirely."""
-    panel = _panel()
-    cells, edges, grand = fit_mu_climatology(panel)
-    binder_mean = panel.loc[panel["y_bind"] == 1, "y_mu"].mean()
-    assert grand == pytest.approx(binder_mean)
-    assert grand > 0
-
-
 # ------------------------------------------------------- calibration
 
 def test_bind_metrics_lead_with_calibration_not_auc():
@@ -291,7 +254,7 @@ def test_walk_forward_never_trains_on_the_scored_week():
     fold2 = preds2[preds2["week"] == first]
 
     # The realized targets differ (we poisoned them) — the PREDICTIONS must not.
-    for col in ("p_bind", "mu_clim", "mu_gbm"):
+    for col in ("p_bind", "mu_gbm"):
         np.testing.assert_allclose(fold[col].to_numpy(), fold2[col].to_numpy())
     # And the poison really was applied, or the test proves nothing.
     assert fold2["y_bind"].all() and not fold["y_bind"].all()
@@ -408,11 +371,30 @@ def test_prediction_chunks_combine_to_the_standard_npz(tmp_path):
 
     assert combine_pred_chunks([a, b], out) == len(preds)
     back = load_preds(out)
-    expected = preds[["week", "p_bind", "mu_clim", "mu_gbm", "y_bind", "y_mu"]].astype({
-        "p_bind": "float32", "mu_clim": "float32", "mu_gbm": "float32",
+    expected = preds[["week", "p_bind", "mu_gbm", "y_bind", "y_mu"]].astype({
+        "p_bind": "float32", "mu_gbm": "float32",
         "y_bind": "int8", "y_mu": "float32",
     })
     pd.testing.assert_frame_equal(back, expected)
+
+
+def test_load_preds_ignores_the_inactive_array_in_a_legacy_artifact(tmp_path):
+    """Older artifacts remain readable without reviving their retired output."""
+    path = tmp_path / "legacy.npz"
+    np.savez_compressed(
+        path,
+        interval_ts=np.array([1_735_689_600_000_000], dtype="int64"),
+        week=np.array([1_735_689_600_000_000], dtype="int64"),
+        key_code=np.array([0], dtype="int32"), key_vocab=np.array(["A|c"]),
+        p_bind=np.array([0.5], dtype="float32"),
+        mu_clim=np.array([10.0], dtype="float32"),
+        mu_gbm=np.array([20.0], dtype="float32"),
+        y_bind=np.array([1], dtype="int8"), y_mu=np.array([25.0], dtype="float32"),
+    )
+
+    got = load_preds(str(path))
+    assert list(got.columns) == ["week", "p_bind", "mu_gbm", "y_bind", "y_mu"]
+    assert got.iloc[0].mu_gbm == pytest.approx(20.0)
 
 
 def test_score_chunks_preserve_the_scored_grid_and_bound_each_group():
@@ -463,17 +445,11 @@ def test_chunked_walk_matches_one_panel_walk(tmp_path):
 
     pd.testing.assert_frame_equal(weeks, whole_weeks)
     pd.testing.assert_frame_equal(chunked_preds, whole_preds[[
-        "week", "p_bind", "mu_clim", "mu_gbm", "y_bind", "y_mu",
+        "week", "p_bind", "mu_gbm", "y_bind", "y_mu",
     ]].astype({
-        "p_bind": "float32", "mu_clim": "float32", "mu_gbm": "float32",
+        "p_bind": "float32", "mu_gbm": "float32",
         "y_bind": "int8", "y_mu": "float32",
     }))
-
-
-def test_mu_head_verdict_defaults_to_climatology_on_a_tie():
-    """The plan pre-registered climatology as the backbone; the GBM must EARN it."""
-    tie = pd.DataFrame({"mae_mu_clim": [10.0, 10.0], "mae_mu_gbm": [10.0, 10.0]})
-    assert mu_head_verdict(tie).startswith("climatology")
 
 
 # --------------------------------------------- forward inference (0012, stage 1)

@@ -50,7 +50,6 @@ def _preds(M: pd.DataFrame, weeks: pd.DatetimeIndex, mu_col_truth=True):
                 "interval_ts": w.index, "key": k, "week": s,
                 "p_bind": np.where(v > 0, 1.0, 0.0) if mu_col_truth else 0.05,
                 "mu_gbm": v.to_numpy() if mu_col_truth else 30.0,
-                "mu_clim": 30.0,
                 "y_bind": (v > 0).astype(np.int8),
                 "y_mu": v.where(v > 0).to_numpy(),
             }))
@@ -166,7 +165,7 @@ def test_model_mu_is_the_two_heads_multiplied():
     preds = pd.DataFrame({
         "interval_ts": list(h[:2]) * 1, "key": [KEYS[0], KEYS[0]],
         "week": pd.Timestamp("2025-01-01", tz="UTC"),
-        "p_bind": [0.5, 0.1], "mu_gbm": [100.0, 200.0], "mu_clim": [10.0, 10.0],
+        "p_bind": [0.5, 0.1], "mu_gbm": [100.0, 200.0],
         "y_bind": [1, 0], "y_mu": [np.nan, np.nan],
     })
     got = mu_from_preds(preds, h[:2], pd.Index([KEYS[0]]))

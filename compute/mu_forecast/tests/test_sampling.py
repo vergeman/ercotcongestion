@@ -32,7 +32,7 @@ def _preds(hours, p_bind=0.3, mu=50.0):
         rows.append(pd.DataFrame({
             "interval_ts": hours, "key": k,
             "week": pd.Timestamp("2025-10-01", tz="UTC"),
-            "p_bind": p_bind, "mu_gbm": mu, "mu_clim": mu,
+            "p_bind": p_bind, "mu_gbm": mu,
             "y_bind": 0, "y_mu": np.nan}))
     return pd.concat(rows, ignore_index=True)
 

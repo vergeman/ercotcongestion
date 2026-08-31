@@ -512,17 +512,15 @@ The per-day SF-μ blob served by the API is stored in the **database**
       * `C = load_congestion_panel()`
       * `panel = build_panel()`  **see `mu_forecast/panel/build.py:build_panel()` below**
     * `wp = predict_day(panel, D, train_days, arms)`: (`interval_ts`, `key`, `p_bind`, `mu_gbm`) frame
-      * "wp" : "working prediction" - return p_bind, p_mu and climatology counterpart
+      * "wp" : "working prediction" - return p_bind and conditional severity
       * - `compute/mu_forecast/model/runner.py:predict_day()` -
         * `fold = _predict_fold(train, score, arms, seed, spill_dir)`
-          * `fold`:  data frame:{p_bind, mu_clim, mu_gbm}, index=score_e.index)
+          * `fold`:  data frame:{p_bind, mu_gbm}, index=score_e.index)
             * `score_e.index`: (interval_ts, key (constraint)) -> p_bind...
           * `target_encoding()` / `apply_encoding()`: bind_rate
           * `_alloc_bind_matrix()`
           * `bind = fit_bind_head(x_tr, y_bind_tr, seed)`
           * `p = bind.predict_proba(fold_matrix(score_e, cols))[:, 1]`
-          * `cells, edges, grand = fit_mu_climatology(clim_e)`
-          * `mu_clim = predict_mu_climatology(score_e, cells, edges, grand)`
           * `mu_gbm = predict_mu_head(fit_mu_head(binders_e, cols, seed), score_e, cols)`
 
     * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
