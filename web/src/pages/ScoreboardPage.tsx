@@ -5,7 +5,6 @@ import type {
   ScoreboardDaily,
   DailyPoint,
   ScoreHistoryPoint,
-  SourceDescriptor,
 } from "../api/types";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
@@ -38,9 +37,12 @@ const SERIES = [
   { seriesId: "oracle", color: "#c98500" },
 ] as const;
 
-const descriptorById = (sources: SourceDescriptor[]) =>
-  new Map(sources.map((source) => [source.id, source]));
-
+const CHART_LABELS: Record<string, string> = {
+  model: "Model",
+  persistence: "Persistence",
+  climatology: "Baseline",
+  oracle: "Oracle",
+};
 
 const SPLIT_LABELS: Record<string, string> = {
   all: "All weeks",
@@ -70,13 +72,11 @@ function SeriesChart({
   metric,
   cutover,
   boundaryDate,
-  sources,
 }: {
   points: ScoreHistoryPoint[];
   metric: MetricKey;
   cutover: string;
   boundaryDate: string | null;
-  sources: SourceDescriptor[];
 }) {
   const dates = useMemo(
     () => Array.from(new Set(points.map((p) => p.week ?? p.delivery_date ?? ""))).sort(),
@@ -141,15 +141,13 @@ function SeriesChart({
 
   // last non-null point per series → the direct end-label (identity, not
   // color-alone), with a small vertical de-collision.
-  const descriptors = descriptorById(sources);
   type EndLabel = { color: string; label: string; y: number };
   const endLabels: EndLabel[] = [];
   for (const s of seriesVals) {
     for (let i = s.vals.length - 1; i >= 0; i--) {
       const v = s.vals[i];
       if (v != null) {
-        const point = byKey.get(`${dates[i]}|${s.seriesId}`);
-        endLabels.push({ color: s.color, label: descriptors.get(point?.source_id ?? "")?.label ?? s.seriesId, y: y(v) });
+        endLabels.push({ color: s.color, label: CHART_LABELS[s.seriesId], y: y(v) });
         break;
       }
     }
@@ -357,9 +355,7 @@ function SeriesChart({
             return (
               <div key={s.seriesId} className="sb-tip__row">
                 <span className="sb-tip__dot" style={{ background: s.color }} />
-                <span className="sb-tip__lbl">{
-                  descriptors.get(byKey.get(`${dates[hover]}|${s.seriesId}`)?.source_id ?? "")?.label ?? s.seriesId
-                }</span>
+                <span className="sb-tip__lbl">{CHART_LABELS[s.seriesId]}</span>
                 <span className="sb-tip__val">
                   {v == null ? "—" : meta.fmt(v)}
                 </span>
@@ -441,12 +437,12 @@ function LiveGradePanel({
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs prior-day nodal (persistence){" "}
+                    {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
                     {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
                 <span className="sb-ceiling">
-                  settled-μ nodal ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
+                  Settled-μ ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -489,12 +485,12 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
             <div className="sb-tile__cmp">
               {good != null && (
                 <span className="sb-delta" data-good={good}>
-                  {good ? "▲" : "▼"} vs prior-day nodal (persistence){" "}
+                  {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
                   {c.persistence == null ? "—" : c.persistence.toFixed(2)}
                 </span>
               )}
               <span className="sb-ceiling">
-                settled-μ nodal ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+                Settled-μ ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
               </span>
             </div>
           </div>
@@ -658,14 +654,14 @@ function Glossary() {
       <div className="sb-guide__block">
         <div className="sb-guide__h">Model Comparison Graph</div>
         <dl className="sb-guide__dl">
-          <dt>Model Nodal Forecast</dt>
+          <dt>Model Forecast</dt>
           <dd>The offline forecast construction, projected to nodal congestion.</dd>
-          <dt>Prior-day nodal (persistence)</dt>
+          <dt>Prior-day (Persistence)</dt>
           <dd>
             Naïve baseline: tomorrow repeats yesterday. Each node's congestion
             is set to its actual value at the same hour on the prior day.
           </dd>
-          <dt>Trailing-window average baseline</dt>
+          <dt>Trailing-window average (Baseline)</dt>
           <dd>
             Historical-average baseline, computed per hour-of-day: how often a
             node has congested at this hour × its typical severity when it does.
@@ -673,7 +669,7 @@ function Glossary() {
             binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
             gets an 8pm climatology of 0.06 × $150 ≈ $9.
           </dd>
-          <dt>Settled-μ nodal ceiling (Oracle)</dt>
+          <dt>Settled-μ ceiling (Oracle)</dt>
           <dd>
             If you already knew the answer: the score you'd get ranking nodes by
             their realized congestion. A ceiling to measure against, not a
@@ -787,7 +783,6 @@ export default function ScoreboardPage() {
                   metric={controls.metric}
                   cutover={weekly.rtc_b_cutover}
                   boundaryDate={history.boundary_date}
-                  sources={history.sources}
                 />
               ) : (
                 <div className="sb-empty label">track history could not be loaded.</div>

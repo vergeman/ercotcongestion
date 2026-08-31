@@ -35,25 +35,25 @@ class SourceDefinition:
 
 
 WEEKLY_SOURCE_DEFINITIONS = (
-    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model Nodal Forecast",
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model Forecast",
                          "Walk-forward model projected to nodal congestion."),
-    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Prior-day nodal (persistence)",
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Prior-day (Persistence)",
                          "Prior-day μ baseline projected by each backtest map."),
-    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Trailing-window average baseline",
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Trailing-window average (Baseline)",
                          "Hourly μ climatology projected by each backtest map."),
-    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Settled-μ nodal ceiling (Oracle)",
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Settled-μ ceiling (Oracle)",
                          "Realized μ projected by the held-out backtest map."),
     SourceDefinition("scoreboard_null_flat_nodal", "null", "Flat nodal control",
                          "Flat nodal congestion tripwire."),
 )
 DAILY_SOURCE_DEFINITIONS = (
-    SourceDefinition("scoreboard_model_served_nodal", "model", "Model Nodal Forecast",
+    SourceDefinition("scoreboard_model_served_nodal", "model", "Model Forecast",
                          "Served deterministic nodal forecast."),
-    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Prior-day nodal (persistence)",
+    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Prior-day (Persistence)",
                          "Prior-day μ projected through the trailing map."),
-    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Trailing-window average baseline",
+    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Trailing-window average (Baseline)",
                          "Trailing-window μ climatology projected through the map."),
-    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Settled-μ nodal ceiling (Oracle)",
+    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Settled-μ ceiling (Oracle)",
                          "Settled-day μ projected through the trailing map."),
     SourceDefinition("scoreboard_null_flat_nodal", "null", "Flat nodal control",
                          "Flat nodal congestion tripwire."),
