@@ -46,19 +46,33 @@ The scorecard keeps only these screening metrics. MAE and pooled R² still exist
 where independent model training, experiments, or SF diagnostics need them, but
 they are not Scoreboard columns, API fields, controls, or verdicts.
 
-## Sources and comparators
+## Source catalog
 
-The model is always interpreted alongside comparators, rather than as a lone
-number:
+The API identifies every scored construction with a canonical `SourceDescriptor`
+`id`. Scoreboard points also carry a logical `series_id`; backtest and served
+sources with the same `series_id` form one chart line. The model is always
+interpreted alongside its other sources, rather than as a lone number:
 
-* `model` is the forecast under evaluation.
-* `persistence` repeats the prior-day signal and is the primary practical
-  benchmark.
-* `climatology` is a historical baseline.
-* `oracle` uses realized μ and is a ceiling, not a deployable forecast.
-* `null` is a flat-map integrity check stored by the grading pipeline; its
-  ranking-oriented scores are normally undefined. The main UI foregrounds the
-  first four sources.
+| Canonical source ID | Series ID | Display label | Construction and status |
+| --- | --- | --- | --- |
+| `scoreboard_model_backtest_nodal` | `model` | Walk-forward nodal forecast | Offline deployable forecast construction. |
+| `scoreboard_model_served_nodal` | `model` | Served nodal forecast | Forecast actually published for a delivery day; deployable. |
+| `scoreboard_persistence_backtest_nodal` | `persistence` | Prior-day nodal persistence | Backtest baseline, using the fold’s map. |
+| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day nodal persistence | Served-grade baseline, using the trailing map. |
+| `scoreboard_climatology_backtest_nodal` | `climatology` | Trailing-window nodal baseline | Backtest historical baseline. |
+| `scoreboard_climatology_trailing_window_nodal` | `climatology` | Trailing-window nodal baseline | Served-grade historical baseline. |
+| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ nodal ceiling | Non-deployable realized-μ ceiling. |
+| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ nodal ceiling | Non-deployable settled-day ceiling. |
+| `scoreboard_null_flat_nodal` | `null` | Flat nodal control | Non-deployable flat control; ranking metrics are usually undefined. |
+
+Brief profiles use a separate source catalog because they score artifact
+profiles rather than nodal Scoreboard rows:
+
+| Canonical source ID | Display label | Status |
+| --- | --- | --- |
+| `brief_model_artifact_profile` | Artifact profile forecast | Deployable Brief forecast profile. |
+| `brief_persistence_prior_settled_profile` | Prior-settled profile persistence | Brief baseline. |
+| `brief_climatology_trailing_settled_profile` | Trailing settled-profile baseline | Brief baseline. |
 
 For a live day, every source is scored on the same intersection of forecast,
 map, and realized settlement points. This makes model-versus-persistence
@@ -201,3 +215,29 @@ Those grades use their own subjects, baselines, and definitions.
 `compute.jobs.materialize_brief_grade` writes them independently of
 `compute.jobs.grade_forecast_day`. A strong Brief grade does not imply a strong
 nodal Scoreboard result, and vice versa.
+
+## Metric families beyond product Scoreboard
+
+Internal SF and μ gates deliberately keep their own executable metric tables so
+one arena cannot silently change another. Their shared vocabulary is concise:
+
+| Family | Metrics | Purpose |
+| --- | --- | --- |
+| SF gate | pooled R², rank Spearman, sign agreement, top-decile hit | Hold the μ input at truth and assess the SF map. |
+| μ gate | pooled R², rank Spearman, sign agreement, top-decile hit | Hold the map fixed and assess μ forecasts. |
+| Forecast internals | bind reliability, head-2 R² | Assess the two μ heads before projection. |
+| Brief grade | detection, magnitude, timing | Assess served artifact profiles, separately for constraints and nodes. |
+
+`oracle` always means a realized-input ceiling; `persistence` repeats the prior
+settled same-hour signal; `climatology` is a trailing historical expectation;
+and `null` is the flat control. Their exact subjects and information cutoffs are
+defined by the named arena above, not shared across product surfaces.
+
+## Migration appendix
+
+The old short IDs `model`, `persistence`, `climatology`, `oracle`, and `null`
+remain only as Scoreboard `series_id` values for joining logical chart lines.
+They are not source identities and must not be used to select labels or explain
+construction. Legacy API fields named `source`, `model`, `persistence`, and
+`climatology` are retired; clients consume `source_id`, `series_id`,
+`SourceDescriptor`, and source-metric entries instead.
