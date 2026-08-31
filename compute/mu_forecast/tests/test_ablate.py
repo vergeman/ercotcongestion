@@ -31,11 +31,15 @@ def _scored(arm_topdec: dict[str, float], baseline_jitter: float = 0.0
     rows = []
     for arm, td in arm_topdec.items():
         for w in weeks:
-            rows.append({"arm": arm, "source": "model", "week": w, "regime": "all",
+            rows.append({"arm": arm, "source": "compute_mu_model_walk_forward", "week": w, "regime": "all",
                          "pooled_r2": 0.2, "mae": 5.0, "rank_spearman": 0.5,
                          "sign_agree": 0.78, "topdecile_hit": td})
-            for src, base_td in [("oracle", 0.762), ("persistence", 0.561),
-                                 ("climatology", 0.455), ("null", np.nan)]:
+            for src, base_td in [
+                ("compute_mu_oracle_realized", 0.762),
+                ("compute_mu_persistence_prior_day", 0.561),
+                ("compute_mu_climatology_hourly", 0.455),
+                ("compute_mu_null_zero", np.nan),
+            ]:
                 # `baseline_jitter` perturbs the baselines PER ARM — the bug this
                 # guard exists to catch.
                 bump = baseline_jitter if arm != ARMS[0] else 0.0

@@ -21,7 +21,7 @@ NODE_CONGESTION_EPSILON = 1e-6
 
 
 @dataclass(frozen=True)
-class ComparisonDefinition:
+class SourceDefinition:
     """Brief-owned provenance for an independently graded profile."""
 
     id: str
@@ -30,12 +30,12 @@ class ComparisonDefinition:
     result_field: str
 
 
-COMPARISONS = (
-    ComparisonDefinition("brief_model_artifact_profile", "Model",
+SOURCE_DEFINITIONS = (
+    SourceDefinition("brief_model_artifact_profile", "Model",
                          "Forecast profile decoded from the served artifact.", "model"),
-    ComparisonDefinition("brief_persistence_prior_settled_profile", "Persistence",
+    SourceDefinition("brief_persistence_prior_settled_profile", "Persistence",
                          "Prior settled delivery-day profile.", "persistence"),
-    ComparisonDefinition("brief_climatology_trailing_settled_profile", "Climatology",
+    SourceDefinition("brief_climatology_trailing_settled_profile", "Climatology",
                          "Trailing settled-profile average.", "climatology"),
 )
 
@@ -215,10 +215,10 @@ def grade_node_profiles(cur, run_id: str, delivery_date: date,
 
 def serialize_grade_half(result: GradeResult) -> dict:
     """Return transport-neutral data for the Brief grade's one subject."""
-    comparison_metrics = [
-        {"id": comparison.id, "metrics": getattr(result, comparison.result_field).__dict__}
-        for comparison in COMPARISONS
-        if getattr(result, comparison.result_field) is not None
+    source_metrics = [
+        {"id": source.id, "metrics": getattr(result, source.result_field).__dict__}
+        for source in SOURCE_DEFINITIONS
+        if getattr(result, source.result_field) is not None
     ]
     return {
         "graded": True,
@@ -227,11 +227,11 @@ def serialize_grade_half(result: GradeResult) -> dict:
         "persistence": result.persistence.__dict__,
         "climatology": None if result.climatology is None else result.climatology.__dict__,
         "support": None if result.support is None else result.support.__dict__,
-        "comparisons": [
-            {"id": comparison.id, "label": comparison.label,
-             "definition": comparison.definition}
-            for comparison in COMPARISONS
-            if getattr(result, comparison.result_field) is not None
+        "sources": [
+            {"id": source.id, "label": source.label,
+             "definition": source.definition}
+            for source in SOURCE_DEFINITIONS
+            if getattr(result, source.result_field) is not None
         ],
-        "comparison_metrics": comparison_metrics,
+        "source_metrics": source_metrics,
     }

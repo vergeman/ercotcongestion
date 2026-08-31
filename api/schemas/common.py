@@ -5,8 +5,8 @@ from datetime import date
 from pydantic import BaseModel
 
 
-class ComparisonDescriptor(BaseModel):
-    """Stable provenance for a comparison series or profile."""
+class SourceDescriptor(BaseModel):
+    """Stable provenance for a scored source series or profile."""
 
     id: str
     series_id: str | None = None

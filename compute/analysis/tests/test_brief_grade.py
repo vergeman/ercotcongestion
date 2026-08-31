@@ -31,7 +31,7 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
         "climatology": None,
         "support": None,
     }
-    assert [item["id"] for item in result["comparisons"]] == [
+    assert [item["id"] for item in result["sources"]] == [
         "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
     ]
 
@@ -85,7 +85,7 @@ def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
     }
     assert all({key: params[-1].obj[key] for key in expected} == expected
                for _, params in conn.cursor_.writes)
-    assert all(params[-1].obj["comparison_metrics"][0]["id"] == "brief_model_artifact_profile"
+    assert all(params[-1].obj["source_metrics"][0]["id"] == "brief_model_artifact_profile"
                for _, params in conn.cursor_.writes)
 
 

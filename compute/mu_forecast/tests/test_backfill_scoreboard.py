@@ -21,7 +21,7 @@ def test_explicit_score_overrides_the_default():
     assert resolve_board_paths("mu-all-v1", "/s.csv") == "/s.csv"
 
 
-def test_backfill_maps_only_admitted_compute_comparisons(tmp_path):
+def test_backfill_maps_only_admitted_compute_sources(tmp_path):
     path = tmp_path / "scores.csv"
     pd.DataFrame([{
         "week": "2026-07-01T00:00:00Z",

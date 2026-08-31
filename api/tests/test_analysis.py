@@ -846,7 +846,7 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "climatology": None,
         "support": None,
     }
-    assert [item["id"] for item in body["constraints"]["comparisons"]] == [
+    assert [item["id"] for item in body["constraints"]["sources"]] == [
         "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
     ]
     assert "grade" not in body
@@ -869,7 +869,7 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
     assert {key: body[key] for key in ("available", "run_id", "delivery_date", "horizon")} == {
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
     }
-    assert body["constraints"]["comparison_metrics"][0]["id"] == "brief_model_artifact_profile"
+    assert body["constraints"]["source_metrics"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
@@ -891,7 +891,7 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
 
     assert {key: body["constraints"][key] for key in detail} == detail
     assert {key: body["nodes"][key] for key in detail} == detail
-    assert body["constraints"]["comparisons"][0]["id"] == "brief_model_artifact_profile"
+    assert body["constraints"]["sources"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
@@ -921,7 +921,7 @@ def test_grade_history_returns_only_materialized_days_with_both_subjects(client,
 
     assert body["available"] is True
     assert body["days"][0]["constraints"]["model"] == metrics
-    assert body["days"][0]["constraints"]["comparison_metrics"][0]["id"] == "brief_model_artifact_profile"
+    assert body["days"][0]["constraints"]["source_metrics"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):

@@ -21,8 +21,8 @@ _NA_VALUES = ("", "NaN", "nan", "NA", "N/A", "#N/A")
 
 
 @dataclass(frozen=True)
-class ComparisonDefinition:
-    """Weekly Scoreboard-owned identity for one admitted compute comparison."""
+class SourceDefinition:
+    """Weekly Scoreboard-owned identity for one admitted compute source."""
 
     id: str
     series_id: str
@@ -31,23 +31,23 @@ class ComparisonDefinition:
     compute_id: str
 
 
-COMPARISONS = (
-    ComparisonDefinition("scoreboard_model_backtest_nodal", "model", "Model",
+SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model",
                          "Walk-forward model projected to nodal congestion.",
                          "compute_mu_model_walk_forward"),
-    ComparisonDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
                          "Prior-day μ baseline projected by each backtest map.",
                          "compute_mu_persistence_prior_day"),
-    ComparisonDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
                          "Hourly μ climatology projected by each backtest map.",
                          "compute_mu_climatology_hourly"),
-    ComparisonDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
                          "Realized μ projected by the held-out backtest map.",
                          "compute_mu_oracle_realized"),
-    ComparisonDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
                          "Flat nodal congestion tripwire.", "compute_mu_null_zero"),
 )
-COMPARISON_BY_COMPUTE_ID = {comparison.compute_id: comparison for comparison in COMPARISONS}
+SOURCE_BY_COMPUTE_ID = {source.compute_id: source for source in SOURCE_DEFINITIONS}
 
 
 def _read_csv(path: str) -> pd.DataFrame:
@@ -69,12 +69,12 @@ def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
     def _i(x):
         return None if pd.isna(x) else int(x)
 
-    unknown = set(score["source"]) - set(COMPARISON_BY_COMPUTE_ID)
+    unknown = set(score["source"]) - set(SOURCE_BY_COMPUTE_ID)
     if unknown:
-        raise ValueError(f"unadmitted compute comparison IDs: {sorted(unknown)}")
+        raise ValueError(f"unadmitted compute source IDs: {sorted(unknown)}")
 
     return [
-        (run_id, r["week"].date(), COMPARISON_BY_COMPUTE_ID[r["source"]].id,
+        (run_id, r["week"].date(), SOURCE_BY_COMPUTE_ID[r["source"]].id,
          *(_v(r[c]) for c in _SCORE_METRICS),
          *(_v(r[c]) for c in _COVERAGE), *(_i(r[c]) for c in _COUNTS))
         for _, r in score.iterrows()

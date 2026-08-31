@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from compute.evaluation.mu import (
-    COMPARISONS, SOURCES, mu_climatology, mu_from_preds, mu_persistence, report,
+    SOURCE_DEFINITIONS, SOURCE_IDS, mu_climatology, mu_from_preds, mu_persistence, report,
     screening_metrics_for_scoreboard, score_week, walk, weeks_from_preds,
 )
 from compute.sf_map.config import RTC_B
@@ -92,16 +92,16 @@ def test_a_skipped_week_is_a_hole_not_a_phase_break():
 
 # ------------------------------------------------------------ the sources
 
-def test_comparisons_have_compute_owned_canonical_ids():
-    assert [comparison.id for comparison in COMPARISONS] == [
+def test_sources_have_compute_owned_canonical_ids():
+    assert [source.id for source in SOURCE_DEFINITIONS] == [
         "compute_mu_model_walk_forward",
         "compute_mu_persistence_prior_day",
         "compute_mu_climatology_hourly",
         "compute_mu_oracle_realized",
         "compute_mu_null_zero",
     ]
-    assert all(comparison.series_id and comparison.label and comparison.definition
-               and comparison.constructor for comparison in COMPARISONS)
+    assert all(source.series_id and source.label and source.definition
+               and source.constructor for source in SOURCE_DEFINITIONS)
 
 def test_oracle_through_the_map_recovers_the_congestion_it_generated():
     """Plumbing check with teeth: C was generated from M through a fixed SF, so
@@ -209,7 +209,7 @@ def test_screening_metrics_are_always_reported():
     need = {"rank_spearman", "sign_agree", "topdecile_hit"}
     for r in rows:
         assert need <= set(r), f"{r['source']} is missing {need - set(r)}"
-    assert {r["source"] for r in rows} == set(SOURCES)
+    assert {r["source"] for r in rows} == set(SOURCE_IDS)
 
 
 def test_every_source_is_scored_on_the_same_map_and_the_same_hours():
@@ -254,7 +254,7 @@ def test_report_prints_every_source_and_both_splits():
                           freq=pd.Timedelta(days=7))     # 3 pre, 3 post
     df = walk(M, C, _preds(M, weeks))
     txt = report(df)
-    for src in SOURCES:
+    for src in SOURCE_IDS:
         assert src in txt
     assert "PRE-RTC+B" in txt and "POST-RTC+B" in txt
     assert (df[df["week"] < RTC_B]

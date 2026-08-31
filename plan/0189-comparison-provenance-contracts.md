@@ -5,13 +5,13 @@ Branch: refactor/0189-comparison-provenance-contracts
 
 ## Goal
 
-* Replace overloaded comparison values with self-describing, domain-owned IDs in compute, Scoreboard, and Brief data.
+* Replace overloaded source values with self-describing, domain-owned IDs in compute, Scoreboard, and Brief data.
 * Migrate persisted Scoreboard source values without changing grading formulas or metric values.
-* Expose comparison descriptors through a backward-compatible API contract.
+* Expose source descriptors through a backward-compatible API contract.
 
 ## Context
 
-* This plan follows 0188, which removes inactive μ comparisons and establishes the metric boundary.
+* This plan follows 0188, which removes inactive μ sources and establishes the metric boundary.
 * Short values such as `model` and `persistence` currently describe materially different weekly, served, and Brief constructions.
 * The stored `source` value is part of Scoreboard primary keys, so migration must preserve counts and uniqueness exactly.
 
@@ -31,22 +31,22 @@ Use lowercase snake case: `<owner>_<method>_<descriptor...>`. The owner is manda
 ## Approach
 
 * Work in: `compute/evaluation/mu.py`, `compute/jobs/backfill_scoreboard.py`, `compute/jobs/grade_forecast_day.py`, Brief-grade code, `db/migrations/`, Scoreboard/analysis API schemas and services, and focused tests.
-* Add local typed comparison-definition tables in each owning domain. Definitions carry `id`, `series_id` where charted, `label`, `definition`, and existing construction key/callable. Do not create a global cross-domain source enum or relocate code.
+* Add local typed source-definition tables in each owning domain. Definitions carry `id`, `series_id` where charted, `label`, `definition`, and existing construction key/callable. Do not create a global cross-domain source enum or relocate code.
 * Make compute evaluation write the five admitted `compute_mu_*` IDs. Map them explicitly in `backfill_scoreboard` to weekly `scoreboard_*` IDs and reject unknown values.
-* Make served daily grading write served `scoreboard_*` IDs directly. Convert Brief serialization to named `brief_*` comparison records; do not imply a Brief profile is a nodal Scoreboard source.
+* Make served daily grading write served `scoreboard_*` IDs directly. Convert Brief serialization to named `brief_*` source records; do not imply a Brief profile is a nodal Scoreboard source.
 * Add a lossless migration from short Scoreboard source values to canonical IDs. Preserve all rows, metric values, horizons, and primary-key uniqueness; do not add a parallel source column.
-* Add `ComparisonDescriptor { id, series_id, label, definition }` to API responses. Use canonical IDs in headline/persistence logic rather than literal `"model"` lookups.
+* Add `SourceDescriptor { id, series_id, label, definition }` to API responses. Use canonical IDs in headline/persistence logic rather than literal `"model"` lookups.
 * Ship descriptors alongside bounded legacy fields for one frontend deployment. Record the compatibility retirement in 0190; do not silently change existing response strings.
 
 ## Commit groups
 
-1. `refactor(compute): name evaluation comparisons` — local definitions, canonical compute IDs, and tests.
-2. `refactor(scoreboard): canonicalize persisted comparisons` — source mapping, served-grade IDs, migrations, and verification.
-3. `refactor(api): expose comparison provenance` — Scoreboard/Brief descriptors, compatibility fields, and API tests.
+1. `refactor(compute): name evaluation sources` — local definitions, canonical compute IDs, and tests.
+2. `refactor(scoreboard): canonicalize persisted sources` — source mapping, served-grade IDs, migrations, and verification.
+3. `refactor(api): expose source provenance` — Scoreboard/Brief descriptors, compatibility fields, and API tests.
 
 ## Acceptance
 
-* [x] Every persisted comparison has a canonical owner-qualified ID and a tested construction definition.
+* [x] Every persisted source has a canonical owner-qualified ID and a tested construction definition.
 * [x] `backfill_scoreboard` admits only the five compute IDs and maps each to its weekly Scoreboard identity.
 * [x] Admitted Scoreboard rows migrate losslessly and preserve keys, counts, horizons, and metric values; retired `model_clim` diagnostic rows are explicitly removed.
 * [x] Brief API data uses only `brief_*` identities.

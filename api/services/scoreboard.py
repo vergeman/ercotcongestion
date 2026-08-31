@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from psycopg.rows import dict_row
 
 from api.db import get_pool
-from api.schemas.common import BootstrapSectionStatus, ComparisonDescriptor
+from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 from api.schemas.scoreboard import (
     DailyPoint,
     ScoreboardDaily,
@@ -25,7 +25,7 @@ from api.services.bootstrap import availability_status, soft_fail
 from api.services.scoreboard_headline import build_headline
 
 @dataclass(frozen=True)
-class ComparisonDefinition:
+class SourceDefinition:
     """Scoreboard API-owned provenance and bounded legacy series name."""
 
     id: str
@@ -34,33 +34,33 @@ class ComparisonDefinition:
     definition: str
 
 
-WEEKLY_COMPARISONS = (
-    ComparisonDefinition("scoreboard_model_backtest_nodal", "model", "Model",
+WEEKLY_SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model",
                          "Walk-forward model projected to nodal congestion."),
-    ComparisonDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
                          "Prior-day μ baseline projected by each backtest map."),
-    ComparisonDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
                          "Hourly μ climatology projected by each backtest map."),
-    ComparisonDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
                          "Realized μ projected by the held-out backtest map."),
-    ComparisonDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
                          "Flat nodal congestion tripwire."),
 )
-DAILY_COMPARISONS = (
-    ComparisonDefinition("scoreboard_model_served_nodal", "model", "Model",
+DAILY_SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_served_nodal", "model", "Model",
                          "Served deterministic nodal forecast."),
-    ComparisonDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
                          "Prior-day μ projected through the trailing map."),
-    ComparisonDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
                          "Trailing-window μ climatology projected through the map."),
-    ComparisonDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
                          "Settled-day μ projected through the trailing map."),
-    ComparisonDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
                          "Flat nodal congestion tripwire."),
 )
-_WEEKLY_BY_ID = {comparison.id: comparison for comparison in WEEKLY_COMPARISONS}
-_DAILY_BY_ID = {comparison.id: comparison for comparison in DAILY_COMPARISONS}
-_SOURCES = tuple(comparison.id for comparison in WEEKLY_COMPARISONS if comparison.series_id != "null")
+_WEEKLY_BY_ID = {source.id: source for source in WEEKLY_SOURCE_DEFINITIONS}
+_DAILY_BY_ID = {source.id: source for source in DAILY_SOURCE_DEFINITIONS}
+_SOURCES = tuple(source.id for source in WEEKLY_SOURCE_DEFINITIONS if source.series_id != "null")
 _POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 RTC_B_CUTOVER = date(2025, 12, 5)
 
@@ -157,8 +157,8 @@ def build_weekly() -> ScoreboardWeekly:
         points=[WeeklyPoint(**{**row, "source": _WEEKLY_BY_ID[row["source"]].series_id})
                 for row in rows],
         splits=_build_splits(rows),
-        comparisons=[ComparisonDescriptor(**comparison.__dict__)
-                     for comparison in WEEKLY_COMPARISONS],
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in WEEKLY_SOURCE_DEFINITIONS],
     )
 
 
@@ -212,8 +212,8 @@ def build_latest_final_daily() -> ScoreboardDaily:
         selected_delivery_date=rows[0]["delivery_date"],
         points=[DailyPoint(**{**row, "source": _DAILY_BY_ID[row["source"]].series_id})
                 for row in rows],
-        comparisons=[ComparisonDescriptor(**comparison.__dict__)
-                     for comparison in DAILY_COMPARISONS],
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in DAILY_SOURCE_DEFINITIONS],
     )
 
 
@@ -259,10 +259,10 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
         daily_run_id=daily_run_id,
         boundary_date=min((row["delivery_date"] for row in daily_rows), default=None),
         points=points,
-        comparisons=[ComparisonDescriptor(**comparison.__dict__)
-                     for comparison in WEEKLY_COMPARISONS + DAILY_COMPARISONS
-                     if comparison.id != "scoreboard_null_flat_nodal"
-                     or comparison in WEEKLY_COMPARISONS],
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in WEEKLY_SOURCE_DEFINITIONS + DAILY_SOURCE_DEFINITIONS
+                 if source.id != "scoreboard_null_flat_nodal"
+                 or source in WEEKLY_SOURCE_DEFINITIONS],
     )
 
 

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from api.schemas.common import ComparisonDescriptor
+from api.schemas.common import SourceDescriptor
 
 
 # ---- /analysis/hero ------------------------------------------------------
@@ -412,7 +412,7 @@ class GradeSupportResponse(BaseModel):
     magnitude_of_ceiling: float | None
 
 
-class BriefComparisonMetrics(BaseModel):
+class BriefSourceMetrics(BaseModel):
     id: str
     metrics: GradeMetricsResponse
 
@@ -426,8 +426,8 @@ class GradeHalfResponse(BaseModel):
     persistence: GradeMetricsResponse | None = None
     climatology: GradeMetricsResponse | None = None
     support: GradeSupportResponse | None = None
-    comparisons: list[ComparisonDescriptor] = []
-    comparison_metrics: list[BriefComparisonMetrics] = []
+    sources: list[SourceDescriptor] = []
+    source_metrics: list[BriefSourceMetrics] = []
 
 
 class GradeAvailableResponse(BaseModel):
@@ -446,8 +446,8 @@ class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
 class GradeHistoryHalfResponse(BaseModel):
     model: GradeMetricsResponse
     persistence: GradeMetricsResponse
-    comparisons: list[ComparisonDescriptor] = []
-    comparison_metrics: list[BriefComparisonMetrics] = []
+    sources: list[SourceDescriptor] = []
+    source_metrics: list[BriefSourceMetrics] = []
 
 
 class GradeHistoryDayResponse(BaseModel):

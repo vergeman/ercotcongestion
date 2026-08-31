@@ -62,8 +62,8 @@ log = logging.getLogger(__name__)
 # flat-map tripwire; `oracle` is the ceiling. Model is graded on the served
 # point, so it is not built from an mu source here.
 @dataclass(frozen=True)
-class ComparisonDefinition:
-    """Served Scoreboard-owned construction for one daily comparison."""
+class SourceDefinition:
+    """Served Scoreboard-owned construction for one daily source."""
 
     id: str
     series_id: str
@@ -72,19 +72,19 @@ class ComparisonDefinition:
     constructor: str
 
 
-COMPARISONS = (
-    ComparisonDefinition("scoreboard_model_served_nodal", "model", "Model",
+SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_served_nodal", "model", "Model",
                          "Served deterministic nodal forecast.", "model"),
-    ComparisonDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
                          "Prior-day μ projected through the trailing map.", "persistence"),
-    ComparisonDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
                          "Trailing-window μ climatology projected through the map.", "climatology"),
-    ComparisonDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
                          "Settled-day μ projected through the trailing map.", "oracle"),
-    ComparisonDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
                          "Flat nodal congestion tripwire.", "null"),
 )
-COMPARISON_BY_CONSTRUCTOR = {comparison.constructor: comparison for comparison in COMPARISONS}
+SOURCE_BY_CONSTRUCTOR = {source.constructor: source for source in SOURCE_DEFINITIONS}
 _BASELINES = ("oracle", "persistence", "climatology", "null")
 
 # scoreboard_daily columns, in table order — the tuple `persist_grades` COPYs.
@@ -271,7 +271,7 @@ def grade_day(
 
     # --- model: the served deterministic point ------------------------------
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
-    rows.append(_row(COMPARISON_BY_CONSTRUCTOR["model"].id,
+    rows.append(_row(SOURCE_BY_CONSTRUCTOR["model"].id,
                      screening_metrics_for_scoreboard(Y, Yh_model)))
     rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
@@ -285,12 +285,12 @@ def grade_day(
     for name in _BASELINES:
         Yh = pd.DataFrame(predict(srcs[name], SF), index=hours, columns=SF.columns)
         Yh = Yh.reindex(columns=N).to_numpy(float)
-        rows.append(_row(COMPARISON_BY_CONSTRUCTOR[name].id,
+        rows.append(_row(SOURCE_BY_CONSTRUCTOR[name].id,
                          screening_metrics_for_scoreboard(Y, Yh)))
 
     m = rows[0]
     p = next(r for r in rows
-             if r["source"] == COMPARISON_BY_CONSTRUCTOR["persistence"].id)
+             if r["source"] == SOURCE_BY_CONSTRUCTOR["persistence"].id)
     log.info("grade_forecast_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
              "%d h × %d nodes | model top-dec %.3f (persistence %.3f, Δ%+.3f) "
              "| sf_coverage %.3f",

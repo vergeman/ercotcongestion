@@ -36,7 +36,7 @@ from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.brief_grade import (
-    COMPARISONS as _BRIEF_COMPARISONS,
+    SOURCE_DEFINITIONS as _BRIEF_SOURCE_DEFINITIONS,
     grade_constraint_profiles as _brief_grade_constraint_profiles,
     grade_node_profiles as _brief_grade_node_profiles,
     serialize_grade_half as _serialize_brief_grade_half,
@@ -865,18 +865,18 @@ def get_grade(
 
 def _brief_payload(payload: dict) -> dict:
     """Enrich a pre-0189 materialized Brief grade without changing its legacy keys."""
-    if payload.get("comparisons"):
+    if payload.get("sources"):
         return payload
     result = dict(payload)
-    available = [comparison for comparison in _BRIEF_COMPARISONS
-                 if result.get(comparison.result_field) is not None]
-    result["comparisons"] = [
-        {"id": comparison.id, "label": comparison.label, "definition": comparison.definition}
-        for comparison in available
+    available = [source for source in _BRIEF_SOURCE_DEFINITIONS
+                 if result.get(source.result_field) is not None]
+    result["sources"] = [
+        {"id": source.id, "label": source.label, "definition": source.definition}
+        for source in available
     ]
-    result["comparison_metrics"] = [
-        {"id": comparison.id, "metrics": result[comparison.result_field]}
-        for comparison in available
+    result["source_metrics"] = [
+        {"id": source.id, "metrics": result[source.result_field]}
+        for source in available
     ]
     return result
 
@@ -905,23 +905,23 @@ def get_grade_history(
                 "model": row["model"], "persistence": row["persistence"],
             }
     descriptors = [
-        {"id": comparison.id, "label": comparison.label, "definition": comparison.definition}
-        for comparison in _BRIEF_COMPARISONS
+        {"id": source.id, "label": source.label, "definition": source.definition}
+        for source in _BRIEF_SOURCE_DEFINITIONS
     ]
     result = [GradeHistoryDayResponse(
         delivery_date=day,
         constraints=GradeHistoryHalfResponse(
-            **values["constraints"], comparisons=descriptors,
-            comparison_metrics=[
-                {"id": _BRIEF_COMPARISONS[0].id, "metrics": values["constraints"]["model"]},
-                {"id": _BRIEF_COMPARISONS[1].id, "metrics": values["constraints"]["persistence"]},
+            **values["constraints"], sources=descriptors,
+            source_metrics=[
+                {"id": _BRIEF_SOURCE_DEFINITIONS[0].id, "metrics": values["constraints"]["model"]},
+                {"id": _BRIEF_SOURCE_DEFINITIONS[1].id, "metrics": values["constraints"]["persistence"]},
             ],
         ),
         nodes=GradeHistoryHalfResponse(
-            **values["nodes"], comparisons=descriptors,
-            comparison_metrics=[
-                {"id": _BRIEF_COMPARISONS[0].id, "metrics": values["nodes"]["model"]},
-                {"id": _BRIEF_COMPARISONS[1].id, "metrics": values["nodes"]["persistence"]},
+            **values["nodes"], sources=descriptors,
+            source_metrics=[
+                {"id": _BRIEF_SOURCE_DEFINITIONS[0].id, "metrics": values["nodes"]["model"]},
+                {"id": _BRIEF_SOURCE_DEFINITIONS[1].id, "metrics": values["nodes"]["persistence"]},
             ],
         ),
     ) for day, values in grouped.items()

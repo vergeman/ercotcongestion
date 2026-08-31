@@ -91,7 +91,8 @@ def check_baselines_identical(df: pd.DataFrame) -> None:
     grid, which has already gone wrong twice.
 
     """
-    base = [s for s in score_mod.SOURCES if s != "model"]
+    base = [source for source in score_mod.SOURCE_IDS
+            if source != "compute_mu_model_walk_forward"]
     a = df[(df["regime"] == "all") & (df["source"].isin(base))]
     piv = a.pivot_table(index=["source", "week"], columns="arm",
                         values="topdecile_hit", dropna=False)
@@ -123,14 +124,19 @@ def _table(df: pd.DataFrame, title: str) -> str:
     out = [f"\n{title}",
            f"  {'arm':<14} {'Spearman':>9} {'sign':>7} "
            f"{'top-dec':>8}   verdict"]
+    model_source = "compute_mu_model_walk_forward"
     for arm in ARMS:
-        out.append(_row(df[(df["arm"] == arm) & (df["source"] == "model")],
+        out.append(_row(df[(df["arm"] == arm) & (df["source"] == model_source)],
                         f"model:{arm}"))
     out.append("  " + "-" * 60)
     # The baselines are arm-invariant, so read them off any arm.
     one = df[df["arm"] == ARMS[0]]
-    for src in ("persistence", "climatology", "oracle"):
-        out.append(_row(one[one["source"] == src], src))
+    for source, label in (
+        ("compute_mu_persistence_prior_day", "persistence"),
+        ("compute_mu_climatology_hourly", "climatology"),
+        ("compute_mu_oracle_realized", "oracle"),
+    ):
+        out.append(_row(one[one["source"] == source], label))
     return "\n".join(out)
 
 
@@ -152,7 +158,7 @@ def report(df: pd.DataFrame, bands: pd.DataFrame | None = None) -> str:
 
     # Attribution: what did each covariate family actually buy, over base?
     out.append("\n=== ATTRIBUTION (top-decile vs the `base` arm) ===")
-    m = a[a["source"] == "model"]
+    m = a[a["source"] == "compute_mu_model_walk_forward"]
     base_td = m[m["arm"] == "base"].topdecile_hit.mean()
     for arm in ARMS:
         td = m[m["arm"] == arm].topdecile_hit.mean()

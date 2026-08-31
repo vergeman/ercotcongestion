@@ -40,8 +40,8 @@ STD_FLOOR = 100.0
 
 
 @dataclass(frozen=True)
-class ComparisonDefinition:
-    """Compute-owned identity and construction for one μ evaluation series."""
+class SourceDefinition:
+    """Compute-owned identity and construction for one μ evaluation source."""
 
     id: str
     series_id: str
@@ -50,20 +50,20 @@ class ComparisonDefinition:
     constructor: str
 
 
-COMPARISONS = (
-    ComparisonDefinition("compute_mu_model_walk_forward", "model", "Model",
+SOURCE_DEFINITIONS = (
+    SourceDefinition("compute_mu_model_walk_forward", "model", "Model",
                          "Walk-forward E[μ] from the fitted μ model.", "model"),
-    ComparisonDefinition("compute_mu_persistence_prior_day", "persistence", "Persistence",
+    SourceDefinition("compute_mu_persistence_prior_day", "persistence", "Persistence",
                          "Same hour of the prior settled day.", "persistence"),
-    ComparisonDefinition("compute_mu_climatology_hourly", "climatology", "Climatology",
+    SourceDefinition("compute_mu_climatology_hourly", "climatology", "Climatology",
                          "Hourly P(bind) × E[μ | bind] over the fit window.", "climatology"),
-    ComparisonDefinition("compute_mu_oracle_realized", "oracle", "Oracle",
+    SourceDefinition("compute_mu_oracle_realized", "oracle", "Oracle",
                          "Realized μ, projected through the held-out map.", "oracle"),
-    ComparisonDefinition("compute_mu_null_zero", "null", "Null",
+    SourceDefinition("compute_mu_null_zero", "null", "Null",
                          "Flat zero-μ tripwire.", "null"),
 )
-COMPARISON_BY_ID = {comparison.id: comparison for comparison in COMPARISONS}
-SOURCES = tuple(comparison.id for comparison in COMPARISONS)
+SOURCE_BY_ID = {source.id: source for source in SOURCE_DEFINITIONS}
+SOURCE_IDS = tuple(source.id for source in SOURCE_DEFINITIONS)
 
 
 # --------------------------------------------------------------------------
@@ -224,7 +224,7 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     weeks = weeks_from_preds(preds)
     log.info("scoring %d weeks [%s → %s] × %d sources, window=%dd λ=%g",
              len(weeks), weeks[0].date(), weeks[-1].date(),
-             len(SOURCES), window_days, lam)
+             len(SOURCE_IDS), window_days, lam)
 
     by_week = dict(tuple(preds.groupby("week", sort=False)))
     rows: list[dict] = []
@@ -258,8 +258,8 @@ def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
 
 def report(df: pd.DataFrame) -> str:
     """All-hours screening metrics, with the RTC+B split."""
-    order = [comparison.id for comparison in COMPARISONS
-             if (df["source"] == comparison.id).any()]
+    order = [source.id for source in SOURCE_DEFINITIONS
+             if (df["source"] == source.id).any()]
     a = df
     out = [_table(a, "=== ALL WEEKS (screening) ===", order)]
 

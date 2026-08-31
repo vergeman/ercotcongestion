@@ -30,7 +30,7 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
     assert daily.selected_delivery_date == newest
     assert {point.delivery_date for point in daily.points} == {newest}
     assert {point.source for point in daily.points} == {"model", "persistence", "oracle"}
-    assert {comparison.id for comparison in daily.comparisons} == {
+    assert {source.id for source in daily.sources} == {
         "scoreboard_model_served_nodal", "scoreboard_persistence_prior_day_nodal",
         "scoreboard_climatology_trailing_window_nodal", "scoreboard_oracle_settled_mu_nodal",
         "scoreboard_null_flat_nodal",
