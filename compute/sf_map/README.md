@@ -112,7 +112,7 @@ panels for the requested date range, walks the rolling window, and:
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--run-id` | *required* | Row key in `implied_shift_factors` / `sf_window_meta`; also `runs/<run_id>/sf/` for diagnostics. |
-| `--start`, `--end` | from `reference_dates.json` | `[start, end)`; date-only, YYYY-MM-DD. `--start` is just the series origin. |
+| `--start`, `--end` | *required* | `[start, end)`; date-only, YYYY-MM-DD. `--start` is just the series origin. |
 | `--window-days` | `240` | Trailing window used for each fit. |
 | `--refit-days` | `7` | Days between successive fits. `1` reproduces the prototype's daily refit. |
 | `--min-binding-hours` | `25` | Drop constraints binding fewer hours in the window. |

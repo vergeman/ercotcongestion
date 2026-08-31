@@ -77,25 +77,6 @@ def _parse_date(s: str) -> date:
     return datetime.strptime(s, "%Y-%m-%d").date()
 
 
-def _dates_from_run(run_dir: Path) -> tuple[date, date]:
-    """Derive [start, end) from the run's reference_dates.json copy."""
-    dates_path = run_dir / "reference_dates.json"
-    if not dates_path.exists():
-        raise SystemExit(
-            f"{dates_path} not found; pass --start and --end explicitly."
-        )
-    with open(dates_path) as f:
-        raw = json.load(f)
-    if isinstance(raw, dict):
-        flat = [ts for lst in raw.values() for ts in lst]
-    else:
-        flat = list(raw)
-    if not flat:
-        raise SystemExit(f"{dates_path} has no timestamps")
-    parsed = sorted(datetime.fromisoformat(s) for s in flat)
-    return parsed[0].date(), parsed[-1].date() + timedelta(days=1)
-
-
 def _write_diagnostics(out_dir: Path, run_id: str, window: RefitWindow, min_hours: int) -> None:
     payload = {
         "run_id": run_id,
@@ -121,12 +102,10 @@ def main(argv: list[str] | None = None) -> int:
     # rather than silently abbreviating to `--persist-sf`.
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     p.add_argument("--run-id", required=True)
-    p.add_argument("--start", type=_parse_date, default=None,
-                   help="Inclusive start date (YYYY-MM-DD). Default: min "
-                        "timestamp from the run's reference_dates.json.")
-    p.add_argument("--end", type=_parse_date, default=None,
-                   help="Exclusive end date (YYYY-MM-DD). Default: (max "
-                        "timestamp from reference_dates.json) + 1 day.")
+    p.add_argument("--start", type=_parse_date, required=True,
+                   help="Inclusive start date (YYYY-MM-DD); the series origin.")
+    p.add_argument("--end", type=_parse_date, required=True,
+                   help="Exclusive end date (YYYY-MM-DD).")
     p.add_argument("--window-days", type=int, default=DEFAULT_WINDOW_DAYS,
                    help=f"Rolling fit window in days (default {DEFAULT_WINDOW_DAYS}).")
     p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS,
@@ -176,12 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = run_dir / "sf"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.start is None or args.end is None:
-        start_dt, end_dt = _dates_from_run(run_dir)
-        start = args.start or start_dt
-        end = args.end or end_dt
-    else:
-        start, end = args.start, args.end
+    start, end = args.start, args.end
 
     # Extend the read window backwards so the earliest refit can see its full
     # trailing history. Without this, the first ~window_days worth of refits
