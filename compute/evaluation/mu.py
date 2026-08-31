@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -37,7 +38,32 @@ from compute.sf_map.config import (  # noqa: E402
 )
 STD_FLOOR = 100.0
 
-SOURCES = ["oracle", "model", "climatology", "persistence", "null"]
+
+@dataclass(frozen=True)
+class ComparisonDefinition:
+    """Compute-owned identity and construction for one μ evaluation series."""
+
+    id: str
+    series_id: str
+    label: str
+    definition: str
+    constructor: str
+
+
+COMPARISONS = (
+    ComparisonDefinition("compute_mu_model_walk_forward", "model", "Model",
+                         "Walk-forward E[μ] from the fitted μ model.", "model"),
+    ComparisonDefinition("compute_mu_persistence_prior_day", "persistence", "Persistence",
+                         "Same hour of the prior settled day.", "persistence"),
+    ComparisonDefinition("compute_mu_climatology_hourly", "climatology", "Climatology",
+                         "Hourly P(bind) × E[μ | bind] over the fit window.", "climatology"),
+    ComparisonDefinition("compute_mu_oracle_realized", "oracle", "Oracle",
+                         "Realized μ, projected through the held-out map.", "oracle"),
+    ComparisonDefinition("compute_mu_null_zero", "null", "Null",
+                         "Flat zero-μ tripwire.", "null"),
+)
+COMPARISON_BY_ID = {comparison.id: comparison for comparison in COMPARISONS}
+SOURCES = tuple(comparison.id for comparison in COMPARISONS)
 
 
 # --------------------------------------------------------------------------
@@ -168,11 +194,11 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
                       if mass_all > 0 else np.nan)
 
     srcs: dict[str, pd.DataFrame] = {
-        "oracle": M_score,
-        "model": mu_from_preds(week_preds, hours, cols, "mu_gbm"),
-        "climatology": mu_climatology(M_fit, hours, cols),
-        "persistence": mu_persistence(M, hours, cols),
-        "null": mu_null(hours, cols),
+        "compute_mu_oracle_realized": M_score,
+        "compute_mu_model_walk_forward": mu_from_preds(week_preds, hours, cols, "mu_gbm"),
+        "compute_mu_climatology_hourly": mu_climatology(M_fit, hours, cols),
+        "compute_mu_persistence_prior_day": mu_persistence(M, hours, cols),
+        "compute_mu_null_zero": mu_null(hours, cols),
     }
     Y = C_score[SF.columns].to_numpy(float)
 
@@ -232,8 +258,8 @@ def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
 
 def report(df: pd.DataFrame) -> str:
     """All-hours screening metrics, with the RTC+B split."""
-    order = [s for s in ["oracle", "model", "climatology",
-                         "persistence", "null"] if (df["source"] == s).any()]
+    order = [comparison.id for comparison in COMPARISONS
+             if (df["source"] == comparison.id).any()]
     a = df
     out = [_table(a, "=== ALL WEEKS (screening) ===", order)]
 
