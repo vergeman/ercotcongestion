@@ -3,9 +3,9 @@
 Deterministic and DB-free: every DB seam of `grade_forecast_day` (the served-forecast read,
 the shadow-price / congestion loaders, the SF fit) is stubbed so the ORCHESTRATION
 — the score grid, the common-node intersection, and which quantity each source is
-scored on — is exercised against the SHARED metric (`score_matrix`) in
+scored on — is exercised against the shared screening helper in
 milliseconds. The reconciliation guarantee (spec §7) is proven structurally here:
-`grade_forecast_day`'s per-source rows are asserted byte-equal to `score_matrix` recomputed
+`grade_forecast_day`'s per-source rows are asserted byte-equal to the recomputed
 independently on the same Y / Yh, so a live number and a backtest number are the
 same currency by construction. The null-guard (spec §6) — a flat map cannot
 manufacture a screening score — and the fail-loud paths round it out.
@@ -22,7 +22,8 @@ import pandas as pd
 import pytest
 
 import compute.jobs.grade_forecast_day as gd
-from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence, score_matrix
+from compute.evaluation.mu import (mu_climatology, mu_null, mu_persistence,
+                                   screening_metrics_for_scoreboard)
 from compute.evaluation.sf import predict
 
 D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")  # a CT-midnight day
@@ -64,10 +65,10 @@ def _install(monkeypatch, M, C, SF, fc):
 
 
 # ---------------------------------------------------------------------------
-# Reconciliation: every source row IS score_matrix on the same Y / Yh (spec §7)
+# Reconciliation: every source row uses identical screening inputs (spec §7)
 # ---------------------------------------------------------------------------
 
-def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
+def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog):
     M, C, SF, fc, hoursD = _scenario()
     _install(monkeypatch, M, C, SF, fc)
 
@@ -81,7 +82,7 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
     Y = C.loc[hours, SPS].to_numpy(float)
 
     # model: the served deterministic point.
-    want = score_matrix(Y, fc["point"].loc[hours, SPS].to_numpy(float))
+    want = screening_metrics_for_scoreboard(Y, fc["point"].loc[hours, SPS].to_numpy(float))
     for k, v in want.items():
         _eq(by_src["model"][k], v)
 
@@ -94,7 +95,7 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
     }
     for name, Msrc in srcs.items():
         Yh = pd.DataFrame(predict(Msrc, SF), index=hours, columns=SF.columns)[SPS]
-        want = score_matrix(Y, Yh.to_numpy(float))
+        want = screening_metrics_for_scoreboard(Y, Yh.to_numpy(float))
         for k, v in want.items():
             _eq(by_src[name][k], v)
 

@@ -32,7 +32,7 @@ def _preds(hours, p_bind=0.3, mu=50.0):
         rows.append(pd.DataFrame({
             "interval_ts": hours, "key": k,
             "week": pd.Timestamp("2025-10-01", tz="UTC"),
-            "p_bind": p_bind, "mu_gbm": mu, "mu_clim": mu,
+            "p_bind": p_bind, "mu_gbm": mu,
             "y_bind": 0, "y_mu": np.nan}))
     return pd.concat(rows, ignore_index=True)
 
@@ -102,5 +102,5 @@ def test_coverage_is_measured_not_assumed():
 def test_bands_report_coverage_and_skill_together():
     Y = RNG.normal(0, 10, (48, 30))
     m = _metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
-    assert {"coverage80", "band_width", "pinball", "pooled_r2",
+    assert {"coverage80", "band_width", "pinball", "experiment_pooled_r2",
             "topdecile_hit"} <= set(m)

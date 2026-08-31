@@ -104,4 +104,4 @@ class ForecastRangeResponse(BaseModel):
 # Identifiability guardrail (spec §6): the stable, unsigned magnitude
 # (``max_abs_sf`` per constraint, ``node_max_abs_sf`` per node) is the
 # headline; signed ``sf`` is the caveated detail and always ships with its
-# window ``oos_r2``/``sf_stability`` so a flickering attribution reads as
+# window ``sf_oos_r2``/``sf_stability`` so a flickering attribution reads as

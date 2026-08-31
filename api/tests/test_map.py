@@ -83,8 +83,8 @@ def _meta_row(**over) -> dict:
         "run_id": "map-v1",
         "window_start": WS,
         "window_end": WE,
-        "fit_r2": 0.81,
-        "oos_r2": 0.62,
+        "sf_fit_r2": 0.81,
+        "sf_oos_r2": 0.62,
         "coverage": 0.94,
         "sf_stability": 0.47,
         "n_kept": 120,
@@ -104,8 +104,8 @@ def test_meta_returns_current_window(client, fake_pool, configured_run):
     body = r.json()
     assert body["run_id"] == "map-v1"
     assert body["window_start"].startswith("2025-11-04")
-    assert body["fit_r2"] == 0.81
-    assert body["oos_r2"] == 0.62 and body["coverage"] == 0.94
+    assert body["sf_fit_r2"] == 0.81
+    assert body["sf_oos_r2"] == 0.62 and body["coverage"] == 0.94
     assert body["sf_stability"] == 0.47
 
 
@@ -161,7 +161,7 @@ def test_exposures_serves_the_requested_days_artifact(client, fake_pool):
     # The window now bounds the day's block, not a rolling refit — and the
     # rolling fit's confidence numbers no longer describe these values.
     assert body["window_start"].startswith("2026-07-01T05:00")
-    assert body["oos_r2"] is None and body["sf_stability"] is None
+    assert body["sf_oos_r2"] is None and body["sf_stability"] is None
 
 
 def test_exposures_resolves_the_ct_day_not_the_utc_date(client, fake_pool):
@@ -311,7 +311,7 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     assert body["daily_mu_rank"] == 1 and body["daily_mu_sum"] == pytest.approx(18.25)
     assert body["import_members"] == 1 and body["export_members"] == 1
     assert body["ctype"] == "gtc" and body["n_rail"] == 4   # structural, from geo
-    assert body["oos_r2"] is None
+    assert body["sf_oos_r2"] is None
     sps = body["sps"]
     assert sps[0] == {
         "settlement_point": "LZ_WEST", "sf": pytest.approx(0.72),
@@ -473,7 +473,7 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["run_id"] == "map-v1" and body["n"] == 70
-    assert body["oos_r2"] == 0.62 and body["sf_stability"] == 0.47
+    assert body["sf_oos_r2"] == 0.62 and body["sf_stability"] == 0.47
 
     a, b = body["constraints"]
     assert a["constraint_key"] == "AAA|BASE CASE" and a["ctype"] == "gtc"
@@ -609,9 +609,9 @@ def test_meta_reports_configured_run(real_client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["run_id"] == "map-v1"
-    assert body["fit_r2"] is not None
+    assert body["sf_fit_r2"] is not None
     # backfilled by compute.evaluation.sf (0003 Commit D)
-    assert body["oos_r2"] is not None
+    assert body["sf_oos_r2"] is not None
     assert body["coverage"] is not None
     assert body["sf_stability"] is not None
 

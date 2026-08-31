@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from compute.metrics import score_matrix
+from compute.metrics import screening_metrics
 
 N_DRAWS = 200
 DRAW_CHUNK = 25
@@ -63,15 +63,26 @@ def draw_congestion(week_preds: pd.DataFrame, SF: pd.DataFrame,
 
 def band_metrics(Y: np.ndarray, p10: np.ndarray, p50: np.ndarray,
                  p90: np.ndarray) -> dict:
-    """Calculate coverage-first band metrics using the served percentile arrays."""
+    """Calculate final experiment summaries using served percentile arrays."""
     inside = (Y >= p10) & (Y <= p90)
     return {"coverage80": float(np.nanmean(inside)),
             "band_width": float(np.nanmean(p90 - p10)),
             "pinball": float(np.nanmean([_pinball(Y, q, p / 100)
                                            for q, p in zip((p10, p50, p90), QUANTILES)])),
-            **score_matrix(Y, p50)}
+            "experiment_mae": float(np.nanmean(np.abs(Y - p50))),
+            "experiment_pooled_r2": _experiment_pooled_r2(Y, p50),
+            **screening_metrics(Y, p50)}
 
 
 def _pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
     d = y - q
     return float(np.nanmean(np.maximum(tau * d, (tau - 1) * d)))
+
+
+def _experiment_pooled_r2(y: np.ndarray, y_hat: np.ndarray) -> float:
+    valid = np.isfinite(y) & np.isfinite(y_hat)
+    y, y_hat = y[valid], y_hat[valid]
+    if y.size < 2:
+        return float("nan")
+    total = float(((y - y.mean()) ** 2).sum())
+    return float("nan") if total <= 0 else 1.0 - float(((y - y_hat) ** 2).sum()) / total

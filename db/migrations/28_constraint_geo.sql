@@ -37,6 +37,6 @@ CREATE INDEX IF NOT EXISTS idx_constraint_geo_run_window
 -- Window-level SF stability (disjoint-adjacent-window SF correlation, the honest
 -- ~0.47, from compute.sf.eval::_sf_corr). Nullable: backfilled after the fit, and
 -- NULL for older runs that predate the map surface. Per-CONSTRAINT stability is
--- deferred (spec §1.3, §9) — this window-level number plus oos_r2/coverage is what
+-- deferred (spec §1.3, §9) — this window-level number plus sf_oos_r2/coverage is what
 -- the explorer uses to label a refit's trustworthiness.
 ALTER TABLE sf_window_meta ADD COLUMN IF NOT EXISTS sf_stability REAL;

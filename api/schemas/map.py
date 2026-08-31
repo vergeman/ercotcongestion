@@ -14,8 +14,8 @@ class MapMeta(BaseModel):
     run_id: str
     window_start: datetime
     window_end: datetime
-    fit_r2: float | None = None
-    oos_r2: float | None = None
+    sf_fit_r2: float | None = None
+    sf_oos_r2: float | None = None
     coverage: float | None = None
     sf_stability: float | None = None
     n_kept: int | None = None
@@ -58,7 +58,7 @@ class ExposuresResponse(BaseModel):
     Served from the requested day's SF artifact (0144), so the values match
     ``/matrix/frame`` at the same node and interval. ``window_start``/
     ``window_end`` bound that day's block rather than a rolling fit window, and
-    ``oos_r2``/``sf_stability`` are ``None`` — they describe the rolling
+    ``sf_oos_r2``/``sf_stability`` are ``None`` — they describe the rolling
     ``sf_window_meta`` fit, which no longer backs these numbers.
 
     ``rank`` names the basis the list is ordered on, because that — not the SF
@@ -82,7 +82,7 @@ class ExposuresResponse(BaseModel):
     k: int
     rank: Literal["contribution", "sf"] = "contribution"
     node_gross_total: float | None = None
-    oos_r2: float | None = None
+    sf_oos_r2: float | None = None
     sf_stability: float | None = None
     node_max_abs_sf: float | None = None
     # False = no SF to report: ``artifact_missing`` (no artifact for the day),
@@ -118,7 +118,7 @@ class ConstraintReach(BaseModel):
 
     Served from the requested day's SF artifact (0144) — see
     ``ExposuresResponse`` for what that means for ``window_start``/``window_end``
-    and ``oos_r2``/``sf_stability``.
+    and ``sf_oos_r2``/``sf_stability``.
 
     ``full=True`` switches the query to the unbounded reach (bounded only by
     ``min_frac``) the matrix Read pane needs (plan/0139-0001) instead of a
@@ -133,7 +133,7 @@ class ConstraintReach(BaseModel):
     window_start: datetime
     window_end: datetime
     k: int
-    oos_r2: float | None = None
+    sf_oos_r2: float | None = None
     sf_stability: float | None = None
     max_abs_sf: float | None = None
     n_rail: int | None = None
@@ -190,14 +190,14 @@ class MapOverview(BaseModel):
     hours, each at its core with its type and signed top-``k`` node field.
 
     One bulk payload so the client renders the de-piled map from a single window
-    slice; signed detail is caveated by ``oos_r2``/``sf_stability``.
+    slice; signed detail is caveated by ``sf_oos_r2``/``sf_stability``.
     """
     run_id: str
     window_start: datetime
     window_end: datetime
     n: int
     k: int
-    oos_r2: float | None = None
+    sf_oos_r2: float | None = None
     sf_stability: float | None = None
     constraints: list[OverviewConstraint]
 

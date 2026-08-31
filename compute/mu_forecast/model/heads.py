@@ -176,32 +176,6 @@ def bind_metrics(y: np.ndarray, p: np.ndarray) -> dict:
     }
 
 
-def fit_mu_climatology(train: pd.DataFrame, n_buckets: int = 6
-                       ) -> tuple[pd.Series, np.ndarray, float]:
-    """Conditional climatology: mean μ per (net-load bucket × hour), on binders.
-
-    The plan's stated backbone, and the thing quantile regression has to beat.
-    Bucket edges come from the TRAINING window's net load only — fitting them
-    across train+test would leak the scored week's distribution.
-    """
-    binders = train[train["y_bind"] == 1]
-    grand = float(binders["y_mu"].mean()) if len(binders) else 0.0
-    if binders.empty:
-        return pd.Series(dtype="float64"), np.array([]), grand
-    edges = np.unique(np.quantile(train["net_load"].dropna(),
-                                  np.linspace(0, 1, n_buckets + 1)[1:-1]))
-    cells = binders.groupby([np.digitize(binders["net_load"], edges), binders["hour"]])["y_mu"].mean()
-    return cells, edges, grand
-
-
-def predict_mu_climatology(panel: pd.DataFrame, cells: pd.Series,
-                           edges: np.ndarray, grand: float) -> np.ndarray:
-    if cells.empty:
-        return np.full(len(panel), grand)
-    idx = pd.MultiIndex.from_arrays([np.digitize(panel["net_load"], edges), panel["hour"]])
-    return cells.reindex(idx).fillna(grand).to_numpy()
-
-
 def fit_mu_head(train: pd.DataFrame, cols: list[str],
                 seed: int = 0) -> HistGradientBoostingRegressor:
     """GBM on log1p(μ), trained on BINDING rows only.

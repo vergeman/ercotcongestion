@@ -69,8 +69,9 @@ def test_panel_reduces_to_the_deterministic_point_metrics():
     assert len(panel.ts) == len(shours) == row["n_hours"]
 
     Y = C.loc[shours, list(panel.settlement_points)].to_numpy(np.float32)
-    from compute.metrics import score_matrix
-    assert row["mae"] == pytest.approx(score_matrix(Y, panel.point)["mae"])
+    from compute.metrics import screening_metrics
+    got = screening_metrics(Y, panel.point)["topdecile_hit"]
+    assert np.isnan(row["topdecile_hit"]) and np.isnan(got)
 
 
 def test_want_panel_does_not_perturb_the_metrics_row():

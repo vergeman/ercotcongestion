@@ -40,7 +40,7 @@ def resolve(cur) -> tuple[str, object]:
 
 def meta_row(cur, run_id: str, window_start) -> dict:
     cur.execute(
-        "SELECT run_id, window_start, window_end, fit_r2, oos_r2, coverage, "
+        "SELECT run_id, window_start, window_end, sf_fit_r2, sf_oos_r2, coverage, "
         "sf_stability, n_kept FROM sf_window_meta "
         "WHERE run_id = %s AND window_start = %s",
         (run_id, window_start),

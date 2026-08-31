@@ -231,14 +231,14 @@ export interface ConditionsRangeResponse {
 // ConstraintReach.
 // =============================================================================
 
-// The refit the map is serving — one sf_window_meta row. `oos_r2` /
+// The refit the map is serving — one sf_window_meta row. `sf_oos_r2` /
 // `sf_stability` are the confidence caveats every signed exposure renders with.
 export interface MapMeta {
   run_id: string;
   window_start: string;
   window_end: string;
-  fit_r2: number | null;
-  oos_r2: number | null;
+  sf_fit_r2: number | null;
+  sf_oos_r2: number | null;
   coverage: number | null;
   sf_stability: number | null;
   n_kept: number | null;
@@ -273,7 +273,7 @@ export type ExposureRank = "contribution" | "sf";
 //
 // 0144: served from the requested day's SF artifact, so these values match the
 // matrix at the same node and interval. `window_start`/`window_end` bound that
-// day's block, and `oos_r2`/`sf_stability` are null — they describe the rolling
+// day's block, and `sf_oos_r2`/`sf_stability` are null — they describe the rolling
 // fit that no longer backs these numbers. `available: false` means the day has
 // no artifact at all, as opposed to a node that simply drives nothing.
 export interface ExposuresResponse {
@@ -282,7 +282,7 @@ export interface ExposuresResponse {
   window_start: string;
   window_end: string;
   k: number;
-  oos_r2: number | null;
+  sf_oos_r2: number | null;
   sf_stability: number | null;
   node_max_abs_sf: number | null;
   rank: ExposureRank;
@@ -323,7 +323,7 @@ export interface ConstraintReach {
   window_start: string;
   window_end: string;
   k: number;
-  oos_r2: number | null;
+  sf_oos_r2: number | null;
   sf_stability: number | null;
   max_abs_sf: number | null;
   n_rail: number | null;
@@ -375,7 +375,7 @@ export interface MapOverview {
   window_end: string;
   n: number;
   k: number;
-  oos_r2: number | null;
+  sf_oos_r2: number | null;
   sf_stability: number | null;
   constraints: OverviewConstraint[];
 }

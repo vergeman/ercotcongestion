@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from compute.evaluation.sf import predict
-from compute.metrics import row_spearman, sign_agreement, topdecile_hit
+from compute.metrics import screening_metrics
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
@@ -106,38 +106,9 @@ def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 
-# --------------------------------------------------------------------------
-# scoring
-# --------------------------------------------------------------------------
-
-def _flat_rows(Yh: np.ndarray) -> np.ndarray:
-    """Hours where the prediction is constant across nodes — it ranks nothing."""
-    return np.ptp(Yh, axis=1) == 0
-
-
-def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
-    """`sf/eval.topdecile_hit`, but it declines to score an hour whose prediction
-    is flat across nodes.
-
-    Kept local: `sf/eval` is shared with the sweep, and quietly changing a metric
-    every other result in the repo was measured with is precisely the drift this
-    branch keeps catching.
-    """
-    keep = ~_flat_rows(Yh)
-    if not keep.any():
-        return float("nan")
-    return topdecile_hit(Y[keep], Yh[keep])
-
-
-def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """The scoreboard's screening metrics.
-
-    """
-    return {
-        "rank_spearman": row_spearman(Y, Yh),
-        "sign_agree": sign_agreement(Y, Yh),
-        "topdecile_hit": topdecile_hit_defined(Y, Yh),
-    }
+def screening_metrics_for_scoreboard(Y: np.ndarray, Yh: np.ndarray) -> dict:
+    """The scoreboard's screening metrics."""
+    return screening_metrics(Y, Yh)
 
 
 def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
@@ -157,7 +128,7 @@ def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
 def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
                week_preds: pd.DataFrame, window_days: int = WINDOW_DAYS,
                refit_days: int = REFIT_DAYS,
-               lam: float = LAM, extra_sources: bool = False) -> list[dict]:
+               lam: float = LAM) -> list[dict]:
     """One week, every source, one SF fit.
 
     the window ends exactly where the scored week begins, so no source —
@@ -203,12 +174,6 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         "persistence": mu_persistence(M, hours, cols),
         "null": mu_null(hours, cols),
     }
-    if extra_sources:
-        # Diagnostic, not a plan source: head 1 × head 2's *climatology* arm.
-        # It isolates what the GBM severity head is worth once the map has had
-        # its say.
-        srcs["model_clim"] = mu_from_preds(week_preds, hours, cols, "mu_clim")
-
     Y = C_score[SF.columns].to_numpy(float)
 
     rows: list[dict] = []
@@ -217,15 +182,14 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                **score_matrix(Y, Yh)}
+                **screening_metrics_for_scoreboard(Y, Yh)}
         rows.append(base)
     return rows
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          window_days: int = WINDOW_DAYS,
-         refit_days: int = REFIT_DAYS, lam: float = LAM,
-         extra_sources: bool = False) -> pd.DataFrame:
+         refit_days: int = REFIT_DAYS, lam: float = LAM) -> pd.DataFrame:
     # `load_preds` hands back a (interval_ts, key) MultiIndex; the sources want
     # them as columns.
     if isinstance(preds.index, pd.MultiIndex):
@@ -234,14 +198,14 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     weeks = weeks_from_preds(preds)
     log.info("scoring %d weeks [%s → %s] × %d sources, window=%dd λ=%g",
              len(weeks), weeks[0].date(), weeks[-1].date(),
-             len(SOURCES) + int(extra_sources), window_days, lam)
+             len(SOURCES), window_days, lam)
 
     by_week = dict(tuple(preds.groupby("week", sort=False)))
     rows: list[dict] = []
     t0 = time.perf_counter()
     for i, s in enumerate(weeks):
         rows.extend(score_week(M, C, s, by_week[s], window_days,
-                               refit_days, lam, extra_sources))
+                               refit_days, lam))
         done, el = i + 1, time.perf_counter() - t0
         log.info("  week %2d/%d %s  eta %.0fm", done, len(weeks), s.date(),
                  (el / done) * (len(weeks) - done) / 60)
@@ -268,7 +232,7 @@ def _table(df: pd.DataFrame, title: str, order: list[str]) -> str:
 
 def report(df: pd.DataFrame) -> str:
     """All-hours screening metrics, with the RTC+B split."""
-    order = [s for s in ["oracle", "model", "model_clim", "climatology",
+    order = [s for s in ["oracle", "model", "climatology",
                          "persistence", "null"] if (df["source"] == s).any()]
     a = df
     out = [_table(a, "=== ALL WEEKS (screening) ===", order)]
@@ -300,8 +264,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--window-days", type=int, default=WINDOW_DAYS)
     p.add_argument("--lam", type=float, default=LAM)
-    p.add_argument("--extra-sources", action="store_true",
-                   help="also score head1 × head2-climatology (diagnostic)")
     p.add_argument("--out", default=None)
     args = p.parse_args(argv)
 
@@ -321,8 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)
         log.info("M = %s   C = %s", M.shape, C.shape)
-    df = walk(M, C, preds, args.window_days, REFIT_DAYS, args.lam,
-              args.extra_sources)
+    df = walk(M, C, preds, args.window_days, REFIT_DAYS, args.lam)
     if df.empty:
         print("no scorable weeks")
         return 1

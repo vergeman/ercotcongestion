@@ -20,7 +20,7 @@ individual constraint, and three more columns appear:
   * ``group_churn``       — how much group membership changes from the prior window
   * ``sf_stability_proj`` — (``--control``) the ungrouped SF expressed as groups
 
-``--persist-eval`` writes ``oos_r2``/``coverage``/``sf_stability`` into
+``--persist-eval`` writes ``sf_oos_r2``/``coverage``/``sf_stability`` into
 ``sf_window_meta``.
 
 Metric helpers are copied here so this module does not depend on ``experiments/``.
@@ -52,7 +52,7 @@ from compute.sf_map.model.grouping import (
     aggregate_mu, constraint_linkage, cut_groups, group_members, project_sf,
 )
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-from compute.metrics import r2, row_spearman, sign_agreement, topdecile_hit
+from compute.metrics import row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.evaluation.sf")
@@ -65,6 +65,16 @@ def predict(M_score: pd.DataFrame, SF: pd.DataFrame) -> np.ndarray:
     """C_hat = -M · SFᵀ over the constraints the fit actually kept."""
     cols = M_score.columns.intersection(SF.index)
     return -(M_score[cols].to_numpy(float) @ SF.loc[cols].to_numpy(float))
+
+
+def sf_pooled_r2(y: np.ndarray, y_hat: np.ndarray) -> float:
+    """Map-fit R², local to the SF evaluation that owns this diagnostic."""
+    valid = np.isfinite(y) & np.isfinite(y_hat)
+    y, y_hat = y[valid], y_hat[valid]
+    if y.size < 2:
+        return float("nan")
+    total = float(((y - y.mean()) ** 2).sum())
+    return float("nan") if total <= 0 else 1.0 - float(((y - y_hat) ** 2).sum()) / total
 
 
 def _sf_corr(A: pd.DataFrame, B: pd.DataFrame) -> float:
@@ -166,7 +176,7 @@ def evaluate(
                 return (np.nan,) * 4
         Y = Cs.loc[i, sf.columns].to_numpy(float)
         Yh = predict(Ms, sf)
-        return (r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
+        return (sf_pooled_r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
                 sign_agreement(Y, Yh), topdecile_hit(Y, Yh))
 
     # Keep a fixed refit grid when skipped warmup or chunked loading changes the
@@ -195,7 +205,7 @@ def evaluate(
         SF, labels = fit(s - win, s)
         if SF.empty:
             continue
-        oos_r2, spearman, sign, topdec = score(s, score_end, SF, labels)
+        sf_oos_r2, spearman, sign, topdec = score(s, score_end, SF, labels)
 
         # Comparison fit whose window includes the scored week.
         SF_pipe, lab_pipe = fit(score_end - win, score_end)
@@ -242,7 +252,7 @@ def evaluate(
             "n_constraints": int(active.size),
             "n_groups": int(labels.loc[active].nunique()) if labels is not None
                         else np.nan,
-            "oos_pooled_r2": oos_r2,
+            "oos_pooled_r2": sf_oos_r2,
             "is_pooled_r2": is_r2,
             "rank_spearman": spearman,
             "sign_agree": sign,
@@ -413,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--std-floor", type=float, default=STD_FLOOR)
     p.add_argument("--no-standardize", dest="standardize", action="store_false")
     p.add_argument("--persist-eval", action="store_true",
-                   help="Backfill oos_r2/coverage/sf_stability onto this "
+                   help="Backfill sf_oos_r2/coverage/sf_stability onto this "
                         "run_id's existing sf_window_meta rows (from an earlier "
                         "runner --persist-sf with matching hyperparameters). "
                         "Matched by score_start.")
@@ -507,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
                  matched, args.run_id)
         if remaining:
             log.warning("%d sf_window_meta rows for run_id=%s still have NULL "
-                        "oos_r2 (score_start/refit misalignment, or out of the "
+                        "sf_oos_r2 (score_start/refit misalignment, or out of the "
                         "eval range)", remaining, args.run_id)
 
     out_dir = RUNS_ROOT / args.run_id / "sf"

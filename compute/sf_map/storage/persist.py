@@ -164,7 +164,7 @@ def copy_constraint_geo_rows(conn, run_id: str, window_start, geo: pd.DataFrame)
 def write_window_meta(conn, run_id: str, meta: Mapping) -> None:
     """Upsert one ``sf_window_meta`` row for a refit window.
 
-    ``meta`` supplies the window/score spans and support counts. ``oos_r2`` and
+    ``meta`` supplies the window/score spans and support counts. ``sf_oos_r2`` and
     ``coverage`` default to NULL — S1 backfills them once OOS eval lands.
     Idempotent under the ``(run_id, window_start)`` PK so re-persist replaces.
     """
@@ -172,10 +172,10 @@ def write_window_meta(conn, run_id: str, meta: Mapping) -> None:
         cur.execute(
             "INSERT INTO sf_window_meta "
             "(run_id, window_start, window_end, score_start, score_end, "
-            " n_kept, n_dropped, n_sf_clipped, fit_r2, oos_r2, coverage) "
+            " n_kept, n_dropped, n_sf_clipped, sf_fit_r2, sf_oos_r2, coverage) "
             "VALUES (%(run_id)s, %(window_start)s, %(window_end)s, "
             " %(score_start)s, %(score_end)s, %(n_kept)s, %(n_dropped)s, "
-            " %(n_sf_clipped)s, %(fit_r2)s, %(oos_r2)s, %(coverage)s) "
+            " %(n_sf_clipped)s, %(sf_fit_r2)s, %(sf_oos_r2)s, %(coverage)s) "
             "ON CONFLICT (run_id, window_start) DO UPDATE SET "
             " window_end = EXCLUDED.window_end, "
             " score_start = EXCLUDED.score_start, "
@@ -183,12 +183,12 @@ def write_window_meta(conn, run_id: str, meta: Mapping) -> None:
             " n_kept = EXCLUDED.n_kept, "
             " n_dropped = EXCLUDED.n_dropped, "
             " n_sf_clipped = EXCLUDED.n_sf_clipped, "
-            " fit_r2 = EXCLUDED.fit_r2, "
-            " oos_r2 = EXCLUDED.oos_r2, "
+            " sf_fit_r2 = EXCLUDED.sf_fit_r2, "
+            " sf_oos_r2 = EXCLUDED.sf_oos_r2, "
             " coverage = EXCLUDED.coverage",
             {
                 "run_id": run_id,
-                "oos_r2": None,
+                "sf_oos_r2": None,
                 "coverage": None,
                 **meta,
             },
@@ -196,7 +196,7 @@ def write_window_meta(conn, run_id: str, meta: Mapping) -> None:
 
 
 def update_eval_metrics(conn, run_id: str, rows: Iterable) -> int:
-    """Backfill ``oos_r2`` / ``coverage`` / ``sf_stability`` on existing
+    """Backfill ``sf_oos_r2`` / ``coverage`` / ``sf_stability`` on existing
     ``sf_window_meta`` rows.
 
     Matched by ``(run_id, score_start)`` — the honest OOS fit uses a different
@@ -204,30 +204,30 @@ def update_eval_metrics(conn, run_id: str, rows: Iterable) -> int:
     same scored week, so ``score_start`` is the join key. Only rows already
     written by ``--persist-sf`` are touched; ``rows`` for weeks with no meta row
     match nothing. ``rows``: iterable of
-    ``(score_start, oos_r2, coverage, sf_stability)``, where ``score_start`` is a
+    ``(score_start, sf_oos_r2, coverage, sf_stability)``, where ``score_start`` is a
     datetime and the metrics may be ``None`` (``sf_stability`` is NULL for the
     earliest scored weeks, which lack the 2×window of history the disjoint
     correlation needs). Returns the number of rows updated.
     """
     n = 0
     with conn.cursor() as cur:
-        for score_start, oos_r2, coverage, sf_stability in rows:
+        for score_start, sf_oos_r2, coverage, sf_stability in rows:
             cur.execute(
                 "UPDATE sf_window_meta "
-                "SET oos_r2 = %s, coverage = %s, sf_stability = %s "
+                "SET sf_oos_r2 = %s, coverage = %s, sf_stability = %s "
                 "WHERE run_id = %s AND score_start = %s",
-                (oos_r2, coverage, sf_stability, run_id, score_start),
+                (sf_oos_r2, coverage, sf_stability, run_id, score_start),
             )
             n += cur.rowcount
     return n
 
 
 def count_null_eval(conn, run_id: str) -> int:
-    """How many ``sf_window_meta`` rows for ``run_id`` still lack ``oos_r2``."""
+    """How many ``sf_window_meta`` rows for ``run_id`` still lack ``sf_oos_r2``."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT count(*) FROM sf_window_meta "
-            "WHERE run_id = %s AND oos_r2 IS NULL",
+            "WHERE run_id = %s AND sf_oos_r2 IS NULL",
             (run_id,),
         )
         return int(cur.fetchone()[0])
