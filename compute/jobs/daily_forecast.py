@@ -294,9 +294,11 @@ def forecast_day(
 
 
 def _write_nodal_npz(result: ForecastResult, path: str) -> None:
-    """Serialize the in-memory `NodalPanel` to the flat vocab-coded npz `nodal_to_db`
-    reads — the exact format `walk()` streams, so a forward day and a backtest day
-    are byte-compatible on disk. `week` is the delivery day itself (one window)."""
+    """Serialize the in-memory `NodalPanel` to the flat npz `nodal_to_db` reads
+    — the exact format `walk()` streams, so a forward day and a backtest day
+    are the same. `week` is the delivery day itself (one window).
+
+    """
     sink = _NodalAccumulator()
     sink.add(result.panel, pd.Timestamp(result.delivery_date, tz="UTC"))
     sink.save(path)
@@ -305,23 +307,27 @@ def _write_nodal_npz(result: ForecastResult, path: str) -> None:
 def persist_forecast(conn, result: ForecastResult, *,
                      npz_dir: str | None = None,
                      layer: str = FORECAST_LAYER) -> int:
-    """Land one day's forecast and flip this feature's own pointer **last**.
+    """Land one day's forecast and flip this feature's own pointer last.
 
-    Order is the contract: `forecast_nodal` rows, then the `forecast_sf_artifact`
-    blob, then `upsert_pointer(forecast_current[layer])`, then one `commit()`.
+    Order is the contract: `forecast_nodal` rows, then the
+    `forecast_sf_artifact` blob, then
+    `upsert_pointer(forecast_current[layer])`, then one `commit()`.
 
     Idempotent per `(run_id, delivery_date, horizon)`: `nodal_to_db`/
     `persist_sf_mu_artifact` both replace-in-place scoped to the CT delivery
     date and horizon, so a re-run of D under the same `run_id` overwrites only
-    that horizon's rows and blob — a horizon-1 (final) publish never touches
-    the preserved horizon-2 (preview) rows and vice versa — and leaves the
-    pointer where it is. `npz_dir` (optional) is the on-disk artifact of record
-    — the nodal and SF+μ npz land there too, byte-identical to the DB, each
-    tagged with an `h{horizon}` suffix so the two tracks never share a
-    filename; omitted, only the DB is written (a throwaway temp file carries
-    the nodal panel into `COPY`). `layer` defaults to the served `ercot`
-    pointer; a test overrides it to a scratch layer so it never touches the
-    live one. Returns rows written.
+    that horizon's rows and blob.
+
+    A horizon-1 (final) publish never touches the preserved horizon-2 (preview)
+    rows and vice versa. `npz_dir` (optional) is the on-disk artifact of
+    record, each tagged with an `h{horizon}` suffix so the two tracks never
+    share a filename. If omitted, only the DB is written (a throwaway temp file
+    carries the nodal panel into `COPY`).
+
+    `layer` defaults to the served `ercot` pointer; a test overrides it to a
+    scratch layer so it never touches the live one.
+
+    Returns rows written.
 
     """
     D = result.delivery_date
@@ -379,9 +385,10 @@ def _resolve_delivery_date(spec: str, *, horizon: int = 1,
 def _ct_span(D: pd.Timestamp) -> str:
     """D's CT delivery-day span, wall clock and DST tag.
 
-    D is already CT midnight (0133), so this always reads 00:00 -> 23:00 CT;
-    logging it anyway keeps a regression (an off-CT-midnight D) self-evident in
-    the run log instead of something discovered by scrubbing onto a hole.
+    D is already CT midnight, so this always reads 00:00 -> 23:00 CT; logging
+    it anyway keeps a regression (an off-CT-midnight D) self-evident in the run
+    log instead of something discovered by scrubbing onto a hole.
+
     """
     lo = D.tz_convert(ERCOT_TZ)
     hi = (_ct_block_end(D) - pd.Timedelta(hours=1)).tz_convert(ERCOT_TZ)

@@ -2,17 +2,14 @@
 
 For each CT delivery date in ``[--start, --end]`` this refits the daily μ heads and
 writes that day's ``forecast_nodal`` rows + ``forecast_sf_artifact`` blob through the
-SAME ``forecast_day``/``persist_forecast`` path the live daily job uses — so a
-backfilled day is production-equivalent (byte-identical to what the live job would
-have emitted, and it REPLACES any cheaper ``backfill_nodal`` rows for that day). This
-is what lights up the constraint-explorer panel (``/map/constraints/ranked``) over
-history; ``backfill_nodal`` fills prices but never writes this artifact.
+SAME ``forecast_day``/``persist_forecast`` path the live daily job uses.
 
 Much heavier than ``backfill_nodal``: that shares one weekly fit across 7 days; this
 refits PER DAY (~16 GiB peak each), so it is built to run long and resume.
 
   Resumable — skips dates already in ``forecast_sf_artifact`` (``--no-skip-existing``
               forces a rewrite), so an interrupted run picks up where it stopped.
+
   Fail-soft — a date missing complete DAM-close inputs or a causal map window is
               logged and skipped (``--stop-on-error`` aborts instead). Early dates
               with no causal map window are the common, expected skip.
@@ -51,14 +48,10 @@ def _dsn() -> str:
 
 def _fire_time_for(dd, horizon: int) -> pd.Timestamp:
     """The historical fire instant a live run would have had for delivery date
-    `dd`, horizon `horizon` — the live cron's own schedule (0133), fed to
+    `dd`, horizon `horizon` — the live cron's own schedule), fed to
     `forecast_day`'s `vintage_cutoff` so a re-backfilled day reads only the
     covariate vintage that run could actually have seen.
 
-    Final (h1): 17:00Z on D−1 — after D's DAM close, so the cap is a no-op; kept
-    only so both tracks run one code path. Preview (h2): 20:15Z on D−2 — well
-    before D's DAM close, so it genuinely restricts the read and keeps a
-    re-backfilled preview a disadvantaged preview rather than a re-labeled final.
     """
     if horizon == 2:
         return pd.Timestamp(f"{dd - timedelta(days=2)} 20:15", tz="UTC")
@@ -66,9 +59,10 @@ def _fire_time_for(dd, horizon: int) -> pd.Timestamp:
 
 
 def _existing_dates(dsn: str, run_id: str, horizon: int, lo, hi) -> set:
-    """delivery_dates already holding a horizon's artifact for run_id in [lo, hi]
-    — the skip set. Scoped to horizon (0123): a preview backfill's skip set must
-    never be satisfied by the final's rows for the same day and vice versa."""
+    """delivery_dates already holding a horizon's artifact for run_id in [lo,
+    hi].
+
+    """
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT delivery_date FROM forecast_sf_artifact "
@@ -118,19 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     lo, hi = normalize_ct_day(args.start), normalize_ct_day(args.end)
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
-    # Calendar dates, not the tz-aware CT-midnight instants themselves: `lo`/`hi`
-    # carry a UTC offset that changes across a DST transition, and stepping by
-    # `freq="D"` on THOSE (fixed-offset) timestamps would silently drift off CT
-    # midnight the day after the transition. Iterating tz-naive dates and letting
-    # `forecast_day` normalizes each day's own CT-midnight
-    # instant keeps every day exact (0133).
+    # Calendar dates, not the tz-aware CT-midnight instants themselves
     days = pd.date_range(lo.date(), hi.date(), freq="D")
     arms = arms_for(args.features)
     dsn = _dsn()
 
-    # persist_forecast flips forecast_current[ercot] to --run-id every day, so warn
-    # loudly if that is not the promoted run — a backfill of the wrong run_id would
-    # silently hijack the served pointer (runbook: "do not mix a different run ID").
+    # persist_forecast flips forecast_current[ercot] to --run-id every day, so
+    # warn loudly if that is not the promoted run
     if args.to_db:
         current = _current_pointer(dsn)
         if current is not None and current != args.run_id:
@@ -160,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             # Fresh connection per day: a per-day refit is minutes of CPU with no DB
             # traffic, long enough that a shared long-lived connection can be dropped
-            # server-side mid-backfill. On any exception the `with` rolls back/closes.
+            # server-side mid-backfill.
             with psycopg.connect(dsn) as conn:
                 result = forecast_day(
                     conn, D, run_id=args.run_id, horizon=args.horizon,
