@@ -1,33 +1,20 @@
-"""Commit 4 — one harness, every μ source, identical weeks.
+"""every μ source, one harness, identical weeks.
 
-The question this branch exists to answer is *does a covariate μ-model beat the
-naive baselines once you push it through the SF map*. That question is only
-meaningful if every contender is measured the same way, and the numbers we have
-been quoting are **not**:
+does a covariate μ-model beat the naive baselines once you push it through the
+SF map:
 
-  * the pivot table (oracle 0.746 / climatology 0.235 / persistence 0.173) was
-    measured by the frozen `experiments/sf_out_of_window` harness at
-    `window=60, λ=0.1` over 44 weeks of 2025;
-  * the adopted operating point is `window=240, λ=1` (0082 S1.5);
-  * the model scored 46 weeks, 2025-08-14 → 2026-06-25.
+Every source, oracle included, is re-measured here: same weeks, same SF fit,
+same metric functions, one loop. The only thing that varies from row to row is
+the μ matrix handed to the map.
 
-Different map, different weeks, different code. Quoting the model against those
-baselines would be comparing it to numbers produced by another experiment — the
-oldest way there is to manufacture a win. So **every** source, oracle included,
-is re-measured here: same weeks, same SF fit, same metric functions, one loop.
-The only thing that varies from row to row is the μ matrix handed to the map.
-
-The weeks are **taken from the predictions file**, not re-derived. The refit grid
-has already drifted twice in this branch (0085-summary, "Honest measurement"), and
-a misphased run does not crash — it quietly scores a different 46 weeks. Reading
-the grid off `mu_preds.npz` makes the misalignment unrepresentable rather than
-merely tested-for.
+The weeks are taken from the predictions file, not re-derived.
 
 The scoreboard uses rank-Spearman (cross-node, per hour), sign agreement (±$1
 deadband), and top-decile hit.
 
     docker compose run --rm compute python -m compute.evaluation.mu \
       --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_score_weekly.csv
+
 """
 from __future__ import annotations
 
@@ -37,13 +24,14 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.evaluation.sf import predict, row_spearman, sign_agreement, topdecile_hit
+from compute.evaluation.sf import predict
+from compute.metrics import row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.model.fit import implied_shift_factors
 
 log = logging.getLogger("compute.evaluation.mu")
 
-# The adopted operating point (0082 S1.5 / R1), single-sourced in
-# `compute.sf_map.config` so the μ forecast and the SF map cannot drift.
+# The adopted operating point single-sourced in `compute.sf_map.config` so the
+# μ forecast and the SF map cannot drift.
 from compute.sf_map.config import (  # noqa: E402
     MIN_HOURS, REFIT_DAYS, RIDGE_LAMBDA as LAM, RTC_B, WINDOW_DAYS,
 )
@@ -56,9 +44,7 @@ SOURCES = ["oracle", "model", "climatology", "persistence", "null"]
 # μ sources — the only thing that varies between rows
 # --------------------------------------------------------------------------
 # `mu_persistence` and `mu_climatology` are lifted verbatim from the frozen
-# `experiments/sf_out_of_window/common.py`, on the same principle as `sf/eval`'s
-# metric functions: the definitions must be the ones the pivot doc used, and this
-# module must not import from `experiments/`.
+# `experiments/sf_out_of_window/common.py`.
 
 def mu_persistence(M: pd.DataFrame, hours: pd.DatetimeIndex,
                    cols: pd.Index) -> pd.DataFrame:
@@ -133,14 +119,6 @@ def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
     """`sf/eval.topdecile_hit`, but it declines to score an hour whose prediction
     is flat across nodes.
 
-    This is not pedantry, it changed a number. `topdecile_hit` picks the top-k by
-    `argsort(-b)`, and on an all-zero row argsort breaks the ties by **array
-    index** — so the null source "identifies" the first 4 nodes in column order as
-    the worst, every hour, and scored **0.63** against a 0.10 chance rate on the
-    first fixture it met. That is a metric manufacturing skill out of tie-breaking.
-    `row_spearman` already skips flat rows (`np.ptp(b[m]) == 0`); this brings the
-    top-decile in line rather than letting the floor row of the table be a fiction.
-
     Kept local: `sf/eval` is shared with the sweep, and quietly changing a metric
     every other result in the repo was measured with is precisely the drift this
     branch keeps catching.
@@ -152,12 +130,8 @@ def topdecile_hit_defined(Y: np.ndarray, Yh: np.ndarray) -> float:
 
 
 def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """The scoreboard's screening currencies.
+    """The scoreboard's screening metrics.
 
-    A source that predicts a flat map (null) gets NaN in the screening currency,
-    not a chance-level score: it ranks nothing, and the honest report of a ranking
-    it cannot make is "undefined". The 0.10 chance rate is an analytic fact (k/n),
-    printed in the report as a reference line — not measured.
     """
     return {
         "rank_spearman": row_spearman(Y, Yh),
@@ -169,18 +143,9 @@ def score_matrix(Y: np.ndarray, Yh: np.ndarray) -> dict:
 def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
     """The scored weeks, **read off the model's own output**.
 
-    Deriving this grid is what went wrong twice. `mu_preds.npz` carries the weeks
-    the model actually scored; taking them verbatim is the only construction in
-    which "identical weeks" is a fact rather than a hope. If they are not a clean
-    weekly grid, that is a bug in the walk and this refuses to paper over it.
     """
     weeks = pd.DatetimeIndex(sorted(preds["week"].unique()))
     gaps = weeks.to_series().diff().dropna()
-    # **Phase**, not contiguity, is the thing. `walk_forward` legitimately skips a
-    # week with too few binders to train on, leaving a 14d hole — that week simply
-    # wasn't scored, and refusing the file over it would be wrong. A gap that is
-    # NOT a multiple of the refit period is the different, fatal thing: the grid
-    # slipped phase, and these are no longer the weeks anything else was scored on.
     off = gaps[(gaps % pd.Timedelta(days=REFIT_DAYS)) != pd.Timedelta(0)]
     if len(off):
         raise ValueError(
@@ -195,9 +160,10 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
                lam: float = LAM, extra_sources: bool = False) -> list[dict]:
     """One week, every source, one SF fit.
 
-    The fit is honest in the `sf/eval` sense: the window ends exactly where the
-    scored week begins, so no source — including oracle — is scored by a map that
-    has seen the week it is being graded on.
+    the window ends exactly where the scored week begins, so no source —
+    including oracle — is scored by a map that has seen the week it is being
+    graded on.
+
     """
     lo, hi = s - pd.Timedelta(days=window_days), s
     end = s + pd.Timedelta(days=refit_days)
@@ -218,9 +184,7 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
     M_score, C_score = M_score.loc[hours], C_score.loc[hours]
     cols = M_score.columns
 
-    # SF coverage: the scored week's |μ|-mass that the map has a column for. A
-    # miss caused by the map's blind spot (0084: 10–14%/wk) must not be charged
-    # to the forecast, so it travels next to the score, every week.
+    # SF coverage: the scored week's |μ|-mass that the map has a column for.
     mass_all = float(M_score.abs().to_numpy(float).sum())
     in_cols = cols.intersection(SF.index)
     sf_coverage = (float(M_score[in_cols].abs().to_numpy(float).sum()) / mass_all
@@ -242,8 +206,7 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
     if extra_sources:
         # Diagnostic, not a plan source: head 1 × head 2's *climatology* arm.
         # It isolates what the GBM severity head is worth once the map has had
-        # its say — head 2 won on μ-MAE 26.8 vs 46.4, but the map is a linear
-        # operator and a win upstream is not automatically a win downstream.
+        # its say.
         srcs["model_clim"] = mu_from_preds(week_preds, hours, cols, "mu_clim")
 
     Y = C_score[SF.columns].to_numpy(float)

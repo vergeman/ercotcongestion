@@ -1,41 +1,33 @@
-"""Honest out-of-window evaluation of an SF configuration — the production
-home of what ``experiments/sf_out_of_window`` proved as one-offs.
+"""Evaluate an SF configuration on later, held-out weeks.
 
-The production map fit uses ``window_end = score_end``: the
-fit window CONTAINS the week it scores, giving an in-sample R2 ~0.986. This
-module fits on the trailing window ending STRICTLY BEFORE the scored week
-(``window_end = refit_start``) and scores the next ``refit_days`` from realized
-mu (oracle). That isolates the SF map from any bind-forecasting skill — it is
-the ceiling, ~0.746, not 0.986.
+Each fit uses the trailing window before the week it scores. Scoring uses
+realized μ, so these results measure the map itself, not μ forecasting.
 
 ``evaluate`` walks the refits once and returns one row per scored week with:
 
-  * ``oos_pooled_r2``   — honest OOS pooled R2, oracle mu (the ceiling)
+  * ``oos_pooled_r2``   — held-out pooled R² using realized μ
   * ``rank_spearman``   — mean cross-node rank correlation, per hour
   * ``sign_agree``      — sign match, ±$1 deadband, per node-hour
   * ``topdecile_hit``   — worst-decile nodes the map also flags worst
   * ``coverage``        — scored-week mu-mass with a fitted SF column
-  * ``sf_stability``    — corr over DISJOINT adjacent windows (not the
-                          overlap-contaminated 0.90; the honest ~0.47)
-  * ``is_pooled_r2``    — the in-sample number, for side-by-side
+  * ``sf_stability``    — SF correlation between adjacent, non-overlapping windows
+  * ``is_pooled_r2``    — fit-window pooled R² for comparison
 
-With ``rho_min`` (S2 / plan 0083) the fit's unit becomes the collinear *group*
-rather than the individual constraint, and three more columns appear:
+With ``rho_min`` the fit's unit becomes the collinear *group* rather than the
+individual constraint, and three more columns appear:
 
   * ``n_groups``          — groups the window's constraints collapsed into
-  * ``group_churn``       — membership Jaccard vs the previous window
-  * ``sf_stability_proj`` — (``--control``) the ungrouped SF projected into the
-                            group row-space: the apples-to-apples drift baseline
-                            R3 is judged against
+  * ``group_churn``       — how much group membership changes from the prior window
+  * ``sf_stability_proj`` — (``--control``) the ungrouped SF expressed as groups
 
-One reusable pass: ``sweep_sf`` (S1.4) selects on these, and ``--persist-eval``
-(S1.3) writes ``oos_r2``/``coverage``/``sf_stability`` into ``sf_window_meta``.
+``--persist-eval`` writes ``oos_r2``/``coverage``/``sf_stability`` into
+``sf_window_meta``.
 
-The pure metric fns are lifted (not imported) from the frozen harness so this
-kept module carries no dependency on ``experiments/``.
+Metric helpers are copied here so this module does not depend on ``experiments/``.
 
     docker compose run --rm compute \
       python -m compute.evaluation.sf --run-id <id> --start 2025-01-01 --end 2026-01-01
+
 """
 from __future__ import annotations
 
@@ -48,7 +40,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psycopg
-from scipy.stats import rankdata
 
 from shared.settings import settings
 from compute.sf_map.config import (
@@ -61,63 +52,13 @@ from compute.sf_map.model.grouping import (
     aggregate_mu, constraint_linkage, cut_groups, group_members, project_sf,
 )
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
+from compute.metrics import r2, row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
 
 log = logging.getLogger("compute.evaluation.sf")
 
 BASE_DIR = Path(__file__).parent
 RUNS_ROOT = BASE_DIR.parent / "runs"
-
-# DEFAULT_WINDOW_DAYS / DEFAULT_REFIT_DAYS: the adopted operating point, imported
-# from `compute.sf_map.config` above (single-sourced with the μ forecast + map runner).
-SIGN_DEADBAND = 1.0   # $/MWh — ignore congestion-quiet node-hours
-
-
-# --------------------------------------------------------------- metric fns
-# Lifted verbatim from experiments/sf_out_of_window (common.py,
-# screening_and_coverage.py) so results stay directly comparable.
-
-def r2(y: np.ndarray, y_hat: np.ndarray) -> float:
-    m = np.isfinite(y) & np.isfinite(y_hat)
-    y, y_hat = y[m], y_hat[m]
-    if y.size < 2:
-        return float("nan")
-    ss_tot = float(((y - y.mean()) ** 2).sum())
-    if ss_tot <= 0.0:
-        return float("nan")
-    return 1.0 - float(((y - y_hat) ** 2).sum()) / ss_tot
-
-
-def row_spearman(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    out = []
-    for a, b in zip(Y, Y_hat):
-        m = np.isfinite(a) & np.isfinite(b)
-        if m.sum() < 10 or np.ptp(a[m]) == 0 or np.ptp(b[m]) == 0:
-            continue
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out.append(np.corrcoef(rankdata(a[m]), rankdata(b[m]))[0, 1])
-    return float(np.mean(out)) if out else float("nan")
-
-
-def sign_agreement(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    m = np.isfinite(Y) & np.isfinite(Y_hat) & (np.abs(Y) > SIGN_DEADBAND)
-    if m.sum() == 0:
-        return float("nan")
-    return float((np.sign(Y[m]) == np.sign(Y_hat[m])).mean())
-
-
-def topdecile_hit(Y: np.ndarray, Y_hat: np.ndarray) -> float:
-    out = []
-    for a, b in zip(Y, Y_hat):
-        m = np.isfinite(a) & np.isfinite(b)
-        n = int(m.sum())
-        if n < 20:
-            continue
-        k = max(1, n // 10)
-        top_true = set(np.argsort(-a[m])[:k])
-        top_pred = set(np.argsort(-b[m])[:k])
-        out.append(len(top_true & top_pred) / k)
-    return float(np.mean(out)) if out else float("nan")
 
 
 def predict(M_score: pd.DataFrame, SF: pd.DataFrame) -> np.ndarray:
@@ -136,16 +77,11 @@ def _sf_corr(A: pd.DataFrame, B: pd.DataFrame) -> float:
 
 
 def _membership_churn(prev: pd.Series | None, cur: pd.Series | None) -> float:
-    """Mean membership Jaccard over group keys present in both windows.
+    """Average overlap of shared groups' members across two windows.
 
-    Groups are named for their dominant member (`grouping.cut_groups`), so a key
-    survives across refits while its heaviest constraint does. This measures
-    whether the *thing behind the name* held still: 1.0 = identical membership,
-    lower = the group absorbed or shed constraints. Keys that appear or vanish
-    entirely are not counted here — `n_groups` already tracks that.
-
-    The node explorer joins on these keys across refits, so churn is the metric
-    that says whether dominant-member naming is stable enough to build on.
+    Groups are named after their largest member. A score of 1 means every shared
+    group has the same members; lower scores mean members were added or removed.
+    New or removed groups are reported separately by ``n_groups``.
     """
     if prev is None or cur is None or prev.empty or cur.empty:
         return float("nan")
@@ -174,30 +110,12 @@ def evaluate(
     score_from: pd.Timestamp | None = None,
     refit_origin: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """One row per scored week. M, C need NOT be pre-aligned.
+    """Return one row per scored week. M and C do not need matching indexes.
 
-    ``score_from`` skips refit boundaries before it *without fitting them*. The
-    caller must still hand in the warmup history behind it (2×window for the
-    disjoint-stability pair) — this drops the weeks that history exists to serve,
-    not the history. Trimming the returned frame instead pays for ~`window_days`
-    of fits per combo and throws them away; at a 240d window that is ~34 wasted
-    weeks. Only ``group_churn`` on the first scored week differs (NaN rather than
-    a comparison against a discarded warmup week); every other column is
-    unchanged.
-
-    ``rho_min`` (S2 / plan 0083) switches the fit's unit from the individual
-    constraint to the collinear *group*. Also emits ``n_groups`` and
-    ``group_churn``.
-
-    ``control`` additionally fits the ungrouped SF on the same two windows and
-    projects it into the group row-space, giving ``sf_stability_proj`` — the
-    apples-to-apples baseline for R3. Roughly doubles the cost, so it is off by
-    default: the rho sweep does not need it, the head-to-head does.
-
-    ``linkage_cache`` memoizes each window's clustering tree by its bounds. The
-    tree depends only on the window, not on ``rho_min``/``lam``/``min_hours``,
-    so a sweep over thresholds at a fixed window should pass one shared dict and
-    build each tree once instead of once per combo.
+    ``score_from`` skips earlier scores but retains their required history.
+    ``rho_min`` fits groups of closely related constraints and adds group counts.
+    ``control`` also calculates the ungrouped comparison; it roughly doubles work.
+    Pass ``linkage_cache`` to reuse each window's grouping tree across a sweep.
     """
     idx = M.index.union(C.index).sort_values()
     M, C = M.reindex(idx).fillna(0.0), C.reindex(idx)
@@ -240,9 +158,8 @@ def evaluate(
         if not len(i):
             return (np.nan,) * 4
         Ms = Ms.loc[i]
-        # Score through the fit's own labels — a constraint that first appears
-        # in the scored week has no group and no SF column, which is precisely
-        # the novel mass `coverage` reports.
+        # Use the fit's groups. New scored-week constraints have no fitted group
+        # and are counted as uncovered by ``coverage``.
         if labels is not None:
             Ms = aggregate_mu(Ms, labels)
             if Ms.empty:
@@ -252,13 +169,8 @@ def evaluate(
         return (r2(Y.ravel(), Yh.ravel()), row_spearman(Y, Yh),
                 sign_agreement(Y, Yh), topdecile_hit(Y, Yh))
 
-    # First refit needs a full trailing window behind it. The refit grid is
-    # anchored at days[0] + win regardless of `score_from`, so the scored weeks
-    # land on the same boundaries whether or not the warmup is skipped.
-    # Normally the first panel day fixes the grid.  Chunked callers pass the
-    # original grid anchor explicitly: their per-chunk read margin begins
-    # earlier than a score boundary, but the resulting rows must remain exactly
-    # phase-aligned with an equivalent single full-history evaluation.
+    # Keep a fixed refit grid when skipped warmup or chunked loading changes the
+    # first loaded day.
     origin = (pd.Timestamp(refit_origin) if refit_origin is not None
               else days[0] + win)
     starts = pd.date_range(origin, end_day, freq=refit, inclusive="left")
@@ -279,30 +191,23 @@ def evaluate(
                      k, len(starts), s.date())
         score_end = min(s + refit, end_day + day)
 
-        # HONEST fit: window ends where scoring begins. This is also the
-        # "newer" window for the disjoint-stability pair — fit once, reuse.
+        # Fit on the window before the scored week; reuse it for stability.
         SF, labels = fit(s - win, s)
         if SF.empty:
             continue
         oos_r2, spearman, sign, topdec = score(s, score_end, SF, labels)
 
-        # IN-SAMPLE fit: window ends where scoring ends (contains the week).
+        # Comparison fit whose window includes the scored week.
         SF_pipe, lab_pipe = fit(score_end - win, score_end)
         is_r2, *_ = score(score_end - win, score_end, SF_pipe, lab_pipe)
 
-        # DISJOINT stability: the older window vs the honest (newer) one. The
-        # two share no hours, so this is the real refit-to-refit drift — and at
-        # a fixed window length it compares directly across arms. NaN until
-        # 2×window of history sits behind s.
+        # Compare two adjacent, non-overlapping fit windows. Early weeks lack
+        # enough history and return NaN.
         SF_older, lab_older = fit(s - 2 * win, s - win)
         stability = (_sf_corr(SF_older, SF) if not SF_older.empty
                      else float("nan"))
 
-        # FAIR-DRIFT CONTROL: the ungrouped fit on those same two windows,
-        # projected into each window's group row-space. Comparing a grouped SF
-        # against a raw ungrouped SF would credit grouping for merely being a
-        # smaller matrix; this holds the object fixed and varies only whether
-        # the ridge saw the block as one column or many.
+        # Optional ungrouped comparison, expressed using each window's groups.
         stability_proj = float("nan")
         if control and rho_min is not None and labels is not None:
             SF_u, _ = fit(s - win, s, grouped=False)
@@ -314,9 +219,7 @@ def evaluate(
                 proj_old = project_sf(SF_u_older, group_members(M_old, lab_older))
                 stability_proj = _sf_corr(proj_old, proj_new)
 
-        # COVERAGE: scored-week mu-mass carried by fitted (kept) columns. Always
-        # measured against the RAW panel, so grouped and ungrouped denominators
-        # are the same quantity.
+        # Share of scored-week μ mass represented by fitted columns.
         M_score = M.loc[(M.index >= s) & (M.index < score_end)]
         if labels is not None:
             kept = {c for c, g in labels.items() if g in set(SF.index)}
@@ -327,11 +230,8 @@ def evaluate(
         mass_in = float(M_score[cov_cols].abs().to_numpy(float).sum())
         coverage = mass_in / mass_all if mass_all > 0 else np.nan
 
-        # Support counts, defined the SAME way in both arms or the compression
-        # ratio is nonsense: `n_constraints` = constraints that bind at all in
-        # the fit window (NOT every column of M, most of which are quiet, and
-        # NOT the post-`min_hours` survivors); `n_groups` = what those collapse
-        # into; `n_kept` = rows the ridge actually estimated, after `min_hours`.
+        # Count active constraints, their groups, and the rows kept after the
+        # minimum-binding-hours filter.
         M_win = M.loc[(M.index >= s - win) & (M.index < s)]
         active = M_win.columns[(M_win != 0).any()]
         rows.append({
@@ -379,16 +279,8 @@ def evaluate_chunked(
     refit_days: int = DEFAULT_REFIT_DAYS,
     **evaluate_kwargs,
 ) -> pd.DataFrame:
-    """Load, evaluate, and release bounded history chunks.
-
-    Each chunk includes two trailing fit windows for the disjoint-stability
-    metric plus one prior refit.  The latter preserves the first kept week's
-    group-churn value.  ``refit_origin`` pins every chunk to the same weekly
-    grid as the legacy full-panel run, so this is a memory-only change.
-    """
-    # The legacy full-panel invocation starts one fit window before the
-    # user-facing score range. Keep that leading row: it is deliberately used
-    # by --persist-eval to backfill the week that meets the requested boundary.
+    """Evaluate bounded chunks while retaining the history each score needs."""
+    # Keep one leading score so ``--persist-eval`` can update the boundary week.
     first_score = score_from - pd.Timedelta(days=window_days)
     windows = eval_chunks(first_score, end, refit_days, chunk_weeks)
     if not windows:
@@ -399,9 +291,7 @@ def evaluate_chunked(
     origin = first_score
     parts: list[pd.DataFrame] = []
     for n, (chunk_start, chunk_end) in enumerate(windows, start=1):
-        # Later chunks retain one preceding boundary to seed group churn.  The
-        # first chunk deliberately matches the legacy read floor, where that
-        # leading score has no disjoint predecessor.
+        # Later chunks include the prior score to calculate group churn.
         is_first = n == 1
         read_start = chunk_start - 2 * win - (pd.Timedelta(0) if is_first else refit)
         log.info("eval chunk %d/%d: scores [%s, %s), reads [%s, %s)",
@@ -425,8 +315,7 @@ def evaluate_chunked(
                 parts.append(df)
         finally:
             del M, C
-            # A grouping linkage cache can be very large; it only helps within
-            # a chunk and must not grow back into a full-history allocation.
+            # The grouping cache is only useful within one chunk.
             cache = evaluate_kwargs.get("linkage_cache")
             if cache is not None:
                 cache.clear()
@@ -447,15 +336,10 @@ def sf_decay(
     rho_min: float | None = None,
     linkage_cache: dict | None = None,
 ) -> pd.DataFrame:
-    """SF drift curve: ``corr(SF_t, SF_{t+Δ})`` vs lag Δ.
+    """Return SF correlation by time lag, with one row per requested lag.
 
-    Fits the honest SF once per weekly anchor (window ending at the anchor),
-    then correlates pairs Δ apart — reusing every fit across all Δ. One row per Δ.
-
-    **Δ must be able to reach ``window_days``.** Below that the two fits share
-    hours — at Δ=60 on a 240d window they overlap 75%, so the number is mostly
-    overlap, not drift. Only Δ ≥ window gives a genuinely disjoint pair. The
-    caller picks the grid; ``--deltas`` on the CLI exists for exactly this.
+    Fits are reused across lags. Use a lag at least as long as the fit window
+    when the two windows must not overlap.
     """
     idx = M.index.union(C.index).sort_values()
     M, C = M.reindex(idx).fillna(0.0), C.reindex(idx)
@@ -494,7 +378,7 @@ def sf_decay(
         delta = pd.Timedelta(days=D)
         corrs: list[float] = []
         for a in keys:
-            # nearest anchor to a+Δ, within half a step
+            # Use the nearest scheduled anchor.
             target = a + delta
             j = keys.get_indexer([target], method="nearest")[0]
             a2 = keys[j]
@@ -563,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.chunk_weeks < 0:
         p.error("--chunk-weeks must be non-negative")
 
-    # One tree per window, shared by evaluate and sf_decay.
+    # Reuse grouping trees across evaluation and decay.
     linkage_cache: dict = {}
     if args.chunk_weeks:
         score_from = pd.Timestamp(args.start, tz="UTC")
@@ -584,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         panel_tz = score_from.tz
     else:
-        # Legacy full-panel path, useful for one-off numerical comparisons.
+        # Full-panel option for one-off comparisons.
         read_start = args.start - timedelta(days=2 * args.window_days)
         log.info("loading panels: read=[%s, %s), score=[%s, %s)",
                  read_start, args.end, args.start, args.end)
@@ -600,9 +484,7 @@ def main(argv: list[str] | None = None) -> int:
                            rho_min=args.rho_min, control=args.control,
                            linkage_cache=linkage_cache)
         panel_tz = M.index.tz
-    # Keep only scored weeks in the requested range for display/CSV (the read
-    # window pulled extra warmup history). df_full drives the meta backfill so
-    # the week straddling `start` is matched too.
+    # Display requested weeks only; retain the leading row for metadata updates.
     start_ts = pd.Timestamp(args.start, tz=panel_tz)
     df = df_full[df_full["score_start"] >= start_ts].reset_index(drop=True)
     if df.empty:
@@ -668,8 +550,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.emit_decay:
         if args.chunk_weeks:
-            # Decay compares fits across the whole history, so it intentionally
-            # uses the legacy panel once when explicitly requested.
+            # Decay needs the full history.
             read_start = args.start - timedelta(days=2 * args.window_days)
             log.info("loading full panel for requested decay: [%s, %s)",
                      read_start, args.end)
