@@ -34,6 +34,8 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
         "scoreboard_oracle_settled_mu_nodal",
     }
     assert {point.series_id for point in daily.points} == {"model", "persistence", "oracle"}
+    assert all("source" not in point.model_dump() for point in daily.points)
+    assert "primary_source" not in daily.model_dump()
     assert {source.id for source in daily.sources} == {
         "scoreboard_model_served_nodal", "scoreboard_persistence_prior_day_nodal",
         "scoreboard_climatology_trailing_window_nodal", "scoreboard_oracle_settled_mu_nodal",

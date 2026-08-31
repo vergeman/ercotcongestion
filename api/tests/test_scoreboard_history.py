@@ -42,6 +42,8 @@ def test_history_orders_weekly_points_before_final_served_points(fake_pool):
     assert history.weekly_run_id == "walk-v1"
     assert history.daily_run_id == "served-v2"
     assert history.boundary_date == date(2026, 7, 18)
+    assert all("source" not in point.model_dump() for point in history.points)
+    assert "primary_source" not in history.model_dump()
     assert [(p.cadence, p.week, p.delivery_date) for p in history.points] == [
         ("backtest_weekly", date(2026, 7, 4), None),
         ("backtest_weekly", date(2026, 7, 11), None),
