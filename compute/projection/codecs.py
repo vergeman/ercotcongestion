@@ -1,4 +1,12 @@
-"""On-disk codecs and read-time helpers for SF projection artifacts."""
+"""On-disk codecs and read-time helpers for SF projection artifacts.
+
+encode/decode the nodal panel and the per-day SF+μ blob, and explain a node's
+price. Imported by the forecast/backfill jobs, ``compute.forecast_store``, and
+the API read path.
+
+These classes get imported into daily_forecast.py.
+
+"""
 from __future__ import annotations
 
 import io
@@ -7,7 +15,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-
+#
+# Nodal Panel
+#
 @dataclass
 class NodalPanel:
     """One window's ragged settlement-point forecast grid."""
@@ -24,9 +34,19 @@ def _epoch_us(idx) -> np.ndarray:
         di = di.tz_convert("UTC").tz_localize(None)
     return di.to_numpy("datetime64[us]").astype("int64")
 
+#
+# Nodal Accuumlator
+3
 
 class _NodalAccumulator:
-    """Stream ragged panels to the flat vocab-coded nodal artifact."""
+    """Stream ragged panels to the flat vocab-coded nodal artifact.
+
+    "Vocab" = the list of unique labels (settlement points, constraint keys).
+    Each row stores a small integer *code* into that list instead of the
+    string, so millions of rows over ~1,120 points cost a 4-byte code plus one
+    shared table rather than a repeated string. Decode is ``vocab[code]``.
+
+    """
     def __init__(self) -> None:
         self._sp_code: dict[str, int] = {}
         self._buf: dict[str, list[np.ndarray]] = {
@@ -69,6 +89,9 @@ def load_nodal(path: str) -> pd.DataFrame:
         "week": pd.to_datetime(z["week"], unit="us", utc=True)})
 
 
+#
+# SfMu Artifact
+#
 @dataclass
 class SfMuArtifact:
     """A day's SF matrix and expected μ values on the same constraint vocabulary."""

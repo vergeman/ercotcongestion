@@ -1,7 +1,13 @@
 """Deterministic SF projection: ``point = −(E_mu · SF)``.
 
-The serving and historical-backfill paths share this point-only projection. It
-owns no database writes; runners in ``compute.jobs`` handle persistence.
+``propagate_window`` is the main function that turns a window's expected μ into
+the nodal point forecast. Imported by ``daily_forecast``, ``backfill_nodal``,
+and the one-off``mu_forecast.model.backtest``.
+
+This houses the actual forecasts:
+  1. E_mu = p_bind * mu_gbm
+  2. point = -(E_mu  @ SF)
+
 """
 from __future__ import annotations
 
