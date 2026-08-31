@@ -1,27 +1,14 @@
-"""Hyperparameter sweep over (window, refit, ridge-λ), ranked on OOS metrics.
+"""Try every combination of (window, refit, ridge-λ) and rank them on held-out
+accuracy.
 
-Selection target changed (S1.4): the old sweep sorted on ``bp_max`` and reported
-in-sample ``mean_r2`` — an in-sample DOF curve, monotone in ``n_kept``, i.e.
-cosmetics. The config was never picked against anything held out. This version
-ranks on the honest out-of-window metrics from ``compute.evaluation.sf`` (default the
-oracle-μ pooled R², the SF map's ceiling), so the operating point is chosen on
-what the pivot actually needs.
+After ranking, it prints a drift curve for the winner: how strongly today's SF
+still correlates with the SF Δ days later, out to Δ = window. (Below the window
+the two fits share hours, so the curve would measure overlap, not real drift.)
 
-Architecture change: panels are loaded from Postgres ONCE and every combo is
-scored in-process via ``eval.evaluate`` (was: a fresh ``runner`` subprocess +
-DB re-query per combo). With the grid the pivot mandates — window ∈
-{60,120,240,365}, refit ∈ {7,14}, λ across its effective range — reloading a
-multi-year panel per combo was the dominant cost.
-
-After ranking, the SF drift curve ``corr(SF_t, SF_{t+Δ})`` is emitted for the
-winning config, out to Δ = window (below that the fits overlap and the curve
-measures overlap, not drift).
-
-``--rho-min`` (S2 / plan 0083) adds the collinear-grouping axis. Put ``none`` in
-the grid to sweep the ungrouped arm alongside the grouped ones, so the baseline
-is measured on identical weeks and panels rather than quoted from another run.
-``--control`` adds ``sf_stability_proj``, the projected-ungrouped baseline that
-R3's stability bar is actually judged against.
+``--rho-min`` adds the collinear-grouping axis. Put ``none`` in the grid to
+score the ungrouped baseline in the same run, on identical weeks and panels,
+rather than quoting it from another run. ``--control`` adds the fair baseline
+the grouping stability bar is judged against.
 
     docker compose run --rm compute \\
       python -m compute.experiments.sf.sweep \\
@@ -30,6 +17,7 @@ R3's stability bar is actually judged against.
         [--ridge-lambda 0.1,1,10,100,1000] [--rank-by oos_pooled_r2] \\
         [--rho-min none,0.7,0.8,0.9 --control] \\
         [--out /compute/runs/experiments/sf/sf_sweep_summary.csv]
+
 """
 from __future__ import annotations
 
@@ -47,8 +35,8 @@ from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.sweep")
 
-# Grids the pivot mandates: window/refit/λ across their effective ranges.
-# λ old default 0.1 vs XᵀX diag ≈1440 — decorative; extend up to where it bites.
+# Values to sweep for each setting. The old λ default of 0.1 was tiny next to the
+# numbers it smooths (~1440), so it did nothing — extend it up to where it bites.
 DEFAULT_WINDOW_DAYS = "60,120,240,365"
 DEFAULT_REFIT_DAYS = "7,14"
 DEFAULT_RIDGE_LAMBDA = "0.1,1,10,100,1000"
@@ -56,7 +44,8 @@ DEFAULT_STD_FLOOR = "100"
 DEFAULT_MIN_BINDING_HOURS = "25"
 DEFAULT_RHO_MIN = "none"
 
-# Means reported per combo; ranked on --rank-by. Higher is better for all.
+# Metrics reported per combo (averaged over weeks); --rank-by picks the sort.
+# Higher is better for all.
 METRIC_COLS = [
     "oos_pooled_r2", "is_pooled_r2", "rank_spearman", "sign_agree",
     "topdecile_hit", "coverage", "sf_stability", "sf_stability_proj",
@@ -74,7 +63,7 @@ def _floats(csv: str) -> list[float]:
 
 def _rhos(csv: str) -> list[float | None]:
     """``none`` is the ungrouped arm — the baseline every grouped row is judged
-    against, swept in the same pass so it sees identical weeks and panels."""
+    against, swept in the same run so it sees identical weeks and panels."""
     out: list[float | None] = []
     for tok in csv.split(","):
         tok = tok.strip()
@@ -89,7 +78,7 @@ def _parse_date(s: str) -> date:
 
 
 def _summarize(df: pd.DataFrame) -> dict:
-    """Mean each metric over the scored weeks; median n_kept."""
+    """Average each metric over the scored weeks; median kept-column count."""
     out = {c: float(df[c].mean()) for c in METRIC_COLS}
     out["median_n_kept"] = float(df["n_kept"].median())
     out["n_weeks"] = int(len(df))
@@ -113,11 +102,10 @@ def main(argv: list[str] | None = None) -> int:
                         "baseline from the same weeks and panels.")
     p.add_argument("--control", action="store_true",
                    help="Also emit sf_stability_proj per grouped combo: the "
-                        "ungrouped SF projected into that combo's group "
-                        "row-space. This is the baseline R3's stability bar is "
-                        "measured against — a raw grouped-vs-ungrouped delta "
-                        "would credit grouping for merely being a smaller "
-                        "matrix. ~2x cost.")
+                        "ungrouped SF measured at the same group level. This is "
+                        "the fair baseline the stability bar is judged against — "
+                        "comparing grouped straight to ungrouped would reward "
+                        "grouping just for having fewer rows. ~2x cost.")
     p.add_argument("--per-week-out", type=str, default=None,
                    help="Also write the per-week rows for every combo (needed "
                         "for the pre/post-RTC+B split).")
@@ -132,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
+    #
+    # params
+    #
     windows = _ints(args.window_days)
     refits = _ints(args.refit_days)
     lambdas = _floats(args.ridge_lambda)
@@ -144,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         for sf in floors for mh in min_hours_list for rho in rhos
     ]
 
-    # Load panels ONCE, with enough warmup behind `start` for the largest
-    # window's disjoint-stability pair (2×window). evaluate/sf_decay reindex.
+    # Load panels ONCE, reaching back far enough before `start` to fit the two
+    # non-overlapping windows the stability metric compares (2×window).
     read_start = args.start - timedelta(days=2 * max(windows))
     log.info("loading panels once: read=[%s, %s), %d combos",
              read_start, args.end, len(combos))
@@ -160,22 +151,24 @@ def main(argv: list[str] | None = None) -> int:
     start_ts = pd.Timestamp(args.start, tz=M.index.tz)
     day = pd.Timedelta(days=1)
 
-    # One clustering tree per (window bounds), reused across every rho in the
-    # grid — the tree depends on the window, not on the threshold. Without this
-    # the sweep rebuilds a ~4,000-column correlation per rho per refit and the
-    # rho axis alone would dominate the runtime.
+    # Build the clustering tree once per window and reuse it for every rho: the
+    # tree depends on the window, not the threshold. Without this, each rho
+    # would rebuild a ~4,000-column correlation per refit and dominate the
+    # runtime.
     linkage_cache: dict = {}
 
     rows: list[dict] = []
     per_week: list[pd.DataFrame] = []
     for i, (w, r, lam, floor, mh, rho) in enumerate(combos, 1):
-        # Trim to this window's warmup so small windows don't fit the whole
-        # loaded history (compute stays proportional to the window).
+        # Trim to what this window needs so small windows don't scan the whole
+        # loaded history (keeps the work proportional to the window).
         lo = start_ts - 2 * w * day
         Mc = M.loc[M.index >= lo]
         Cc = C.loc[C.index >= lo]
         log.info("[%d/%d] window=%d refit=%d λ=%g floor=%g min_hours=%d rho=%s",
                  i, len(combos), w, r, lam, floor, mh, rho)
+
+        # acts as runner: calls fit, implied_shift_factors in evaluate()
         df = evaluate(Mc, Cc, window_days=w, refit_days=r, lam=lam,
                       min_hours=mh, standardize=True, std_floor=floor,
                       rho_min=rho, control=args.control and rho is not None,
@@ -214,8 +207,8 @@ def main(argv: list[str] | None = None) -> int:
         w = int(top.window_days)
         lo = start_ts - 2 * w * day
         rho = None if top.rho_min == "ungrouped" else float(top.rho_min)
-        # Δ must reach the window: below it the two fits share hours and the
-        # curve reports overlap, not drift.
+        # dleta time gap: must reach the window: any shorter and the two fits
+        # share hours, so the curve would report overlap, not real drift.
         deltas = tuple(sorted({7, 14, 30, 60, w}))
         decay = sf_decay(M.loc[M.index >= lo], C.loc[C.index >= lo],
                          window_days=w, deltas_days=deltas,

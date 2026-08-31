@@ -1,8 +1,5 @@
 """The gate: is the SF map worth what the pipeline says it is?
 
-`plan/version2-pivot.md` sec 5 calls the out-of-window SF test "the gate" and
-leaves it unrun. It is run here.
-
 Fit SF on the trailing 60d ending STRICTLY BEFORE the scored week, predict the
 next 7d from REALIZED mu. This isolates SF stability from any bind-forecasting
 skill -- it is the ceiling the forecast product can never exceed, because it
@@ -13,6 +10,7 @@ window containing the scored week (see `common.py` docstring).
 
     docker compose run --rm compute \
       python -m compute.experiments.sf_out_of_window.oos_gate
+
 """
 from __future__ import annotations
 

@@ -1,23 +1,28 @@
-"""R3 verdict: does collinear grouping buy refit stability, and at what cost?
+"""Does collinear grouping make the SF fit steadier, and at what cost?
 
-Reads the per-week rows emitted by ``sweep_sf --per-week-out`` and scores each
-grouped arm against the **pre-registered bars** in plan/0083 — which were fixed
-before the numbers were seen and are not to be edited after (handoff §10).
+Reads the per-week rows from ``sweep_sf --per-week-out`` and scores each
+grouped arm.
 
-  Pass (stability): sf_stability rises >= +0.10 over sf_stability_proj — the
-    ungrouped SF projected into the SAME group row-space. Not over the raw
-    ungrouped SF: a grouped matrix has fewer, better-conditioned rows and would
-    look steadier for that reason alone, which would be a measurement artifact
-    rather than a finding.
+Stability is correlation between two SF maps side by side (non-overlapping
+periods.) Stable means no change. Stability is the correlation between these
+two maps. High correlation means they move together, so stable. 0 correlation,
+means he map jumps / drifts.
+
+This file reads output from sweep.py for sf_stability, and sf_stability_proj.
+
+  Pass test (stability): sf_stability rises >= +0.10 over the projected
+    ungrouped SF measured at the same group level.
+
   Guard (accuracy): rank_spearman / sign_agree / topdecile_hit each within 0.01
-    of the ungrouped arm, and oos_pooled_r2 within 0.02. Grouping may not buy
-    stability by destroying locality.
+    of the ungrouped arm, and oos_pooled_r2 within 0.02. Grouping isn't allowed
+    to buy steadiness at expense of where the congestion actually is.
 
 Everything is also split pre/post the RTC+B cutover: DAM virtual AS
 can move the mu patterns, so a number pooled across it hides a regime change.
 
     docker compose run --rm compute python -m compute.experiments.sf.grouping_verdict \\
       --per-week /compute/runs/experiments/sf/sf_sweep_grouping_weekly.csv
+
 """
 from __future__ import annotations
 
@@ -27,9 +32,9 @@ import pandas as pd
 
 from compute.sf_map.config import RTC_B
 
-STABILITY_BAR = 0.10          # absolute rise over the projected control
-GUARD_SCREENING = 0.01        # spearman / sign / top-decile
-GUARD_R2 = 0.02               # pooled R2
+STABILITY_BAR = 0.10          # required rise over the fair baseline
+GUARD_SCREENING = 0.01        # accuracy may slip at most this much
+GUARD_R2 = 0.02               # pooled R2 may slip at most this much
 
 SCREENING = ["rank_spearman", "sign_agree", "topdecile_hit"]
 
@@ -99,9 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     v = verdict(weekly)
     passed = v[v["PASS_stability"] & v["PASS_guard"]]
     print(f"\n{'=' * 70}")
-    print(f"PRE-REGISTERED BARS: stability delta >= +{STABILITY_BAR:.2f} over the "
-          f"projected control;\n  screening within {GUARD_SCREENING:.2f} and "
-          f"pooled R2 within {GUARD_R2:.2f} of ungrouped.")
+    print(f"PRE-REGISTERED BARS: stability up >= +{STABILITY_BAR:.2f} over the "
+          f"fair baseline;\n  accuracy within {GUARD_SCREENING:.2f} and pooled R2 "
+          f"within {GUARD_R2:.2f} of ungrouped.")
     if passed.empty:
         best = v.loc[v["delta"].idxmax()]
         print(f"\nR3 = FAIL. Best arm rho_min={best.rho_min}: stability "

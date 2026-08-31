@@ -1,37 +1,29 @@
 """The ablation — one panel, one harness, five arms.
 
-plan/0088 commit 5.
+**The rule this file exists to enforce: the ONLY thing that varies between rows
+of the output table is the feature set. Everything else — the panel, the weeks,
+the SF map, the operating point `(240, 7, λ=1)`, the metric functions — is held
+fixed, by construction:
 
-**The rule this file exists to enforce: the ONLY thing that varies between rows of
-the output table is the feature set.** Everything else — the panel, the weeks, the SF
-map, the operating point `(240, 7, λ=1)`, the metric functions — is held fixed, by
-construction rather than by care:
+  * the panel is built **once**, here, with every arm's columns present, and
+    each arm is a **column mask** over that one object
+    (`mu_model.feature_cols`). Rebuilding it per arm would leave five
+    separately-constructed panels whose differences are not *guaranteed* to be
+    only the arm.
 
-  * the panel is built **once**, here, with every arm's columns present, and each arm
-    is a **column mask** over that one object (`mu_model.feature_cols`). Rebuilding it
-    per arm would leave five separately-constructed panels whose differences are not
-    *guaranteed* to be only the arm;
-  * scoring goes through **`compute.evaluation.mu`, unchanged and unimported-around**.
-    The whole reason 0085's numbers are trustable is that there is exactly one
-    harness, and 0088 does not get to write a second one;
-  * the baselines (oracle, persistence, climatology, null) do not depend on the arm at
-    all — so they are **asserted identical across arms** rather than assumed. If
-    persistence moves between two arms, something is wrong with the harness and the
-    whole table is void. That check has teeth: it is the cheapest possible detector
-    of the class of bug that has bitten this project twice (a drifting refit grid).
+  * scoring goes through **`compute.evaluation.mu`, unchanged and
+    unimported-around** - there is exactly one harness.
 
-**Read the result against `plan/s6-gate.md`, which was written before any of these
-numbers existed.** Two bars, and they are different questions:
-
-  * **existence** — beat persistence (top-decile **0.561**);
-  * **product (§5.5)** — top-decile **≥ 0.60**.
-
-Persistence's own top-decile is *below* the product bar, so an arm can win the
-existence test, absorb persistence entirely, and **still not ship a product**. The
-report prints both bars next to every arm so that reading is unavoidable.
+  * the baselines (oracle, persistence, climatology, null) do not depend on the
+    arm at all, so they are **asserted identical across arms** rather than
+    assumed. If persistence moves between two arms, something is wrong with the
+    harness and the whole table is void. That check has teeth: it is the
+    cheapest possible detector of the class of bug that has bitten this project
+    twice (a drifting refit grid).
 
     docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
       --score-from 2025-08-14 --out /compute/runs/experiments/mu/ablation.csv
+
 """
 from __future__ import annotations
 
@@ -53,7 +45,7 @@ log = logging.getLogger("compute.experiments.mu.feature_ablation")
 
 ARMS = ["base", "lag", "geo", "wx", "all"]
 
-# The bars, copied from plan/s6-gate.md. Pre-registered; not editable here.
+# The bars, pre-registered; not editable here.
 PERSISTENCE_TOPDEC = 0.561
 PRODUCT_TOPDEC = 0.60
 
@@ -92,11 +84,12 @@ def run_arm(panel: pd.DataFrame, arm: str, preds_path: Path,
 def check_baselines_identical(df: pd.DataFrame) -> None:
     """The baselines cannot depend on the arm. Prove it, do not assume it.
 
-    Oracle, persistence, climatology and null are computed from `M`, `C` and the SF
-    map alone — the model's predictions never touch them. So if two arms disagree
-    about persistence, the two arms were not scored on the same weeks or the same
-    map, and **every comparison in the table is meaningless.** This is the cheapest
-    available detector of a misphased grid, which has already gone wrong twice.
+    Oracle, persistence, climatology and null are computed from `M`, `C` and
+    the SF map alone - the model's predictions never touch them. So if two arms
+    disagree about persistence, the two arms were not scored on the same weeks
+    or the same map. This is the cheapest available detector of a misphased
+    grid, which has already gone wrong twice.
+
     """
     base = [s for s in score_mod.SOURCES if s != "model"]
     a = df[(df["regime"] == "all") & (df["source"].isin(base))]

@@ -1,48 +1,48 @@
-"""Coverage-gap decomposition — what is the novel mu-mass actually made of?
+"""Coverage-gap decomposition: what is the novel mu-mass actually made of?
 
 In a typical week some of the mu-mass driving congestion falls on constraints
-the trailing fit has no column for (implicit SF=0). At the operating point 0082
-selected -- ``(240, 7, lambda=1)`` -- that gap is ~14% of mass. This splits it
-into the three tiers that have three DIFFERENT fixes, and reports the ceiling on
-what the cheapest of them can buy.
+the trailing fit has no column for (implicit SF=0). At the operating point
+selected  -- ``(240, 7, lambda=1)`` -- that gap is ~14% of mass. This splits it
+into the three tiers that have three DIFFERENT fixes, and reports the ceiling
+on what the cheapest of them can buy.
 
 The tiers are keyed on what a **lifetime constraint library** could actually do,
-not on whether the key was ever seen:
+NOT on whether the key was ever seen:
 
-  * **A -- warm-startable.** Some EARLIER fit window kept this key, so a fitted
-    SF row exists to inherit. This is the tier a warm-start closes; nothing else
-    is. (Note this is strictly narrower than 0082's ``seen_material``: clearing
-    ``min_hours`` inside a real fit window is the operational bar, not clearing
-    it somewhere in a lookback band.)
-  * **B -- seen, never fitted.** Bound at some point in history but never enough
-    hours in any one window to be fitted. The library has nothing to inject; only
-    a lower ``min_hours`` or a faster refit reaches these.
-  * **C -- genuinely new.** No history at all. Irreducible -- flag honestly,
-    widen bands.
+  * **A -- warm-startable.** Some earlier fit window had this key, so a fitted
+    SF row already exists to reuse. The constraint has to have bound
+    ``min_hours`` inside a real fit window, not just show up somewhere in a
+    lookback band.
 
-``coverage_ceiling = 1 - (mass_B + mass_C) / mass_total`` is therefore the most
-coverage a perfect warm-start could reach. **Gate G1 (plan/0084): build the
-library only if ``coverage_ceiling - coverage >= 0.03``.** Below three points of
-mu-mass the R2 payoff is inside week-to-week noise.
+  * **B -- seen, never fitted.** Bound at some point in history but never for
+    enough hours in one window to be fitted. The library has nothing to reuse;
+    only a lower ``min_hours`` or a faster refit reaches these.
+
+  * **C -- genuinely new.** No history at all. Nothing recovers these -- flag
+    them honestly and widen the bands.
+
+``coverage_ceiling = 1 - (mass_B + mass_C) / mass_total`` is the most coverage
+a perfect warm-start could reach. So build the library only if
+``coverage_ceiling - coverage >= 0.03``. Below three points of mu-mass the R2
+payoff is inside week-to-week noise.
+
+   * Mass: the total shadow price (μ) a constraint racked up over the week
 
 Two history modes:
 
-  * **lifetime** (default) -- the band behind the fit window is all history to
-    date. Weeks are admitted once ``--min-history-days`` of band sits behind the
-    fit window; ``hist_days`` is emitted per week so a growing band is visible
-    rather than silent.
-  * **fixed lookback** (``--lookback-days``) -- the 0082/R2 band ``[s-lookback,
-    s-window)`` and its two ``seasonal_*_share`` columns. Kept ONLY so that
-    result stays reproducible: at ``--window-days 60 --lookback-days 365`` this
-    reproduces R2's 0.507 / 0.303.
+  * **lifetime** (default): the band behind the fit window is all history to
+    date. Weeks are admitted once ``--min-history-days`` of band sits behind
+    the fit window; ``hist_days`` is emitted per week so a growing band is
+    visible rather than silent.
 
-**Why the default moved.** R2 ran at ``window=60``, where the band
-``[s-365d, s-60d)`` is 305 days. At ``window=240`` that same band is **125
-days** -- a season, not a year -- so every share it reported at the real
-operating point would be deflated by construction. The band was the bug, not the
-number.
+  * **fixed lookback** (``--lookback-days``) -- ``[s-lookback, s-window)`` and
+    its two ``seasonal_*_share`` columns. Kept ONLY so that result stays
+    reproducible: at ``--window-days 60 --lookback-days 365`` this reproduces
+    R2's 0.507 / 0.303.
+
 
     docker compose run --rm compute python -m compute.experiments.sf.coverage
+
 """
 from __future__ import annotations
 
@@ -60,8 +60,7 @@ from compute.inputs.dam import load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.coverage")
 
-# Semantic aliases retain the probe's vocabulary while sharing the adopted SF
-# operating point it measures.
+# Default to the production SF operating point this probe measures.
 DEFAULT_WINDOW_DAYS = WINDOW_DAYS
 DEFAULT_REFIT_DAYS = REFIT_DAYS
 DEFAULT_MIN_HOURS = MIN_HOURS
@@ -85,24 +84,20 @@ def _parse_date(s: str) -> date:
 
 
 class _BindCounts:
-    """O(1) binding-hour counts over any day-aligned window.
+    """Fast constant-time count of binding hours per constraint over any window.
 
-    Every refit boundary needs one thing from the trailing window: how many hours
-    each constraint bound, to compare against ``min_hours``. Slicing the panel to
-    get it copies a (window_hours x constraints) float frame per boundary — ~140MB
-    at a 240d window, and ``refit=1`` walks ~800 of them. A cumulative daily count
-    answers the same question from a table 16x smaller than one such slice.
+    Every refit needs one thing from the trailing window: how many hours each
+    constraint bound, to compare against ``min_hours``. Slicing the panel for
+    that copies a big hours-by-constraints frame each time — ~140MB at a 240d
+    window, and ``refit=1`` walks ~800 of them.
 
-    Counts are integers, so this is EXACT, not an approximation: the kept sets it
-    produces are identical to the ones the slicing version produced. Refit
-    boundaries are day-aligned, so daily granularity loses nothing.
     """
 
     def __init__(self, M: pd.DataFrame) -> None:
         self.columns = M.columns
         daily = (M > 0).astype(np.int32).groupby(M.index.normalize()).sum()
         self.days = daily.index
-        # Leading zero row so counts(lo, hi) is a plain difference.
+        # Leading zero row so counts(lo, hi) is a simple subtraction.
         self.cum = np.vstack([
             np.zeros((1, len(self.columns)), dtype=np.int64),
             daily.to_numpy(dtype=np.int64).cumsum(axis=0),
@@ -121,7 +116,7 @@ class _BindCounts:
 
 
 def _age_shares(ages: np.ndarray, mass: np.ndarray) -> dict:
-    """Mass-weighted share of tier-A mass in each staleness bucket."""
+    """Share of tier-A mu-mass in each age bucket, weighted by mass."""
     total = float(mass.sum())
     out = {}
     for lo, hi in AGE_BUCKETS:
@@ -141,12 +136,12 @@ def probe(
 ) -> pd.DataFrame:
     """One row per scored week.
 
-    Walks the refit grid forward, maintaining the two pieces of state a library
-    would have at that moment -- ``ever_fitted`` (keys some earlier window kept,
-    with the boundary it was last kept at) and ``ever_seen`` (keys that have
-    bound at all). Both are strictly backward-looking: the fit at boundary ``s``
-    is the CURRENT fit, so tier A counts only boundaries ``s' < s``. Accumulating
-    after the row is emitted is what enforces that.
+    Steps through the refit dates in order, remembering the two things a warm-start
+    library would know at that moment: ``ever_fitted`` (keys an earlier window kept,
+    and when it last kept them) and ``ever_seen`` (keys that have bound at all).
+    Both look strictly backward: the fit at date ``s`` is the current one, so tier A
+    only counts earlier fits. Updating the memory after the row is written is what
+    keeps it honest.
 
     ``lookback_days`` switches to the 0082/R2 fixed band and its legacy columns.
     """
@@ -159,9 +154,9 @@ def probe(
     days = pd.Index(M.index.normalize().unique()).sort_values()
     data_min, data_max = days[0], days[-1]
 
-    # The refit grid's anchor decides which weeks get scored, so the legacy mode
-    # must anchor exactly where R2 anchored (data_min + lookback) or it lands on
-    # different weeks and the 0.507/0.303 comparison is not like-for-like.
+    # Where the refits start decides which weeks get scored, so legacy mode must
+    # start exactly where R2 did (data_min + lookback) or it lands on different
+    # weeks and the 0.507/0.303 comparison isn't apples-to-apples.
     anchor = data_min + (look if legacy else win)
     starts = pd.date_range(anchor, data_max, freq=refit, inclusive="left")
 
@@ -169,8 +164,8 @@ def probe(
         return pd.DataFrame()
     bc = _BindCounts(M)
 
-    # Library state, carried forward across boundaries.
-    last_fitted: dict[str, pd.Timestamp] = {}   # key -> boundary last kept at
+    # Library memory, carried forward across refits.
+    last_fitted: dict[str, pd.Timestamp] = {}   # key -> date it was last kept
 
     rows: list[dict] = []
     for s in starts:
@@ -208,7 +203,7 @@ def probe(
                 "post_rtcb": bool(s >= _rtcb_for(s)),
             }
 
-            # --- tiers (partition novel mass; A subset of seen by construction)
+            # --- split the novel mass into tiers (A is always inside "seen")
             a_keys = novel_s.index[novel_s.index.isin(last_fitted.keys())]
             rest = novel_s.drop(a_keys)
             b_keys = rest.index[rest.index.isin(ever_seen)]
@@ -255,8 +250,8 @@ def probe(
 
             rows.append(row)
 
-        # Accumulate AFTER emitting: the fit at `s` is the current one, so it
-        # must not count as a prior fit for this week's tier A.
+        # Update the memory AFTER writing the row: the fit at `s` is the current
+        # one, so it must not count as a prior fit for this week's tier A.
         for k in kept:
             last_fitted[k] = s
 
@@ -270,24 +265,23 @@ def admission_stats(
     min_hours: int = DEFAULT_MIN_HOURS,
     min_history_days: int = DEFAULT_MIN_HISTORY_DAYS,
 ) -> dict:
-    """Novel-constraint latency: how long from a constraint's first bind to its
-    first SF column, under ``(window, refit, min_hours)``.
+    """How long a new constraint waits from its first bind to its first SF column,
+    under ``(window, refit, min_hours)``.
 
-    The handoff's design target is ~1 day and nobody had measured the actual
-    number. Two knobs gate admission and both are swept here: ``min_hours`` (the
-    constraint must bind that many hours inside the window) and ``refit_days``
-    (it can only be admitted at a refit boundary).
+    The design target was ~1 day and nobody had measured the real number. Two knobs
+    decide when a constraint gets a column, and both are swept here: ``min_hours``
+    (it must bind that many hours inside the window) and ``refit_days`` (it can only
+    be added at a refit).
 
-    ``blind_mass_share`` is the metric that matters — mu-mass that binds while
-    the constraint still has no column, as a share of all mass over the region.
-    Latency in days is the mechanism; blind mass is the damage, and it is what
-    connects this directly to the coverage gap.
+    ``blind_mass_share`` is the metric that matters — mu-mass that binds while the
+    constraint still has no column, as a share of all mass over the region. The
+    wait in days is the mechanism; the blind mass is the actual damage, and it ties
+    straight back to the coverage gap.
 
-    **Censoring is handled by exclusion, not by pretending.** Keys already
-    binding before the first refit boundary have no observable "first bind" (the
-    panel starts mid-life), so they are dropped. Keys born late enough that they
-    have not been admitted by the end of the panel are counted in
-    ``admit_rate``/``never_admitted_mass`` but cannot contribute a latency.
+    Constraints that were already binding before the first refit are dropped rather
+    than guessed at: the panel starts mid-life, so their true first bind is
+    unknown. Ones that appear but never get a column by the end of the panel still
+    count in ``admit_rate``/``never_admitted_mass`` but can't contribute a wait.
     """
     day = pd.Timedelta(days=1)
     win = pd.Timedelta(days=window_days)
@@ -301,11 +295,11 @@ def admission_stats(
         return {}
 
     binding = M > 0
-    # First bind per key. Keys never binding get NaT and drop out below.
+    # First bind per key. Keys that never bind get NaT and drop out below.
     first_bind = binding.idxmax().where(binding.any(), pd.NaT)
 
-    # Uncensored births only: the key's first bind must fall on-or-after the
-    # first boundary, or we are measuring a lifetime that began before the data.
+    # Keep only keys whose first bind is on-or-after the first refit; otherwise
+    # the constraint's life began before the data and its "first bind" is unknown.
     born = first_bind[first_bind >= starts[0]].dropna()
     if born.empty:
         return {}
@@ -320,8 +314,8 @@ def admission_stats(
     lat, blind, total_born_mass = [], [], []
     for k, f in born.items():
         c = first_col.get(k)
-        # Mass that bound with no column: from first bind until admitted (or,
-        # if never admitted, until the panel ends).
+        # Mass that bound with no column: from first bind until it got one (or,
+        # if it never did, until the panel ends).
         stop = c if c is not None else end
         col = M[k]
         blind.append(float(col.loc[(col.index >= f) & (col.index < stop)]
@@ -332,7 +326,7 @@ def admission_stats(
 
     lat = np.array(lat, dtype=float)
     blind_mass = float(np.sum(blind))
-    # Denominator: all mass over the region a column could have covered.
+    # Denominator: all mu-mass over the span a column could have covered.
     M_region = M.loc[M.index >= anchor]
     region_mass = float(M_region.clip(lower=0).to_numpy(dtype=float).sum())
     never = [b for k, b in zip(born.index, total_born_mass) if k not in first_col]
@@ -356,7 +350,7 @@ def admission_stats(
 
 
 def _summarize(df: pd.DataFrame, label: str, min_hours: int, legacy: bool) -> None:
-    """Mass-weighted aggregates -- the honest way to combine per-week shares."""
+    """Combine the per-week shares, weighting each week by its mu-mass."""
     novel = df["novel_mass"].sum()
     print(f"\n=== {label} — {len(df)} weeks "
           f"(hist band {df.hist_days.min()}–{df.hist_days.max()}d) ===")
@@ -478,8 +472,8 @@ def main(argv: list[str] | None = None) -> int:
                    f"refit {args.refit_days}d, min_hours {args.min_binding_hours}, "
                    f"{mode}", args.min_binding_hours, legacy)
 
-    # RTC+B split. Suggestive-vs-clean caveat: at window=240 the post-cutover fit
-    # windows still straddle the cutover.
+    # Split around the RTC+B cutover. Read it as suggestive, not clean: at
+    # window=240 the post-cutover fit windows still reach back across the cutover.
     for post, sub in df.groupby("post_rtcb"):
         if len(sub) < 2:
             continue

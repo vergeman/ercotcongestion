@@ -77,11 +77,9 @@ def predict(M_score: pd.DataFrame, SF: pd.DataFrame) -> np.ndarray:
     return -(M_score[cols].to_numpy(float) @ SF.loc[cols].to_numpy(float))
 
 
-# --------------------------------------------------------------- mu forecasts
-# The three mu sources compared in plan/version2-pivot-review.md sec 2.1.
-# `oracle` is not a forecast -- it hands the model realized shadow prices and
-# so measures the SF map alone. The other two are the pivot doc's own stated
-# baselines (sec 3, "Baselines to beat and report").
+# The three mu sources: `oracle` is not a forecast -- it hands the model
+# realized shadow prices and so measures the SF map alone. The other two are
+# the pivot doc's own stated baselines.
 
 def mu_oracle(M: pd.DataFrame, hours: pd.Index, cols: pd.Index) -> np.ndarray:
     return M.loc[hours, cols].to_numpy(float)

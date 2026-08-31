@@ -1,31 +1,29 @@
-"""The generation-outage ablation — marginal value over 0088. plan/0089 commit 4.
+"""The generation-outage ablation.
 
-**0088's five arms are pre-registered and frozen (`plan/s6-gate.md`); this arm was not
-among them, so it is not retro-added there.** Instead it is measured *marginally*, on the
-same panel and the same harness, and this file is a thin driver over 0088's machinery
-rather than a second one:
+**five arms are pre-registered and frozen; this outage arm was not
+among them, so it is not retro-added there. Instead it is measured *marginally*, on the
+same panel and the same harness; a thin driver over the first machinery.
 
-  * the panel is built **once** here with `with_outage=True` (and every 0088 arm's columns
-    present), and each arm is a column mask over that one object — `run_arm` and
-    `check_baselines_identical` is imported from `feature_ablation` unchanged, and
-    scoring goes through **`compute.evaluation.mu`, unimported-around**. There is exactly
-    one scoring harness in this package and 0089 does not get to write a second one;
-  * the four rows are **`base` / `all` / `out` / `all+out`**. `out` is `base` plus the
-    per-constraint outage exposure; `all+out` is 0088's `all` plus it.
+  * the panel is built **once** here with `with_outage=True` (and every arm's
+    columns present), and each arm is a column mask over that one object.
 
-**The zonal fallback is `base`, and that is the row `out` must beat.** `features.outage_panel`
-already hands every arm the R4 zonal aggregate — four load-zone MW numbers, *identical for
-every constraint in an hour* — as unprefixed base features. So `base` already contains the
-zonal outage signal, and `out − base` is precisely the lift of going **per-constraint** over
-that aggregate. If it is not positive, the arm degrades to the fallback R4 already gave us,
-and commit 5 says so plainly (plan/0089).
+  * the four rows are **`base` / `all` / `out` / `all+out`**. `out` is `base`
+    plus the per-constraint outage exposure; `all+out` `all` plus this.
 
-Walk-only by default (build the panel, save each arm's preds npz, memory-frugal); pass
-`--score` for the assembly pass that scores the cached npz and writes the CSV + verdict.
-`run_outage_ablation.sh` drives the per-arm walks then one `--score` pass.
+The zonal fallback is `base`. `features.outage_panel` already hands every arm
+the zonal aggregates — four load-zone MW numbers, identical for every
+constraint in an hour as unprefixed base features. So `base` already contains
+the zonal outage signal, and `out − base` is precisely the lift of going
+**per-constraint** over that aggregate.
+
+Walk-only by default (build the panel, save each arm's preds npz,
+memory-frugal); pass `--score` for the assembly pass that scores the cached npz
+and writes the CSV + verdict. `run_outage_ablation.sh` drives the per-arm walks
+then one `--score` pass.
 
     docker compose run --rm compute python -m compute.experiments.mu.outage_ablation \
       --score-from 2025-08-14 --score --out /compute/runs/experiments/mu/outage_ablation.csv
+
 """
 from __future__ import annotations
 
@@ -112,12 +110,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--preds-dir", default="/compute/runs/experiments/mu/outage_ablation")
     p.add_argument("--out", default="/compute/runs/experiments/mu/outage_ablation.csv")
     p.add_argument("--no-resume", action="store_true")
-    # Walk-only is the DEFAULT: build the panel, run each arm's walk, save its preds
-    # npz, then stop — freeing M/C/regimes first (the walk reads only the panel) so
-    # the memory-heavy fit clears a small node; the `all` arm's first fold otherwise
-    # peaks right at this node's RAM. `--score` opts into the assembly pass — reuse
-    # the cached npz, score every arm through the 0085 harness, write the CSV +
-    # verdict. Scoring holds M/C but does no heavy fit, so it is safe once at the end.
+    # Walk-only is the DEFAULT: build the panel, run each arm's walk, save its
+    # preds npz, then stop — freeing M/C/regimes first (the walk reads only the
+    # panel) so the memory-heavy fit clears a small node; the `all` arm's first
+    # fold otherwise peaks right at this node's RAM. `--score` opts into the
+    # assembly pass — reuse the cached npz, score every arm, write the CSV +
+    # verdict. Scoring holds M/C but does no heavy fit, so it is safe once at
+    # the end.
     p.add_argument("--score", dest="walk_only", action="store_false",
                    help="score the cached preds and write the CSV/verdict (the "
                         "assembly pass). Default is walk-only — save npz and stop.")
