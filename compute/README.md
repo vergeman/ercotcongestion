@@ -455,6 +455,45 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 ---
 
 
+## Artifacts
+
+Pipeline outputs land under `compute/runs/<run_id>/`. A run is one of two kinds:
+an **SF map** run (e.g. `map-v1`) produces the `sf/` geography; a **μ forecast**
+run (e.g. `mu-all-v1`) produces `mu/` + `forecast/` and projects through a named
+map run.
+
+A subdirectory is created when its stage writes, so a path might exist only
+after a run.
+
+### SF map run — `compute/runs/<run_id>/sf/`
+
+Builds the geography: which constraints congest and how each settlement point is
+exposed to them.
+
+| File                        | Produced by                           | Consumed by                   | Contents / purpose                                                                          |
+|-----------------------------|---------------------------------------|-------------------------------|---------------------------------------------------------------------------------------------|
+| `diagnostics_YYYYMMDD.json` | `weekly_map` (one per refit boundary) | human review, `evaluation.sf` | Fit health of that refit: R², constraints kept/dropped, shift factors clipped.              |
+| `eval.csv`                  | `evaluation.sf`                       | human review                  | Out-of-window map accuracy — how well the map predicts congestion on days it wasn't fit on. |
+
+The map itself is stored in the **database**, not a file (`weekly_map` writes it).
+
+### μ forecast run — `compute/runs/<run_id>/mu/` and `compute/runs/<run_id>/forecast/`
+
+Forecasts each constraint's shadow price (μ), then projects those through a map
+run into per-settlement-point prices.
+
+| File                     | Produced by                                         | Consumed by                                   | Contents / purpose                                                                                               |
+|--------------------------|-----------------------------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `mu/mu_preds.npz`        | `mu_model` (`--preds-out`)                          | `evaluation.mu`, `backfill_nodal`             | Walk-forward μ predictions per constraint-hour: bind probability, expected shadow price, and the realized truth. |
+| `mu/mu_weekly.csv`       | `mu_model` (`--out`)                                | human review                                  | Weekly calibration of the μ walk (are the probabilities and prices honest).                                      |
+| `mu/mu_score_weekly.csv` | `evaluation.mu`                                     | `load_scoreboard` → `scoreboard_weekly` table | Weekly point scores that feed the scoreboard.                                                                    |
+| `forecast/mu_nodal.npz`  | `backfill_nodal` / `daily_forecast` (`--nodal-out`) | `forecast_store` → DB                         | Per-settlement-point price forecast panel: point estimate plus p10/p50/p90 band.                                 |
+
+The per-day SF-μ blob served by the API is stored in the **database**
+(`forecast_sf_artifact`), written by `daily_forecast`.
+
+---
+
 # Walkthrough Notes
 
 ## Daily Forecast Job

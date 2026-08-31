@@ -20,7 +20,6 @@ data/raw/ercot_load_zones/*
 api/static/*
 compute/experiments/zonal_clustering/runs/*
 compute/runs/*
-!compute/runs/README.md
 
 # books / docs
 *.pdf
