@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from api.schemas.common import SourceDescriptor
+
 
 # ---- /analysis/hero ------------------------------------------------------
 
@@ -410,6 +412,11 @@ class GradeSupportResponse(BaseModel):
     magnitude_of_ceiling: float | None
 
 
+class BriefSourceMetrics(BaseModel):
+    id: str
+    metrics: GradeMetricsResponse
+
+
 class GradeHalfResponse(BaseModel):
     """One unblended constraint or node grade half."""
     graded: bool
@@ -419,6 +426,8 @@ class GradeHalfResponse(BaseModel):
     persistence: GradeMetricsResponse | None = None
     climatology: GradeMetricsResponse | None = None
     support: GradeSupportResponse | None = None
+    sources: list[SourceDescriptor] = []
+    source_metrics: list[BriefSourceMetrics] = []
 
 
 class GradeAvailableResponse(BaseModel):
@@ -437,6 +446,8 @@ class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
 class GradeHistoryHalfResponse(BaseModel):
     model: GradeMetricsResponse
     persistence: GradeMetricsResponse
+    sources: list[SourceDescriptor] = []
+    source_metrics: list[BriefSourceMetrics] = []
 
 
 class GradeHistoryDayResponse(BaseModel):

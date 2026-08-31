@@ -4,6 +4,15 @@ from datetime import date
 
 from pydantic import BaseModel
 
+
+class SourceDescriptor(BaseModel):
+    """Stable provenance for a scored source series or profile."""
+
+    id: str
+    series_id: str | None = None
+    label: str
+    definition: str
+
 # ---- /scoreboard/summary --------------------------------------------------
 
 class BootstrapSectionStatus(BaseModel):

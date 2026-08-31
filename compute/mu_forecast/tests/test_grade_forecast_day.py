@@ -75,7 +75,13 @@ def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog
     with caplog.at_level(logging.INFO, logger=gd.__name__):
         rows = grade_rows(monkeypatch, M, C, SF, fc)
     by_src = {r["source"]: r for r in rows}
-    assert set(by_src) == {"model", "oracle", "persistence", "climatology", "null"}
+    assert set(by_src) == {
+        "scoreboard_model_served_nodal",
+        "scoreboard_oracle_settled_mu_nodal",
+        "scoreboard_persistence_prior_day_nodal",
+        "scoreboard_climatology_trailing_window_nodal",
+        "scoreboard_null_flat_nodal",
+    }
 
     hours = hoursD
     cols = M.loc[hours].columns
@@ -84,7 +90,7 @@ def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog
     # model: the served deterministic point.
     want = screening_metrics_for_scoreboard(Y, fc["point"].loc[hours, SPS].to_numpy(float))
     for k, v in want.items():
-        _eq(by_src["model"][k], v)
+        _eq(by_src["scoreboard_model_served_nodal"][k], v)
 
     # comparators: each mu source projected through SF, same metric.
     srcs = {
@@ -93,11 +99,17 @@ def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog
         "climatology": mu_climatology(M.loc[M.index < D], hours, cols),
         "null": mu_null(hours, cols),
     }
+    source_ids = {
+        "oracle": "scoreboard_oracle_settled_mu_nodal",
+        "persistence": "scoreboard_persistence_prior_day_nodal",
+        "climatology": "scoreboard_climatology_trailing_window_nodal",
+        "null": "scoreboard_null_flat_nodal",
+    }
     for name, Msrc in srcs.items():
         Yh = pd.DataFrame(predict(Msrc, SF), index=hours, columns=SF.columns)[SPS]
         want = screening_metrics_for_scoreboard(Y, Yh.to_numpy(float))
         for k, v in want.items():
-            _eq(by_src[name][k], v)
+            _eq(by_src[source_ids[name]][k], v)
 
     messages = [record.getMessage() for record in caplog.records]
     assert "grade_forecast_day start: delivery_date=2025-09-15 run_id=t horizon=1" in messages
@@ -121,9 +133,12 @@ def test_essp_agreement_is_stamped_on_model_row_only(monkeypatch):
     monkeypatch.setattr(gd, "score_served_essp",
                         lambda *args: {"essp_precision": 1.0, "essp_recall": 0.5})
     by_src = {r["source"]: r for r in grade_rows(monkeypatch, M, C, SF, fc)}
-    assert by_src["model"]["essp_precision"] == 1.0
-    assert by_src["model"]["essp_recall"] == 0.5
-    for source in ("oracle", "persistence", "climatology", "null"):
+    assert by_src["scoreboard_model_served_nodal"]["essp_precision"] == 1.0
+    assert by_src["scoreboard_model_served_nodal"]["essp_recall"] == 0.5
+    for source in ("scoreboard_oracle_settled_mu_nodal",
+                   "scoreboard_persistence_prior_day_nodal",
+                   "scoreboard_climatology_trailing_window_nodal",
+                   "scoreboard_null_flat_nodal"):
         assert by_src[source]["essp_precision"] is None
         assert by_src[source]["essp_recall"] is None
 
@@ -135,7 +150,7 @@ def test_null_source_cannot_manufacture_a_screening_score(monkeypatch):
     M, C, SF, fc, _ = _scenario()
     _install(monkeypatch, M, C, SF, fc)
     rows = grade_rows(monkeypatch, M, C, SF, fc)
-    null = next(r for r in rows if r["source"] == "null")
+    null = next(r for r in rows if r["source"] == "scoreboard_null_flat_nodal")
     assert np.isnan(null["rank_spearman"])
     assert np.isnan(null["topdecile_hit"])
 

@@ -22,7 +22,8 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
 
     result = serialize_grade_half(GradeResult(("A|B", "C|D"), metrics, metrics))
 
-    assert result == {
+    assert {key: result[key] for key in ("graded", "universe_size", "model", "persistence",
+                                         "climatology", "support")} == {
         "graded": True,
         "universe_size": 2,
         "model": metrics.__dict__,
@@ -30,6 +31,9 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
         "climatology": None,
         "support": None,
     }
+    assert [item["id"] for item in result["sources"]] == [
+        "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
+    ]
 
 
 def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
@@ -79,7 +83,10 @@ def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
         "climatology": None,
         "support": None,
     }
-    assert all(params[-1].obj == expected for _, params in conn.cursor_.writes)
+    assert all({key: params[-1].obj[key] for key in expected} == expected
+               for _, params in conn.cursor_.writes)
+    assert all(params[-1].obj["source_metrics"][0]["id"] == "brief_model_artifact_profile"
+               for _, params in conn.cursor_.writes)
 
 
 def test_brief_materialization_failure_remains_non_fatal_after_publish(monkeypatch):

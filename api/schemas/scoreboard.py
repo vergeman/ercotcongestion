@@ -3,8 +3,8 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
-from api.schemas.common import BootstrapSectionStatus
+from pydantic import BaseModel, Field
+from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 
 # ---- /scoreboard/summary headline ----------------------------------------
 #
@@ -121,6 +121,7 @@ class ScoreboardWeekly(BaseModel):
     rtc_b_cutover: date
     points: list[WeeklyPoint]
     splits: list[WeeklySplit]
+    sources: list[SourceDescriptor] = Field(default_factory=list)
 
 
 # ---- /scoreboard/summary daily section -----------------------------------
@@ -173,6 +174,7 @@ class ScoreboardDaily(BaseModel):
     horizon: int
     selected_delivery_date: date
     points: list[DailyPoint]
+    sources: list[SourceDescriptor] = Field(default_factory=list)
 
 
 # ---- /scoreboard/summary history -----------------------------------------
@@ -199,6 +201,7 @@ class ScoreboardHistory(BaseModel):
     daily_run_id: str | None = None
     boundary_date: date | None = None
     points: list[ScoreHistoryPoint]
+    sources: list[SourceDescriptor] = Field(default_factory=list)
 
 
 

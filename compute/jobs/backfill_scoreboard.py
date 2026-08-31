@@ -6,6 +6,7 @@ it does not re-measure forecasts or require a band artifact.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -17,6 +18,36 @@ _SCORE_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 _COVERAGE = ("sf_coverage", "model_coverage")
 _COUNTS = ("n_hours", "n_nodes")
 _NA_VALUES = ("", "NaN", "nan", "NA", "N/A", "#N/A")
+
+
+@dataclass(frozen=True)
+class SourceDefinition:
+    """Weekly Scoreboard-owned identity for one admitted compute source."""
+
+    id: str
+    series_id: str
+    label: str
+    definition: str
+    compute_id: str
+
+
+SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model",
+                         "Walk-forward model projected to nodal congestion.",
+                         "compute_mu_model_walk_forward"),
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
+                         "Prior-day μ baseline projected by each backtest map.",
+                         "compute_mu_persistence_prior_day"),
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
+                         "Hourly μ climatology projected by each backtest map.",
+                         "compute_mu_climatology_hourly"),
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
+                         "Realized μ projected by the held-out backtest map.",
+                         "compute_mu_oracle_realized"),
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
+                         "Flat nodal congestion tripwire.", "compute_mu_null_zero"),
+)
+SOURCE_BY_COMPUTE_ID = {source.compute_id: source for source in SOURCE_DEFINITIONS}
 
 
 def _read_csv(path: str) -> pd.DataFrame:
@@ -38,8 +69,12 @@ def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
     def _i(x):
         return None if pd.isna(x) else int(x)
 
+    unknown = set(score["source"]) - set(SOURCE_BY_COMPUTE_ID)
+    if unknown:
+        raise ValueError(f"unadmitted compute source IDs: {sorted(unknown)}")
+
     return [
-        (run_id, r["week"].date(), r["source"],
+        (run_id, r["week"].date(), SOURCE_BY_COMPUTE_ID[r["source"]].id,
          *(_v(r[c]) for c in _SCORE_METRICS),
          *(_v(r[c]) for c in _COVERAGE), *(_i(r[c]) for c in _COUNTS))
         for _, r in score.iterrows()

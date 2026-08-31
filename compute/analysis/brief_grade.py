@@ -6,6 +6,7 @@ materialize exactly the same result without importing the API application.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 import pandas as pd
@@ -17,6 +18,26 @@ from compute.projection.codecs import load_sf_mu
 
 
 NODE_CONGESTION_EPSILON = 1e-6
+
+
+@dataclass(frozen=True)
+class SourceDefinition:
+    """Brief-owned provenance for an independently graded profile."""
+
+    id: str
+    label: str
+    definition: str
+    result_field: str
+
+
+SOURCE_DEFINITIONS = (
+    SourceDefinition("brief_model_artifact_profile", "Model",
+                         "Forecast profile decoded from the served artifact.", "model"),
+    SourceDefinition("brief_persistence_prior_settled_profile", "Persistence",
+                         "Prior settled delivery-day profile.", "persistence"),
+    SourceDefinition("brief_climatology_trailing_settled_profile", "Climatology",
+                         "Trailing settled-profile average.", "climatology"),
+)
 
 
 def _load_daily_artifact(cur, run_id: str, delivery_date: date, horizon: int):
@@ -194,6 +215,11 @@ def grade_node_profiles(cur, run_id: str, delivery_date: date,
 
 def serialize_grade_half(result: GradeResult) -> dict:
     """Return transport-neutral data for the Brief grade's one subject."""
+    source_metrics = [
+        {"id": source.id, "metrics": getattr(result, source.result_field).__dict__}
+        for source in SOURCE_DEFINITIONS
+        if getattr(result, source.result_field) is not None
+    ]
     return {
         "graded": True,
         "universe_size": len(result.universe),
@@ -201,4 +227,11 @@ def serialize_grade_half(result: GradeResult) -> dict:
         "persistence": result.persistence.__dict__,
         "climatology": None if result.climatology is None else result.climatology.__dict__,
         "support": None if result.support is None else result.support.__dict__,
+        "sources": [
+            {"id": source.id, "label": source.label,
+             "definition": source.definition}
+            for source in SOURCE_DEFINITIONS
+            if getattr(result, source.result_field) is not None
+        ],
+        "source_metrics": source_metrics,
     }

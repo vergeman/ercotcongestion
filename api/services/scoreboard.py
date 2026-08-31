@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date
 
 from fastapi import HTTPException
 from psycopg.rows import dict_row
 
 from api.db import get_pool
-from api.schemas.common import BootstrapSectionStatus
+from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 from api.schemas.scoreboard import (
     DailyPoint,
     ScoreboardDaily,
@@ -23,7 +24,43 @@ from api.schemas.scoreboard import (
 from api.services.bootstrap import availability_status, soft_fail
 from api.services.scoreboard_headline import build_headline
 
-_SOURCES = ("model", "persistence", "climatology", "oracle")
+@dataclass(frozen=True)
+class SourceDefinition:
+    """Scoreboard API-owned provenance and bounded legacy series name."""
+
+    id: str
+    series_id: str
+    label: str
+    definition: str
+
+
+WEEKLY_SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model",
+                         "Walk-forward model projected to nodal congestion."),
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
+                         "Prior-day μ baseline projected by each backtest map."),
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
+                         "Hourly μ climatology projected by each backtest map."),
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
+                         "Realized μ projected by the held-out backtest map."),
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
+                         "Flat nodal congestion tripwire."),
+)
+DAILY_SOURCE_DEFINITIONS = (
+    SourceDefinition("scoreboard_model_served_nodal", "model", "Model",
+                         "Served deterministic nodal forecast."),
+    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
+                         "Prior-day μ projected through the trailing map."),
+    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
+                         "Trailing-window μ climatology projected through the map."),
+    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
+                         "Settled-day μ projected through the trailing map."),
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
+                         "Flat nodal congestion tripwire."),
+)
+_WEEKLY_BY_ID = {source.id: source for source in WEEKLY_SOURCE_DEFINITIONS}
+_DAILY_BY_ID = {source.id: source for source in DAILY_SOURCE_DEFINITIONS}
+_SOURCES = tuple(source.id for source in WEEKLY_SOURCE_DEFINITIONS if source.series_id != "null")
 _POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 RTC_B_CUTOVER = date(2025, 12, 5)
 
@@ -49,7 +86,7 @@ def _mean(rows: list[dict], key: str) -> float | None:
 def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
     source_rows = [row for row in rows if row["source"] == source]
     return SourcePooled(
-        source=source,
+        source=_WEEKLY_BY_ID[source].series_id,
         **{key: _mean(source_rows, key) for key in _POOL_METRICS},
     )
 
@@ -71,8 +108,8 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
     splits: list[WeeklySplit] = []
     for label, slice_rows in slices:
         pooled = {source: _pooled_source(slice_rows, source) for source in _SOURCES}
-        model = pooled["model"]
-        persistence = pooled["persistence"]
+        model = pooled["scoreboard_model_backtest_nodal"]
+        persistence = pooled["scoreboard_persistence_backtest_nodal"]
         beats: bool | None = None
         if all(getattr(model, key) is not None for key in _POOL_METRICS) and all(
             getattr(persistence, key) is not None for key in _POOL_METRICS
@@ -117,8 +154,11 @@ def build_weekly() -> ScoreboardWeekly:
         run_id=run_id,
         primary_source="model",
         rtc_b_cutover=RTC_B_CUTOVER,
-        points=[WeeklyPoint(**row) for row in rows],
+        points=[WeeklyPoint(**{**row, "source": _WEEKLY_BY_ID[row["source"]].series_id})
+                for row in rows],
         splits=_build_splits(rows),
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in WEEKLY_SOURCE_DEFINITIONS],
     )
 
 
@@ -170,7 +210,10 @@ def build_latest_final_daily() -> ScoreboardDaily:
         primary_source="model",
         horizon=1,
         selected_delivery_date=rows[0]["delivery_date"],
-        points=[DailyPoint(**row) for row in rows],
+        points=[DailyPoint(**{**row, "source": _DAILY_BY_ID[row["source"]].series_id})
+                for row in rows],
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in DAILY_SOURCE_DEFINITIONS],
     )
 
 
@@ -206,7 +249,9 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
         for point in weekly.points
     ]
     points.extend(
-        ScoreHistoryPoint(cadence="served_daily", **row) for row in daily_rows
+        ScoreHistoryPoint(cadence="served_daily", **{
+            **row, "source": _DAILY_BY_ID[row["source"]].series_id,
+        }) for row in daily_rows
     )
     return ScoreboardHistory(
         primary_source=weekly.primary_source,
@@ -214,6 +259,10 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
         daily_run_id=daily_run_id,
         boundary_date=min((row["delivery_date"] for row in daily_rows), default=None),
         points=points,
+        sources=[SourceDescriptor(**source.__dict__)
+                 for source in WEEKLY_SOURCE_DEFINITIONS + DAILY_SOURCE_DEFINITIONS
+                 if source.id != "scoreboard_null_flat_nodal"
+                 or source in WEEKLY_SOURCE_DEFINITIONS],
     )
 
 

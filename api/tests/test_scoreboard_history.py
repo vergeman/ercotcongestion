@@ -11,7 +11,7 @@ def _weekly(week: date, source: str = "model", **extra):
     return {"week": week, "source": source, **extra}
 
 
-def _daily(day: date, source: str = "model", **extra):
+def _daily(day: date, source: str = "scoreboard_model_served_nodal", **extra):
     return {"delivery_date": day, "source": source, **extra}
 
 

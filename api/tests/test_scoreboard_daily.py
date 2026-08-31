@@ -18,9 +18,9 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
     newest = date(2026, 7, 19)
     fake_pool.cursor.queue([{"run_id": "mu-all-v2"}])
     fake_pool.cursor.queue([
-        _row("model", delivery_date=newest, topdecile_hit=0.6),
-        _row("persistence", delivery_date=newest, topdecile_hit=0.5),
-        _row("oracle", delivery_date=newest, topdecile_hit=0.8),
+        _row("scoreboard_model_served_nodal", delivery_date=newest, topdecile_hit=0.6),
+        _row("scoreboard_persistence_prior_day_nodal", delivery_date=newest, topdecile_hit=0.5),
+        _row("scoreboard_oracle_settled_mu_nodal", delivery_date=newest, topdecile_hit=0.8),
     ])
 
     daily = scoreboard_service.build_latest_final_daily()
@@ -29,6 +29,12 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
     assert daily.horizon == 1
     assert daily.selected_delivery_date == newest
     assert {point.delivery_date for point in daily.points} == {newest}
+    assert {point.source for point in daily.points} == {"model", "persistence", "oracle"}
+    assert {source.id for source in daily.sources} == {
+        "scoreboard_model_served_nodal", "scoreboard_persistence_prior_day_nodal",
+        "scoreboard_climatology_trailing_window_nodal", "scoreboard_oracle_settled_mu_nodal",
+        "scoreboard_null_flat_nodal",
+    }
     sql, params = fake_pool.cursor.queries[-1]
     assert "SELECT max(delivery_date)" in sql
     assert "horizon = 1" in sql
