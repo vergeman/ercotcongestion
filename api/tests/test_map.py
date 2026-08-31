@@ -19,12 +19,12 @@ from fastapi import HTTPException
 
 import pandas as pd
 
-import map as map_module
-from services.map import common as map_common
-from services.map import summary as map_summary
+from api.routes import map as map_module
+from api.services.map import common as map_common
+from api.services.map import summary as map_summary
 from compute.projection.codecs import build_sf_mu_artifact
-from schemas.map import MapMeta, MapOverview
-from schemas.scoreboard import ScoreboardHeadline
+from api.schemas.map import MapMeta, MapOverview
+from api.schemas.scoreboard import ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
 WE = datetime(2026, 7, 2, tzinfo=timezone.utc)

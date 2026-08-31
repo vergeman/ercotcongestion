@@ -61,8 +61,8 @@ services:
     env_file:
       - .env.dev
     environment:
-      PYTHONPATH: /api:/compute:/:/opt
-    working_dir: /api
+      PYTHONPATH: /compute:/:/opt
+    working_dir: /
     depends_on:
       db:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       - ./api:/api
       - ./shared:/opt/shared:ro
       - ./data:/data
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
   ercot-proxy:     # "deploys to cloudflare"
     image: node:22-alpine
     container_name: ercot-proxy
@@ -113,7 +113,7 @@ services:
       env_file:
         - .env.dev
       environment:
-        PYTHONPATH: /api:/compute:/:/opt
+        PYTHONPATH: /compute:/:/opt
       depends_on:
         db:
           condition: service_healthy

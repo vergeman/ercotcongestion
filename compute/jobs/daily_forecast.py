@@ -43,7 +43,7 @@ from compute.mu_forecast.model.runner import (
     predict_day,
     spill_panel_features,
 )
-from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
+from compute.sf_map.config import REFIT_DAYS, WINDOW_DAYS
 from compute.inputs.dam import (
     dam_shadow_covers_window,
     load_congestion_panel,

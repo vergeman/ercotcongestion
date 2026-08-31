@@ -55,7 +55,7 @@ import pandas as pd
 import psycopg
 
 from shared.settings import settings
-from compute.sf_map.config import MIN_HOURS, REFIT_DAYS, WINDOW_DAYS
+from compute.sf_map.config import MIN_HOURS, REFIT_DAYS, RTC_B, WINDOW_DAYS
 from compute.inputs.dam import load_shadow_prices
 
 log = logging.getLogger("compute.experiments.sf.coverage")
@@ -69,13 +69,14 @@ DEFAULT_MIN_HISTORY_DAYS = 365
 # plan/0084 gate G1, fixed before the run.
 GATE_MIN_LIFT = 0.03
 
-# The RTC+B cutover. Results are always split around it so a change in behavior
-# doesn't hide inside one combined number.
-RTCB_DATE = pd.Timestamp("2025-12-05")
-
-# For tier A: how old the reused SF row would be, in day buckets. Tells us later
-# whether an age-decay is worth it -- don't build one on this alone.
+# Mass-weighted staleness buckets for tier A: how old the inherited SF row would
+# be. Tunes (or kills) a decay factor later; do not build one on this alone.
 AGE_BUCKETS = [(0, 30), (30, 90), (90, 180), (180, 10**6)]
+
+
+def _rtcb_for(ts: pd.Timestamp) -> pd.Timestamp:
+    cutover = RTC_B.tz_localize(None)
+    return cutover.tz_localize(ts.tz) if ts.tz else cutover
 
 
 def _parse_date(s: str) -> date:
@@ -199,8 +200,7 @@ def probe(
                 "total_mass": total,
                 "novel_mass": novel,
                 "n_novel_keys": int(novel_s.size),
-                "post_rtcb": bool(s >= RTCB_DATE.tz_localize(s.tz)
-                                  if s.tz else s >= RTCB_DATE),
+                "post_rtcb": bool(s >= _rtcb_for(s)),
             }
 
             # --- split the novel mass into tiers (A is always inside "seen")

@@ -25,7 +25,7 @@ Branch: refactor/0183-map-domain-services
 
 ## Acceptance
 
-* [ ] No Map route handler calls another decorated Map route handler.
-* [ ] Detail, aggregate, and summary services do not import `api.map`.
-* [ ] Existing Map tests cover the same day-aware artifact, ranking, metadata, and summary soft-fail behavior.
-* [ ] OpenAPI and all `/map/*` paths remain unchanged.
+* [x] No Map route handler calls another decorated Map route handler.
+* [x] Detail, aggregate, and summary services do not import `api.map`.
+* [x] Existing Map tests cover the same day-aware artifact, ranking, metadata, and summary soft-fail behavior.
+* [x] OpenAPI and all `/map/*` paths remain unchanged.

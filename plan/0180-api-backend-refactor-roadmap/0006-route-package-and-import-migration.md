@@ -25,7 +25,7 @@ Branch: refactor/0185-api-route-package-imports
 
 ## Acceptance
 
-* [ ] Every API production import resolves through the `api` package; no duplicate top-level route/schema/service modules remain.
-* [ ] `api.main:app` is the documented and containerized application entry point.
-* [ ] All API tests use package-qualified imports and pass without import-order dependence.
-* [ ] OpenAPI paths and response contracts are byte-for-byte equivalent apart from irrelevant schema ordering.
+* [x] Every API production import resolves through the `api` package; no duplicate top-level route/schema/service modules remain.
+* [x] `api.main:app` is the documented and containerized application entry point.
+* [x] All API tests use package-qualified imports and pass without import-order dependence.
+* [x] OpenAPI paths and response contracts are byte-for-byte equivalent apart from irrelevant schema ordering.

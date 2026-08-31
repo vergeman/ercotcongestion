@@ -5,7 +5,7 @@ from datetime import date
 
 from fastapi import HTTPException
 
-from services import scoreboard as scoreboard_service
+from api.services import scoreboard as scoreboard_service
 
 
 def _row(source: str, **kw):

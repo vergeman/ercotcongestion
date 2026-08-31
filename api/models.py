@@ -3,7 +3,7 @@
 New code should import schemas from their domain module in schemas.
 """
 
-from schemas.analysis import (
+from api.schemas.analysis import (
     AnalysisConstraintRow, AnalysisConstraintsAvailableResponse,
     AnalysisConstraintsUnavailableResponse, AnalysisContributionTerm,
     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
@@ -22,15 +22,15 @@ from schemas.analysis import (
     TopConstraintRow, TopConstraintsAvailableResponse, TopConstraintsUnavailableResponse,
     TopNodeRow, TopNodesAvailableResponse, TopNodesUnavailableResponse, VoltageClassRow,
 )
-from schemas.common import BootstrapSectionStatus
-from schemas.conditions import ConditionsEntry, ConditionsRangeResponse, FuelOutage, RegionGen, ZoneLoad
-from schemas.forecast import ErcotRangeEntry, ErcotRangeResponse, ForecastRangeEntry, ForecastRangeResponse, ForecastSpState
-from schemas.map import (
+from api.schemas.common import BootstrapSectionStatus
+from api.schemas.conditions import ConditionsEntry, ConditionsRangeResponse, FuelOutage, RegionGen, ZoneLoad
+from api.schemas.forecast import ErcotRangeEntry, ErcotRangeResponse, ForecastRangeEntry, ForecastRangeResponse, ForecastSpState
+from api.schemas.map import (
     ConstraintReach, ExposuresResponse, MapMeta, MapOverview, MapSummaryResponse,
     OverviewConstraint, RankedConstraint, RankedConstraints, ReachSp, SpExposure,
 )
-from schemas.matrix import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
-from schemas.scoreboard import (
+from api.schemas.matrix import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
+from api.schemas.scoreboard import (
     DailyPoint, HeadlineCurrency, HeadlineWindow, ScoreboardDaily, ScoreboardHeadline,
     ScoreboardHistory, ScoreboardSummaryResponse, ScoreboardWeekly, ScoreHistoryPoint,
     SourcePooled, WeeklyPoint, WeeklySplit,

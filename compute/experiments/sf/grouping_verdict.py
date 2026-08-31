@@ -17,9 +17,8 @@ This file reads output from sweep.py for sf_stability, and sf_stability_proj.
     of the ungrouped arm, and oos_pooled_r2 within 0.02. Grouping isn't allowed
     to buy steadiness at expense of where the congestion actually is.
 
-Everything is also split pre/post the RTC+B cutover (2025-12-05): DAM virtual
-AS can shift the μ patterns, so one number pooled across it would hide the
-change.
+Everything is also split pre/post the RTC+B cutover: DAM virtual AS
+can move the mu patterns, so a number pooled across it hides a regime change.
 
     docker compose run --rm compute python -m compute.experiments.sf.grouping_verdict \\
       --per-week /compute/runs/experiments/sf/sf_sweep_grouping_weekly.csv
@@ -31,7 +30,7 @@ import argparse
 
 import pandas as pd
 
-RTCB_CUTOVER = pd.Timestamp("2025-12-05", tz="UTC")
+from compute.sf_map.config import RTC_B
 
 STABILITY_BAR = 0.10          # required rise over the fair baseline
 GUARD_SCREENING = 0.01        # accuracy may slip at most this much
@@ -92,8 +91,8 @@ def main(argv: list[str] | None = None) -> int:
 
     splits = [
         ("ALL", weekly),
-        ("PRE-RTC+B", weekly[weekly["score_start"] < RTCB_CUTOVER]),
-        ("POST-RTC+B", weekly[weekly["score_start"] >= RTCB_CUTOVER]),
+        ("PRE-RTC+B", weekly[weekly["score_start"] < RTC_B]),
+        ("POST-RTC+B", weekly[weekly["score_start"] >= RTC_B]),
     ]
     for name, part in splits:
         if part.empty:

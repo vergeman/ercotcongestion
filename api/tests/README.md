@@ -1,6 +1,6 @@
 # Pytest Notes
 
-* Run: `docker compose run --rm api pytest /api/tests -v`
+* Run: `docker compose run --rm api pytest api/tests -v`
 
 ## Fake Pool Behavior
 

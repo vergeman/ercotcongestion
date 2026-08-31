@@ -4,8 +4,8 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
-from schemas.common import BootstrapSectionStatus
-from schemas.scoreboard import ScoreboardHeadline
+from api.schemas.common import BootstrapSectionStatus
+from api.schemas.scoreboard import ScoreboardHeadline
 
 
 

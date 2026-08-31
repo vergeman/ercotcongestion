@@ -26,7 +26,8 @@ import pandas as pd
 
 from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute import forecast_store
-from compute.evaluation.mu import REFIT_DAYS, RTC_B, weeks_from_preds
+from compute.evaluation.mu import weeks_from_preds
+from compute.sf_map.config import REFIT_DAYS, RTC_B
 from compute.time import delivery_date_of
 from compute.projection.codecs import (
     DRIVERS_K,

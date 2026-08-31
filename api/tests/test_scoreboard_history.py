@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from services import scoreboard as scoreboard_service
-from schemas.scoreboard import ScoreboardWeekly
+from api.services import scoreboard as scoreboard_service
+from api.schemas.scoreboard import ScoreboardWeekly
 
 
 def _weekly(week: date, source: str = "model", **extra):
