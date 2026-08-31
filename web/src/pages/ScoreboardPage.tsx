@@ -796,7 +796,7 @@ export default function ScoreboardPage() {
                       className="sb-legend__swatch"
                       style={{ background: s.color }}
                     />{" "}
-                    {weekly.sources.find((source) => source.series_id === s.seriesId)?.label ?? s.seriesId}
+                    {CHART_LABELS[s.seriesId]}
                   </span>
                 ))}
               </div>
