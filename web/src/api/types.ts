@@ -474,7 +474,8 @@ export interface ScoreboardHeadline {
 // metric rides through as null.
 export interface WeeklyPoint {
   week: string;
-  source: string;
+  source_id: string;
+  series_id: string;
   rank_spearman: number | null;
   sign_agree: number | null;
   topdecile_hit: number | null;
@@ -489,7 +490,8 @@ export interface WeeklyPoint {
 
 // One source's pooled currencies over a split — the week-mean of each metric.
 export interface SourcePooled {
-  source: string;
+  source_id: string;
+  series_id: string;
   rank_spearman: number | null;
   sign_agree: number | null;
   topdecile_hit: number | null;
@@ -505,10 +507,11 @@ export interface WeeklySplit {
 
 export interface ScoreboardWeekly {
   run_id: string;
-  primary_source: string;
+  primary_source_id: string;
   rtc_b_cutover: string;
   points: WeeklyPoint[];
   splits: WeeklySplit[];
+  sources: SourceDescriptor[];
 }
 
 // =============================================================================
@@ -526,7 +529,8 @@ export interface ScoreboardWeekly {
 // now (deferred snapshot). All nullable — a declined/flat cell is null.
 export interface DailyPoint {
   delivery_date: string;
-  source: string;
+  source_id: string;
+  series_id: string;
   // Which forecast track this row grades: 1 = final (fires D−1), 2 = preview
   // (fires D−2). One board carries one horizon; it rides on every point so a
   // reader never has to guess which track a number belongs to.
@@ -545,11 +549,12 @@ export interface DailyPoint {
 
 export interface ScoreboardDaily {
   run_id: string;
-  primary_source: string;
+  primary_source_id: string;
   // The track `points` grades; this summary section is always the final track.
   horizon: number;
   selected_delivery_date: string;
   points: DailyPoint[];
+  sources: SourceDescriptor[];
 }
 
 // The `/scoreboard/summary` chart sequence. Weekly backtest and daily served
@@ -558,7 +563,8 @@ export interface ScoreboardDaily {
 export type ScoreCadence = "backtest_weekly" | "served_daily";
 
 export interface ScoreHistoryPoint {
-  source: string;
+  source_id: string;
+  series_id: string;
   cadence: ScoreCadence;
   week: string | null;
   delivery_date: string | null;
@@ -572,11 +578,12 @@ export interface ScoreHistoryPoint {
 }
 
 export interface ScoreboardHistory {
-  primary_source: string;
+  primary_source_id: string;
   weekly_run_id: string;
   daily_run_id: string | null;
   boundary_date: string | null;
   points: ScoreHistoryPoint[];
+  sources: SourceDescriptor[];
 }
 
 // Explicitly describes a bootstrap section's soft-fail state and, where the
@@ -817,10 +824,21 @@ export interface AnalysisGradeHalf {
   graded: boolean;
   unavailable_reason?: string | null;
   universe_size?: number | null;
-  model?: AnalysisGradeMetrics | null;
-  persistence?: AnalysisGradeMetrics | null;
-  climatology?: AnalysisGradeMetrics | null;
   support?: AnalysisGradeSupport | null;
+  sources?: SourceDescriptor[];
+  source_metrics?: AnalysisGradeSourceMetrics[];
+}
+
+export interface SourceDescriptor {
+  id: string;
+  series_id?: string | null;
+  label: string;
+  definition: string;
+}
+
+export interface AnalysisGradeSourceMetrics {
+  id: string;
+  metrics: AnalysisGradeMetrics;
 }
 
 export interface AnalysisGrade {
@@ -834,8 +852,8 @@ export interface AnalysisGrade {
 }
 
 export interface AnalysisGradeHistoryHalf {
-  model: AnalysisGradeMetrics;
-  persistence: AnalysisGradeMetrics;
+  sources?: SourceDescriptor[];
+  source_metrics?: AnalysisGradeSourceMetrics[];
 }
 
 export interface AnalysisGradeHistoryDay {

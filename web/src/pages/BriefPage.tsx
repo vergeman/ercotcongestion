@@ -924,7 +924,7 @@ function ScoreWhisker({
   return (
     <div
       className="an-grade-card__whisker"
-      aria-label={`Model ${score(model)}; trailing ${
+      aria-label={`Artifact profile forecast ${score(model)}; trailing ${
         values.length
       }-day p10 ${score(p10)}, p90 ${score(p90)}`}
     >
@@ -1074,6 +1074,16 @@ const gradeMetric = (
   key: keyof AnalysisGradeMetrics
 ) => metrics?.[key] ?? null;
 
+const BRIEF_MODEL_SOURCE = "brief_model_artifact_profile";
+const BRIEF_PERSISTENCE_SOURCE = "brief_persistence_prior_settled_profile";
+const BRIEF_CLIMATOLOGY_SOURCE = "brief_climatology_trailing_settled_profile";
+
+const gradeSource = (half: AnalysisGradeHalf | undefined, id: string) =>
+  half?.source_metrics?.find((source) => source.id === id)?.metrics;
+
+const gradeSourceLabel = (half: AnalysisGradeHalf | undefined, id: string) =>
+  half?.sources?.find((source) => source.id === id)?.label ?? id;
+
 function GradeHalf({
   label,
   half,
@@ -1097,19 +1107,25 @@ function GradeHalf({
     );
   }
   const nodes = label === "Nodes";
+  const model = gradeSource(half, BRIEF_MODEL_SOURCE);
+  const persistence = gradeSource(half, BRIEF_PERSISTENCE_SOURCE);
+  const climatology = gradeSource(half, BRIEF_CLIMATOLOGY_SOURCE);
   const dailyRank = nodes
-    ? half.model?.top_decile_daily_capture
-    : half.model?.detection_ap;
+    ? model?.top_decile_daily_capture
+    : model?.detection_ap;
   const persistenceDailyRank = nodes
-    ? half.persistence?.top_decile_daily_capture
-    : half.persistence?.detection_ap;
+    ? persistence?.top_decile_daily_capture
+    : persistence?.detection_ap;
   const hourlyRank = nodes
-    ? half.model?.top_decile_hourly_capture
-    : half.model?.timing_hourly_skill;
+    ? model?.top_decile_hourly_capture
+    : model?.timing_hourly_skill;
   const subject = nodes ? "nodes" : "constraints";
   const historyFor = (key: keyof AnalysisGradeMetrics) =>
     (history?.days ?? [])
-      .map((day) => gradeMetric(day[subject].model, key))
+      .map((day) => gradeMetric(
+        day[subject].source_metrics?.find((source) => source.id === BRIEF_MODEL_SOURCE)?.metrics,
+        key
+      ))
       .filter(
         (value): value is number => value != null && Number.isFinite(value)
       );
@@ -1139,21 +1155,21 @@ function GradeHalf({
           supportRows={[
             {
               value: score(persistenceDailyRank),
-              label: "Persistence (repeat yesterday)",
+              label: `${gradeSourceLabel(half, BRIEF_PERSISTENCE_SOURCE)} (repeat prior settled day)`,
               win: beats(dailyRank, persistenceDailyRank),
             },
             {
               value: score(
                 nodes
-                  ? half.climatology?.top_decile_daily_capture
-                  : half.climatology?.detection_ap
+                  ? climatology?.top_decile_daily_capture
+                  : climatology?.detection_ap
               ),
-              label: "30-day settled average",
+              label: gradeSourceLabel(half, BRIEF_CLIMATOLOGY_SOURCE),
               win: beats(
                 dailyRank,
                 nodes
-                  ? half.climatology?.top_decile_daily_capture
-                  : half.climatology?.detection_ap
+                  ? climatology?.top_decile_daily_capture
+                  : climatology?.detection_ap
               ),
             },
             {
@@ -1195,8 +1211,8 @@ B    = constraints that bind`
           kind="Magnitude"
           question="Were the prices about right?"
           detail="Matches forecast dollars to settled dollars by element. A forecast with the wrong total cannot reach 1.00, even with perfect placement."
-          model={half.model?.magnitude_overlap}
-          persistence={half.persistence?.magnitude_overlap}
+          model={model?.magnitude_overlap}
+          persistence={persistence?.magnitude_overlap}
           support={half.support}
           entity={label === "Constraints" ? "constraint" : "node"}
           supportRows={[
@@ -1237,10 +1253,10 @@ B    = constraints that bind`
               ? "The 0.xx scores are settled top-decile nodes captured by the forecast; the 10% lines below are random-selection baselines."
               : "Shows the delivery-day result beside the same test over individual hours."
           }
-          model={nodes ? dailyRank : half.model?.timing_daily_skill}
+          model={nodes ? dailyRank : model?.timing_daily_skill}
           modelHourly={hourlyRank}
           persistence={
-            nodes ? persistenceDailyRank : half.persistence?.timing_daily_skill
+            nodes ? persistenceDailyRank : persistence?.timing_daily_skill
           }
           support={half.support}
           entity={nodes ? "node" : "constraint"}
