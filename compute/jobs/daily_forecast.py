@@ -29,7 +29,7 @@ from compute.forecast_store import (
     upsert_pointer,
 )
 from compute.jobs.forecast_history import load_artifact, persist_rollup
-from compute.jobs.grade_day import (
+from compute.jobs.grade_forecast_day import (
     grade_day,
     persist_grades,
     resolve_gradeable_date,

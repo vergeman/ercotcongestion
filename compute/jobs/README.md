@@ -15,8 +15,8 @@ review tools are run manually.
 
 | File | Description | Caller |
 | --- | --- | --- |
-| `grade_day.py` | Grades the served nodal forecast against settled DAM results and writes daily scoreboard metrics. Normally invoked by `daily_forecast.py`; also supports retrying a missed grade. | `daily_forecast.py`; manual retry |
-| `materialize_brief_grade.py` | Writes the Brief’s settled detection, magnitude, and timing grades. Normally invoked after the daily grade and can materialize a requested date range. | `daily_forecast.py`; manual backfill |
+| `grade_forecast_day.py` | Grades the served nodal forecast against settled DAM results and writes the daily Scoreboard metrics; it does not calculate Brief grades. Normally invoked by `daily_forecast.py`; also supports retrying a missed grade. | `daily_forecast.py`; manual retry |
+| `materialize_brief_grade.py` | Writes the Brief’s separate settled detection, magnitude, and timing grades. Normally invoked after the Scoreboard grade and can materialize a requested date range. | `daily_forecast.py`; manual backfill |
 
 ## Shift-factor map — weekly
 
@@ -32,7 +32,7 @@ review tools are run manually.
 | `backfill_forecast_history.py` | Builds queryable per-constraint daily forecast history from existing SF+μ artifacts, without refitting forecasts. | Manual |
 | `backfill_nodal.py` | Projects an offline walk-forward μ prediction artifact through the SF map to seed historical nodal forecasts and verdict data. | Manual |
 | `backfill_brief_grade_prod.sh` | Runs `materialize_brief_grade` in resumable 30-day production batches, starting from the latest settled day. | Manual, production compute shell |
-| `load_scoreboard.py` | One-shot/reload importer that writes an offline backtest run’s precomputed weekly μ scores to `scoreboard_weekly`; it does not recompute metrics. | Manual, after offline scoring |
+| `backfill_scoreboard.py` | One-shot/reload importer that writes an offline backtest run’s precomputed weekly μ scores to `scoreboard_weekly`; it does not recompute metrics. | Manual, after offline scoring |
 
 ## Review and package support — on demand
 

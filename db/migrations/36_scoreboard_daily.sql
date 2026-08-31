@@ -2,7 +2,7 @@
 --
 -- The LIVE scoreboard (plan/0102 Phase 3, 0003-live-grading). Where the backtest
 -- board (34_scoreboard_weekly.sql) grades a pre-registered walk, this grades the
--- *served* forecast one day behind: grade_day(D) pulls the point forecast that
+-- *served* forecast one day behind: grade_forecast_day(D) pulls the point forecast that
 -- forecast_nodal actually served for delivery day D, scores it against realized
 -- DAM SPP congestion (SPP - system_λ) with the SAME score_matrix the backtest
 -- uses (compute/mu/score.py), and writes one row per source. Live and backtest

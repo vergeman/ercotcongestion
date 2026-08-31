@@ -54,9 +54,15 @@ def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
     )
 
 
-def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
-    from compute.jobs.backfill_nodal import existence_test
+def _beats_persistence(model: SourcePooled, persistence: SourcePooled) -> bool:
+    """Require the model to beat persistence on every scoreboard gate metric."""
+    return all(
+        getattr(model, key) > getattr(persistence, key)
+        for key in _POOL_METRICS
+    )
 
+
+def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
     slices = [
         ("all", rows),
         ("pre_rtc_b", [row for row in rows if row["week"] < RTC_B_CUTOVER]),
@@ -67,15 +73,11 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
         pooled = {source: _pooled_source(slice_rows, source) for source in _SOURCES}
         model = pooled["model"]
         persistence = pooled["persistence"]
-        keys = ("rank_spearman", "sign_agree", "topdecile_hit")
         beats: bool | None = None
-        if all(getattr(model, key) is not None for key in keys) and all(
-            getattr(persistence, key) is not None for key in keys
+        if all(getattr(model, key) is not None for key in _POOL_METRICS) and all(
+            getattr(persistence, key) is not None for key in _POOL_METRICS
         ):
-            beats, _ = existence_test(
-                {key: getattr(model, key) for key in keys},
-                {key: getattr(persistence, key) for key in keys},
-            )
+            beats = _beats_persistence(model, persistence)
         splits.append(
             WeeklySplit(
                 label=label,
@@ -108,7 +110,7 @@ def build_weekly() -> ScoreboardWeekly:
             status_code=503,
             detail=(
                 f"no scoreboard_weekly rows for run_id={run_id}. "
-                "Load the board first (compute.jobs.load_scoreboard)."
+                "Load the board first (compute.jobs.backfill_scoreboard)."
             ),
         )
     return ScoreboardWeekly(
@@ -160,7 +162,7 @@ def build_latest_final_daily() -> ScoreboardDaily:
             status_code=503,
             detail=(
                 f"no final scoreboard_daily rows for run_id={run_id}. "
-                "Grade a served day first (compute.jobs.grade_day)."
+                "Grade a served day first (compute.jobs.grade_forecast_day)."
             ),
         )
     return ScoreboardDaily(

@@ -91,7 +91,7 @@ expected_mu = p_bind × mu_if_bind
 ```
 
 For example, `p_bind = 0.25` and `mu_if_bind = $80/MWh` gives an expected shadow
-price of `$20/MWh` before any uncertainty sampling.
+price of `$20/MWh`.
 
 The real μ model uses gradient-boosted trees for both heads. For the size head,
 it fits `log(1 + μ)` and converts the prediction back afterwards; that stops a
@@ -124,6 +124,5 @@ outcomes rather than relying only on the single expected value shown here.
 
 This tutorial is not a replacement for the production path. It omits data
 vintages and leakage checks, constraint selection, the full feature set,
-calibration checks, rolling walk-forward evaluation, and the P10/P50/P90
-sampling step. Those are necessary operational safeguards, but they obscure the
-basic two-model story.
+calibration checks and rolling walk-forward evaluation. Those are necessary
+operational safeguards, but they obscure the basic two-model story.

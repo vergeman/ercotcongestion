@@ -11,7 +11,7 @@ import pandas as pd
 
 from compute.jobs.backfill_nodal import scores_path_for
 
-log = logging.getLogger("compute.jobs.load_scoreboard")
+log = logging.getLogger("compute.jobs.backfill_scoreboard")
 
 _SCORE_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 _COVERAGE = ("sf_coverage", "model_coverage")

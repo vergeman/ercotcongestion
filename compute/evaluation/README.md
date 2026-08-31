@@ -29,7 +29,7 @@ python -m compute.evaluation.sf \
   `--persist-eval`, it updates the map's stored evaluation fields.
 * `compute.experiments.sf.sweep` calls `evaluate()` directly for every
   candidate configuration and uses the returned rows to rank the sweep.
-* `compute.evaluation.mu` and `compute.jobs.grade_day` reuse the prediction or
+* `compute.evaluation.mu` and `compute.jobs.grade_forecast_day` reuse the prediction or
   metric helpers in `sf.py`; they do not run the SF-map evaluation loop.
 * `compute.sf_map.tests.test_grouped_fit` calls `evaluate()` and
   `evaluate_chunked()` to check grouping and chunked execution.

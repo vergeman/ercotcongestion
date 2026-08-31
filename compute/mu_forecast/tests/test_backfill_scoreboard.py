@@ -1,11 +1,11 @@
-"""Run-artifact path convention for load_scoreboard (plan/0113).
+"""Run-artifact path convention for backfill_scoreboard (plan/0113).
 
 `--run-id` defaults the score CSV to the run's μ-stage `mu/mu_score_weekly.csv`.
 """
 from __future__ import annotations
 
 from compute.jobs.backfill_nodal import scores_path_for
-from compute.jobs.load_scoreboard import resolve_board_paths
+from compute.jobs.backfill_scoreboard import resolve_board_paths
 
 
 def test_run_id_defaults_score_under_mu():

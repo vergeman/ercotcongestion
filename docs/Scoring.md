@@ -17,8 +17,8 @@ R² metric.
 
 | Dataset | What it measures | Written by | How Scoreboard uses it |
 | --- | --- | --- | --- |
-| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.load_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
-| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_day` | Latest final-grade tiles and final-grade portion of the history chart |
+| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
+| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and final-grade portion of the history chart |
 | `analysis_grade_daily` | Brief ranking and shape assessment | `compute.jobs.materialize_brief_grade` | Brief only; not a Scoreboard input |
 
 The only Scoreboard HTTP read endpoint is `/scoreboard/summary`. It bundles the
@@ -72,9 +72,9 @@ the rows as context for interpreting a score.
 `scoreboard_weekly` is a manually refreshed transcription of the offline
 walk-forward evaluation. The walk repeatedly fits only on information available
 at the time, predicts forward, and scores the resulting out-of-sample forecasts.
-`compute.evaluation.mu` writes `mu_score_weekly.csv`; `load_scoreboard` copies
-those precomputed screening values into the database. The loader does not
-measure forecasts or create new metrics.
+`compute.evaluation.mu` writes `mu_score_weekly.csv`;
+`compute.jobs.backfill_scoreboard` copies those precomputed screening values
+into the database. The loader does not measure forecasts or create new metrics.
 
 There is one all-hours row per `(run_id, week, source)`. Refreshing the weekly
 board requires a new offline walk, evaluation of its predictions, and then a
@@ -84,14 +84,50 @@ load; normal forecast and grading crons do not advance it.
 
 `scoreboard_daily` grades the deterministic nodal forecast that was actually
 served for a CT delivery day after the corresponding DAM outcomes are available.
-`grade_day` reads the served forecast, builds realized nodal congestion, and uses
-the same screening-metric harness as the backtest. It records the model plus its
-comparators for the delivery day and is idempotent for `(run_id, delivery_date,
-horizon)`.
+`compute.jobs.grade_forecast_day` reads the served forecast, builds realized
+nodal congestion, and uses the same screening-metric harness as the backtest.
+It records the model plus its comparators for the delivery day and is idempotent
+for `(run_id, delivery_date, horizon)`.
 
 The daily row is therefore a live product assessment, not another backtest. Its
 history depends on forecasts having been served and later graded; it is not a
 complete historical archive that can be rebuilt by the weekly-board loader.
+
+### Same inference, different batch size
+
+Both paths fit the μ heads (`P(bind)` and `E(μ | bind)`) from a trailing 240-day
+history window, then run inference on timestamped constraint rows. A model can
+infer one row or many rows at once; batching changes throughput, not what a row
+means. Each row is identified by its full `interval_ts` and constraint key, so
+Monday 14:00 and Tuesday 14:00 are distinct predictions even though they share
+the same clock hour.
+
+For a normal 24-hour delivery day `D`, `compute.jobs.daily_forecast` fits μ on
+`[D−240d, D)`, reuses the applicable weekly-fit SF map, and infers the roughly
+`24 × constraints` rows for `D`. It projects them to roughly `24 × nodes`
+nodal predictions. Once DAM results settle,
+`compute.jobs.grade_forecast_day` grades that day as one daily Scoreboard
+result. (DST delivery days have 23 or 25 hours.)
+
+For an offline weekly fold beginning `S`, the backtest fits both μ and SF on
+the preceding 240 days, then infers the roughly `168 × constraints` rows for
+`[S, S+7d)`. It projects them to roughly `168 × nodes` predictions and grades
+all seven days together as one weekly result. The next fold advances seven days
+and repeats with a newly shifted 240-day window.
+
+### History boundary and overlapping dates
+
+`/scoreboard/summary` returns `history.boundary_date`: the first final served
+daily grade. The client passes it to `SeriesChart` in
+`web/src/pages/ScoreboardPage.tsx`, which draws the dashed **Served grades**
+marker at that date; it is a visual handoff, not a toggle or a server-side trim
+of the weekly series.
+
+If a weekly point and a daily point have the same date and source, the chart's
+value lookup is keyed by `(date, source)`. The API appends daily points after
+weekly points, so the later daily value replaces the weekly value for plotting.
+Thus daily takes precedence on an overlap, while non-overlapping weekly points
+remain visible before and after the marker.
 
 ## Forecast horizons
 
@@ -134,7 +170,7 @@ hours around DST transitions, while stored timestamps remain UTC instants.
 
 The final and preview forecast ticks publish their artifacts and nodal forecasts,
 then try to grade an eligible settled delivery day. Grade failures are non-fatal
-to publishing and can be retried; `grade_day` selects an ungraded eligible day
+to publishing and can be retried; `grade_forecast_day` selects an ungraded eligible day
 per run and horizon. The offline weekly board is outside that loop.
 
 Typical manual weekly refresh:
@@ -144,13 +180,14 @@ Typical manual weekly refresh:
 python -m compute.mu_forecast.model.backtest --run-id <run-id> ...
 python -m compute.evaluation.mu --preds runs/<run-id>/mu/mu_preds.npz \
     --out runs/<run-id>/mu/mu_score_weekly.csv
-python -m compute.jobs.load_scoreboard --run-id <run-id>
+python -m compute.jobs.backfill_scoreboard --run-id <run-id>
 ```
 
-`load_scoreboard` replaces only that run's weekly rows. It does not backfill
-daily served grades. To repair a specific live day, run `grade_day` for that
-delivery date and horizon after confirming the forecast and realized inputs are
-present.
+`backfill_scoreboard` replaces only that run's weekly rows. It does not backfill
+daily served grades. To repair a specific live day, run
+`python -m compute.jobs.grade_forecast_day --delivery-date <YYYY-MM-DD> --run-id
+<run-id> --horizon <1|2> --to-db` after confirming the forecast and realized
+inputs are present.
 
 ## Brief grades are separate
 
@@ -160,5 +197,7 @@ present.
 * Magnitude: whether the daily Σμ shape overlaps the realized shape.
 * Timing: whether important constraint-hours appear at the right times.
 
-Those grades use their own subjects, baselines, and definitions. A strong Brief
-grade does not imply a strong nodal Scoreboard result, and vice versa.
+Those grades use their own subjects, baselines, and definitions.
+`compute.jobs.materialize_brief_grade` writes them independently of
+`compute.jobs.grade_forecast_day`. A strong Brief grade does not imply a strong
+nodal Scoreboard result, and vice versa.

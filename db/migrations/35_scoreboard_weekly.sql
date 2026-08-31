@@ -4,7 +4,7 @@
 -- The pre-registered currencies already exist per (week x source x regime) in
 -- compute/mu/mu_score_weekly.csv, and the P50 band metrics per week (model source
 -- only) in mu_bands_weekly.csv. This table is where the reshape-and-serve loader
--- (compute.jobs.load_scoreboard) lands them so the API serves indexed rows, not
+-- (compute.jobs.backfill_scoreboard) lands them so the API serves indexed rows, not
 -- files. It is NOT new measurement — the numbers are transcribed as-is (§0, §6).
 --
 -- run_id names the *model version* that produced the board (same run_id semantics

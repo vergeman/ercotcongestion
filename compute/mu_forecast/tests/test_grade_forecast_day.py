@@ -1,11 +1,11 @@
-"""Tests for the `grade_day` live-grading job (plan 0102 / 0003-live-grading).
+"""Tests for the `grade_forecast_day` live-grading job (plan 0102 / 0003-live-grading).
 
-Deterministic and DB-free: every DB seam of `grade_day` (the served-forecast read,
+Deterministic and DB-free: every DB seam of `grade_forecast_day` (the served-forecast read,
 the shadow-price / congestion loaders, the SF fit) is stubbed so the ORCHESTRATION
 — the score grid, the common-node intersection, and which quantity each source is
 scored on — is exercised against the SHARED metric (`score_matrix`) in
 milliseconds. The reconciliation guarantee (spec §7) is proven structurally here:
-`grade_day`'s per-source rows are asserted byte-equal to `score_matrix` recomputed
+`grade_forecast_day`'s per-source rows are asserted byte-equal to `score_matrix` recomputed
 independently on the same Y / Yh, so a live number and a backtest number are the
 same currency by construction. The null-guard (spec §6) — a flat map cannot
 manufacture a screening score — and the fail-loud paths round it out.
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import compute.jobs.grade_day as gd
+import compute.jobs.grade_forecast_day as gd
 from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence, score_matrix
 from compute.evaluation.sf import predict
 
@@ -99,8 +99,8 @@ def test_rows_reproduce_score_matrix_on_the_same_inputs(monkeypatch, caplog):
             _eq(by_src[name][k], v)
 
     messages = [record.getMessage() for record in caplog.records]
-    assert "grade_day start: delivery_date=2025-09-15 run_id=t horizon=1" in messages
-    assert any(message.startswith("grade_day complete: delivery_date=2025-09-15 ")
+    assert "grade_forecast_day start: delivery_date=2025-09-15 run_id=t horizon=1" in messages
+    assert any(message.startswith("grade_forecast_day complete: delivery_date=2025-09-15 ")
                and "elapsed_s=" in message for message in messages)
 
 

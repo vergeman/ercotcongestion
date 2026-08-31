@@ -149,22 +149,6 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-def existence_test(model: dict, persistence: dict) -> tuple[bool, str]:
-    """"Beat persistence in the screening currency"
-
-    Relative, so persistence must be the one measured in THIS harness — the
-    0.581/0.771/0.649 in the handoff came from the old 60-day, λ=0.1 map, and
-    grading against those would be grading against a different experiment.
-
-    """
-    keys = ["rank_spearman", "sign_agree", "topdecile_hit"]
-    wins = {k: model[k] > persistence[k] for k in keys}
-    detail = "  ".join(
-        f"{k.split('_')[0]} {model[k]:.3f} vs {persistence[k]:.3f} "
-        f"{'WIN' if wins[k] else 'LOSS'}" for k in keys)
-    return all(wins.values()), detail
-
-
 def main(argv: list[str] | None = None) -> int:
     import argparse
 

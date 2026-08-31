@@ -1,7 +1,7 @@
-"""The `grade_day` job — grade the SERVED forecast for one delivery day D.
+"""The `grade_forecast_day` job — grade the SERVED forecast for one delivery day D.
 
 The live half of the scoreboard. Where the backtest board
-(compute.jobs.load_scoreboard -> scoreboard_weekly) transcribes a
+(compute.jobs.backfill_scoreboard -> scoreboard_weekly) transcribes a
 pre-registered walk, this grades what `daily_forecast` actually *served*, one
 day behind, once realized DAM prices publish:
 
@@ -27,6 +27,9 @@ matrix as realized Y.
 No refit. Grading reads the served panel; it does not re-run the model. The one
 fit here is the cheap trailing-window SF solve for the baselines (the same
 `implied_shift_factors` the backtest and the map use).
+
+This job calculates scoreboard grades only; Brief grades are calculated by
+`materialize_brief_grade.py`.
 
 """
 from __future__ import annotations
@@ -156,7 +159,7 @@ def grade_day(
     """
     D = _as_ct_day(D)
     started = perf_counter()
-    log.info("grade_day start: delivery_date=%s run_id=%s horizon=%d",
+    log.info("grade_forecast_day start: delivery_date=%s run_id=%s horizon=%d",
              D.date(), run_id, horizon)
 
     # --- the served product (model source) ----------------------------------
@@ -218,7 +221,7 @@ def grade_day(
             f"no nodes shared by the map, the served forecast, and realized C for "
             f"{D.date()} — cannot score (coverage collapse or wrong run_id).")
     if len(N) < len(SF.columns):
-        log.info("grade_day %s: scoring %d/%d mapped nodes the served forecast "
+        log.info("grade_forecast_day %s: scoring %d/%d mapped nodes the served forecast "
                  "also covers", D.date(), len(N), len(SF.columns))
 
     # Realized Y on the common grid — the target for every source.
@@ -260,7 +263,7 @@ def grade_day(
 
     m = rows[0]
     p = next(r for r in rows if r["source"] == "persistence")
-    log.info("grade_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
+    log.info("grade_forecast_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
              "%d h × %d nodes | model top-dec %.3f (persistence %.3f, Δ%+.3f) "
              "| sf_coverage %.3f",
              D.date(), run_id, perf_counter() - started, len(hours), len(N),
