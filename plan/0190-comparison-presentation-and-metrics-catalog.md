@@ -6,7 +6,7 @@ Branch: refactor/0190-comparison-presentation-and-metrics-catalog
 ## Goal
 
 * Render source-specific labels and coherent chart series from the provenance contract introduced in 0189.
-* Consolidate all metric and comparator documentation into `docs/METRICS.md`.
+* Consolidate all metric and source documentation into `docs/METRICS.md`.
 * Retire the temporary API compatibility fields after the frontend has moved.
 
 ## Context
