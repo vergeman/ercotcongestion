@@ -20,7 +20,7 @@ individual constraint, and three more columns appear:
   * ``group_churn``       — how much group membership changes from the prior window
   * ``sf_stability_proj`` — (``--control``) the ungrouped SF expressed as groups
 
-``--persist-eval`` writes ``oos_r2``/``coverage``/``sf_stability`` into
+``--persist-eval`` writes ``sf_oos_r2``/``coverage``/``sf_stability`` into
 ``sf_window_meta``.
 
 Metric helpers are copied here so this module does not depend on ``experiments/``.
@@ -205,7 +205,7 @@ def evaluate(
         SF, labels = fit(s - win, s)
         if SF.empty:
             continue
-        oos_r2, spearman, sign, topdec = score(s, score_end, SF, labels)
+        sf_oos_r2, spearman, sign, topdec = score(s, score_end, SF, labels)
 
         # Comparison fit whose window includes the scored week.
         SF_pipe, lab_pipe = fit(score_end - win, score_end)
@@ -252,7 +252,7 @@ def evaluate(
             "n_constraints": int(active.size),
             "n_groups": int(labels.loc[active].nunique()) if labels is not None
                         else np.nan,
-            "oos_pooled_r2": oos_r2,
+            "oos_pooled_r2": sf_oos_r2,
             "is_pooled_r2": is_r2,
             "rank_spearman": spearman,
             "sign_agree": sign,
@@ -423,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--std-floor", type=float, default=STD_FLOOR)
     p.add_argument("--no-standardize", dest="standardize", action="store_false")
     p.add_argument("--persist-eval", action="store_true",
-                   help="Backfill oos_r2/coverage/sf_stability onto this "
+                   help="Backfill sf_oos_r2/coverage/sf_stability onto this "
                         "run_id's existing sf_window_meta rows (from an earlier "
                         "runner --persist-sf with matching hyperparameters). "
                         "Matched by score_start.")
@@ -517,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
                  matched, args.run_id)
         if remaining:
             log.warning("%d sf_window_meta rows for run_id=%s still have NULL "
-                        "oos_r2 (score_start/refit misalignment, or out of the "
+                        "sf_oos_r2 (score_start/refit misalignment, or out of the "
                         "eval range)", remaining, args.run_id)
 
     out_dir = RUNS_ROOT / args.run_id / "sf"

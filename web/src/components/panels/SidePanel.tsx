@@ -519,7 +519,7 @@ export default function SidePanel({
                   <Stat
                     label="Out-of-sample R²"
                     hint="How well the active fit explains congestion it did not train on. Higher is better."
-                    value={fmtScore(fitMeta.oos_r2)}
+                    value={fmtScore(fitMeta.sf_oos_r2)}
                   />
                   <Stat
                     label="SF Stability"

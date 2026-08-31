@@ -94,7 +94,7 @@ def overview(
         window_end=meta_row["window_end"],
         n=n,
         k=k,
-        oos_r2=meta_row["oos_r2"],
+        sf_oos_r2=meta_row["sf_oos_r2"],
         sf_stability=meta_row["sf_stability"],
         constraints=constraints,
     )

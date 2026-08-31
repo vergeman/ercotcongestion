@@ -214,16 +214,16 @@ def main(argv: list[str] | None = None) -> int:
         n_dropped = int(binding.lt(args.min_binding_hours).sum())
         n_clipped = int(window.SF.attrs.get("n_clipped", 0))
 
-        r2 = refit_diagnostics(
+        sf_fit_r2 = refit_diagnostics(
             window.M_fit, window.C_window, window.SF, args.min_binding_hours,
-        )["r2_overall"]
+        )["sf_fit_r2"]
 
         log.info(
-            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d r2=%s",
+            "refit window=[%s,%s) score=[%s,%s) n_kept=%d n_dropped=%d n_sf_clipped=%d sf_fit_r2=%s",
             window.window_start.date(), window.window_end.date(),
             window.score_start.date(), window.score_end.date(),
             n_kept, n_dropped, n_clipped,
-            f"{r2:.3f}" if r2 is not None else "nan",
+            f"{sf_fit_r2:.3f}" if sf_fit_r2 is not None else "nan",
         )
 
         if sf_conn is None:
@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             "n_kept": n_kept,
             "n_dropped": n_dropped,
             "n_sf_clipped": n_clipped,
-            "fit_r2": r2,
+            "sf_fit_r2": sf_fit_r2,
         })
         sf_stats["windows"] += 1
         sf_stats["rows"] += n

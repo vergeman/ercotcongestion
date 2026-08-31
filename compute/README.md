@@ -702,7 +702,7 @@ For evaluation purposes (`/compute/evaluation/sf.py`) [`score_start`,
             prediction (Y_hat) to get R^2
             * returns bunch of diagnostic stats, counts post-fit.
           * persist SF via `copy_sf_rows`, and `window_meta` to db; notably
-            window and score dates, `fit_r2`, `oos_rt`, `coverage` stats.
+            window and score dates, `sf_fit_r2`, `sf_oos_r2`, `coverage` stats.
 
 * `sf_map/model/rolling.py:fit_refit_window()`:
   * intersect and align `M` and `C` hours, mask on window start/end dates

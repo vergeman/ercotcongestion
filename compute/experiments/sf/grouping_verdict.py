@@ -69,7 +69,7 @@ def verdict(weekly: pd.DataFrame) -> pd.DataFrame:
             "stability": stab,
             "control": proj,
             "delta": delta,
-            "d_oos_r2": d_r2,
+            "d_sf_oos_r2": d_r2,
             **{f"d_{m}": v for m, v in guards.items()},
             "PASS_stability": delta >= STABILITY_BAR,
             "PASS_guard": guard_ok,

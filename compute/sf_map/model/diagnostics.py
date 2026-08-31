@@ -72,7 +72,7 @@ def refit_diagnostics(
     ]
 
     # Prediction: C_hat = -M · SFᵀ, restricted to fitted rows / kept cols.
-    r2_overall = float("nan")
+    sf_fit_r2 = float("nan")
 
     per_sp_r2: dict[str, float] = {}
     if not SF.empty and not M_window.empty:
@@ -93,7 +93,7 @@ def refit_diagnostics(
             # .ravel() flattens a N-D numpy array into a 1-d array
             # r^2 correlation (0, 1) between actual (Y) and predicted (Y_hat)
             # overall: single number
-            r2_overall = _r2(Y.ravel(), Y_hat.ravel())
+            sf_fit_r2 = _r2(Y.ravel(), Y_hat.ravel())
 
             # for each SP, calculate the R^2
             for j, sp in enumerate(SF.columns):
@@ -106,7 +106,7 @@ def refit_diagnostics(
         "n_dropped": int(len(dropped)),
         "n_sf_clipped": int(SF.attrs.get("n_clipped", 0)),
         "min_binding_hours": int(min_hours),
-        "r2_overall": None if np.isnan(r2_overall) else r2_overall,
+        "sf_fit_r2": None if np.isnan(sf_fit_r2) else sf_fit_r2,
         "per_sp_r2": {
             sp: (None if np.isnan(v) else v) for sp, v in per_sp_r2.items()
         },

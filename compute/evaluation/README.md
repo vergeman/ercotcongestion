@@ -56,7 +56,7 @@ The command writes:
 * `compute/runs/<run-id>/sf/decay.csv` — only with `--emit-decay`; one row per
   requested lag (`delta_days`, `mean_corr`, `n_pairs`).
 * `sf_window_meta` in Postgres — only with `--persist-eval`; it fills
-  `oos_r2`, `coverage`, and `sf_stability` for matching map windows.
+  `sf_oos_r2`, `coverage`, and `sf_stability` for matching map windows.
 
 Useful options:
 
