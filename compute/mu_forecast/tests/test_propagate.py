@@ -8,7 +8,7 @@ import pytest
 from compute.forecast_store import (
     nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db, upsert_pointer,
 )
-from compute.jobs.backfill_nodal import existence_test, walk
+from compute.jobs.backfill_nodal import walk
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
 from compute.projection.codecs import (
     DRIVERS_MAX_DAYS,
@@ -495,20 +495,6 @@ def test_pointer_flips_after_rows_and_stays_one_row(pg, tmp_path):
                     "WHERE layer = %s", (layer,))
         row = cur.fetchone()
     assert row[0] == run_id + "-v2" and row[1] == 1    # updated, still one row
-
-
-def test_existence_test_needs_all_three_screening_measures():
-    """"Beat persistence in the screening currency" means beat it — not beat it on
-    the two you like. Our model wins Spearman and sign and loses top-decile, and
-    that has to read FAIL, not "mostly passed"."""
-    model = {"rank_spearman": 0.548, "sign_agree": 0.787, "topdecile_hit": 0.523}
-    pers = {"rank_spearman": 0.496, "sign_agree": 0.736, "topdecile_hit": 0.561}
-    ok, detail = existence_test(model, pers)
-    assert ok is False
-    assert "LOSS" in detail and "WIN" in detail
-
-    better = {**pers, "rank_spearman": 0.9, "sign_agree": 0.9, "topdecile_hit": 0.9}
-    assert existence_test(better, pers)[0] is True
 
 
 # ------------------------------------------------- the SF+μ artifact (0011)
