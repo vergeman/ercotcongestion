@@ -6,14 +6,20 @@ DO $$
 DECLARE
   weekly_before bigint;
   daily_before bigint;
+  retired_weekly bigint;
 BEGIN
   SELECT count(*) INTO weekly_before FROM scoreboard_weekly;
   SELECT count(*) INTO daily_before FROM scoreboard_daily;
 
-  -- `model_clim` was retired by 0188 and has no lossless 0189 identity: it
-  -- cannot be folded into climatology because both rows can share a primary
-  -- key. Refuse any such stale or unknown source rather than silently losing
-  -- a row or claiming it has the wrong construction.
+  -- `model_clim` was an 0188-retired diagnostic: p_bind × the former
+  -- severity-head climatology. It has no canonical 0189 identity and cannot
+  -- be renamed to `climatology`, which can share its primary key. Retire it
+  -- explicitly; a second migration run simply deletes zero rows.
+  DELETE FROM scoreboard_weekly WHERE source = 'model_clim';
+  GET DIAGNOSTICS retired_weekly = ROW_COUNT;
+
+  -- Refuse any other unknown source rather than silently losing or mislabeling
+  -- a row. Canonical IDs are admitted to make reruns idempotent.
   IF EXISTS (
     SELECT 1 FROM scoreboard_weekly
     WHERE source NOT IN (
@@ -58,7 +64,7 @@ BEGIN
   END
   WHERE source IN ('model', 'persistence', 'climatology', 'oracle', 'null');
 
-  IF (SELECT count(*) FROM scoreboard_weekly) <> weekly_before
+  IF (SELECT count(*) FROM scoreboard_weekly) <> weekly_before - retired_weekly
      OR (SELECT count(*) FROM scoreboard_daily) <> daily_before THEN
     RAISE EXCEPTION 'scoreboard comparison migration changed row counts';
   END IF;

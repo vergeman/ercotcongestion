@@ -48,7 +48,7 @@ Use lowercase snake case: `<owner>_<method>_<descriptor...>`. The owner is manda
 
 * [x] Every persisted comparison has a canonical owner-qualified ID and a tested construction definition.
 * [x] `backfill_scoreboard` admits only the five compute IDs and maps each to its weekly Scoreboard identity.
-* [x] Existing Scoreboard rows migrate losslessly and preserve keys, counts, horizons, and metric values.
+* [x] Admitted Scoreboard rows migrate losslessly and preserve keys, counts, horizons, and metric values; retired `model_clim` diagnostic rows are explicitly removed.
 * [x] Brief API data uses only `brief_*` identities.
 * [x] API responses include descriptors and retain bounded compatibility fields until 0190 completes.
 * [x] Focused compute, migration, and API suites pass.
@@ -56,5 +56,5 @@ Use lowercase snake case: `<owner>_<method>_<descriptor...>`. The owner is manda
 ## Verification notes
 
 * The focused compute provenance suites passed (36 tests) and the full API suite passed (152 tests, 3 skipped).
-* Migration 48 was verified in a rolled-back transaction against the dev database: 230 weekly and 120 daily admitted rows retained their counts while receiving canonical IDs.
-* The migration rejects retired or unknown source values (including stale `model_clim`) instead of silently deleting or mislabeling them. Remove those rows as the prerequisite cleanup from 0188 before applying 48 to a database that still contains them.
+* Migration 48 was verified in a rolled-back transaction against the dev database: it explicitly retires the 46 stale `model_clim` diagnostic rows, then preserves counts for the 230 admitted weekly and 120 daily rows while assigning canonical IDs.
+* The migration is idempotent: canonical IDs are admitted on rerun and the retired-row deletion becomes a zero-row operation. It rejects any other unknown source rather than silently deleting or mislabeling it.
