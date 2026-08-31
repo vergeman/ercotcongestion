@@ -24,7 +24,7 @@ SLOT_NAMES = ("magnitude", "regime", "where", "exceptions")
 
 
 def available_days(conn, run_id: str, end_date: date, *, count: int = 365) -> list[tuple[date, int]]:
-    """Select the latest served artifact track per delivery day, oldest first."""
+    """Return the latest artifact track for each delivery day, oldest first."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -42,7 +42,7 @@ def available_days(conn, run_id: str, end_date: date, *, count: int = 365) -> li
 
 
 def line_for(slots: dict) -> str:
-    """A stable, compact row for code review rather than a browser snapshot."""
+    """Render one stable audit row."""
     segments = render(slots)
     buckets = " ".join(f"{name}={slots[name]['bucket']}" for name in SLOT_NAMES)
     diagnostics = _diagnostics(slots)
@@ -52,7 +52,7 @@ def line_for(slots: dict) -> str:
 
 
 def _diagnostics(slots: dict) -> str:
-    """Stable raw evidence beside prose, so the audit can drive vocabulary edits."""
+    """Render compact values that support the hero copy."""
     magnitude = slots["magnitude"]
     regime = slots["regime"]
     where = slots["where"]
@@ -80,10 +80,8 @@ def _diagnostics(slots: dict) -> str:
 
 def render_audit(conn, run_id: str, days: list[tuple[date, int]], *, basis: str = "settled",
                  strict: bool = True) -> list[str]:
-    """Render one on-demand hero per day and guard against available-bucket drift."""
-    # Geography is immutable for this review run, and artifact SP vocabularies
-    # repeat across adjacent days. Cache these two expensive support reads here
-    # only; the API continues to read its current sources per request.
+    """Render one hero per day and reject one-sided bucket results."""
+    # Cache repeated support data for this audit only.
     from compute.analysis import hero_builder
     load_geo = hero_builder.load_constraint_geo
     load_metadata = hero_builder.load_sp_metadata

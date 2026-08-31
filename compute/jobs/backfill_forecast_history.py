@@ -45,10 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     if hi < lo:
         p.error(f"--end {hi.date()} precedes --start {lo.date()}")
 
-    # Calendar dates, not the tz-aware CT-midnight instants: only `.date()` is
-    # used below, but stepping `freq="D"` on the fixed-UTC-offset instants
-    # themselves would drift across a DST transition (0133) — see the identical
-    # note in backfill_artifacts.py.
+    # Iterate calendar dates so DST cannot shift a delivery day.
     days = pd.date_range(lo.date(), hi.date(), freq="D")
     written = missing = 0
     with psycopg.connect(_dsn()) as conn:

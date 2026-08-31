@@ -21,7 +21,7 @@ def rollup_rows(artifact) -> list[tuple[str, float, int]]:
 
 
 def load_artifact(conn, run_id: str, delivery_date: date, horizon: int):
-    """Load an artifact exactly on the horizon-aware rollup key, or ``None``."""
+    """Load an artifact for one run, delivery date, and horizon."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT sf_npz FROM forecast_sf_artifact "
@@ -37,7 +37,7 @@ def load_artifact(conn, run_id: str, delivery_date: date, horizon: int):
 
 def persist_rollup(conn, run_id: str, delivery_date: date, horizon: int,
                    artifact) -> int:
-    """Upsert an artifact's full, untruncated daily constraint vocabulary."""
+    """Upsert an artifact's daily totals by constraint."""
     rows = [(run_id, delivery_date, horizon, key, value, hours)
             for key, value, hours in rollup_rows(artifact)]
     with conn.cursor() as cur:
