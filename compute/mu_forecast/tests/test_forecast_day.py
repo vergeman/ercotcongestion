@@ -657,7 +657,6 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     from compute.mu_forecast.model.runner import load_preds, predict_day
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
     from compute.projection.propagate import propagate_window
-    from compute.projection.sampling import N_DRAWS, residual_pool
 
     conn = pg[0]
     # Reconciliation fixture: a real walk-derived residual pool with enough weeks.
@@ -692,18 +691,14 @@ def test_forward_mode_reproduces_backtest_propagation(pg):
     prop_start = Dr - pd.Timedelta(days=WINDOW_DAYS)
     M = load_shadow_prices(conn, prop_start, prop_end)
     C = load_congestion_panel(conn, prop_start, prop_end)
-    eps = residual_pool(preds[preds["week"] < Dr], rng=np.random.default_rng(0))
-
     # forward mode: hours = D's CT calendar day; no realized Y read.
     fwd_hours = pd.date_range(Dr, prop_end, freq="h", inclusive="left")
     _, p_fwd, SF_f, _ = propagate_window(
-        s=Dr, end=prop_end, M=M, C=C, wp=wp, eps=eps,
-        n_draws=N_DRAWS, rng=np.random.default_rng(0),
+        s=Dr, end=prop_end, M=M, C=C, wp=wp,
         want_panel=True, want_sf_mu=True, forward_hours=fwd_hours)
     # backtest mode: hours = M_score ∩ C_score over [Dr, Dr+1d); realized Y read.
     _, p_bt, SF_b, _ = propagate_window(
-        s=Dr, end=prop_end, M=M, C=C, wp=wp, eps=eps,
-        n_draws=N_DRAWS, rng=np.random.default_rng(0),
+        s=Dr, end=prop_end, M=M, C=C, wp=wp,
         want_panel=True, want_sf_mu=True)
 
     assert p_fwd is not None and p_bt is not None, "a mode produced no panel"

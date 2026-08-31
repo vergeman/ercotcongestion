@@ -1,5 +1,4 @@
-"""Bands are the one output that can be wrong while looking right: a P90 exceeded
-30% of the time still prints a tidy number. These pin the ways that happens."""
+"""Deterministic SF projection and its persisted artifact contracts."""
 from __future__ import annotations
 
 import numpy as np
@@ -25,118 +24,12 @@ from compute.projection.codecs import (
     save_sf_mu,
 )
 from compute.projection.propagate import propagate_window
-from compute.projection.sampling import band_metrics, draw_congestion, residual_pool
 from compute.sf_map.storage.maps import sf_mass_coverage
 
 RNG = np.random.default_rng(11)
-KEYS = [f"C{i}|X" for i in range(5)]
-NODES = [f"SP{i}" for i in range(30)]
-
-
-def _metrics(Y, draws):
-    """band_metrics now takes the percentiles the caller computes once."""
-    p10, p50, p90 = np.percentile(draws, (10, 50, 90), axis=0)
-    return band_metrics(Y, p10, p50, p90)
-
 
 def _hours(n=48):
     return pd.date_range(pd.Timestamp("2025-10-01", tz="UTC"), periods=n, freq="h")
-
-
-def _sf():
-    return pd.DataFrame(RNG.normal(0, 0.3, (len(KEYS), len(NODES))),
-                        index=pd.Index(KEYS, name="key"), columns=NODES)
-
-
-def _preds(hours, p_bind=0.3, mu=50.0):
-    rows = []
-    for k in KEYS:
-        rows.append(pd.DataFrame({
-            "interval_ts": hours, "key": k,
-            "week": pd.Timestamp("2025-10-01", tz="UTC"),
-            "p_bind": p_bind, "mu_gbm": mu, "mu_clim": mu,
-            "y_bind": 0, "y_mu": np.nan}))
-    return pd.concat(rows, ignore_index=True)
-
-
-# ------------------------------------------------------------- the residuals
-
-def test_residual_pool_is_out_of_sample_by_construction():
-    """The pool is head 2's error on weeks it ALREADY SCORED. Training-window
-    residuals are the residuals of a model that has fitted them — too small, and
-    the bands built from them would be confidently narrow."""
-    prior = pd.DataFrame({"y_bind": [1, 1, 0, 1], "y_mu": [100.0, 50.0, np.nan, 20.0],
-                          "mu_gbm": [80.0, 60.0, 10.0, 20.0]})
-    eps = residual_pool(prior)
-    assert len(eps) == 3                       # binders only; the non-binder is out
-    assert eps[0] == pytest.approx(np.log1p(100) - np.log1p(80), rel=1e-5)
-    assert eps[2] == pytest.approx(0.0, abs=1e-6)   # a perfect call is zero error
-
-
-def test_no_prior_weeks_means_no_pool_and_no_bands():
-    """Week 1 has nothing behind it. It must produce no bands rather than bands
-    from an empty or in-sample pool — 46 weeks scored, 45 with bands, stated."""
-    assert len(residual_pool(pd.DataFrame(
-        {"y_bind": [], "y_mu": [], "mu_gbm": []}))) == 0
-
-
-# ---------------------------------------------------------------- the draws
-
-def test_a_certain_binder_with_no_spread_reproduces_the_point_forecast():
-    """Degenerate case as a plumbing check: p=1, zero residual spread ⇒ every draw
-    is E[μ|bind] through the map, so P50 must equal the point forecast exactly."""
-    h, SF = _hours(24), _sf()
-    preds = _preds(h, p_bind=1.0, mu=50.0)
-    draws = draw_congestion(preds, SF, h, eps=np.zeros(1, np.float32), n_draws=8)
-
-    point = -(np.full((24, len(KEYS)), 50.0, np.float32) @ SF.to_numpy(np.float32))
-    np.testing.assert_allclose(np.median(draws, axis=0), point, rtol=1e-4)
-    assert np.ptp(draws, axis=0).max() == pytest.approx(0.0)   # no spread
-
-
-def test_p_bind_controls_how_often_a_constraint_shows_up():
-    """Head 1 is a *probability*, and the draw must honour it. If sampling ignored
-    p and always bound, the bands would be a fantasy of permanent congestion."""
-    h, SF = _hours(24), _sf()
-    lo = draw_congestion(_preds(h, p_bind=0.05), SF, h,
-                         np.zeros(1, np.float32), n_draws=64)
-    hi = draw_congestion(_preds(h, p_bind=0.95), SF, h,
-                         np.zeros(1, np.float32), n_draws=64)
-    # more binding ⇒ more congestion mass moved, in expectation
-    assert np.abs(hi).mean() > 3 * np.abs(lo).mean()
-
-
-def test_a_shadow_price_is_never_drawn_negative():
-    """μ ≥ 0 is physics, not a modelling choice. A fat negative residual must not
-    flip a shadow price through the map and invent congestion with the wrong sign."""
-    h, SF = _hours(24), _sf()
-    fat = RNG.normal(-3.0, 2.0, 5000).astype(np.float32)   # brutally negative
-    draws = draw_congestion(_preds(h, p_bind=1.0, mu=10.0), SF, h, fat, n_draws=32)
-    assert np.isfinite(draws).all()
-    # reconstruct: with SF fixed and μ≥0, no draw may exceed the μ=0 bound in sign
-    assert not np.isnan(draws).any()
-
-
-# --------------------------------------------------- the deterministic point
-
-def test_want_point_is_the_expectation_not_the_median():
-    """`point = −(E[μ]·SF)` with `E[μ]=P(bind)·E[μ|bind]` — a no-sampling branch
-    off the same P/MU/SFm. It must equal an independent recompute, and it is the
-    model's expectation, distinct from the noisy median of the draws."""
-    h, SF = _hours(24), _sf()
-    p_bind, mu = 0.3, 50.0
-    preds = _preds(h, p_bind=p_bind, mu=mu)
-    draws, point = draw_congestion(preds, SF, h, np.zeros(1, np.float32),
-                                   n_draws=8, want_point=True)
-    E_mu = np.full((24, len(KEYS)), p_bind * mu, np.float32)
-    expect = -(E_mu @ SF.to_numpy(np.float32))
-    np.testing.assert_allclose(point, expect, rtol=1e-5)
-    assert point.shape == (24, len(NODES)) == draws.shape[1:]
-    # default path is unchanged — a bare array, no point
-    assert isinstance(draw_congestion(preds, SF, h, np.zeros(1, np.float32),
-                                      n_draws=8), np.ndarray)
-
-
 # --------------------------------------------------------- the window seam
 
 def _window_frames(n_keys=4, n_sp=6, seed=7):
@@ -602,30 +495,6 @@ def test_pointer_flips_after_rows_and_stays_one_row(pg, tmp_path):
                     "WHERE layer = %s", (layer,))
         row = cur.fetchone()
     assert row[0] == run_id + "-v2" and row[1] == 1    # updated, still one row
-
-
-# --------------------------------------------------------------- the bands
-
-def test_coverage_is_measured_not_assumed():
-    """A well-specified band covers ~80%. Build one that is deliberately correct
-    and one deliberately too narrow, and demand the metric can tell them apart —
-    otherwise `coverage80` is decoration."""
-    Y = RNG.normal(0, 10, (48, 30))
-    honest = RNG.normal(0, 10, (200, 48, 30))          # right spread
-    narrow = RNG.normal(0, 1, (200, 48, 30))           # 10× too confident
-
-    assert _metrics(Y, honest)["coverage80"] == pytest.approx(0.80, abs=0.03)
-    assert _metrics(Y, narrow)["coverage80"] < 0.2
-
-
-def test_bands_report_coverage_and_skill_together():
-    """0084's blind spot means a miss can belong to the map, not the forecast.
-    Skill without coverage beside it misattributes that; the metric dict must
-    always carry both."""
-    Y = RNG.normal(0, 10, (48, 30))
-    m = _metrics(Y, RNG.normal(0, 10, (100, 48, 30)))
-    assert {"coverage80", "band_width", "pinball", "pooled_r2",
-            "topdecile_hit"} <= set(m)
 
 
 def test_existence_test_needs_all_three_screening_measures():
