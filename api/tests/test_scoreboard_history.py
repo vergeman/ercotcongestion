@@ -8,7 +8,7 @@ from api.schemas.scoreboard import ScoreboardWeekly
 
 
 def _weekly(week: date, source: str = "model", **extra):
-    return {"week": week, "source": source, **extra}
+    return {"week": week, "source_id": f"scoreboard_{source}_backtest_nodal", "series_id": source, **extra}
 
 
 def _daily(day: date, source: str = "scoreboard_model_served_nodal", **extra):
@@ -18,7 +18,7 @@ def _daily(day: date, source: str = "scoreboard_model_served_nodal", **extra):
 def _board(*points):
     return ScoreboardWeekly(
         run_id="walk-v1",
-        primary_source="model",
+        primary_source_id="scoreboard_model_backtest_nodal",
         rtc_b_cutover=date(2025, 12, 5),
         points=list(points),
         splits=[],

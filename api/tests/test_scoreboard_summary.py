@@ -16,12 +16,12 @@ from fastapi import HTTPException
 from api.services import scoreboard as scoreboard_service
 from api.schemas.scoreboard import ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly
 
-WEEKLY = ScoreboardWeekly(run_id="r", primary_source="model",
+WEEKLY = ScoreboardWeekly(run_id="r", primary_source_id="scoreboard_model_backtest_nodal",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
 HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=date(2026, 7, 1), windows=[])
-DAILY = ScoreboardDaily(run_id="r", primary_source="model", horizon=1,
+DAILY = ScoreboardDaily(run_id="r", primary_source_id="scoreboard_model_served_nodal", horizon=1,
                         selected_delivery_date=date(2026, 7, 18), points=[])
-HISTORY = ScoreboardHistory(primary_source="model", weekly_run_id="r", points=[])
+HISTORY = ScoreboardHistory(primary_source_id="scoreboard_model_backtest_nodal", weekly_run_id="r", points=[])
 
 
 def test_summary_calls_each_internal_section(monkeypatch):

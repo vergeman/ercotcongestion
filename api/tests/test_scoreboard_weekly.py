@@ -6,7 +6,7 @@ from api.services.scoreboard import _beats_persistence
 
 
 def _source(**metrics: float) -> SourcePooled:
-    return SourcePooled(source="model", **metrics)
+    return SourcePooled(source_id="scoreboard_model_backtest_nodal", series_id="model", **metrics)
 
 
 def test_beats_persistence_requires_all_three_screening_measures():
