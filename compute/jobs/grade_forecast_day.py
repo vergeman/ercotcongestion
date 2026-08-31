@@ -35,6 +35,7 @@ This job calculates scoreboard grades only; Brief grades are calculated by
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from time import perf_counter
 
 import numpy as np
@@ -60,6 +61,30 @@ log = logging.getLogger(__name__)
 # The comparators recomputed on D alongside the served model. `null` is the
 # flat-map tripwire; `oracle` is the ceiling. Model is graded on the served
 # point, so it is not built from an mu source here.
+@dataclass(frozen=True)
+class ComparisonDefinition:
+    """Served Scoreboard-owned construction for one daily comparison."""
+
+    id: str
+    series_id: str
+    label: str
+    definition: str
+    constructor: str
+
+
+COMPARISONS = (
+    ComparisonDefinition("scoreboard_model_served_nodal", "model", "Model",
+                         "Served deterministic nodal forecast.", "model"),
+    ComparisonDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
+                         "Prior-day μ projected through the trailing map.", "persistence"),
+    ComparisonDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
+                         "Trailing-window μ climatology projected through the map.", "climatology"),
+    ComparisonDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
+                         "Settled-day μ projected through the trailing map.", "oracle"),
+    ComparisonDefinition("scoreboard_null_flat_nodal", "null", "Null",
+                         "Flat nodal congestion tripwire.", "null"),
+)
+COMPARISON_BY_CONSTRUCTOR = {comparison.constructor: comparison for comparison in COMPARISONS}
 _BASELINES = ("oracle", "persistence", "climatology", "null")
 
 # scoreboard_daily columns, in table order — the tuple `persist_grades` COPYs.
@@ -246,7 +271,8 @@ def grade_day(
 
     # --- model: the served deterministic point ------------------------------
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
-    rows.append(_row("model", screening_metrics_for_scoreboard(Y, Yh_model)))
+    rows.append(_row(COMPARISON_BY_CONSTRUCTOR["model"].id,
+                     screening_metrics_for_scoreboard(Y, Yh_model)))
     rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
     # --- comparators: recomputed on D, projected through the trailing-window SF -
@@ -259,10 +285,12 @@ def grade_day(
     for name in _BASELINES:
         Yh = pd.DataFrame(predict(srcs[name], SF), index=hours, columns=SF.columns)
         Yh = Yh.reindex(columns=N).to_numpy(float)
-        rows.append(_row(name, screening_metrics_for_scoreboard(Y, Yh)))
+        rows.append(_row(COMPARISON_BY_CONSTRUCTOR[name].id,
+                         screening_metrics_for_scoreboard(Y, Yh)))
 
     m = rows[0]
-    p = next(r for r in rows if r["source"] == "persistence")
+    p = next(r for r in rows
+             if r["source"] == COMPARISON_BY_CONSTRUCTOR["persistence"].id)
     log.info("grade_forecast_day complete: delivery_date=%s run_id=%s elapsed_s=%.3f | "
              "%d h × %d nodes | model top-dec %.3f (persistence %.3f, Δ%+.3f) "
              "| sf_coverage %.3f",
