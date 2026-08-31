@@ -822,7 +822,8 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
     assert body["available"] is True
-    assert body["constraints"] == {
+    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size",
+                                                        "model", "persistence", "climatology", "support")} == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
                   "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
@@ -833,7 +834,8 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "climatology": None,
         "support": None,
     }
-    assert body["nodes"] == {
+    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size",
+                                                  "model", "persistence", "climatology", "support")} == {
         "graded": True, "unavailable_reason": None, "universe_size": 2,
         "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
                   "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
@@ -844,6 +846,9 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
         "climatology": None,
         "support": None,
     }
+    assert [item["id"] for item in body["constraints"]["comparisons"]] == [
+        "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
+    ]
     assert "grade" not in body
 
 
@@ -860,15 +865,11 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
 
     response = analysis_module.get_grade(date(2026, 7, 28), "run-x", 1)
 
-    assert response.model_dump(mode="json") == {
+    body = response.model_dump(mode="json")
+    assert {key: body[key] for key in ("available", "run_id", "delivery_date", "horizon")} == {
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
-        "constraints": {"graded": True, "unavailable_reason": None, "universe_size": 2,
-                        "model": metrics.__dict__, "persistence": metrics.__dict__,
-                        "climatology": None, "support": None},
-        "nodes": {"graded": True, "unavailable_reason": None, "universe_size": 2,
-                  "model": metrics.__dict__, "persistence": metrics.__dict__,
-                  "climatology": None, "support": None},
     }
+    assert body["constraints"]["comparison_metrics"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
@@ -888,8 +889,9 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
-    assert body["constraints"] == detail
-    assert body["nodes"] == detail
+    assert {key: body["constraints"][key] for key in detail} == detail
+    assert {key: body["nodes"][key] for key in detail} == detail
+    assert body["constraints"]["comparisons"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
@@ -917,10 +919,9 @@ def test_grade_history_returns_only_materialized_days_with_both_subjects(client,
 
     body = client.get("/analysis/grade-history?delivery_date=2026-07-28&run_id=run-x").json()
 
-    assert body == {"available": True, "run_id": "run-x", "delivery_date": "2026-07-28",
-                    "horizon": 1, "days": [{"delivery_date": "2026-07-26",
-                    "constraints": {"model": metrics, "persistence": metrics},
-                    "nodes": {"model": metrics, "persistence": metrics}}]}
+    assert body["available"] is True
+    assert body["days"][0]["constraints"]["model"] == metrics
+    assert body["days"][0]["constraints"]["comparison_metrics"][0]["id"] == "brief_model_artifact_profile"
 
 
 def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):

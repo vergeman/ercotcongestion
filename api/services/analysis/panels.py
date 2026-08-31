@@ -36,6 +36,7 @@ from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis.brief_grade import (
+    COMPARISONS as _BRIEF_COMPARISONS,
     grade_constraint_profiles as _brief_grade_constraint_profiles,
     grade_node_profiles as _brief_grade_node_profiles,
     serialize_grade_half as _serialize_brief_grade_half,
@@ -844,8 +845,8 @@ def get_grade(
         if "constraints" in materialized and "nodes" in materialized:
             return GradeAvailableResponse(
                 available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-                constraints=GradeHalfResponse(**materialized["constraints"]),
-                nodes=GradeHalfResponse(**materialized["nodes"]),
+                constraints=GradeHalfResponse(**_brief_payload(materialized["constraints"])),
+                nodes=GradeHalfResponse(**_brief_payload(materialized["nodes"])),
             )
         constraints = _brief_grade_constraint_profiles(cur, run_id, delivery_date, horizon)
         nodes = _brief_grade_node_profiles(cur, run_id, delivery_date, horizon)
@@ -856,10 +857,28 @@ def get_grade(
         )
     return GradeAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        constraints=GradeHalfResponse(**_serialize_brief_grade_half(constraints)),
-        nodes=(GradeHalfResponse(**_serialize_brief_grade_half(nodes)) if nodes is not None else
+        constraints=GradeHalfResponse(**_brief_payload(_serialize_brief_grade_half(constraints))),
+        nodes=(GradeHalfResponse(**_brief_payload(_serialize_brief_grade_half(nodes))) if nodes is not None else
                GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
+
+
+def _brief_payload(payload: dict) -> dict:
+    """Enrich a pre-0189 materialized Brief grade without changing its legacy keys."""
+    if payload.get("comparisons"):
+        return payload
+    result = dict(payload)
+    available = [comparison for comparison in _BRIEF_COMPARISONS
+                 if result.get(comparison.result_field) is not None]
+    result["comparisons"] = [
+        {"id": comparison.id, "label": comparison.label, "definition": comparison.definition}
+        for comparison in available
+    ]
+    result["comparison_metrics"] = [
+        {"id": comparison.id, "metrics": result[comparison.result_field]}
+        for comparison in available
+    ]
+    return result
 
 
 def get_grade_history(
@@ -885,10 +904,26 @@ def get_grade_history(
             grouped.setdefault(row["delivery_date"], {})[str(row["subject"])] = {
                 "model": row["model"], "persistence": row["persistence"],
             }
+    descriptors = [
+        {"id": comparison.id, "label": comparison.label, "definition": comparison.definition}
+        for comparison in _BRIEF_COMPARISONS
+    ]
     result = [GradeHistoryDayResponse(
         delivery_date=day,
-        constraints=GradeHistoryHalfResponse(**values["constraints"]),
-        nodes=GradeHistoryHalfResponse(**values["nodes"]),
+        constraints=GradeHistoryHalfResponse(
+            **values["constraints"], comparisons=descriptors,
+            comparison_metrics=[
+                {"id": _BRIEF_COMPARISONS[0].id, "metrics": values["constraints"]["model"]},
+                {"id": _BRIEF_COMPARISONS[1].id, "metrics": values["constraints"]["persistence"]},
+            ],
+        ),
+        nodes=GradeHistoryHalfResponse(
+            **values["nodes"], comparisons=descriptors,
+            comparison_metrics=[
+                {"id": _BRIEF_COMPARISONS[0].id, "metrics": values["nodes"]["model"]},
+                {"id": _BRIEF_COMPARISONS[1].id, "metrics": values["nodes"]["persistence"]},
+            ],
+        ),
     ) for day, values in grouped.items()
               if "constraints" in values and "nodes" in values]
     return GradeHistoryAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,

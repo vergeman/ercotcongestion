@@ -10,7 +10,16 @@ from api.db import get_pool
 from api.schemas.scoreboard import HeadlineCurrency, HeadlineWindow, ScoreboardHeadline
 
 
-SOURCES = ("model", "persistence", "climatology", "oracle")
+SOURCES = (
+    "scoreboard_model_backtest_nodal",
+    "scoreboard_persistence_backtest_nodal",
+    "scoreboard_climatology_backtest_nodal",
+    "scoreboard_oracle_backtest_nodal",
+)
+_MODEL = "scoreboard_model_backtest_nodal"
+_PERSISTENCE = "scoreboard_persistence_backtest_nodal"
+_CLIMATOLOGY = "scoreboard_climatology_backtest_nodal"
+_ORACLE = "scoreboard_oracle_backtest_nodal"
 CURRENCIES: tuple[tuple[str, bool], ...] = (
     ("topdecile_hit", True), ("rank_spearman", True), ("sign_agree", True),
 )
@@ -34,8 +43,8 @@ def _windows(rows: list[dict], as_of: date) -> list[HeadlineWindow]:
         currencies = []
         for name, higher_is_better in CURRENCIES:
             pooled = {source: _weighted_mean([(row[name], row["n_hours"]) for row in window_rows if row["source"] == source]) for source in SOURCES}
-            model, persistence = pooled["model"], pooled["persistence"]
-            currencies.append(HeadlineCurrency(currency=name, higher_is_better=higher_is_better, model=model, persistence=persistence, climatology=pooled["climatology"], oracle=pooled["oracle"], persistence_delta=None if model is None or persistence is None else model - persistence))
+            model, persistence = pooled[_MODEL], pooled[_PERSISTENCE]
+            currencies.append(HeadlineCurrency(currency=name, higher_is_better=higher_is_better, model=model, persistence=persistence, climatology=pooled[_CLIMATOLOGY], oracle=pooled[_ORACLE], persistence_delta=None if model is None or persistence is None else model - persistence))
         result.append(HeadlineWindow(window_days=days, weeks=len(weeks), week_start=weeks[0] if weeks else as_of, week_end=weeks[-1] if weeks else as_of, currencies=currencies))
     return result
 
