@@ -8,7 +8,7 @@ a new input source.
 
 | Area | Use it for | Main entry points |
 |---|---|---|
-| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_day` |
+| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `grade_forecast_day` |
 | `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
 | `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs |
 | `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs |
@@ -81,7 +81,7 @@ forecast.
 > * **Origin — one week back.** `weekly_map`, `eval`, `model.backtest`, `score`, and
 >   `backfill_nodal` take `--start = X − 7d` (an unserved pre-roll week). Only
 >   `backfill_artifacts` (per-day) and the live daily job start at `X` itself.
->   (`load_scoreboard` has no `--start` — it just reshapes the CSVs it is handed.)
+>   (`backfill_scoreboard` has no `--start` — it just reshapes the CSVs it is handed.)
 > * **Data — two weeks past the window.** Ingest every feed to
 >   `origin − (train_days + 14) = origin − 254d` — 14 days (2 weeks) earlier than the
 >   bare 240-day window (7 for μ's panel front-edge drop, 7 of step-3 alignment margin).
@@ -278,7 +278,7 @@ With `--run-id ${RUN_ID}` both inputs derive from `runs/${RUN_ID}/` (plan/0113);
 `--score` only to override.
 
 ```
-python -m compute.jobs.load_scoreboard --run-id "${RUN_ID}"
+python -m compute.jobs.backfill_scoreboard --run-id "${RUN_ID}"
 ```
 
 ### Step 5 — Optional production-equivalent historical artifact backfill
@@ -383,15 +383,15 @@ python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v
 ```
 
 **Grading is embedded — not a separate step.** After a successful publish and pointer
-flip, `daily_forecast` calls `grade_day` itself to grade the most recent
+flip, `daily_forecast` calls `grade_forecast_day` itself to grade the most recent
 fully-realized served day **on its own horizon's track** — the final tick grades the
 h1 scoreboard, the preview tick the h2 scoreboard, two independent tracks per run_id
-(0123). Run `grade_day` standalone **only** to retry a day whose grade failed or was
+(0123). Run `grade_forecast_day` standalone **only** to retry a day whose grade failed or was
 skipped (never as a duplicate routine step); `--horizon` selects the track (default 1):
 
 ```
-python -m compute.jobs.grade_day --delivery-date auto --run-id mu-all-v1 --to-db
-python -m compute.jobs.grade_day --delivery-date auto --run-id mu-all-v1 --horizon 2 --to-db
+python -m compute.jobs.grade_forecast_day --delivery-date auto --run-id mu-all-v1 --to-db
+python -m compute.jobs.grade_forecast_day --delivery-date auto --run-id mu-all-v1 --horizon 2 --to-db
 ```
 
 Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
@@ -486,7 +486,7 @@ run into per-settlement-point prices.
 |--------------------------|-----------------------------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------|
 | `mu/mu_preds.npz`        | `mu_model` (`--preds-out`)                          | `evaluation.mu`, `backfill_nodal`             | Walk-forward μ predictions per constraint-hour: bind probability, expected shadow price, and the realized truth. |
 | `mu/mu_weekly.csv`       | `mu_model` (`--out`)                                | human review                                  | Weekly calibration of the μ walk (are the probabilities and prices honest).                                      |
-| `mu/mu_score_weekly.csv` | `evaluation.mu`                                     | `load_scoreboard` → `scoreboard_weekly` table | Weekly point scores that feed the scoreboard.                                                                    |
+| `mu/mu_score_weekly.csv` | `evaluation.mu`                                     | `backfill_scoreboard` → `scoreboard_weekly` table | Weekly point scores that feed the scoreboard.                                                                    |
 | `forecast/mu_nodal.npz`  | `backfill_nodal` / `daily_forecast` (`--nodal-out`) | `forecast_store` → DB                         | Per-settlement-point price forecast panel: point estimate plus p10/p50/p90 band.                                 |
 
 The per-day SF-μ blob served by the API is stored in the **database**

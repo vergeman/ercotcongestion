@@ -19,12 +19,12 @@ that layer's skill.
 | **SF gate**            | `sf_out_of_window/`, `evaluation/sf.py`  | the SF map (forecast fed the truth) | oracle, persistence, climatology, null — as μ inputs | pooled R², rank-Spearman, sign-agree (±$1), top-decile hit |
 | **μ gate**             | `evaluation/mu.py`, `experiments/mu/`    | the μ forecast (map fixed)          | same four **+ `model`** (the real forecast)          | same four                                                  |
 | **Forecast internals** | `mu_forecast/model/heads.py`             | the two heads themselves            | head-2's own climatology                             | bind reliability (head 1), R² (head 2)                     |
-| **Production grade**   | `analysis/grade.py`, `jobs/grade_day.py` | the shipped forecast, live          | persistence, optional climatology (no oracle)        | detection, magnitude, timing                               |
+| **Production grade**   | `analysis/grade.py`, `jobs/grade_forecast_day.py` | the shipped forecast, live          | persistence, optional climatology (no oracle)        | detection, magnitude, timing                               |
 
 ## Where the UI reads from
 
 - **/scoreboard** — the **μ gate**. Just reshapes `mu_score_weekly.csv`
-  (`load_scoreboard.py`): the gate metrics (rank-Spearman, sign-agree,
+  (`backfill_scoreboard.py`): the gate metrics (rank-Spearman, sign-agree,
   top-decile) across all five sources, oracle included. Offline, weekly.
 - **/brief "Forecast Grade"** — the **production grade** (`brief_grade.py` →
   `grade_profiles`): detection / magnitude / timing, vs persistence and

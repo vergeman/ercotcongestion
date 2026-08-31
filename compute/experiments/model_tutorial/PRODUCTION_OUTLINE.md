@@ -55,7 +55,7 @@ stage packages for library imports and CLI commands.
 | Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
 | Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF, makes nodal panels/bands, and evaluates the product gate. | nodal artifacts, band metrics |
 | Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
-| After delivery | `python -m compute.jobs.grade_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |
+| After delivery | `python -m compute.jobs.grade_forecast_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |
 
 The `compute/README.md` runbook contains the exact historical build sequence.
 The key operational dependency is one-way: the daily forecast **loads** the

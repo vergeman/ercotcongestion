@@ -17,8 +17,8 @@ R² metric.
 
 | Dataset | What it measures | Written by | How Scoreboard uses it |
 | --- | --- | --- | --- |
-| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.load_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
-| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_day` | Latest final-grade tiles and final-grade portion of the history chart |
+| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
+| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and final-grade portion of the history chart |
 | `analysis_grade_daily` | Brief ranking and shape assessment | `compute.jobs.materialize_brief_grade` | Brief only; not a Scoreboard input |
 
 The only Scoreboard HTTP read endpoint is `/scoreboard/summary`. It bundles the
@@ -72,7 +72,7 @@ the rows as context for interpreting a score.
 `scoreboard_weekly` is a manually refreshed transcription of the offline
 walk-forward evaluation. The walk repeatedly fits only on information available
 at the time, predicts forward, and scores the resulting out-of-sample forecasts.
-`compute.evaluation.mu` writes `mu_score_weekly.csv`; `load_scoreboard` copies
+`compute.evaluation.mu` writes `mu_score_weekly.csv`; `backfill_scoreboard` copies
 those precomputed screening values into the database. The loader does not
 measure forecasts or create new metrics.
 
@@ -84,7 +84,7 @@ load; normal forecast and grading crons do not advance it.
 
 `scoreboard_daily` grades the deterministic nodal forecast that was actually
 served for a CT delivery day after the corresponding DAM outcomes are available.
-`grade_day` reads the served forecast, builds realized nodal congestion, and uses
+`grade_forecast_day` reads the served forecast, builds realized nodal congestion, and uses
 the same screening-metric harness as the backtest. It records the model plus its
 comparators for the delivery day and is idempotent for `(run_id, delivery_date,
 horizon)`.
@@ -134,7 +134,7 @@ hours around DST transitions, while stored timestamps remain UTC instants.
 
 The final and preview forecast ticks publish their artifacts and nodal forecasts,
 then try to grade an eligible settled delivery day. Grade failures are non-fatal
-to publishing and can be retried; `grade_day` selects an ungraded eligible day
+to publishing and can be retried; `grade_forecast_day` selects an ungraded eligible day
 per run and horizon. The offline weekly board is outside that loop.
 
 Typical manual weekly refresh:
@@ -144,11 +144,11 @@ Typical manual weekly refresh:
 python -m compute.mu_forecast.model.backtest --run-id <run-id> ...
 python -m compute.evaluation.mu --preds runs/<run-id>/mu/mu_preds.npz \
     --out runs/<run-id>/mu/mu_score_weekly.csv
-python -m compute.jobs.load_scoreboard --run-id <run-id>
+python -m compute.jobs.backfill_scoreboard --run-id <run-id>
 ```
 
-`load_scoreboard` replaces only that run's weekly rows. It does not backfill
-daily served grades. To repair a specific live day, run `grade_day` for that
+`backfill_scoreboard` replaces only that run's weekly rows. It does not backfill
+daily served grades. To repair a specific live day, run `grade_forecast_day` for that
 delivery date and horizon after confirming the forecast and realized inputs are
 present.
 

@@ -29,8 +29,8 @@ Branch: refactor/0187-scoreboard-job-boundaries
 
 ## Acceptance
 
-* [ ] `compute/jobs/load_scoreboard.py` and `compute/jobs/grade_day.py` are absent; their `backfill_scoreboard.py` and `grade_forecast_day.py` replacements run with the current CLI arguments.
-* [ ] All tracked imports, CLI/documentation references, logs, and user-facing job guidance use the new module names; `compute/jobs/README.md` accurately describes them.
-* [ ] No tracked CronJob or shell script retains an old direct invocation; forecast CronJobs continue to reach the grader through `daily_forecast.py`'s updated import.
-* [ ] `existence_test` is removed from `compute.jobs.backfill_nodal`; the API owns and tests the same strict three-metric comparison used for weekly splits.
-* [ ] `grade_forecast_day.py` explicitly distinguishes scoreboard grading from Brief grading, and the targeted scoreboard, propagation, and daily-forecast grading tests pass.
+* [x] `compute/jobs/load_scoreboard.py` and `compute/jobs/grade_day.py` are absent; their `backfill_scoreboard.py` and `grade_forecast_day.py` replacements run with the current CLI arguments.
+* [x] All tracked imports, CLI/documentation references, logs, and user-facing job guidance use the new module names; `compute/jobs/README.md` accurately describes them.
+* [x] No tracked CronJob or shell script retains an old direct invocation; forecast CronJobs continue to reach the grader through `daily_forecast.py`'s updated import.
+* [x] `existence_test` is removed from `compute.jobs.backfill_nodal`; the API owns and tests the same strict three-metric comparison used for weekly splits.
+* [x] `grade_forecast_day.py` explicitly distinguishes scoreboard grading from Brief grading, and the targeted scoreboard, propagation, and daily-forecast grading tests pass.
