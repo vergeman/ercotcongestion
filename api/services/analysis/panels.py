@@ -8,7 +8,7 @@ from typing import Literal, NamedTuple
 
 from fastapi import Depends, HTTPException, Query
 import pandas as pd
-from psycopg.rows import dict_row, tuple_row
+from psycopg.rows import dict_row
 
 from api.db import get_pool
 from api.dependencies import server_selected_run as _server_selected_run
@@ -34,12 +34,7 @@ from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
-from compute.analysis.brief_grade import (
-    SOURCE_DEFINITIONS as _BRIEF_SOURCE_DEFINITIONS,
-    grade_constraint_profiles as _brief_grade_constraint_profiles,
-    grade_node_profiles as _brief_grade_node_profiles,
-    serialize_grade_half as _serialize_brief_grade_half,
-)
+from compute.analysis import brief_grade
 from compute.projection.codecs import node_contributions
 from api.services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
 from api.services.system_lambda import (
@@ -224,27 +219,6 @@ def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
         "exceptions": {"bucket": "held" if forecast["exceptions"].get("bucket")
                        == settled["exceptions"].get("bucket") else "shifted"},
     }
-
-
-def _settled_mu_profile(cur, delivery_date: date) -> pd.DataFrame:
-    """Hourly DAM μ with absent rows preserved as NaN and published $0 intact."""
-    start, end = delivery_bounds(delivery_date)
-    cur.execute(
-        "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
-        "interval_ts, btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
-        "shadow_price FROM ercot_dam_shadow_prices "
-        "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
-        "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
-        (start, end),
-    )
-    rows = cur.fetchall()
-    if not rows:
-        return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
-    frame = pd.DataFrame(rows)
-    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    # pivot, rather than a group-by sum, deliberately retains a numeric zero as
-    # an ERCOT binding label and leaves an absent row as NaN.
-    return frame.pivot(index="interval_ts", columns="constraint_key", values="shadow_price").sort_index()
 
 
 def _joined_top_keys(
@@ -514,17 +488,6 @@ class NodeContributions(NamedTuple):
     hours: pd.DatetimeIndex
 
 
-def _forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    """D's forecast μ profile over its CT day — one artifact covers it whole (0133)."""
-    start, end = delivery_bounds(delivery_date)
-    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    if artifact is None:
-        return None
-    profile = artifact.E_mu.copy()
-    profile.index = pd.to_datetime(profile.index, utc=True)
-    return profile.loc[(profile.index >= start) & (profile.index < end)]
-
-
 def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
     """Project a decoded artifact's forecast μ through its SF column into a
     per-node congestion profile, clipped to D's CT day. Shared by the single-day
@@ -534,12 +497,6 @@ def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
     profile = mu.dot(-artifact.SF)
     profile.index = pd.to_datetime(profile.index, utc=True)
     return profile.loc[(profile.index >= start) & (profile.index < end)]
-
-
-def _forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    """Project D's forecast μ hours through the day's complete SF column."""
-    artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-    return None if artifact is None else _project_node_profile(artifact, delivery_date)
 
 
 def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: int,
@@ -561,128 +518,6 @@ def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: in
           if realized else artifact.E_mu.loc[selected].sum(axis=0))
     terms = artifact.SF.mul(-mu, axis=0)
     return NodeContributions(terms.fillna(0.0), selected.sort_values())
-
-
-def _settled_node_profile(cur, delivery_date: date) -> pd.DataFrame:
-    """Published hourly SPP-minus-λ congestion, retaining a numeric $0 row."""
-    start, end = delivery_bounds(delivery_date)
-    cur.execute(
-        "SELECT DISTINCT ON (s.interval_ts, s.settlement_point) "
-        "s.interval_ts, s.settlement_point, s.dam_spp - l.system_lambda AS congestion "
-        "FROM ercot_dam_spp s JOIN dam_system_lambda l "
-        "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
-        "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
-        "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
-        "ORDER BY s.interval_ts, s.settlement_point, s.dst_flag ASC",
-        (start, end),
-    )
-    rows = cur.fetchall()
-    if not rows:
-        return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
-    frame = pd.DataFrame(rows)
-    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    return frame.pivot(index="interval_ts", columns="settlement_point", values="congestion").sort_index()
-
-
-def _ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
-    """Put a prior delivery day's hourly values onto the target's lag-24 grid."""
-    result = profile.copy()
-    result.index = pd.RangeIndex(len(result))
-    return result.reindex(pd.RangeIndex(count))
-
-
-def _windowed_mu_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
-    """Batched trailing-window counterpart to ``_settled_mu_profile``: one query
-    over the whole window, split by CT delivery day, instead of one round trip
-    per day (0137) — ``_trailing_settled_average``'s dominant cost.
-
-    Fetches via a plain ``tuple_row`` cursor rather than the request's shared
-    ``dict_row`` one: a wide trailing window is tens of thousands of rows, and
-    building one dict per row (vs. a tuple) measurably dominates fetch time at
-    that volume (0137 profiling: ~30% faster fetch+frame-construction)."""
-    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
-    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
-    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
-        bulk_cur.execute(
-            "SELECT DISTINCT ON (interval_ts, constraint_name, contingency_name) "
-            "interval_ts, btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
-            "shadow_price FROM ercot_dam_shadow_prices "
-            "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
-            "ORDER BY interval_ts, constraint_name, contingency_name, dst_flag ASC",
-            (window_start, window_end),
-        )
-        rows = bulk_cur.fetchall()
-    if not rows:
-        return {}
-    frame = pd.DataFrame(rows, columns=["interval_ts", "constraint_key", "shadow_price"])
-    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
-    return {
-        day: day_frame.pivot(index="interval_ts", columns="constraint_key",
-                             values="shadow_price").sort_index()
-        for day, day_frame in frame.groupby("delivery_date")
-    }
-
-
-def _windowed_node_profiles(cur, delivery_date: date, days: int) -> dict[date, pd.DataFrame]:
-    """Batched trailing-window counterpart to ``_settled_node_profile`` — see
-    ``_windowed_mu_profiles`` (including why this uses a ``tuple_row`` cursor)."""
-    window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
-    _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
-    with cur.connection.cursor(row_factory=tuple_row) as bulk_cur:
-        bulk_cur.execute(
-            "SELECT DISTINCT ON (s.interval_ts, s.settlement_point) "
-            "s.interval_ts, s.settlement_point, s.dam_spp - l.system_lambda AS congestion "
-            "FROM ercot_dam_spp s JOIN dam_system_lambda l "
-            "ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag "
-            "WHERE s.interval_ts >= %s AND s.interval_ts < %s "
-            "AND s.dam_spp IS NOT NULL AND l.system_lambda IS NOT NULL "
-            "ORDER BY s.interval_ts, s.settlement_point, s.dst_flag ASC",
-            (window_start, window_end),
-        )
-        rows = bulk_cur.fetchall()
-    if not rows:
-        return {}
-    frame = pd.DataFrame(rows, columns=["interval_ts", "settlement_point", "congestion"])
-    frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
-    return {
-        day: day_frame.pivot(index="interval_ts", columns="settlement_point",
-                             values="congestion").sort_index()
-        for day, day_frame in frame.groupby("delivery_date")
-    }
-
-
-def _trailing_settled_average(delivery_date: date, count: int,
-                              by_day: dict[date, pd.DataFrame]) -> pd.DataFrame | None:
-    """A complete trailing-30-day settled baseline on the target's ordinal hours.
-
-    ``by_day`` is pre-fetched by ``_windowed_mu_profiles``/``_windowed_node_profiles``
-    (one query for the whole window) rather than looked up one query per day."""
-    profiles = []
-    for offset in range(1, 31):
-        profile = by_day.get(delivery_date - timedelta(days=offset))
-        if profile is None or profile.empty:
-            return None
-        profiles.append(_ordinal_profile(profile, count))
-    universe = list(dict.fromkeys(str(key) for profile in profiles for key in profile.columns))
-    if not universe:
-        return None
-    return sum((profile.reindex(index=pd.RangeIndex(count), columns=universe, fill_value=0.0)
-                .fillna(0.0) for profile in profiles)) / len(profiles)
-
-
-def _grade_vocabulary(cur, delivery_date: date) -> list[str]:
-    """Every key that settled in the prototype's trailing 30-day universe."""
-    start, end = delivery_bounds(delivery_date)
-    cur.execute(
-        "SELECT DISTINCT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key "
-        "FROM ercot_dam_shadow_prices "
-        "WHERE interval_ts >= %s AND interval_ts < %s AND shadow_price IS NOT NULL "
-        "ORDER BY constraint_key",
-        (start - timedelta(days=30), end),
-    )
-    return [str(row["constraint_key"]) for row in cur.fetchall()]
 
 
 NODE_CONGESTION_EPSILON = 1e-6  # $/MWh; suppresses float residue, not economics.
@@ -828,7 +663,7 @@ def get_grade(
         # halves as settlement-pending rather than a real-looking zero score:
         # the grade scorer would otherwise return magnitude_overlap 0.0 with
         # null APs, and a materialization run before DAM lands would persist it.
-        if _settled_mu_profile(cur, delivery_date).empty:
+        if brief_grade.settled_mu_profile(cur, delivery_date).empty:
             pending = GradeHalfResponse(graded=False, unavailable_reason="settlement_pending")
             return GradeAvailableResponse(
                 available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
@@ -846,8 +681,8 @@ def get_grade(
                 constraints=GradeHalfResponse(**_brief_payload(materialized["constraints"])),
                 nodes=GradeHalfResponse(**_brief_payload(materialized["nodes"])),
             )
-        constraints = _brief_grade_constraint_profiles(cur, run_id, delivery_date, horizon)
-        nodes = _brief_grade_node_profiles(cur, run_id, delivery_date, horizon)
+        constraints = brief_grade.grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+        nodes = brief_grade.grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
         return GradeUnavailableResponse(
             available=False, unavailable_reason="artifact_missing", run_id=run_id,
@@ -855,8 +690,8 @@ def get_grade(
         )
     return GradeAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        constraints=GradeHalfResponse(**_brief_payload(_serialize_brief_grade_half(constraints))),
-        nodes=(_brief_payload(_serialize_brief_grade_half(nodes)) if nodes is not None else
+        constraints=GradeHalfResponse(**_brief_payload(brief_grade.serialize_grade_half(constraints))),
+        nodes=(_brief_payload(brief_grade.serialize_grade_half(nodes)) if nodes is not None else
                GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
 
@@ -867,7 +702,7 @@ def _brief_payload(payload: dict) -> dict:
     source_ids = {source["id"] for source in result.get("source_metrics", [])}
     result["sources"] = [
         {"id": source.id, "label": source.label, "definition": source.definition}
-        for source in _BRIEF_SOURCE_DEFINITIONS if source.id in source_ids
+        for source in brief_grade.SOURCE_DEFINITIONS if source.id in source_ids
     ]
     return result
 
@@ -936,13 +771,13 @@ def get_top_constraints(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date,
             )
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
             return TopConstraintsUnavailableResponse(
                 available=False, unavailable_reason="artifact_missing", run_id=run_id,
                 delivery_date=delivery_date, horizon=horizon,
             )
-        settled = _settled_mu_profile(cur, delivery_date)
+        settled = brief_grade.settled_mu_profile(cur, delivery_date)
         settled_histories = _settled_constraint_history(cur, delivery_date)
 
         cur.execute(
@@ -1013,11 +848,11 @@ def get_context(
         if horizon is None:
             return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                               run_id=run_id, delivery_date=delivery_date)
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
             return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                               run_id=run_id, delivery_date=delivery_date, horizon=horizon)
-        settled = _settled_mu_profile(cur, delivery_date)
+        settled = brief_grade.settled_mu_profile(cur, delivery_date)
         histories = _settled_constraint_history(cur, delivery_date)
         cur.execute(
             "SELECT constraint_key, kv_max FROM constraint_geo "
@@ -1090,7 +925,7 @@ def get_standouts(
         if horizon is None:
             return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                                 run_id=run_id, delivery_date=delivery_date)
-        forecast = _forecast_mu_profile(cur, run_id, delivery_date, horizon)
+        forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
             return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
                                                 run_id=run_id, delivery_date=delivery_date, horizon=horizon)
@@ -1138,7 +973,7 @@ def get_standouts(
             "WHERE window_start = (SELECT max(window_start) FROM constraint_geo)"
         )
         geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
-        settled = _settled_mu_profile(cur, delivery_date)
+        settled = brief_grade.settled_mu_profile(cur, delivery_date)
         node_result = _daily_node_contributions(
             cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
         node_histories: dict[str, list[float]] = {}
@@ -1147,7 +982,7 @@ def get_standouts(
             # (0138) instead of decoding 30 prior-day artifacts; artifact fallback
             # for any absent day lives inside the helper.
             node_histories = _forecast_node_history(cur, run_id, delivery_date, horizon)
-            node_settled = _settled_node_profile(cur, delivery_date)
+            node_settled = brief_grade.settled_node_profile(cur, delivery_date)
             cur.execute(
                 "SELECT interval_ts, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
                 "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "

@@ -12,6 +12,7 @@ Branch: refactor/0189-comparison-provenance-contracts
 ## Context
 
 * This plan follows 0188, which removes inactive μ sources and establishes the metric boundary.
+* Plan 0192 consolidates Brief profile and grade builders in `brief_grade.py`; this does not relocate the comparison enum or alter its ownership.
 * Short values such as `model` and `persistence` currently describe materially different weekly, served, and Brief constructions.
 * The stored `source` value is part of Scoreboard primary keys, so migration must preserve counts and uniqueness exactly.
 
