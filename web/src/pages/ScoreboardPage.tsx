@@ -747,6 +747,10 @@ export default function ScoreboardPage() {
                 Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
               </Tooltip>
+              <div className="sb-section-copy">
+                Combines hour-weighted historical weekly backtest scores with
+                daily forecast grades.
+              </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>
           )}
