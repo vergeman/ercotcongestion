@@ -27,7 +27,9 @@ class MatrixRepository:
             if row is None:
                 return None
             run_id = str(row["run_id"])
-            return MatrixArtifactContext(run_id, load_daily_artifact(cur, run_id, delivery_date))
+            return MatrixArtifactContext(
+                run_id, load_daily_artifact(cur, run_id, delivery_date)
+            )
 
     def realized_mu(self, interval_ts: datetime, constraint_keys) -> dict[str, float]:
         with self._pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
