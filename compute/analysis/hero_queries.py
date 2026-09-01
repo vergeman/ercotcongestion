@@ -68,9 +68,6 @@ def load_forecast_constraint_days(conn, run_id: str, delivery_date: date, horizo
                                   constraint_keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Return persisted daily forecast ``Σμ`` rows through ``delivery_date``.
 
-    The historical vocabulary is explicitly restricted to the served artifact's
-    keys.  This keeps the forecast comparison like-for-like even if a past fit
-    carried a different constraint set.
     """
     params: list[Any] = [run_id, horizon, delivery_date - timedelta(days=days), delivery_date]
     key_clause = ""
@@ -99,11 +96,9 @@ def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -
 
 
 def load_constraint_geo(conn) -> list[dict[str, Any]]:
-    """Read one coherent, newest persisted geography window.
+    """Read one coherent, newest persisted geography window. Used in the
+    'where' hero summary.
 
-    Selecting the latest row per key can splice several map runs into one hero and
-    makes ``geo_as_of`` ambiguous.  The hero instead uses the complete newest
-    window, so every zone share carries the same provenance stamp.
     """
     sql = """
         SELECT constraint_key, zone_shares, window_start::date AS geo_as_of
