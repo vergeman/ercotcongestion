@@ -448,8 +448,7 @@ export default function SidePanel({
           {scorecard?.available && (
             <section className="np-section">
               <div className="np-section__header sc-header">
-                <span className="label">Forecast Run</span>
-                <span className="mono">{scorecard.run_id ?? network.forecastRunId ?? "—"}</span>
+                <span className="label">Scorecard</span>
               </div>
               <div className="sc-meta label">
                   {scorecard.basis === "served_daily"
