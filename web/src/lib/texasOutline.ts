@@ -1,8 +1,7 @@
 // The ERCOT/Texas state-boundary reference used as a projection frame by the
-// Brief's lightweight maps — the hero preview (HeroMapPreview) and the detail
-// panel's footprint (BriefFootprintMap). Both draw the same outline from the
-// same `/texas.geojson` the full interactive GridMap uses, so the loader lives
-// once here rather than being re-implemented per map.
+// lightweight MiniMap (hero backdrop, Brief/Matrix footprints). They draw the
+// same outline from the same `/texas.geojson` the full interactive GridMap
+// uses, so the loader and projection live once here rather than per map.
 
 // One ring of [lng, lat] pairs (exterior or a hole — an SVG path with fill-rule
 // evenodd draws both correctly without needing to tell them apart).
@@ -34,22 +33,34 @@ export async function loadTexasBorderRings(): Promise<BorderRing[]> {
 
 // A local, undistorted projection fitted to the border's bounding box: one
 // uniform scale (px per degree of latitude) applied to longitude too after
-// correcting for its foreshortening at this latitude. `fit: "meet"` (default)
-// scales to show the whole outline inside the box; the result is centered.
-// Anchoring scale to the border — not the plotted points — keeps the state
-// shape recognizable and the points at an honest size within it.
+// correcting for its foreshortening at this latitude. Anchoring scale to the
+// border — not the plotted points — keeps the state shape recognizable and the
+// points at an honest size within it. `width`/`height` are the returned viewBox.
+//
+// fit:
+//   "meet"       (default) — scale to show the whole outline inside width×height,
+//                 centered. Needs both dims.
+//   "fillHeight" — scale to the height only; width is derived from the outline's
+//                 span (the caller right-pins via preserveAspectRatio). Used by
+//                 the hero backdrop, where width is elastic.
 export interface FittedProjection {
   project: (coordinate: [number, number]) => [number, number];
   borderPath: string;
+  width: number;
+  height: number;
 }
 
 export function fitBorderProjection(
   rings: BorderRing[],
-  width: number,
-  height: number,
-  pad = 10
+  opts: {
+    height: number;
+    width?: number;
+    pad?: number;
+    fit?: "meet" | "fillHeight";
+  }
 ): FittedProjection | null {
   if (!rings.length) return null;
+  const { height, pad = 10, fit = "meet" } = opts;
   const lngs = rings.flatMap((ring) => ring.map(([lng]) => lng));
   const lats = rings.flatMap((ring) => ring.map(([, lat]) => lat));
   const minLng = Math.min(...lngs);
@@ -60,15 +71,25 @@ export function fitBorderProjection(
   const lngCorrection = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
   const spanLng = Math.max((maxLng - minLng) * lngCorrection, 0.01);
   const usableH = height - pad * 2;
-  const usableW = width - pad * 2;
-  const scale = Math.min(usableH / spanLat, usableW / spanLng);
-  const drawnW = spanLng * scale;
-  const drawnH = spanLat * scale;
-  const offX = (width - drawnW) / 2;
-  const offY = (height - drawnH) / 2;
+
+  let width: number;
+  let scale: number;
+  let offX: number;
+  let offY: number;
+  if (fit === "fillHeight") {
+    scale = usableH / spanLat;
+    width = spanLng * scale + pad * 2;
+    offX = pad;
+    offY = pad;
+  } else {
+    width = opts.width ?? height;
+    scale = Math.min(usableH / spanLat, (width - pad * 2) / spanLng);
+    offX = (width - spanLng * scale) / 2;
+    offY = (height - spanLat * scale) / 2;
+  }
   const project = ([lng, lat]: [number, number]): [number, number] => [
     offX + (lng - minLng) * lngCorrection * scale,
-    offY + (1 - (lat - minLat) / spanLat) * drawnH,
+    offY + (1 - (lat - minLat) / spanLat) * spanLat * scale,
   ];
   const borderPath = rings
     .map(
@@ -78,5 +99,32 @@ export function fitBorderProjection(
           .join("L")}Z`
     )
     .join(" ");
-  return { project, borderPath };
+  return { project, borderPath, width, height };
+}
+
+// The settlement-point features of a /topology response as plain coordinates.
+// Both MiniMap modes that place nodes (the LMP scatter and a single located
+// node) read this, so the GeoJSON dig lives once.
+export interface SettlementPoint {
+  sp_id: string;
+  lng: number;
+  lat: number;
+}
+
+export function settlementPointsFromTopology(
+  topology: unknown
+): SettlementPoint[] {
+  const features =
+    (topology as { settlement_points?: GeoJSON.FeatureCollection })
+      .settlement_points?.features ?? [];
+  return features
+    .filter(
+      (f): f is GeoJSON.Feature<GeoJSON.Point> => f.geometry?.type === "Point"
+    )
+    .map((f) => ({
+      sp_id: String(f.properties?.sp_id ?? ""),
+      lng: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+    }))
+    .filter((p) => p.sp_id);
 }
