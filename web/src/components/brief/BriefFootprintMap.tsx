@@ -144,7 +144,7 @@ export default function BriefFootprintMap({
   }, [geo, key, nodeLocation]);
 
   const projection = useMemo(
-    () => (border ? fitBorderProjection(border, VIEW_W, VIEW_H) : null),
+    () => (border ? fitBorderProjection(border, { width: VIEW_W, height: VIEW_H }) : null),
     [border]
   );
 
