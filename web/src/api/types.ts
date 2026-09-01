@@ -461,7 +461,7 @@ export interface WeeklyPoint {
   n_nodes: number | null;
 }
 
-// One source's pooled currencies over a split — the week-mean of each metric.
+// One source's independently hours-weighted metrics over a split.
 export interface SourcePooled {
   source_id: string;
   series_id: string;
@@ -474,6 +474,7 @@ export interface SourcePooled {
 export interface WeeklySplit {
   label: string; // all | pre_rtc_b | post_rtc_b
   n_weeks: number;
+  n_days: number;
   sources: SourcePooled[];
   beats_persistence: boolean | null;
 }

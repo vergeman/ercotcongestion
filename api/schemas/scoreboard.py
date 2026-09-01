@@ -8,8 +8,8 @@ from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 
 # ---- /scoreboard/summary weekly ------------------------------------------
 #
-# The full weekly backtest series, plus a pooled pre/post-RTC+B summary with
-# pooled screening summaries.
+# The full weekly backtest series plus independently hours-weighted pools. All
+# spans all time; pre-RTC+B is backtest-only and post-RTC+B includes live days.
 
 
 class WeeklyPoint(BaseModel):
@@ -34,8 +34,7 @@ class WeeklyPoint(BaseModel):
 
 
 class SourcePooled(BaseModel):
-    """One source's pooled currencies over a split — the week-mean of each metric
-    ``None`` when the source had no scored week."""
+    """One source's hours-weighted metrics over a split, or ``None`` if unscored."""
 
     source_id: str
     series_id: str
@@ -57,6 +56,7 @@ class WeeklySplit(BaseModel):
 
     label: str  # all | pre_rtc_b | post_rtc_b
     n_weeks: int
+    n_days: int
     sources: list[SourcePooled]
     beats_persistence: bool | None = None
 
