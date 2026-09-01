@@ -24,7 +24,7 @@ Branch: refactor/0197-remove-scoreboard-headline
 
 ## Acceptance
 
-* [ ] `/scoreboard/summary` has no `headline` field and no rolling 30D/90D computation remains.
-* [ ] The Scoreboard page has no 30D/90D headline tile or wording.
-* [ ] Weekly chart/splits, served daily grades, and Map weekly fallback continue to use `scoreboard_weekly` as before.
-* [ ] Focused API and web tests pass.
+* [x] `/scoreboard/summary` has no `headline` field and no rolling 30D/90D computation remains.
+* [x] The Scoreboard page has no 30D/90D headline tile or wording.
+* [x] Weekly chart/splits, served daily grades, and Map weekly fallback continue to use `scoreboard_weekly` as before.
+* [x] Focused API and web tests pass.
