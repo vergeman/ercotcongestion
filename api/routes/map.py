@@ -13,10 +13,11 @@ from api.schemas.map import (
     ExposuresResponse,
     MapMeta,
     MapOverview,
+    MapScorecard,
     MapSummaryResponse,
     RankedConstraints,
 )
-from api.services.map import aggregate, detail, summary
+from api.services.map import aggregate, detail, scorecard, summary
 from api.services.settlement_points import coordinates as settlement_point_coordinates
 from api.services.settlement_points import metadata as settlement_point_metadata
 
@@ -158,6 +159,17 @@ def get_map_constraints_ranked(
     ),
 ) -> RankedConstraints:
     return aggregate.ranked(day, basis, run_id, k, min_frac, coordinates=_sp_coords)
+
+
+@router.get(
+    "/scorecard",
+    response_model=MapScorecard,
+    summary="Day-scoped served scorecard with weekly fallback",
+)
+def get_map_scorecard(
+    day: date = Query(..., description="CT delivery date shown by the map cursor."),
+) -> MapScorecard:
+    return scorecard.build(day)
 
 
 @router.get(
