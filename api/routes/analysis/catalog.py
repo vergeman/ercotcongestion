@@ -6,7 +6,6 @@ from api.schemas.analysis import (
     AnalysisConstraintsAvailableResponse, AnalysisConstraintsUnavailableResponse,
     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
     AnalysisSettlementPointsAvailableResponse, AnalysisSettlementPointsUnavailableResponse,
-    ForecastMuAvailableResponse, ForecastMuUnavailableResponse,
     NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
 )
 
@@ -23,6 +22,3 @@ router.add_api_route("/constraints", panels.get_constraints, methods=["GET"],
 router.add_api_route("/essp", panels.get_essp_groups, methods=["GET"],
                      response_model=AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse,
                      summary="Hourly ERCOT electrically-similar settlement-point groups")
-router.add_api_route("/forecast-mu", panels.get_forecast_mu, methods=["GET"],
-                     response_model=ForecastMuAvailableResponse | ForecastMuUnavailableResponse,
-                     summary="Hourly forecast μ for selected artifact constraints")
