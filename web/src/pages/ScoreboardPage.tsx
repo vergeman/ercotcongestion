@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import type {
   ScoreboardWeekly,
-  ScoreboardHeadline,
   ScoreboardDaily,
   DailyPoint,
   ScoreHistoryPoint,
@@ -20,7 +19,7 @@ import { useScoreboardChart } from "../features/scoreboard/useScoreboardChart";
 import "../features/scoreboard/scoreboard.css";
 
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
-// the panel's "View full scoreboard" link targets: headline tiles, the weekly
+// the panel's "View full scoreboard" link targets the weekly
 // metric-vs-baselines-vs-oracle series, a coverage strip on the shared x-axis,
 // and the pooled pre/post-RTC+B split. Reads scoreboard_weekly only —
 // independent of the forecast run. Integrity (§6): a model figure never appears
@@ -453,53 +452,6 @@ function LiveGradePanel({
   );
 }
 
-// ── headline tiles (reuse the 0001 endpoint — comparators ride along) ───────
-function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
-  const win =
-    headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
-  if (!win) return null;
-  const pick = (name: string) =>
-    win.currencies.find((c) => c.currency === name);
-  const tiles = [
-    { name: "rank_spearman", label: "Rank ρ" },
-    { name: "sign_agree", label: "Sign Agreement" },
-    { name: "topdecile_hit", label: "Top-Decile Hit" },
-  ];
-  return (
-    <div className="sb-tiles">
-      {tiles.map((t) => {
-        const c = pick(t.name);
-        if (!c) return null;
-        const good =
-          c.persistence_delta == null
-            ? null
-            : c.higher_is_better
-            ? c.persistence_delta >= 0
-            : c.persistence_delta <= 0;
-        return (
-          <div key={t.name} className="sb-tile">
-            <div className="label">{t.label}</div>
-            <div className="sb-tile__model">
-              {c.model == null ? "—" : c.model.toFixed(2)}
-            </div>
-            <div className="sb-tile__cmp">
-              {good != null && (
-                <span className="sb-delta" data-good={good}>
-                  {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
-                  {c.persistence == null ? "—" : c.persistence.toFixed(2)}
-                </span>
-              )}
-              <span className="sb-ceiling">
-                Settled-μ Ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── pooled pre/post-RTC+B split table ───────────────────────────────────────
 function SplitTable({
   weekly,
@@ -718,18 +670,13 @@ function Glossary() {
 export default function ScoreboardPage() {
   const [controls, dispatchControls] = useScoreboardControls();
   const {
-    weekly, headline, daily, history, backtestLoading, liveLoading, liveError,
+    weekly, daily, history, backtestLoading, liveLoading, liveError,
     connectionState, lastUpdated,
   } =
     useScoreboard();
 
   const chartWidth = weekly ? undefined : undefined; // width measured inside chart
   void chartWidth;
-
-  // The rolling window the headline tiles summarize (same pick as HeadlineTiles):
-  // surfaced in the topbar so the tiles aren't captioned by a stray note.
-  const headlineWin =
-    headline?.windows.find((w) => w.window_days === 90) ?? headline?.windows[0];
 
   return (
     <div className="sb-page">
@@ -760,18 +707,6 @@ export default function ScoreboardPage() {
 
           {weekly && (
             <>
-              {/* Every block on this page is a different measurement, and they
-                  were previously distinguishable only by shape. Label each one
-                  with what it measures and over what span: the live panel above
-                  grades one served day, these tiles pool a rolling window of the
-                  backtest, the chart is that backtest week by week, and the table
-                  pools the whole walk. */}
-              <div className="sb-section-h label">
-                Backtest · rolling{" "}
-                {headlineWin ? `${headlineWin.window_days}-day` : ""} headline
-              </div>
-              <HeadlineTiles headline={headline} />
-
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
