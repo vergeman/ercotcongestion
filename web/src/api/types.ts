@@ -423,47 +423,6 @@ export interface RankedConstraints {
 }
 
 // =============================================================================
-// /scoreboard/summary headline — the rolling backtest headline (30/90-day tiles). The
-// panel scorecard's data. Mirrors api/models.py HeadlineCurrency /
-// HeadlineWindow / ScoreboardHeadline. The one invariant (spec §6): a model
-// figure never travels without its comparators — every currency carries the
-// persistence delta and the oracle ceiling, so the client cannot render a lone
-// model number.
-// =============================================================================
-
-// One pre-registered currency in one rolling window: the model figure with its
-// comparators. `persistence_delta` = model − persistence (raw); read its sign
-// against `higher_is_better`. `oracle` is the ceiling. Any field is null when a
-// source had no scored week in the window.
-export interface HeadlineCurrency {
-  currency: string; // topdecile_hit | rank_spearman | sign_agree
-  higher_is_better: boolean;
-  model: number | null;
-  persistence: number | null;
-  climatology: number | null;
-  oracle: number | null;
-  persistence_delta: number | null;
-}
-
-// One rolling window (30d / 90d): every currency pooled over the trailing weeks.
-// `weeks` is how many weekly rows fed the pool; `week_start`/`week_end` bound them.
-export interface HeadlineWindow {
-  window_days: number; // 30 | 90
-  weeks: number;
-  week_start: string;
-  week_end: string;
-  currencies: HeadlineCurrency[];
-}
-
-// The rolling headline for one board (`run_id`). `as_of_week` is the
-// latest week on the board — the anchor the windows trail from.
-export interface ScoreboardHeadline {
-  run_id: string;
-  as_of_week: string;
-  windows: HeadlineWindow[];
-}
-
-// =============================================================================
 // /scoreboard/summary weekly — the full weekly backtest series + pooled pre/post-RTC+B
 // summary (the scoreboard page's data). Mirrors api/models.py WeeklyPoint /
 // SourcePooled / WeeklySplit / ScoreboardWeekly. Every response carries all
@@ -601,7 +560,6 @@ export interface BootstrapSectionStatus {
 // soft-fail state explicit.
 export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
-  headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
   history: ScoreboardHistory | null;
   availability: Record<string, BootstrapSectionStatus>;

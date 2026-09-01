@@ -1,11 +1,7 @@
-"""Tests for GET /scoreboard/summary — the bundled load-time trio (0137).
+"""Tests for GET /scoreboard/summary sections.
 
-Mirrors test_analysis.py's brief-day composition test: monkeypatch the three
-section handlers directly rather than threading fake rows through their own
-(already separately tested) query logic. `ScoreboardSummaryResponse(...)` is
-constructed — and so validated by Pydantic — inside `build_summary`
-itself, so the fakes below must return real (if minimal) instances of each
-section's response model, not bare stand-ins.
+Section builders are patched directly, so these tests cover composition rather
+than individual queries.
 """
 from __future__ import annotations
 
@@ -14,11 +10,10 @@ from datetime import date
 from fastapi import HTTPException
 
 from api.services import scoreboard as scoreboard_service
-from api.schemas.scoreboard import ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly
+from api.schemas.scoreboard import ScoreboardDaily, ScoreboardHistory, ScoreboardWeekly
 
 WEEKLY = ScoreboardWeekly(run_id="r", primary_source_id="scoreboard_model_backtest_nodal",
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
-HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=date(2026, 7, 1), windows=[])
 DAILY = ScoreboardDaily(run_id="r", primary_source_id="scoreboard_model_served_nodal", horizon=1,
                         selected_delivery_date=date(2026, 7, 18), points=[])
 HISTORY = ScoreboardHistory(primary_source_id="scoreboard_model_backtest_nodal", weekly_run_id="r", points=[])
@@ -34,7 +29,6 @@ def test_summary_calls_each_internal_section(monkeypatch):
         return _handler
 
     monkeypatch.setattr(scoreboard_service, "build_weekly", _fake("weekly", WEEKLY))
-    monkeypatch.setattr(scoreboard_service, "build_headline", _fake("headline", HEADLINE))
     monkeypatch.setattr(scoreboard_service, "build_latest_final_daily", _fake("daily", DAILY))
     monkeypatch.setattr(scoreboard_service, "build_history", _fake("history", HISTORY))
 
@@ -42,16 +36,16 @@ def test_summary_calls_each_internal_section(monkeypatch):
 
     assert calls == {
         "weekly": (),
-        "headline": (None,),
         "daily": (),
         "history": (WEEKLY,),
     }
     assert body.weekly == WEEKLY
-    assert body.headline == HEADLINE
     assert body.daily == DAILY
     assert body.history == HISTORY
     assert body.availability['daily'].available is True
     assert body.availability['daily'].run_id == 'r'
+    assert "headline" not in body.model_dump()
+    assert "headline" not in body.availability
 
 
 def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest(
@@ -64,14 +58,12 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
         raise HTTPException(status_code=503, detail="no board loaded")
 
     monkeypatch.setattr(scoreboard_service, "build_weekly", lambda *a: WEEKLY)
-    monkeypatch.setattr(scoreboard_service, "build_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(scoreboard_service, "build_latest_final_daily", _unavailable)
     monkeypatch.setattr(scoreboard_service, "build_history", lambda *a: HISTORY)
 
     body = scoreboard_service.build_summary()
 
     assert body.weekly == WEEKLY
-    assert body.headline == HEADLINE
     assert body.daily is None
     assert body.history == HISTORY
     assert body.availability['daily'].available is False
@@ -85,7 +77,6 @@ def test_summary_reraises_a_non_503_error(monkeypatch):
         raise HTTPException(status_code=500, detail="boom")
 
     monkeypatch.setattr(scoreboard_service, "build_weekly", _broken)
-    monkeypatch.setattr(scoreboard_service, "build_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(scoreboard_service, "build_latest_final_daily", lambda *a: DAILY)
     monkeypatch.setattr(scoreboard_service, "build_history", lambda *a: HISTORY)
 

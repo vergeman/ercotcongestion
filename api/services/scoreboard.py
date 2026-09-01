@@ -23,7 +23,6 @@ from api.schemas.scoreboard import (
     WeeklySplit,
 )
 from api.services.bootstrap import availability_status, soft_fail
-from api.services.scoreboard_headline import build_headline
 
 
 @dataclass(frozen=True)
@@ -334,12 +333,10 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
 
 def build_summary() -> ScoreboardSummaryResponse:
     """Compose independently available Scoreboard sections."""
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         weekly = pool.submit(soft_fail, build_weekly)
-        headline = pool.submit(soft_fail, lambda: build_headline(None))
         daily = pool.submit(soft_fail, build_latest_final_daily)
         weekly_result = weekly.result()
-        headline_result = headline.result()
         daily_result = daily.result()
         history_result = (
             soft_fail(lambda: build_history(weekly_result))
@@ -348,12 +345,10 @@ def build_summary() -> ScoreboardSummaryResponse:
         )
     return ScoreboardSummaryResponse(
         weekly=weekly_result,
-        headline=headline_result,
         daily=daily_result,
         history=history_result,
         availability={
             "weekly": availability_status(weekly_result, BootstrapSectionStatus),
-            "headline": availability_status(headline_result, BootstrapSectionStatus),
             "daily": availability_status(daily_result, BootstrapSectionStatus),
             "history": availability_status(history_result, BootstrapSectionStatus),
         },

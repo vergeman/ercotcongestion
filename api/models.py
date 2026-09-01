@@ -109,10 +109,7 @@ from api.schemas.map import (
 from api.schemas.matrix import MatrixColumn, MatrixFrame, MatrixRow, MatrixSfValues
 from api.schemas.scoreboard import (
     DailyPoint,
-    HeadlineCurrency,
-    HeadlineWindow,
     ScoreboardDaily,
-    ScoreboardHeadline,
     ScoreboardHistory,
     ScoreboardSummaryResponse,
     ScoreboardWeekly,

@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useReducer } from "react";
 import { fetchScoreboardSummary } from "../api/scoreboard";
-import type { ScoreboardDaily, ScoreboardHeadline, ScoreboardHistory, ScoreboardWeekly } from "../api/types";
+import type { ScoreboardDaily, ScoreboardHistory, ScoreboardWeekly } from "../api/types";
 import type { ConnectionState } from "./useExplorerSession";
 
 type ScoreboardState = {
   weekly: ScoreboardWeekly | null;
-  headline: ScoreboardHeadline | null;
   daily: ScoreboardDaily | null;
   history: ScoreboardHistory | null;
   backtestLoading: boolean;
@@ -19,7 +18,7 @@ type ScoreboardState = {
 type Action = { type: "patch"; patch: Partial<ScoreboardState> };
 
 const initialState: ScoreboardState = {
-  weekly: null, headline: null, daily: null, history: null,
+  weekly: null, daily: null, history: null,
   backtestLoading: true, liveLoading: true, backtestError: false, liveError: false,
   connectionState: "loading", lastUpdated: null,
 };
@@ -47,7 +46,6 @@ export function useScoreboard() {
             type: "patch",
             patch: {
               weekly: summary?.weekly ?? null,
-              headline: summary?.headline ?? null,
               daily: summary?.daily ?? null,
               history: summary?.history ?? null,
               backtestLoading: false,
@@ -60,7 +58,7 @@ export function useScoreboard() {
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbort(error)) {
           dispatch({ type: "patch", patch: {
-            weekly: null, headline: null, daily: null, history: null,
+            weekly: null, daily: null, history: null,
             backtestLoading: false, liveLoading: false, backtestError: true, liveError: true,
           } });
         }
