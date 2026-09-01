@@ -132,11 +132,6 @@ def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 
-def screening_metrics_for_scoreboard(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """The scoreboard's screening metrics."""
-    return screening_metrics(Y, Yh)
-
-
 def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
     """The scored weeks, **read off the model's own output**.
 
@@ -213,7 +208,7 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                **screening_metrics_for_scoreboard(Y, Yh)}
+                **screening_metrics(Y, Yh)}
         rows.append(base)
     return rows
 

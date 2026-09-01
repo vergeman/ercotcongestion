@@ -47,8 +47,8 @@ from compute.evaluation.mu import (
     mu_climatology,
     mu_null,
     mu_persistence,
-    screening_metrics_for_scoreboard,
 )
+from compute.metrics import screening_metrics
 from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
 from compute.evaluation.sf import predict
 from compute.evaluation.essp import score_final_essp
@@ -272,7 +272,7 @@ def grade_day(
     # --- model: the served deterministic point ------------------------------
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
     rows.append(_row(SOURCE_BY_CONSTRUCTOR["model"].id,
-                     screening_metrics_for_scoreboard(Y, Yh_model)))
+                     screening_metrics(Y, Yh_model)))
     rows[0].update(score_served_essp(conn, run_id, D, horizon))
 
     # --- comparators: recomputed on D, projected through the trailing-window SF -
@@ -290,7 +290,7 @@ def grade_day(
         # the metrics (spearman, sign_agree, top_decile) get calculated in
         # screening_metrics, since have Y, Yh.
         rows.append(_row(SOURCE_BY_CONSTRUCTOR[mu_name].id,
-                         screening_metrics_for_scoreboard(Y, Yh)))
+                         screening_metrics(Y, Yh)))
 
     m = rows[0]
     p = next(r for r in rows
