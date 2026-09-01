@@ -3,6 +3,7 @@ import type {
   ConstraintReach,
   ExposureRank,
   ExposuresResponse,
+  MapFitMetadata,
   MapSummary,
   MapScorecard,
   RankedConstraints,
@@ -25,6 +26,15 @@ export const REACH_THRESHOLD_OPTS: MapReachOptions = {
 
 export function fetchMapSummary(signal?: AbortSignal): Promise<MapSummary> {
   return requestRequiredJson("/map/summary", { signal });
+}
+
+export function fetchMapFitMetadata(
+  t?: Date,
+  signal?: AbortSignal,
+): Promise<MapFitMetadata | null> {
+  const query = new URLSearchParams();
+  if (t) query.set("t", t.toISOString());
+  return requestJson("/map/fit-metadata", { query, signal });
 }
 
 export function fetchMapScorecard(

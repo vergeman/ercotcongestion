@@ -9,6 +9,7 @@ import type {
   RankedConstraints,
   ConditionsEntry,
   MapScorecard,
+  MapFitMetadata,
 } from "../api/types";
 import { formatCT } from "../lib/time";
 import {
@@ -44,7 +45,7 @@ import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
 import { MapPaneBadge } from "../features/map/MapPaneBadge";
 import "../features/map/mapPresentation.css";
 import { useConstraintSelection } from "../features/map/useConstraintSelection";
-import { fetchMapScorecard } from "../api/map";
+import { fetchMapFitMetadata, fetchMapScorecard } from "../api/map";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -192,7 +193,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [exposureRank, setExposureRank] = useState<ExposureRank>("contribution");
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
-  const { topology, topologyReady, overview, mapMeta } = useMapBootstrap(setConnState);
+  const { topology, topologyReady, overview } = useMapBootstrap(setConnState);
   const { loadRanked, loadExposures: requestExposures, loadReach } = useConstraintSelection();
 
   // settlement_points FeatureCollection, shared by both panes.
@@ -232,6 +233,21 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   );
 
   const [scorecard, setScorecard] = useState<MapScorecard | null>(null);
+  const [fitMeta, setFitMeta] = useState<MapFitMetadata | null>(null);
+
+  // Diagnostics belong to the artifact behind the cursor, not the map summary's
+  // latest refit. Abort an older scrub's request before it can replace this state.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchMapFitMetadata(cursorTs, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setFitMeta(result);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setFitMeta(null);
+      });
+    return () => controller.abort();
+  }, [cursorTs]);
 
   // The map cursor owns the scorecard's CT delivery date. Abort the previous
   // fetch so a fast scrub cannot publish a score from an earlier day.
@@ -979,7 +995,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     conditions: conditionsStats,
     mapView: renderedView,
     scorecard: scorecard?.delivery_date === deliveryDay ? scorecard : null,
-    fitMeta: mapMeta,
+    fitMeta,
     ranked,
     rankedLoading,
     constraintBasis,
