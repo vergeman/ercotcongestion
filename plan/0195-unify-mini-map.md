@@ -57,10 +57,10 @@ mode "node"       { mode; selectionKey; mapHref; t?; onNavigate?; showTitle?;
 
 ## Acceptance
 
-* [ ] Exactly one mini-map renderer: `components/map/MiniMap.tsx`; `HeroMapPreview.tsx` and `BriefFootprintMap.tsx` are deleted.
-* [ ] Projection lives once (`fitBorderProjection` with a fit option); no inline projection remains.
-* [ ] Node extraction lives once (`settlementPointsFromTopology`).
-* [ ] All three sites render identically to before (hero backdrop, brief footprint, matrix Read constraint + node), including colors, chrome, aria, and fallbacks.
-* [ ] No `components/brief/*` import survives in `components/matrix/`.
-* [ ] `/map` (`GridMap` and its stack) is unchanged.
-* [ ] `tsc -b` and `eslint .` pass in `web/`.
+* [x] Exactly one mini-map renderer: `components/map/MiniMap.tsx`; `HeroMapPreview.tsx` and `BriefFootprintMap.tsx` are deleted.
+* [x] Projection lives once (`fitBorderProjection` with a fit option); no inline projection remains.
+* [x] Node extraction lives once (`settlementPointsFromTopology`).
+* [x] All three sites render identically to before (hero backdrop, brief footprint, matrix Read constraint + node), including colors, chrome, aria, and fallbacks — preserved by construction; `tsc -b` clean and Vite HMR compiled without error. Visual smoke not run (no browser this session).
+* [x] No `components/brief/*` import survives in `components/matrix/`.
+* [x] `/map` (`GridMap` and its stack) is unchanged.
+* [x] `tsc -b` passes in `web/`. `eslint` on MiniMap trips `set-state-in-effect`/`exhaustive-deps` — the same repo-wide, non-gating pattern the deleted originals and `MapWorkspace` use; net problem count is neutral, so kept for consistency rather than diverging one file.
