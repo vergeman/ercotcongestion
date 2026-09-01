@@ -37,9 +37,9 @@ def test_brief_delivery_date_alias_resolves_to_the_canonical_name():
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
     """One artifact covers its whole CT day now (0133) — no cross-day stitch."""
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
+    monkeypatch.setattr(brief_grade, "_load_daily_artifact", lambda *_: _artifact())
 
-    result = analysis_module._forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1)
+    result = brief_grade.forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1)
 
     assert result is not None
     assert list(result.index) == list(pd.to_datetime(
@@ -47,9 +47,9 @@ def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch)
 
 
 def test_forecast_mu_profile_is_none_when_the_artifact_is_missing(monkeypatch):
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    monkeypatch.setattr(brief_grade, "_load_daily_artifact", lambda *_: None)
 
-    assert analysis_module._forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1) is None
+    assert brief_grade.forecast_mu_profile(None, "run-x", date(2026, 7, 28), 1) is None
 
 
 def test_grade_constraint_profiles_stays_unavailable_when_the_artifact_is_missing(monkeypatch):
@@ -61,7 +61,7 @@ def test_grade_constraint_profiles_stays_unavailable_when_the_artifact_is_missin
 
 
 def test_grade_node_profiles_stays_unavailable_when_the_artifact_is_missing(monkeypatch):
-    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: None)
+    monkeypatch.setattr(brief_grade, "forecast_node_profile", lambda *_: None)
 
     assert brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1) is None
 
@@ -79,7 +79,7 @@ def test_windowed_mu_profiles_batches_the_trailing_window_into_per_day_frames(fa
     ])
     with fake_pool.connection() as conn:
         cur = conn.cursor(row_factory=None)
-        by_day = analysis_module._windowed_mu_profiles(cur, date(2026, 7, 28), 2)
+        by_day = brief_grade.windowed_profiles(cur, date(2026, 7, 28), 2, nodes=False)
 
     assert len(fake_pool.cursor.queries) == 1
     assert set(by_day) == {date(2026, 7, 26), date(2026, 7, 27)}
@@ -94,7 +94,7 @@ def test_windowed_node_profiles_batches_the_trailing_window_into_per_day_frames(
     ])
     with fake_pool.connection() as conn:
         cur = conn.cursor(row_factory=None)
-        by_day = analysis_module._windowed_node_profiles(cur, date(2026, 7, 28), 2)
+        by_day = brief_grade.windowed_profiles(cur, date(2026, 7, 28), 2, nodes=True)
 
     assert len(fake_pool.cursor.queries) == 1
     assert set(by_day) == {date(2026, 7, 26), date(2026, 7, 27)}
@@ -155,7 +155,7 @@ def test_trailing_settled_average_returns_none_when_a_trailing_day_is_missing():
     unavailable — a partial baseline is not reported as a real one."""
     by_day = {date(2026, 7, 27): pd.DataFrame({"A|B": [1.0]})}  # day -1 only; -2 missing
 
-    assert analysis_module._trailing_settled_average(date(2026, 7, 28), 1, by_day) is None
+    assert brief_grade.trailing_settled_average(date(2026, 7, 28), 1, by_day) is None
 
 
 def _slots(basis):
@@ -815,9 +815,9 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
                            timing_daily_skill=0.55, timing_hourly_skill=0.34)
     result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
-    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
-    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
-    monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
+    monkeypatch.setattr(brief_grade, "settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
+    monkeypatch.setattr(brief_grade, "grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(brief_grade, "grade_node_profiles", lambda *_: result)
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
@@ -840,10 +840,10 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
                            timing_daily_skill=0.55, timing_hourly_skill=0.34)
     result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
-    monkeypatch.setattr(analysis_module, "_settled_mu_profile",
+    monkeypatch.setattr(brief_grade, "settled_mu_profile",
                         lambda *_: pd.DataFrame([[0.0]]))
-    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles", lambda *_: result)
-    monkeypatch.setattr(analysis_module, "_brief_grade_node_profiles", lambda *_: result)
+    monkeypatch.setattr(brief_grade, "grade_constraint_profiles", lambda *_: result)
+    monkeypatch.setattr(brief_grade, "grade_node_profiles", lambda *_: result)
     fake_pool.cursor.queue([])  # no materialized snapshot: compute must score it.
 
     response = analysis_module.get_grade(date(2026, 7, 28), "run-x", 1)
@@ -868,8 +868,8 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
         {"subject": "constraints", "detail": detail},
         {"subject": "nodes", "detail": detail},
     ])
-    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
-    monkeypatch.setattr(analysis_module, "_brief_grade_constraint_profiles",
+    monkeypatch.setattr(brief_grade, "settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
+    monkeypatch.setattr(brief_grade, "grade_constraint_profiles",
                         lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
@@ -894,7 +894,7 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
 
 
 def _repeated_window(delivery_date, frame) -> dict:
-    """The climatology window a mocked ``_settled_node_profile``/``_settled_mu_profile``
+    """The climatology window a mocked ``settled_node_profile``/``settled_mu_profile``
     used to produce implicitly (30 identical trailing days) — now built explicitly
     since the batched ``_windowed_*_profiles`` fetch (0137) isn't covered by
     mocking those single-day loaders anymore."""
@@ -905,9 +905,9 @@ def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkey
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"IMPORT": [-1.0, -1.0], "EXPORT": [1.0, 1.0]}, index=hours)
     settled = pd.DataFrame({"IMPORT": [-10.0, -10.0], "EXPORT": [10.0, 10.0]}, index=hours)
-    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: forecast)
-    monkeypatch.setattr(brief_grade, "_settled_node_profile", lambda *_: settled)
-    monkeypatch.setattr(brief_grade, "_windowed_profiles",
+    monkeypatch.setattr(brief_grade, "forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(brief_grade, "settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(brief_grade, "windowed_profiles",
                         lambda *_, **__: _repeated_window(date(2026, 7, 28), settled))
 
     grade = brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
@@ -920,9 +920,9 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [0.0, 0.0]}, index=hours)
     settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
-    monkeypatch.setattr(brief_grade, "_forecast_node_profile", lambda *_: forecast)
-    monkeypatch.setattr(brief_grade, "_settled_node_profile", lambda *_: settled)
-    monkeypatch.setattr(brief_grade, "_windowed_profiles",
+    monkeypatch.setattr(brief_grade, "forecast_node_profile", lambda *_: forecast)
+    monkeypatch.setattr(brief_grade, "settled_node_profile", lambda *_: settled)
+    monkeypatch.setattr(brief_grade, "windowed_profiles",
                         lambda *_, **__: _repeated_window(date(2026, 7, 28), settled))
 
     grade = brief_grade.grade_node_profiles(None, "run-x", date(2026, 7, 28), 1)
