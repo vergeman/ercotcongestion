@@ -442,7 +442,7 @@ function LiveGradePanel({
                   </span>
                 )}
                 <span className="sb-ceiling">
-                  Settled-μ ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
+                  Settled-μ Ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -490,7 +490,7 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
                 </span>
               )}
               <span className="sb-ceiling">
-                Settled-μ ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+                Settled-μ Ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
               </span>
             </div>
           </div>
@@ -661,7 +661,7 @@ function Glossary() {
             Naïve baseline: tomorrow repeats yesterday. Each node's congestion
             is set to its actual value at the same hour on the prior day.
           </dd>
-          <dt>Trailing-window average (Baseline)</dt>
+          <dt>Trailing-window Average (Baseline)</dt>
           <dd>
             Historical-average baseline, computed per hour-of-day: how often a
             node has congested at this hour × its typical severity when it does.
@@ -669,7 +669,7 @@ function Glossary() {
             binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
             gets an 8pm climatology of 0.06 × $150 ≈ $9.
           </dd>
-          <dt>Settled-μ ceiling (Oracle)</dt>
+          <dt>Settled-μ Ceiling (Oracle)</dt>
           <dd>
             If you already knew the answer: the score you'd get ranking nodes by
             their realized congestion. A ceiling to measure against, not a
