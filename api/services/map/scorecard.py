@@ -42,16 +42,22 @@ def _complete(rows: list[dict], identities: dict[str, str]) -> bool:
 
 def build(delivery_date: date, run_id: str | None = None) -> MapScorecard:
     """Prefer this day's complete h1 grade; otherwise use one weekly set."""
+    run_clause = " AND run_id = %s::text" if run_id is not None else ""
+    daily_params = (delivery_date, list(_DAILY_SOURCES), run_id) if run_id else (
+        delivery_date,
+        list(_DAILY_SOURCES),
+    )
+    weekly_params = (list(_WEEKLY_SOURCES),)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            """
+            f"""
             SELECT run_id, source, rank_spearman, sign_agree, topdecile_hit
             FROM scoreboard_daily
             WHERE delivery_date = %s AND horizon = 1 AND source = ANY(%s)
-              AND (%s IS NULL OR run_id = %s)
+              {run_clause}
             ORDER BY run_id, source
             """,
-            (delivery_date, list(_DAILY_SOURCES), run_id, run_id),
+            daily_params,
         )
         daily_rows = cur.fetchall()
         daily_runs = {row["run_id"] for row in daily_rows}
@@ -68,13 +74,13 @@ def build(delivery_date: date, run_id: str | None = None) -> MapScorecard:
                 )
 
         cur.execute(
-            """
+            f"""
             SELECT run_id, week, source, rank_spearman, sign_agree, topdecile_hit
             FROM scoreboard_weekly
-            WHERE source = ANY(%s) AND (%s IS NULL OR run_id = %s)
+            WHERE source = ANY(%s)
             ORDER BY week DESC, run_id, source
             """,
-            (list(_WEEKLY_SOURCES), run_id, run_id),
+            weekly_params,
         )
         weekly_rows = cur.fetchall()
 

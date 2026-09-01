@@ -111,15 +111,20 @@ def test_route_uses_supplied_ct_delivery_date(client, monkeypatch):
     assert seen == [(DAY, None)]
 
 
-def test_requested_run_scopes_weekly_fallback(fake_pool):
+def test_requested_run_does_not_filter_weekly_fallback(fake_pool):
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue(_metrics([
-        _weekly("scoreboard_model_backtest_nodal", run_id="served-v1"),
-        _weekly("scoreboard_persistence_backtest_nodal", run_id="served-v1"),
-        _weekly("scoreboard_oracle_backtest_nodal", run_id="served-v1"),
+        _weekly("scoreboard_model_backtest_nodal", run_id="backtest-v1"),
+        _weekly("scoreboard_persistence_backtest_nodal", run_id="backtest-v1"),
+        _weekly("scoreboard_oracle_backtest_nodal", run_id="backtest-v1"),
     ]))
 
     result = scorecard.build(DAY, "served-v1")
 
-    assert result.run_id == "served-v1"
-    assert fake_pool.cursor.queries[1][1][-2:] == ("served-v1", "served-v1")
+    assert result.run_id == "backtest-v1"
+    assert fake_pool.cursor.queries[0][1][-1:] == ("served-v1",)
+    assert fake_pool.cursor.queries[1][1] == ([
+        "scoreboard_model_backtest_nodal",
+        "scoreboard_persistence_backtest_nodal",
+        "scoreboard_oracle_backtest_nodal",
+    ],)
