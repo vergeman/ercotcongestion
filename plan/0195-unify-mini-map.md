@@ -37,6 +37,14 @@ mode "node"       { mode; selectionKey; mapHref; t?; onNavigate?; showTitle?;
 * Naming: modes use `constraint`/`node` to line up with `BriefSelectionGeo` (`lib/briefSelection.ts`), so call sites map `geo` → `mode` with no translation. (The earlier sketch said "reach"; `constraint` avoids a vocab fork.)
 * Internal structure to keep the fat component honest: one shared presentational core (border path + projected dots + skeleton) rendered by every mode; mode selects only the data branch, the fit config, and whether chrome is drawn. Both style blocks (`.hero-map*`, `.bfm*`) travel with the component, selected by a variant class.
 
+### Data/presentation split (follow-up)
+
+The single component still fetched all three sources inline, which kept it large. Extracted the data layer into `components/map/useMiniMapData.ts`:
+
+* The hook owns every fetch and color choice: the LMP loaders, the three mode branches (lmp scatter, constraint reach via `useConstraintReach`, node lookup), and the prop/`RawDot` types. It returns `{ dots, loading, failed }` with dots in lng/lat.
+* `MiniMap.tsx` keeps only the outline projection and the SVG render (it projects each `RawDot` to screen space and sizes it by role). Dropped ~430 → ~215 lines.
+* Seam: the hook says *what to plot and its color*; the component says *where the outline sits and how to draw it*. Types and the hook flow one direction (hook → component), so no runtime import cycle.
+
 ## Approach
 
 * Work in: `lib/texasOutline.ts`, NEW `components/map/MiniMap.tsx`, `components/brief/BriefHero.tsx`, `components/brief/BriefDetailPanel.tsx`, `components/matrix/MatrixReadDetail.tsx`. Delete `components/brief/HeroMapPreview.tsx` and `components/brief/BriefFootprintMap.tsx`.
@@ -63,4 +71,5 @@ mode "node"       { mode; selectionKey; mapHref; t?; onNavigate?; showTitle?;
 * [x] All three sites render identically to before (hero backdrop, brief footprint, matrix Read constraint + node), including colors, chrome, aria, and fallbacks — preserved by construction; `tsc -b` clean and Vite HMR compiled without error. Visual smoke not run (no browser this session).
 * [x] No `components/brief/*` import survives in `components/matrix/`.
 * [x] `/map` (`GridMap` and its stack) is unchanged.
-* [x] `tsc -b` passes in `web/`. `eslint` on MiniMap trips `set-state-in-effect`/`exhaustive-deps` — the same repo-wide, non-gating pattern the deleted originals and `MapWorkspace` use; net problem count is neutral, so kept for consistency rather than diverging one file.
+* [x] Data layer lives in `components/map/useMiniMapData.ts` (`{ dots, loading, failed }`); `MiniMap.tsx` is projection + render only, ~215 lines. No runtime import cycle.
+* [x] `tsc -b` passes in `web/`. `eslint` on `useMiniMapData` trips `set-state-in-effect`/`exhaustive-deps` — the same repo-wide, non-gating pattern the deleted originals and `MapWorkspace` use; repo problem count is unchanged (the effects just moved files), so kept for consistency rather than diverging.
