@@ -24,7 +24,6 @@ from api.services.map import common as map_common
 from api.services.map import summary as map_summary
 from compute.projection.codecs import build_sf_mu_artifact
 from api.schemas.map import MapMeta, MapOverview
-from api.schemas.scoreboard import ScoreboardHeadline
 
 WS = datetime(2025, 11, 4, tzinfo=timezone.utc)
 WE = datetime(2026, 7, 2, tzinfo=timezone.utc)
@@ -666,7 +665,6 @@ def test_overview_types_and_node_field(real_client):
 TOPOLOGY = {"type": "FeatureCollection", "features": []}
 OVERVIEW = MapOverview(run_id="map-v1", window_start=WS, window_end=WE, n=70, k=6, constraints=[])
 META = MapMeta(run_id="map-v1", window_start=WS, window_end=WE)
-HEADLINE = ScoreboardHeadline(run_id="r", as_of_week=WS.date(), windows=[])
 
 
 def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypatch):
@@ -674,8 +672,8 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     injection, so any omitted parameter would receive its raw ``Query(...)``
     object instead of the literal default. Assert the exact args every
     section receives — overview at (70, 6, 0.15), matching MapWorkspace.tsx's
-    own override of the single-section endpoint's k=16 default; headline at
-    its default run. Keyed by name since overview/meta/headline run on a thread
+    own override of the single-section endpoint's k=16 default. Keyed by name
+    since overview/meta run on a thread
     pool (not in submission order)."""
     calls: dict[str, tuple] = {}
 
@@ -687,7 +685,6 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
 
     monkeypatch.setattr(map_module.aggregate, "overview", _fake("overview", OVERVIEW))
     monkeypatch.setattr(map_module.aggregate, "meta", _fake("meta", META))
-    monkeypatch.setattr(map_summary, "build_headline", _fake("headline", HEADLINE))
     monkeypatch.setattr(map_summary, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
@@ -695,12 +692,10 @@ def test_summary_calls_each_section_with_its_existing_literal_defaults(monkeypat
     assert calls == {
         "overview": (70, 6, 0.15),
         "meta": (),
-        "headline": (None,),
     }
     assert body.topology == TOPOLOGY
     assert body.overview == OVERVIEW
     assert body.meta == META
-    assert body.headline == HEADLINE
     assert body.availability['overview'].available is True
     assert body.availability['overview'].run_id == 'map-v1'
 
@@ -716,7 +711,6 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
 
     monkeypatch.setattr(map_module.aggregate, "overview", _unavailable)
     monkeypatch.setattr(map_module.aggregate, "meta", lambda: META)
-    monkeypatch.setattr(map_summary, "build_headline", lambda *a: HEADLINE)
     monkeypatch.setattr(map_summary, "get_or_build_topology", lambda: TOPOLOGY)
 
     body = map_module.get_map_summary()
@@ -725,7 +719,6 @@ def test_summary_turns_a_sections_503_into_a_null_field_without_failing_the_rest
     assert body.meta == META
     assert body.availability['overview'].available is False
     assert body.availability['overview'].unavailable_reason == 'source_unavailable'
-    assert body.headline == HEADLINE
     assert body.topology == TOPOLOGY
 
 
@@ -735,7 +728,6 @@ def test_summary_does_not_soft_fail_a_topology_build_error(monkeypatch):
     that instead of inventing a new empty state for it."""
     monkeypatch.setattr(map_module.aggregate, "overview", lambda *a, **kw: OVERVIEW)
     monkeypatch.setattr(map_module.aggregate, "meta", lambda: META)
-    monkeypatch.setattr(map_summary, "build_headline", lambda *a: HEADLINE)
 
     def _broken():
         raise RuntimeError("topology cache build failed")

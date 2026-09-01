@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 from api.schemas.common import BootstrapSectionStatus
-from api.schemas.scoreboard import ScoreboardHeadline
 
 
 class MapMeta(BaseModel):
@@ -266,14 +265,35 @@ class MapSummaryResponse(BaseModel):
     ``topology`` is the raw settlement-point GeoJSON — the unchanged shape
 
     ``GET /topology`` already serves, not a typed model (topology never was
-    one). ``overview``/``meta``/``headline`` keep their own single-section
-    shape and are ``null`` exactly when that section's endpoint would 503 (no
-    SF window built yet / no scoreboard loaded)
+    one). ``overview`` and ``meta`` keep their own single-section
+    shape and are ``null`` exactly when that section's endpoint would 503.
 
     """
 
     topology: dict[str, Any]
     overview: MapOverview | None
     meta: MapMeta | None
-    headline: ScoreboardHeadline | None
     availability: dict[str, BootstrapSectionStatus]
+
+
+class MapScorecardSource(BaseModel):
+    """One comparison series on a map scorecard."""
+
+    source_id: str
+    series_id: Literal["model", "persistence", "oracle"]
+    rank_spearman: float | None = None
+    sign_agree: float | None = None
+    topdecile_hit: float | None = None
+
+
+class MapScorecard(BaseModel):
+    """A delivery-day served grade, or one dated weekly fallback."""
+
+    available: bool
+    unavailable_reason: str | None = None
+    basis: Literal["served_daily", "weekly_backtest_fallback"] | None = None
+    run_id: str | None = None
+    delivery_date: date
+    scored_week: date | None = None
+    horizon: int | None = None
+    sources: list[MapScorecardSource] = []

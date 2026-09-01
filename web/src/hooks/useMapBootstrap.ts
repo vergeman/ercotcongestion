@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchMapSummary } from "../api/map";
-import type { MapMeta, MapOverview, ScoreboardHeadline } from "../api/types";
+import type { MapMeta, MapOverview } from "../api/types";
 import type { ConnectionState } from "./useExplorerSession";
 
 /** Loads map-wide, refit-stable resources independently from playback frames. */
@@ -9,7 +9,6 @@ export function useMapBootstrap(setConnectionState: (state: ConnectionState) => 
   const [topologyReady, setTopologyReady] = useState(false);
   const [overview, setOverview] = useState<MapOverview | null>(null);
   const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
-  const [headline, setHeadline] = useState<ScoreboardHeadline | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -19,7 +18,6 @@ export function useMapBootstrap(setConnectionState: (state: ConnectionState) => 
         setTopology(summary.topology);
         setOverview(summary.overview);
         setMapMeta(summary.meta);
-        setHeadline(summary.headline);
         setConnectionState("ok");
       })
       .catch((error: unknown) => {
@@ -29,5 +27,5 @@ export function useMapBootstrap(setConnectionState: (state: ConnectionState) => 
     return () => controller.abort();
   }, [setConnectionState]);
 
-  return { topology, topologyReady, overview, mapMeta, headline };
+  return { topology, topologyReady, overview, mapMeta };
 }

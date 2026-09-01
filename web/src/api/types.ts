@@ -609,14 +609,32 @@ export interface ScoreboardSummary {
 
 // /map/summary — one bundled payload for the Map workspace's load-time
 // requests (0137). `topology` is the raw settlement-point GeoJSON (unchanged
-// shape from GET /topology); the other three keep their single-section shape
-// and are null exactly when that section's own endpoint would 503.
+// shape from GET /topology); the other sections are null when their endpoint
+// would 503.
 export interface MapSummary {
   topology: unknown;
   overview: MapOverview | null;
   meta: MapMeta | null;
-  headline: ScoreboardHeadline | null;
   availability: Record<string, BootstrapSectionStatus>;
+}
+
+export interface MapScorecardSource {
+  source_id: string;
+  series_id: "model" | "persistence" | "oracle";
+  rank_spearman: number | null;
+  sign_agree: number | null;
+  topdecile_hit: number | null;
+}
+
+export interface MapScorecard {
+  available: boolean;
+  unavailable_reason: string | null;
+  basis: "served_daily" | "weekly_backtest_fallback" | null;
+  run_id: string | null;
+  delivery_date: string;
+  scored_week: string | null;
+  horizon: number | null;
+  sources: MapScorecardSource[];
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

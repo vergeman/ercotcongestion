@@ -8,6 +8,7 @@ import type {
   ConstraintReach,
   RankedConstraints,
   ConditionsEntry,
+  MapScorecard,
 } from "../api/types";
 import { formatCT } from "../lib/time";
 import {
@@ -43,6 +44,7 @@ import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
 import { MapPaneBadge } from "../features/map/MapPaneBadge";
 import "../features/map/mapPresentation.css";
 import { useConstraintSelection } from "../features/map/useConstraintSelection";
+import { fetchMapScorecard } from "../api/map";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -190,7 +192,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [exposureRank, setExposureRank] = useState<ExposureRank>("contribution");
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
-  const { topology, topologyReady, overview, mapMeta, headline } = useMapBootstrap(setConnState);
+  const { topology, topologyReady, overview, mapMeta } = useMapBootstrap(setConnState);
   const { loadRanked, loadExposures: requestExposures, loadReach } = useConstraintSelection();
 
   // settlement_points FeatureCollection, shared by both panes.
@@ -228,6 +230,25 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     () => timestamps[currentIndex],
     [timestamps, currentIndex]
   );
+
+  const [scorecard, setScorecard] = useState<MapScorecard | null>(null);
+
+  // The map cursor owns the scorecard's CT delivery date. Abort the previous
+  // fetch so a fast scrub cannot publish a score from an earlier day.
+  useEffect(() => {
+    if (!deliveryDay) {
+      return;
+    }
+    const controller = new AbortController();
+    fetchMapScorecard(deliveryDay, forecastRunId, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setScorecard(result);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setScorecard(null);
+      });
+    return () => controller.abort();
+  }, [deliveryDay, forecastRunId]);
 
   // focusReachCache key: a cached dipole belongs to one constraint on one CT
   // delivery day, never to the constraint alone.
@@ -957,7 +978,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     network: networkStats,
     conditions: conditionsStats,
     mapView: renderedView,
-    headline,
+    scorecard: scorecard?.delivery_date === deliveryDay ? scorecard : null,
     fitMeta: mapMeta,
     ranked,
     rankedLoading,
