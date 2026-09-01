@@ -77,7 +77,8 @@ class WeeklyPoint(BaseModel):
     (e.g. the flat ``null`` source's declined top-decile) rides through as ``None``.
     """
     week: date
-    source: str
+    source_id: str
+    series_id: str
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
@@ -90,7 +91,8 @@ class WeeklyPoint(BaseModel):
 class SourcePooled(BaseModel):
     """One source's pooled currencies over a split — the week-mean of each metric
     ``None`` when the source had no scored week."""
-    source: str
+    source_id: str
+    series_id: str
     rank_spearman: float | None = None
     sign_agree: float | None = None
     topdecile_hit: float | None = None
@@ -117,7 +119,7 @@ class ScoreboardWeekly(BaseModel):
     date the ``pre_``/``post_rtc_b`` summaries divide on.
     """
     run_id: str
-    primary_source: str
+    primary_source_id: str
     rtc_b_cutover: date
     points: list[WeeklyPoint]
     splits: list[WeeklySplit]
@@ -149,7 +151,8 @@ class DailyPoint(BaseModel):
     reader must never have to guess which one it is looking at.
     """
     delivery_date: date
-    source: str
+    source_id: str
+    series_id: str
     horizon: int
     rank_spearman: float | None = None
     sign_agree: float | None = None
@@ -170,7 +173,7 @@ class ScoreboardDaily(BaseModel):
     ``horizon`` make the selected final forecast explicit.
     """
     run_id: str
-    primary_source: str
+    primary_source_id: str
     horizon: int
     selected_delivery_date: date
     points: list[DailyPoint]
@@ -181,7 +184,8 @@ class ScoreboardDaily(BaseModel):
 
 class ScoreHistoryPoint(BaseModel):
     """One chart point from the weekly backtest or a served final grade."""
-    source: str
+    source_id: str
+    series_id: str
     cadence: Literal["backtest_weekly", "served_daily"]
     week: date | None = None
     delivery_date: date | None = None
@@ -196,7 +200,7 @@ class ScoreHistoryPoint(BaseModel):
 
 class ScoreboardHistory(BaseModel):
     """Weekly walk-forward history followed by final served-day grades."""
-    primary_source: str
+    primary_source_id: str
     weekly_run_id: str
     daily_run_id: str | None = None
     boundary_date: date | None = None

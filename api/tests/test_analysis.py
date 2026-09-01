@@ -822,30 +822,13 @@ def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, m
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
     assert body["available"] is True
-    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size",
-                                                        "model", "persistence", "climatology", "support")} == {
-        "graded": True, "unavailable_reason": None, "universe_size": 2,
-        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "climatology": None,
-        "support": None,
+    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
+        "graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
     }
-    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size",
-                                                  "model", "persistence", "climatology", "support")} == {
-        "graded": True, "unavailable_reason": None, "universe_size": 2,
-        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.5,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "climatology": None,
-        "support": None,
+    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
+        "graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
     }
+    assert {"model", "persistence", "climatology"}.isdisjoint(body["constraints"])
     assert [item["id"] for item in body["constraints"]["sources"]] == [
         "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
     ]
@@ -876,8 +859,10 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
     metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
                "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
                "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
-    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2,
-              "model": metrics, "persistence": metrics, "climatology": None, "support": None}
+    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
+              "sources": [{"id": "brief_model_artifact_profile", "label": "stale source label",
+                           "definition": "Forecast profile decoded from the served artifact."}],
+              "source_metrics": [{"id": "brief_model_artifact_profile", "metrics": metrics}]}
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([
         {"subject": "constraints", "detail": detail},
@@ -889,8 +874,13 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
 
     body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
 
-    assert {key: body["constraints"][key] for key in detail} == detail
-    assert {key: body["nodes"][key] for key in detail} == detail
+    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
+        key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
+    }
+    assert body["constraints"]["sources"][0]["label"] == "Artifact profile forecast"
+    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
+        key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
+    }
     assert body["constraints"]["sources"][0]["id"] == "brief_model_artifact_profile"
 
 

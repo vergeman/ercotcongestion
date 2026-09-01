@@ -31,12 +31,12 @@ class SourceDefinition:
 
 
 SOURCE_DEFINITIONS = (
-    SourceDefinition("brief_model_artifact_profile", "Model",
+    SourceDefinition("brief_model_artifact_profile", "Artifact profile forecast",
                          "Forecast profile decoded from the served artifact.", "model"),
-    SourceDefinition("brief_persistence_prior_settled_profile", "Persistence",
+    SourceDefinition("brief_persistence_prior_settled_profile", "Prior-settled profile persistence",
                          "Prior settled delivery-day profile.", "persistence"),
-    SourceDefinition("brief_climatology_trailing_settled_profile", "Climatology",
-                         "Trailing settled-profile average.", "climatology"),
+    SourceDefinition("brief_climatology_trailing_settled_profile", "Trailing-window Average (Baseline)",
+                         "Average of trailing settled subject profiles; not the projected Scoreboard baseline.", "climatology"),
 )
 
 
@@ -223,9 +223,6 @@ def serialize_grade_half(result: GradeResult) -> dict:
     return {
         "graded": True,
         "universe_size": len(result.universe),
-        "model": result.model.__dict__,
-        "persistence": result.persistence.__dict__,
-        "climatology": None if result.climatology is None else result.climatology.__dict__,
         "support": None if result.support is None else result.support.__dict__,
         "sources": [
             {"id": source.id, "label": source.label,

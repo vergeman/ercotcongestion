@@ -31,12 +31,18 @@ import "../features/scoreboard/scoreboard.css";
 // surface). CVD sits at the permitted first-four floor, so the required
 // secondary encoding ships too: a legend + direct end-labels on every line.
 const SERIES = [
-  { source: "model", label: "Model", color: "#3987e5" },
-  { source: "persistence", label: "Persistence", color: "#008300" },
-  { source: "climatology", label: "Climatology", color: "#d55181" },
-  { source: "oracle", label: "Oracle", color: "#c98500" },
+  { seriesId: "model", color: "#3987e5" },
+  { seriesId: "persistence", color: "#008300" },
+  { seriesId: "climatology", color: "#d55181" },
+  { seriesId: "oracle", color: "#c98500" },
 ] as const;
 
+const CHART_LABELS: Record<string, string> = {
+  model: "Model",
+  persistence: "Persistence",
+  climatology: "Baseline",
+  oracle: "Oracle",
+};
 
 const SPLIT_LABELS: Record<string, string> = {
   all: "All weeks",
@@ -78,13 +84,13 @@ function SeriesChart({
   );
   const byKey = useMemo(() => {
     const m = new Map<string, ScoreHistoryPoint>();
-    for (const p of points) m.set(`${p.week ?? p.delivery_date}|${p.source}`, p);
+    for (const p of points) m.set(`${p.week ?? p.delivery_date}|${p.series_id}`, p);
     return m;
   }, [points]);
 
   const meta = METRICS[metric];
-  const valueAt = (i: number, source: string): number | null => {
-    const p = byKey.get(`${dates[i]}|${source}`);
+  const valueAt = (i: number, seriesId: string): number | null => {
+    const p = byKey.get(`${dates[i]}|${seriesId}`);
     const v = p ? (p[metric] as number | null) : null;
     return v == null ? null : v;
   };
@@ -93,7 +99,7 @@ function SeriesChart({
     () =>
       SERIES.map((s) => ({
         ...s,
-        vals: dates.map((_, i) => valueAt(i, s.source)),
+        vals: dates.map((_, i) => valueAt(i, s.seriesId)),
       })),
     [dates, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -141,7 +147,7 @@ function SeriesChart({
     for (let i = s.vals.length - 1; i >= 0; i--) {
       const v = s.vals[i];
       if (v != null) {
-        endLabels.push({ color: s.color, label: s.label, y: y(v) });
+        endLabels.push({ color: s.color, label: CHART_LABELS[s.seriesId], y: y(v) });
         break;
       }
     }
@@ -265,7 +271,7 @@ function SeriesChart({
         {/* series lines */}
         {seriesVals.map((s) => (
           <path
-            key={s.source}
+            key={s.seriesId}
             d={linePath(s.vals)}
             fill="none"
             stroke={s.color}
@@ -303,7 +309,7 @@ function SeriesChart({
               const v = s.vals[hover];
               return v == null ? null : (
                 <circle
-                  key={s.source}
+                  key={s.seriesId}
                   cx={x(hover)}
                   cy={y(v)}
                   r={3.5}
@@ -347,9 +353,9 @@ function SeriesChart({
           {seriesVals.map((s) => {
             const v = s.vals[hover];
             return (
-              <div key={s.source} className="sb-tip__row">
+              <div key={s.seriesId} className="sb-tip__row">
                 <span className="sb-tip__dot" style={{ background: s.color }} />
-                <span className="sb-tip__lbl">{s.label}</span>
+                <span className="sb-tip__lbl">{CHART_LABELS[s.seriesId]}</span>
                 <span className="sb-tip__val">
                   {v == null ? "—" : meta.fmt(v)}
                 </span>
@@ -384,7 +390,7 @@ function LiveGradePanel({
   const bySource = useMemo(() => {
     const m = new Map<string, DailyPoint>();
     for (const p of daily.points) {
-      if (p.delivery_date === selected) m.set(p.source, p);
+      if (p.delivery_date === selected) m.set(p.series_id, p);
     }
     return m;
   }, [daily, selected]);
@@ -431,12 +437,12 @@ function LiveGradePanel({
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs persist{" "}
+                    {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
                     {p == null ? "—" : p.toFixed(2)}
                   </span>
                 )}
                 <span className="sb-ceiling">
-                  ceiling {o == null ? "—" : o.toFixed(2)}
+                  Settled-μ Ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -479,12 +485,12 @@ function HeadlineTiles({ headline }: { headline: ScoreboardHeadline | null }) {
             <div className="sb-tile__cmp">
               {good != null && (
                 <span className="sb-delta" data-good={good}>
-                  {good ? "▲" : "▼"} vs persist{" "}
+                  {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
                   {c.persistence == null ? "—" : c.persistence.toFixed(2)}
                 </span>
               )}
               <span className="sb-ceiling">
-                ceiling {c.oracle == null ? "—" : c.oracle.toFixed(2)}
+                Settled-μ Ceiling (Oracle) {c.oracle == null ? "—" : c.oracle.toFixed(2)}
               </span>
             </div>
           </div>
@@ -506,7 +512,7 @@ function SplitTable({
   const val = (label: string, source: string): number | null => {
     const sp = weekly.splits
       .find((s) => s.label === label)
-      ?.sources.find((x) => x.source === source);
+      ?.sources.find((x) => x.series_id === source);
     const v = sp ? (sp[metric] as number | null) : null;
     return v == null ? null : v;
   };
@@ -515,8 +521,8 @@ function SplitTable({
       <div className="sb-split-grid">
         <span className="sb-h" />
         {SERIES.map((s) => (
-          <span key={s.source} className="sb-h" style={{ color: s.color }}>
-            {s.label}
+          <span key={s.seriesId} className="sb-h" style={{ color: s.color }}>
+            {weekly.sources.find((source) => source.series_id === s.seriesId)?.label ?? s.seriesId}
           </span>
         ))}
 
@@ -648,14 +654,14 @@ function Glossary() {
       <div className="sb-guide__block">
         <div className="sb-guide__h">Model Comparison Graph</div>
         <dl className="sb-guide__dl">
-          <dt>Model</dt>
-          <dd>Our forecast. Predicts congestion.</dd>
-          <dt>Persistence</dt>
+          <dt>Model Forecast</dt>
+          <dd>The offline forecast construction, projected to nodal congestion.</dd>
+          <dt>Prior-day (Persistence)</dt>
           <dd>
             Naïve baseline: tomorrow repeats yesterday. Each node's congestion
             is set to its actual value at the same hour on the prior day.
           </dd>
-          <dt>Climatology</dt>
+          <dt>Trailing-window Average (Baseline)</dt>
           <dd>
             Historical-average baseline, computed per hour-of-day: how often a
             node has congested at this hour × its typical severity when it does.
@@ -663,7 +669,7 @@ function Glossary() {
             binds at 8pm on 6 of the past 100 days, averaging $150 when it does,
             gets an 8pm climatology of 0.06 × $150 ≈ $9.
           </dd>
-          <dt>Oracle</dt>
+          <dt>Settled-μ Ceiling (Oracle)</dt>
           <dd>
             If you already knew the answer: the score you'd get ranking nodes by
             their realized congestion. A ceiling to measure against, not a
@@ -785,12 +791,12 @@ export default function ScoreboardPage() {
               {/* legend — identity for ≥2 series, alongside the direct end-labels */}
               <div className="sb-legend">
                 {SERIES.map((s) => (
-                  <span key={s.source} className="sb-legend__item">
+                  <span key={s.seriesId} className="sb-legend__item">
                     <i
                       className="sb-legend__swatch"
                       style={{ background: s.color }}
                     />{" "}
-                    {s.label}
+                    {CHART_LABELS[s.seriesId]}
                   </span>
                 ))}
               </div>

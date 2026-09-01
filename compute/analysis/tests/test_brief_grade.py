@@ -6,7 +6,7 @@ from datetime import date
 
 import pandas as pd
 
-from compute.analysis.brief_grade import serialize_grade_half
+from compute.analysis.brief_grade import SOURCE_DEFINITIONS, serialize_grade_half
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.jobs import daily_forecast
 from compute.jobs import materialize_brief_grade
@@ -22,18 +22,18 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
 
     result = serialize_grade_half(GradeResult(("A|B", "C|D"), metrics, metrics))
 
-    assert {key: result[key] for key in ("graded", "universe_size", "model", "persistence",
-                                         "climatology", "support")} == {
+    assert {key: result[key] for key in ("graded", "universe_size", "support")} == {
         "graded": True,
         "universe_size": 2,
-        "model": metrics.__dict__,
-        "persistence": metrics.__dict__,
-        "climatology": None,
         "support": None,
     }
     assert [item["id"] for item in result["sources"]] == [
         "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
     ]
+    assert [item["id"] for item in result["source_metrics"]] == [
+        "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
+    ]
+    assert "model" not in result
 
 
 def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
@@ -74,19 +74,20 @@ def test_materializer_preserves_the_fixed_grade_fixture(monkeypatch):
     expected = {
         "graded": True,
         "universe_size": 2,
-        "model": {"detection_ap": 0.62, "magnitude_overlap": 0.50,
-                  "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                  "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "persistence": {"detection_ap": 0.62, "magnitude_overlap": 0.50,
-                        "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-                        "top_decile_daily_capture": None, "top_decile_hourly_capture": None},
-        "climatology": None,
         "support": None,
     }
     assert all({key: params[-1].obj[key] for key in expected} == expected
                for _, params in conn.cursor_.writes)
     assert all(params[-1].obj["source_metrics"][0]["id"] == "brief_model_artifact_profile"
                for _, params in conn.cursor_.writes)
+
+
+def test_brief_source_labels_are_the_display_contract():
+    assert {source.id: source.label for source in SOURCE_DEFINITIONS} == {
+        "brief_model_artifact_profile": "Artifact profile forecast",
+        "brief_persistence_prior_settled_profile": "Prior-settled profile persistence",
+        "brief_climatology_trailing_settled_profile": "Trailing-window Average (Baseline)",
+    }
 
 
 def test_brief_materialization_failure_remains_non_fatal_after_publish(monkeypatch):

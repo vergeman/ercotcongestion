@@ -8,7 +8,7 @@ from api.schemas.scoreboard import ScoreboardWeekly
 
 
 def _weekly(week: date, source: str = "model", **extra):
-    return {"week": week, "source": source, **extra}
+    return {"week": week, "source_id": f"scoreboard_{source}_backtest_nodal", "series_id": source, **extra}
 
 
 def _daily(day: date, source: str = "scoreboard_model_served_nodal", **extra):
@@ -18,7 +18,7 @@ def _daily(day: date, source: str = "scoreboard_model_served_nodal", **extra):
 def _board(*points):
     return ScoreboardWeekly(
         run_id="walk-v1",
-        primary_source="model",
+        primary_source_id="scoreboard_model_backtest_nodal",
         rtc_b_cutover=date(2025, 12, 5),
         points=list(points),
         splits=[],
@@ -42,6 +42,8 @@ def test_history_orders_weekly_points_before_final_served_points(fake_pool):
     assert history.weekly_run_id == "walk-v1"
     assert history.daily_run_id == "served-v2"
     assert history.boundary_date == date(2026, 7, 18)
+    assert all("source" not in point.model_dump() for point in history.points)
+    assert "primary_source" not in history.model_dump()
     assert [(p.cadence, p.week, p.delivery_date) for p in history.points] == [
         ("backtest_weekly", date(2026, 7, 4), None),
         ("backtest_weekly", date(2026, 7, 11), None),

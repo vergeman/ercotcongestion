@@ -856,25 +856,18 @@ def get_grade(
     return GradeAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         constraints=GradeHalfResponse(**_brief_payload(_serialize_brief_grade_half(constraints))),
-        nodes=(GradeHalfResponse(**_brief_payload(_serialize_brief_grade_half(nodes))) if nodes is not None else
+        nodes=(_brief_payload(_serialize_brief_grade_half(nodes)) if nodes is not None else
                GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
     )
 
 
 def _brief_payload(payload: dict) -> dict:
-    """Enrich a pre-0189 materialized Brief grade without changing its legacy keys."""
-    if payload.get("sources"):
-        return payload
+    """Use current Brief source definitions for serialized source IDs."""
     result = dict(payload)
-    available = [source for source in _BRIEF_SOURCE_DEFINITIONS
-                 if result.get(source.result_field) is not None]
+    source_ids = {source["id"] for source in result.get("source_metrics", [])}
     result["sources"] = [
         {"id": source.id, "label": source.label, "definition": source.definition}
-        for source in available
-    ]
-    result["source_metrics"] = [
-        {"id": source.id, "metrics": result[source.result_field]}
-        for source in available
+        for source in _BRIEF_SOURCE_DEFINITIONS if source.id in source_ids
     ]
     return result
 

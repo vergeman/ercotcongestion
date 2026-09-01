@@ -393,9 +393,6 @@ class GradeHalfResponse(BaseModel):
     graded: bool
     unavailable_reason: str | None = None
     universe_size: int | None = None
-    model: GradeMetricsResponse | None = None
-    persistence: GradeMetricsResponse | None = None
-    climatology: GradeMetricsResponse | None = None
     support: GradeSupportResponse | None = None
     sources: list[SourceDescriptor] = []
     source_metrics: list[BriefSourceMetrics] = []
@@ -415,8 +412,6 @@ class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
 
 
 class GradeHistoryHalfResponse(BaseModel):
-    model: GradeMetricsResponse
-    persistence: GradeMetricsResponse
     sources: list[SourceDescriptor] = []
     source_metrics: list[BriefSourceMetrics] = []
 

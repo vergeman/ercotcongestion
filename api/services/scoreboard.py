@@ -26,7 +26,7 @@ from api.services.scoreboard_headline import build_headline
 
 @dataclass(frozen=True)
 class SourceDefinition:
-    """Scoreboard API-owned provenance and bounded legacy series name."""
+    """Scoreboard API-owned provenance and logical chart series."""
 
     id: str
     series_id: str
@@ -35,27 +35,27 @@ class SourceDefinition:
 
 
 WEEKLY_SOURCE_DEFINITIONS = (
-    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model",
+    SourceDefinition("scoreboard_model_backtest_nodal", "model", "Model Forecast",
                          "Walk-forward model projected to nodal congestion."),
-    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_backtest_nodal", "persistence", "Prior-day (Persistence)",
                          "Prior-day μ baseline projected by each backtest map."),
-    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_backtest_nodal", "climatology", "Trailing-window Average (Baseline)",
                          "Hourly μ climatology projected by each backtest map."),
-    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_backtest_nodal", "oracle", "Settled-μ Ceiling (Oracle)",
                          "Realized μ projected by the held-out backtest map."),
-    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Flat nodal control",
                          "Flat nodal congestion tripwire."),
 )
 DAILY_SOURCE_DEFINITIONS = (
-    SourceDefinition("scoreboard_model_served_nodal", "model", "Model",
+    SourceDefinition("scoreboard_model_served_nodal", "model", "Model Forecast",
                          "Served deterministic nodal forecast."),
-    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
+    SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Prior-day (Persistence)",
                          "Prior-day μ projected through the trailing map."),
-    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
+    SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Trailing-window Average (Baseline)",
                          "Trailing-window μ climatology projected through the map."),
-    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
+    SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Settled-μ Ceiling (Oracle)",
                          "Settled-day μ projected through the trailing map."),
-    SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
+    SourceDefinition("scoreboard_null_flat_nodal", "null", "Flat nodal control",
                          "Flat nodal congestion tripwire."),
 )
 _WEEKLY_BY_ID = {source.id: source for source in WEEKLY_SOURCE_DEFINITIONS}
@@ -86,7 +86,8 @@ def _mean(rows: list[dict], key: str) -> float | None:
 def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
     source_rows = [row for row in rows if row["source"] == source]
     return SourcePooled(
-        source=_WEEKLY_BY_ID[source].series_id,
+        source_id=source,
+        series_id=_WEEKLY_BY_ID[source].series_id,
         **{key: _mean(source_rows, key) for key in _POOL_METRICS},
     )
 
@@ -152,9 +153,10 @@ def build_weekly() -> ScoreboardWeekly:
         )
     return ScoreboardWeekly(
         run_id=run_id,
-        primary_source="model",
+        primary_source_id="scoreboard_model_backtest_nodal",
         rtc_b_cutover=RTC_B_CUTOVER,
-        points=[WeeklyPoint(**{**row, "source": _WEEKLY_BY_ID[row["source"]].series_id})
+        points=[WeeklyPoint(**{**row, "source_id": row["source"],
+                              "series_id": _WEEKLY_BY_ID[row["source"]].series_id})
                 for row in rows],
         splits=_build_splits(rows),
         sources=[SourceDescriptor(**source.__dict__)
@@ -207,10 +209,11 @@ def build_latest_final_daily() -> ScoreboardDaily:
         )
     return ScoreboardDaily(
         run_id=run_id,
-        primary_source="model",
+        primary_source_id="scoreboard_model_served_nodal",
         horizon=1,
         selected_delivery_date=rows[0]["delivery_date"],
-        points=[DailyPoint(**{**row, "source": _DAILY_BY_ID[row["source"]].series_id})
+        points=[DailyPoint(**{**row, "source_id": row["source"],
+                             "series_id": _DAILY_BY_ID[row["source"]].series_id})
                 for row in rows],
         sources=[SourceDescriptor(**source.__dict__)
                  for source in DAILY_SOURCE_DEFINITIONS],
@@ -250,11 +253,12 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
     ]
     points.extend(
         ScoreHistoryPoint(cadence="served_daily", **{
-            **row, "source": _DAILY_BY_ID[row["source"]].series_id,
+            **row, "source_id": row["source"],
+            "series_id": _DAILY_BY_ID[row["source"]].series_id,
         }) for row in daily_rows
     )
     return ScoreboardHistory(
-        primary_source=weekly.primary_source,
+        primary_source_id=weekly.primary_source_id,
         weekly_run_id=weekly.run_id,
         daily_run_id=daily_run_id,
         boundary_date=min((row["delivery_date"] for row in daily_rows), default=None),
