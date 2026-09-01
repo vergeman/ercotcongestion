@@ -748,8 +748,8 @@ export default function ScoreboardPage() {
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Combines hour-weighted historical weekly backtest scores with
-                daily forecast grades.
+                Combines hour-weighted historical weekly (w) backtest scores
+                with daily (d) forecast grades.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>
