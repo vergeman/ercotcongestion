@@ -17,7 +17,8 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-from compute.analysis.families import HUB_AVG_EXCLUDE
+# ``*AVG`` hubs are aggregates, not tradable locations.
+HUB_AVG_EXCLUDE = frozenset({"HB_BUSAVG", "HB_HUBAVG"})
 
 
 def hub_lz_type(sp: object) -> str | None:
