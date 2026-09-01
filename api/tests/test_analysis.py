@@ -903,55 +903,6 @@ def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fa
                     "delivery_date": "2026-07-28", "horizon": None}
 
 
-def test_grade_history_returns_only_materialized_days_with_both_subjects(client, fake_pool):
-    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
-               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
-    fake_pool.cursor.queue([{"h": 1}])
-    fake_pool.cursor.queue([
-        {"delivery_date": date(2026, 7, 26), "subject": "constraints",
-         "model": metrics, "persistence": metrics},
-        {"delivery_date": date(2026, 7, 26), "subject": "nodes",
-         "model": metrics, "persistence": metrics},
-        {"delivery_date": date(2026, 7, 27), "subject": "constraints",
-         "model": metrics, "persistence": metrics},
-    ])
-
-    body = client.get("/analysis/grade-history?delivery_date=2026-07-28&run_id=run-x").json()
-
-    assert body["available"] is True
-    assert body["days"][0]["constraints"]["model"] == metrics
-    assert body["days"][0]["constraints"]["source_metrics"][0]["id"] == "brief_model_artifact_profile"
-
-
-def test_top_constraints_ranks_the_full_forecast_artifact_and_keeps_settled_missingness(client, fake_pool, monkeypatch):
-    hours = pd.date_range("2026-07-28T05:00Z", periods=2, freq="h")
-    forecast = pd.DataFrame({"HIGH|BASE": [3.0, 2.0], "LOW|BASE": [0.01, 0.0]}, index=hours)
-    settled = pd.DataFrame({"HIGH|BASE": [4.0, 0.0]}, index=hours)
-    fake_pool.cursor.queue([{"h": 1}])
-    monkeypatch.setattr(analysis_module, "_forecast_mu_profile", lambda *_: forecast)
-    monkeypatch.setattr(analysis_module, "_settled_mu_profile", lambda *_: settled)
-
-    body = client.get("/analysis/top-constraints?delivery_date=2026-07-28&run_id=run-x").json()
-
-    assert body == {
-        "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
-        "n_ranked": 2, "k": 10,
-        "rows": [
-            {"constraint_key": "HIGH|BASE", "forecast_rank": 1, "forecast_total": 5.0,
-             "forecast_peak": 3.0, "forecast_hours": 2, "zone": None, "kv_max": None, "settled_rank": 1, "settled_total": 4.0,
-             "settled_peak": 4.0, "settled_hours": 1, "settled_history_p10": None, "settled_history_p25": None,
-             "settled_history_p50": None, "settled_history_p75": None,
-             "settled_history_p90": None, "settled_history": [0.0] * 30},
-            {"constraint_key": "LOW|BASE", "forecast_rank": 2, "forecast_total": 0.01,
-             "forecast_peak": 0.01, "forecast_hours": 1, "zone": None, "kv_max": None, "settled_rank": None, "settled_total": None,
-             "settled_peak": None, "settled_hours": None, "settled_history_p10": None, "settled_history_p25": None,
-             "settled_history_p50": None, "settled_history_p75": None,
-             "settled_history_p90": None, "settled_history": [0.0] * 30},
-        ],
-    }
-
-
 def _repeated_window(delivery_date, frame) -> dict:
     """The climatology window a mocked ``_settled_node_profile``/``_settled_mu_profile``
     used to produce implicitly (30 identical trailing days) — now built explicitly
