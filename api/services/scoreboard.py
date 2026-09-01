@@ -101,6 +101,9 @@ DAILY_SOURCE_DEFINITIONS = (
 )
 _WEEKLY_BY_ID = {source.id: source for source in WEEKLY_SOURCE_DEFINITIONS}
 _DAILY_BY_ID = {source.id: source for source in DAILY_SOURCE_DEFINITIONS}
+_WEEKLY_BY_SERIES = {
+    source.series_id: source for source in WEEKLY_SOURCE_DEFINITIONS
+}
 _SOURCES = tuple(
     source.id for source in WEEKLY_SOURCE_DEFINITIONS if source.series_id != "null"
 )
@@ -121,9 +124,18 @@ def _resolve_weekly_run_id(cur) -> str:
     return row["run_id"]
 
 
-def _mean(rows: list[dict], key: str) -> float | None:
-    vals = [row[key] for row in rows if row[key] is not None]
-    return sum(vals) / len(vals) if vals else None
+def _wmean(rows: list[dict], key: str) -> float | None:
+    weighted = [
+        (row[key], row["n_hours"])
+        for row in rows
+        if row[key] is not None and row["n_hours"] is not None
+    ]
+    total_hours = sum(hours for _, hours in weighted)
+    return (
+        sum(value * hours for value, hours in weighted) / total_hours
+        if total_hours
+        else None
+    )
 
 
 def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
@@ -131,7 +143,7 @@ def _pooled_source(rows: list[dict], source: str) -> SourcePooled:
     return SourcePooled(
         source_id=source,
         series_id=_WEEKLY_BY_ID[source].series_id,
-        **{key: _mean(source_rows, key) for key in _POOL_METRICS},
+        **{key: _wmean(source_rows, key) for key in _POOL_METRICS},
     )
 
 
@@ -143,8 +155,8 @@ def _beats_persistence(model: SourcePooled, persistence: SourcePooled) -> bool:
 def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
     slices = [
         ("all", rows),
-        ("pre_rtc_b", [row for row in rows if row["week"] < RTC_B_CUTOVER]),
-        ("post_rtc_b", [row for row in rows if row["week"] >= RTC_B_CUTOVER]),
+        ("pre_rtc_b", [row for row in rows if row["period"] < RTC_B_CUTOVER]),
+        ("post_rtc_b", [row for row in rows if row["period"] >= RTC_B_CUTOVER]),
     ]
     splits: list[WeeklySplit] = []
     for label, slice_rows in slices:
@@ -159,12 +171,73 @@ def _build_splits(rows: list[dict]) -> list[WeeklySplit]:
         splits.append(
             WeeklySplit(
                 label=label,
-                n_weeks=len({row["week"] for row in slice_rows}),
+                n_weeks=len(
+                    {
+                        row["period"]
+                        for row in slice_rows
+                        if row["cadence"] == "backtest_weekly"
+                    }
+                ),
+                n_days=len(
+                    {
+                        row["period"]
+                        for row in slice_rows
+                        if row["cadence"] == "served_daily"
+                    }
+                ),
                 sources=[pooled[source] for source in _SOURCES],
                 beats_persistence=beats,
             )
         )
     return splits
+
+
+def _latest_final_daily_rows(cur) -> tuple[str | None, list[dict]]:
+    """Return every final-grade row for the latest live run, if present."""
+    cur.execute(
+        """
+        SELECT run_id FROM scoreboard_daily
+        WHERE horizon = 1
+        ORDER BY delivery_date DESC, run_id
+        LIMIT 1
+        """
+    )
+    live_run = cur.fetchone()
+    if live_run is None:
+        return None, []
+    run_id = live_run["run_id"]
+    cur.execute(
+        """
+        SELECT delivery_date, source, rank_spearman, sign_agree,
+               topdecile_hit, sf_coverage, model_coverage, n_hours, n_nodes
+        FROM scoreboard_daily
+        WHERE run_id = %s AND horizon = 1
+        ORDER BY delivery_date, source
+        """,
+        (run_id,),
+    )
+    return run_id, cur.fetchall()
+
+
+def _split_rows(weekly_rows: list[dict], daily_rows: list[dict]) -> list[dict]:
+    """Normalize backtest weeks and live days for independently pooled splits."""
+    rows = [
+        {**row, "period": row["week"], "cadence": "backtest_weekly"}
+        for row in weekly_rows
+    ]
+    rows.extend(
+        {
+            **row,
+            "source": _WEEKLY_BY_SERIES[
+                _DAILY_BY_ID[row["source"]].series_id
+            ].id,
+            "period": row["delivery_date"],
+            "cadence": "served_daily",
+        }
+        for row in daily_rows
+        if _DAILY_BY_ID[row["source"]].series_id != "null"
+    )
+    return rows
 
 
 def build_weekly() -> ScoreboardWeekly:
@@ -182,6 +255,7 @@ def build_weekly() -> ScoreboardWeekly:
             (run_id,),
         )
         rows = cur.fetchall()
+        _, daily_rows = _latest_final_daily_rows(cur)
 
     if not rows:
         raise HTTPException(
@@ -205,7 +279,7 @@ def build_weekly() -> ScoreboardWeekly:
             )
             for row in rows
         ],
-        splits=_build_splits(rows),
+        splits=_build_splits(_split_rows(rows, daily_rows)),
         sources=[
             SourceDescriptor(**source.__dict__) for source in WEEKLY_SOURCE_DEFINITIONS
         ],
@@ -279,27 +353,7 @@ def build_latest_final_daily() -> ScoreboardDaily:
 def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
     """Append final served grades to an already-resolved weekly board."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("""
-            SELECT run_id FROM scoreboard_daily
-            WHERE horizon = 1
-            ORDER BY delivery_date DESC, run_id
-            LIMIT 1
-            """)
-        live_run = cur.fetchone()
-        daily_run_id = live_run["run_id"] if live_run else None
-        daily_rows: list[dict] = []
-        if daily_run_id is not None:
-            cur.execute(
-                """
-                SELECT delivery_date, source, rank_spearman, sign_agree,
-                       topdecile_hit, sf_coverage, model_coverage, n_hours, n_nodes
-                FROM scoreboard_daily
-                WHERE run_id = %s AND horizon = 1
-                ORDER BY delivery_date, source
-                """,
-                (daily_run_id,),
-            )
-            daily_rows = cur.fetchall()
+        daily_run_id, daily_rows = _latest_final_daily_rows(cur)
 
     points = [
         ScoreHistoryPoint(cadence="backtest_weekly", **point.model_dump())

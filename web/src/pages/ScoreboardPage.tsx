@@ -21,7 +21,8 @@ import "../features/scoreboard/scoreboard.css";
 // The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
 // the panel's "View full scoreboard" link targets the weekly
 // metric-vs-baselines-vs-oracle series, a coverage strip on the shared x-axis,
-// and the pooled pre/post-RTC+B split. Reads scoreboard_weekly only —
+// and independently hours-weighted pre/post-RTC+B pools. All weeks spans all
+// time rather than averaging the two splits; post-RTC+B includes live days.
 // independent of the forecast run. Integrity (§6): a model figure never appears
 // without persistence + oracle in frame.
 
@@ -492,6 +493,7 @@ function SplitTable({
             >
               <span className="sb-cat label">
                 {SPLIT_LABELS[sp.label] ?? sp.label} · {sp.n_weeks}w
+                {sp.n_days > 0 ? ` + ${sp.n_days}d` : ""}
               </span>
               <span className="sb-v" data-lead={modelLeads}>
                 {m == null ? "—" : meta.fmt(m)}
@@ -634,8 +636,8 @@ function Glossary() {
         <div className="sb-guide__h">Pre / Post-RTC+B</div>
         <p className="sb-guide__p">
           RTC+B was ERCOT's real-time co-optimization + batteries market change
-          on 2025-12-11. We split the weeks there to check if the model's edge
-          held through the redesign.
+          on 2025-12-11. We split the record there to check if the model's edge
+          held through the redesign; post-RTC+B includes live final grades.
         </p>
       </div>
 
@@ -736,9 +738,18 @@ export default function ScoreboardPage() {
                 ))}
               </div>
 
-              <div className="sb-section-h label">
-                Backtest · pooled over all weeks, split pre/post-RTC+B (
+              <Tooltip
+                as="div"
+                className="sb-section-h label"
+                placement="bottom"
+                tip="Each cell is an independent hours-weighted pool. All weeks spans the full record, not an average of the two RTC+B cells."
+              >
+                Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
+              </Tooltip>
+              <div className="sb-section-copy">
+                Combines hour-weighted historical weekly (w) backtest scores
+                with daily (d) forecast grades.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>
