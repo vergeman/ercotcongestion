@@ -17,7 +17,6 @@ from api.schemas.analysis import (
     AnalysisContributionTerm,
     GradeAvailableResponse,
     GradeHalfResponse,
-    GradeUnavailableResponse,
     HeroAvailableResponse,
     HeroLatestResponse,
     HeroUnavailableAtHorizonResponse,
@@ -25,21 +24,16 @@ from api.schemas.analysis import (
     NodeAnalysisAvailableResponse,
     NodeAnalysisUnavailableResponse,
     AnalysisSettlementPointsAvailableResponse,
-    AnalysisSettlementPointsUnavailableResponse,
     AnalysisConstraintsAvailableResponse,
-    AnalysisConstraintsUnavailableResponse,
     AnalysisEsspGroupsAvailableResponse,
     AnalysisEsspGroupsUnavailableResponse,
     TopConstraintRow,
     TopConstraintsAvailableResponse,
-    TopConstraintsUnavailableResponse,
     TopNodeRow,
     TopNodesAvailableResponse,
-    TopNodesUnavailableResponse,
     StandoutRow,
     NodeStandoutRow,
     StandoutsAvailableResponse,
-    StandoutsUnavailableResponse,
     VoltageClassRow,
     ChronicElementRow,
     ContextAvailableResponse,
@@ -47,7 +41,6 @@ from api.schemas.analysis import (
     GradeHistoryHalfResponse,
     GradeHistoryDayResponse,
     GradeHistoryAvailableResponse,
-    GradeHistoryUnavailableResponse,
 )
 from compute.analysis.hero_classifier import magnitude_verdict
 from compute.analysis.phrases import render
@@ -534,6 +527,64 @@ MARKET_PEAK_CT_HOURS = tuple(range(7, 23))  # 7×16, every delivery day.
 MIN_STANDOUT_HISTORY_DAYS = 10
 
 
+def _resolve_or_unavailable(
+    cur,
+    run_id: str | None,
+    delivery_date: date,
+    horizon: int | None,
+    unavailable_cls=NodeAnalysisUnavailableResponse,
+):
+    """Resolve the run and its served horizon; the shared ranked-handler preamble.
+
+    Returns ``(run_id, horizon, None)`` on success, or ``(run_id, None, soft_fail)``
+    when no artifact horizon exists for the day.
+    """
+    run_id = _resolve_run(cur, run_id)
+    horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
+    if horizon is None:
+        return run_id, None, unavailable_cls(
+            available=False,
+            unavailable_reason="artifact_missing",
+            run_id=run_id,
+            delivery_date=delivery_date,
+        )
+    return run_id, horizon, None
+
+
+def ranked(series: pd.Series) -> tuple[pd.Series, dict[str, int]]:
+    """Descending stable sort plus 1-based ranks keyed by string key.
+
+    The caller pre-filters/abs-es the series; ties keep input order (stable).
+    """
+    ordered = series.sort_values(ascending=False, kind="stable")
+    return ordered, {str(key): rank for rank, key in enumerate(ordered.index, start=1)}
+
+
+def settled_history_stats(values, *, nonzero_only: bool, gate: bool = True) -> dict:
+    """The trailing settled-Σμ whisker: five percentiles plus the raw series.
+
+    ``nonzero_only`` filters to positive days before ranking percentiles (the
+    constraint whisker); node whiskers percentile the full signed series.
+    ``gate`` nulls the percentiles when the series carries no signal — off only
+    for top-nodes, which always reports a numeric whisker.
+    """
+    series = list(values)
+    basis = [value for value in series if value > 0.0] if nonzero_only else series
+    if gate:
+        empty = not basis if nonzero_only else not any(
+            abs(value) > NODE_CONGESTION_EPSILON for value in series
+        )
+    else:
+        empty = False
+    quantiles = pd.Series(basis).quantile([0.1, 0.25, 0.5, 0.75, 0.9]) if not empty else None
+    return {
+        f"settled_history_p{label}": (
+            None if empty else float(quantiles.loc[q])
+        )
+        for label, q in (("10", 0.1), ("25", 0.25), ("50", 0.5), ("75", 0.75), ("90", 0.9))
+    } | {"settled_history": series}
+
+
 def get_node(
     settlement_point: str = Query(..., min_length=1),
     delivery_date: date = Query(...),
@@ -549,15 +600,11 @@ def get_node(
 ) -> NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse:
     """Decompose a node from every represented constraint, never a brief top-k."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return NodeAnalysisUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
             return NodeAnalysisUnavailableResponse(
@@ -594,22 +641,18 @@ def get_settlement_points(
     horizon: int | None = Query(None, ge=1, le=2),
 ) -> (
     AnalysisSettlementPointsAvailableResponse
-    | AnalysisSettlementPointsUnavailableResponse
+    | NodeAnalysisUnavailableResponse
 ):
     """List all artifact columns once for counterparty discovery, never a Matrix screen."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return AnalysisSettlementPointsUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
-            return AnalysisSettlementPointsUnavailableResponse(
+            return NodeAnalysisUnavailableResponse(
                 available=False,
                 unavailable_reason="artifact_missing",
                 run_id=run_id,
@@ -629,22 +672,18 @@ def get_constraints(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
-) -> AnalysisConstraintsAvailableResponse | AnalysisConstraintsUnavailableResponse:
+) -> AnalysisConstraintsAvailableResponse | NodeAnalysisUnavailableResponse:
     """List every constraint in one day's artifact for search, ranked by
     Σ|E_mu| — the full universe, never a Brief top-k."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return AnalysisConstraintsUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
-            return AnalysisConstraintsUnavailableResponse(
+            return NodeAnalysisUnavailableResponse(
                 available=False,
                 unavailable_reason="artifact_missing",
                 run_id=run_id,
@@ -690,18 +729,14 @@ def get_grade(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
-) -> GradeAvailableResponse | GradeUnavailableResponse:
+) -> GradeAvailableResponse | NodeAnalysisUnavailableResponse:
     """Score constraints without blending them with the separately exposed node half."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return GradeUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         # An unsettled delivery day has no DAM μ to grade against.  Report both
         # halves as settlement-pending rather than a real-looking zero score:
         # the grade scorer would otherwise return magnitude_overlap 0.0 with
@@ -740,7 +775,7 @@ def get_grade(
         )
         nodes = brief_grade.grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
-        return GradeUnavailableResponse(
+        return NodeAnalysisUnavailableResponse(
             available=False,
             unavailable_reason="artifact_missing",
             run_id=run_id,
@@ -780,17 +815,13 @@ def get_grade_history(
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     days: int = Query(30, ge=1, le=30),
-) -> GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse:
+) -> GradeHistoryAvailableResponse | NodeAnalysisUnavailableResponse:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return GradeHistoryUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         cur.execute(
             "SELECT delivery_date, subject, model, persistence FROM analysis_grade_daily "
             "WHERE run_id = %s AND horizon = %s AND delivery_date >= %s - %s "
@@ -856,21 +887,17 @@ def get_top_constraints(
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(10, ge=1, le=15),
-) -> TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse:
+) -> TopConstraintsAvailableResponse | NodeAnalysisUnavailableResponse:
     """Rank the complete artifact vocabulary; do not reuse the legacy brief cast."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return TopConstraintsUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
-            return TopConstraintsUnavailableResponse(
+            return NodeAnalysisUnavailableResponse(
                 available=False,
                 unavailable_reason="artifact_missing",
                 run_id=run_id,
@@ -887,21 +914,13 @@ def get_top_constraints(
         geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
 
     forecast_mass = forecast.abs().sum(axis=0)
-    ranked = forecast_mass[forecast_mass > 0.0].sort_values(
-        ascending=False, kind="stable"
-    )
+    ranked_mass, forecast_ranks = ranked(forecast_mass[forecast_mass > 0.0])
     settled_mass = (
         settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
     )
-    settled_ranked = settled_mass[settled_mass > 0.0].sort_values(
-        ascending=False, kind="stable"
-    )
-    forecast_ranks = {str(key): rank for rank, key in enumerate(ranked.index, start=1)}
-    settled_ranks = {
-        str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)
-    }
+    settled_ranked, settled_ranks = ranked(settled_mass[settled_mass > 0.0])
     visible_keys = _joined_top_keys(
-        ranked.index,
+        ranked_mass.index,
         settled_ranked.index,
         k=k,
         settled_available=not settled.empty,
@@ -914,8 +933,6 @@ def get_top_constraints(
         settled_values = settled[key].dropna() if key in settled else None
         geo = geography.get(str(key), {})
         shares = geo.get("zone_shares") or {}
-        historical = settled_histories.get(str(key), [0.0] * 30)
-        nonzero_historical = [value for value in historical if value > 0.0]
         rows.append(
             TopConstraintRow(
                 constraint_key=str(key),
@@ -941,32 +958,9 @@ def get_top_constraints(
                     if settled_values is None
                     else int(settled_values.ne(0.0).sum())
                 ),
-                settled_history_p10=(
-                    None
-                    if not nonzero_historical
-                    else float(pd.Series(nonzero_historical).quantile(0.1))
+                **settled_history_stats(
+                    settled_histories.get(str(key), [0.0] * 30), nonzero_only=True
                 ),
-                settled_history_p25=(
-                    None
-                    if not nonzero_historical
-                    else float(pd.Series(nonzero_historical).quantile(0.25))
-                ),
-                settled_history_p50=(
-                    None
-                    if not nonzero_historical
-                    else float(pd.Series(nonzero_historical).quantile(0.5))
-                ),
-                settled_history_p75=(
-                    None
-                    if not nonzero_historical
-                    else float(pd.Series(nonzero_historical).quantile(0.75))
-                ),
-                settled_history_p90=(
-                    None
-                    if not nonzero_historical
-                    else float(pd.Series(nonzero_historical).quantile(0.9))
-                ),
-                settled_history=historical,
             )
         )
     return TopConstraintsAvailableResponse(
@@ -975,7 +969,7 @@ def get_top_constraints(
         delivery_date=delivery_date,
         horizon=horizon,
         rows=rows,
-        n_ranked=len(ranked),
+        n_ranked=len(ranked_mass),
         k=k,
     )
 
@@ -995,15 +989,11 @@ def get_context(
 ) -> ContextAvailableResponse | ContextUnavailableResponse:
     """Serve the Brief's closing structural context without browser rollups."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return ContextUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon, ContextUnavailableResponse
+        )
+        if unavailable is not None:
+            return unavailable
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
             return ContextUnavailableResponse(
@@ -1096,20 +1086,16 @@ def get_standouts(
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(4, ge=1, le=20),
-) -> StandoutsAvailableResponse | StandoutsUnavailableResponse:
+) -> StandoutsAvailableResponse | NodeAnalysisUnavailableResponse:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return StandoutsUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
-            return StandoutsUnavailableResponse(
+            return NodeAnalysisUnavailableResponse(
                 available=False,
                 unavailable_reason="artifact_missing",
                 run_id=run_id,
@@ -1248,30 +1234,12 @@ def get_standouts(
                 )
                 seen_representatives.add(representative)
         node_rows = collapsed_rows
-        node_forecast_ranks = {
-            str(key): rank
-            for rank, key in enumerate(
-                node_forecast_total.abs()
-                .sort_values(ascending=False, kind="stable")
-                .index,
-                start=1,
-            )
-        }
-        node_settled_ranks = {
-            str(key): rank
-            for rank, key in enumerate(
-                node_settled_total.abs()
-                .sort_values(ascending=False, kind="stable")
-                .index,
-                start=1,
-            )
-        }
+        _, node_forecast_ranks = ranked(node_forecast_total.abs())
+        node_settled_sorted, node_settled_ranks = ranked(node_settled_total.abs())
         forecast_points = [row.settlement_point for row in node_rows]
         settled_candidates = [
             str(point)
-            for point in node_settled_total.abs()
-            .sort_values(ascending=False, kind="stable")
-            .index[:60]
+            for point in node_settled_sorted.index[:60]
             if str(point) not in set(forecast_points)
         ]
         history_points = forecast_points + settled_candidates
@@ -1320,67 +1288,10 @@ def get_standouts(
                 update={
                     "forecast_rank": node_forecast_ranks.get(row.settlement_point),
                     "settled_rank": node_settled_ranks.get(row.settlement_point),
-                    "settled_history_p10": (
-                        None
-                        if not any(
-                            abs(value) > NODE_CONGESTION_EPSILON
-                            for value in node_settled_histories[row.settlement_point]
-                        )
-                        else float(
-                            pd.Series(
-                                node_settled_histories[row.settlement_point]
-                            ).quantile(0.1)
-                        )
+                    **settled_history_stats(
+                        node_settled_histories[row.settlement_point],
+                        nonzero_only=False,
                     ),
-                    "settled_history_p25": (
-                        None
-                        if not any(
-                            abs(value) > NODE_CONGESTION_EPSILON
-                            for value in node_settled_histories[row.settlement_point]
-                        )
-                        else float(
-                            pd.Series(
-                                node_settled_histories[row.settlement_point]
-                            ).quantile(0.25)
-                        )
-                    ),
-                    "settled_history_p50": (
-                        None
-                        if not any(
-                            abs(value) > NODE_CONGESTION_EPSILON
-                            for value in node_settled_histories[row.settlement_point]
-                        )
-                        else float(
-                            pd.Series(
-                                node_settled_histories[row.settlement_point]
-                            ).quantile(0.5)
-                        )
-                    ),
-                    "settled_history_p75": (
-                        None
-                        if not any(
-                            abs(value) > NODE_CONGESTION_EPSILON
-                            for value in node_settled_histories[row.settlement_point]
-                        )
-                        else float(
-                            pd.Series(
-                                node_settled_histories[row.settlement_point]
-                            ).quantile(0.75)
-                        )
-                    ),
-                    "settled_history_p90": (
-                        None
-                        if not any(
-                            abs(value) > NODE_CONGESTION_EPSILON
-                            for value in node_settled_histories[row.settlement_point]
-                        )
-                        else float(
-                            pd.Series(
-                                node_settled_histories[row.settlement_point]
-                            ).quantile(0.9)
-                        )
-                    ),
-                    "settled_history": node_settled_histories[row.settlement_point],
                 }
             )
             for row in node_rows
@@ -1397,18 +1308,8 @@ def get_standouts(
                     ),
                 )
             )
-    forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(
-        ascending=False, kind="stable"
-    )
-    settled_ranked = settled_total[settled_total > 0.0].sort_values(
-        ascending=False, kind="stable"
-    )
-    forecast_ranks = {
-        str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)
-    }
-    settled_ranks = {
-        str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)
-    }
+    _, forecast_ranks = ranked(forecast_total[forecast_total > 0.0])
+    _, settled_ranks = ranked(settled_total[settled_total > 0.0])
     forecast_rows = _standout_rows(
         forecast_total, histories, chronic, settled_total, k=k
     )
@@ -1445,8 +1346,6 @@ def get_standouts(
             if row.constraint_key in settled
             else pd.Series(dtype=float)
         )
-        historical = settled_histories.get(row.constraint_key, [0.0] * 30)
-        nonzero_historical = [value for value in historical if value > 0.0]
         geo = geography.get(row.constraint_key, {})
         shares = geo.get("zone_shares") or {}
         rows.append(
@@ -1470,32 +1369,10 @@ def get_standouts(
                     "settled_hours": (
                         None if settled.empty else int(settled_values.ne(0.0).sum())
                     ),
-                    "settled_history_p10": (
-                        None
-                        if not nonzero_historical
-                        else float(pd.Series(nonzero_historical).quantile(0.1))
+                    **settled_history_stats(
+                        settled_histories.get(row.constraint_key, [0.0] * 30),
+                        nonzero_only=True,
                     ),
-                    "settled_history_p25": (
-                        None
-                        if not nonzero_historical
-                        else float(pd.Series(nonzero_historical).quantile(0.25))
-                    ),
-                    "settled_history_p50": (
-                        None
-                        if not nonzero_historical
-                        else float(pd.Series(nonzero_historical).quantile(0.5))
-                    ),
-                    "settled_history_p75": (
-                        None
-                        if not nonzero_historical
-                        else float(pd.Series(nonzero_historical).quantile(0.75))
-                    ),
-                    "settled_history_p90": (
-                        None
-                        if not nonzero_historical
-                        else float(pd.Series(nonzero_historical).quantile(0.9))
-                    ),
-                    "settled_history": historical,
                 }
             )
         )
@@ -1523,22 +1400,18 @@ def get_top_nodes(
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(10, ge=1, le=15),
-) -> TopNodesAvailableResponse | TopNodesUnavailableResponse:
+) -> TopNodesAvailableResponse | NodeAnalysisUnavailableResponse:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return TopNodesUnavailableResponse(
-                available=False,
-                unavailable_reason="artifact_missing",
-                run_id=run_id,
-                delivery_date=delivery_date,
-            )
+        run_id, horizon, unavailable = _resolve_or_unavailable(
+            cur, run_id, delivery_date, horizon
+        )
+        if unavailable is not None:
+            return unavailable
         forecast_result = _daily_node_contributions(
             cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS
         )
         if forecast_result is None:
-            return TopNodesUnavailableResponse(
+            return NodeAnalysisUnavailableResponse(
                 available=False,
                 unavailable_reason="artifact_missing",
                 run_id=run_id,
@@ -1579,9 +1452,9 @@ def get_top_nodes(
             grouping = "study_delivery_day"
 
     forecast_total = forecast_terms.sum(axis=0)
-    ranked = forecast_total.abs().sort_values(ascending=False, kind="stable")
+    forecast_sorted, _ = ranked(forecast_total.abs())
     canonical: dict[str, tuple[str, int]] = {
-        str(sp): (str(sp), 1) for sp in ranked.index
+        str(sp): (str(sp), 1) for sp in forecast_sorted.index
     }
     for group in essp_groups:
         members = sorted(
@@ -1592,7 +1465,7 @@ def get_top_nodes(
             for member in members:
                 canonical[member] = (representative, len(members))
     grouped: dict[str, tuple[float, str, int]] = {}
-    for sp, value in ranked.items():
+    for sp, value in forecast_sorted.items():
         representative, count = canonical[str(sp)]
         if representative not in grouped:
             grouped[representative] = (float(value), representative, count)
@@ -1602,11 +1475,7 @@ def get_top_nodes(
     }
     realized_terms = None if realized_result is None else realized_result.terms
     metadata = load_sp_metadata(forecast_terms.columns)
-    settled_ranked = (
-        pd.Series(settled, dtype=float)
-        .abs()
-        .sort_values(ascending=False, kind="stable")
-    )
+    settled_ranked, _ = ranked(pd.Series(settled, dtype=float).abs())
     settled_grouped: dict[str, float] = {}
     for sp in settled_ranked.index:
         representative, _ = canonical.get(str(sp), (str(sp), 1))
@@ -1635,8 +1504,6 @@ def get_top_nodes(
         realized_total = (
             None if realized_terms is None else float(realized_terms[sp].sum())
         )
-        historical = settled_histories.get(str(sp), [0.0] * 30)
-        history_series = pd.Series(historical)
         rows.append(
             TopNodeRow(
                 settlement_point=str(sp),
@@ -1660,12 +1527,11 @@ def get_top_nodes(
                     if settled_total in (None, 0.0)
                     else realized_total / settled_total
                 ),
-                settled_history_p10=float(history_series.quantile(0.1)),
-                settled_history_p25=float(history_series.quantile(0.25)),
-                settled_history_p50=float(history_series.quantile(0.5)),
-                settled_history_p75=float(history_series.quantile(0.75)),
-                settled_history_p90=float(history_series.quantile(0.9)),
-                settled_history=historical,
+                **settled_history_stats(
+                    settled_histories.get(str(sp), [0.0] * 30),
+                    nonzero_only=False,
+                    gate=False,
+                ),
             )
         )
     return TopNodesAvailableResponse(
