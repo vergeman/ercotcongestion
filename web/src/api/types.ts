@@ -607,6 +607,7 @@ export interface MapScorecard {
   scored_week: string | null;
   horizon: number | null;
   sources: MapScorecardSource[];
+  fit_metadata: MapFitMetadata | null;
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

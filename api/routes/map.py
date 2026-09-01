@@ -42,17 +42,6 @@ def get_map_meta() -> MapMeta:
     return aggregate.meta()
 
 
-@router.get("/fit-metadata", response_model=MapFitMetadata)
-def get_map_fit_metadata(
-    t: datetime | None = Query(
-        None,
-        description="Cursor interval in UTC. Omit for the latest artifact.",
-    ),
-) -> MapFitMetadata:
-    """Diagnostics for the artifact and SF window selected by the cursor."""
-    return aggregate.fit_metadata(t)
-
-
 @router.get(
     "/exposures",
     response_model=ExposuresResponse,
@@ -182,7 +171,14 @@ def get_map_scorecard(
     day: date = Query(..., description="CT delivery date shown by the map cursor."),
     run_id: str | None = Depends(_server_selected_run),
 ) -> MapScorecard:
-    return scorecard.build(day, run_id)
+    result = MapScorecard.model_validate(scorecard.build(day, run_id))
+    return result.model_copy(
+        update={
+            "fit_metadata": MapFitMetadata.model_validate(
+                aggregate.fit_metadata(delivery_day=day)
+            )
+        }
+    )
 
 
 @router.get(

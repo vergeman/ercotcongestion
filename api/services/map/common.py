@@ -111,7 +111,11 @@ class ArtifactProvenance:
 
 
 def resolve_artifact_provenance(
-    cur, t: datetime | None, *, nearest_past: bool = True
+    cur,
+    t: datetime | None = None,
+    *,
+    delivery_day: date | None = None,
+    nearest_past: bool = True,
 ) -> ArtifactProvenance:
     """Resolve a cursor's artifact and the SF window causal to that artifact.
 
@@ -120,7 +124,11 @@ def resolve_artifact_provenance(
     rather than reading today's newest window.
     """
     forecast_run = forecast_run_id(cur)
-    requested_day = delivery_date_for(t) if t is not None else latest_artifact_day(cur, forecast_run)
+    requested_day = (
+        delivery_date_for(t)
+        if t is not None
+        else delivery_day or latest_artifact_day(cur, forecast_run)
+    )
     artifact_day = requested_day
     artifact = (
         load_daily_artifact(cur, forecast_run, artifact_day)

@@ -311,3 +311,6 @@ class MapScorecard(BaseModel):
     scored_week: date | None = None
     horizon: int | None = None
     sources: list[MapScorecardSource] = []
+    # SF diagnostics for the same delivery day, so one map-panel request keeps
+    # scorecard and artifact provenance in sync.
+    fit_metadata: MapFitMetadata | None = None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Callable
 
 import pandas as pd
@@ -33,10 +33,14 @@ def meta() -> MapMeta:
         return MapMeta(**common.meta_row(cur, run_id, window_start))
 
 
-def fit_metadata(t) -> MapFitMetadata:
+def fit_metadata(
+    t: datetime | None = None, *, delivery_day: date | None = None
+) -> MapFitMetadata:
     """Return diagnostics for the SF vintage behind the cursor's artifact."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        provenance = common.resolve_artifact_provenance(cur, t)
+        provenance = common.resolve_artifact_provenance(
+            cur, t, delivery_day=delivery_day
+        )
         if provenance.artifact is None or provenance.window_start is None:
             return MapFitMetadata(
                 artifact_delivery_date=provenance.artifact_delivery_date,

@@ -20,7 +20,7 @@ from fastapi import HTTPException
 import pandas as pd
 
 from api.routes import map as map_module
-from api.services.map import common as map_common
+from api.services.map import aggregate, common as map_common
 from api.services.map import summary as map_summary
 from compute.projection.codecs import build_sf_mu_artifact
 from api.schemas.map import MapMeta, MapOverview
@@ -128,7 +128,7 @@ def test_resolution_defaults_to_newest_run(client, fake_pool, monkeypatch):
 
 # ---- /map/fit-metadata ---------------------------------------------------
 
-def test_fit_metadata_uses_the_artifacts_causal_window(client, fake_pool, configured_run):
+def test_fit_metadata_uses_the_artifacts_causal_window(fake_pool, configured_run):
     """A historical cursor must not inherit the map's newest diagnostics."""
     blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
     old_start = datetime(2025, 10, 1, tzinfo=timezone.utc)
@@ -140,18 +140,16 @@ def test_fit_metadata_uses_the_artifacts_causal_window(client, fake_pool, config
     fake_pool.cursor.queue([_meta_row(window_start=old_start, window_end=old_end,
                                       sf_oos_r2=0.31, coverage=0.78, sf_stability=0.22)])
 
-    r = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()})
+    result = aggregate.fit_metadata(delivery_day=DAY)
 
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["available"] is True
-    assert body["window_start"].startswith("2025-10-01")
-    assert body["sf_oos_r2"] == 0.31
-    assert body["artifact_delivery_date"] == "2026-07-01"
-    assert body["basis"] == "artifact"
+    assert result.available is True
+    assert result.window_start == old_start
+    assert result.sf_oos_r2 == 0.31
+    assert result.artifact_delivery_date == DAY
+    assert result.basis == "artifact"
 
 
-def test_fit_metadata_labels_nearest_past_artifact(client, fake_pool, configured_run):
+def test_fit_metadata_labels_nearest_past_artifact(fake_pool, configured_run):
     blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
     fallback_day = datetime(2026, 6, 30, tzinfo=timezone.utc).date()
     fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
@@ -162,21 +160,21 @@ def test_fit_metadata_labels_nearest_past_artifact(client, fake_pool, configured
     fake_pool.cursor.queue([{"window_start": WS, "window_end": WE}])
     fake_pool.cursor.queue([_meta_row()])
 
-    body = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()}).json()
-    assert body["available"] is True
-    assert body["artifact_delivery_date"] == "2026-06-30"
-    assert body["basis"] == "nearest_past"
+    result = aggregate.fit_metadata(delivery_day=DAY)
+    assert result.available is True
+    assert result.artifact_delivery_date == fallback_day
+    assert result.basis == "nearest_past"
 
 
-def test_fit_metadata_is_unavailable_without_an_artifact(client, fake_pool, configured_run):
+def test_fit_metadata_is_unavailable_without_an_artifact(fake_pool, configured_run):
     fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
 
-    body = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()}).json()
-    assert body["available"] is False
-    assert body["sf_oos_r2"] is None
-    assert body["basis"] is None
+    result = aggregate.fit_metadata(delivery_day=DAY)
+    assert result.available is False
+    assert result.sf_oos_r2 is None
+    assert result.basis is None
 
 
 # ---- /map/exposures ------------------------------------------------------
