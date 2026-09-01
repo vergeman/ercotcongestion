@@ -19,7 +19,7 @@ from compute.analysis.hero_queries import (
     summarize_load_condition,
 )
 from compute.analysis.metadata import load_sp_metadata
-from compute.projection.codecs import load_sf_mu
+from compute.projection.codecs import SfMuArtifact, load_sf_mu
 from compute.time import ERCOT_TZ
 
 
@@ -71,7 +71,13 @@ class HeroBuild:
     forecast_slots: dict[str, dict[str, Any]] | None
 
 
-def _artifact(cur, run_id: str, delivery_date: date, horizon: int):
+def _artifact(cur, run_id: str, delivery_date: date, horizon: int) -> SfMuArtifact | None:
+    """Load the persisted per-day forecast snapshot as ``SfMuArtifact``.
+
+    ``forecast_sf_artifact.sf_npz`` is a compressed NPZ blob stored in Postgres.
+    Decoding it yields ``SF`` (constraint × settlement-point shift factors) and
+    ``E_mu`` (timestamp × constraint expected congestion values).
+    """
     cur.execute(
         "SELECT sf_npz FROM forecast_sf_artifact "
         "WHERE run_id = %s AND delivery_date = %s AND horizon = %s",
@@ -296,8 +302,8 @@ def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
     forecast and settled versions of the hero use the same set of constraint
     keys - those present in that day’s forecast artifact.
 
-    Settled totals are always compared with existing model-key history rather
-    than every (and new) DAM constraint in the system.
+    Settled totals are compared only with existing key constraints rather than
+    newly introduced DAM constraint(s).
 
     """
     if basis not in {"forecast", "settled"}:
