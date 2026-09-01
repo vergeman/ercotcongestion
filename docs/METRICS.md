@@ -247,3 +247,48 @@ They are not source identities and must not be used to select labels or explain
 construction. Legacy API fields named `source`, `model`, `persistence`, and
 `climatology` are retired; clients consume `source_id`, `series_id`,
 `SourceDescriptor`, and source-metric entries instead.
+
+---
+
+## Maps
+
+Two SF-map fit-quality diagnostics surfaced in the `/map` sidebar. Both are
+computed in `compute/evaluation/sf.py` and persisted to the `sf_window_meta`
+table (columns `sf_oos_r2`, `sf_stability`); the API reads them back verbatim.
+
+### SF OOS R2 (`sf_oos_r2`)
+
+How well did the fitted shift factors reproduce congestion prices on data the
+fit never saw.
+
+Methodology:
+* Fit the SF map on the 60-day window ending **strictly before** the scored
+  week.
+* Predict the next 7 days as `C_hat = −M · SFᵀ` from **realized** μ (shadow
+  prices).
+* Score pooled across all settlement points x hours:
+  `R² = 1 − Σ(y − ŷ)² / Σ(y − ȳ)²`.
+
+The fit window does not touch the scored week (no leakage), and scoring uses
+oracle μ (perfect foresight of shadow prices), so the number isolates SF-map
+quality from any bind-forecasting skill.
+
+### SF Stability (`sf_stability`)
+
+Pearson correlation of the flattened SF matrix between two **adjacent,
+non-overlapping** 60-day fit windows. How much of the map's structure survives
+from one window to the next.
+
+* `SF` is fit on `[s − 60d, s)`.
+* `SF_older` is fit on `[s − 120d, s − 60d)` — touching at the edge, zero
+  overlap.
+* Correlate the two matrices over their shared constraint rows (requires ≥ 5).
+
+Consecutive refits overlap 53/60 days, (weekly fit) giving a flattering ≈ 0.90
+that mostly measures shared training data.
+
+On disjoint windows the map retains under half its structure (≈ 0.47). That gap
+is the documented cause of the spread between in-sample R² (≈ 0.99) and OOS R²
+(≈ 0.75). The map genuinely drifts, so both numbers sit in the sidebar as a
+caveat on the signed SF detail. `sf_stability` is NULL for early windows that
+lack the 120 days of history.

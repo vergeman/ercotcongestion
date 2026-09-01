@@ -290,8 +290,8 @@ export default function SidePanel({
             {t === "stats"
               ? "Stats"
               : t === "constraints"
-              ? "Constraints"
-              : "Load window"}
+                ? "Constraints"
+                : "Load window"}
           </button>
         ))}
       </div>
@@ -517,13 +517,13 @@ export default function SidePanel({
                 <div className="sc-fit">
                   <div className="sc-fit__header label">Current fit</div>
                   <Stat
-                    label="Out-of-sample R²"
-                    hint="How well the active fit explains congestion it did not train on. Higher is better."
+                    label="SF Out-of-sample Accuracy"
+                    hint="How well the shift factors (SF) reproduce congestion prices they did not train on. Higher is better. μ is set to each hour's actual shadow price, so any remaining error belongs to the SF map."
                     value={fmtScore(fitMeta.sf_oos_r2)}
                   />
                   <Stat
                     label="SF Stability"
-                    hint="How consistently the model assigns shift factors — each place's sensitivity to a constraint — from one time window to the next. Higher is more repeatable."
+                    hint="Pearson correlation: how closely the SF values repeat when refit on a fresh, non-overlapping window. Higher means a steadier map. Measures changing SF values, not the set of constraints."
                     value={fmtScore(fitMeta.sf_stability)}
                   />
                 </div>
