@@ -240,7 +240,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       return;
     }
     const controller = new AbortController();
-    fetchMapScorecard(deliveryDay, controller.signal)
+    fetchMapScorecard(deliveryDay, forecastRunId, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) setScorecard(result);
       })
@@ -248,7 +248,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setScorecard(null);
       });
     return () => controller.abort();
-  }, [deliveryDay]);
+  }, [deliveryDay, forecastRunId]);
 
   // focusReachCache key: a cached dipole belongs to one constraint on one CT
   // delivery day, never to the constraint alone.

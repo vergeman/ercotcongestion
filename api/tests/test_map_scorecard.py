@@ -101,11 +101,25 @@ def test_returns_explicit_unavailable_when_no_complete_set_exists(fake_pool):
 
 def test_route_uses_supplied_ct_delivery_date(client, monkeypatch):
     seen = []
-    monkeypatch.setattr(scorecard, "build", lambda day: seen.append(day) or {
+    monkeypatch.setattr(scorecard, "build", lambda day, run_id: seen.append((day, run_id)) or {
         "available": False, "delivery_date": day,
     })
 
     response = client.get("/map/scorecard?day=2026-07-01")
 
     assert response.status_code == 200
-    assert seen == [DAY]
+    assert seen == [(DAY, None)]
+
+
+def test_requested_run_scopes_weekly_fallback(fake_pool):
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue(_metrics([
+        _weekly("scoreboard_model_backtest_nodal", run_id="served-v1"),
+        _weekly("scoreboard_persistence_backtest_nodal", run_id="served-v1"),
+        _weekly("scoreboard_oracle_backtest_nodal", run_id="served-v1"),
+    ]))
+
+    result = scorecard.build(DAY, "served-v1")
+
+    assert result.run_id == "served-v1"
+    assert fake_pool.cursor.queries[1][1][-2:] == ("served-v1", "served-v1")

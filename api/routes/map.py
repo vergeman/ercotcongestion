@@ -168,8 +168,9 @@ def get_map_constraints_ranked(
 )
 def get_map_scorecard(
     day: date = Query(..., description="CT delivery date shown by the map cursor."),
+    run_id: str | None = Depends(_server_selected_run),
 ) -> MapScorecard:
-    return scorecard.build(day)
+    return scorecard.build(day, run_id)
 
 
 @router.get(

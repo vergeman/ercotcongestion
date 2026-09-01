@@ -29,10 +29,13 @@ export function fetchMapSummary(signal?: AbortSignal): Promise<MapSummary> {
 
 export function fetchMapScorecard(
   day: string,
+  runId?: string | null,
   signal?: AbortSignal,
 ): Promise<MapScorecard | null> {
+  const query = new URLSearchParams({ day });
+  if (runId) query.set("run_id", runId);
   return requestJson("/map/scorecard", {
-    query: new URLSearchParams({ day }), signal,
+    query, signal,
   });
 }
 

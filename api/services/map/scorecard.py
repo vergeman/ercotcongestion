@@ -40,7 +40,7 @@ def _complete(rows: list[dict], identities: dict[str, str]) -> bool:
     return {identities.get(row["source"]) for row in rows} == set(_SERIES)
 
 
-def build(delivery_date: date) -> MapScorecard:
+def build(delivery_date: date, run_id: str | None = None) -> MapScorecard:
     """Prefer this day's complete h1 grade; otherwise use one weekly set."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -48,9 +48,10 @@ def build(delivery_date: date) -> MapScorecard:
             SELECT run_id, source, rank_spearman, sign_agree, topdecile_hit
             FROM scoreboard_daily
             WHERE delivery_date = %s AND horizon = 1 AND source = ANY(%s)
+              AND (%s IS NULL OR run_id = %s)
             ORDER BY run_id, source
             """,
-            (delivery_date, list(_DAILY_SOURCES)),
+            (delivery_date, list(_DAILY_SOURCES), run_id, run_id),
         )
         daily_rows = cur.fetchall()
         daily_runs = {row["run_id"] for row in daily_rows}
@@ -70,10 +71,10 @@ def build(delivery_date: date) -> MapScorecard:
             """
             SELECT run_id, week, source, rank_spearman, sign_agree, topdecile_hit
             FROM scoreboard_weekly
-            WHERE source = ANY(%s)
+            WHERE source = ANY(%s) AND (%s IS NULL OR run_id = %s)
             ORDER BY week DESC, run_id, source
             """,
-            (list(_WEEKLY_SOURCES),),
+            (list(_WEEKLY_SOURCES), run_id, run_id),
         )
         weekly_rows = cur.fetchall()
 
