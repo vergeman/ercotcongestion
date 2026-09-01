@@ -150,12 +150,17 @@ def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
             f"— the walk that produced this file was misphased, refusing to score it")
     return weeks
 
+# --------------------------------------------------------------------------
+# backtest
+# only used in this main() and compute/experiment scripts
+# --------------------------------------------------------------------------
 
 def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
                week_preds: pd.DataFrame, window_days: int = WINDOW_DAYS,
                refit_days: int = REFIT_DAYS,
                lam: float = LAM) -> list[dict]:
-    """One week, every source, one SF fit.
+    """This is inactive and backtest-only; was used to grade historic data prior
+     to regular daily forecast job.
 
     the window ends exactly where the scored week begins, so no source —
     including oracle — is scored by a map that has seen the week it is being
@@ -216,6 +221,10 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          window_days: int = WINDOW_DAYS,
          refit_days: int = REFIT_DAYS, lam: float = LAM) -> pd.DataFrame:
+    """This is inactive and backtest-only; was used to grade historic data prior
+     to regular daily forecast job.
+
+    """
     # `load_preds` hands back a (interval_ts, key) MultiIndex; the sources want
     # them as columns.
     if isinstance(preds.index, pd.MultiIndex):

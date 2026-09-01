@@ -61,7 +61,8 @@ The command writes:
 Useful options:
 
 * `--rho-min` fits groups of closely related constraints instead of individual
-  constraints.
+  constraints. NB: not used in production,
+  (`compute/experiments/sf/grouping.py`) saw no improvement.
 * `--chunk-weeks` limits the amount of history kept in memory at once.
 * `--emit-decay` measures how SF similarity changes as the time between fits
   grows.
@@ -72,6 +73,10 @@ Useful options:
 It compares realized μ, the model forecast, a historical hourly average,
 yesterday's same hour, and zero. Results are split before and after RTC+B so
 the market change is visible.
+
+The source definition methods (`mu_*`) are of note, used in grading the forecasts
+(`jobs/grade_forecast_day.py`)
+
 
 ## `essp.py`: ESSP cross-check
 
