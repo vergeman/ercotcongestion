@@ -1,4 +1,5 @@
 """Shared Analysis selection and artifact availability policy."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,12 +28,16 @@ def resolve_run(cur, run_id: str | None) -> str:
     return str(row["run_id"])
 
 
-def resolve_horizon(cur, run_id: str, delivery_date: date, horizon: int | None) -> int | None:
+def resolve_horizon(
+    cur, run_id: str, delivery_date: date, horizon: int | None
+) -> int | None:
     if horizon is not None:
         return horizon
     cur.execute(
         "SELECT min(horizon) AS h FROM forecast_sf_artifact "
-        "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
+        "WHERE run_id = %s AND delivery_date = %s",
+        (run_id, delivery_date),
+    )
     row = cur.fetchone()
     return None if row is None or row["h"] is None else int(row["h"])
 
@@ -43,9 +48,13 @@ def resolve_delivery_date(delivery_date: date | None, legacy_day: date | None) -
     if delivery_date is None:
         delivery_date = legacy_day
     elif legacy_day is not None and legacy_day != delivery_date:
-        raise HTTPException(status_code=422, detail="delivery_date and deprecated day must match.")
+        raise HTTPException(
+            status_code=422, detail="delivery_date and deprecated day must match."
+        )
     if delivery_date is None:
-        raise HTTPException(status_code=422, detail="delivery_date is required (deprecated alias: day).")
+        raise HTTPException(
+            status_code=422, detail="delivery_date is required (deprecated alias: day)."
+        )
     return delivery_date
 
 
@@ -56,7 +65,10 @@ def selected_hours(artifact, hours: list[datetime] | None) -> pd.DatetimeIndex:
     selected = pd.DatetimeIndex(pd.to_datetime(hours, utc=True))
     missing = selected.difference(available)
     if len(missing):
-        raise HTTPException(status_code=422, detail="hours must be artifact timestamps for this delivery day.")
+        raise HTTPException(
+            status_code=422,
+            detail="hours must be artifact timestamps for this delivery day.",
+        )
     return selected.unique().sort_values()
 
 
@@ -69,4 +81,8 @@ def dam_landed(cur, delivery_date: date) -> bool:
         (start, end),
     )
     row = cur.fetchone()
-    return row is not None and row["ts"] is not None and row["ts"] >= start + (end - start) / 2
+    return (
+        row is not None
+        and row["ts"] is not None
+        and row["ts"] >= start + (end - start) / 2
+    )

@@ -1,4 +1,5 @@
 """Canonical constraint-key construction and display parsing."""
+
 from __future__ import annotations
 
 

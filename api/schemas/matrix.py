@@ -1,14 +1,16 @@
 """Schemas served by the causal matrix route."""
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
 # ---- /matrix/frame -------------------------------------------------------
 
+
 class MatrixRow(BaseModel):
     """One stable constraint row in a delivery day's bounded SF rectangle."""
+
     constraint_key: str
     constraint_name: str
     contingency_name: str | None = None
@@ -22,6 +24,7 @@ class MatrixRow(BaseModel):
 
 class MatrixColumn(BaseModel):
     """One stable settlement-point column in a bounded SF rectangle."""
+
     settlement_point: str
     settlement_point_type: str | None = None
     load_zone: str | None = None
@@ -36,6 +39,7 @@ class MatrixSfValues(BaseModel):
     parallel mask is sent: the clip is exact, so ``abs(v) >= sf_abs_cap`` is the
     same test the server would apply, at a fraction of the payload.
     """
+
     row_count: int
     column_count: int
     values: list[float]
@@ -43,6 +47,7 @@ class MatrixSfValues(BaseModel):
 
 class MatrixFrame(BaseModel):
     """A causal, immutable-artifact-backed Matrix frame for one delivery hour."""
+
     available: bool
     unavailable_reason: str | None = None
     run_id: str
@@ -54,10 +59,10 @@ class MatrixFrame(BaseModel):
     # The wire shape is unchanged — ``rows`` are always constraints and
     # ``columns`` always settlement points — but the client reads this to decide
     # the visual orientation (``nodes`` renders nodes as rows by transposing).
-    orientation: Literal['constraints', 'nodes'] = 'constraints'
-    dam_status: Literal['pending', 'partial', 'available'] = 'pending'
-    row_ordering: str = 'daily_abs_forecast_contribution_desc_then_constraint_key'
-    column_ordering: str = 'max_abs_sf_desc_then_settlement_point'
+    orientation: Literal["constraints", "nodes"] = "constraints"
+    dam_status: Literal["pending", "partial", "available"] = "pending"
+    row_ordering: str = "daily_abs_forecast_contribution_desc_then_constraint_key"
+    column_ordering: str = "max_abs_sf_desc_then_settlement_point"
     # The bounded rectangle is intentionally not the whole artifact.  Clients
     # need this distinction before describing any visible-only sum.
     rows_truncated: bool = False

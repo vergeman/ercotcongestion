@@ -1,4 +1,5 @@
 """Conditions panel HTTP route."""
+
 from datetime import datetime
 
 from fastapi import APIRouter, Query

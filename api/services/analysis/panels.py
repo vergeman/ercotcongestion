@@ -1,4 +1,5 @@
 """Query-backed endpoints for the daily Brief's analysis panels."""
+
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -12,31 +13,53 @@ from psycopg.rows import dict_row
 
 from api.db import get_pool
 from api.dependencies import server_selected_run as _server_selected_run
-from api.schemas.analysis import (AnalysisContributionTerm, NodeMarketState, GradeAvailableResponse,
-                    GradeHalfResponse, GradeUnavailableResponse, HeroAvailableResponse,
-                    HeroLatestResponse, HeroUnavailableAtHorizonResponse, HeroUnavailableResponse,
-                    NodeAnalysisAvailableResponse, NodeAnalysisUnavailableResponse,
-                    AnalysisSettlementPointsAvailableResponse,
-                    AnalysisSettlementPointsUnavailableResponse,
-                    AnalysisConstraintsAvailableResponse,
-                    AnalysisConstraintsUnavailableResponse, EsspGroup,
-                    AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
-                    TopConstraintRow, TopConstraintsAvailableResponse,
-                    TopConstraintsUnavailableResponse, TopNodeRow,
-                    TopNodesAvailableResponse, TopNodesUnavailableResponse,
-                    StandoutRow, NodeStandoutRow, StandoutsAvailableResponse, StandoutsUnavailableResponse,
-                    VoltageClassRow, ChronicElementRow, ContextAvailableResponse,
-                    ContextUnavailableResponse, GradeHistoryHalfResponse,
-                    GradeHistoryDayResponse, GradeHistoryAvailableResponse,
-                    GradeHistoryUnavailableResponse)
+from api.schemas.analysis import (
+    AnalysisContributionTerm,
+    NodeMarketState,
+    GradeAvailableResponse,
+    GradeHalfResponse,
+    GradeUnavailableResponse,
+    HeroAvailableResponse,
+    HeroLatestResponse,
+    HeroUnavailableAtHorizonResponse,
+    HeroUnavailableResponse,
+    NodeAnalysisAvailableResponse,
+    NodeAnalysisUnavailableResponse,
+    AnalysisSettlementPointsAvailableResponse,
+    AnalysisSettlementPointsUnavailableResponse,
+    AnalysisConstraintsAvailableResponse,
+    AnalysisConstraintsUnavailableResponse,
+    AnalysisEsspGroupsAvailableResponse,
+    AnalysisEsspGroupsUnavailableResponse,
+    TopConstraintRow,
+    TopConstraintsAvailableResponse,
+    TopConstraintsUnavailableResponse,
+    TopNodeRow,
+    TopNodesAvailableResponse,
+    TopNodesUnavailableResponse,
+    StandoutRow,
+    NodeStandoutRow,
+    StandoutsAvailableResponse,
+    StandoutsUnavailableResponse,
+    VoltageClassRow,
+    ChronicElementRow,
+    ContextAvailableResponse,
+    ContextUnavailableResponse,
+    GradeHistoryHalfResponse,
+    GradeHistoryDayResponse,
+    GradeHistoryAvailableResponse,
+    GradeHistoryUnavailableResponse,
+)
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.hero_window import delivery_bounds
-from compute.analysis.phrases import phrase_for, render
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis import brief_grade
-from compute.projection.codecs import node_contributions
-from api.services.sf_artifacts import load_daily_artifact, load_daily_artifacts, load_realized_mu
+from api.services.sf_artifacts import (
+    load_daily_artifact,
+    load_daily_artifacts,
+    load_realized_mu,
+)
 from api.services.system_lambda import (
     forecast_system_lambda,
     persisted_system_lambdas_by_ct_hour,
@@ -76,17 +99,25 @@ def _cursor(delivery_date: date, artifact) -> dict[str, str]:
     return {"ws": _iso_z(ws), "we": _iso_z(we), "t": _iso_z(peak)}
 
 
-def _settled_congestion(cur, settlement_points: list[str], timestamps: pd.DatetimeIndex) -> dict[str, float]:
+def _settled_congestion(
+    cur, settlement_points: list[str], timestamps: pd.DatetimeIndex
+) -> dict[str, float]:
     params = (list(timestamps.to_pydatetime()), settlement_points)
     cur.execute(
         "SELECT DISTINCT ON (interval_ts, settlement_point) interval_ts, settlement_point, dam_spp "
         "FROM ercot_dam_spp WHERE interval_ts = ANY(%s) AND settlement_point = ANY(%s) "
-        "ORDER BY interval_ts, settlement_point, dst_flag ASC", params)
-    spp = {(row["interval_ts"], str(row["settlement_point"])): row["dam_spp"] for row in cur.fetchall()}
+        "ORDER BY interval_ts, settlement_point, dst_flag ASC",
+        params,
+    )
+    spp = {
+        (row["interval_ts"], str(row["settlement_point"])): row["dam_spp"]
+        for row in cur.fetchall()
+    }
     cur.execute(
         "SELECT DISTINCT ON (interval_ts) interval_ts, system_lambda FROM dam_system_lambda "
         "WHERE interval_ts = ANY(%s) ORDER BY interval_ts, dst_flag ASC",
-        (list(timestamps.to_pydatetime()),))
+        (list(timestamps.to_pydatetime()),),
+    )
     lam = {row["interval_ts"]: row["system_lambda"] for row in cur.fetchall()}
     out = {sp: 0.0 for sp in settlement_points}
     complete = {sp: True for sp in settlement_points}
@@ -99,8 +130,14 @@ def _settled_congestion(cur, settlement_points: list[str], timestamps: pd.Dateti
     return {sp: out[sp] for sp in settlement_points if complete[sp]}
 
 
-def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: date,
-                       horizon: int, timestamp: datetime) -> NodeMarketState:
+def _node_market_state(
+    cur,
+    settlement_point: str,
+    run_id: str,
+    delivery_date: date,
+    horizon: int,
+    timestamp: datetime,
+) -> NodeMarketState:
     """One node's Map-equivalent congestion/LMP values at the Detail cursor."""
     cur.execute(
         """
@@ -112,15 +149,20 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
     )
     forecast_row = cur.fetchone()
     forecast_congestion = (
-        None if forecast_row is None or forecast_row["point"] is None
+        None
+        if forecast_row is None or forecast_row["point"] is None
         else float(forecast_row["point"])
     )
 
     settled_by_ts = settled_system_lambdas(cur, timestamp, timestamp)
-    forecast_lambda, lambda_source = forecast_system_lambda(timestamp, settled_by_ts, {})
+    forecast_lambda, lambda_source = forecast_system_lambda(
+        timestamp, settled_by_ts, {}
+    )
     if forecast_congestion is not None and forecast_lambda is None:
         persisted = persisted_system_lambdas_by_ct_hour(cur)
-        forecast_lambda, lambda_source = forecast_system_lambda(timestamp, settled_by_ts, persisted)
+        forecast_lambda, lambda_source = forecast_system_lambda(
+            timestamp, settled_by_ts, persisted
+        )
 
     cur.execute(
         """
@@ -132,14 +174,28 @@ def _node_market_state(cur, settlement_point: str, run_id: str, delivery_date: d
         (timestamp, settlement_point),
     )
     dam_row = cur.fetchone()
-    dam_lmp = None if dam_row is None or dam_row["dam_spp"] is None else float(dam_row["dam_spp"])
+    dam_lmp = (
+        None
+        if dam_row is None or dam_row["dam_spp"] is None
+        else float(dam_row["dam_spp"])
+    )
     settled_lambda = settled_by_ts.get(timestamp)
-    realized_congestion = None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda
+    realized_congestion = (
+        None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda
+    )
     return NodeMarketState(
         forecast_congestion=forecast_congestion,
-        forecast_lmp=None if forecast_congestion is None or forecast_lambda is None else forecast_congestion + forecast_lambda,
+        forecast_lmp=(
+            None
+            if forecast_congestion is None or forecast_lambda is None
+            else forecast_congestion + forecast_lambda
+        ),
         realized_congestion=realized_congestion,
-        forecast_error=None if forecast_congestion is None or realized_congestion is None else forecast_congestion - realized_congestion,
+        forecast_error=(
+            None
+            if forecast_congestion is None or realized_congestion is None
+            else forecast_congestion - realized_congestion
+        ),
         dam_lmp=dam_lmp,
         forecast_lambda_source=lambda_source,
     )
@@ -169,9 +225,9 @@ def _essp_member_count(cur, settlement_point: str, timestamp: datetime) -> int |
 
 def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
     """Best-effort ctype/zone/kv_max per key; absent geography is null, never
-    an error. Mirrors ``matrix.py::_constraint_types``'s per-key latest-window
-    lookup, extended with the zone/kv_max fields ``/analysis/top-constraints``
-    already derives the same way (max zone_shares mass)."""
+    an error.
+
+    """
     if not keys:
         return {}
     cur.execute(
@@ -191,22 +247,37 @@ def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
     return result
 
 
-def _terms(contributions: pd.Series, shift_factors: pd.Series) -> list[AnalysisContributionTerm]:
+def _terms(
+    contributions: pd.Series, shift_factors: pd.Series
+) -> list[AnalysisContributionTerm]:
     contributions = contributions[contributions != 0.0]
-    ordered = contributions.reindex(contributions.abs().sort_values(ascending=False).index)
-    return [AnalysisContributionTerm(constraint_key=str(key), contribution=float(value),
-                                    shift_factor=float(shift_factors.loc[key]))
-            for key, value in ordered.items()]
+    ordered = contributions.reindex(
+        contributions.abs().sort_values(ascending=False).index
+    )
+    return [
+        AnalysisContributionTerm(
+            constraint_key=str(key),
+            contribution=float(value),
+            shift_factor=float(shift_factors.loc[key]),
+        )
+        for key, value in ordered.items()
+    ]
 
 
-def _structural_terms(shift_factors: pd.Series, contributions: pd.Series) -> list[AnalysisContributionTerm]:
+def _structural_terms(
+    shift_factors: pd.Series, contributions: pd.Series
+) -> list[AnalysisContributionTerm]:
     """Every nonzero SF relationship, including constraints quiet this hour."""
     sf = shift_factors[shift_factors != 0.0]
     ordered = sf.reindex(sf.abs().sort_values(ascending=False).index)
-    return [AnalysisContributionTerm(
-        constraint_key=str(key), contribution=float(contributions.loc[key]),
-        shift_factor=float(value),
-    ) for key, value in ordered.items()]
+    return [
+        AnalysisContributionTerm(
+            constraint_key=str(key),
+            contribution=float(contributions.loc[key]),
+            shift_factor=float(value),
+        )
+        for key, value in ordered.items()
+    ]
 
 
 def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
@@ -214,10 +285,21 @@ def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
     return {
         "magnitude": magnitude_verdict(forecast["magnitude"], settled["magnitude"]),
         "regime": None,
-        "where": {"bucket": "held" if forecast["where"].get("zone") == settled["where"].get("zone")
-                  else "shifted"},
-        "exceptions": {"bucket": "held" if forecast["exceptions"].get("bucket")
-                       == settled["exceptions"].get("bucket") else "shifted"},
+        "where": {
+            "bucket": (
+                "held"
+                if forecast["where"].get("zone") == settled["where"].get("zone")
+                else "shifted"
+            )
+        },
+        "exceptions": {
+            "bucket": (
+                "held"
+                if forecast["exceptions"].get("bucket")
+                == settled["exceptions"].get("bucket")
+                else "shifted"
+            )
+        },
     }
 
 
@@ -253,45 +335,69 @@ def _standout_rows(
 ) -> list[StandoutRow]:
     """Select forecast calls that are unusual relative to their own history.
 
-    This intentionally compares forecast to forecast.  DAM, if it has landed,
-    is attached as evidence only; it is not smuggled into the forecast baseline.
+    This intentionally compares forecast to forecast. DAM, if it has landed, is
+    attached as evidence only; it is not smuggled into the forecast baseline.
+
     """
     baseline = {
         key: float(pd.Series(values, dtype=float).median())
         for key, values in histories.items()
-        if len(values) >= MIN_STANDOUT_HISTORY_DAYS and (median := float(pd.Series(values, dtype=float).median())) > 0.0
+        if len(values) >= MIN_STANDOUT_HISTORY_DAYS
+        and (median := float(pd.Series(values, dtype=float).median())) > 0.0
     }
     elevated = [
-        key for key, median in baseline.items()
-        if float(forecast_total.get(key, 0.0)) > 0.0 and float(forecast_total.get(key, 0.0)) / median >= 1.5
+        key
+        for key, median in baseline.items()
+        if float(forecast_total.get(key, 0.0)) > 0.0
+        and float(forecast_total.get(key, 0.0)) / median >= 1.5
     ]
-    elevated.sort(key=lambda key: (float(forecast_total.get(key, 0.0)) / baseline[key],
-                                   float(forecast_total.get(key, 0.0))), reverse=True)
+    elevated.sort(
+        key=lambda key: (
+            float(forecast_total.get(key, 0.0)) / baseline[key],
+            float(forecast_total.get(key, 0.0)),
+        ),
+        reverse=True,
+    )
     selected = elevated[:k]
 
     # A chronic constraint that the forecast prices unusually low is a distinct
     # useful callout. It survives even when it sat below the legacy serving floor.
     under_called = [
-        key for key, days in chronic_bound_days.items()
-        if key in baseline and key not in selected
+        key
+        for key, days in chronic_bound_days.items()
+        if key in baseline
+        and key not in selected
         and float(forecast_total.get(key, 0.0)) <= baseline[key] * 0.25
         and days >= 24
     ]
-    under_called.sort(key=lambda key: (baseline[key] - float(forecast_total.get(key, 0.0)),
-                                       chronic_bound_days[key]), reverse=True)
+    under_called.sort(
+        key=lambda key: (
+            baseline[key] - float(forecast_total.get(key, 0.0)),
+            chronic_bound_days[key],
+        ),
+        reverse=True,
+    )
     selected.extend(under_called[:k])
 
     rows: list[StandoutRow] = []
     for key in selected:
-        rows.append(StandoutRow(
-            constraint_key=key,
-            kind="forecast_elevated" if key in elevated[:k] else "chronic_under_called",
-            forecast_total=float(forecast_total.get(key, 0.0)),
-            forecast_history_median=baseline[key],
-            forecast_history_days=len(histories[key]),
-            chronic_bound_days=chronic_bound_days.get(key),
-            settled_total=(float(settled_total[key]) if key in settled_total else None),
-        ))
+        rows.append(
+            StandoutRow(
+                constraint_key=key,
+                kind=(
+                    "forecast_elevated"
+                    if key in elevated[:k]
+                    else "chronic_under_called"
+                ),
+                forecast_total=float(forecast_total.get(key, 0.0)),
+                forecast_history_median=baseline[key],
+                forecast_history_days=len(histories[key]),
+                chronic_bound_days=chronic_bound_days.get(key),
+                settled_total=(
+                    float(settled_total[key]) if key in settled_total else None
+                ),
+            )
+        )
     return rows
 
 
@@ -307,35 +413,53 @@ def _node_standout_rows(
     baseline = {
         key: float(pd.Series(values, dtype=float).abs().median())
         for key, values in histories.items()
-        if len(values) >= MIN_STANDOUT_HISTORY_DAYS and float(pd.Series(values, dtype=float).abs().median()) > NODE_CONGESTION_EPSILON
+        if len(values) >= MIN_STANDOUT_HISTORY_DAYS
+        and float(pd.Series(values, dtype=float).abs().median())
+        > NODE_CONGESTION_EPSILON
     }
     elevated = [
-        key for key, median in baseline.items()
+        key
+        for key, median in baseline.items()
         if abs(float(forecast_total.get(key, 0.0))) / median >= 1.5
     ]
-    elevated.sort(key=lambda key: (abs(float(forecast_total.get(key, 0.0))) / baseline[key],
-                                   abs(float(forecast_total.get(key, 0.0)))), reverse=True)
+    elevated.sort(
+        key=lambda key: (
+            abs(float(forecast_total.get(key, 0.0))) / baseline[key],
+            abs(float(forecast_total.get(key, 0.0))),
+        ),
+        reverse=True,
+    )
     depressed = [
-        key for key, median in baseline.items()
-        if key not in elevated and abs(float(forecast_total.get(key, 0.0))) / median <= 0.5
+        key
+        for key, median in baseline.items()
+        if key not in elevated
+        and abs(float(forecast_total.get(key, 0.0))) / median <= 0.5
     ]
-    depressed.sort(key=lambda key: (abs(float(forecast_total.get(key, 0.0))) / baseline[key], key))
+    depressed.sort(
+        key=lambda key: (abs(float(forecast_total.get(key, 0.0))) / baseline[key], key)
+    )
     metadata = load_sp_metadata(forecast_total.index)
     rows: list[NodeStandoutRow] = []
     for key in elevated[:k] + depressed[:k]:
         terms = forecast_terms[key] if key in forecast_terms else pd.Series(dtype=float)
         gross = float(terms.abs().sum())
-        rows.append(NodeStandoutRow(
-            settlement_point=key,
-            kind="forecast_elevated" if key in elevated[:k] else "forecast_depressed",
-            zone=metadata.get(key, {}).get("load_zone"),
-            forecast_total=float(forecast_total.get(key, 0.0)),
-            forecast_history_median=baseline[key],
-            forecast_history_days=len(histories[key]),
-            settled_total=(float(settled_total[key]) if key in settled_total else None),
-            dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-            driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
-        ))
+        rows.append(
+            NodeStandoutRow(
+                settlement_point=key,
+                kind=(
+                    "forecast_elevated" if key in elevated[:k] else "forecast_depressed"
+                ),
+                zone=metadata.get(key, {}).get("load_zone"),
+                forecast_total=float(forecast_total.get(key, 0.0)),
+                forecast_history_median=baseline[key],
+                forecast_history_days=len(histories[key]),
+                settled_total=(
+                    float(settled_total[key]) if key in settled_total else None
+                ),
+                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
+                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+            )
+        )
     return rows
 
 
@@ -360,13 +484,17 @@ def _settled_standout_keys(
     return [key for _, _, key in candidates[:k]]
 
 
-def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[str, list[float]]:
+def _settled_node_history(
+    cur, delivery_date: date, points: list[str]
+) -> dict[str, list[float]]:
     """Market-peak daily DAM congestion for a small selected node set.
 
     One window query grouped by (point, CT delivery day) — mirrors
-    ``_settled_constraint_history``, replacing the former 30-round-trip
-    per-day loop (0137). Every requested point is present in the result
-    (quiet days fill 0.0), since callers index the dict directly."""
+    ``_settled_constraint_history``, replacing the former 30-round-trip per-day
+    loop. Every requested point is present in the result (quiet days fill 0.0),
+    since callers index the dict directly.
+
+    """
     start, _ = delivery_bounds(delivery_date - timedelta(days=30))
     end, _ = delivery_bounds(delivery_date)
     cur.execute(
@@ -384,30 +512,23 @@ def _settled_node_history(cur, delivery_date: date, points: list[str]) -> dict[s
     )
     by_day: dict[str, dict[date, float]] = {}
     for row in cur.fetchall():
-        by_day.setdefault(str(row["settlement_point"]), {})[row["delivery_date"]] = float(row["congestion"])
+        by_day.setdefault(str(row["settlement_point"]), {})[row["delivery_date"]] = (
+            float(row["congestion"])
+        )
     days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
-    return {point: [by_day.get(point, {}).get(day, 0.0) for day in days] for point in points}
+    return {
+        point: [by_day.get(point, {}).get(day, 0.0) for day in days] for point in points
+    }
 
 
-def _forecast_node_history(cur, run_id: str, delivery_date: date,
-                           horizon: int) -> dict[str, list[float]]:
+def _forecast_node_history(
+    cur, run_id: str, delivery_date: date, horizon: int
+) -> dict[str, list[float]]:
     """Trailing-30-day forecast peak-hour congestion per node, read from
-    ``forecast_nodal`` in one query instead of decoding 30 daily SF+μ artifacts
-    (0138).
+    ``forecast_nodal`` in one query instead of decoding 30 daily SF+μ
+    artifacts.
 
-    ``forecast_nodal.point`` is the same ``−(E[μ]·SF)`` the artifact path projects
-    (``compute/sf/project.py``), so this is numerically equivalent to the old
-    ``_project_node_profile`` loop within the table's float32 storage. Grouping on
-    the stored ``delivery_date`` label (not the CT date of ``ts``) reproduces the
-    artifact path's per-day binning exactly — including for days still on the
-    pre-0133 UTC-day cut — while the ``MARKET_PEAK_CT_HOURS`` filter matches the CT
-    7×16 window the loop applied.
-
-    Any prior day absent from ``forecast_nodal`` falls back to decoding that day's
-    artifact (belt-and-suspenders: prod nodal coverage tracks the artifacts in
-    lockstep, since ``persist_forecast`` writes both atomically). Values are
-    one-per-present-day and unordered; the standout selectors consume only each
-    series' length and median."""
+    """
     cur.execute(
         "SELECT settlement_point, delivery_date, avg(point) AS peak_mean "
         "FROM forecast_nodal WHERE run_id = %s AND horizon = %s "
@@ -419,13 +540,18 @@ def _forecast_node_history(cur, run_id: str, delivery_date: date,
     histories: dict[str, list[float]] = {}
     present: set[date] = set()
     for row in cur.fetchall():
-        histories.setdefault(str(row["settlement_point"]), []).append(float(row["peak_mean"]))
+        histories.setdefault(str(row["settlement_point"]), []).append(
+            float(row["peak_mean"])
+        )
         present.add(row["delivery_date"])
     # Fallback: any trailing day with no forecast_nodal rows is projected the old
     # way from its artifact, so a coverage hole degrades to the prior behaviour
     # rather than silently dropping a day from every node's baseline.
-    missing = [delivery_date - timedelta(days=offset) for offset in range(1, 31)
-               if delivery_date - timedelta(days=offset) not in present]
+    missing = [
+        delivery_date - timedelta(days=offset)
+        for offset in range(1, 31)
+        if delivery_date - timedelta(days=offset) not in present
+    ]
     if missing:
         prior_artifacts = load_daily_artifacts(cur, run_id, missing, horizon)
         for day in missing:
@@ -434,7 +560,10 @@ def _forecast_node_history(cur, run_id: str, delivery_date: date,
                 continue
             prior = _project_node_profile(artifact, day)
             prior_profile = prior.loc[
-                prior.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)]
+                prior.index.tz_convert("America/Chicago").hour.isin(
+                    MARKET_PEAK_CT_HOURS
+                )
+            ]
             if prior_profile.empty:
                 continue
             for point, value in prior_profile.mean(axis=0).items():
@@ -456,9 +585,13 @@ def _settled_constraint_history(cur, delivery_date: date) -> dict[str, list[floa
     )
     by_day: dict[str, dict[date, float]] = {}
     for row in cur.fetchall():
-        by_day.setdefault(str(row["constraint_key"]), {})[row["delivery_date"]] = float(row["total"])
+        by_day.setdefault(str(row["constraint_key"]), {})[row["delivery_date"]] = float(
+            row["total"]
+        )
     days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
-    return {key: [values.get(day, 0.0) for day in days] for key, values in by_day.items()}
+    return {
+        key: [values.get(day, 0.0) for day in days] for key, values in by_day.items()
+    }
 
 
 def _settled_node_standout_keys(
@@ -472,7 +605,11 @@ def _settled_node_standout_keys(
     candidates: list[tuple[float, float, str]] = []
     for key, value in settled_total.items():
         key = str(key)
-        historical = [abs(item) for item in histories.get(key, []) if abs(item) > NODE_CONGESTION_EPSILON]
+        historical = [
+            abs(item)
+            for item in histories.get(key, [])
+            if abs(item) > NODE_CONGESTION_EPSILON
+        ]
         if key in excluded or len(historical) < MIN_STANDOUT_HISTORY_DAYS:
             continue
         p90 = float(pd.Series(historical).quantile(0.9))
@@ -484,14 +621,17 @@ def _settled_node_standout_keys(
 
 class NodeContributions(NamedTuple):
     """Constraint × node attribution over a (possibly filtered) hour set."""
+
     terms: pd.DataFrame
     hours: pd.DatetimeIndex
 
 
 def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
     """Project a decoded artifact's forecast μ through its SF column into a
-    per-node congestion profile, clipped to D's CT day. Shared by the single-day
-    path and the batched trailing-history load (0137)."""
+    per-node congestion profile, clipped to D's CT day. Shared by the
+    single-day path and the batched trailing-history load.
+
+    """
     start, end = delivery_bounds(delivery_date)
     mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
     profile = mu.dot(-artifact.SF)
@@ -499,9 +639,15 @@ def _project_node_profile(artifact, delivery_date: date) -> pd.DataFrame:
     return profile.loc[(profile.index >= start) & (profile.index < end)]
 
 
-def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: int,
-                              *, realized: bool = False,
-                              ct_hours: tuple[int, ...] | None = None) -> NodeContributions | None:
+def _daily_node_contributions(
+    cur,
+    run_id: str,
+    delivery_date: date,
+    horizon: int,
+    *,
+    realized: bool = False,
+    ct_hours: tuple[int, ...] | None = None,
+) -> NodeContributions | None:
     """Full-day constraint × node attribution — one artifact covers D's whole CT
     day (0133), so no cross-day stitch is needed."""
     start, end = delivery_bounds(delivery_date)
@@ -514,8 +660,13 @@ def _daily_node_contributions(cur, run_id: str, delivery_date: date, horizon: in
         selected = selected[selected.tz_convert("America/Chicago").hour.isin(ct_hours)]
     if not len(selected):
         return None
-    mu = (load_realized_mu(cur, selected, artifact.SF.index).reindex(artifact.SF.index).fillna(0.0)
-          if realized else artifact.E_mu.loc[selected].sum(axis=0))
+    mu = (
+        load_realized_mu(cur, selected, artifact.SF.index)
+        .reindex(artifact.SF.index)
+        .fillna(0.0)
+        if realized
+        else artifact.E_mu.loc[selected].sum(axis=0)
+    )
     terms = artifact.SF.mul(-mu, axis=0)
     return NodeContributions(terms.fillna(0.0), selected.sort_values())
 
@@ -537,7 +688,9 @@ def get_node(
     hours: list[datetime] | None = Query(None),
     min_abs_sf: float = Query(0.0, ge=0.0),
     mode: Literal["drivers", "structural"] = Query("drivers"),
-    include_detail: bool = Query(False, description="Include Matrix Detail's structural terms and ESSP count."),
+    include_detail: bool = Query(
+        False, description="Include Matrix Detail's structural terms and ESSP count."
+    ),
 ) -> NodeAnalysisAvailableResponse | NodeAnalysisUnavailableResponse:
     """Decompose a node from every represented constraint, never a brief top-k."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
@@ -545,22 +698,38 @@ def get_node(
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
             return NodeAnalysisUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
                 delivery_date=delivery_date,
             )
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
             return NodeAnalysisUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
             )
         return node_response(
-            cur=cur, artifact=artifact, settlement_point=settlement_point, run_id=run_id,
-            delivery_date=delivery_date, horizon=horizon, basis=basis, hours=hours,
-            min_abs_sf=min_abs_sf, mode=mode, include_detail=include_detail,
-            selected_hours=_selected_hours, settled_congestion=_settled_congestion,
-            node_market_state=_node_market_state, essp_member_count=_essp_member_count,
-            terms=_terms, structural_terms=_structural_terms,
+            cur=cur,
+            artifact=artifact,
+            settlement_point=settlement_point,
+            run_id=run_id,
+            delivery_date=delivery_date,
+            horizon=horizon,
+            basis=basis,
+            hours=hours,
+            min_abs_sf=min_abs_sf,
+            mode=mode,
+            include_detail=include_detail,
+            selected_hours=_selected_hours,
+            settled_congestion=_settled_congestion,
+            node_market_state=_node_market_state,
+            essp_member_count=_essp_member_count,
+            terms=_terms,
+            structural_terms=_structural_terms,
         )
 
 
@@ -568,24 +737,35 @@ def get_settlement_points(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
     horizon: int | None = Query(None, ge=1, le=2),
-) -> AnalysisSettlementPointsAvailableResponse | AnalysisSettlementPointsUnavailableResponse:
+) -> (
+    AnalysisSettlementPointsAvailableResponse
+    | AnalysisSettlementPointsUnavailableResponse
+):
     """List all artifact columns once for counterparty discovery, never a Matrix screen."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
             return AnalysisSettlementPointsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
                 delivery_date=delivery_date,
             )
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
             return AnalysisSettlementPointsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
             )
     return settlement_points_response(
-        artifact=artifact, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        artifact=artifact,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
         metadata_loader=load_sp_metadata,
     )
 
@@ -602,21 +782,29 @@ def get_constraints(
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
             return AnalysisConstraintsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
                 delivery_date=delivery_date,
             )
         artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
         if artifact is None:
             return AnalysisConstraintsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
             )
         keys = [str(key) for key in artifact.E_mu.columns]
         geography = _constraint_geo(cur, keys)
 
     return constraints_response(
-        artifact=artifact, geography=geography, run_id=run_id,
-        delivery_date=delivery_date, horizon=horizon,
+        artifact=artifact,
+        geography=geography,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
     )
 
 
@@ -626,13 +814,11 @@ def get_essp_groups(
 ) -> AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse:
     """Return raw ESSP membership for one hour and vintage.
 
-    The caller chooses the hour used by its view (the v6 brief uses its peak
-    hour) and deliberately chooses the causal study or post-DAM final.  No
-    cross-day fallback is applied: membership is hourly topology data, not a
-    static node attribute.
     """
     if interval_ts.tzinfo is None:
-        raise HTTPException(status_code=422, detail="interval_ts must include a UTC offset.")
+        raise HTTPException(
+            status_code=422, detail="interval_ts must include a UTC offset."
+        )
     interval_ts = pd.Timestamp(interval_ts).tz_convert("UTC").to_pydatetime()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -656,7 +842,9 @@ def get_grade(
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
             return GradeUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
                 delivery_date=delivery_date,
             )
         # An unsettled delivery day has no DAM μ to grade against.  Report both
@@ -664,10 +852,16 @@ def get_grade(
         # the grade scorer would otherwise return magnitude_overlap 0.0 with
         # null APs, and a materialization run before DAM lands would persist it.
         if brief_grade.settled_mu_profile(cur, delivery_date).empty:
-            pending = GradeHalfResponse(graded=False, unavailable_reason="settlement_pending")
+            pending = GradeHalfResponse(
+                graded=False, unavailable_reason="settlement_pending"
+            )
             return GradeAvailableResponse(
-                available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-                constraints=pending, nodes=pending,
+                available=True,
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
+                constraints=pending,
+                nodes=pending,
             )
         cur.execute(
             "SELECT subject, detail FROM analysis_grade_daily "
@@ -677,22 +871,40 @@ def get_grade(
         materialized = {str(row["subject"]): row["detail"] for row in cur.fetchall()}
         if "constraints" in materialized and "nodes" in materialized:
             return GradeAvailableResponse(
-                available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-                constraints=GradeHalfResponse(**_brief_payload(materialized["constraints"])),
+                available=True,
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
+                constraints=GradeHalfResponse(
+                    **_brief_payload(materialized["constraints"])
+                ),
                 nodes=GradeHalfResponse(**_brief_payload(materialized["nodes"])),
             )
-        constraints = brief_grade.grade_constraint_profiles(cur, run_id, delivery_date, horizon)
+        constraints = brief_grade.grade_constraint_profiles(
+            cur, run_id, delivery_date, horizon
+        )
         nodes = brief_grade.grade_node_profiles(cur, run_id, delivery_date, horizon)
     if constraints is None:
         return GradeUnavailableResponse(
-            available=False, unavailable_reason="artifact_missing", run_id=run_id,
-            delivery_date=delivery_date, horizon=horizon,
+            available=False,
+            unavailable_reason="artifact_missing",
+            run_id=run_id,
+            delivery_date=delivery_date,
+            horizon=horizon,
         )
     return GradeAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        constraints=GradeHalfResponse(**_brief_payload(brief_grade.serialize_grade_half(constraints))),
-        nodes=(_brief_payload(brief_grade.serialize_grade_half(nodes)) if nodes is not None else
-               GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")),
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
+        constraints=GradeHalfResponse(
+            **_brief_payload(brief_grade.serialize_grade_half(constraints))
+        ),
+        nodes=(
+            _brief_payload(brief_grade.serialize_grade_half(nodes))
+            if nodes is not None
+            else GradeHalfResponse(graded=False, unavailable_reason="node_data_missing")
+        ),
     )
 
 
@@ -702,7 +914,8 @@ def _brief_payload(payload: dict) -> dict:
     source_ids = {source["id"] for source in result.get("source_metrics", [])}
     result["sources"] = [
         {"id": source.id, "label": source.label, "definition": source.definition}
-        for source in brief_grade.SOURCE_DEFINITIONS if source.id in source_ids
+        for source in brief_grade.SOURCE_DEFINITIONS
+        if source.id in source_ids
     ]
     return result
 
@@ -717,8 +930,12 @@ def get_grade_history(
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
-            return GradeHistoryUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                                   run_id=run_id, delivery_date=delivery_date)
+            return GradeHistoryUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+            )
         cur.execute(
             "SELECT delivery_date, subject, model, persistence FROM analysis_grade_daily "
             "WHERE run_id = %s AND horizon = %s AND delivery_date >= %s - %s "
@@ -728,32 +945,55 @@ def get_grade_history(
         grouped: dict[date, dict[str, dict]] = {}
         for row in cur.fetchall():
             grouped.setdefault(row["delivery_date"], {})[str(row["subject"])] = {
-                "model": row["model"], "persistence": row["persistence"],
+                "model": row["model"],
+                "persistence": row["persistence"],
             }
     descriptors = [
         {"id": source.id, "label": source.label, "definition": source.definition}
         for source in _BRIEF_SOURCE_DEFINITIONS
     ]
-    result = [GradeHistoryDayResponse(
-        delivery_date=day,
-        constraints=GradeHistoryHalfResponse(
-            **values["constraints"], sources=descriptors,
-            source_metrics=[
-                {"id": _BRIEF_SOURCE_DEFINITIONS[0].id, "metrics": values["constraints"]["model"]},
-                {"id": _BRIEF_SOURCE_DEFINITIONS[1].id, "metrics": values["constraints"]["persistence"]},
-            ],
-        ),
-        nodes=GradeHistoryHalfResponse(
-            **values["nodes"], sources=descriptors,
-            source_metrics=[
-                {"id": _BRIEF_SOURCE_DEFINITIONS[0].id, "metrics": values["nodes"]["model"]},
-                {"id": _BRIEF_SOURCE_DEFINITIONS[1].id, "metrics": values["nodes"]["persistence"]},
-            ],
-        ),
-    ) for day, values in grouped.items()
-              if "constraints" in values and "nodes" in values]
-    return GradeHistoryAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
-                                         horizon=horizon, days=result)
+    result = [
+        GradeHistoryDayResponse(
+            delivery_date=day,
+            constraints=GradeHistoryHalfResponse(
+                **values["constraints"],
+                sources=descriptors,
+                source_metrics=[
+                    {
+                        "id": _BRIEF_SOURCE_DEFINITIONS[0].id,
+                        "metrics": values["constraints"]["model"],
+                    },
+                    {
+                        "id": _BRIEF_SOURCE_DEFINITIONS[1].id,
+                        "metrics": values["constraints"]["persistence"],
+                    },
+                ],
+            ),
+            nodes=GradeHistoryHalfResponse(
+                **values["nodes"],
+                sources=descriptors,
+                source_metrics=[
+                    {
+                        "id": _BRIEF_SOURCE_DEFINITIONS[0].id,
+                        "metrics": values["nodes"]["model"],
+                    },
+                    {
+                        "id": _BRIEF_SOURCE_DEFINITIONS[1].id,
+                        "metrics": values["nodes"]["persistence"],
+                    },
+                ],
+            ),
+        )
+        for day, values in grouped.items()
+        if "constraints" in values and "nodes" in values
+    ]
+    return GradeHistoryAvailableResponse(
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
+        days=result,
+    )
 
 
 def get_top_constraints(
@@ -768,14 +1008,19 @@ def get_top_constraints(
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
             return TopConstraintsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
                 delivery_date=delivery_date,
             )
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
             return TopConstraintsUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
             )
         settled = brief_grade.settled_mu_profile(cur, delivery_date)
         settled_histories = _settled_constraint_history(cur, delivery_date)
@@ -787,44 +1032,96 @@ def get_top_constraints(
         geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
 
     forecast_mass = forecast.abs().sum(axis=0)
-    ranked = forecast_mass[forecast_mass > 0.0].sort_values(ascending=False, kind="stable")
-    settled_mass = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
-    settled_ranked = settled_mass[settled_mass > 0.0].sort_values(ascending=False, kind="stable")
+    ranked = forecast_mass[forecast_mass > 0.0].sort_values(
+        ascending=False, kind="stable"
+    )
+    settled_mass = (
+        settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
+    )
+    settled_ranked = settled_mass[settled_mass > 0.0].sort_values(
+        ascending=False, kind="stable"
+    )
     forecast_ranks = {str(key): rank for rank, key in enumerate(ranked.index, start=1)}
-    settled_ranks = {str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)}
+    settled_ranks = {
+        str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)
+    }
     visible_keys = _joined_top_keys(
-        ranked.index, settled_ranked.index, k=k, settled_available=not settled.empty,
+        ranked.index,
+        settled_ranked.index,
+        k=k,
+        settled_available=not settled.empty,
     )
     rows: list[TopConstraintRow] = []
     for key in visible_keys:
-        forecast_values = forecast[key] if key in forecast else pd.Series(0.0, index=forecast.index)
+        forecast_values = (
+            forecast[key] if key in forecast else pd.Series(0.0, index=forecast.index)
+        )
         settled_values = settled[key].dropna() if key in settled else None
         geo = geography.get(str(key), {})
         shares = geo.get("zone_shares") or {}
         historical = settled_histories.get(str(key), [0.0] * 30)
         nonzero_historical = [value for value in historical if value > 0.0]
-        rows.append(TopConstraintRow(
-            constraint_key=str(key), forecast_rank=forecast_ranks.get(str(key)),
-            forecast_total=float(forecast_mass.get(key, 0.0)),
-            forecast_peak=float(forecast_values.abs().max()),
-            forecast_hours=int(forecast_values.ne(0.0).sum()),
-            zone=max(shares, key=shares.get) if shares else None,
-            kv_max=geo.get("kv_max"),
-            settled_rank=settled_ranks.get(str(key)),
-            settled_total=(None if settled_values is None else float(settled_values.abs().sum())),
-            settled_peak=(None if settled_values is None or settled_values.empty
-                          else float(settled_values.abs().max())),
-            settled_hours=(None if settled_values is None else int(settled_values.ne(0.0).sum())),
-            settled_history_p10=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1))),
-            settled_history_p25=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.25))),
-            settled_history_p50=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.5))),
-            settled_history_p75=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.75))),
-            settled_history_p90=(None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9))),
-            settled_history=historical,
-        ))
+        rows.append(
+            TopConstraintRow(
+                constraint_key=str(key),
+                forecast_rank=forecast_ranks.get(str(key)),
+                forecast_total=float(forecast_mass.get(key, 0.0)),
+                forecast_peak=float(forecast_values.abs().max()),
+                forecast_hours=int(forecast_values.ne(0.0).sum()),
+                zone=max(shares, key=shares.get) if shares else None,
+                kv_max=geo.get("kv_max"),
+                settled_rank=settled_ranks.get(str(key)),
+                settled_total=(
+                    None
+                    if settled_values is None
+                    else float(settled_values.abs().sum())
+                ),
+                settled_peak=(
+                    None
+                    if settled_values is None or settled_values.empty
+                    else float(settled_values.abs().max())
+                ),
+                settled_hours=(
+                    None
+                    if settled_values is None
+                    else int(settled_values.ne(0.0).sum())
+                ),
+                settled_history_p10=(
+                    None
+                    if not nonzero_historical
+                    else float(pd.Series(nonzero_historical).quantile(0.1))
+                ),
+                settled_history_p25=(
+                    None
+                    if not nonzero_historical
+                    else float(pd.Series(nonzero_historical).quantile(0.25))
+                ),
+                settled_history_p50=(
+                    None
+                    if not nonzero_historical
+                    else float(pd.Series(nonzero_historical).quantile(0.5))
+                ),
+                settled_history_p75=(
+                    None
+                    if not nonzero_historical
+                    else float(pd.Series(nonzero_historical).quantile(0.75))
+                ),
+                settled_history_p90=(
+                    None
+                    if not nonzero_historical
+                    else float(pd.Series(nonzero_historical).quantile(0.9))
+                ),
+                settled_history=historical,
+            )
+        )
     return TopConstraintsAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        rows=rows, n_ranked=len(ranked), k=k,
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
+        rows=rows,
+        n_ranked=len(ranked),
+        k=k,
     )
 
 
@@ -846,19 +1143,30 @@ def get_context(
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
-            return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                              run_id=run_id, delivery_date=delivery_date)
+            return ContextUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+            )
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
-            return ContextUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                              run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+            return ContextUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
+            )
         settled = brief_grade.settled_mu_profile(cur, delivery_date)
         histories = _settled_constraint_history(cur, delivery_date)
         cur.execute(
             "SELECT constraint_key, kv_max FROM constraint_geo "
             "WHERE window_start = (SELECT max(window_start) FROM constraint_geo)"
         )
-        voltage_by_key = {str(row["constraint_key"]): row["kv_max"] for row in cur.fetchall()}
+        voltage_by_key = {
+            str(row["constraint_key"]): row["kv_max"] for row in cur.fetchall()
+        }
 
     profile = settled if not settled.empty else forecast
     basis = "settled" if not settled.empty else "forecast"
@@ -870,9 +1178,13 @@ def get_context(
             continue
         label = _voltage_class(voltage_by_key.get(str(key)))
         values = profile[key].dropna()
-        bucket = classes.setdefault(label, {"constraint_keys": 0, "binding_hours": 0, "mu": 0.0})
+        bucket = classes.setdefault(
+            label, {"constraint_keys": 0, "binding_hours": 0, "mu": 0.0}
+        )
         bucket["constraint_keys"] = int(bucket["constraint_keys"]) + 1
-        bucket["binding_hours"] = int(bucket["binding_hours"]) + int(values.ne(0.0).sum())
+        bucket["binding_hours"] = int(bucket["binding_hours"]) + int(
+            values.ne(0.0).sum()
+        )
         bucket["mu"] = float(bucket["mu"]) + float(total)
 
     def voltage_sort(item: tuple[str, dict[str, float | int]]) -> tuple[int, float]:
@@ -884,13 +1196,15 @@ def get_context(
     for label, bucket in sorted(classes.items(), key=voltage_sort, reverse=True):
         hours = int(bucket["binding_hours"])
         mass = float(bucket["mu"])
-        voltage_classes.append(VoltageClassRow(
-            voltage_class=label,
-            constraint_keys=int(bucket["constraint_keys"]),
-            binding_hours=hours,
-            average_mu=mass / hours if hours else 0.0,
-            share_of_mu=mass / total_mu if total_mu else 0.0,
-        ))
+        voltage_classes.append(
+            VoltageClassRow(
+                voltage_class=label,
+                constraint_keys=int(bucket["constraint_keys"]),
+                binding_hours=hours,
+                average_mu=mass / hours if hours else 0.0,
+                share_of_mu=mass / total_mu if total_mu else 0.0,
+            )
+        )
 
     chronic = []
     for key, values in histories.items():
@@ -902,14 +1216,23 @@ def get_context(
         # nonzero-day p50 (both read the same trailing series) so one element
         # shows a single "median Σμ" everywhere on the Brief.
         nonzero = [value for value in values if value > 0.0]
-        chronic.append(ChronicElementRow(
-            element=constraint, contingency=contingency, days_bound=days_bound,
-            usual_total=float(pd.Series(nonzero, dtype=float).median()),
-        ))
+        chronic.append(
+            ChronicElementRow(
+                element=constraint,
+                contingency=contingency,
+                days_bound=days_bound,
+                usual_total=float(pd.Series(nonzero, dtype=float).median()),
+            )
+        )
     chronic.sort(key=lambda row: row.usual_total, reverse=True)
     return ContextAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon, basis=basis,
-        voltage_classes=voltage_classes, chronic_elements=chronic[:chronic_limit],
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
+        basis=basis,
+        voltage_classes=voltage_classes,
+        chronic_elements=chronic[:chronic_limit],
     )
 
 
@@ -923,12 +1246,21 @@ def get_standouts(
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
-            return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                                run_id=run_id, delivery_date=delivery_date)
+            return StandoutsUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+            )
         forecast = brief_grade.forecast_mu_profile(cur, run_id, delivery_date, horizon)
         if forecast is None:
-            return StandoutsUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                                run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+            return StandoutsUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
+            )
         cur.execute(
             "SELECT constraint_key, array_agg(forecast_mu ORDER BY delivery_date) AS values "
             "FROM forecast_constraint_daily "
@@ -937,8 +1269,10 @@ def get_standouts(
             "GROUP BY constraint_key",
             (run_id, horizon, delivery_date, delivery_date),
         )
-        histories = {str(row["constraint_key"]): [float(value) for value in row["values"]]
-                     for row in cur.fetchall()}
+        histories = {
+            str(row["constraint_key"]): [float(value) for value in row["values"]]
+            for row in cur.fetchall()
+        }
         ws, _ = delivery_bounds(delivery_date - timedelta(days=30))
         history_end, _ = delivery_bounds(delivery_date)
         cur.execute(
@@ -949,7 +1283,9 @@ def get_standouts(
             "AND abs(shadow_price) > 0 GROUP BY constraint_name, contingency_name",
             (ws, history_end),
         )
-        chronic = {str(row["constraint_key"]): int(row["days"]) for row in cur.fetchall()}
+        chronic = {
+            str(row["constraint_key"]): int(row["days"]) for row in cur.fetchall()
+        }
         cur.execute(
             "SELECT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key, "
             "(interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date, "
@@ -962,8 +1298,12 @@ def get_standouts(
         )
         settled_history_by_day: dict[str, dict[date, float]] = {}
         for row in cur.fetchall():
-            settled_history_by_day.setdefault(str(row["constraint_key"]), {})[row["delivery_date"]] = float(row["total"])
-        history_days = [delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)]
+            settled_history_by_day.setdefault(str(row["constraint_key"]), {})[
+                row["delivery_date"]
+            ] = float(row["total"])
+        history_days = [
+            delivery_date - timedelta(days=offset) for offset in range(30, 0, -1)
+        ]
         settled_histories = {
             key: [values.get(day, 0.0) for day in history_days]
             for key, values in settled_history_by_day.items()
@@ -975,7 +1315,8 @@ def get_standouts(
         geography = {str(row["constraint_key"]): row for row in cur.fetchall()}
         settled = brief_grade.settled_mu_profile(cur, delivery_date)
         node_result = _daily_node_contributions(
-            cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
+            cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS
+        )
         node_histories: dict[str, list[float]] = {}
         if node_result is not None:
             # Trailing forecast node history now reads forecast_nodal in one query
@@ -991,27 +1332,43 @@ def get_standouts(
             )
             essp_by_signature: dict[tuple[str, ...], set[datetime]] = {}
             for group in cur.fetchall():
-                members = tuple(sorted(str(point) for point in group["settlement_points"]))
+                members = tuple(
+                    sorted(str(point) for point in group["settlement_points"])
+                )
                 if len(members) > 1:
-                    essp_by_signature.setdefault(members, set()).add(group["interval_ts"])
-            node_essp_groups = [members for members, seen in essp_by_signature.items()
-                                if len(seen) == len(node_result.hours)]
+                    essp_by_signature.setdefault(members, set()).add(
+                        group["interval_ts"]
+                    )
+            node_essp_groups = [
+                members
+                for members, seen in essp_by_signature.items()
+                if len(seen) == len(node_result.hours)
+            ]
         else:
             node_settled = pd.DataFrame()
             node_essp_groups = []
 
     forecast_total = forecast.abs().sum(axis=0)
-    settled_total = settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
+    settled_total = (
+        settled.abs().sum(axis=0) if not settled.empty else pd.Series(dtype=float)
+    )
     settled_available = not settled.empty
     node_rows: list[NodeStandoutRow] = []
     if node_result is not None:
         node_terms, node_hours = node_result.terms, node_result.hours
         node_forecast_total = node_terms.sum(axis=0) / len(node_hours)
-        node_settled_total = (node_settled.loc[
-            node_settled.index.tz_convert("America/Chicago").hour.isin(MARKET_PEAK_CT_HOURS)
-        ].mean(axis=0) if not node_settled.empty else pd.Series(dtype=float))
-        node_rows = _node_standout_rows(node_forecast_total, node_histories, node_settled_total,
-                                        node_terms, k=k)
+        node_settled_total = (
+            node_settled.loc[
+                node_settled.index.tz_convert("America/Chicago").hour.isin(
+                    MARKET_PEAK_CT_HOURS
+                )
+            ].mean(axis=0)
+            if not node_settled.empty
+            else pd.Series(dtype=float)
+        )
+        node_rows = _node_standout_rows(
+            node_forecast_total, node_histories, node_settled_total, node_terms, k=k
+        )
         canonical = {str(point): (str(point), 1) for point in node_forecast_total.index}
         for members in node_essp_groups:
             present = [point for point in members if point in canonical]
@@ -1022,104 +1379,284 @@ def get_standouts(
         collapsed_rows: list[NodeStandoutRow] = []
         seen_representatives: set[str] = set()
         for row in node_rows:
-            representative, count = canonical.get(row.settlement_point, (row.settlement_point, 1))
+            representative, count = canonical.get(
+                row.settlement_point, (row.settlement_point, 1)
+            )
             if representative not in seen_representatives:
-                collapsed_rows.append(row.model_copy(update={
-                    "settlement_point": representative, "essp_member_count": count,
-                }))
+                collapsed_rows.append(
+                    row.model_copy(
+                        update={
+                            "settlement_point": representative,
+                            "essp_member_count": count,
+                        }
+                    )
+                )
                 seen_representatives.add(representative)
         node_rows = collapsed_rows
-        node_forecast_ranks = {str(key): rank for rank, key in enumerate(
-            node_forecast_total.abs().sort_values(ascending=False, kind="stable").index, start=1)}
-        node_settled_ranks = {str(key): rank for rank, key in enumerate(
-            node_settled_total.abs().sort_values(ascending=False, kind="stable").index, start=1)}
+        node_forecast_ranks = {
+            str(key): rank
+            for rank, key in enumerate(
+                node_forecast_total.abs()
+                .sort_values(ascending=False, kind="stable")
+                .index,
+                start=1,
+            )
+        }
+        node_settled_ranks = {
+            str(key): rank
+            for rank, key in enumerate(
+                node_settled_total.abs()
+                .sort_values(ascending=False, kind="stable")
+                .index,
+                start=1,
+            )
+        }
         forecast_points = [row.settlement_point for row in node_rows]
-        settled_candidates = [str(point) for point in node_settled_total.abs().sort_values(
-            ascending=False, kind="stable").index[:60] if str(point) not in set(forecast_points)]
+        settled_candidates = [
+            str(point)
+            for point in node_settled_total.abs()
+            .sort_values(ascending=False, kind="stable")
+            .index[:60]
+            if str(point) not in set(forecast_points)
+        ]
         history_points = forecast_points + settled_candidates
         if history_points:
-            with get_pool().connection() as history_conn, history_conn.cursor(row_factory=dict_row) as history_cur:
-                node_settled_histories = _settled_node_history(history_cur, delivery_date, history_points)
+            with get_pool().connection() as history_conn, history_conn.cursor(
+                row_factory=dict_row
+            ) as history_cur:
+                node_settled_histories = _settled_node_history(
+                    history_cur, delivery_date, history_points
+                )
         else:
             node_settled_histories = {}
-        appended_points = _settled_node_standout_keys(
-            node_settled_total, node_settled_histories, set(forecast_points), k=3,
-        ) if settled_available else []
+        appended_points = (
+            _settled_node_standout_keys(
+                node_settled_total,
+                node_settled_histories,
+                set(forecast_points),
+                k=3,
+            )
+            if settled_available
+            else []
+        )
         metadata = load_sp_metadata(node_forecast_total.index)
         for point in appended_points:
             terms = node_terms[point] if point in node_terms else pd.Series(dtype=float)
             gross = float(terms.abs().sum())
-            node_rows.append(NodeStandoutRow(
-                settlement_point=point, kind="settled_elevated",
-                zone=metadata.get(point, {}).get("load_zone"),
-                forecast_total=float(node_forecast_total.get(point, 0.0)),
-                forecast_history_median=float(pd.Series(node_histories.get(point, [])).abs().median()),
-                forecast_history_days=len(node_histories.get(point, [])),
-                settled_total=float(node_settled_total.get(point, 0.0)),
-                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
-            ))
-        node_rows = [row.model_copy(update={
-            "forecast_rank": node_forecast_ranks.get(row.settlement_point),
-            "settled_rank": node_settled_ranks.get(row.settlement_point),
-            "settled_history_p10": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
-                                    else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.1))),
-            "settled_history_p25": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.25))),
-            "settled_history_p50": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.5))),
-            "settled_history_p75": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point]) else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.75))),
-            "settled_history_p90": (None if not any(abs(value) > NODE_CONGESTION_EPSILON for value in node_settled_histories[row.settlement_point])
-                                    else float(pd.Series(node_settled_histories[row.settlement_point]).quantile(0.9))),
-            "settled_history": node_settled_histories[row.settlement_point],
-        }) for row in node_rows]
+            node_rows.append(
+                NodeStandoutRow(
+                    settlement_point=point,
+                    kind="settled_elevated",
+                    zone=metadata.get(point, {}).get("load_zone"),
+                    forecast_total=float(node_forecast_total.get(point, 0.0)),
+                    forecast_history_median=float(
+                        pd.Series(node_histories.get(point, [])).abs().median()
+                    ),
+                    forecast_history_days=len(node_histories.get(point, [])),
+                    settled_total=float(node_settled_total.get(point, 0.0)),
+                    dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
+                    driver_share=(
+                        None if gross == 0.0 else float(terms.abs().max() / gross)
+                    ),
+                )
+            )
+        node_rows = [
+            row.model_copy(
+                update={
+                    "forecast_rank": node_forecast_ranks.get(row.settlement_point),
+                    "settled_rank": node_settled_ranks.get(row.settlement_point),
+                    "settled_history_p10": (
+                        None
+                        if not any(
+                            abs(value) > NODE_CONGESTION_EPSILON
+                            for value in node_settled_histories[row.settlement_point]
+                        )
+                        else float(
+                            pd.Series(
+                                node_settled_histories[row.settlement_point]
+                            ).quantile(0.1)
+                        )
+                    ),
+                    "settled_history_p25": (
+                        None
+                        if not any(
+                            abs(value) > NODE_CONGESTION_EPSILON
+                            for value in node_settled_histories[row.settlement_point]
+                        )
+                        else float(
+                            pd.Series(
+                                node_settled_histories[row.settlement_point]
+                            ).quantile(0.25)
+                        )
+                    ),
+                    "settled_history_p50": (
+                        None
+                        if not any(
+                            abs(value) > NODE_CONGESTION_EPSILON
+                            for value in node_settled_histories[row.settlement_point]
+                        )
+                        else float(
+                            pd.Series(
+                                node_settled_histories[row.settlement_point]
+                            ).quantile(0.5)
+                        )
+                    ),
+                    "settled_history_p75": (
+                        None
+                        if not any(
+                            abs(value) > NODE_CONGESTION_EPSILON
+                            for value in node_settled_histories[row.settlement_point]
+                        )
+                        else float(
+                            pd.Series(
+                                node_settled_histories[row.settlement_point]
+                            ).quantile(0.75)
+                        )
+                    ),
+                    "settled_history_p90": (
+                        None
+                        if not any(
+                            abs(value) > NODE_CONGESTION_EPSILON
+                            for value in node_settled_histories[row.settlement_point]
+                        )
+                        else float(
+                            pd.Series(
+                                node_settled_histories[row.settlement_point]
+                            ).quantile(0.9)
+                        )
+                    ),
+                    "settled_history": node_settled_histories[row.settlement_point],
+                }
+            )
+            for row in node_rows
+        ]
         if settled_available:
-            node_rows.sort(key=lambda row: (
-                row.settled_rank is None, row.settled_rank if row.settled_rank is not None else float("inf"),
-                row.forecast_rank if row.forecast_rank is not None else float("inf"),
-            ))
-    forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(ascending=False, kind="stable")
-    settled_ranked = settled_total[settled_total > 0.0].sort_values(ascending=False, kind="stable")
-    forecast_ranks = {str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)}
-    settled_ranks = {str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)}
-    forecast_rows = _standout_rows(forecast_total, histories, chronic, settled_total, k=k)
-    appended_keys = _settled_standout_keys(
-        settled_total, settled_histories, {row.constraint_key for row in forecast_rows}, k=3,
-    ) if settled_available else []
+            node_rows.sort(
+                key=lambda row: (
+                    row.settled_rank is None,
+                    row.settled_rank if row.settled_rank is not None else float("inf"),
+                    (
+                        row.forecast_rank
+                        if row.forecast_rank is not None
+                        else float("inf")
+                    ),
+                )
+            )
+    forecast_ranked = forecast_total[forecast_total > 0.0].sort_values(
+        ascending=False, kind="stable"
+    )
+    settled_ranked = settled_total[settled_total > 0.0].sort_values(
+        ascending=False, kind="stable"
+    )
+    forecast_ranks = {
+        str(key): rank for rank, key in enumerate(forecast_ranked.index, start=1)
+    }
+    settled_ranks = {
+        str(key): rank for rank, key in enumerate(settled_ranked.index, start=1)
+    }
+    forecast_rows = _standout_rows(
+        forecast_total, histories, chronic, settled_total, k=k
+    )
+    appended_keys = (
+        _settled_standout_keys(
+            settled_total,
+            settled_histories,
+            {row.constraint_key for row in forecast_rows},
+            k=3,
+        )
+        if settled_available
+        else []
+    )
     rows: list[StandoutRow] = []
-    for row in forecast_rows + [StandoutRow(
-        constraint_key=key, kind="settled_elevated", forecast_total=float(forecast_total.get(key, 0.0)),
-        forecast_history_median=float(pd.Series(histories.get(key, [])).median()),
-        forecast_history_days=len(histories.get(key, [])), chronic_bound_days=chronic.get(key),
-        settled_total=float(settled_total[key]),
-    ) for key in appended_keys]:
-        forecast_values = forecast[row.constraint_key] if row.constraint_key in forecast else pd.Series(dtype=float)
-        settled_values = settled[row.constraint_key].dropna() if row.constraint_key in settled else pd.Series(dtype=float)
+    for row in forecast_rows + [
+        StandoutRow(
+            constraint_key=key,
+            kind="settled_elevated",
+            forecast_total=float(forecast_total.get(key, 0.0)),
+            forecast_history_median=float(pd.Series(histories.get(key, [])).median()),
+            forecast_history_days=len(histories.get(key, [])),
+            chronic_bound_days=chronic.get(key),
+            settled_total=float(settled_total[key]),
+        )
+        for key in appended_keys
+    ]:
+        forecast_values = (
+            forecast[row.constraint_key]
+            if row.constraint_key in forecast
+            else pd.Series(dtype=float)
+        )
+        settled_values = (
+            settled[row.constraint_key].dropna()
+            if row.constraint_key in settled
+            else pd.Series(dtype=float)
+        )
         historical = settled_histories.get(row.constraint_key, [0.0] * 30)
         nonzero_historical = [value for value in historical if value > 0.0]
         geo = geography.get(row.constraint_key, {})
         shares = geo.get("zone_shares") or {}
-        rows.append(row.model_copy(update={
-            "zone": max(shares, key=shares.get) if shares else None,
-            "kv_max": geo.get("kv_max"),
-            "forecast_rank": forecast_ranks.get(row.constraint_key),
-            "forecast_peak": None if forecast_values.empty else float(forecast_values.abs().max()),
-            "forecast_hours": int(forecast_values.ne(0.0).sum()),
-            "settled_rank": settled_ranks.get(row.constraint_key),
-            "settled_peak": None if settled_values.empty else float(settled_values.abs().max()),
-            "settled_hours": None if settled.empty else int(settled_values.ne(0.0).sum()),
-            "settled_history_p10": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.1)),
-            "settled_history_p25": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.25)),
-            "settled_history_p50": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.5)),
-            "settled_history_p75": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.75)),
-            "settled_history_p90": None if not nonzero_historical else float(pd.Series(nonzero_historical).quantile(0.9)),
-            "settled_history": historical,
-        }))
+        rows.append(
+            row.model_copy(
+                update={
+                    "zone": max(shares, key=shares.get) if shares else None,
+                    "kv_max": geo.get("kv_max"),
+                    "forecast_rank": forecast_ranks.get(row.constraint_key),
+                    "forecast_peak": (
+                        None
+                        if forecast_values.empty
+                        else float(forecast_values.abs().max())
+                    ),
+                    "forecast_hours": int(forecast_values.ne(0.0).sum()),
+                    "settled_rank": settled_ranks.get(row.constraint_key),
+                    "settled_peak": (
+                        None
+                        if settled_values.empty
+                        else float(settled_values.abs().max())
+                    ),
+                    "settled_hours": (
+                        None if settled.empty else int(settled_values.ne(0.0).sum())
+                    ),
+                    "settled_history_p10": (
+                        None
+                        if not nonzero_historical
+                        else float(pd.Series(nonzero_historical).quantile(0.1))
+                    ),
+                    "settled_history_p25": (
+                        None
+                        if not nonzero_historical
+                        else float(pd.Series(nonzero_historical).quantile(0.25))
+                    ),
+                    "settled_history_p50": (
+                        None
+                        if not nonzero_historical
+                        else float(pd.Series(nonzero_historical).quantile(0.5))
+                    ),
+                    "settled_history_p75": (
+                        None
+                        if not nonzero_historical
+                        else float(pd.Series(nonzero_historical).quantile(0.75))
+                    ),
+                    "settled_history_p90": (
+                        None
+                        if not nonzero_historical
+                        else float(pd.Series(nonzero_historical).quantile(0.9))
+                    ),
+                    "settled_history": historical,
+                }
+            )
+        )
     if settled_available:
-        rows.sort(key=lambda row: (
-            row.settled_rank is None, row.settled_rank if row.settled_rank is not None else float("inf"),
-            row.forecast_rank if row.forecast_rank is not None else float("inf"),
-        ))
+        rows.sort(
+            key=lambda row: (
+                row.settled_rank is None,
+                row.settled_rank if row.settled_rank is not None else float("inf"),
+                row.forecast_rank if row.forecast_rank is not None else float("inf"),
+            )
+        )
     return StandoutsAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
         basis="settled" if settled_available else "forecast",
         rows=rows,
         node_rows=node_rows,
@@ -1136,17 +1673,35 @@ def get_top_nodes(
         run_id = _resolve_run(cur, run_id)
         horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
         if horizon is None:
-            return TopNodesUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                               run_id=run_id, delivery_date=delivery_date)
+            return TopNodesUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+            )
         forecast_result = _daily_node_contributions(
-            cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS)
+            cur, run_id, delivery_date, horizon, ct_hours=MARKET_PEAK_CT_HOURS
+        )
         if forecast_result is None:
-            return TopNodesUnavailableResponse(available=False, unavailable_reason="artifact_missing",
-                                               run_id=run_id, delivery_date=delivery_date, horizon=horizon)
+            return TopNodesUnavailableResponse(
+                available=False,
+                unavailable_reason="artifact_missing",
+                run_id=run_id,
+                delivery_date=delivery_date,
+                horizon=horizon,
+            )
         forecast_terms, hours = forecast_result.terms, forecast_result.hours
         realized_result = _daily_node_contributions(
-            cur, run_id, delivery_date, horizon, realized=True, ct_hours=MARKET_PEAK_CT_HOURS)
-        settled = _settled_congestion(cur, [str(sp) for sp in forecast_terms.columns], hours)
+            cur,
+            run_id,
+            delivery_date,
+            horizon,
+            realized=True,
+            ct_hours=MARKET_PEAK_CT_HOURS,
+        )
+        settled = _settled_congestion(
+            cur, [str(sp) for sp in forecast_terms.columns], hours
+        )
         essp_groups: list[dict] = []
         grouping = "study_essp_missing"
         cur.execute(
@@ -1160,16 +1715,23 @@ def get_top_nodes(
             members = tuple(sorted(str(point) for point in group["settlement_points"]))
             if len(members) > 1:
                 by_signature.setdefault(members, set()).add(group["interval_ts"])
-        essp_groups = [{"settlement_points": members} for members, seen in by_signature.items()
-                       if len(seen) == len(hours)]
+        essp_groups = [
+            {"settlement_points": members}
+            for members, seen in by_signature.items()
+            if len(seen) == len(hours)
+        ]
         if essp_groups:
             grouping = "study_delivery_day"
 
     forecast_total = forecast_terms.sum(axis=0)
     ranked = forecast_total.abs().sort_values(ascending=False, kind="stable")
-    canonical: dict[str, tuple[str, int]] = {str(sp): (str(sp), 1) for sp in ranked.index}
+    canonical: dict[str, tuple[str, int]] = {
+        str(sp): (str(sp), 1) for sp in ranked.index
+    }
     for group in essp_groups:
-        members = sorted(str(sp) for sp in group["settlement_points"] if str(sp) in canonical)
+        members = sorted(
+            str(sp) for sp in group["settlement_points"] if str(sp) in canonical
+        )
         if members:
             representative = members[0]
             for member in members:
@@ -1180,10 +1742,16 @@ def get_top_nodes(
         if representative not in grouped:
             grouped[representative] = (float(value), representative, count)
     unique_ranked = list(grouped.values())
-    forecast_group_ranks = {sp: rank for rank, (_, sp, _) in enumerate(unique_ranked, start=1)}
+    forecast_group_ranks = {
+        sp: rank for rank, (_, sp, _) in enumerate(unique_ranked, start=1)
+    }
     realized_terms = None if realized_result is None else realized_result.terms
     metadata = load_sp_metadata(forecast_terms.columns)
-    settled_ranked = pd.Series(settled, dtype=float).abs().sort_values(ascending=False, kind="stable")
+    settled_ranked = (
+        pd.Series(settled, dtype=float)
+        .abs()
+        .sort_values(ascending=False, kind="stable")
+    )
     settled_grouped: dict[str, float] = {}
     for sp in settled_ranked.index:
         representative, _ = canonical.get(str(sp), (str(sp), 1))
@@ -1191,11 +1759,17 @@ def get_top_nodes(
     settled_unique = list(settled_grouped)
     settled_group_ranks = {sp: rank for rank, sp in enumerate(settled_unique, start=1)}
     visible_nodes = _joined_top_keys(
-        pd.Index([sp for _, sp, _ in unique_ranked]), pd.Index(settled_unique),
-        k=k, settled_available=bool(settled),
+        pd.Index([sp for _, sp, _ in unique_ranked]),
+        pd.Index(settled_unique),
+        k=k,
+        settled_available=bool(settled),
     )
-    with get_pool().connection() as history_conn, history_conn.cursor(row_factory=dict_row) as history_cur:
-        settled_histories = _settled_node_history(history_cur, delivery_date, visible_nodes)
+    with get_pool().connection() as history_conn, history_conn.cursor(
+        row_factory=dict_row
+    ) as history_cur:
+        settled_histories = _settled_node_history(
+            history_cur, delivery_date, visible_nodes
+        )
     group_member_counts = {sp: count for _, sp, count in unique_ranked}
     rows: list[TopNodeRow] = []
     for sp in visible_nodes:
@@ -1203,29 +1777,52 @@ def get_top_nodes(
         terms = forecast_terms[sp]
         gross = float(terms.abs().sum())
         settled_total = settled_grouped.get(str(sp))
-        realized_total = None if realized_terms is None else float(realized_terms[sp].sum())
+        realized_total = (
+            None if realized_terms is None else float(realized_terms[sp].sum())
+        )
         historical = settled_histories.get(str(sp), [0.0] * 30)
         history_series = pd.Series(historical)
-        rows.append(TopNodeRow(
-            settlement_point=str(sp), essp_member_count=essp_member_count,
-            zone=metadata[str(sp)].get("load_zone"),
-            forecast_rank=forecast_group_ranks.get(str(sp)), forecast_total=float(forecast_total.loc[sp] / len(hours)),
-            settled_rank=settled_group_ranks.get(str(sp)),
-            settled_total=None if settled_total is None else float(settled_total / len(hours)),
-            delta=None if settled_total is None else float((settled_total - forecast_total.loc[sp]) / len(hours)),
-            dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-            driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
-            coverage=(None if settled_total in (None, 0.0) else realized_total / settled_total),
-            settled_history_p10=float(history_series.quantile(0.1)),
-            settled_history_p25=float(history_series.quantile(0.25)),
-            settled_history_p50=float(history_series.quantile(0.5)),
-            settled_history_p75=float(history_series.quantile(0.75)),
-            settled_history_p90=float(history_series.quantile(0.9)),
-            settled_history=historical,
-        ))
-    return TopNodesAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
-                                     horizon=horizon, rows=rows, n_ranked=len(unique_ranked), k=k,
-                                     grouping=grouping)
+        rows.append(
+            TopNodeRow(
+                settlement_point=str(sp),
+                essp_member_count=essp_member_count,
+                zone=metadata[str(sp)].get("load_zone"),
+                forecast_rank=forecast_group_ranks.get(str(sp)),
+                forecast_total=float(forecast_total.loc[sp] / len(hours)),
+                settled_rank=settled_group_ranks.get(str(sp)),
+                settled_total=(
+                    None if settled_total is None else float(settled_total / len(hours))
+                ),
+                delta=(
+                    None
+                    if settled_total is None
+                    else float((settled_total - forecast_total.loc[sp]) / len(hours))
+                ),
+                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
+                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+                coverage=(
+                    None
+                    if settled_total in (None, 0.0)
+                    else realized_total / settled_total
+                ),
+                settled_history_p10=float(history_series.quantile(0.1)),
+                settled_history_p25=float(history_series.quantile(0.25)),
+                settled_history_p50=float(history_series.quantile(0.5)),
+                settled_history_p75=float(history_series.quantile(0.75)),
+                settled_history_p90=float(history_series.quantile(0.9)),
+                settled_history=historical,
+            )
+        )
+    return TopNodesAvailableResponse(
+        available=True,
+        run_id=run_id,
+        delivery_date=delivery_date,
+        horizon=horizon,
+        rows=rows,
+        n_ranked=len(unique_ranked),
+        k=k,
+        grouping=grouping,
+    )
 
 
 def get_hero_latest(
@@ -1248,17 +1845,26 @@ def get_hero_latest(
     if row is None:
         return HeroLatestResponse(available=False, run_id=run_id)
     return HeroLatestResponse(
-        available=True, run_id=run_id, delivery_date=row["delivery_date"], horizon=int(row["horizon"]),
+        available=True,
+        run_id=run_id,
+        delivery_date=row["delivery_date"],
+        horizon=int(row["horizon"]),
     )
 
 
 def get_hero(
     delivery_date: date | None = Query(None, description="ERCOT delivery day."),
     run_id: str | None = Depends(_server_selected_run),
-    horizon: int | None = Query(None, ge=1, le=2, description="Artifact track; final preferred."),
+    horizon: int | None = Query(
+        None, ge=1, le=2, description="Artifact track; final preferred."
+    ),
     *,
-    date_: date | None = Query(None, alias="date", deprecated=True,
-                               description="Deprecated alias for delivery_date."),
+    date_: date | None = Query(
+        None,
+        alias="date",
+        deprecated=True,
+        description="Deprecated alias for delivery_date.",
+    ),
     include_condition: bool = True,
 ) -> HeroAvailableResponse | HeroUnavailableResponse | HeroUnavailableAtHorizonResponse:
     """Return prose segments, raw slots, independent verdicts, and map cursor."""
@@ -1274,16 +1880,24 @@ def get_hero(
                 cur.execute("SELECT run_id FROM forecast_current WHERE layer = 'ercot'")
                 row = cur.fetchone()
                 if row is None:
-                    raise HTTPException(status_code=503, detail="no forecast run is published yet.")
+                    raise HTTPException(
+                        status_code=503, detail="no forecast run is published yet."
+                    )
                 run_id = str(row["run_id"])
             if horizon is None:
                 cur.execute(
                     "SELECT min(horizon) AS h FROM forecast_sf_artifact "
-                    "WHERE run_id = %s AND delivery_date = %s", (run_id, delivery_date))
+                    "WHERE run_id = %s AND delivery_date = %s",
+                    (run_id, delivery_date),
+                )
                 row = cur.fetchone()
                 if row is None or row["h"] is None:
-                    return {"available": False, "unavailable_reason": "artifact_missing",
-                            "run_id": run_id, "delivery_date": delivery_date}
+                    return {
+                        "available": False,
+                        "unavailable_reason": "artifact_missing",
+                        "run_id": run_id,
+                        "delivery_date": delivery_date,
+                    }
                 horizon = int(row["h"])
             artifact_started = perf_counter()
             artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
@@ -1291,19 +1905,34 @@ def get_hero(
             settled = _dam_landed(cur, delivery_date)
 
         if artifact is None:
-            return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id,
-                    "delivery_date": delivery_date, "horizon": horizon}
+            return {
+                "available": False,
+                "unavailable_reason": "artifact_missing",
+                "run_id": run_id,
+                "delivery_date": delivery_date,
+                "horizon": horizon,
+            }
         basis = "settled" if settled else "forecast"
         builder_started = perf_counter()
         slots = build_hero(
-            conn, run_id, delivery_date, horizon, basis, artifact=artifact,
+            conn,
+            run_id,
+            delivery_date,
+            horizon,
+            basis,
+            artifact=artifact,
             include_condition=include_condition,
         )
         builder_elapsed = perf_counter() - builder_started
         verdict = None
         if settled:
             forecast = build_hero(
-                conn, run_id, delivery_date, horizon, "forecast", artifact=artifact,
+                conn,
+                run_id,
+                delivery_date,
+                horizon,
+                "forecast",
+                artifact=artifact,
                 include_condition=include_condition,
             )
             verdict = _verdicts(forecast, slots)
@@ -1313,15 +1942,25 @@ def get_hero(
             "slots": slots,
             "verdict": verdict,
             "cursor": _cursor(delivery_date, artifact),
-            "provenance": {"run_id": run_id, "delivery_date": delivery_date,
-                           "horizon": horizon, "basis": basis},
+            "provenance": {
+                "run_id": run_id,
+                "delivery_date": delivery_date,
+                "horizon": horizon,
+                "basis": basis,
+            },
         }
         elapsed = perf_counter() - started
         if elapsed >= _BRIEF_SLOW_REQUEST_SECONDS:
             logger.info(
                 "hero_request_profile day=%s run=%s horizon=%s basis=%s condition=%s total=%.3fs "
                 "artifact=%.3fs builder=%.3fs",
-                delivery_date, run_id, horizon, basis, elapsed,
-                include_condition, artifact_elapsed, builder_elapsed,
+                delivery_date,
+                run_id,
+                horizon,
+                basis,
+                elapsed,
+                include_condition,
+                artifact_elapsed,
+                builder_elapsed,
             )
         return response

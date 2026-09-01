@@ -1,18 +1,12 @@
 """Shared access to immutable per-day SF + forecast-μ artifacts.
 
 The database stores one compressed NPZ per ``(run_id, delivery_date, horizon)``
-(0123: horizon 1 = final/t+1, horizon 2 = preview/t+2).  The decoded object is
-reused by endpoints that need a dense slice of the day's causal fit; it is
-deliberately keyed by all three values so a request can never cross a
-model-version, delivery-day, or horizon boundary.
+(horizon 1 = final/t+1, horizon 2 = preview/t+2). It is deliberately keyed by
+all three values so a request can never cross a model-version, delivery-day, or
+horizon boundary.
 
-By default a lookup coalesces per day — it serves the final artifact when one
-exists and falls back to the preview otherwise — so a preview-only day is fully
-inspectable and, once the final lands, the same request transparently switches to
-it.  The transition is handled by resolving the served horizon per request (a cheap
-``min(horizon)`` probe) *before* the cache, so the cache never pins a stale preview
-for a day that has since been finalized.
 """
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -25,7 +19,6 @@ from compute.projection.codecs import SfMuArtifact, load_sf_mu
 from api.services.constraint_keys import normalize_constraint_key
 from api.services.time import CENTRAL, coerce_utc
 
-
 # A typical decoded daily artifact is roughly 5 MiB (dense float32 SF, hourly
 # float32 E_mu, and their labels). Sized so a single request's trailing-30-day
 # node-history window (31 artifacts ~= 150 MiB) fits without thrashing, which is
@@ -36,11 +29,12 @@ ARTIFACT_CACHE_MAX_BYTES = 256 * 1024 * 1024
 def delivery_date_for(ts: datetime) -> date:
     """The CT operating date of an instant — the artifact partition key.
 
-    Artifacts are CT delivery-day blocks (0133): the row keyed D spans
-    05:00Z D -> 04:00Z D+1 in CDT (06:00Z -> 05:00Z in CST). Every consumer that
-    turns an instant into an artifact lookup must cut the day here and nowhere
-    else — /matrix/frame and /map/* each held their own copy of this rule, drifted
-    to a UTC cut, and blanked the day's last five hours (0143.1, 0144).
+    Artifacts are CT delivery-day blocks: the row keyed D spans 05:00Z D ->
+    04:00Z D+1 in CDT (06:00Z -> 05:00Z in CST). Every consumer that turns an
+    instant into an artifact lookup must cut the day here and nowhere else —
+    /matrix/frame and /map/* each held their own copy of this rule, drifted to
+    a UTC cut, and blanked the day's last five hours.
+
     """
     return coerce_utc(ts).astimezone(CENTRAL).date()
 
@@ -48,12 +42,6 @@ def delivery_date_for(ts: datetime) -> date:
 def load_realized_mu(cur, timestamps, constraint_keys) -> pd.Series:
     """Sum published DAM μ over artifact hours, aligned to its key vocabulary.
 
-    This is the realized counterpart to an artifact's ``E_mu.sum(axis=0)``.
-    Both Matrix's exact-hour display and the brief's multi-hour attribution use
-    it, so key normalization and the non-DST duplicate preference cannot drift.
-    Missing DAM constraints are omitted; consumers that need a full arithmetic
-    vector explicitly reindex and fill zero, while display consumers retain the
-    important distinction between an unmatched price and a published zero.
     """
     keys = set(str(key) for key in constraint_keys)
     values: dict[str, float] = {}
@@ -89,14 +77,18 @@ def _artifact_size_bytes(artifact: SfMuArtifact) -> int:
 class SfArtifactCache:
     """Byte-bounded LRU cache for decoded immutable daily artifacts.
 
-    Lock-guarded: composed endpoints run their sections in a thread pool, and a
-    reload fires several such requests at once, so ``get``/``put``/evict are
-    touched concurrently — an unguarded ``OrderedDict`` corrupts its byte
-    accounting and links under that (0137)."""
+    Endpoints run their sections in a thread pool, and a reload fires several
+    such requests at once, so ``get``/``put``/evict are touched concurrently —
+    an unguarded ``OrderedDict`` corrupts its byte accounting and links under
+    that.
+
+    """
 
     def __init__(self, max_bytes: int = ARTIFACT_CACHE_MAX_BYTES) -> None:
         self.max_bytes = max_bytes
-        self._items: OrderedDict[tuple[str, date, int], tuple[SfMuArtifact, int]] = OrderedDict()
+        self._items: OrderedDict[tuple[str, date, int], tuple[SfMuArtifact, int]] = (
+            OrderedDict()
+        )
         self._bytes = 0
         self._lock = Lock()
 
@@ -145,18 +137,20 @@ def resolve_daily_horizon(cur, run_id: str, delivery_date: date) -> int | None:
     return None if row is None or row["h"] is None else int(row["h"])
 
 
-def load_daily_artifact(cur, run_id: str, delivery_date: date,
-                        horizon: int | None = None) -> SfMuArtifact | None:
+def load_daily_artifact(
+    cur, run_id: str, delivery_date: date, horizon: int | None = None
+) -> SfMuArtifact | None:
     """Fetch and decode a day's artifact, or ``None`` when the blob is absent.
 
-    ``horizon=None`` (the default) coalesces per day: it serves the final artifact
-    (horizon 1) when one exists and falls back to the preview (horizon 2) otherwise.
-    An explicit ``horizon`` reads exactly that track — used to inspect a preserved
-    preview for a day that already has a final (0123).
+    ``horizon=None`` (the default) per day: it serves the final artifact
+    (horizon 1) when one exists and falls back to the preview (horizon 2)
+    otherwise. An explicit ``horizon`` reads exactly that track — used to
+    inspect a preserved preview for a day that already has a final.
 
-    The served horizon is resolved *before* the cache via a cheap ``min(horizon)``
-    probe, so the cache is keyed by the concrete horizon and never returns a stale
-    preview for a day that has since been finalized.
+    The served horizon is resolved *before* the cache via a cheap
+    ``min(horizon)`` probe, so the cache is keyed by the concrete horizon and
+    never returns a stale preview for a day that has since been finalized.
+
     """
     if horizon is None:
         horizon = resolve_daily_horizon(cur, run_id, delivery_date)
@@ -179,15 +173,17 @@ def load_daily_artifact(cur, run_id: str, delivery_date: date,
     return _ARTIFACT_CACHE.put(key, load_sf_mu(bytes(row["sf_npz"])))
 
 
-def load_daily_artifacts(cur, run_id: str, delivery_dates: list[date],
-                         horizon: int) -> dict[date, SfMuArtifact]:
+def load_daily_artifacts(
+    cur, run_id: str, delivery_dates: list[date], horizon: int
+) -> dict[date, SfMuArtifact]:
     """Cache-aware batch load of several days' artifacts at an explicit horizon.
 
     Replaces a per-day ``load_daily_artifact`` loop's N single-row round trips
-    with one windowed fetch of the cache misses (0137). Unlike the coalescing
-    single-day path this takes an explicit ``horizon`` only — callers pass an
-    already-resolved horizon — so a day lacking that track is simply absent from
-    the result (the SELECT skips it), matching the loop's ``None`` -> skip.
+    with one windowed fetch of the cache misses. Unlike the single-day path
+    this takes an explicit ``horizon`` only — callers pass an already-resolved
+    horizon — so a day lacking that track is simply absent from the result (the
+    SELECT skips it), matching the loop's ``None`` -> skip.
+
     """
     result: dict[date, SfMuArtifact] = {}
     missing: list[date] = []
@@ -206,5 +202,6 @@ def load_daily_artifacts(cur, run_id: str, delivery_dates: list[date],
         for row in cur.fetchall():
             day = row["delivery_date"]
             result[day] = _ARTIFACT_CACHE.put(
-                (run_id, day, horizon), load_sf_mu(bytes(row["sf_npz"])))
+                (run_id, day, horizon), load_sf_mu(bytes(row["sf_npz"]))
+            )
     return result

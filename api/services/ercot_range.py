@@ -3,6 +3,7 @@
 It reads DAM SPP rows once and sends settlement-point identifiers once per
 response rather than once per hour and per view.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -50,7 +51,9 @@ def ercot_range(start: datetime, end: datetime) -> ErcotRangeResponse:
         rows = cur.fetchall()
 
     if not rows:
-        raise HTTPException(status_code=503, detail=f"no ercot_dam_spp rows in window {start} .. {end}.")
+        raise HTTPException(
+            status_code=503, detail=f"no ercot_dam_spp rows in window {start} .. {end}."
+        )
 
     # The shared SP index keeps missing values aligned between intervals.
     sp_ids = sorted({str(row["settlement_point"]) for row in rows})
@@ -62,7 +65,11 @@ def ercot_range(start: datetime, end: datetime) -> ErcotRangeResponse:
         if entry is None:
             entry = ErcotRangeEntry(
                 interval_ts=ts,
-                system_lambda=None if row["system_lambda"] is None else float(row["system_lambda"]),
+                system_lambda=(
+                    None
+                    if row["system_lambda"] is None
+                    else float(row["system_lambda"])
+                ),
                 congestion=[None] * len(sp_ids),
                 spp=[None] * len(sp_ids),
             )
@@ -71,9 +78,12 @@ def ercot_range(start: datetime, end: datetime) -> ErcotRangeResponse:
         spp = None if row["dam_spp"] is None else float(row["dam_spp"])
         entry.spp[index] = spp
         entry.congestion[index] = (
-            None if spp is None or row["system_lambda"] is None
+            None
+            if spp is None or row["system_lambda"] is None
             else _round_congestion_difference(row["dam_spp"], row["system_lambda"])
         )
 
     entries = [by_ts[ts] for ts in sorted(by_ts)]
-    return ErcotRangeResponse(start=start, end=end, count=len(entries), sp_ids=sp_ids, entries=entries)
+    return ErcotRangeResponse(
+        start=start, end=end, count=len(entries), sp_ids=sp_ids, entries=entries
+    )
