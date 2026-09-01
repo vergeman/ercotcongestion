@@ -14,7 +14,7 @@ from api.services.analysis.resolution import dam_landed, resolve_delivery_date
 from api.services.sf_artifacts import load_daily_artifact
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
-from compute.analysis.hero_window import delivery_bounds
+from compute.time import delivery_bounds
 from compute.analysis.phrases import render
 
 logger = logging.getLogger(__name__)

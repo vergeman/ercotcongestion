@@ -33,7 +33,7 @@ from compute.mu_forecast.panel.engineering import (
     candidate_keys,
     net_load_regime,
 )
-from compute.time import ERCOT_TZ, ct_day_bounds, delivery_day_of
+from compute.time import ERCOT_TZ, ct_day_bounds, delivery_bounds, delivery_day_of
 
 D = pd.Timestamp("2025-08-02")  # a delivery day; DAM closed 2025-08-01 10:00 CT
 
@@ -84,11 +84,8 @@ def test_history_cutoff_admits_all_of_the_previous_day():
     assert first_hour_of_D >= cut               # day D itself is OUT — that is the target
 
 
-def test_ct_day_bounds_matches_hero_window_across_dst():
-    """Same DST-aware [start, end) hero_window.delivery_bounds computes, from the
-    pandas side: 23h/24h/25h across spring-forward/fall-back, and ordinary days
-    keep the plain 24h span."""
-    from compute.analysis.hero_window import delivery_bounds
+def test_ct_day_bounds_matches_delivery_bounds_across_dst():
+    """The Python-datetime and pandas bounds agree across all DST day lengths."""
 
     for day, hours in [("2025-08-02", 24), ("2026-03-08", 23), ("2026-11-01", 25)]:
         start, end = ct_day_bounds(pd.Timestamp(day).date())

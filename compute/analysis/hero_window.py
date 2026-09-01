@@ -8,21 +8,15 @@ re-run for a past day therefore cannot see a later backfill.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from statistics import median
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from compute.time import ERCOT_TZ as ERCOT_TZ_NAME, ct_day_bounds
+from compute.time import ERCOT_TZ as ERCOT_TZ_NAME, delivery_bounds
 
 ERCOT_TZ = ZoneInfo(ERCOT_TZ_NAME)
 HIGH_CONGESTION_CT_HOURS = (15, 16, 17, 18)  # Empirical slice; not a market on-peak definition.
-
-
-def delivery_bounds(delivery_date: date) -> tuple[datetime, datetime]:
-    """Return the UTC [start, end) bounds for one ERCOT delivery day."""
-    start, end = ct_day_bounds(delivery_date)
-    return start.to_pydatetime(), end.to_pydatetime()
 
 
 def _rows(cur, columns: tuple[str, ...]) -> list[dict[str, Any]]:

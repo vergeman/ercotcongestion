@@ -6,7 +6,7 @@ from fastapi import Query
 from api.services.analysis import panels as analysis_module
 from api.services.analysis.features import hero as hero_service
 from compute.analysis import brief_grade
-from compute.analysis.hero_window import delivery_bounds
+from compute.time import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.projection.codecs import SfMuArtifact
 

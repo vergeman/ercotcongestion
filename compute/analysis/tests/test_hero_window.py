@@ -1,7 +1,6 @@
 from datetime import date
 
 from compute.analysis.hero_window import (
-    delivery_bounds,
     daily_total,
     load_constraint_days,
     load_constraint_geo,
@@ -12,6 +11,7 @@ from compute.analysis.hero_window import (
     summarize_load_condition,
     summarize_node_days,
 )
+from compute.time import delivery_bounds
 
 
 class Cursor:

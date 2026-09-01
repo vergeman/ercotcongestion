@@ -6,6 +6,8 @@ the spring-forward and fall-back blocks remain 23 and 25 hours respectively.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 
 
@@ -18,6 +20,12 @@ def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
     start = (ts.tz_convert(ERCOT_TZ) if ts.tzinfo is not None
              else ts.tz_localize(ERCOT_TZ)).normalize()
     return start.tz_convert("UTC"), (start + pd.DateOffset(days=1)).tz_convert("UTC")
+
+
+def delivery_bounds(delivery_day) -> tuple[datetime, datetime]:
+    """Return Python-datetime UTC ``[start, end)`` bounds for one ERCOT day."""
+    start, end = ct_day_bounds(delivery_day)
+    return start.to_pydatetime(), end.to_pydatetime()
 
 
 def normalize_ct_day(delivery_day) -> pd.Timestamp:

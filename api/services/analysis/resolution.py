@@ -8,7 +8,7 @@ from datetime import date, datetime
 import pandas as pd
 from fastapi import HTTPException
 
-from compute.analysis.hero_window import delivery_bounds
+from compute.time import delivery_bounds
 
 
 @dataclass(frozen=True)

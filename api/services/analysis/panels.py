@@ -52,7 +52,7 @@ from api.schemas.analysis import (
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
 from compute.analysis.phrases import render
-from compute.analysis.hero_window import delivery_bounds
+from compute.time import delivery_bounds
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis import brief_grade
 from api.services.sf_artifacts import (
