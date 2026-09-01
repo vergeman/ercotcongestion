@@ -290,7 +290,7 @@ def _node_standout_rows(
     rows: list[NodeStandoutRow] = []
     for key in elevated[:k] + depressed[:k]:
         terms = forecast_terms[key] if key in forecast_terms else pd.Series(dtype=float)
-        gross = float(terms.abs().sum())
+        dominant_driver, driver_share = _dominant_driver(terms)
         rows.append(
             NodeStandoutRow(
                 settlement_point=key,
@@ -304,8 +304,8 @@ def _node_standout_rows(
                 settled_total=(
                     float(settled_total[key]) if key in settled_total else None
                 ),
-                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+                dominant_driver=dominant_driver,
+                driver_share=driver_share,
             )
         )
     return rows
@@ -583,6 +583,53 @@ def settled_history_stats(values, *, nonzero_only: bool, gate: bool = True) -> d
         )
         for label, q in (("10", 0.1), ("25", 0.25), ("50", 0.5), ("75", 0.75), ("90", 0.9))
     } | {"settled_history": series}
+
+
+def _study_essp_groups(cur, hours) -> list[tuple[str, ...]]:
+    """Multi-node study ESSP groups that hold across every delivery hour.
+
+    A group counts only if its exact membership appears in all ``hours`` — a
+    signature that survives the whole day, not a single interval's grouping.
+    """
+    cur.execute(
+        "SELECT interval_ts, group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
+        "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
+        "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
+        (list(hours.to_pydatetime()),),
+    )
+    by_signature: dict[tuple[str, ...], set[datetime]] = {}
+    for group in cur.fetchall():
+        members = tuple(sorted(str(point) for point in group["settlement_points"]))
+        if len(members) > 1:
+            by_signature.setdefault(members, set()).add(group["interval_ts"])
+    return [
+        members
+        for members, seen in by_signature.items()
+        if len(seen) == len(hours)
+    ]
+
+
+def _essp_canonical(universe, member_groups) -> dict[str, tuple[str, int]]:
+    """Map each node to its ESSP representative (min member) and group size.
+
+    Nodes outside every multi-node group map to themselves with count 1.
+    """
+    canonical = {str(node): (str(node), 1) for node in universe}
+    for members in member_groups:
+        present = sorted(str(member) for member in members if str(member) in canonical)
+        if present:
+            representative = present[0]
+            for member in present:
+                canonical[member] = (representative, len(present))
+    return canonical
+
+
+def _dominant_driver(terms: pd.Series) -> tuple[str | None, float | None]:
+    """The single constraint carrying the most of a node's congestion, and its share."""
+    gross = float(terms.abs().sum())
+    if gross == 0.0:
+        return None, None
+    return str(terms.abs().idxmax()), float(terms.abs().max() / gross)
 
 
 def get_node(
@@ -1165,26 +1212,7 @@ def get_standouts(
             # for any absent day lives inside the helper.
             node_histories = _forecast_node_history(cur, run_id, delivery_date, horizon)
             node_settled = brief_grade.settled_node_profile(cur, delivery_date)
-            cur.execute(
-                "SELECT interval_ts, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
-                "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
-                "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
-                (list(node_result.hours.to_pydatetime()),),
-            )
-            essp_by_signature: dict[tuple[str, ...], set[datetime]] = {}
-            for group in cur.fetchall():
-                members = tuple(
-                    sorted(str(point) for point in group["settlement_points"])
-                )
-                if len(members) > 1:
-                    essp_by_signature.setdefault(members, set()).add(
-                        group["interval_ts"]
-                    )
-            node_essp_groups = [
-                members
-                for members, seen in essp_by_signature.items()
-                if len(seen) == len(node_result.hours)
-            ]
+            node_essp_groups = _study_essp_groups(cur, node_result.hours)
         else:
             node_settled = pd.DataFrame()
             node_essp_groups = []
@@ -1210,13 +1238,7 @@ def get_standouts(
         node_rows = _node_standout_rows(
             node_forecast_total, node_histories, node_settled_total, node_terms, k=k
         )
-        canonical = {str(point): (str(point), 1) for point in node_forecast_total.index}
-        for members in node_essp_groups:
-            present = [point for point in members if point in canonical]
-            if present:
-                representative = present[0]
-                for point in present:
-                    canonical[point] = (representative, len(present))
+        canonical = _essp_canonical(node_forecast_total.index, node_essp_groups)
         collapsed_rows: list[NodeStandoutRow] = []
         seen_representatives: set[str] = set()
         for row in node_rows:
@@ -1265,7 +1287,7 @@ def get_standouts(
         metadata = load_sp_metadata(node_forecast_total.index)
         for point in appended_points:
             terms = node_terms[point] if point in node_terms else pd.Series(dtype=float)
-            gross = float(terms.abs().sum())
+            dominant_driver, driver_share = _dominant_driver(terms)
             node_rows.append(
                 NodeStandoutRow(
                     settlement_point=point,
@@ -1277,10 +1299,8 @@ def get_standouts(
                     ),
                     forecast_history_days=len(node_histories.get(point, [])),
                     settled_total=float(node_settled_total.get(point, 0.0)),
-                    dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-                    driver_share=(
-                        None if gross == 0.0 else float(terms.abs().max() / gross)
-                    ),
+                    dominant_driver=dominant_driver,
+                    driver_share=driver_share,
                 )
             )
         node_rows = [
@@ -1430,40 +1450,12 @@ def get_top_nodes(
         settled = _settled_congestion(
             cur, [str(sp) for sp in forecast_terms.columns], hours
         )
-        essp_groups: list[dict] = []
-        grouping = "study_essp_missing"
-        cur.execute(
-            "SELECT interval_ts, group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
-            "FROM ercot_essp WHERE interval_ts = ANY(%s) AND is_study = TRUE "
-            "GROUP BY interval_ts, group_index ORDER BY interval_ts, group_index",
-            (list(hours.to_pydatetime()),),
-        )
-        by_signature: dict[tuple[str, ...], set[datetime]] = {}
-        for group in cur.fetchall():
-            members = tuple(sorted(str(point) for point in group["settlement_points"]))
-            if len(members) > 1:
-                by_signature.setdefault(members, set()).add(group["interval_ts"])
-        essp_groups = [
-            {"settlement_points": members}
-            for members, seen in by_signature.items()
-            if len(seen) == len(hours)
-        ]
-        if essp_groups:
-            grouping = "study_delivery_day"
+        essp_groups = _study_essp_groups(cur, hours)
+        grouping = "study_delivery_day" if essp_groups else "study_essp_missing"
 
     forecast_total = forecast_terms.sum(axis=0)
     forecast_sorted, _ = ranked(forecast_total.abs())
-    canonical: dict[str, tuple[str, int]] = {
-        str(sp): (str(sp), 1) for sp in forecast_sorted.index
-    }
-    for group in essp_groups:
-        members = sorted(
-            str(sp) for sp in group["settlement_points"] if str(sp) in canonical
-        )
-        if members:
-            representative = members[0]
-            for member in members:
-                canonical[member] = (representative, len(members))
+    canonical = _essp_canonical(forecast_sorted.index, essp_groups)
     grouped: dict[str, tuple[float, str, int]] = {}
     for sp, value in forecast_sorted.items():
         representative, count = canonical[str(sp)]
@@ -1499,7 +1491,7 @@ def get_top_nodes(
     for sp in visible_nodes:
         essp_member_count = group_member_counts.get(sp, 1)
         terms = forecast_terms[sp]
-        gross = float(terms.abs().sum())
+        dominant_driver, driver_share = _dominant_driver(terms)
         settled_total = settled_grouped.get(str(sp))
         realized_total = (
             None if realized_terms is None else float(realized_terms[sp].sum())
@@ -1520,8 +1512,8 @@ def get_top_nodes(
                     if settled_total is None
                     else float((settled_total - forecast_total.loc[sp]) / len(hours))
                 ),
-                dominant_driver=None if gross == 0.0 else str(terms.abs().idxmax()),
-                driver_share=None if gross == 0.0 else float(terms.abs().max() / gross),
+                dominant_driver=dominant_driver,
+                driver_share=driver_share,
                 coverage=(
                     None
                     if settled_total in (None, 0.0)
