@@ -15,7 +15,6 @@ from api.db import get_pool
 from api.dependencies import server_selected_run as _server_selected_run
 from api.schemas.analysis import (
     AnalysisContributionTerm,
-    NodeMarketState,
     GradeAvailableResponse,
     GradeHalfResponse,
     GradeUnavailableResponse,
@@ -61,11 +60,12 @@ from api.services.sf_artifacts import (
     load_daily_artifacts,
     load_realized_mu,
 )
-from api.services.system_lambda import (
-    forecast_system_lambda,
-    persisted_system_lambdas_by_ct_hour,
-    settled_system_lambdas,
+from api.services.analysis.repositories.market import (
+    essp_member_count as _essp_member_count,
+    node_market_state as _node_market_state,
+    settled_congestion as _settled_congestion,
 )
+from api.services.analysis.policy.comparison import joined_top_keys as _joined_top_keys
 from api.services.analysis.resolution import (
     dam_landed as _dam_landed,
     resolve_delivery_date as _resolve_brief_delivery_date,
@@ -98,130 +98,6 @@ def _cursor(delivery_date: date, artifact) -> dict[str, str]:
     ws, we = delivery_bounds(delivery_date)
     peak = artifact.E_mu.abs().sum(axis=1).idxmax()
     return {"ws": _iso_z(ws), "we": _iso_z(we), "t": _iso_z(peak)}
-
-
-def _settled_congestion(
-    cur, settlement_points: list[str], timestamps: pd.DatetimeIndex
-) -> dict[str, float]:
-    params = (list(timestamps.to_pydatetime()), settlement_points)
-    cur.execute(
-        "SELECT DISTINCT ON (interval_ts, settlement_point) interval_ts, settlement_point, dam_spp "
-        "FROM ercot_dam_spp WHERE interval_ts = ANY(%s) AND settlement_point = ANY(%s) "
-        "ORDER BY interval_ts, settlement_point, dst_flag ASC",
-        params,
-    )
-    spp = {
-        (row["interval_ts"], str(row["settlement_point"])): row["dam_spp"]
-        for row in cur.fetchall()
-    }
-    cur.execute(
-        "SELECT DISTINCT ON (interval_ts) interval_ts, system_lambda FROM dam_system_lambda "
-        "WHERE interval_ts = ANY(%s) ORDER BY interval_ts, dst_flag ASC",
-        (list(timestamps.to_pydatetime()),),
-    )
-    lam = {row["interval_ts"]: row["system_lambda"] for row in cur.fetchall()}
-    out = {sp: 0.0 for sp in settlement_points}
-    complete = {sp: True for sp in settlement_points}
-    for ts in timestamps.to_pydatetime():
-        for sp in settlement_points:
-            if spp.get((ts, sp)) is None or lam.get(ts) is None:
-                complete[sp] = False
-            else:
-                out[sp] += float(spp[(ts, sp)]) - float(lam[ts])
-    return {sp: out[sp] for sp in settlement_points if complete[sp]}
-
-
-def _node_market_state(
-    cur,
-    settlement_point: str,
-    run_id: str,
-    delivery_date: date,
-    horizon: int,
-    timestamp: datetime,
-) -> NodeMarketState:
-    """One node's Map-equivalent congestion/LMP values at the Detail cursor."""
-    cur.execute(
-        """
-        SELECT point FROM forecast_nodal
-        WHERE run_id = %s AND delivery_date = %s AND horizon = %s
-          AND settlement_point = %s AND ts = %s
-        """,
-        (run_id, delivery_date, horizon, settlement_point, timestamp),
-    )
-    forecast_row = cur.fetchone()
-    forecast_congestion = (
-        None
-        if forecast_row is None or forecast_row["point"] is None
-        else float(forecast_row["point"])
-    )
-
-    settled_by_ts = settled_system_lambdas(cur, timestamp, timestamp)
-    forecast_lambda, lambda_source = forecast_system_lambda(
-        timestamp, settled_by_ts, {}
-    )
-    if forecast_congestion is not None and forecast_lambda is None:
-        persisted = persisted_system_lambdas_by_ct_hour(cur)
-        forecast_lambda, lambda_source = forecast_system_lambda(
-            timestamp, settled_by_ts, persisted
-        )
-
-    cur.execute(
-        """
-        SELECT DISTINCT ON (interval_ts, settlement_point) dam_spp
-        FROM ercot_dam_spp
-        WHERE interval_ts = %s AND settlement_point = %s
-        ORDER BY interval_ts, settlement_point, dst_flag ASC
-        """,
-        (timestamp, settlement_point),
-    )
-    dam_row = cur.fetchone()
-    dam_lmp = (
-        None
-        if dam_row is None or dam_row["dam_spp"] is None
-        else float(dam_row["dam_spp"])
-    )
-    settled_lambda = settled_by_ts.get(timestamp)
-    realized_congestion = (
-        None if dam_lmp is None or settled_lambda is None else dam_lmp - settled_lambda
-    )
-    return NodeMarketState(
-        forecast_congestion=forecast_congestion,
-        forecast_lmp=(
-            None
-            if forecast_congestion is None or forecast_lambda is None
-            else forecast_congestion + forecast_lambda
-        ),
-        realized_congestion=realized_congestion,
-        forecast_error=(
-            None
-            if forecast_congestion is None or realized_congestion is None
-            else forecast_congestion - realized_congestion
-        ),
-        dam_lmp=dam_lmp,
-        forecast_lambda_source=lambda_source,
-    )
-
-
-def _essp_member_count(cur, settlement_point: str, timestamp: datetime) -> int | None:
-    """Return the selected node's study-vintage ESSP group size, if present."""
-    cur.execute(
-        """
-        WITH selected_group AS (
-            SELECT group_index
-            FROM ercot_essp
-            WHERE interval_ts = %s AND is_study = TRUE AND settlement_point = %s
-            LIMIT 1
-        )
-        SELECT count(*) AS member_count
-        FROM ercot_essp
-        WHERE interval_ts = %s AND is_study = TRUE
-          AND group_index = (SELECT group_index FROM selected_group)
-        """,
-        (timestamp, settlement_point, timestamp),
-    )
-    row = cur.fetchone()
-    count = 0 if row is None else int(row["member_count"])
-    return count or None
 
 
 def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
@@ -302,28 +178,6 @@ def _verdicts(forecast: dict, settled: dict) -> dict[str, dict | None]:
             )
         },
     }
-
-
-def _joined_top_keys(
-    forecast_keys: pd.Index,
-    settled_keys: pd.Index,
-    *,
-    k: int,
-    settled_available: bool,
-) -> list[str]:
-    """Return the visible ranking for one Brief phase.
-
-    Before settlement the brief is simply the forecast top-k.  After settlement,
-    DAM owns the leading order and the forecast top-k survivors are appended as
-    comparison rows.  This deliberately produces up to 2k rows: a missed DAM
-    leader must not displace a forecast leader that readers need to inspect.
-    """
-    forecast_top = [str(key) for key in forecast_keys[:k]]
-    if not settled_available:
-        return forecast_top
-    settled_top = [str(key) for key in settled_keys[:k]]
-    settled_set = set(settled_top)
-    return settled_top + [key for key in forecast_top if key not in settled_set]
 
 
 def _standout_rows(
