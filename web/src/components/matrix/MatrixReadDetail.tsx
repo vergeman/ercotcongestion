@@ -18,7 +18,7 @@ import {
   useFullConstraintReach,
 } from "../panels/ConstraintReach";
 import { REACH_THRESHOLD_OPTS } from "../../api/client";
-import BriefFootprintMap from "../brief/BriefFootprintMap";
+import MiniMap from "../map/MiniMap";
 import { mapLinkTo } from "../../lib/mapLinks";
 import { shiftFactorColor } from "../../lib/colors";
 import { constraintName, percent, usd, zoneLabel } from "../brief/briefFormat";
@@ -298,14 +298,15 @@ function ConstraintRead({
         </div>
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap
-          selection={{ geo: "constraint", key: selectionKey }}
+        <MiniMap
+          mode="constraint"
+          selectionKey={selectionKey}
           mapHref={mapHref}
           onNavigate={onNavigateToMap}
           showTitle={false}
           t={cursorTs}
-          constraintReach={mapReach}
-          constraintReachLoading={loading}
+          reach={mapReach}
+          reachLoading={loading}
         />
       </div>
     </>
@@ -566,8 +567,9 @@ function NodeRead({
         )}
       </div>
       <div className="mrd__map">
-        <BriefFootprintMap
-          selection={{ geo: "node", key: point }}
+        <MiniMap
+          mode="node"
+          selectionKey={point}
           mapHref={mapHref}
           onNavigate={onNavigateToMap}
           showTitle={false}

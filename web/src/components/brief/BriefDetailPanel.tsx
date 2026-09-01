@@ -36,7 +36,7 @@ import {
   REACH_K,
   useConstraintReach,
 } from "../panels/ConstraintReach";
-import BriefFootprintMap from "./BriefFootprintMap";
+import MiniMap from "../map/MiniMap";
 
 // One shared sliding detail panel for every selectable Brief row (plan/0135). A
 // row is an inspection action, not a link: clicking it opens this right-side
@@ -656,7 +656,7 @@ export default function BriefDetailPanel({
             </div>
 
             <div className="bdp__body">
-              <BriefFootprintMap selection={{ geo, key }} mapHref={mapHref} t={cursorTs} />
+              <MiniMap mode={geo} selectionKey={key} mapHref={mapHref} t={cursorTs} />
               {rendered.kind === "standout-constraint" ? (
                 <ConstraintEvidence
                   row={rendered.row}

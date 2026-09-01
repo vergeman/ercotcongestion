@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { BriefHero as BriefHeroModel, HeroSegment } from "../../api/types";
-import HeroMapPreview from "./HeroMapPreview";
+import MiniMap from "../map/MiniMap";
 
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return (
@@ -36,7 +36,8 @@ export default function BriefHero({
     <section className="an-hero" aria-labelledby="brief-title">
       <div className="an-hero__frame">
         {!mobile && hero.cursor && (
-          <HeroMapPreview
+          <MiniMap
+            mode="lmp"
             cursor={hero.cursor}
             basis={settled ? "settled" : "forecast"}
           />
