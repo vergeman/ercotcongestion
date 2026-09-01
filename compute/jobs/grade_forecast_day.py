@@ -282,10 +282,14 @@ def grade_day(
         "climatology": mu_climatology(M_fit, hours, cols),    # P(bind)·E[μ|bind]
         "null": mu_null(hours, cols),                         # flat map (tripwire)
     }
-    for name in _BASELINES:
-        Yh = pd.DataFrame(predict(srcs[name], SF), index=hours, columns=SF.columns)
+
+    for mu_name in _BASELINES:
+        Yh = pd.DataFrame(predict(srcs[mu_name], SF), index=hours, columns=SF.columns)
         Yh = Yh.reindex(columns=N).to_numpy(float)
-        rows.append(_row(SOURCE_BY_CONSTRUCTOR[name].id,
+
+        # the metrics (spearman, sign_agree, top_decile) get calculated in
+        # screening_metrics, since have Y, Yh.
+        rows.append(_row(SOURCE_BY_CONSTRUCTOR[mu_name].id,
                          screening_metrics_for_scoreboard(Y, Yh)))
 
     m = rows[0]
