@@ -6,51 +6,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 
-# ---- /scoreboard/summary headline ----------------------------------------
-
-
-class HeadlineCurrency(BaseModel):
-    """One pre-registered metric in one rolling window, model + its
-    comparators.
-
-    """
-
-    currency: str  # topdecile_hit | rank_spearman | sign_agree
-    higher_is_better: bool
-    model: float | None = None
-    persistence: float | None = None
-    climatology: float | None = None
-    oracle: float | None = None
-    persistence_delta: float | None = None  # model - persistence (raw, sign per flag)
-
-
-class HeadlineWindow(BaseModel):
-    """One rolling window (30d / 90d) — every metric pooled over the trailing
-    weeks. ``weeks`` is how many weekly rows fed the pool; ``week_start``/
-    ``week_end`` bound them. The pool is an ``n_hours``-weighted mean of the weekly
-    cells — an approximation of the fully pooled stat, which lives on the full
-    board.
-    """
-
-    window_days: int  # 30 | 90
-    weeks: int
-    week_start: date
-    week_end: date
-    currencies: list[HeadlineCurrency]
-
-
-class ScoreboardHeadline(BaseModel):
-    """The rolling headline for one board (``run_id``).
-
-    ``run_id`` is the model version whose backtest this is; ``as_of_week`` is the
-    latest week on the board (the anchor the rolling windows trail from).
-    """
-
-    run_id: str
-    as_of_week: date
-    windows: list[HeadlineWindow]
-
-
 # ---- /scoreboard/summary weekly ------------------------------------------
 #
 # The full weekly backtest series, plus a pooled pre/post-RTC+B summary with
@@ -205,16 +160,15 @@ class ScoreboardHistory(BaseModel):
 class ScoreboardSummaryResponse(BaseModel):
     """One bundled payload for the Scoreboard page summary.
 
-    ``weekly``/``headline`` read ``scoreboard_weekly``; ``daily`` is the latest
-    final served grade and the final served tail of ``history`` resolves
-    independently from ``scoreboard_daily``.
+    ``weekly`` reads ``scoreboard_weekly``; ``daily`` is the latest final served
+    grade and the final served tail of ``history`` resolves independently from
+    ``scoreboard_daily``.
 
     A field is ``null`` exactly when its source section would 503.
 
     """
 
     weekly: ScoreboardWeekly | None
-    headline: ScoreboardHeadline | None
     daily: ScoreboardDaily | None
     history: ScoreboardHistory | None
     availability: dict[str, BootstrapSectionStatus]
