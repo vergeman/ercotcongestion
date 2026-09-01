@@ -30,8 +30,8 @@ Branch: refactor/0192-dedupe-grade-profile-builders
 
 ## Acceptance
 
-* [ ] The eight builders exist only in `brief_grade.py`; `panels.py` imports them.
-* [ ] `/analysis/*` and `/analysis/brief` responses are unchanged.
-* [ ] One `_windowed_profiles(nodes=...)` serves both the mu and node call sites.
-* [ ] `api/tests/test_analysis.py` and `compute/analysis/tests/test_brief_grade.py` pass with patches pointed at `brief_grade`.
-* [ ] 0189 carries a note acknowledging this builder consolidation.
+* [x] The eight builders exist only in `brief_grade.py`; `panels.py` imports them.
+* [x] `/analysis/*` and `/analysis/brief` responses are unchanged.
+* [x] One `windowed_profiles(nodes=...)` serves both the mu and node call sites.
+* [x] `api/tests/test_analysis.py` and `compute/analysis/tests/test_brief_grade.py` pass with patches pointed at `brief_grade`.
+* [x] 0189 carries a note acknowledging this builder consolidation.
