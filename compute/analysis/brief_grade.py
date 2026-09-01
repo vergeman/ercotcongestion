@@ -35,8 +35,8 @@ SOURCE_DEFINITIONS = (
                          "Forecast profile decoded from the served artifact.", "model"),
     SourceDefinition("brief_persistence_prior_settled_profile", "Prior-settled profile persistence",
                          "Prior settled delivery-day profile.", "persistence"),
-    SourceDefinition("brief_climatology_trailing_settled_profile", "Trailing settled-profile baseline",
-                         "Trailing settled-profile average.", "climatology"),
+    SourceDefinition("brief_climatology_trailing_settled_profile", "Trailing-window Average (Baseline)",
+                         "Average of trailing settled subject profiles; not the projected Scoreboard baseline.", "climatology"),
 )
 
 

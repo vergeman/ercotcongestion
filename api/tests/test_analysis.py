@@ -860,7 +860,7 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
                "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
                "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
     detail = {"graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
-              "sources": [{"id": "brief_model_artifact_profile", "label": "Artifact profile forecast",
+              "sources": [{"id": "brief_model_artifact_profile", "label": "stale source label",
                            "definition": "Forecast profile decoded from the served artifact."}],
               "source_metrics": [{"id": "brief_model_artifact_profile", "metrics": metrics}]}
     fake_pool.cursor.queue([{"h": 1}])
@@ -877,6 +877,7 @@ def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_p
     assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
         key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
     }
+    assert body["constraints"]["sources"][0]["label"] == "Artifact profile forecast"
     assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
         key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
     }

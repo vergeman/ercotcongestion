@@ -19,8 +19,8 @@ Branch: refactor/0190-comparison-presentation-and-metrics-catalog
 
 * Work in: Scoreboard and Brief frontend components/tests, `web/src/api/types.ts`, API compatibility schemas/services, `docs/Scoring.md`, `compute/experiments/METRICS.md`, `docs/METRICS.md`, Compute runbooks, and documentation links.
 * Drive Scoreboard presentation from API `SourceDescriptor` values and `series_id`, not hard-coded short source strings. Join weekly and daily history by `series_id`, retaining daily-over-weekly precedence on overlap.
-* Use precise labels: **Served nodal forecast**, **Prior-day nodal persistence**, **Trailing-window nodal baseline**, **Settled-μ nodal ceiling**, and **Flat nodal control**. Tooltips disclose whether the value is a backtest or served construction.
-* Render Brief profiles using Brief-specific labels; never show bare Model, Persistence, Climatology, or Oracle where domain context is absent.
+* Use precise Scoreboard labels: **Model Forecast**, **Prior-day (Persistence)**, **Trailing-window Average (Baseline)**, **Settled-μ Ceiling (Oracle)**, and **Flat nodal control**. Tooltips disclose whether the value is a backtest or served construction; track-record graph labels may use their compact source-family names.
+* Render Brief profiles using their API `SourceDescriptor` labels; never append duplicate explanatory labels or show bare Model, Persistence, Climatology, or Oracle where domain context is absent. Shared source-family labels describe the same role, not necessarily identical values across Brief and Scoreboard constructions.
 * After the frontend uses `SourceDescriptor` values, remove the bounded legacy API fields introduced by 0189 and test their absence.
 * Start documentation consolidation with `git mv docs/Scoring.md docs/METRICS.md`. Fold in the durable, non-duplicated content from `compute/experiments/METRICS.md`, then delete that source file with no redirect.
 * Make `docs/METRICS.md` the sole normative catalog for metric families, canonical IDs, display labels, information cutoffs, construction summaries, series IDs, and deployable/baseline/ceiling/control status. Include legacy IDs only in a migration appendix.

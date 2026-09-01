@@ -72,7 +72,13 @@ profiles rather than nodal Scoreboard rows:
 | --- | --- | --- |
 | `brief_model_artifact_profile` | Artifact profile forecast | Deployable Brief forecast profile. |
 | `brief_persistence_prior_settled_profile` | Prior-settled profile persistence | Brief baseline. |
-| `brief_climatology_trailing_settled_profile` | Trailing settled-profile baseline | Brief baseline. |
+| `brief_climatology_trailing_settled_profile` | Trailing-window Average (Baseline) | Brief baseline. |
+
+The shared **Trailing-window Average (Baseline)** label describes the same
+role, not identical values. Brief averages prior settled constraint or node
+profiles directly. Scoreboard’s daily baseline averages trailing μ and projects
+it through the applicable map before scoring nodal congestion. Do not compare
+the values between those surfaces.
 
 For a live day, every source is scored on the same intersection of forecast,
 map, and realized settlement points. This makes model-versus-persistence

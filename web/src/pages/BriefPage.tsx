@@ -1155,7 +1155,7 @@ function GradeHalf({
           supportRows={[
             {
               value: score(persistenceDailyRank),
-              label: `${gradeSourceLabel(half, BRIEF_PERSISTENCE_SOURCE)} (repeat prior settled day)`,
+              label: gradeSourceLabel(half, BRIEF_PERSISTENCE_SOURCE),
               win: beats(dailyRank, persistenceDailyRank),
             },
             {
@@ -1311,6 +1311,9 @@ function ForecastGrade({
   loading: boolean;
   settled: boolean;
 }) {
+  const persistenceLabel = grade?.constraints?.sources?.find(
+    (source) => source.id === BRIEF_PERSISTENCE_SOURCE
+  )?.label ?? "Prior-settled profile persistence";
   return (
     <section className="an-grade" aria-labelledby="forecast-grade-title">
       <h2 id="forecast-grade-title">Forecast Grade</h2>
@@ -1321,7 +1324,7 @@ function ForecastGrade({
           </span>
           <span className="an-grade-card__whisker-legend--model">● Today</span>
           <span className="an-grade-card__whisker-legend--persistence">
-            ● Persistence
+            ● {persistenceLabel}
           </span>
         </span>
       )}
