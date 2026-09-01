@@ -43,7 +43,7 @@ Branch: fix/0133-ct-delivery-day-blocks
   `compute/jobs/backfill_artifacts.py`, `api/analysis.py`; tests beside each.
 * **Block anchor**: replace `_as_utc_day` with a CT-midnight anchor (label stays the CT
   calendar date — label and block finally agree). Generate the hour grid from
-  `delivery_bounds(D)` (`compute/analysis/hero_window.py:21`), never `periods=24`:
+  `delivery_bounds(D)` (`compute/analysis/hero_queries.py`), never `periods=24`:
   DST transition days are 23/25 hours.
 * **`predict_day` gotchas** (`mu_model.py:656-661`): `D.normalize()` runs in the
   panel's tz (UTC) and would smash a CT midnight (05:00Z) back to 00:00Z — anchor on

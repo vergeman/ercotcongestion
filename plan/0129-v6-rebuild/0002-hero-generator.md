@@ -27,7 +27,7 @@ Depends on: `0001` (the regime slot reads the condition series `0001` repairs)
 * Work in: `compute/analysis/`, `api/analysis.py`, `tests/`
 * Entry point / primary change: `compute.analysis.hero.build_hero(conn, run_id, D, horizon, basis)` → slot dict; `compute.analysis.phrases.render(slots)` → segments.
 
-**Window queries** — `compute/analysis/hero_window.py`
+**Window queries** — `compute/analysis/hero_queries.py`
 
 * One aggregate query per source, `GROUP BY` the delivery day in America/Chicago (HE = local hour + 1). Push the reduction into Postgres.
 * Do NOT reuse `compute/sf/panels.py::load_shadow_prices` / `load_congestion_panel` — they pivot to full hourly panels (~720h × ~3,000 keys over 30 days) to produce 30 daily sums per key.

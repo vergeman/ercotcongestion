@@ -1,6 +1,6 @@
 from datetime import date
 
-from compute.analysis.hero_window import (
+from compute.analysis.hero_queries import (
     daily_total,
     load_constraint_days,
     load_constraint_geo,

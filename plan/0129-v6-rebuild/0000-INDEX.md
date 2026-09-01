@@ -72,7 +72,7 @@ sequenced first to stop the bleeding, because there is no bleeding.
 **Phase 1 — the two foundations. Neither blocks the other; both are unblocked today.**
 
 2. `0002-hero-generator` — **recommended first.** Builds
-   `compute/analysis/hero_window.py`, the trailing-30-day query layer over
+   `compute/analysis/hero_queries.py`, the trailing-30-day query layer over
    `ercot_dam_shadow_prices` and `ercot_dam_spp − dam_system_lambda`. Four other panels
    read that same layer (Standouts, the 30-day column on Top Constraints, Chronic
    elements, the board track), and nothing else in the repo builds it. It is also the

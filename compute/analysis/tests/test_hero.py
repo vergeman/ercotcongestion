@@ -1,4 +1,4 @@
-"""Pure hero slot and phrase-book tests; query tests land with hero_window."""
+"""Pure hero slot and phrase-book tests; query tests land with hero_queries."""
 from compute.analysis.hero import (
     MAGNITUDE_RUNGS,
     classify_exceptions,

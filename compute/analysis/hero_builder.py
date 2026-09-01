@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from compute.analysis.hero import classify_regime, classify_slots
-from compute.analysis.hero_window import (
+from compute.analysis.hero_queries import (
     HIGH_CONGESTION_CT_HOURS,
     daily_total,
     load_constraint_days,
@@ -203,6 +203,9 @@ def build_hero_condition(conn, delivery_date: date) -> dict[str, Any]:
     return classify_regime(condition)
 
 
+#
+# Driver
+#
 def build_hero(conn, run_id: str, delivery_date: date, horizon: int, basis: str,
                *, artifact=None, days: int = 30,
                include_condition: bool = True) -> dict[str, dict[str, Any]]:
