@@ -189,35 +189,6 @@ class AnalysisEsspGroupsUnavailableResponse(BaseModel):
     source: Literal["study", "final"]
 
 
-# ---- /analysis/forecast-mu -----------------------------------------------
-
-class ForecastMuRow(BaseModel):
-    """One requested constraint's hourly forecast-μ vector.
-
-    A returned zero is evidence that the fit priced the constraint near zero.
-    A missing requested key is reported separately because it was not in the
-    artifact vocabulary at all.
-    """
-    constraint_key: str
-    mu: list[float]
-    total: float
-
-
-class ForecastMuAvailableResponse(BaseModel):
-    available: Literal[True]
-    run_id: str
-    delivery_date: date
-    horizon: int
-    hours: list[datetime]
-    n_fit_constraints: int
-    rows: list[ForecastMuRow]
-    missing_constraint_keys: list[str]
-
-
-class ForecastMuUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
-
-
 # ---- /analysis/top-constraints ------------------------------------------
 
 class TopConstraintRow(BaseModel):

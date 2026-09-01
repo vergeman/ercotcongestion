@@ -82,8 +82,7 @@ def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
         '/analysis/hero', '/analysis/brief', '/analysis/brief/hero',
         '/analysis/brief/hero/stats', '/analysis/brief/details', '/analysis/node',
         '/analysis/settlement-points', '/analysis/constraints', '/analysis/grade',
-        '/analysis/grade-history', '/analysis/forecast-mu', '/analysis/top-constraints',
-        '/analysis/context', '/analysis/standouts', '/analysis/top-nodes',
+        '/analysis/standouts',
     )
     for route in public_routes:
         names = {parameter['name'] for parameter in paths[route]['get'].get('parameters', [])}

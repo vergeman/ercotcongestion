@@ -19,8 +19,7 @@ from api.schemas.analysis import (AnalysisContributionTerm, NodeMarketState, Gra
                     AnalysisSettlementPointsAvailableResponse,
                     AnalysisSettlementPointsUnavailableResponse,
                     AnalysisConstraintsAvailableResponse,
-                    AnalysisConstraintsUnavailableResponse, ForecastMuAvailableResponse,
-                    ForecastMuUnavailableResponse, EsspGroup,
+                    AnalysisConstraintsUnavailableResponse, EsspGroup,
                     AnalysisEsspGroupsAvailableResponse, AnalysisEsspGroupsUnavailableResponse,
                     TopConstraintRow, TopConstraintsAvailableResponse,
                     TopConstraintsUnavailableResponse, TopNodeRow,
@@ -58,7 +57,6 @@ from api.services.analysis.resolution import (
 from api.services.analysis.queries import (
     constraints_response,
     essp_groups_response,
-    forecast_mu_response,
     node_response,
     settlement_points_response,
 )
@@ -928,35 +926,6 @@ def get_grade_history(
               if "constraints" in values and "nodes" in values]
     return GradeHistoryAvailableResponse(available=True, run_id=run_id, delivery_date=delivery_date,
                                          horizon=horizon, days=result)
-
-
-def get_forecast_mu(
-    constraint_key: list[str] = Query(..., min_length=1,
-                                      description="One or more canonical constraint|contingency keys."),
-    delivery_date: date = Query(...),
-    run_id: str | None = Depends(_server_selected_run),
-    horizon: int | None = Query(None, ge=1, le=2),
-) -> ForecastMuAvailableResponse | ForecastMuUnavailableResponse:
-    """Serve a narrow, untruncated E_mu slice without altering the model fit."""
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = _resolve_run(cur, run_id)
-        horizon = _resolve_horizon(cur, run_id, delivery_date, horizon)
-        if horizon is None:
-            return ForecastMuUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date,
-            )
-        artifact = load_daily_artifact(cur, run_id, delivery_date, horizon)
-        if artifact is None:
-            return ForecastMuUnavailableResponse(
-                available=False, unavailable_reason="artifact_missing", run_id=run_id,
-                delivery_date=delivery_date, horizon=horizon,
-            )
-
-    return forecast_mu_response(
-        artifact=artifact, constraint_keys=constraint_key, run_id=run_id,
-        delivery_date=delivery_date, horizon=horizon,
-    )
 
 
 def get_top_constraints(
