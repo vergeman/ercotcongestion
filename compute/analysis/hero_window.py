@@ -89,23 +89,6 @@ def load_forecast_constraint_days(conn, run_id: str, delivery_date: date, horizo
         return _rows(cur, ("delivery_date", "constraint_key", "value", "binding_hours"))
 
 
-def summarize_constraint_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Organize aggregated constraint rows for a classifier or API response."""
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row["constraint_key"])].append(row)
-    return {
-        key: {
-            "series": [{"delivery_date": str(r["delivery_date"]), "value": float(r["value"])}
-                       for r in values],
-            "days_bound": sum(float(r["value"]) != 0 for r in values),
-            "med": float(median(float(r["value"]) for r in values)),
-            "prior_last": float(values[-2]["value"]) if len(values) > 1 else None,
-        }
-        for key, values in grouped.items()
-    }
-
-
 def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -> list[float]:
     """Sum a constraint-row result into a zero-filled daily total series."""
     totals: dict[date, float] = defaultdict(float)
@@ -132,45 +115,6 @@ def load_constraint_geo(conn) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(sql, ())
         return _rows(cur, ("constraint_key", "zone_shares", "geo_as_of"))
-
-
-def load_node_days(conn, delivery_date: date, *, days: int = 30) -> list[dict[str, Any]]:
-    """Return trailing daily mean SPP-minus-λ congestion per settlement point."""
-    start, end = delivery_bounds(delivery_date)
-    start -= timedelta(days=days)
-    sql = """
-        SELECT (s.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
-               s.settlement_point,
-               AVG(s.dam_spp - l.system_lambda) AS value
-        FROM ercot_dam_spp s
-        JOIN dam_system_lambda l
-          ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag
-        WHERE s.interval_ts >= %s AND s.interval_ts < %s
-          AND s.dst_flag = FALSE
-        GROUP BY 1, 2
-        ORDER BY 1, 2
-    """
-    with conn.cursor() as cur:
-        cur.execute(sql, (start, end))
-        return _rows(cur, ("delivery_date", "settlement_point", "value"))
-
-
-def summarize_node_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Organize node daily-mean congestion series and today's absolute rank."""
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row["settlement_point"])].append(row)
-    result = {}
-    for point, values in grouped.items():
-        current = float(values[-1]["value"])
-        rank, n = 1 + sum(abs(float(r["value"])) >= abs(current) for r in values[:-1]), len(values)
-        result[point] = {
-            "series": [{"delivery_date": str(r["delivery_date"]), "value": float(r["value"])}
-                       for r in values],
-            "rank": rank,
-            "n": n,
-        }
-    return result
 
 
 def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[dict[str, Any]]:
