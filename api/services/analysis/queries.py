@@ -6,7 +6,6 @@ from datetime import datetime
 from fastapi import HTTPException
 
 from compute.analysis.metadata import load_sp_metadata
-from compute.analysis.forecast_mu import forecast_mu_rows
 from compute.projection.codecs import node_contributions
 from api.services.constraint_keys import split_constraint_key
 from api.services.sf_artifacts import load_realized_mu
@@ -18,8 +17,6 @@ from api.schemas.analysis import (
     AnalysisEsspGroupsAvailableResponse,
     AnalysisEsspGroupsUnavailableResponse,
     EsspGroup,
-    ForecastMuAvailableResponse,
-    ForecastMuRow,
     NodeAnalysisAvailableResponse,
 )
 
@@ -75,20 +72,6 @@ def constraints_response(*, artifact, geography: dict[str, dict], run_id: str,
     return AnalysisConstraintsAvailableResponse(
         available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
         rows=rows, n_total=len(rows),
-    )
-
-
-def forecast_mu_response(*, artifact, constraint_keys: list[str], run_id: str,
-                         delivery_date, horizon: int):
-    requested = list(dict.fromkeys(constraint_keys))
-    values = forecast_mu_rows(artifact, requested)
-    fit_keys = set(str(key) for key in artifact.E_mu.columns)
-    return ForecastMuAvailableResponse(
-        available=True, run_id=run_id, delivery_date=delivery_date, horizon=horizon,
-        hours=list(values.index), n_fit_constraints=len(artifact.E_mu.columns),
-        rows=[ForecastMuRow(constraint_key=str(key), mu=[float(value) for value in values[key]],
-                            total=float(values[key].sum())) for key in values.columns],
-        missing_constraint_keys=[key for key in requested if key not in fit_keys],
     )
 
 
