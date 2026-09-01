@@ -140,10 +140,6 @@ class AnalysisSettlementPointsAvailableResponse(BaseModel):
     metadata: list[AnalysisSettlementPointMetadata]
 
 
-class AnalysisSettlementPointsUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
-
-
 # ---- /analysis/constraints ------------------------------------------------
 
 
@@ -171,10 +167,6 @@ class AnalysisConstraintsAvailableResponse(BaseModel):
     horizon: int
     rows: list[AnalysisConstraintRow]
     n_total: int
-
-
-class AnalysisConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
 
 
 # ---- /analysis/essp ------------------------------------------------------
@@ -205,29 +197,61 @@ class AnalysisEsspGroupsUnavailableResponse(BaseModel):
     source: Literal["study", "final"]
 
 
-# ---- /analysis/top-constraints ------------------------------------------
+# ---- shared ranked-row bases ---------------------------------------------
 
 
-class TopConstraintRow(BaseModel):
-    """One forecast/settled-union constraint row, ordered by the active phase."""
+class SettledHistoryFields(BaseModel):
+    """Trailing 30-day settled Σμ whisker: percentile summary + the raw series."""
 
-    constraint_key: str
-    forecast_rank: int | None = None
-    forecast_total: float
-    forecast_peak: float
-    forecast_hours: int
-    zone: str | None = None
-    kv_max: float | None = None
-    settled_rank: int | None = None
-    settled_total: float | None = None
-    settled_peak: float | None = None
-    settled_hours: int | None = None
     settled_history_p10: float | None = None
     settled_history_p25: float | None = None
     settled_history_p50: float | None = None
     settled_history_p75: float | None = None
     settled_history_p90: float | None = None
     settled_history: list[float] = []
+
+
+class ConstraintRowBase(SettledHistoryFields):
+    """Constraint identity, geography, and forecast/settled ranks shared by the
+    top-constraints and standout rows."""
+
+    constraint_key: str
+    forecast_rank: int | None = None
+    forecast_total: float
+    forecast_peak: float | None = None
+    forecast_hours: int | None = None
+    zone: str | None = None
+    kv_max: float | None = None
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    settled_peak: float | None = None
+    settled_hours: int | None = None
+
+
+class NodeRowBase(SettledHistoryFields):
+    """Node identity, ESSP grouping, drivers, and ranks shared by the top-nodes
+    and node-standout rows."""
+
+    settlement_point: str
+    essp_member_count: int = 1
+    zone: str | None = None
+    forecast_rank: int | None = None
+    forecast_total: float
+    settled_rank: int | None = None
+    settled_total: float | None = None
+    dominant_driver: str | None = None
+    driver_share: float | None = None
+
+
+# ---- /analysis/top-constraints ------------------------------------------
+
+
+class TopConstraintRow(ConstraintRowBase):
+    """One forecast/settled-union constraint row, ordered by the active phase.
+
+    Every top-constraint row carries a forecast peak and hour count; the base's
+    optional typing accommodates the standout rows that may omit them.
+    """
 
 
 class TopConstraintsAvailableResponse(BaseModel):
@@ -238,10 +262,6 @@ class TopConstraintsAvailableResponse(BaseModel):
     rows: list[TopConstraintRow]
     n_ranked: int
     k: int  # served forecast top-k; the client marks rows outside it after settlement.
-
-
-class TopConstraintsUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
 
 
 # ---- /analysis/context ---------------------------------------------------
@@ -280,53 +300,21 @@ class ContextUnavailableResponse(NodeAnalysisUnavailableResponse):
 # ---- /analysis/standouts -------------------------------------------------
 
 
-class StandoutRow(BaseModel):
+class StandoutRow(ConstraintRowBase):
     """One server-selected constraint compared with its own forecast history."""
 
-    constraint_key: str
     kind: Literal["forecast_elevated", "chronic_under_called", "settled_elevated"]
-    forecast_total: float
     forecast_history_median: float
     forecast_history_days: int
     chronic_bound_days: int | None = None
-    settled_total: float | None = None
-    zone: str | None = None
-    kv_max: float | None = None
-    forecast_rank: int | None = None
-    forecast_peak: float | None = None
-    forecast_hours: int | None = None
-    settled_rank: int | None = None
-    settled_peak: float | None = None
-    settled_hours: int | None = None
-    settled_history_p10: float | None = None
-    settled_history_p25: float | None = None
-    settled_history_p50: float | None = None
-    settled_history_p75: float | None = None
-    settled_history_p90: float | None = None
-    settled_history: list[float] = []
 
 
-class NodeStandoutRow(BaseModel):
+class NodeStandoutRow(NodeRowBase):
     """One anomaly-selected node compared with its own forecast history."""
 
-    settlement_point: str
-    essp_member_count: int = 1
     kind: Literal["forecast_elevated", "forecast_depressed", "settled_elevated"]
-    zone: str | None = None
-    forecast_total: float
-    forecast_rank: int | None = None
     forecast_history_median: float
     forecast_history_days: int
-    settled_total: float | None = None
-    settled_rank: int | None = None
-    dominant_driver: str | None = None
-    driver_share: float | None = None
-    settled_history_p10: float | None = None
-    settled_history_p25: float | None = None
-    settled_history_p50: float | None = None
-    settled_history_p75: float | None = None
-    settled_history_p90: float | None = None
-    settled_history: list[float] = []
 
 
 class StandoutsAvailableResponse(BaseModel):
@@ -339,33 +327,14 @@ class StandoutsAvailableResponse(BaseModel):
     node_rows: list[NodeStandoutRow]
 
 
-class StandoutsUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
-
-
 # ---- /analysis/top-nodes -------------------------------------------------
 
 
-class TopNodeRow(BaseModel):
+class TopNodeRow(NodeRowBase):
     """One forecast/settled-union nodal row with full-column attribution."""
 
-    settlement_point: str
-    essp_member_count: int = 1
-    zone: str | None = None
-    forecast_rank: int | None = None
-    forecast_total: float
-    settled_rank: int | None = None
-    settled_total: float | None = None
     delta: float | None = None
-    dominant_driver: str | None = None
-    driver_share: float | None = None
     coverage: float | None = None
-    settled_history_p10: float | None = None
-    settled_history_p25: float | None = None
-    settled_history_p50: float | None = None
-    settled_history_p75: float | None = None
-    settled_history_p90: float | None = None
-    settled_history: list[float] = []
 
 
 class TopNodesAvailableResponse(BaseModel):
@@ -377,10 +346,6 @@ class TopNodesAvailableResponse(BaseModel):
     n_ranked: int
     k: int  # served forecast top-k; the client marks rows outside it after settlement.
     grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
-
-
-class TopNodesUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
 
 
 # ---- /analysis/grade -----------------------------------------------------
@@ -432,10 +397,6 @@ class GradeAvailableResponse(BaseModel):
     nodes: GradeHalfResponse
 
 
-class GradeUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
-
-
 class GradeHistoryHalfResponse(BaseModel):
     sources: list[SourceDescriptor] = []
     source_metrics: list[BriefSourceMetrics] = []
@@ -453,10 +414,6 @@ class GradeHistoryAvailableResponse(BaseModel):
     delivery_date: date
     horizon: int
     days: list[GradeHistoryDayResponse]
-
-
-class GradeHistoryUnavailableResponse(NodeAnalysisUnavailableResponse):
-    pass
 
 
 # ---- /analysis/brief ------------------------------------------------------
@@ -478,11 +435,11 @@ class BriefDetailsResponse(BaseModel):
     """The secondary Brief panels, intentionally separate from the hero shell."""
 
     context: ContextAvailableResponse | ContextUnavailableResponse
-    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse | None = None
-    top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
-    top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
-    grade: GradeAvailableResponse | GradeUnavailableResponse
-    grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
+    standouts: StandoutsAvailableResponse | NodeAnalysisUnavailableResponse | None = None
+    top_nodes: TopNodesAvailableResponse | NodeAnalysisUnavailableResponse
+    top_constraints: TopConstraintsAvailableResponse | NodeAnalysisUnavailableResponse
+    grade: GradeAvailableResponse | NodeAnalysisUnavailableResponse
+    grade_history: GradeHistoryAvailableResponse | NodeAnalysisUnavailableResponse
 
 
 class BriefDayResponse(BaseModel):
@@ -499,8 +456,8 @@ class BriefDayResponse(BaseModel):
         | HeroUnavailableAtHorizonResponse
     )
     context: ContextAvailableResponse | ContextUnavailableResponse
-    standouts: StandoutsAvailableResponse | StandoutsUnavailableResponse
-    top_nodes: TopNodesAvailableResponse | TopNodesUnavailableResponse
-    top_constraints: TopConstraintsAvailableResponse | TopConstraintsUnavailableResponse
-    grade: GradeAvailableResponse | GradeUnavailableResponse
-    grade_history: GradeHistoryAvailableResponse | GradeHistoryUnavailableResponse
+    standouts: StandoutsAvailableResponse | NodeAnalysisUnavailableResponse
+    top_nodes: TopNodesAvailableResponse | NodeAnalysisUnavailableResponse
+    top_constraints: TopConstraintsAvailableResponse | NodeAnalysisUnavailableResponse
+    grade: GradeAvailableResponse | NodeAnalysisUnavailableResponse
+    grade_history: GradeHistoryAvailableResponse | NodeAnalysisUnavailableResponse
