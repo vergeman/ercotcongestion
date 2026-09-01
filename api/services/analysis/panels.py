@@ -49,7 +49,7 @@ from api.schemas.analysis import (
     GradeHistoryAvailableResponse,
     GradeHistoryUnavailableResponse,
 )
-from compute.analysis.hero import magnitude_verdict
+from compute.analysis.hero_classifier import magnitude_verdict
 from compute.analysis.phrases import render
 from compute.time import delivery_bounds
 from compute.analysis.metadata import load_sp_metadata

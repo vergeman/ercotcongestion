@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from compute.analysis.hero import classify_regime, classify_slots
+from compute.analysis.hero_classifier import classify_regime, classify_slots
 from compute.analysis.hero_queries import (
     HIGH_CONGESTION_CT_HOURS,
     daily_total,
