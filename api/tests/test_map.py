@@ -126,6 +126,59 @@ def test_resolution_defaults_to_newest_run(client, fake_pool, monkeypatch):
     assert r.json()["run_id"] == "map-v1"
 
 
+# ---- /map/fit-metadata ---------------------------------------------------
+
+def test_fit_metadata_uses_the_artifacts_causal_window(client, fake_pool, configured_run):
+    """A historical cursor must not inherit the map's newest diagnostics."""
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
+    old_start = datetime(2025, 10, 1, tzinfo=timezone.utc)
+    old_end = datetime(2025, 10, 31, tzinfo=timezone.utc)
+    fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([{"sf_npz": blob}])
+    fake_pool.cursor.queue([{"window_start": old_start, "window_end": old_end}])
+    fake_pool.cursor.queue([_meta_row(window_start=old_start, window_end=old_end,
+                                      sf_oos_r2=0.31, coverage=0.78, sf_stability=0.22)])
+
+    r = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["available"] is True
+    assert body["window_start"].startswith("2025-10-01")
+    assert body["sf_oos_r2"] == 0.31
+    assert body["artifact_delivery_date"] == "2026-07-01"
+    assert body["basis"] == "artifact"
+
+
+def test_fit_metadata_labels_nearest_past_artifact(client, fake_pool, configured_run):
+    blob = _artifact({"LZ_WEST": [0.72]}, ["CONSTR_A"])
+    fallback_day = datetime(2026, 6, 30, tzinfo=timezone.utc).date()
+    fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
+    fake_pool.cursor.queue([])  # requested day has no horizon
+    fake_pool.cursor.queue([{"d": fallback_day}])
+    fake_pool.cursor.queue([{"h": 1}])
+    fake_pool.cursor.queue([{"sf_npz": blob}])
+    fake_pool.cursor.queue([{"window_start": WS, "window_end": WE}])
+    fake_pool.cursor.queue([_meta_row()])
+
+    body = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()}).json()
+    assert body["available"] is True
+    assert body["artifact_delivery_date"] == "2026-06-30"
+    assert body["basis"] == "nearest_past"
+
+
+def test_fit_metadata_is_unavailable_without_an_artifact(client, fake_pool, configured_run):
+    fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    body = client.get("/map/fit-metadata", params={"t": DAY_MID.isoformat()}).json()
+    assert body["available"] is False
+    assert body["sf_oos_r2"] is None
+    assert body["basis"] is None
+
+
 # ---- /map/exposures ------------------------------------------------------
 
 def test_exposures_serves_the_requested_days_artifact(client, fake_pool):

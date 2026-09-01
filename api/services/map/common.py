@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime
 
 import pandas as pd
 from fastapi import HTTPException
@@ -12,6 +13,23 @@ from api.services.sf_artifacts import coerce_utc, delivery_date_for, load_daily_
 
 
 def resolve(cur) -> tuple[str, object]:
+    run_id = map_run_id(cur)
+
+    cur.execute(
+        "SELECT max(window_start) AS ws FROM sf_window_meta WHERE run_id = %s",
+        (run_id,),
+    )
+    row = cur.fetchone()
+    if row is None or row["ws"] is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"no window built for run_id={run_id}.",
+        )
+    return run_id, row["ws"]
+
+
+def map_run_id(cur) -> str:
+    """Return the configured map run, or the newest run when unconfigured."""
     run_id = MAP_RUN_ID
     if run_id is None:
         cur.execute(
@@ -25,17 +43,7 @@ def resolve(cur) -> tuple[str, object]:
             )
         run_id = row["run_id"]
 
-    cur.execute(
-        "SELECT max(window_start) AS ws FROM sf_window_meta WHERE run_id = %s",
-        (run_id,),
-    )
-    row = cur.fetchone()
-    if row is None or row["ws"] is None:
-        raise HTTPException(
-            status_code=503,
-            detail=f"no window built for run_id={run_id}.",
-        )
-    return run_id, row["ws"]
+    return run_id
 
 
 def meta_row(cur, run_id: str, window_start) -> dict:
@@ -86,6 +94,66 @@ def nearest_past_artifact_day(cur, run_id: str, day):
     )
     row = cur.fetchone()
     return None if row is None else row["d"]
+
+
+@dataclass
+class ArtifactProvenance:
+    """The day artifact and causal SF window that produced its structure."""
+
+    forecast_run_id: str
+    requested_delivery_date: date | None
+    artifact_delivery_date: date | None
+    basis: str
+    artifact: object | None
+    map_run_id: str | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+
+
+def resolve_artifact_provenance(
+    cur, t: datetime | None, *, nearest_past: bool = True
+) -> ArtifactProvenance:
+    """Resolve a cursor's artifact and the SF window causal to that artifact.
+
+    The artifact table predates explicit map-window columns. Its producer chose
+    the newest window ending on or before the delivery day; replay that rule
+    rather than reading today's newest window.
+    """
+    forecast_run = forecast_run_id(cur)
+    requested_day = delivery_date_for(t) if t is not None else latest_artifact_day(cur, forecast_run)
+    artifact_day = requested_day
+    artifact = (
+        load_daily_artifact(cur, forecast_run, artifact_day)
+        if artifact_day is not None
+        else None
+    )
+    basis = "artifact"
+    if artifact is None and nearest_past:
+        artifact_day = nearest_past_artifact_day(cur, forecast_run, requested_day)
+        artifact = (
+            load_daily_artifact(cur, forecast_run, artifact_day)
+            if artifact_day is not None
+            else None
+        )
+        basis = "nearest_past"
+    result = ArtifactProvenance(
+        forecast_run, requested_day, artifact_day if artifact is not None else None,
+        basis, artifact,
+    )
+    if artifact is None:
+        return result
+
+    result.map_run_id = map_run_id(cur)
+    cur.execute(
+        "SELECT window_start, window_end FROM sf_window_meta "
+        "WHERE run_id = %s AND window_end <= %s "
+        "ORDER BY window_start DESC LIMIT 1",
+        (result.map_run_id, artifact_day),
+    )
+    row = cur.fetchone()
+    if row is not None:
+        result.window_start, result.window_end = row["window_start"], row["window_end"]
+    return result
 
 
 def click_artifact(cur, t: datetime | None):
