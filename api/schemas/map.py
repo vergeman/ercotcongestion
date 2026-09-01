@@ -20,6 +20,20 @@ class MapMeta(BaseModel):
     n_kept: int | None = None
 
 
+class MapFitMetadata(BaseModel):
+    """Fit diagnostics for the artifact served at a map cursor."""
+
+    run_id: str | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    sf_oos_r2: float | None = None
+    coverage: float | None = None
+    sf_stability: float | None = None
+    artifact_delivery_date: date | None = None
+    basis: Literal["artifact", "nearest_past"] | None = None
+    available: bool = False
+
+
 class SpExposure(BaseModel):
     """One constraint driving the queried node (a ``/map/exposures`` row).
 
@@ -297,3 +311,6 @@ class MapScorecard(BaseModel):
     scored_week: date | None = None
     horizon: int | None = None
     sources: list[MapScorecardSource] = []
+    # SF diagnostics for the same delivery day, so one map-panel request keeps
+    # scorecard and artifact provenance in sync.
+    fit_metadata: MapFitMetadata | None = None

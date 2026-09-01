@@ -244,6 +244,20 @@ export interface MapMeta {
   n_kept: number | null;
 }
 
+// Diagnostics for the SF window that produced the cursor's daily artifact.
+// Unlike MapMeta, this is deliberately cursor-scoped.
+export interface MapFitMetadata {
+  run_id: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  sf_oos_r2: number | null;
+  coverage: number | null;
+  sf_stability: number | null;
+  artifact_delivery_date: string | null;
+  basis: "artifact" | "nearest_past" | null;
+  available: boolean;
+}
+
 // One constraint driving the queried node (a /map/exposures row). `sf` is the
 // signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
 // `contribution` = -sf * mu is the constraint's actual $/MWh of this node's
@@ -593,6 +607,7 @@ export interface MapScorecard {
   scored_week: string | null;
   horizon: number | null;
   sources: MapScorecardSource[];
+  fit_metadata: MapFitMetadata | null;
 }
 
 // /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy

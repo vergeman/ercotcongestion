@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Callable
 
 import pandas as pd
@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 from api.db import get_pool
 from api.schemas.map import (
     MapMeta,
+    MapFitMetadata,
     MapOverview,
     OverviewConstraint,
     RankedConstraint,
@@ -30,6 +31,33 @@ def meta() -> MapMeta:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id, window_start = common.resolve(cur)
         return MapMeta(**common.meta_row(cur, run_id, window_start))
+
+
+def fit_metadata(
+    t: datetime | None = None, *, delivery_day: date | None = None
+) -> MapFitMetadata:
+    """Return diagnostics for the SF vintage behind the cursor's artifact."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        provenance = common.resolve_artifact_provenance(
+            cur, t, delivery_day=delivery_day
+        )
+        if provenance.artifact is None or provenance.window_start is None:
+            return MapFitMetadata(
+                artifact_delivery_date=provenance.artifact_delivery_date,
+                basis=provenance.basis if provenance.artifact is not None else None,
+            )
+        row = common.meta_row(cur, provenance.map_run_id, provenance.window_start)
+        return MapFitMetadata(
+            run_id=row["run_id"],
+            window_start=row["window_start"],
+            window_end=row["window_end"],
+            sf_oos_r2=row["sf_oos_r2"],
+            coverage=row["coverage"],
+            sf_stability=row["sf_stability"],
+            artifact_delivery_date=provenance.artifact_delivery_date,
+            basis=provenance.basis,
+            available=True,
+        )
 
 
 def overview(

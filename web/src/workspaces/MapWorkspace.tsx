@@ -192,7 +192,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [exposureRank, setExposureRank] = useState<ExposureRank>("contribution");
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
-  const { topology, topologyReady, overview, mapMeta } = useMapBootstrap(setConnState);
+  const { topology, topologyReady, overview } = useMapBootstrap(setConnState);
   const { loadRanked, loadExposures: requestExposures, loadReach } = useConstraintSelection();
 
   // settlement_points FeatureCollection, shared by both panes.
@@ -979,7 +979,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     conditions: conditionsStats,
     mapView: renderedView,
     scorecard: scorecard?.delivery_date === deliveryDay ? scorecard : null,
-    fitMeta: mapMeta,
+    fitMeta: scorecard?.delivery_date === deliveryDay ? scorecard?.fit_metadata ?? null : null,
     ranked,
     rankedLoading,
     constraintBasis,

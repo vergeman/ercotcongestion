@@ -2,12 +2,13 @@ import { useState, Fragment, type ReactNode } from "react";
 import type {
   MapScorecard,
   RankedConstraints,
-  MapMeta,
+  MapFitMetadata,
   ConditionsEntry,
   MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
+import { formatCT } from "../../lib/time";
 
 // The right-hand side panel, hosting two tabs in one region (plan/0103): `Stats`
 // (0102) — a compact network readout over the rolling backtest scorecard — and
@@ -35,9 +36,8 @@ interface Props {
   mapView: MapView;
   // Day-scoped served grade, or an explicitly dated weekly fallback.
   scorecard: MapScorecard | null;
-  // Diagnostics for the active SF refit window, distinct from the rolling
-  // backtest scorecard but shown alongside it as model-level context.
-  fitMeta: MapMeta | null;
+  // Diagnostics for the cursor's artifact and its actual SF window.
+  fitMeta: MapFitMetadata | null;
   // ── Constraints tab (plan/0103) ──────────────────────────────────────────
   ranked: RankedConstraints | null;
   rankedLoading: boolean;
@@ -501,7 +501,14 @@ export default function SidePanel({
 
               {fitMeta && (
                 <div className="sc-fit">
-                  <div className="sc-fit__header label">Current fit</div>
+                  <div className="sc-fit__header label">
+                    SF Window{fitMeta.window_start ? ` · ${formatCT(new Date(fitMeta.window_start), "MMM d, yyyy")} CT` : " · unavailable"}
+                  </div>
+                  {fitMeta.basis === "nearest_past" && fitMeta.artifact_delivery_date && (
+                    <div className="sc-fit__note">
+                      Fallback artifact from {fitMeta.artifact_delivery_date}; diagnostics use its SF window.
+                    </div>
+                  )}
                   <Stat
                     label="SF Out-of-sample Accuracy"
                     hint="How well the shift factors (SF) reproduce congestion prices they did not train on. Higher is better. μ is set to each hour's actual shadow price, so any remaining error belongs to the SF map."

@@ -96,6 +96,7 @@ def test_returns_explicit_unavailable_when_no_complete_set_exists(fake_pool):
         "scored_week": None,
         "horizon": None,
         "sources": [],
+        "fit_metadata": None,
     }
 
 
@@ -104,11 +105,35 @@ def test_route_uses_supplied_ct_delivery_date(client, monkeypatch):
     monkeypatch.setattr(scorecard, "build", lambda day, run_id: seen.append((day, run_id)) or {
         "available": False, "delivery_date": day,
     })
+    from api.routes import map as map_route
+    monkeypatch.setattr(map_route.aggregate, "fit_metadata", lambda **kwargs: {
+        "available": False,
+    })
 
     response = client.get("/map/scorecard?day=2026-07-01")
 
     assert response.status_code == 200
     assert seen == [(DAY, None)]
+
+
+def test_route_combines_scorecard_and_fit_metadata(client, monkeypatch):
+    monkeypatch.setattr(scorecard, "build", lambda day, run_id: {
+        "available": False, "delivery_date": day,
+    })
+    from api.routes import map as map_route
+    monkeypatch.setattr(map_route.aggregate, "fit_metadata", lambda **kwargs: {
+        "available": True,
+        "run_id": "map-v1",
+        "window_start": "2026-06-01T00:00:00Z",
+        "window_end": "2026-06-30T00:00:00Z",
+        "artifact_delivery_date": "2026-07-01",
+        "basis": "artifact",
+    })
+
+    body = client.get("/map/scorecard?day=2026-07-01").json()
+
+    assert body["fit_metadata"]["run_id"] == "map-v1"
+    assert body["fit_metadata"]["artifact_delivery_date"] == "2026-07-01"
 
 
 def test_requested_run_does_not_filter_weekly_fallback(fake_pool):
