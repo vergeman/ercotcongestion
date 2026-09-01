@@ -178,7 +178,7 @@ def get_map_scorecard(
     summary="One bundled payload for the Map workspace summary (0137)",
 )
 def get_map_summary() -> MapSummaryResponse:
-    """Compose the Map workspace's four load-time requests behind one call.
+    """Compose the Map workspace's load-time requests behind one call.
 
     """
     return summary.build(

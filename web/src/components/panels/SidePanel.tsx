@@ -1,6 +1,6 @@
 import { useState, Fragment, type ReactNode } from "react";
 import type {
-  ScoreboardHeadline,
+  MapScorecard,
   RankedConstraints,
   MapMeta,
   ConditionsEntry,
@@ -33,9 +33,8 @@ interface Props {
   // Compare show the actual.
   conditions: ConditionsEntry | null;
   mapView: MapView;
-  // The rolling headline, or null on 503 (no board loaded) — the scorecard then
-  // hides and the network readout stands alone.
-  headline: ScoreboardHeadline | null;
+  // Day-scoped served grade, or an explicitly dated weekly fallback.
+  scorecard: MapScorecard | null;
   // Diagnostics for the active SF refit window, distinct from the rolling
   // backtest scorecard but shown alongside it as model-level context.
   fitMeta: MapMeta | null;
@@ -70,7 +69,7 @@ function fmtNum(v: number | null, decimals = 1): string {
 // all live in ~[0,1]).
 const fmtScore = (v: number | null): string => (v == null ? "—" : v.toFixed(2));
 
-// The three headline currencies (screening leads; §6) with per-row hover copy.
+// The three scorecard currencies with per-row hover copy.
 const CURRENCY_ORDER = [
   "rank_spearman",
   "sign_agree",
@@ -244,7 +243,7 @@ export default function SidePanel({
   network,
   conditions,
   mapView,
-  headline,
+  scorecard,
   fitMeta,
   ranked,
   rankedLoading,
@@ -257,7 +256,6 @@ export default function SidePanel({
   variant = "sidebar",
   loadWindow,
 }: Props) {
-  const [windowDays, setWindowDays] = useState<number>(30);
   const [tab, setTab] = useState<"stats" | "constraints" | "window">("stats");
   // Load-by-region / Generation panels (plan/0141): each System row discloses
   // its own regions independently — collapsed by default, one flag per group.
@@ -266,11 +264,7 @@ export default function SidePanel({
   });
   const toggleRegions = (group: keyof typeof regionsOpen) =>
     setRegionsOpen((cur) => ({ ...cur, [group]: !cur[group] }));
-  const win =
-    headline?.windows.find((w) => w.window_days === windowDays) ??
-    headline?.windows[0] ??
-    null;
-  const byCurrency = new Map(win?.currencies.map((c) => [c.currency, c]) ?? []);
+  const bySeries = new Map(scorecard?.sources.map((source) => [source.series_id, source]) ?? []);
   const tabs = loadWindow
     ? (["stats", "constraints", "window"] as const)
     : (["stats", "constraints"] as const);
@@ -450,28 +444,18 @@ export default function SidePanel({
             />
           </section>
 
-          {/* ── Scorecard headline (compact table) ────────────────────────── */}
-          {headline && win && (
+          {/* ── Day-scoped scorecard (compact table) ───────────────────────── */}
+          {scorecard?.available && (
             <section className="np-section">
               <div className="np-section__header sc-header">
-                <span className="label">Scorecard · Backtest</span>
-                <div className="sc-window-toggle">
-                  {[30, 90].map((d) => (
-                    <button
-                      key={d}
-                      className={windowDays === d ? "active" : ""}
-                      onClick={() => setWindowDays(d)}
-                    >
-                      {d}D
-                    </button>
-                  ))}
-                </div>
+                <span className="label">
+                  {scorecard.basis === "served_daily"
+                    ? `Final served grade · ${scorecard.delivery_date}`
+                    : `Offline backtest fallback · week of ${scorecard.scored_week}`}
+                </span>
               </div>
 
-              <Stat label="Forecast Run" value={network.forecastRunId} />
-              <div className="sc-meta label">
-                30-day rolling aggregation score based on weekly backtests
-              </div>
+              <Stat label="Forecast Run" value={scorecard.run_id ?? network.forecastRunId} />
 
               <div className="sc-table">
                 <span className="sc-h sc-h--cat" />
@@ -480,13 +464,16 @@ export default function SidePanel({
                 <span className="sc-h">Ceiling</span>
 
                 {CURRENCY_ORDER.map((name) => {
-                  const cur = byCurrency.get(name);
+                  const metric = name as "rank_spearman" | "sign_agree" | "topdecile_hit";
                   const meta = CURRENCY_META[name];
-                  if (!cur || !meta) return null;
+                  if (!meta) return null;
+                  const model = bySeries.get("model")?.[metric] ?? null;
+                  const persistence = bySeries.get("persistence")?.[metric] ?? null;
+                  const oracle = bySeries.get("oracle")?.[metric] ?? null;
                   const lead = leaderOf(
-                    cur.model,
-                    cur.persistence,
-                    cur.higher_is_better
+                    model,
+                    persistence,
+                    true
                   );
                   return (
                     <Fragment key={name}>
@@ -494,19 +481,19 @@ export default function SidePanel({
                         {meta.label}
                       </Tooltip>
                       <span className="sc-v mono" data-lead={lead === "model"}>
-                        {fmtScore(cur.model)}
+                        {fmtScore(model)}
                       </span>
                       <span
                         className="sc-v mono"
                         data-lead={lead === "persist"}
                       >
-                        {fmtScore(cur.persistence)}
+                        {fmtScore(persistence)}
                       </span>
                       <Tooltip
                         className="sc-v sc-v--ceiling mono"
                         tip="Oracle ceiling — the best any forecast could do on these weeks."
                       >
-                        {fmtScore(cur.oracle)}
+                        {fmtScore(oracle)}
                       </Tooltip>
                     </Fragment>
                   );
@@ -620,19 +607,7 @@ export default function SidePanel({
         .np-caret.open { transform: rotate(90deg); }
         .np-group .np-stat:not(.np-stat--toggle) { padding-left: 15px; }
 
-        .sc-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        .sc-window-toggle { display: flex; gap: 4px; }
-        .sc-window-toggle button {
-          padding: 2px 7px;
-          font-size: 11px;
-          font-family: var(--font-label);
-          letter-spacing: var(--track-label);
-        }
-        .sc-meta { margin-bottom: 8px; color: var(--text-muted); }
+        .sc-header { display: flex; align-items: center; }
         .sc-fit { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
         .sc-fit__header { margin-bottom: 3px; color: var(--text-secondary); }
 

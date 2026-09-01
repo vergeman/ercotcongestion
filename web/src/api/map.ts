@@ -4,6 +4,7 @@ import type {
   ExposureRank,
   ExposuresResponse,
   MapSummary,
+  MapScorecard,
   RankedConstraints,
 } from "./types";
 
@@ -24,6 +25,15 @@ export const REACH_THRESHOLD_OPTS: MapReachOptions = {
 
 export function fetchMapSummary(signal?: AbortSignal): Promise<MapSummary> {
   return requestRequiredJson("/map/summary", { signal });
+}
+
+export function fetchMapScorecard(
+  day: string,
+  signal?: AbortSignal,
+): Promise<MapScorecard | null> {
+  return requestJson("/map/scorecard", {
+    query: new URLSearchParams({ day }), signal,
+  });
 }
 
 export function fetchMapExposures(

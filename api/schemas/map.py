@@ -266,8 +266,7 @@ class MapSummaryResponse(BaseModel):
 
     ``GET /topology`` already serves, not a typed model (topology never was
     one). ``overview`` and ``meta`` keep their own single-section
-    shape and are ``null`` exactly when that section's endpoint would 503 (no
-    SF window built yet / no scoreboard loaded)
+    shape and are ``null`` exactly when that section's endpoint would 503.
 
     """
 
