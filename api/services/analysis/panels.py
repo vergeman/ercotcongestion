@@ -52,6 +52,7 @@ from api.schemas.analysis import (
 )
 from compute.analysis.hero import magnitude_verdict
 from compute.analysis.hero_builder import build_hero
+from compute.analysis.phrases import render
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.metadata import load_sp_metadata
 from compute.analysis import brief_grade
@@ -950,7 +951,7 @@ def get_grade_history(
             }
     descriptors = [
         {"id": source.id, "label": source.label, "definition": source.definition}
-        for source in _BRIEF_SOURCE_DEFINITIONS
+        for source in brief_grade.SOURCE_DEFINITIONS
     ]
     result = [
         GradeHistoryDayResponse(
@@ -960,11 +961,11 @@ def get_grade_history(
                 sources=descriptors,
                 source_metrics=[
                     {
-                        "id": _BRIEF_SOURCE_DEFINITIONS[0].id,
+                        "id": brief_grade.SOURCE_DEFINITIONS[0].id,
                         "metrics": values["constraints"]["model"],
                     },
                     {
-                        "id": _BRIEF_SOURCE_DEFINITIONS[1].id,
+                        "id": brief_grade.SOURCE_DEFINITIONS[1].id,
                         "metrics": values["constraints"]["persistence"],
                     },
                 ],
@@ -974,11 +975,11 @@ def get_grade_history(
                 sources=descriptors,
                 source_metrics=[
                     {
-                        "id": _BRIEF_SOURCE_DEFINITIONS[0].id,
+                        "id": brief_grade.SOURCE_DEFINITIONS[0].id,
                         "metrics": values["nodes"]["model"],
                     },
                     {
-                        "id": _BRIEF_SOURCE_DEFINITIONS[1].id,
+                        "id": brief_grade.SOURCE_DEFINITIONS[1].id,
                         "metrics": values["nodes"]["persistence"],
                     },
                 ],
