@@ -132,11 +132,6 @@ def mu_null(hours: pd.DatetimeIndex, cols: pd.Index) -> pd.DataFrame:
     return pd.DataFrame(0.0, index=hours, columns=cols)
 
 
-def screening_metrics_for_scoreboard(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """The scoreboard's screening metrics."""
-    return screening_metrics(Y, Yh)
-
-
 def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
     """The scored weeks, **read off the model's own output**.
 
@@ -150,12 +145,17 @@ def weeks_from_preds(preds: pd.DataFrame) -> pd.DatetimeIndex:
             f"— the walk that produced this file was misphased, refusing to score it")
     return weeks
 
+# --------------------------------------------------------------------------
+# backtest
+# only used in this main() and compute/experiment scripts
+# --------------------------------------------------------------------------
 
 def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
                week_preds: pd.DataFrame, window_days: int = WINDOW_DAYS,
                refit_days: int = REFIT_DAYS,
                lam: float = LAM) -> list[dict]:
-    """One week, every source, one SF fit.
+    """This is inactive and backtest-only; was used to grade historic data prior
+     to regular daily forecast job.
 
     the window ends exactly where the scored week begins, so no source —
     including oracle — is scored by a map that has seen the week it is being
@@ -208,7 +208,7 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
         base = {"week": s, "source": name, "n_hours": len(hours),
                 "n_nodes": SF.shape[1], "n_kept": SF.shape[0],
                 "sf_coverage": sf_coverage, "model_coverage": model_coverage,
-                **screening_metrics_for_scoreboard(Y, Yh)}
+                **screening_metrics(Y, Yh)}
         rows.append(base)
     return rows
 
@@ -216,6 +216,10 @@ def score_week(M: pd.DataFrame, C: pd.DataFrame, s: pd.Timestamp,
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
          window_days: int = WINDOW_DAYS,
          refit_days: int = REFIT_DAYS, lam: float = LAM) -> pd.DataFrame:
+    """This is inactive and backtest-only; was used to grade historic data prior
+     to regular daily forecast job.
+
+    """
     # `load_preds` hands back a (interval_ts, key) MultiIndex; the sources want
     # them as columns.
     if isinstance(preds.index, pd.MultiIndex):

@@ -22,8 +22,8 @@ import pandas as pd
 import pytest
 
 import compute.jobs.grade_forecast_day as gd
-from compute.evaluation.mu import (mu_climatology, mu_null, mu_persistence,
-                                   screening_metrics_for_scoreboard)
+from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence
+from compute.metrics import screening_metrics
 from compute.evaluation.sf import predict
 
 D = pd.Timestamp("2025-09-15", tz="America/Chicago").tz_convert("UTC")  # a CT-midnight day
@@ -88,7 +88,7 @@ def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog
     Y = C.loc[hours, SPS].to_numpy(float)
 
     # model: the served deterministic point.
-    want = screening_metrics_for_scoreboard(Y, fc["point"].loc[hours, SPS].to_numpy(float))
+    want = screening_metrics(Y, fc["point"].loc[hours, SPS].to_numpy(float))
     for k, v in want.items():
         _eq(by_src["scoreboard_model_served_nodal"][k], v)
 
@@ -107,7 +107,7 @@ def test_rows_reproduce_screening_metrics_on_the_same_inputs(monkeypatch, caplog
     }
     for name, Msrc in srcs.items():
         Yh = pd.DataFrame(predict(Msrc, SF), index=hours, columns=SF.columns)[SPS]
-        want = screening_metrics_for_scoreboard(Y, Yh.to_numpy(float))
+        want = screening_metrics(Y, Yh.to_numpy(float))
         for k, v in want.items():
             _eq(by_src[source_ids[name]][k], v)
 
