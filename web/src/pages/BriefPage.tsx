@@ -1396,14 +1396,12 @@ export default function BriefPage() {
   const {
     deliveryDay,
     hero,
-    heroStats,
     topConstraints,
     standouts,
     topNodes,
     context,
     grade,
     gradeHistory,
-    heroStatsLoading,
     topConstraintsLoading,
     standoutsLoading,
     topNodesLoading,
@@ -1456,9 +1454,9 @@ export default function BriefPage() {
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
-  const regime = heroStats?.slots.regime;
-  const magnitude = heroStats?.slots.magnitude;
-  const where = heroStats?.slots.where;
+  const regime = hero?.slots?.regime;
+  const magnitude = hero?.slots?.magnitude;
+  const where = hero?.slots?.where;
   const forecastLoadTotal = numeric(regime, "today");
   const forecastLoadNet = numeric(regime, "net_load");
   const actualLoadTotal = numeric(regime, "actual_today");
@@ -1590,9 +1588,9 @@ export default function BriefPage() {
               settled={settled}
               mobile={isMobile}
               watchHref={watchHref}
-              evidenceLoading={heroStatsLoading}
+              evidenceLoading={false}
               evidence={
-                heroStats && (
+                hero && (
                   <div className="an-facts" aria-label="Brief evidence">
                     {loadTotal != null && loadNet != null && (
                       <DualStatBox

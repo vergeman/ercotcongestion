@@ -65,7 +65,6 @@ def get(
     horizon: int | None,
     *,
     legacy_day: date | None = None,
-    include_condition: bool = True,
 ) -> dict:
     """Build the Brief hero without coupling the feature to FastAPI inputs."""
     delivery_date = resolve_delivery_date(delivery_date, legacy_day)
@@ -88,12 +87,15 @@ def get(
             settled = dam_landed(cur, delivery_date)
         if artifact is None:
             return {"available": False, "unavailable_reason": "artifact_missing", "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
+
         basis = "settled" if settled else "forecast"
-        slots = build_hero(conn, run_id, delivery_date, horizon, basis, artifact=artifact, include_condition=include_condition)
-        verdict = None
-        if settled:
-            forecast = build_hero(conn, run_id, delivery_date, horizon, "forecast", artifact=artifact, include_condition=include_condition)
-            verdict = _verdicts(forecast, slots)
+        built = build_hero(
+            conn, run_id, delivery_date, horizon, basis,
+            artifact=artifact,
+            include_forecast_comparison=settled,
+        )
+    slots = built.slots
+    verdict = _verdicts(built.forecast_slots, slots) if built.forecast_slots else None
     elapsed = perf_counter() - started
     if elapsed >= _SLOW_REQUEST_SECONDS:
         logger.info("hero_request_profile day=%s run=%s horizon=%s basis=%s total=%.3fs", delivery_date, run_id, horizon, basis, elapsed)

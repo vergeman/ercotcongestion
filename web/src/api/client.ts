@@ -25,7 +25,6 @@ export {
   fetchBriefHeroLatest,
   fetchBriefDay,
   fetchBriefHeroShell,
-  fetchBriefHeroStats,
   fetchBriefStandouts,
   fetchBriefDetails,
 } from "./brief";

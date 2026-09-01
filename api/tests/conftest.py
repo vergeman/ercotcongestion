@@ -106,7 +106,6 @@ def fake_pool(monkeypatch):
     from api.services.analysis import brief
     brief._BRIEF_CACHE.clear()
     brief._BRIEF_HERO_CACHE.clear()
-    brief._BRIEF_HERO_STATS_CACHE.clear()
     brief._BRIEF_DETAILS_CACHE.clear()
     pool = FakePool()
     monkeypatch.setattr(db_module, 'pool', pool)

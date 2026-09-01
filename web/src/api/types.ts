@@ -885,13 +885,6 @@ export interface BriefHeroShell {
   next_delivery_date: string | null;
 }
 
-export interface BriefHeroStats {
-  run_id: string;
-  delivery_date: string;
-  horizon: number;
-  slots: Record<string, Record<string, unknown>>;
-}
-
 export interface BriefDetails {
   context: BriefContext;
   standouts?: Standouts | null;

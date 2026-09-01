@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import date, timedelta
 
+from compute.analysis.hero_builder import HeroBuild
 from compute.jobs import render_hero_golden as audit
 
 
@@ -14,7 +15,7 @@ def test_line_is_stable_text_and_keeps_every_slot_bucket():
     line = audit.line_for(slots)
     assert line.startswith("magnitude=ordinary regime=load_record_high")
     assert "mag_rank=-/- mag_ratio=- regime_pct=- where_share=- tier_0=1 tier_1=0 exception_count=3" in line
-    assert "an ordinary congestion day" in line
+    assert "An ordinary congestion day" in line
 
 
 def test_audit_ignores_unavailable_slots_in_its_bucket_guard(monkeypatch):
@@ -22,7 +23,7 @@ def test_audit_ignores_unavailable_slots_in_its_bucket_guard(monkeypatch):
     slots = {name: {"bucket": "ordinary"} for name in audit.SLOT_NAMES}
     slots["where"].update(zone="south")
     slots["exceptions"] = {"bucket": "none", "available": False}
-    monkeypatch.setattr(audit, "build_hero", lambda *_a, **_k: slots)
+    monkeypatch.setattr(audit, "build_hero", lambda *_a, **_k: HeroBuild(slots, None))
     try:
         audit.render_audit(None, "run", days)
     except ValueError as exc:
@@ -38,12 +39,12 @@ def test_audit_renders_all_days_when_each_available_ladder_is_varied(monkeypatch
     def hero(*_args, **_kwargs):
         i = calls["n"]
         calls["n"] += 1
-        return {
+        return HeroBuild({
             "magnitude": {"bucket": ("ordinary", "quiet")[i % 2]},
             "regime": {"bucket": ("ordinary", "near_record_high")[i % 2]},
             "where": {"bucket": ("distributed", "concentrated")[i % 2], "zone": "south"},
             "exceptions": {"bucket": "pending", "available": False},
-        }
+        }, None)
 
     monkeypatch.setattr(audit, "build_hero", hero)
     lines = audit.render_audit(None, "run", days)

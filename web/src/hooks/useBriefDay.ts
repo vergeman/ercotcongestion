@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useReducer } from "react";
 import type {
-  AnalysisGrade, AnalysisGradeHistory, BriefContext, BriefHero, BriefHeroStats,
+  AnalysisGrade, AnalysisGradeHistory, BriefContext, BriefHero,
   Standouts, TopConstraints, TopNodes,
 } from "../api/types";
 import {
   fetchBriefDetailsCached, fetchBriefHeroLatestCached, fetchBriefHeroShellCached,
-  fetchBriefHeroStatsCached, fetchBriefStandoutsCached,
+  fetchBriefStandoutsCached,
 } from "../api/briefCache";
 import type { ConnectionState } from "./useExplorerSession";
 
 type BriefDayState = {
   defaultDay: string | null; initialLookupDone: boolean; hero: BriefHero | null;
-  heroStats: BriefHeroStats | null; topConstraints: TopConstraints | null;
+  topConstraints: TopConstraints | null;
   standouts: Standouts | null; topNodes: TopNodes | null; context: BriefContext | null;
   grade: AnalysisGrade | null; gradeHistory: AnalysisGradeHistory | null;
-  heroLoading: boolean; heroStatsLoading: boolean; topConstraintsLoading: boolean;
+  heroLoading: boolean; topConstraintsLoading: boolean;
   standoutsLoading: boolean; topNodesLoading: boolean; contextLoading: boolean;
   gradeLoading: boolean; heroError: string | null; detailsError: string | null;
   connectionState: ConnectionState; lastUpdated: Date | null;
@@ -22,9 +22,9 @@ type BriefDayState = {
 };
 
 const initialState: BriefDayState = {
-  defaultDay: null, initialLookupDone: false, hero: null, heroStats: null,
+  defaultDay: null, initialLookupDone: false, hero: null,
   topConstraints: null, standouts: null, topNodes: null, context: null, grade: null,
-  gradeHistory: null, heroLoading: false, heroStatsLoading: false,
+  gradeHistory: null, heroLoading: false,
   topConstraintsLoading: false, standoutsLoading: false, topNodesLoading: false,
   contextLoading: false, gradeLoading: false, heroError: null, detailsError: null,
   connectionState: "loading", lastUpdated: null, adjacentDays: { previous: null, next: null },
@@ -63,8 +63,8 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
   useEffect(() => {
     if (!deliveryDay) { patch({ adjacentDays: { previous: null, next: null } }); return; }
     const controller = new AbortController();
-    patch({ heroLoading: true, heroStatsLoading: false, heroError: null, connectionState: "loading",
-      hero: null, heroStats: null, context: null, standouts: null, topNodes: null,
+    patch({ heroLoading: true, heroError: null, connectionState: "loading",
+      hero: null, context: null, standouts: null, topNodes: null,
       topConstraints: null, grade: null, gradeHistory: null, detailsError: null,
       adjacentDays: { previous: null, next: null } });
     fetchBriefHeroShellCached(deliveryDay, controller.signal)
@@ -84,17 +84,6 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
       .then((standouts) => { if (!controller.signal.aborted) patch({ standouts }); })
       .catch((error: unknown) => { if (!controller.signal.aborted && !isAbort(error)) patch({ standouts: null }); })
       .finally(() => { if (!controller.signal.aborted) patch({ standoutsLoading: false }); });
-    return () => controller.abort();
-  }, [deliveryDay]);
-
-  useEffect(() => {
-    if (!deliveryDay) return;
-    const controller = new AbortController();
-    patch({ heroStatsLoading: true });
-    fetchBriefHeroStatsCached(deliveryDay, controller.signal)
-      .then((heroStats) => { if (!controller.signal.aborted) patch({ heroStats }); })
-      .catch((error: unknown) => { if (!controller.signal.aborted && !isAbort(error)) patch({ heroStats: null }); })
-      .finally(() => { if (!controller.signal.aborted) patch({ heroStatsLoading: false }); });
     return () => controller.abort();
   }, [deliveryDay]);
 

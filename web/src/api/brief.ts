@@ -4,7 +4,6 @@ import type {
   BriefDetails,
   BriefHeroLatest,
   BriefHeroShell,
-  BriefHeroStats,
   Standouts,
 } from "./types";
 
@@ -21,16 +20,6 @@ export function fetchBriefHeroShell(
   signal?: AbortSignal,
 ): Promise<BriefHeroShell | null> {
   return requestJson("/analysis/brief/hero", { query: dayQuery(deliveryDate), signal });
-}
-export function fetchBriefHeroStats(
-  deliveryDate: string,
-  signal?: AbortSignal,
-): Promise<BriefHeroStats | null> {
-  return requestJson("/analysis/brief/hero/stats", {
-    query: dayQuery(deliveryDate),
-    signal,
-    unavailable: [404, 503],
-  });
 }
 export function fetchBriefStandouts(deliveryDate: string, signal?: AbortSignal): Promise<Standouts | null> {
   const query = dayQuery(deliveryDate); query.set("k", "4");

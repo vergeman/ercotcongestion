@@ -2,7 +2,6 @@ import { QueryCache } from "./cache";
 import {
   fetchBriefDay,
   fetchBriefDetails,
-  fetchBriefHeroStats,
   fetchBriefStandouts,
   fetchBriefHeroLatest,
   fetchBriefHeroShell,
@@ -10,7 +9,6 @@ import {
 import type {
   BriefDay,
   BriefDetails,
-  BriefHeroStats,
   Standouts,
   BriefHeroLatest,
   BriefHeroShell,
@@ -54,16 +52,6 @@ export function fetchBriefHeroShellCached(
   );
 }
 
-export function fetchBriefHeroStatsCached(
-  deliveryDate: string,
-  signal?: AbortSignal,
-): Promise<BriefHeroStats | null> {
-  return cached(
-    `brief-hero-stats:${deliveryDate}`,
-    (requestSignal) => fetchBriefHeroStats(deliveryDate, requestSignal),
-    signal,
-  );
-}
 
 export function fetchBriefStandoutsCached(
   deliveryDate: string, signal?: AbortSignal,

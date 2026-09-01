@@ -80,7 +80,7 @@ def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
     public_routes = (
         '/forecast_range', '/map/constraints/ranked', '/analysis/hero/latest',
         '/analysis/hero', '/analysis/brief', '/analysis/brief/hero',
-        '/analysis/brief/hero/stats', '/analysis/brief/details', '/analysis/node',
+        '/analysis/brief/details', '/analysis/node',
         '/analysis/settlement-points', '/analysis/constraints', '/analysis/grade',
         '/analysis/standouts',
     )

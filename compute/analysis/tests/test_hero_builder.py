@@ -41,7 +41,7 @@ def test_build_hero_keeps_forecast_on_artifact_keys_and_preserves_all_key_contex
     monkeypatch.setattr(hero_builder, "load_sp_metadata", lambda *_: {
         "N1": {"load_zone": "LZ_SOUTH"}, "N2": {"load_zone": "LZ_NORTH"}})
 
-    slots = hero_builder.build_hero(None, "run", D, 1, "forecast", artifact=_artifact())
+    slots = hero_builder.build_hero(None, "run", D, 1, "forecast", artifact=_artifact()).slots
     assert slots["magnitude"]["basis"] == "forecast_history_artifact_keys"
     assert slots["magnitude"]["n_keys"] == 2
     assert slots["magnitude"]["value"] == 210.0
@@ -103,8 +103,49 @@ def test_build_hero_reports_unmodeled_dam_constraint_tiers(monkeypatch):
     monkeypatch.setattr(hero_builder, "load_constraint_geo", lambda *_: [])
     monkeypatch.setattr(hero_builder, "load_sp_metadata", lambda *_: {})
 
-    slot = hero_builder.build_hero(None, "run", D, 1, "settled", artifact=_artifact())["exceptions"]
+    slot = hero_builder.build_hero(None, "run", D, 1, "settled", artifact=_artifact()).slots["exceptions"]
     assert slot["bucket"] == "one_or_two"
     assert slot["tier_0"] == [{"constraint_key": "NEW|ONE", "value": 30.0, "rank": 1, "n": 31}]
     assert [item["constraint_key"] for item in slot["tier_1"]] == ["NEW|ONE", "TOP|TWO"]
     assert [item["rank"] for item in slot["tier_1"]] == [1, 2]
+
+
+def test_settled_build_hero_loads_shared_inputs_once(monkeypatch):
+    D = date(2026, 7, 28)
+    calls = {"constraints": 0, "forecast": 0, "geo": 0, "metadata": 0, "condition": 0}
+
+    def constraints(_conn, _day, *, constraint_keys=None, **_kwargs):
+        calls["constraints"] += 1
+        return [{"delivery_date": D, "constraint_key": "A|B", "value": 10}]
+
+    def forecast(*_args, **_kwargs):
+        calls["forecast"] += 1
+        return [{"delivery_date": D, "constraint_key": "A|B", "value": 10}]
+
+    def geo(*_args):
+        calls["geo"] += 1
+        return []
+
+    def metadata(*_args):
+        calls["metadata"] += 1
+        return {}
+
+    def condition(*_args):
+        calls["condition"] += 1
+        return {"series": "load.system", "pct": 0.0}
+
+    monkeypatch.setattr(hero_builder, "load_constraint_days", constraints)
+    monkeypatch.setattr(hero_builder, "load_forecast_constraint_days", forecast)
+    monkeypatch.setattr(hero_builder, "load_constraint_geo", geo)
+    monkeypatch.setattr(hero_builder, "load_sp_metadata", metadata)
+    monkeypatch.setattr(hero_builder, "build_hero_condition", condition)
+
+    built = hero_builder.build_hero(
+        None, "run", D, 1, "settled", artifact=_artifact(),
+        include_forecast_comparison=True,
+    )
+
+    assert calls == {"constraints": 3, "forecast": 1, "geo": 1, "metadata": 1, "condition": 1}
+    assert built.slots["magnitude"]["basis"] == "artifact_keys"
+    assert built.forecast_slots is not None
+    assert built.forecast_slots["magnitude"]["basis"] == "forecast_history_artifact_keys"

@@ -105,7 +105,7 @@ def render_audit(conn, run_id: str, days: list[tuple[date, int]], *, basis: str 
     available = Counter()
     try:
         for delivery_date, horizon in days:
-            slots = build_hero(conn, run_id, delivery_date, horizon, basis)
+            slots = build_hero(conn, run_id, delivery_date, horizon, basis).slots
             for name in SLOT_NAMES:
                 if slots[name].get("available") is not False:
                     counts[name][slots[name]["bucket"]] += 1
