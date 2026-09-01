@@ -1,5 +1,7 @@
 """Schemas served by the conditions range route."""
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 # ---- /conditions_range -------------------------------------------------------

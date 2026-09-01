@@ -4,6 +4,7 @@ import pandas as pd
 from fastapi import Query
 
 from api.services.analysis import panels as analysis_module
+from api.services.analysis.features import hero as hero_service
 from compute.analysis import brief_grade
 from compute.analysis.hero_window import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
@@ -171,8 +172,8 @@ def test_hero_resolves_served_horizon_and_returns_forecast_segments(client, fake
     fake_pool.cursor.queue([{"run_id": "run-x"}]) # published run
     fake_pool.cursor.queue([{"h": 1}])            # horizon resolve
     fake_pool.cursor.queue([{"ts": None}])        # DAM coverage
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
+    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
 
     response = client.get("/analysis/hero?date=2026-07-28")
     assert response.status_code == 200
@@ -189,8 +190,8 @@ def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, 
     fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": pd.Timestamp("2026-07-28T20:00Z")}])
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
+    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
 
     body = client.get("/analysis/hero?date=2026-07-28").json()
     assert body["provenance"]["basis"] == "settled"
@@ -441,8 +442,8 @@ def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, m
     fake_pool.cursor.queue([{"run_id": "run-x"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": None}])
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(analysis_module, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
+    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
     first = client.get("/analysis/hero?date=2026-07-28")
     second = client.get("/analysis/hero?date=2026-07-28")
     assert first.content == second.content
