@@ -448,14 +448,14 @@ export default function SidePanel({
           {scorecard?.available && (
             <section className="np-section">
               <div className="np-section__header sc-header">
-                <span className="label">
-                  {scorecard.basis === "served_daily"
-                    ? `Final served grade · ${scorecard.delivery_date}`
-                    : `Offline backtest fallback · week of ${scorecard.scored_week}`}
-                </span>
+                <span className="label">Forecast Run</span>
+                <span className="mono">{scorecard.run_id ?? network.forecastRunId ?? "—"}</span>
               </div>
-
-              <Stat label="Forecast Run" value={scorecard.run_id ?? network.forecastRunId} />
+              <div className="sc-meta label">
+                  {scorecard.basis === "served_daily"
+                    ? `Final served · ${scorecard.delivery_date}`
+                    : `Backfill · week of ${scorecard.scored_week}`}
+              </div>
 
               <div className="sc-table">
                 <span className="sc-h sc-h--cat" />
@@ -607,7 +607,8 @@ export default function SidePanel({
         .np-caret.open { transform: rotate(90deg); }
         .np-group .np-stat:not(.np-stat--toggle) { padding-left: 15px; }
 
-        .sc-header { display: flex; align-items: center; }
+        .sc-header { display: flex; justify-content: space-between; align-items: center; }
+        .sc-meta { margin: -1px 0 8px; color: var(--text-muted); }
         .sc-fit { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
         .sc-fit__header { margin-bottom: 3px; color: var(--text-secondary); }
 
