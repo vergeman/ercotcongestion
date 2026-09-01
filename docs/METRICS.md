@@ -1,25 +1,22 @@
-# Scoring
+# Product metrics
 
-The product has two different grading systems. Scoreboard measures whether a
-nodal congestion forecast screens the right locations and directions. The Brief
-has its own artifact-based Detection, Magnitude, and Timing grades. They answer
-different questions and must not be compared or substituted for one another.
+This document separates three independent product-metric surfaces:
+**Scoreboard**, **Brief**, and **Map**. Their datasets, sources, targets, and
+grades are specific to their own surface. A value from one section must not be
+compared with, substituted for, or used to explain a value from another.
+
+## Scoreboard
 
 The served deterministic point forecast is `−(E[μ] · SF)`, where
 `E[μ] = p_bind × mu_gbm`. Here, μ is a constraint shadow price and SF is the
 constraint-to-node shift factor.
 
-## Scoreboard at a glance
-
-Scoreboard is an all-hours, screening-only product surface. It has no net-load
-quintiles or other regime selector, no magnitude mode, and no Scoreboard MAE or
-R² metric.
+### At a glance
 
 | Dataset | What it measures | Written by | How Scoreboard uses it |
 | --- | --- | --- | --- |
 | `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
 | `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and final-grade portion of the history chart |
-| `analysis_grade_daily` | Brief ranking and shape assessment | `compute.jobs.materialize_brief_grade` | Brief only; not a Scoreboard input |
 
 The only Scoreboard HTTP read endpoint is `/scoreboard/summary`. It bundles the
 weekly backtest, its rolling headline, the latest final live grade, and the
@@ -27,26 +24,40 @@ combined history. The older `/scoreboard/headline`, `/scoreboard/weekly`, and
 `/scoreboard/daily` routes no longer exist.
 
 Each bundled section can be unavailable independently. A `null` section and its
-`availability` entry mean its underlying data is not ready; they do not cause
-the other Scoreboard sections to use a different run or substitute a preview
-grade for a final grade.
+`availability` entry mean its underlying data is not ready.
 
-## The three Scoreboard metrics
+### Metrics
 
 All Scoreboard metrics are higher-is-better and are computed on the same
 realized nodal-congestion target: `SPP − system_λ`.
 
-| Metric | Meaning |
-| --- | --- |
-| Rank ρ (`rank_spearman`) | Mean hourly Spearman correlation between the predicted and realized ranking across settlement points. |
-| Sign Agreement (`sign_agree`) | Fraction of finite node-hours whose predicted and realized signs match, among realized values outside the $1/MWh deadband. |
-| Top-Decile Hit (`topdecile_hit`) | Mean hourly overlap between the predicted and realized highest-congestion tenth of settlement points. |
+Think of metrics more as away of comparing orderings of forecast vs realized, per hour (except for sign agreement which is pooled.)
 
-The scorecard keeps only these screening metrics. MAE and pooled R² still exist
-where independent model training, experiments, or SF diagnostics need them, but
-they are not Scoreboard columns, API fields, controls, or verdicts.
+| Metric                           | Meaning                                                                                                                      | Calculation Cadence      |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|--------------------------|
+| Rank ρ (`rank_spearman`)         | Mean hourly Spearman correlation between the predicted and realized ranking across settlement points.                        | average of hourly        |
+| Top-Decile Hit (`topdecile_hit`) | Of the top 10% highest-congestion nodes, the mean hourly overlap between the predicted and realized.                         | average of hourly        |
+| Sign Agreement (`sign_agree`)    | Fraction of node-hours whose predicted and realized signs (+ or -) match, among realized values outside the $1/MWh deadband. | pooled across entire day |
 
-## Source catalog
+
+For a typical graded forecast
+
+* Rank ρ: average of the valid hourly cross-node correlations - calculate
+  spearman for all nodes per hour, then average those ~24 hours.
+  * at time t, we order forecast nodes vs realized nodes by highest congestion,
+    compare rank to get correlation..
+
+* Top-Decile Hit: average of the valid hourly top-decile overlaps. Filter top
+  decile each group, order for all nodes each hour, then average those ~24
+  hours.
+  * at time t, filter top 10% highest congestion, and rank to find overlap.
+
+* Sign Agreement: not an average of 24 hourly scores. It pools all matching sign
+  node-hour pairs (Forecast vs realized same direction) across the day, then
+  calculates one overall fraction with matching signs.
+  * match nodes, and test if +/- between forecast and realized was correct.
+
+### Source catalog
 
 The API identifies every scored construction with a canonical `SourceDescriptor`
 `id`. Scoreboard points also carry a logical `series_id`; backtest and served
@@ -65,69 +76,47 @@ interpreted alongside its other sources, rather than as a lone number:
 | `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ Ceiling (Oracle) | Non-deployable settled-day ceiling. |
 | `scoreboard_null_flat_nodal` | `null` | Flat nodal control | Non-deployable flat control; ranking metrics are usually undefined. |
 
-Brief profiles use a separate source catalog because they score artifact
-profiles rather than nodal Scoreboard rows:
-
-| Canonical source ID | Display label | Status |
-| --- | --- | --- |
-| `brief_model_artifact_profile` | Artifact profile forecast | Deployable Brief forecast profile. |
-| `brief_persistence_prior_settled_profile` | Prior-settled profile persistence | Brief baseline. |
-| `brief_climatology_trailing_settled_profile` | Trailing-window Average (Baseline) | Brief baseline. |
-
-The shared **Trailing-window Average (Baseline)** label describes the same
-role, not identical values. Brief averages prior settled constraint or node
-profiles directly. Scoreboard’s daily baseline averages trailing μ and projects
-it through the applicable map before scoring nodal congestion. Do not compare
-the values between those surfaces.
-
 For a live day, every source is scored on the same intersection of forecast,
 map, and realized settlement points. This makes model-versus-persistence
 comparisons like-for-like. `sf_coverage`, `n_hours`, and `n_nodes` travel with
 the rows as context for interpreting a score.
 
-## Backtest and live grades
+### Backtest and daily forecast (live) grades
 
-### Weekly backtest: does the recipe work?
+#### Weekly backtest: does the recipe work?
 
-`scoreboard_weekly` is a manually refreshed transcription of the offline
-walk-forward evaluation. The walk repeatedly fits only on information available
-at the time, predicts forward, and scores the resulting out-of-sample forecasts.
+`scoreboard_weekly` repeatedly fits only on information available at the time,
+predicts forward, and scores the resulting out-of-sample forecasts.
+
 `compute.evaluation.mu` writes `mu_score_weekly.csv`;
 `compute.jobs.backfill_scoreboard` copies those precomputed screening values
 into the database. The loader does not measure forecasts or create new metrics.
 
-There is one all-hours row per `(run_id, week, source)`. Refreshing the weekly
-board requires a new offline walk, evaluation of its predictions, and then a
-load; normal forecast and grading crons do not advance it.
+#### Daily served grade: did the published forecast hold up?
 
-### Daily served grade: did the published forecast hold up?
+`scoreboard_daily` grades the nodal forecast that was actually served for a CT
+delivery day after the corresponding DAM outcomes are available.
 
-`scoreboard_daily` grades the deterministic nodal forecast that was actually
-served for a CT delivery day after the corresponding DAM outcomes are available.
 `compute.jobs.grade_forecast_day` reads the served forecast, builds realized
 nodal congestion, and uses the same screening-metric harness as the backtest.
-It records the model plus its comparators for the delivery day and is idempotent
-for `(run_id, delivery_date, horizon)`.
 
-The daily row is therefore a live product assessment, not another backtest. Its
-history depends on forecasts having been served and later graded; it is not a
-complete historical archive that can be rebuilt by the weekly-board loader.
-
-### Same inference, different batch size
+#### Same inference weekly vs daily, just different batch size
 
 Both paths fit the μ heads (`P(bind)` and `E(μ | bind)`) from a trailing 240-day
-history window, then run inference on timestamped constraint rows. A model can
-infer one row or many rows at once; batching changes throughput, not what a row
-means. Each row is identified by its full `interval_ts` and constraint key, so
-Monday 14:00 and Tuesday 14:00 are distinct predictions even though they share
-the same clock hour.
+history window, then run inference on timestamped constraint rows.
+
+A model can infer one row or many rows at once - batching changes throughput,
+not what a row means. Each row is identified by its full `interval_ts` and
+constraint key, so Monday 14:00 and Tuesday 14:00 are distinct predictions even
+though they share the same clock hour.
 
 For a normal 24-hour delivery day `D`, `compute.jobs.daily_forecast` fits μ on
 `[D−240d, D)`, reuses the applicable weekly-fit SF map, and infers the roughly
 `24 × constraints` rows for `D`. It projects them to roughly `24 × nodes`
-nodal predictions. Once DAM results settle,
-`compute.jobs.grade_forecast_day` grades that day as one daily Scoreboard
-result. (DST delivery days have 23 or 25 hours.)
+nodal predictions.
+
+Once DAM results settle, `compute.jobs.grade_forecast_day` grades that day as
+one daily Scoreboard result. (DST delivery days have 23 or 25 hours.)
 
 For an offline weekly fold beginning `S`, the backtest fits both μ and SF on
 the preceding 240 days, then infers the roughly `168 × constraints` rows for
@@ -144,113 +133,61 @@ marker at that date; it is a visual handoff, not a toggle or a server-side trim
 of the weekly series.
 
 If a weekly point and a daily point have the same date and source, the chart's
-value lookup is keyed by `(date, source)`. The API appends daily points after
-weekly points, so the later daily value replaces the weekly value for plotting.
-Thus daily takes precedence on an overlap, while non-overlapping weekly points
-remain visible before and after the marker.
+later daily value replaces the weekly value for plotting.
 
-## Forecast horizons
+### Forecast horizons
 
 Horizon is part of the forecast and daily-grade identity:
 
 * **h1** is the final forecast, fired at 17:00Z on D−1 after DAM close.
 * **h2** is the preview, fired at 20:15Z on D−2 before D's DAM auction clears.
 
-Both tracks can be stored and graded independently in `scoreboard_daily` for
-audit and other consumers. Scoreboard itself deliberately exposes only h1:
-the live tiles select the newest fully persisted final delivery date and all of
-its comparator rows. They never fall back to h2. The history chart likewise
-appends final served daily grades only.
-
-Earlier final daily grades are explored on that unified chart through hover or
-keyboard navigation; the page has no delivery-date selector or horizon selector.
-
-## Reading the Scoreboard page
-
-| Page block | Data | Interpretation |
-| --- | --- | --- |
-| Live · latest final served grade | Newest h1 rows in `scoreboard_daily` | The most recent final forecast actually served, with model, persistence comparison, and oracle ceiling. |
-| Backtest · rolling 90-day headline | `scoreboard_weekly` | Recent form of the offline walk. Each currency is pooled from weekly rows using `n_hours` weights. |
-| Track record | Weekly backtest plus final daily grades | One continuous visual history with the two cadences kept distinct. |
-| Backtest · pooled splits | `scoreboard_weekly` | All, pre-RTC+B, and post-RTC+B summaries; the split date is 2025-12-05. |
-
-The metric buttons control the track-record chart and pooled-split table. They
-do not change either row of headline tiles. The 90-day headline is calculated
-when `/scoreboard/summary` is requested, so it changes only after new weekly
-backtest rows are loaded.
-
-The weekly pooled split values are simple means of the corresponding weekly
-source values. `beats_persistence` is true only when the model is higher than
-persistence on all three screening metrics.
-
-## Delivery days and update flow
-
-A delivery day is an America/Chicago trading day. It contains 23, 24, or 25
-hours around DST transitions, while stored timestamps remain UTC instants.
-
-The final and preview forecast ticks publish their artifacts and nodal forecasts,
-then try to grade an eligible settled delivery day. Grade failures are non-fatal
-to publishing and can be retried; `grade_forecast_day` selects an ungraded eligible day
-per run and horizon. The offline weekly board is outside that loop.
-
-Typical manual weekly refresh:
-
-```bash
-# Create walk-forward predictions, score them, then load the resulting CSV.
-python -m compute.mu_forecast.model.backtest --run-id <run-id> ...
-python -m compute.evaluation.mu --preds runs/<run-id>/mu/mu_preds.npz \
-    --out runs/<run-id>/mu/mu_score_weekly.csv
-python -m compute.jobs.backfill_scoreboard --run-id <run-id>
-```
-
-`backfill_scoreboard` replaces only that run's weekly rows. It does not backfill
-daily served grades. To repair a specific live day, run
-`python -m compute.jobs.grade_forecast_day --delivery-date <YYYY-MM-DD> --run-id
-<run-id> --horizon <1|2> --to-db` after confirming the forecast and realized
-inputs are present.
-
-## Brief grades are separate
-
-`analysis_grade_daily` evaluates artifact-derived constraint and node stories:
-
-* Detection: whether the important constraints rank highly.
-* Magnitude: whether the daily Σμ shape overlaps the realized shape.
-* Timing: whether important constraint-hours appear at the right times.
-
-Those grades use their own subjects, baselines, and definitions.
-`compute.jobs.materialize_brief_grade` writes them independently of
-`compute.jobs.grade_forecast_day`. A strong Brief grade does not imply a strong
-nodal Scoreboard result, and vice versa.
-
-## Metric families beyond product Scoreboard
-
-Internal SF and μ gates deliberately keep their own executable metric tables so
-one arena cannot silently change another. Their shared vocabulary is concise:
-
-| Family | Metrics | Purpose |
-| --- | --- | --- |
-| SF gate | pooled R², rank Spearman, sign agreement, top-decile hit | Hold the μ input at truth and assess the SF map. |
-| μ gate | pooled R², rank Spearman, sign agreement, top-decile hit | Hold the map fixed and assess μ forecasts. |
-| Forecast internals | bind reliability, head-2 R² | Assess the two μ heads before projection. |
-| Brief grade | detection, magnitude, timing | Assess served artifact profiles, separately for constraints and nodes. |
-
-`oracle` always means a realized-input ceiling; `persistence` repeats the prior
-settled same-hour signal; `climatology` is a trailing historical expectation;
-and `null` is the flat control. Their exact subjects and information cutoffs are
-defined by the named arena above, not shared across product surfaces.
-
-## Migration appendix
-
-The old short IDs `model`, `persistence`, `climatology`, `oracle`, and `null`
-remain only as Scoreboard `series_id` values for joining logical chart lines.
-They are not source identities and must not be used to select labels or explain
-construction. Legacy API fields named `source`, `model`, `persistence`, and
-`climatology` are retired; clients consume `source_id`, `series_id`,
-`SourceDescriptor`, and source-metric entries instead.
+Both tracks can be stored and graded independently in `scoreboard_daily`.
 
 ---
 
-## Maps
+## Brief
+
+Brief grades evaluate artifact-derived constraint and node stories. They are not
+nodal Scoreboard grades: a strong Brief grade does not imply a strong Scoreboard
+result, and vice versa.
+
+### Data and sources
+
+| Dataset                | What it measures                   | Written by                             | Brief use         |
+|------------------------|------------------------------------|----------------------------------------|-------------------|
+| `analysis_grade_daily` | Brief ranking and shape assessment | `compute.jobs.materialize_brief_grade` | Brief grades only |
+
+Brief profiles use their own source catalog because they score artifact profiles
+rather than nodal Scoreboard rows:
+
+| Canonical source ID                          | Display label                      | Status                             |
+|----------------------------------------------|------------------------------------|------------------------------------|
+| `brief_model_artifact_profile`               | Artifact profile forecast          | Deployable Brief forecast profile. |
+| `brief_persistence_prior_settled_profile`    | Prior-settled profile persistence  | Brief baseline.                    |
+| `brief_climatology_trailing_settled_profile` | Trailing-window Average (Baseline) | Brief baseline.                    |
+
+The shared **Trailing-window Average (Baseline)** label describes a role, not
+identical values:
+* Brief averages prior settled constraint or node profiles directly.
+* Scoreboard’s daily baseline averages trailing μ and projects it through the
+  applicable map before scoring nodal congestion.
+
+### Grades
+
+* **Detection**: whether the important constraints rank highly.
+* **Magnitude**: whether the daily Σμ shape overlaps the realized shape.
+* **Timing**: whether important constraint-hours appear at the right times.
+
+These grades use their own subjects, baselines, and definitions.
+`compute.jobs.materialize_brief_grade` writes them independently of
+`compute.jobs.grade_forecast_day`.
+
+
+---
+
+
+## Map
 
 Two SF-map fit-quality diagnostics surfaced in the `/map` sidebar. Both are
 computed in `compute/evaluation/sf.py` and persisted to the `sf_window_meta`
@@ -292,3 +229,103 @@ is the documented cause of the spread between in-sample R² (≈ 0.99) and OOS R
 (≈ 0.75). The map genuinely drifts, so both numbers sit in the sidebar as a
 caveat on the signed SF detail. `sf_stability` is NULL for early windows that
 lack the 120 days of history.
+
+### 30d / 90d Forecast Scorecard in the Map SidePanel
+
+The Map SidePanel also has **Forecast Run** showing the μ-forecast scorecard and
+30D/90D window controls. It is not a rolling summary of the SF-map diagnostics,
+but an expansion of the daily scoreboard metrics.
+
+These calculations take a weekly "cadence" when calculating metrics, instead of
+daily. Then each metric is an hourly weighted average of several weeks values
+that cover 30d, or 90d. So a 30d value is ~4 weeks of an hourly weighted averaged
+metrics - 4 numbers - averaged.
+
+So for rank spearman, instead of the hourly spearman subsequently averaged over
+24 hours; we calculate the hourly spearman, and then average over an entire
+weeks worth of hours (~168). Repeat with weeks 2,3, and 4 (w.avg) until ~30d.
+
+For sign agreement we expand the pool to a week's worth of hours.
+
+Each scorecard row compares the model forecast with persistence and the oracle
+ceiling. All three metrics are higher-is-better and are calculated on the
+predicted and realized nodal-congestion vectors for each hour:
+
+
+---
+
+
+## Tracking Computation
+
+These checks live under `/compute`. They are distinct from the `/map` sidebar:
+the sidebar reads persisted `sf_window_meta` fields, while these are evaluation
+commands and helpers used to assess a fitted map or a historical μ walk.
+
+#### Scheduled μ forecast path: served to Brief.
+
+The final and preview forecast CronJobs both run
+`python -m compute.jobs.daily_forecast --to-db`; the final path uses horizon 1
+and the preview path passes `--horizon 2`. `daily_forecast.forecast_day()`:
+
+1. builds the delivery-day feature panel using only information available at
+   that horizon's fire time;
+2. calls `compute.mu_forecast.model.runner.predict_day()` to fit the two μ heads
+   on the trailing training window and infer that one delivery day; and
+3. loads the applicable persisted SF map, then calls `propagate_window()` to
+   publish the deterministic nodal point forecast and its SF+μ artifact.
+
+This path serves predictions; it cannot calculate forecast skill for the new
+delivery day because settled DAM outcomes do not yet exist. On each tick it also
+attempts a separate eligible settled-day Scoreboard grade through `grade_day()`
+and `persist_grades()`, then materializes the separate Brief grade. Those are
+settlement-time product grades, not training-time μ-head diagnostics.
+
+#### SF-map evaluation path — scheduled weekly - served to Map SidePanel
+
+The production weekly SF `map-refresh` CronJob takes this branch, in order:
+
+1. `compute.jobs.weekly_map` fits and persists each new rolling SF window.
+2. `compute.sf_map.geography.persist` persists its geography overlay.
+3. `python -m compute.evaluation.sf --persist-eval` evaluates the persisted
+   map configuration and writes `sf_oos_r2`, `coverage`, and `sf_stability`
+   back to matching `sf_window_meta` rows.
+
+`compute.evaluation.sf.main()` For each scored week, `evaluate()`:
+
+* fits the prior-window map with `implied_shift_factors()`;
+* calls `predict()` with realized μ and scores `sf_pooled_r2()`,
+  `row_spearman()`, `sign_agreement()`, and `topdecile_hit()` on the held-out
+  nodal congestion panel;
+* fits a comparison map whose window includes that week for in-sample R²; and
+* fits the preceding, disjoint window and calls `_sf_corr()` for stability.
+
+This is the SF gate: it holds μ at truth, so its results isolate map quality.
+
+#### μ-forecast evaluation path - offline backtest (Scoreboard historic graph)
+
+`compute.evaluation.mu` is an operator-run offline evaluation, not a map-refresh
+CronJob branch. It consumes the prediction artifact from
+`compute.mu_forecast.model.backtest` and uses `walk()` → `score_week()` for each
+prediction week. Produces `mu_score_weekly.csv`.
+
+`score_week()` fits the same trailing-window SF map with
+`implied_shift_factors()`, then passes each μ source through the shared
+`compute.evaluation.sf.predict()` projection before applying the Scoreboard
+screening helpers.
+
+The sources are realized μ (oracle), the model’s `p_bind × mu_gbm`, trailing
+hourly climatology, prior-day same-hour persistence, and a null (zero) control.
+
+This path held the map fixed within a week and compared μ inputs; it produces
+rank Spearman, sign agreement, top-decile hit, SF coverage, and model-key
+coverage.
+
+#### μ-head diagnostics — backtest only (not used)
+
+`compute.mu_forecast.model.backtest.walk_forward()` fits both heads on every
+trailing training window and writes per-week head-1 diagnostics through
+`compute.mu_forecast.model.heads.bind_metrics()` and `reliability()`: Brier
+score, expected calibration error, AUC, base rate, and mean prediction. These
+are not used anywhere except at one point internally. Produces `mu_weekly.csv`.
+
+There is currently no implemented head-2 R² gate in `/compute`.
