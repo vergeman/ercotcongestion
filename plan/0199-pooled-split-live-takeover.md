@@ -9,6 +9,7 @@ Branch: feat/0199-pooled-split-live-takeover
 * Combine per-week backtest scores with per-day live scores by n_hours weight, so recent live days don't outweigh the backtest record.
 * Split label shows the live extension (e.g. `Post-RTC+B · 32w + 45d`).
 * Rename the panel "Track record · pooled pre/post-RTC+B" (no longer backtest-only).
+* Define the `w` and `d` cadence labels below the pooled table.
 
 ## Context
 
@@ -33,6 +34,7 @@ Branch: feat/0199-pooled-split-live-takeover
 * [x] Post-RTC+B and All splits reflect live days through the latest final grade; Pre-RTC+B unchanged.
 * [x] Pooled values are n_hours-weighted; a handful of live days does not swing the post-RTC+B number more than their hours warrant.
 * [x] Split label shows weeks and live days separately.
+* [x] Helper copy defines weekly (`w`) backtest scores and daily (`d`) forecast grades.
 * [x] Panel is titled "Track record · pooled pre/post-RTC+B"; no wording implies backtest-only.
 * [x] Comment/tooltip states cells are independent hours-weighted pools and "All weeks" is not the average of pre/post.
 * [x] `beats_persistence` recomputes on the combined record.
