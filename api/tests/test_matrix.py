@@ -6,12 +6,22 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
+from api.main import app
 from api.routes import matrix as matrix_module
+from api.services.sf_artifacts import delivery_date_for
 from compute.projection.codecs import build_sf_mu_artifact
 
 
 T0 = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)  # midnight Central
 T1 = datetime(2026, 7, 1, 6, tzinfo=timezone.utc)
+
+
+def _set_metadata(monkeypatch, metadata) -> None:
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        matrix_module.get_settlement_point_metadata,
+        lambda: metadata,
+    )
 
 
 def _blob() -> bytes:
@@ -82,7 +92,7 @@ def _queue_frame(fake_pool, dam_rows: list[dict] | None = None, type_rows: list[
 
 
 def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('hub', 'north_hub'), 'SP_B': ('load_zone', 'west'), 'SP_C': ('resource', None),
     })
     _queue_frame(fake_pool, [
@@ -117,7 +127,7 @@ def test_frame_is_causal_dense_and_dam_partial(client, fake_pool, monkeypatch):
 
 
 def test_frame_rounds_matrix_display_values_to_three_decimals(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('hub', None), 'SP_B': ('resource', None),
     })
     sf = pd.DataFrame(
@@ -143,7 +153,7 @@ def test_frame_rounds_matrix_display_values_to_three_decimals(client, fake_pool,
 
 
 def test_frame_order_does_not_change_by_hour(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     _queue_frame(fake_pool)
     first = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
     # Cache reuse skips the blob fetch, but pointer, the min(horizon) probe, and the
@@ -179,8 +189,8 @@ def test_frame_reports_interval_absent_from_artifact(client, fake_pool):
 
 
 def test_delivery_date_uses_central_time_boundary():
-    assert matrix_module._delivery_date(datetime(2026, 7, 1, 4, 59, tzinfo=timezone.utc)).isoformat() == '2026-06-30'
-    assert matrix_module._delivery_date(T0).isoformat() == '2026-07-01'
+    assert delivery_date_for(datetime(2026, 7, 1, 4, 59, tzinfo=timezone.utc)).isoformat() == '2026-06-30'
+    assert delivery_date_for(T0).isoformat() == '2026-07-01'
 
 
 def test_frame_resolves_all_ct_day_hours_from_one_ct_artifact(client, fake_pool, monkeypatch):
@@ -191,7 +201,7 @@ def test_frame_resolves_all_ct_day_hours_from_one_ct_artifact(client, fake_pool,
     block, which starts at 05:00Z — after them — so they came back
     ``interval_not_in_artifact`` and rendered as an empty board (0143).
     """
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     ct_day = datetime(2026, 7, 1, tzinfo=timezone.utc).date()
     first_hour = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)   # CT midnight, CDT
     artifact = _full_ct_day_blob(first_hour)
@@ -230,7 +240,7 @@ def test_frame_enforces_conservative_bounds(client):
 
 
 def test_frame_anchor_columns_include_artifact_hubs_and_load_zones(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('resource', None),
         'HB_WEST': ('hub', 'west_hub'),
         'LZ_COAST': ('load_zone', 'coast'),
@@ -254,7 +264,7 @@ def test_frame_anchor_columns_include_artifact_hubs_and_load_zones(client, fake_
 
 
 def test_frame_discovery_pins_search_types_and_column_presets(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('hub', 'north_hub'), 'SP_B': ('resource', None), 'SP_C': ('load_zone', 'west'),
     })
     _queue_frame(fake_pool, type_rows=[
@@ -285,7 +295,7 @@ def test_frame_rejects_unbounded_discovery_values(client):
 
 
 def test_frame_default_orientation_is_constraints(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     _queue_frame(fake_pool)
     response = client.get('/matrix/frame', params={'interval_ts': T0.isoformat(), 'row_limit': 2, 'column_limit': 2})
     assert response.status_code == 200, response.text
@@ -293,7 +303,7 @@ def test_frame_default_orientation_is_constraints(client, fake_pool, monkeypatch
 
 
 def test_frame_orientation_nodes_transposes_selection(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('resource', None), 'SP_B': ('load_zone', 'west'), 'SP_C': ('resource', None),
     })
     _queue_frame(fake_pool)
@@ -313,7 +323,7 @@ def test_frame_orientation_nodes_transposes_selection(client, fake_pool, monkeyp
 
 
 def test_frame_orientation_nodes_seed_prefers_dam_and_yields_to_pin(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     # DAM μ for AAA (|10|) outranks BBB's forecast |μ|=3, so the unpinned seed is AAA.
     _queue_frame(fake_pool, dam_rows=[
         {'constraint_name': 'AAA', 'contingency_name': 'BASE', 'shadow_price': 10.0},
@@ -342,7 +352,7 @@ def test_frame_orientation_nodes_seed_prefers_dam_and_yields_to_pin(client, fake
 
 
 def test_frame_orientation_nodes_search_forces_node_row_past_cap(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     _queue_frame(fake_pool)
     response = client.get('/matrix/frame', params={
         'interval_ts': T0.isoformat(), 'orientation': 'nodes',
@@ -355,7 +365,7 @@ def test_frame_orientation_nodes_search_forces_node_row_past_cap(client, fake_po
 
 
 def test_frame_constraints_orientation_seeds_a_hub_column(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('resource', None), 'HB_WEST': ('hub', 'west_hub'), 'LZ_COAST': ('load_zone', 'coast'),
     })
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
@@ -374,7 +384,7 @@ def test_frame_constraints_orientation_seeds_a_hub_column(client, fake_pool, mon
 
 
 def test_frame_default_anchors_columns_are_curated_and_ordered(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'HB_NORTH': ('hub', None), 'HB_HOUSTON': ('hub', None),
         'HB_BUSAVG': ('hub', None), 'SP_X': ('resource', None),
     })
@@ -393,7 +403,7 @@ def test_frame_default_anchors_columns_are_curated_and_ordered(client, fake_pool
 
 
 def test_frame_anchor_contribution_ranks_by_reach_and_drops_blank_rows(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'HB_HOUSTON': ('hub', None), 'HB_NORTH': ('hub', None), 'SP_X': ('resource', None),
     })
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
@@ -415,7 +425,7 @@ def test_frame_anchor_contribution_ranks_by_reach_and_drops_blank_rows(client, f
 
 
 def test_frame_row_order_cursor_mu_ranks_by_dam_then_forecast(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {})
+    _set_metadata(monkeypatch, {})
     # Forecast |μ| at T0: BBB(3) > AAA(2) > CCC(0). cursor_mu therefore selects
     # [BBB, AAA] — the reverse of the contribution default's [AAA, BBB].
     _queue_frame(fake_pool)
@@ -441,7 +451,7 @@ def test_frame_row_order_cursor_mu_ranks_by_dam_then_forecast(client, fake_pool,
 
 
 def test_frame_peek_force_includes_preview_beyond_the_working_set(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('hub', None), 'SP_B': ('resource', None), 'SP_C': ('resource', None),
     })
     _queue_frame(fake_pool)
@@ -460,7 +470,7 @@ def test_frame_peek_force_includes_preview_beyond_the_working_set(client, fake_p
 
 
 def test_frame_constraints_orientation_hub_seed_yields_to_node_pin(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(matrix_module, '_SP_METADATA', {
+    _set_metadata(monkeypatch, {
         'SP_A': ('resource', None), 'HB_WEST': ('hub', 'west_hub'), 'LZ_COAST': ('load_zone', 'coast'),
     })
     fake_pool.cursor.queue([{'run_id': 'fc-v1'}])
