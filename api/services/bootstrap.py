@@ -1,11 +1,11 @@
 """Shared helpers for independently available bootstrap sections."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import TypeVar
 
 from fastapi import HTTPException
-
 
 T = TypeVar("T")
 

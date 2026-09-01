@@ -1,4 +1,5 @@
 """Forecast range HTTP route."""
+
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -18,9 +19,20 @@ router = APIRouter()
 )
 def get_forecast_range(
     run_id: str | None = Depends(_server_selected_run),
-    start: datetime | None = Query(None, description="ISO-8601 UTC start (inclusive). Omit together with `end` to default to the run's latest delivery day (a UTC calendar day)."),
-    end: datetime | None = Query(None, description="ISO-8601 UTC end (inclusive). Omit together with `start` to default to the run's latest delivery day (a UTC calendar day)."),
-    horizon: int | None = Query(None, ge=1, le=2, description="Explicitly read one horizon track: 1 = final/t+1, 2 = preview/t+2 (0123). Omit to coalesce per day (prefer final, fall back to preview) into one continuous series. An explicit horizon with no rows for a day 404s (no fallback) — the 'what changed' view of a preserved preview."),
+    start: datetime | None = Query(
+        None,
+        description="ISO-8601 UTC start (inclusive). Omit together with `end` to default to the run's latest delivery day (a UTC calendar day).",
+    ),
+    end: datetime | None = Query(
+        None,
+        description="ISO-8601 UTC end (inclusive). Omit together with `start` to default to the run's latest delivery day (a UTC calendar day).",
+    ),
+    horizon: int | None = Query(
+        None,
+        ge=1,
+        le=2,
+        description="Explicitly read one horizon track: 1 = final/t+1, 2 = preview/t+2. No rows 404.",
+    ),
 ) -> ForecastRangeResponse:
     return forecast_range(
         run_id,

@@ -1,4 +1,5 @@
 """Cached settlement-point geography and display metadata."""
+
 from __future__ import annotations
 
 import logging
@@ -6,7 +7,6 @@ import logging
 import pandas as pd
 
 from shared.settings import settings
-
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +42,16 @@ def metadata() -> dict[str, tuple[str | None, str | None]]:
         else:
             _METADATA = {
                 str(row.settlement_point): (
-                    None if pd.isna(getattr(row, "sp_type", None)) else str(getattr(row, "sp_type")),
-                    None if pd.isna(getattr(row, "load_zone", None)) else str(getattr(row, "load_zone")),
+                    (
+                        None
+                        if pd.isna(getattr(row, "sp_type", None))
+                        else str(getattr(row, "sp_type"))
+                    ),
+                    (
+                        None
+                        if pd.isna(getattr(row, "load_zone", None))
+                        else str(getattr(row, "load_zone"))
+                    ),
                 )
                 for row in frame.itertuples(index=False)
             }

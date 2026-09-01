@@ -1,4 +1,5 @@
 """Realized ERCOT congestion range HTTP route."""
+
 from datetime import datetime
 
 from fastapi import APIRouter, Query
