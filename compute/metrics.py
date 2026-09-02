@@ -6,6 +6,7 @@ from scipy.stats import rankdata
 
 
 def row_spearman(Y: np.ndarray, Yh: np.ndarray) -> float:
+    """Average valid per-row Spearman rank correlation."""
     values = []
     for y, yh in zip(Y, Yh):
         m = np.isfinite(y) & np.isfinite(yh)
@@ -15,11 +16,13 @@ def row_spearman(Y: np.ndarray, Yh: np.ndarray) -> float:
 
 
 def sign_agreement(Y: np.ndarray, Yh: np.ndarray, deadband: float = 1.0) -> float:
+    """Return pooled sign accuracy outside the realized-value deadband."""
     m = np.isfinite(Y) & np.isfinite(Yh) & (np.abs(Y) > deadband)
     return float((np.sign(Y[m]) == np.sign(Yh[m])).mean()) if m.any() else float("nan")
 
 
 def topdecile_hit(Y: np.ndarray, Yh: np.ndarray) -> float:
+    """Average valid per-row overlap among each side's highest decile."""
     values = []
     for y, yh in zip(Y, Yh):
         m = np.isfinite(y) & np.isfinite(yh)
@@ -31,7 +34,7 @@ def topdecile_hit(Y: np.ndarray, Yh: np.ndarray) -> float:
 
 
 def screening_metrics(Y: np.ndarray, Yh: np.ndarray) -> dict:
-    """Screening metrics; flat predictions have no top-decile ranking."""
+    """Return screening metrics, declining top-decile scores for flat rows."""
     keep = np.ptp(Yh, axis=1) != 0
     return {
         "rank_spearman": row_spearman(Y, Yh),

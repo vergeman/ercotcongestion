@@ -31,14 +31,14 @@ Each bundled section can be unavailable independently. A `null` section and its
 All Scoreboard metrics are higher-is-better and are computed on the same
 realized nodal-congestion target: `SPP − system_λ`.
 
-Think of metrics more as away of comparing orderings of forecast vs realized, per hour (except for sign agreement which is pooled.)
+Think of metrics more as away of comparing orderings of forecast vs realized,
+per hour (except for sign agreement which is pooled.)
 
 | Metric                           | Meaning                                                                                                                      | Calculation Cadence      |
 |----------------------------------|------------------------------------------------------------------------------------------------------------------------------|--------------------------|
 | Rank ρ (`rank_spearman`)         | Mean hourly Spearman correlation between the predicted and realized ranking across settlement points.                        | average of hourly        |
 | Top-Decile Hit (`topdecile_hit`) | Of the top 10% highest-congestion nodes, the mean hourly overlap between the predicted and realized.                         | average of hourly        |
 | Sign Agreement (`sign_agree`)    | Fraction of node-hours whose predicted and realized signs (+ or -) match, among realized values outside the $1/MWh deadband. | pooled across entire day |
-
 
 For a typical graded forecast
 
@@ -171,6 +171,9 @@ Both tracks can be stored and graded independently in `scoreboard_daily`.
 Brief grades evaluate artifact-derived constraint and nodal-congestion profiles.
 They are not nodal Scoreboard grades: a strong Brief grade does not imply a
 strong Scoreboard result, and vice versa.
+
+`topdecile_hit` is a Scoreboard-only metric. Brief Detection uses average
+precision instead.
 
 ### Data and sources
 
