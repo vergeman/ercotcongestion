@@ -5,6 +5,8 @@ import pandas as pd
 from fastapi import Query
 
 from api.services.analysis import panels as analysis_module
+from api.services.analysis.panels import catalog as catalog_module
+from api.services.analysis.panels import nodes as nodes_module
 from api.services.analysis.features import hero as hero_service
 from compute.analysis import brief_grade
 from compute.time import delivery_bounds
@@ -119,7 +121,7 @@ def test_forecast_node_history_reads_forecast_nodal_in_one_query(fake_pool, monk
     (peak-hour mean per point/day) instead of decoding 30 prior-day artifacts.
     With every present day covered by the table, the artifact fallback finds
     nothing to add and no extra query is issued."""
-    monkeypatch.setattr(analysis_module, "load_daily_artifacts", lambda *a, **k: {})
+    monkeypatch.setattr(nodes_module, "load_daily_artifacts", lambda *a, **k: {})
     fake_pool.cursor.queue([
         {"settlement_point": "SP1", "delivery_date": date(2026, 7, 26), "peak_mean": 3.0},
         {"settlement_point": "SP1", "delivery_date": date(2026, 7, 27), "peak_mean": 5.0},
@@ -127,7 +129,7 @@ def test_forecast_node_history_reads_forecast_nodal_in_one_query(fake_pool, monk
     ])
     with fake_pool.connection() as conn:
         cur = conn.cursor(row_factory=None)
-        histories = analysis_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
+        histories = nodes_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
 
     assert len(fake_pool.cursor.queries) == 1
     assert sorted(histories["SP1"]) == [3.0, 5.0]
@@ -139,13 +141,13 @@ def test_forecast_node_history_falls_back_to_artifact_for_absent_days(fake_pool,
     day's artifact the old way (0138), so a coverage hole never silently drops a
     day from every node's baseline."""
     monkeypatch.setattr(
-        analysis_module, "load_daily_artifacts",
+        nodes_module, "load_daily_artifacts",
         lambda cur, run_id, days, horizon: {date(2026, 7, 27): _peak_hour_artifact("2026-07-27")})
     fake_pool.cursor.queue([])  # forecast_nodal empty -> all 30 trailing days missing
 
     with fake_pool.connection() as conn:
         cur = conn.cursor(row_factory=None)
-        histories = analysis_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
+        histories = nodes_module._forecast_node_history(cur, "run-x", date(2026, 7, 28), 1)
 
     # -SF projection: SOURCE = -1.0*[4,6] -> mean -5.0; SINK = -0.2*[4,6] -> mean -1.0.
     assert histories["SOURCE"] == [-5.0]
@@ -497,7 +499,7 @@ def test_settled_node_standouts_append_dam_surprises_not_forecast_rows():
 def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([
         {"interval_ts": timestamps[0], "settlement_point": "SOURCE", "dam_spp": 42.0},
         {"interval_ts": timestamps[1], "settlement_point": "SOURCE", "dam_spp": 38.0},
@@ -519,7 +521,7 @@ def test_node_returns_the_full_column_and_coverage(client, fake_pool, monkeypatc
 def test_node_realized_basis_keeps_sf_shape_and_swaps_mu(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     timestamps = list(artifact.E_mu.index.to_pydatetime())
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([
         {"interval_ts": timestamps[0], "constraint_name": "A", "contingency_name": "B", "shadow_price": 10.0},
         {"interval_ts": timestamps[1], "constraint_name": "C", "contingency_name": "D", "shadow_price": 1.0},
@@ -539,7 +541,7 @@ def test_node_single_hour_predicted_uses_only_that_hours_forecast_mu(client, fak
     resolve to exactly its own ``E_mu`` row, not the whole-day sum."""
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # settled congestion: SPP
     fake_pool.cursor.queue([])  # settled congestion: system lambda
 
@@ -556,7 +558,7 @@ def test_node_single_hour_predicted_uses_only_that_hours_forecast_mu(client, fak
 def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
     fake_pool.cursor.queue([{"point": 5.0}])
@@ -581,7 +583,7 @@ def test_node_single_hour_includes_market_state(client, fake_pool, monkeypatch):
 def test_node_detail_expansion_combines_structural_terms_and_essp_count(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
     fake_pool.cursor.queue([{"point": 5.0}])
@@ -604,7 +606,7 @@ def test_node_detail_expansion_combines_structural_terms_and_essp_count(client, 
 def test_node_market_state_keeps_missing_values_null(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
     fake_pool.cursor.queue([])  # forecast P50
@@ -629,7 +631,7 @@ def test_node_market_state_keeps_missing_values_null(client, fake_pool, monkeypa
 def test_node_market_state_uses_persisted_forecast_lambda(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
     fake_pool.cursor.queue([{"point": 5.0}])
@@ -655,7 +657,7 @@ def test_node_market_state_uses_persisted_forecast_lambda(client, fake_pool, mon
 def test_node_single_hour_realized_uses_only_that_hours_dam_mu(client, fake_pool, monkeypatch):
     artifact = _node_artifact()
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([
         {"interval_ts": ts0, "constraint_name": "C", "contingency_name": "D", "shadow_price": 8.0},
     ])
@@ -673,7 +675,7 @@ def test_node_single_hour_realized_uses_only_that_hours_dam_mu(client, fake_pool
 
 
 def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: None)
     body = client.get("/analysis/node?settlement_point=SOURCE&delivery_date=2026-07-28"
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
@@ -681,8 +683,8 @@ def test_node_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeyp
 
 
 def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _node_artifact())
-    monkeypatch.setattr(analysis_module, "load_sp_metadata", lambda _: {
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: _node_artifact())
+    monkeypatch.setattr(catalog_module, "load_sp_metadata", lambda _: {
         "SINK": {"sp_type": "load_zone", "load_zone": "west", "lat": 31.2, "lon": -101.5},
         "SOURCE": {"sp_type": "resource", "load_zone": "north", "lat": None, "lon": None},
     })
@@ -697,7 +699,7 @@ def test_settlement_points_returns_the_artifact_vocabulary_not_a_matrix_screen(c
 
 
 def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: None)
     body = client.get("/analysis/settlement-points?delivery_date=2026-07-28"
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
@@ -707,7 +709,7 @@ def test_settlement_points_soft_fails_with_its_declared_model(client, fake_pool,
 def test_constraints_returns_the_full_vocabulary_ranked_by_mu_mass(client, fake_pool, monkeypatch):
     """Every artifact constraint is returned — not a top-k Brief cast — ordered
     by Σ|E_mu| with best-effort constraint_geo metadata folded in per key."""
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: _node_artifact())
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: _node_artifact())
     fake_pool.cursor.queue([
         {"constraint_key": "A|B", "ctype": "radial", "zone_shares": {"south": 0.6, "north": 0.4},
          "kv_max": 345.0},
@@ -732,7 +734,7 @@ def test_constraints_returns_the_full_vocabulary_ranked_by_mu_mass(client, fake_
 
 
 def test_constraints_soft_fails_when_artifact_is_unavailable(client, fake_pool, monkeypatch):
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: None)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: None)
     body = client.get("/analysis/constraints?delivery_date=2026-07-28"
                       "&run_id=run-x&horizon=1").json()
     assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
@@ -746,7 +748,7 @@ def test_node_structural_mode_includes_quiet_nonzero_sf_terms(client, fake_pool,
                           columns=["ACTIVE|C", "QUIET|C"]),
     )
     ts0 = artifact.E_mu.index[0].to_pydatetime()
-    monkeypatch.setattr(analysis_module, "load_daily_artifact", lambda *_: artifact)
+    monkeypatch.setattr(catalog_module, "load_daily_artifact", lambda *_: artifact)
     fake_pool.cursor.queue([])  # coverage: settled SPP
     fake_pool.cursor.queue([])  # coverage: settled lambda
     fake_pool.cursor.queue([])  # forecast P50
