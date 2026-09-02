@@ -724,12 +724,7 @@ def get_grade(
             (run_id, delivery_date, horizon),
         )
         materialized = {str(row["subject"]): row["detail"] for row in cur.fetchall()}
-        if (
-            "constraints" in materialized
-            and "nodes" in materialized
-            and materialized["nodes"].get("metric_version")
-            == brief_grade.GRADE_METRIC_VERSION
-        ):
+        if "constraints" in materialized and "nodes" in materialized:
             return GradeAvailableResponse(
                 available=True,
                 run_id=run_id,
@@ -797,19 +792,13 @@ def get_grade_history(
                 delivery_date=delivery_date,
             )
         cur.execute(
-            "SELECT delivery_date, subject, model, persistence, detail FROM analysis_grade_daily "
+            "SELECT delivery_date, subject, model, persistence FROM analysis_grade_daily "
             "WHERE run_id = %s AND horizon = %s AND delivery_date >= %s - %s "
             "AND delivery_date < %s ORDER BY delivery_date, subject",
             (run_id, horizon, delivery_date, days, delivery_date),
         )
         grouped: dict[date, dict[str, dict]] = {}
         for row in cur.fetchall():
-            if (
-                row["subject"] == "nodes"
-                and (row["detail"] or {}).get("metric_version")
-                != brief_grade.GRADE_METRIC_VERSION
-            ):
-                continue
             grouped.setdefault(row["delivery_date"], {})[str(row["subject"])] = {
                 "model": row["model"],
                 "persistence": row["persistence"],

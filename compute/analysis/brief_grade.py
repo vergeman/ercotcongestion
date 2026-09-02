@@ -17,9 +17,6 @@ from compute.analysis.grade import GradeResult, grade_profiles, top_fraction_lab
 from compute.projection.codecs import load_sf_mu
 from compute.time import delivery_bounds
 
-GRADE_METRIC_VERSION = "node_ap_v1"
-
-
 @dataclass(frozen=True)
 class SourceDefinition:
     """Brief-owned provenance for an independently graded profile."""
@@ -306,7 +303,6 @@ def serialize_grade_half(result: GradeResult) -> dict:
     ]
     return {
         "graded": True,
-        "metric_version": GRADE_METRIC_VERSION,
         "universe_size": len(result.universe),
         "support": None if result.support is None else result.support.__dict__,
         "sources": [
