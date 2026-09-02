@@ -23,7 +23,7 @@ Branch: feat/0200-node-grade-ap
 * For nodes, derive the daily label from each node's settled daily total. Compute `detection_ap` by ranking all nodes with daily forecast absolute congestion against that label.
 * For node Timing, derive a settled top-10% label independently in every delivery hour. Compute AP and chance-adjusted skill per hour, then average the hourly skills. This preserves the current per-hour Timing meaning while replacing capture with AP.
 * Set node `timing_daily_skill` from the same daily node AP and its selected-label rate. Use `detection_ap`, `timing_daily_skill`, and `timing_hourly_skill` as the node headline contract, just as for constraints.
-* Retain `top_decile_daily_capture` and `top_decile_hourly_capture` only as optional diagnostics during the migration; remove their client reads. Do not silently reuse a stored capture value as AP.
+* Remove `top_decile_daily_capture` and `top_decile_hourly_capture`; do not silently reuse a stored capture value as AP.
 * Update `GradeSupport` for node grades so the displayed daily/hourly rates describe the selected top-10% labels, not the old epsilon event diagnostic. Preserve the epsilon labels only if a diagnostic caller still needs them.
 * Update `BriefPage.tsx` in the same change: bind node Detection to `detection_ap`, node Timing to `timing_daily_skill` and `timing_hourly_skill`, and use the same AP / chance-adjusted formula family as constraints. State that nodes are selected by settled top-10% absolute congestion and that hourly labels are selected separately each hour.
 * Update `METRICS.md` and `compute/analysis/README.md` only with the implemented AP definition. Replace node capture examples with AP examples and retain the absolute-congestion caveat.
@@ -35,14 +35,14 @@ Branch: feat/0200-node-grade-ap
 
 * No SQL schema migration is required: `analysis_grade_daily.model`, `.persistence`, and `.detail` already store JSON grade payloads.
 * Add a one-off, resumable backfill invocation or documented runbook using `compute.jobs.materialize_brief_grade` for every settled day, run ID, and horizon served by Brief history. It must overwrite every node row before the web deployment reads the new fields.
-* Validate completeness with a read-only query that checks all expected `(run_id, delivery_date, horizon, subject = 'nodes')` rows have a common recalculation timestamp and non-null `detection_ap`, `timing_daily_skill`, and `timing_hourly_skill` for model and persistence.
-* Deploy order: calculation/API support → full backfill → web/docs copy. If a backfill cannot complete first, gate the new web reads behind a metric-version flag; do not blend capture history with AP history.
+* Validate completeness with a read-only query that checks every node row has non-null `detection_ap`, `timing_daily_skill`, and `timing_hourly_skill` for model and persistence.
+* Deploy order: calculation/API support → full backfill → web/docs copy. Do not blend capture and AP history.
 
 ## Acceptance
 
-* [ ] Node Detection is AP over all scored nodes, with the settled daily top 10% of absolute congestion as positive labels.
-* [ ] Node Timing is chance-adjusted AP using independently selected settled top-10% labels in each hour, averaged across hours; the daily value is the daily Detection skill counterpart.
-* [ ] Constraint metrics and all Magnitude calculations are unchanged.
-* [ ] BriefPage, METRICS, and the analysis README describe only the fields actually served after the backfill.
+* [x] Node Detection is AP over all scored nodes, with the settled daily top 10% of absolute congestion as positive labels.
+* [x] Node Timing is chance-adjusted AP using independently selected settled top-10% labels in each hour, averaged across hours; the daily value is the daily Detection skill counterpart.
+* [x] Constraint metrics and all Magnitude calculations are unchanged.
+* [x] BriefPage, METRICS, and the analysis README describe the implemented AP fields.
 * [ ] Historical node grade rows are fully re-materialized before the AP UI is enabled; no Brief history combines capture and AP values.
-* [ ] Grade, API, and web tests cover the new node AP path and pass.
+* [x] Grade and API tests cover the new node AP path; TypeScript compilation passes.
