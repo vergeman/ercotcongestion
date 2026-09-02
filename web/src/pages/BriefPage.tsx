@@ -1140,13 +1140,13 @@ function GradeHalf({
           kind="Detection"
           question={
             nodes
-              ? "Did we identify the highest-congestion nodes?"
-              : "Did we name the right elements?"
+              ? "Did we identify the nodes with the largest congestion?"
+              : "Did we put the constraints with settled shadow prices near the top?"
           }
           detail={
             nodes
-              ? "Overlap of the forecast and settled top 10% of the complete absolute-congestion ranking."
-              : "Sorts every constraint by forecasted congestion, then checks whether those that actually bound are near the top. Only order matters (not the exact dollar amounts.)"
+              ? "Ranks scored nodes by total absolute congestion, then compares the forecast top 10% with the settled top 10%."
+              : "Ranks constraints by forecast shadow price for the day, then checks whether constraints with settled shadow prices are near the top. Only the order matters."
           }
           model={dailyRank}
           persistence={persistenceDailyRank}
@@ -1174,7 +1174,7 @@ function GradeHalf({
             },
             {
               value: percent(nodes ? 0.1 : half.support?.daily_bound_rate),
-              label: nodes ? "Random top-decile capture" : "Blind guess",
+              label: nodes ? "Random-selection baseline" : "Random-ordering baseline",
             },
           ]}
           footer={
@@ -1183,9 +1183,9 @@ function GradeHalf({
                 ? `Top ${Math.ceil(
                   (half.universe_size ?? 0) * 0.1
                 ).toLocaleString()} of ${half.universe_size?.toLocaleString() ?? "—"
-                } nodes · 10% random capture is the baseline.`
-                : `${half.support.daily_bound_count.toLocaleString()} bound of ${half.universe_size?.toLocaleString() ?? "—"
-                } constraints · 100% means every realized event ranked first.`
+                } nodes · random selection captures 10% on average.`
+                : `${half.support.daily_bound_count.toLocaleString()} constraints with settled shadow prices of ${half.universe_size?.toLocaleString() ?? "—"
+                } scored · 1.00 means every settled constraint ranked ahead of every other constraint.`
               : "Measures average precision."
           }
           formula={
@@ -1194,12 +1194,12 @@ function GradeHalf({
             ───────────────────────────────────────────────
                          ceil(0.10 × N)
 
-N = complete, unfiltered node universe`
+N = scored nodes`
               : `AP  =  (1/B) · Σ  P(k)
-                         k ∈ bound
+               k ∈ settled constraints
 
-P(k) = bound within top k / k
-B    = constraints that bind`
+P(k) = settled constraints within top k / k
+B    = constraints with settled shadow prices`
           }
           history={historyFor(
             nodes ? "top_decile_daily_capture" : "detection_ap"
@@ -1207,8 +1207,16 @@ B    = constraints that bind`
         />
         <GradeCard
           kind="Magnitude"
-          question="Were the prices about right?"
-          detail="Matches forecast dollars to settled dollars by element. A forecast with the wrong total cannot reach 1.00, even with perfect placement."
+          question={
+            nodes
+              ? "Did forecast and settled congestion agree in amount and place?"
+              : "Did forecast and settled shadow prices agree in amount and place?"
+          }
+          detail={
+            nodes
+              ? "Matches forecast and settled absolute congestion by node. It credits only the amount they share; direction does not affect the score."
+              : "Matches forecast and settled summed shadow prices by constraint. It credits only the amount they share."
+          }
           model={model?.magnitude_overlap}
           persistence={persistence?.magnitude_overlap}
           support={half.support}
@@ -1216,15 +1224,15 @@ B    = constraints that bind`
           supportRows={[
             {
               value: multiple(half.support?.forecast_to_settled_ratio),
-              label: "Forecast dollars per settled dollar",
+              label: "Forecast amount ÷ settled amount",
             },
             {
               value: score(half.support?.magnitude_ceiling),
-              label: "Highest overlap possible with this total",
+              label: "Best possible score with this total",
             },
             {
               value: percent(half.support?.magnitude_of_ceiling),
-              label: "Share of that maximum achieved",
+              label: "Share of that best possible score",
             },
           ]}
           footer={
@@ -1232,24 +1240,26 @@ B    = constraints that bind`
               ? `${usd(half.support.forecast_total)} forecast · ${usd(
                 half.support.settled_total
               )} settled.`
-              : "Measures soft overlap of daily magnitude."
+              : "Measures shared forecast and settled amount."
           }
           formula={`Σ min(forecastᵢ, settledᵢ)
 ────────────────────────────────
-Σ (forecastᵢ  +  settledᵢ) / 2`}
+Σ (forecastᵢ  +  settledᵢ) / 2
+
+= shared amount ÷ average forecast and settled amount`}
           history={historyFor("magnitude_overlap")}
         />
         <GradeCard
           kind="Timing"
           question={
             nodes
-              ? "Did the same high-congestion nodes appear in the right hours?"
-              : "Did the right signal arrive in the right hours?"
+              ? "Did the detected nodes appear in the right hours?"
+              : "Did the detected constraints appear in the right hours?"
           }
           detail={
             nodes
-              ? "The 0.xx scores are settled top-decile nodes captured by the forecast; the 10% lines below are random-selection baselines."
-              : "Shows the delivery-day result beside the same test over individual hours."
+              ? "The day value repeats Detection. The hourly value compares the forecast and settled top 10% in each hour, then averages the results."
+              : "The day value is Detection rescaled so random ordering is 0. The hourly value ranks every constraint-hour, testing whether forecast activity appeared in the right hour."
           }
           model={nodes ? dailyRank : model?.timing_daily_skill}
           modelHourly={hourlyRank}
@@ -1262,20 +1272,20 @@ B    = constraints that bind`
             {
               value: percent(nodes ? 0.1 : half.support?.daily_bound_rate),
               label: nodes
-                ? "Random daily capture baseline"
-                : "Constraint-days that bind",
+                ? "Random daily selection"
+                : "Daily settled-event rate",
             },
             {
               value: percent(nodes ? 0.1 : half.support?.hourly_bound_rate),
               label: nodes
-                ? "Random hourly capture baseline"
-                : "Constraint-hours that bind",
+                ? "Random hourly selection"
+                : "Hourly settled-event rate",
             },
           ]}
           footer={
             nodes
-              ? "Daily capture first, then capture averaged across delivery hours; each comparison selects 10% of nodes."
-              : "Daily score first, then the same chance-adjusted ranking test over all delivery hours."
+              ? "Day = Detection · hourly = average top-10% capture in each delivery hour. Random selection captures 10%."
+              : "Day restates Detection on a chance-adjusted scale · hourly tests timing. 0 = no better than random; negative = worse."
           }
           formula={
             nodes
@@ -1283,11 +1293,15 @@ B    = constraints that bind`
                                   h                 ────────────────────────────────────
                                                    ceil(0.10 × N)
 
-N = complete node universe · H = delivery hours`
+N = scored nodes · H = delivery hours`
               : `(AP − chance) ÷ (1 − chance)
-run on days, then on hours
 
-chance = share that bind`
+AP = see Detection calculation
+
+day: daily constraint ranking
+hourly: pooled constraint-hour ranking
+
+chance = settled-event rate`
           }
           history={historyFor(
             nodes ? "top_decile_daily_capture" : "timing_daily_skill"
