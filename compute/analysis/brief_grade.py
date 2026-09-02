@@ -4,6 +4,7 @@ This module deliberately depends only on the compute/runtime import boundary.
 The API turns its neutral dictionaries into response models; scheduled jobs can
 materialize exactly the same result without importing the API application.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,9 +14,8 @@ import pandas as pd
 from psycopg.rows import tuple_row
 
 from compute.analysis.grade import GradeResult, grade_profiles
-from compute.analysis.hero_window import delivery_bounds
 from compute.projection.codecs import load_sf_mu
-
+from compute.time import delivery_bounds
 
 NODE_CONGESTION_EPSILON = 1e-6
 
@@ -31,12 +31,24 @@ class SourceDefinition:
 
 
 SOURCE_DEFINITIONS = (
-    SourceDefinition("brief_model_artifact_profile", "Artifact profile forecast",
-                         "Forecast profile decoded from the served artifact.", "model"),
-    SourceDefinition("brief_persistence_prior_settled_profile", "Prior-settled profile persistence",
-                         "Prior settled delivery-day profile.", "persistence"),
-    SourceDefinition("brief_climatology_trailing_settled_profile", "Trailing-window Average (Baseline)",
-                         "Average of trailing settled subject profiles; not the projected Scoreboard baseline.", "climatology"),
+    SourceDefinition(
+        "brief_model_artifact_profile",
+        "Artifact profile forecast",
+        "Forecast profile decoded from the served artifact.",
+        "model",
+    ),
+    SourceDefinition(
+        "brief_persistence_prior_settled_profile",
+        "Prior-settled profile persistence",
+        "Prior settled delivery-day profile.",
+        "persistence",
+    ),
+    SourceDefinition(
+        "brief_climatology_trailing_settled_profile",
+        "Trailing-window Average (Baseline)",
+        "Average of trailing settled subject profiles; not the projected Scoreboard baseline.",
+        "climatology",
+    ),
 )
 
 
@@ -48,6 +60,11 @@ def _load_daily_artifact(cur, run_id: str, delivery_date: date, horizon: int):
     )
     row = cur.fetchone()
     return None if row is None else load_sf_mu(bytes(row["sf_npz"]))
+
+
+#
+# Analysis Panels
+#
 
 
 def settled_mu_profile(cur, delivery_date: date) -> pd.DataFrame:
@@ -66,26 +83,19 @@ def settled_mu_profile(cur, delivery_date: date) -> pd.DataFrame:
         return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
     frame = pd.DataFrame(rows)
     frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    return frame.pivot(index="interval_ts", columns="constraint_key", values="shadow_price").sort_index()
+    return frame.pivot(
+        index="interval_ts", columns="constraint_key", values="shadow_price"
+    ).sort_index()
 
 
-def forecast_mu_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
+def forecast_mu_profile(
+    cur, run_id: str, delivery_date: date, horizon: int
+) -> pd.DataFrame | None:
     start, end = delivery_bounds(delivery_date)
     artifact = _load_daily_artifact(cur, run_id, delivery_date, horizon)
     if artifact is None:
         return None
     profile = artifact.E_mu.copy()
-    profile.index = pd.to_datetime(profile.index, utc=True)
-    return profile.loc[(profile.index >= start) & (profile.index < end)]
-
-
-def forecast_node_profile(cur, run_id: str, delivery_date: date, horizon: int) -> pd.DataFrame | None:
-    artifact = _load_daily_artifact(cur, run_id, delivery_date, horizon)
-    if artifact is None:
-        return None
-    start, end = delivery_bounds(delivery_date)
-    mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
-    profile = mu.dot(-artifact.SF)
     profile.index = pd.to_datetime(profile.index, utc=True)
     return profile.loc[(profile.index >= start) & (profile.index < end)]
 
@@ -107,16 +117,37 @@ def settled_node_profile(cur, delivery_date: date) -> pd.DataFrame:
         return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"))
     frame = pd.DataFrame(rows)
     frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    return frame.pivot(index="interval_ts", columns="settlement_point", values="congestion").sort_index()
+    return frame.pivot(
+        index="interval_ts", columns="settlement_point", values="congestion"
+    ).sort_index()
+
+
+def forecast_node_profile(
+    cur, run_id: str, delivery_date: date, horizon: int
+) -> pd.DataFrame | None:
+    artifact = _load_daily_artifact(cur, run_id, delivery_date, horizon)
+    if artifact is None:
+        return None
+    start, end = delivery_bounds(delivery_date)
+    mu = artifact.E_mu.reindex(columns=artifact.SF.index, fill_value=0.0).fillna(0.0)
+    profile = mu.dot(-artifact.SF)
+    profile.index = pd.to_datetime(profile.index, utc=True)
+    return profile.loc[(profile.index >= start) & (profile.index < end)]
 
 
 def ordinal_profile(profile: pd.DataFrame, count: int) -> pd.DataFrame:
+    """Align one delivery-day profile by interval order, padding to ``count``.
+    (For when timestamps don't align but exactly but you want to align rows)"""
     result = profile.copy()
     result.index = pd.RangeIndex(len(result))
     return result.reindex(pd.RangeIndex(count))
 
 
-def windowed_profiles(cur, delivery_date: date, days: int, *, nodes: bool) -> dict[date, pd.DataFrame]:
+def windowed_profiles(
+    cur, delivery_date: date, days: int, *, nodes: bool
+) -> dict[date, pd.DataFrame]:
+    """Load prior settled profiles (constraints or sp's), grouped by
+    Central-Time delivery day."""
     window_start, _ = delivery_bounds(delivery_date - timedelta(days=days))
     _, window_end = delivery_bounds(delivery_date - timedelta(days=1))
     if nodes:
@@ -146,27 +177,41 @@ def windowed_profiles(cur, delivery_date: date, days: int, *, nodes: bool) -> di
         return {}
     frame = pd.DataFrame(rows, columns=["interval_ts", key, "value"])
     frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    frame["delivery_date"] = frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
-    return {day: group.pivot(index="interval_ts", columns=key, values="value").sort_index()
-            for day, group in frame.groupby("delivery_date")}
+    frame["delivery_date"] = (
+        frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
+    )
+    return {
+        day: group.pivot(index="interval_ts", columns=key, values="value").sort_index()
+        for day, group in frame.groupby("delivery_date")
+    }
 
 
-def trailing_settled_average(delivery_date: date, count: int,
-                             by_day: dict[date, pd.DataFrame]) -> pd.DataFrame | None:
+def trailing_settled_average(
+    delivery_date: date, count: int, by_day: dict[date, pd.DataFrame]
+) -> pd.DataFrame | None:
     profiles = []
     for offset in range(1, 31):
         profile = by_day.get(delivery_date - timedelta(days=offset))
         if profile is None or profile.empty:
             return None
         profiles.append(ordinal_profile(profile, count))
-    universe = list(dict.fromkeys(str(key) for profile in profiles for key in profile.columns))
+    universe = list(
+        dict.fromkeys(str(key) for profile in profiles for key in profile.columns)
+    )
     if not universe:
         return None
-    return sum((profile.reindex(index=pd.RangeIndex(count), columns=universe, fill_value=0.0)
-                .fillna(0.0) for profile in profiles)) / len(profiles)
+    return sum(
+        (
+            profile.reindex(
+                index=pd.RangeIndex(count), columns=universe, fill_value=0.0
+            ).fillna(0.0)
+            for profile in profiles
+        )
+    ) / len(profiles)
 
 
 def grade_vocabulary(cur, delivery_date: date) -> list[str]:
+    """vocabulary: set of constraints eligible for grading (universe)"""
     start, end = delivery_bounds(delivery_date)
     cur.execute(
         "SELECT DISTINCT btrim(constraint_name) || '|' || btrim(contingency_name) AS constraint_key "
@@ -178,8 +223,14 @@ def grade_vocabulary(cur, delivery_date: date) -> list[str]:
     return [str(row["constraint_key"]) for row in cur.fetchall()]
 
 
-def grade_constraint_profiles(cur, run_id: str, delivery_date: date,
-                              horizon: int) -> GradeResult | None:
+#
+# Grade Node and Constraint Profiles
+#
+
+
+def grade_constraint_profiles(
+    cur, run_id: str, delivery_date: date, horizon: int
+) -> GradeResult | None:
     profile = forecast_mu_profile(cur, run_id, delivery_date, horizon)
     if profile is None:
         return None
@@ -188,14 +239,24 @@ def grade_constraint_profiles(cur, run_id: str, delivery_date: date,
     model = ordinal_profile(profile, len(profile))
     settled = ordinal_profile(settled, len(profile))
     persistence = ordinal_profile(persistence, len(profile))
-    climatology = trailing_settled_average(delivery_date, len(profile),
-                                           windowed_profiles(cur, delivery_date, 30, nodes=False))
-    return grade_profiles(model, settled, persistence, settled_bound=settled.notna(),
-                          climatology=climatology, universe=grade_vocabulary(cur, delivery_date))
+    climatology = trailing_settled_average(
+        delivery_date,
+        len(profile),
+        windowed_profiles(cur, delivery_date, 30, nodes=False),
+    )
+    return grade_profiles(
+        model,
+        settled,
+        persistence,
+        settled_bound=settled.notna(),
+        climatology=climatology,
+        universe=grade_vocabulary(cur, delivery_date),
+    )
 
 
-def grade_node_profiles(cur, run_id: str, delivery_date: date,
-                        horizon: int) -> GradeResult | None:
+def grade_node_profiles(
+    cur, run_id: str, delivery_date: date, horizon: int
+) -> GradeResult | None:
     profile = forecast_node_profile(cur, run_id, delivery_date, horizon)
     if profile is None:
         return None
@@ -204,13 +265,21 @@ def grade_node_profiles(cur, run_id: str, delivery_date: date,
     model = ordinal_profile(profile, len(profile)).abs()
     settled = ordinal_profile(settled, len(profile)).abs()
     persistence = ordinal_profile(persistence, len(profile)).abs()
-    climatology = trailing_settled_average(delivery_date, len(profile),
-                                           windowed_profiles(cur, delivery_date, 30, nodes=True))
+    climatology = trailing_settled_average(
+        delivery_date,
+        len(profile),
+        windowed_profiles(cur, delivery_date, 30, nodes=True),
+    )
     if climatology is not None:
         climatology = climatology.abs()
-    return grade_profiles(model, settled, persistence,
-                          settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
-                          climatology=climatology, top_fraction=0.10)
+    return grade_profiles(
+        model,
+        settled,
+        persistence,
+        settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
+        climatology=climatology,
+        top_fraction=0.10,
+    )
 
 
 def serialize_grade_half(result: GradeResult) -> dict:
@@ -225,8 +294,7 @@ def serialize_grade_half(result: GradeResult) -> dict:
         "universe_size": len(result.universe),
         "support": None if result.support is None else result.support.__dict__,
         "sources": [
-            {"id": source.id, "label": source.label,
-             "definition": source.definition}
+            {"id": source.id, "label": source.label, "definition": source.definition}
             for source in SOURCE_DEFINITIONS
             if getattr(result, source.result_field) is not None
         ],

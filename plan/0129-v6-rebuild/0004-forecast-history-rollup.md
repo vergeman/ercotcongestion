@@ -33,7 +33,7 @@ Depends on: `0002` (widens its magnitude slot)
 
 ## Approach
 
-* Work in: `compute/jobs/`, `db/migrations/`, `compute/analysis/hero_window.py`
+* Work in: `compute/jobs/`, `db/migrations/`, `compute/analysis/hero_queries.py`
 * New table keyed like the artifact it derives from —
   `(run_id, delivery_date, horizon, constraint_key)` carrying daily Σμ and binding
   hours. Same idempotency scope as `forecast_sf_artifact`, upsert in place, so a re-run

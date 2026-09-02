@@ -67,7 +67,7 @@ Branch: feat/0134-brief-frontend-edited
   ranks the peak-window (15–18 CT) wind/solar DAM-close forecasts or reports a settled
   load-vs-DAM miss, and (b) an always-present coverage clause (modeled ÷ all-DAM
   congestion) that reads "Awaiting DAM settlement" before settlement. Add the
-  peak-window wind/solar reads and percentiles to `compute/analysis/hero_window.py`.
+  peak-window wind/solar reads and percentiles to `compute/analysis/hero_queries.py`.
 * Carry the leading zone's signed congestion (`−(SF·μ)` mean by load zone) through
   `hero_builder._zone_summary` and `hero.classify_where` as `zone_congestion` (sign
   only; the magnitude is node-sampling sensitive). Regroup the region fact cards in

@@ -1,17 +1,14 @@
 from datetime import date
 
-from compute.analysis.hero_window import (
-    delivery_bounds,
+from compute.analysis.hero_queries import (
     daily_total,
     load_constraint_days,
     load_constraint_geo,
     load_forecast_constraint_days,
     load_load_condition,
-    load_node_days,
-    summarize_constraint_days,
     summarize_load_condition,
-    summarize_node_days,
 )
+from compute.time import delivery_bounds
 
 
 class Cursor:
@@ -72,26 +69,13 @@ def test_forecast_constraint_window_uses_the_persisted_artifact_history_vocabula
     assert conn.cur.params == ("mu-v1", 1, date(2026, 6, 28), date(2026, 7, 28), ["A|B"])
 
 
-def test_constraint_summary_carries_series_median_and_previous_day():
-    summary = summarize_constraint_days([
-        {"delivery_date": date(2026, 7, 26), "constraint_key": "A|B", "value": 3, "hours_bound": 1},
-        {"delivery_date": date(2026, 7, 27), "constraint_key": "A|B", "value": 9, "hours_bound": 2},
-        {"delivery_date": date(2026, 7, 28), "constraint_key": "A|B", "value": 6, "hours_bound": 1},
-    ])
-    assert summary["A|B"]["days_bound"] == 3
-    assert summary["A|B"]["med"] == 6
-    assert summary["A|B"]["prior_last"] == 9
+def test_daily_total_zero_fills_missing_days():
     assert daily_total([
         {"delivery_date": date(2026, 7, 27), "constraint_key": "A|B", "value": 9},
     ], date(2026, 7, 28), days=2) == [0.0, 9.0, 0.0]
 
 
-def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
-    node_conn = Conn([])
-    load_node_days(node_conn, date(2026, 7, 28))
-    assert "AVG(s.dam_spp - l.system_lambda)" in node_conn.cur.sql
-    assert "s.interval_ts < %s" in node_conn.cur.sql
-
+def test_load_window_uses_a_strict_cutoff_rule():
     load_conn = Conn([])
     load_load_condition(load_conn, date(2026, 7, 28))
     assert "interval_ts < %s" in load_conn.cur.sql
@@ -108,13 +92,7 @@ def test_node_and_load_windows_use_the_same_strict_cutoff_rule():
     assert "window_start = (SELECT max(window_start) FROM constraint_geo)" in geo_conn.cur.sql
 
 
-def test_node_and_condition_summaries_carry_classifier_ready_ranks_and_percentiles():
-    nodes = summarize_node_days([
-        {"delivery_date": date(2026, 7, 27), "settlement_point": "A", "value": -5},
-        {"delivery_date": date(2026, 7, 28), "settlement_point": "A", "value": 3},
-    ])
-    assert nodes["A"]["rank"] == 2 and nodes["A"]["n"] == 2
-
+def test_condition_summary_carries_classifier_ready_percentiles():
     condition = summarize_load_condition([
         {"delivery_date": date(2026, 7, 26), "value": 80,
          "actual_value": 78, "actual_net_load": 60},
@@ -125,4 +103,6 @@ def test_node_and_condition_summaries_carry_classifier_ready_ranks_and_percentil
     ])
     assert condition == {"series": "load.system", "today": 100.0, "net_load": 70.0,
                          "actual_today": 98.0, "actual_net_load": 75.0, "median": 90.0,
-                         "pct": 100.0, "n": 3, "basis": "forecast"}
+                         "pct": 100.0, "wind_peak": None, "solar_peak": None,
+                         "wind_pct": None, "solar_pct": None, "load_miss_pct": -2.0,
+                         "load_miss_abs": 2.0, "n": 3, "basis": "forecast"}

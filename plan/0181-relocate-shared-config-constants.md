@@ -74,6 +74,6 @@ Branch: refactor/0181-relocate-shared-config-constants
 
 * Focused affected tests passed: `107 passed, 12 skipped`.
 * The full compute suite was run with the development environment. It stopped on
-  an unrelated existing assertion in `analysis/tests/test_hero_window.py`, where
+  an unrelated existing assertion in `analysis/tests/test_hero_queries.py`, where
   the expected condition summary omits fields returned by the current builder.
   The constants refactor introduced no test failures before that point.

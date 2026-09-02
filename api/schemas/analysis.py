@@ -476,15 +476,6 @@ class BriefHeroShellResponse(BaseModel):
     next_delivery_date: date | None = None
 
 
-class BriefHeroStatsResponse(BaseModel):
-    """The Brief hero's complete stat-card evidence, loaded as one group."""
-
-    run_id: str
-    delivery_date: date
-    horizon: int
-    slots: dict[str, dict[str, Any]]
-
-
 class BriefDetailsResponse(BaseModel):
     """The secondary Brief panels, intentionally separate from the hero shell."""
 

@@ -19,7 +19,6 @@ from api.schemas.analysis import (
     BriefDayResponse,
     BriefDetailsResponse,
     BriefHeroShellResponse,
-    BriefHeroStatsResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,9 +34,6 @@ _BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDi
 _BRIEF_HERO_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroShellResponse]" = (
     OrderedDict()
 )
-_BRIEF_HERO_STATS_CACHE: (
-    "OrderedDict[tuple[str, date, int], BriefHeroStatsResponse]"
-) = OrderedDict()
 _BRIEF_DETAILS_CACHE: "OrderedDict[tuple[str, date, int], BriefDetailsResponse]" = (
     OrderedDict()
 )
@@ -225,7 +221,7 @@ def hero_shell(
             if cached is not None:
                 return cached
         previous, following = _brief_neighbor_dates(cur, run_id, delivery_date)
-    hero = panels.get_hero(delivery_date, run_id, horizon, include_condition=False)
+    hero = panels.get_hero(delivery_date, run_id, horizon)
     response = BriefHeroShellResponse(
         hero=hero,
         previous_delivery_date=previous,
@@ -241,39 +237,6 @@ def hero_shell(
         _brief_section_cache_put(
             _BRIEF_HERO_CACHE, (run_id, delivery_date, horizon), response
         )
-    return response
-
-
-def hero_stats(
-    delivery_date: date | None, run_id: str | None, day: date | None = None
-) -> BriefHeroStatsResponse:
-    """Load every hero stat card in one response after prose and map paint."""
-    delivery_date = panels._resolve_brief_delivery_date(delivery_date, day)
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        run_id = panels._resolve_run(cur, run_id)
-        horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
-        if horizon is None:
-            raise HTTPException(status_code=404, detail="artifact_missing")
-        cache_key = (run_id, delivery_date, horizon)
-        if horizon == 1 and delivery_date < datetime.now(_CT).date():
-            cached = _brief_section_cache_get(_BRIEF_HERO_STATS_CACHE, cache_key)
-            if cached is not None:
-                return cached
-    hero = panels.get_hero(delivery_date, run_id, horizon)
-    if not hero["available"]:
-        raise HTTPException(status_code=404, detail="artifact_missing")
-    response = BriefHeroStatsResponse(
-        run_id=run_id,
-        delivery_date=delivery_date,
-        horizon=horizon,
-        slots=hero["slots"],
-    )
-    if (
-        horizon == 1
-        and delivery_date < datetime.now(_CT).date()
-        and hero["provenance"]["basis"] == "settled"
-    ):
-        _brief_section_cache_put(_BRIEF_HERO_STATS_CACHE, cache_key, response)
     return response
 
 

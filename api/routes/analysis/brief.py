@@ -9,7 +9,6 @@ from api.schemas.analysis import (
     BriefDayResponse,
     BriefDetailsResponse,
     BriefHeroShellResponse,
-    BriefHeroStatsResponse,
 )
 from api.services.analysis import brief as brief_service
 
@@ -30,22 +29,6 @@ def get_brief_hero_shell(
     ),
 ) -> BriefHeroShellResponse:
     return brief_service.hero_shell(delivery_date, run_id, day)
-
-
-@router.get(
-    "/brief/hero/stats",
-    response_model=BriefHeroStatsResponse,
-    summary="Complete grouped stat-card evidence for a Brief hero",
-)
-def get_brief_hero_stats(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    *,
-    day: date | None = Query(
-        None, deprecated=True, description="Deprecated alias for delivery_date."
-    ),
-) -> BriefHeroStatsResponse:
-    return brief_service.hero_stats(delivery_date, run_id, day)
 
 
 @router.get(

@@ -8,21 +8,15 @@ re-run for a past day therefore cannot see a later backfill.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from statistics import median
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from compute.time import ERCOT_TZ as ERCOT_TZ_NAME, ct_day_bounds
+from compute.time import ERCOT_TZ as ERCOT_TZ_NAME, delivery_bounds
 
 ERCOT_TZ = ZoneInfo(ERCOT_TZ_NAME)
 HIGH_CONGESTION_CT_HOURS = (15, 16, 17, 18)  # Empirical slice; not a market on-peak definition.
-
-
-def delivery_bounds(delivery_date: date) -> tuple[datetime, datetime]:
-    """Return the UTC [start, end) bounds for one ERCOT delivery day."""
-    start, end = ct_day_bounds(delivery_date)
-    return start.to_pydatetime(), end.to_pydatetime()
 
 
 def _rows(cur, columns: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -74,9 +68,6 @@ def load_forecast_constraint_days(conn, run_id: str, delivery_date: date, horizo
                                   constraint_keys: list[str] | None = None) -> list[dict[str, Any]]:
     """Return persisted daily forecast ``Σμ`` rows through ``delivery_date``.
 
-    The historical vocabulary is explicitly restricted to the served artifact's
-    keys.  This keeps the forecast comparison like-for-like even if a past fit
-    carried a different constraint set.
     """
     params: list[Any] = [run_id, horizon, delivery_date - timedelta(days=days), delivery_date]
     key_clause = ""
@@ -95,23 +86,6 @@ def load_forecast_constraint_days(conn, run_id: str, delivery_date: date, horizo
         return _rows(cur, ("delivery_date", "constraint_key", "value", "binding_hours"))
 
 
-def summarize_constraint_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Organize aggregated constraint rows for a classifier or API response."""
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row["constraint_key"])].append(row)
-    return {
-        key: {
-            "series": [{"delivery_date": str(r["delivery_date"]), "value": float(r["value"])}
-                       for r in values],
-            "days_bound": sum(float(r["value"]) != 0 for r in values),
-            "med": float(median(float(r["value"]) for r in values)),
-            "prior_last": float(values[-2]["value"]) if len(values) > 1 else None,
-        }
-        for key, values in grouped.items()
-    }
-
-
 def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -> list[float]:
     """Sum a constraint-row result into a zero-filled daily total series."""
     totals: dict[date, float] = defaultdict(float)
@@ -122,11 +96,9 @@ def daily_total(rows: list[dict[str, Any]], delivery_date: date, *, days: int) -
 
 
 def load_constraint_geo(conn) -> list[dict[str, Any]]:
-    """Read one coherent, newest persisted geography window.
+    """Read one coherent, newest persisted geography window. Used in the
+    'where' hero summary.
 
-    Selecting the latest row per key can splice several map runs into one hero and
-    makes ``geo_as_of`` ambiguous.  The hero instead uses the complete newest
-    window, so every zone share carries the same provenance stamp.
     """
     sql = """
         SELECT constraint_key, zone_shares, window_start::date AS geo_as_of
@@ -138,45 +110,6 @@ def load_constraint_geo(conn) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(sql, ())
         return _rows(cur, ("constraint_key", "zone_shares", "geo_as_of"))
-
-
-def load_node_days(conn, delivery_date: date, *, days: int = 30) -> list[dict[str, Any]]:
-    """Return trailing daily mean SPP-minus-λ congestion per settlement point."""
-    start, end = delivery_bounds(delivery_date)
-    start -= timedelta(days=days)
-    sql = """
-        SELECT (s.interval_ts AT TIME ZONE 'America/Chicago')::date AS delivery_date,
-               s.settlement_point,
-               AVG(s.dam_spp - l.system_lambda) AS value
-        FROM ercot_dam_spp s
-        JOIN dam_system_lambda l
-          ON l.interval_ts = s.interval_ts AND l.dst_flag = s.dst_flag
-        WHERE s.interval_ts >= %s AND s.interval_ts < %s
-          AND s.dst_flag = FALSE
-        GROUP BY 1, 2
-        ORDER BY 1, 2
-    """
-    with conn.cursor() as cur:
-        cur.execute(sql, (start, end))
-        return _rows(cur, ("delivery_date", "settlement_point", "value"))
-
-
-def summarize_node_days(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Organize node daily-mean congestion series and today's absolute rank."""
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row["settlement_point"])].append(row)
-    result = {}
-    for point, values in grouped.items():
-        current = float(values[-1]["value"])
-        rank, n = 1 + sum(abs(float(r["value"])) >= abs(current) for r in values[:-1]), len(values)
-        result[point] = {
-            "series": [{"delivery_date": str(r["delivery_date"]), "value": float(r["value"])}
-                       for r in values],
-            "rank": rank,
-            "n": n,
-        }
-    return result
 
 
 def load_load_condition(conn, delivery_date: date, *, days: int = 365) -> list[dict[str, Any]]:

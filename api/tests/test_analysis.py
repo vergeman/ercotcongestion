@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pandas as pd
 from fastapi import Query
@@ -6,7 +7,7 @@ from fastapi import Query
 from api.services.analysis import panels as analysis_module
 from api.services.analysis.features import hero as hero_service
 from compute.analysis import brief_grade
-from compute.analysis.hero_window import delivery_bounds
+from compute.time import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.projection.codecs import SfMuArtifact
 
@@ -173,7 +174,10 @@ def test_hero_resolves_served_horizon_and_returns_forecast_segments(client, fake
     fake_pool.cursor.queue([{"h": 1}])            # horizon resolve
     fake_pool.cursor.queue([{"ts": None}])        # DAM coverage
     monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(
+        hero_service, "build_hero",
+        lambda *_a, **_k: SimpleNamespace(slots=_slots(_a[-1]), forecast_slots=None),
+    )
 
     response = client.get("/analysis/hero?date=2026-07-28")
     assert response.status_code == 200
@@ -191,7 +195,12 @@ def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, 
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": pd.Timestamp("2026-07-28T20:00Z")}])
     monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(
+        hero_service, "build_hero",
+        lambda *_a, **_k: SimpleNamespace(
+            slots=_slots("settled"), forecast_slots=_slots("forecast"),
+        ),
+    )
 
     body = client.get("/analysis/hero?date=2026-07-28").json()
     assert body["provenance"]["basis"] == "settled"
@@ -295,11 +304,10 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
     fake_pool.cursor.queue([{"h": 2}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 27)}])
     fake_pool.cursor.queue([{"delivery_date": date(2026, 7, 29)}])
-    calls = {"hero": 0, "include_condition": None}
+    calls = {"hero": 0}
 
     def hero(*_args, **_kwargs):
         calls["hero"] += 1
-        calls["include_condition"] = _kwargs.get("include_condition")
         return {"available": False, "unavailable_reason": "artifact_missing",
                 "run_id": "run-x", "delivery_date": date(2026, 7, 28), "horizon": 2}
 
@@ -313,37 +321,12 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
 
     body = client.get("/analysis/brief/hero?day=2026-07-28").json()
 
-    assert calls == {"hero": 1, "include_condition": False}
+    assert calls == {"hero": 1}
     assert body == {
         "hero": {"available": False, "unavailable_reason": "artifact_missing",
                  "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
         "previous_delivery_date": "2026-07-27",
         "next_delivery_date": "2026-07-29",
-    }
-
-
-def test_brief_hero_stats_returns_all_card_slots_in_one_response(
-    client, fake_pool, monkeypatch,
-):
-    fake_pool.cursor.queue([{"run_id": "run-x"}])
-    fake_pool.cursor.queue([{"h": 2}])
-    monkeypatch.setattr(
-        analysis_module,
-        "get_hero",
-        lambda *_args, **_kwargs: {
-            "available": True,
-            "slots": {"regime": {"today": 84_000.0}, "magnitude": {"rank": 3},
-                      "where": {"zone": "north"}},
-            "provenance": {"basis": "forecast"},
-        },
-    )
-
-    body = client.get("/analysis/brief/hero/stats?day=2026-07-28").json()
-
-    assert body == {
-        "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2,
-        "slots": {"regime": {"today": 84_000.0}, "magnitude": {"rank": 3},
-                  "where": {"zone": "north"}},
     }
 
 
@@ -443,7 +426,10 @@ def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, m
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"ts": None}])
     monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(hero_service, "build_hero", lambda *_a, **_k: _slots(_a[-1]))
+    monkeypatch.setattr(
+        hero_service, "build_hero",
+        lambda *_a, **_k: SimpleNamespace(slots=_slots(_a[-1]), forecast_slots=None),
+    )
     first = client.get("/analysis/hero?date=2026-07-28")
     second = client.get("/analysis/hero?date=2026-07-28")
     assert first.content == second.content

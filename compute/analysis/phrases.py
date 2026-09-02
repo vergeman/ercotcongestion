@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from compute.analysis.hero import MAGNITUDE_RUNGS
+from compute.analysis.hero_classifier import MAGNITUDE_RUNGS
 
 
 Slot = dict[str, Any]
