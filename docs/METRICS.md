@@ -168,9 +168,9 @@ Both tracks can be stored and graded independently in `scoreboard_daily`.
 
 ## Brief
 
-Brief grades evaluate artifact-derived constraint and node stories. They are not
-nodal Scoreboard grades: a strong Brief grade does not imply a strong Scoreboard
-result, and vice versa.
+Brief grades evaluate artifact-derived constraint and nodal-congestion profiles.
+They are not nodal Scoreboard grades: a strong Brief grade does not imply a
+strong Scoreboard result, and vice versa.
 
 ### Data and sources
 
@@ -195,13 +195,56 @@ identical values:
 
 ### Grades
 
-These are explained in greater detail at [/compute/analysis/README.md](/compute/analysis/README.md)
+These are explained in greater detail at
+[/compute/analysis/README.md](/compute/analysis/README.md). Detection,
+Magnitude, and Timing are shared concepts. They apply to constraint and node
+grading, but use slightly different definitions because their settled signals
+differ.
 
-* **Detection**: average precision - did the forecast pick the right binding
-  nodes/constraints?
-* **Magnitude**: soft overlap - congestion in right size and right place?
-* **Timing**: skill score; daily vs hourly avg precision over chance - do
-  correctly identified forecasts have congestion at the right time?
+#### Constraints
+
+Constraint grades use forecast and settled shadow-price profiles.
+
+* **Detection**: Did the forecast put the constraints that bound near the top?
+  Measured with average precision: constraints are ranked using the daily forecast
+  shadow-price against constraints with a settled shadow-price.
+* **Magnitude**: Did the forecast and settled summed shadow prices agree in
+  amount and by constraint? Soft overlap calculates the shared price amount,
+  divided by the average forecast and settled amount.
+* **Timing**: Did the detected constraints appear in the correct delivery hours?
+  The hourly value is average precision over constraint-hour cells, above and
+  beyond "chance". The displayed daily value is daily Detection rescaled by
+  the daily settled-event rate, not an additional timing test.
+
+  Example: with 10 constraints and 2 settled events, a daily average precision
+  of 0.60 becomes `(0.60 − 0.20) / (1 − 0.20) = 0.50` daily skill. With 20
+  constraint-hour cells and 2 settled events, hourly average precision of 0.55
+  becomes `(0.55 − 0.10) / (1 − 0.10) = 0.50` hourly skill.
+
+#### Nodes
+
+Node grades use absolute nodal congestion, `|SPP − system λ|`, projected from
+the artifact and compared with settlement: they measure the size and location of
+price separation, not whether a node was above or below system price.
+
+* **Detection**: Did the forecast identify the nodes with the largest
+  congestion? Nearly every node has some nonzero congestion, so a bind/no-bind
+  label (which we use in constraint calculation) is not selective enough.
+  Detection is the overlap between the forecast top 10% and settled top 10% of
+  scored nodes by total absolute congestion. Random selection captures 10% on
+  average.
+* **Magnitude**: Did forecast and settled absolute congestion agree in amount
+  and by node? It is the same soft-overlap calculation as constraints, applied
+  to absolute nodal congestion.
+* **Timing**: Did the detected nodes appear in the correct delivery hours? The
+  hourly value calculates top-10% capture independently in each hour, then
+  averages those captures. The displayed daily value is the same daily Detection
+  capture, not an additional timing test.
+
+  Example: for 20 nodes, the top 10% is 2 nodes. If forecast selects `{A, B}`
+  and settlement selects `{A, C}`, daily capture is `1 / 2 = 0.50`. If four
+  hourly captures are `0.50`, `1.00`, `0.00`, and `0.50`, hourly capture is
+  their average: `0.50`. Random selection captures 10% on average.
 
 These grades use their own subjects, baselines, and definitions.
 `compute.jobs.materialize_brief_grade` writes them independently of

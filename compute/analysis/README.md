@@ -99,35 +99,42 @@ helpers:
 
 ### The Grades
 
-**Detection**: Did the forecast pick the right BINDING nodes/constraints?
+Detection, Magnitude, and Timing ask the same broad questions for constraints
+and nodes: did the forecast identify what mattered, put the right amount in the
+right place, and get it into the right hours? Their exact calculations differ
+because constraints and nodes have different settled signals.
 
-  * Did the forecasted binding constraints, end up ranked above constraints that
-    didn't actually bind. Did we "detect" binding.
-  * The statistic is average precision:
-    * Precision = true / total (true + false) = relevant / total items
-    * Forecast set: sum each constraint's congestion over all hours, and rank
-      them, highest to lowest congestion.
-    * Realized set: that list of constraints that bound that day
-  * Example:
-    * My forecast ranking is `[A,B,X,C,Y]`. - forecast order matters.
-    * Realized binding set is `{C,B,A}`. (NB: this is a set - no order - here)
-    * A: 1/1 = 1.00
-    * B: 2/2 = 1.00
-    * X: not in bound set, skip
-    * C: 3/4 = 0.75
-    * Y: skip
-  * Average of the hits: (1.00 + 1.00 + 0.75) / 3 = 0.917
-  * True / Total: where True is binary, exists in realized set.
-  * Contrast with `[X,Y,A,B,C]` where two non-binding constraints are in the
-    forecast.
-    * (0/1 + 0/2 + 1/3 + 2/4 + 3/5) / 3 = (.33 + .50 + .66) / 3 = 0.48 much lower
-  * Detection is not about matching rank vs rank ordering, as barely different
-    deltas could skew as error (e.g. rank #5 as rank #6).
-  * `expected_average_precision()`: ranks daily forecast totals against the
-    settled activity labels.
+All model, persistence, and climatology profiles for one half are scored on the
+same delivery hours and the same subject universe. These Brief grades are
+separate from the nodal Scoreboard grades.
 
-**Magnitude**: did the forecast have total congestion at the right size and
-place? The right constraint?
+### Constraint Grades
+
+Constraint grades compare forecast and settled shadow-price profiles.
+
+**Detection**: did the forecast put the constraints that bound near the top?
+
+Constraints are ranked by their _forecast_ shadow-price total across the
+delivery day. The _settled_ label is whether a constraint has a settled
+shadow-price row in any delivery hour. (A published `$0` row still counts as an
+event.) Detection uses average precision:
+
+* Precision at rank `k` is the share of the first `k` constraints that are
+  settled events. Detection is the average of that precision at every settled
+  event.
+* Example forecast ranking: `[A, B, X, C, Y]`; settled event set: `{C, B, A}`.
+  `A` scores `1/1`, `B` scores `2/2`, and `C` scores `3/4`, for Detection of
+  `(1.00 + 1.00 + 0.75) / 3 = 0.917`.
+* A ranking of `[X, Y, A, B, C]` puts two non-events first and scores
+  `(1/3 + 2/4 + 3/5) / 3 = 0.478`.
+* Detection does not compare one rank ordering with another. Reordering within
+  the _settled_ events, or within the non-events, changes nothing.
+
+`expected_average_precision()` ranks daily forecast totals against these
+settled-event labels.
+
+**Magnitude**: did forecast and settled summed shadow prices agree in amount
+and by constraint?
 
 ```
     Forecast Settled   Shared / Overlap (min)
@@ -137,50 +144,110 @@ B     20        60         20
 Sum  120       140         100
 ```
 
-  * average mass = `(sum of forecast + sum of realized) / 2` = (120 + 140) / 2 =
-    130
-  * overlap = `sum( min(forecast, realized) )` - how much did we both agree on =
-    (80 + 20) / 100
-  * 100/130 = 0.77. (result between [0, 1]).
+* Average amount = `(forecast total + settled total) / 2` = `(120 + 140) / 2 =
+  130`.
+* Shared amount = `sum(min(forecast, settled)) = 80 + 20 = 100`.
+* Magnitude is `100 / 130 = 0.77`, between 0 and 1. Over- and
+  under-forecasting both reduce the score.
 
-  * `_soft_overlap()`: the min shared vector / the mean mass (settled) vector;
-    calculates that shared fraction.
+`_soft_overlap()` calculates the shared amount divided by the average forecast
+and settled amount.
 
-**Timing**: do forecasts land on the correct subject-hour? A forecast that
-correctly identifies a constraint, but has congestion at the wrong hours should
-score worse than one that gets both the subject and timing right.
-  * Timing (skill) = `Avg Precision - chance` rate: fraction of things that
-    bound anyway; then re-scaling so a random guess is 0 and perfect = 1.
+**Timing**: did the detected constraints appear in the correct delivery hours?
 
-  * Start with Average Precision score, calculated same as detection above
-    * daily avg precision: sum of constraint's congestion per day
-    * hourly avg precision: hourly congestion per constraint - a cell
+The _hourly_ Timing value ranks all constraint-hour cells by forecast shadow
+price, then calculates average precision against the settled-event cells. It
+converts that result to skill above the hourly settled-event rate:
 
-  * `chance`: dumb ranking score - random fraction of constraints/nodes binding;
-    set to `bound.mean()`. This is what the baseline avg precision would approach.
+`skill = (average precision − chance) / (1 − chance)`
 
-  * `skill`: how much beyond chance = `(avg precision - chance) / ( 1 - chance)`
-    * numerator: `avg precision - chance` - how much over a random ranking
-    * denominator: `1- chance` most that could have been beaten (e.g. 0% chance,
-      perfect 1.0)
+Here, `chance` is the share of constraint-hour cells with a settled row. A score
+of 0 is no better than random ordering, 1 is perfect, and a negative score is
+worse than random.
 
-  * Example:
-    * Haily:
-      * 10 constraints, 2 bound today. chance = 2/10 -> 20%.
-      * AP = 60% (calculated same as detection)
-        * P .... Q bind out of 10 total. P at 1st, Q at last: 1/1 + 2/10 = 1 +
-          .2 = 1.2 / 2 -> .60
-      * skill = (.60 - .20) / (1 - .20) = .4 / .8 = 50%
-    * Hourly:
-      * 5 constraints x 4 hours = 20 cells. 2 bind. Rank each by congestion
-        (high to low constraint per hour).
-      * AP (detection). Top binding cell ranks, other binding cell ranks last.
-        1/1 + 2/20 = 1 + .10 = 1.10. Take avg = 1.10 / 2 = 0.55
-      * chance = 2/20 = .1
-      * skill = (.55 - .1) / 1 - .1) = .45 / .9 = .5
+The displayed daily Timing value applies the same re-scaling to daily Detection;
+it is useful as a common scale, but is not an additional timing test.
 
-  * `expected_average_precision()` ranks /scores the daily or hourly cells
-  `_chance_adjusted()` reports skill above the settled activity rate.
+Worked examples:
+
+* **Daily:** 10 constraints, 2 with a settled row. Suppose the forecast puts
+  one event first and the other last: average precision is
+  `(1/1 + 2/10) / 2 = 0.60`. The settled-event rate is `2/10 = 0.20`, so daily
+  skill is `(0.60 − 0.20) / (1 − 0.20) = 0.50`.
+* **Hourly:** 5 constraints over 4 hours gives 20 constraint-hour cells, 2
+  with settled rows. If one event ranks first and the other last across the
+  pooled 20-cell forecast ranking, average precision is
+  `(1/1 + 2/20) / 2 = 0.55`. The event rate is `2/20 = 0.10`, so hourly skill
+  is `(0.55 − 0.10) / (1 − 0.10) = 0.50`.
+
+`expected_average_precision()` ranks daily constraints or flattened
+constraint-hour cells; `_chance_adjusted()` reports skill above the applicable
+settled-event rate.
+
+### Node Grades
+
+Node grades compare forecast and settled nodal congestion, `SPP − system λ`.
+Before grading, both profiles are converted to **absolute congestion**. They
+measure the size and location of price separation, not whether a node settled
+above or below system price.
+
+**Detection**: did the forecast identify the nodes with the largest congestion?
+
+Nearly every settlement point has some nonzero congestion, so a bind/no-bind
+label is not selective enough for the headline node metric. Detection ranks
+scored nodes by total absolute congestion for the delivery day, selects the top
+10% of forecast nodes and the top 10% of settled nodes, then reports their
+overlap.
+
+Every scored node competes for the top 10%. Randomly selecting 10% of nodes
+captures 10% on average.
+
+Example: with 20 scored nodes, the top 10% is 2 nodes. If the forecast top 10%
+is `{A, B}` and the settled top 10% is `{A, C}`, one node is shared, so
+Detection is `1 / 2 = 0.50`.
+
+**Magnitude**: did forecast and settled absolute congestion agree in amount and
+by node?
+
+This is the same soft-overlap calculation used for constraints, applied to
+daily totals of absolute nodal congestion.
+
+Example: the signs are removed before scoring.
+
+```
+Node       Forecast   Settled   Forecast |·|   Settled |·|   Shared
+IMPORT       -100        +80          100            80         80
+EXPORT        +20        -60           20            60         20
+--------------------------------------------------------------------
+Total                                   120           140        100
+```
+
+Magnitude is `100 / ((120 + 140) / 2) = 0.77`. Both nodes receive credit for
+their congestion size even though each forecast has the opposite settled sign.
+
+**Timing**: did the detected nodes appear in the correct delivery hours?
+
+Hourly Timing repeats top-10% capture independently in each delivery hour and
+averages those hourly captures. The displayed daily Timing value is the same
+daily Detection capture, not an additional timing test.
+
+Worked examples:
+
+* **Daily:** the displayed daily Timing value is the same `0.50` Detection
+  capture in the example above.
+* **Hourly:** with the same 20-node universe, suppose four hourly captures are
+  `0.50`, `1.00`, `0.00`, and `0.50`. Hourly Timing is their average:
+  `(0.50 + 1.00 + 0.00 + 0.50) / 4 = 0.50`. A random top-10% selection has
+  expected capture of `0.10` in each hour.
+
+### Interpretation limits
+
+* The node top-10% threshold is a deliberate attention-capacity choice, not an
+  inherent congestion threshold.
+* Constraint and node grades share concepts but are not interchangeable
+  statistics.
+* Profiles are aligned by delivery-hour order when their source timestamps do
+  not match exactly.
 
 ## Shared metadata
 
