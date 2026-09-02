@@ -62,6 +62,31 @@ extracted.
 
 The original acceptance targeted ~850–950 lines from ~1,680. **That was not achievable without a behaviour change and has been dropped.** Most of the duplication here is only **2-fold**, so factoring a block into a named helper removes two copies while adding one definition of comparable size — line-neutral, and only worth it when the two copies are byte-identical (ESSP collapse, driver calc), not when they need a flag to differ (constraint row assembly, left inline). The genuine line savings come from the blocks that were 4×/8× (the percentile whisker, the rank idiom) and the 8× preamble. Net outcome: `panels.py` ~1,540 lines from ~1,680 (~140 removed), all wire-identical.
 
+## Follow-on: split `panels.py` into a package (physical, not logical)
+
+The logical de-dup above is spent — the wire-identical rule caps it. The remaining
+win is **code motion**: `panels.py` (~1,540 lines) becomes a `panels/` package so no
+file exceeds ~one screen and the layout mirrors `routes/analysis/`. No logic changes,
+same public surface (an `__init__` re-exports every current `panels.X`), so callers
+and `brief.py`'s `panels.get_*` fan-out are untouched.
+
+* **Modules:** `_common.py` (shared: `ranked`, `settled_history_stats`,
+  `_resolve_or_unavailable`, the three tuning constants), `catalog.py`
+  (node/settlement-points/constraints/essp), `grade.py` (grade + history),
+  `constraints.py` (top-constraints + constraint standout helpers), `nodes.py`
+  (node history/contributions + top-nodes), `context.py`, `standouts.py`.
+* **Import graph is a clean DAG:** everything → `_common`; `context` → `constraints`;
+  `standouts` → `constraints` + `nodes`. No cycles.
+* **`get_standouts` (~290 lines) stays large** — it spans both domains and only
+  *imports* the per-domain helpers; shrinking it is a separate logic change, out of scope.
+* **Dead code dropped:** `_iso_z`/`_cursor`/`_verdicts` (and their `magnitude_verdict`/
+  `render`/`build_hero` imports) were live only in `features/hero.py`, which keeps its
+  own copies — removed here.
+* **Net LOC ~+75** (per-file headers + `__init__` shim). A physical split shrinks
+  files, not the total — the same lesson as above, from the other side.
+* Two `_forecast_node_history` tests patch a dependency on the module and call the
+  helper directly, so they now target the `panels.nodes` submodule.
+
 ## Acceptance
 
 * [x] JSON for top-constraints, top-nodes, standouts, and grade byte-identical before/after across a settled past day, a forecast-only future day, and a no-artifact day (`json.dumps(sort_keys=True)`). Verified with a golden harness comparing original-HEAD code vs. refactored against the live DB, with Postgres parallelism disabled to defeat nondeterministic float aggregation (context/grade/grade-history/standouts/top-nodes/top-constraints × 3 phases, all identical).
@@ -69,3 +94,4 @@ The original acceptance targeted ~850–950 lines from ~1,680. **That was not ac
 * [x] The seven empty `Unavailable` subclasses gone; `pytest api/tests` passes (161 passed, 3 skipped).
 * [x] No route added or removed; `/openapi.json` still lists every current analysis path.
 * [~] `panels.py` smaller: ~1,540 from ~1,680 (~140 lines). The original ~850–950 target was unrealistic (2-fold duplication factors line-neutral) and is withdrawn — the win is single-source-of-truth for the 4×/8× blocks, not LOC.
+* [ ] Follow-on split: `panels.py` → `panels/` package (7 modules), largest file ~430 lines, pure code motion, `pytest api/tests` green, `/openapi.json` unchanged.
