@@ -11,6 +11,19 @@ One-time backfill of every previously served node grade:
 Resume a date range by moving ``--end-date`` backward. The operation is
 idempotent and replaces both Brief subjects for each existing node-grade key.
 
+Validate after completion:
+
+    SELECT run_id, delivery_date, horizon
+    FROM analysis_grade_daily
+    WHERE subject = 'nodes'
+      AND (detail->>'metric_version' <> 'node_ap_v1'
+           OR model->>'detection_ap' IS NULL
+           OR model->>'timing_daily_skill' IS NULL
+           OR model->>'timing_hourly_skill' IS NULL
+           OR persistence->>'detection_ap' IS NULL
+           OR persistence->>'timing_daily_skill' IS NULL
+           OR persistence->>'timing_hourly_skill' IS NULL);
+
 One-time local backfill for one run (ending at the latest settled Brief day):
 
     python -m compute.jobs.materialize_brief_grade \

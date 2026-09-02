@@ -845,7 +845,8 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
     metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
                "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34}
-    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
+    detail = {"graded": True, "metric_version": brief_grade.GRADE_METRIC_VERSION,
+              "unavailable_reason": None, "universe_size": 2, "support": None,
               "sources": [{"id": "brief_model_artifact_profile", "label": "stale source label",
                            "definition": "Forecast profile decoded from the served artifact."}],
               "source_metrics": [{"id": "brief_model_artifact_profile", "metrics": metrics}]}

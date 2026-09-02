@@ -6,7 +6,11 @@ from datetime import date
 
 import pandas as pd
 
-from compute.analysis.brief_grade import SOURCE_DEFINITIONS, serialize_grade_half
+from compute.analysis.brief_grade import (
+    GRADE_METRIC_VERSION,
+    SOURCE_DEFINITIONS,
+    serialize_grade_half,
+)
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.jobs import daily_forecast
 from compute.jobs import materialize_brief_grade
@@ -27,6 +31,7 @@ def test_serialize_grade_half_is_neutral_data_not_an_api_response_model():
         "universe_size": 2,
         "support": None,
     }
+    assert result["metric_version"] == GRADE_METRIC_VERSION
     assert [item["id"] for item in result["sources"]] == [
         "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
     ]
