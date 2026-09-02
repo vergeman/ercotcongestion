@@ -30,11 +30,6 @@ class GradeMetrics:
     magnitude_overlap: float | None
     timing_daily_skill: float | None
     timing_hourly_skill: float | None
-    # Node-only ranked grade.  The epsilon event mask remains available through
-    # the AP/skill fields as a diagnostic, but it is too broad to headline when
-    # almost every settlement point has non-zero congestion.
-    top_decile_daily_capture: float | None = None
-    top_decile_hourly_capture: float | None = None
 
 
 @dataclass(frozen=True)
@@ -147,65 +142,61 @@ def _aligned(
     )
 
 
-def _top_fraction_capture(
-    predicted: pd.Series, settled: pd.Series, fraction: float
-) -> float | None:
-    """Overlap of equal-size predicted and settled top slices."""
+def top_fraction_labels(values: pd.Series, fraction: float) -> pd.Series:
+    """Mark the stable top fraction of a scored series."""
     if not 0 < fraction <= 1:
         raise ValueError("top fraction must be in (0, 1]")
-    if len(predicted) == 0:
-        return None
-    k = max(1, int(np.ceil(len(predicted) * fraction)))
-    forecast_top = set(predicted.sort_values(ascending=False, kind="stable").index[:k])
-    settled_top = set(settled.sort_values(ascending=False, kind="stable").index[:k])
-    return len(forecast_top & settled_top) / k
+    labels = pd.Series(False, index=values.index, dtype=bool)
+    if labels.empty:
+        return labels
+    k = max(1, int(np.ceil(len(values) * fraction)))
+    labels.loc[values.sort_values(ascending=False, kind="stable").index[:k]] = True
+    return labels
+
+
+def _mean_hourly_skill(
+    predicted: pd.DataFrame, hourly_bound: pd.DataFrame
+) -> float | None:
+    """Average independently scored delivery-hour skills."""
+    skills = [
+        _chance_adjusted(
+            expected_average_precision(predicted.loc[hour], hourly_bound.loc[hour]),
+            hourly_bound.loc[hour],
+        )
+        for hour in predicted.index
+    ]
+    available = [skill for skill in skills if skill is not None]
+    return None if not available else float(np.mean(available))
 
 
 def _metrics(
     predicted: pd.DataFrame,
     settled: pd.DataFrame,
-    settled_bound: pd.DataFrame,
+    daily_bound: pd.Series,
+    hourly_bound: pd.DataFrame,
     *,
-    top_fraction: float | None = None,
+    hourly_skill: str,
 ) -> GradeMetrics:
     """Calculate daily detection, daily magnitude, and hourly timing metrics."""
     daily_predicted = predicted.sum(axis=0)
     daily_settled = settled.sum(axis=0)
-    daily_bound = settled_bound.any(axis=0)
     daily_ap = expected_average_precision(daily_predicted, daily_bound)
-    hourly_ap = expected_average_precision(
-        pd.Series(predicted.to_numpy().ravel()),
-        pd.Series(settled_bound.to_numpy().ravel()),
-    )
-    daily_capture = (
-        _top_fraction_capture(daily_predicted, daily_settled, top_fraction)
-        if top_fraction
-        else None
-    )
-    hourly_capture = (
-        float(
-            np.mean(
-                [
-                    _top_fraction_capture(
-                        predicted.loc[hour], settled.loc[hour], top_fraction
-                    )
-                    for hour in predicted.index
-                ]
-            )
+    if hourly_skill == "pooled":
+        flattened_bound = pd.Series(hourly_bound.to_numpy().ravel())
+        hourly_ap = expected_average_precision(
+            pd.Series(predicted.to_numpy().ravel()), flattened_bound
         )
-        if top_fraction and len(predicted.index)
-        else None
-    )
+        timing_hourly_skill = _chance_adjusted(hourly_ap, flattened_bound)
+    elif hourly_skill == "mean":
+        timing_hourly_skill = _mean_hourly_skill(predicted, hourly_bound)
+    else:
+        raise ValueError("hourly_skill must be 'pooled' or 'mean'")
 
     return GradeMetrics(
         detection_ap=daily_ap,
         magnitude_overlap=_soft_overlap(daily_predicted, daily_settled),
         timing_daily_skill=_chance_adjusted(daily_ap, daily_bound),
-        timing_hourly_skill=_chance_adjusted(
-            hourly_ap, pd.Series(settled_bound.to_numpy().ravel())
-        ),
-        top_decile_daily_capture=daily_capture,
-        top_decile_hourly_capture=hourly_capture,
+        timing_hourly_skill=timing_hourly_skill,
     )
 
 
@@ -214,10 +205,11 @@ def grade_profiles(
     settled: pd.DataFrame,
     persistence: pd.DataFrame,
     *,
-    settled_bound: pd.DataFrame | None = None,
+    daily_bound: pd.Series | None = None,
+    hourly_bound: pd.DataFrame | None = None,
     universe: list[str] | None = None,
     climatology: pd.DataFrame | None = None,
-    top_fraction: float | None = None,
+    hourly_skill: str = "pooled",
 ) -> GradeResult:
     """Score model and yesterday-repeated settlement on the same full universe.
 
@@ -240,12 +232,12 @@ def grade_profiles(
         raise ValueError("grade profiles must share an identical delivery-hour index")
     if climatology is not None and not climatology.index.equals(hours):
         raise ValueError("climatology must share the target delivery-hour index")
-    if settled_bound is None:
-        settled_bound = settled.notna()
-    if not isinstance(settled_bound, pd.DataFrame) or not settled_bound.index.equals(
+    if hourly_bound is None:
+        hourly_bound = settled.notna()
+    if not isinstance(hourly_bound, pd.DataFrame) or not hourly_bound.index.equals(
         hours
     ):
-        raise ValueError("settled_bound must share the target delivery-hour index")
+        raise ValueError("hourly_bound must share the target delivery-hour index")
 
     score_universe = list(
         dict.fromkeys(
@@ -273,10 +265,17 @@ def grade_profiles(
         if climatology is not None
         else None
     )
-    labels = (
-        settled_bound.reindex(index=hours, columns=score_universe, fill_value=False)
+    hourly_labels = (
+        hourly_bound.reindex(index=hours, columns=score_universe, fill_value=False)
         .fillna(False)
         .astype(bool)
+    )
+    if daily_bound is None:
+        daily_bound = hourly_labels.any(axis=0)
+    if not isinstance(daily_bound, pd.Series):
+        raise ValueError("daily_bound must be a pandas Series")
+    daily_labels = (
+        daily_bound.reindex(score_universe, fill_value=False).fillna(False).astype(bool)
     )
 
     # GradeSupport helpers
@@ -296,24 +295,38 @@ def grade_profiles(
     #
     return GradeResult(
         universe=tuple(score_universe),
-        model=_metrics(model_values, settled_values, labels, top_fraction=top_fraction),
+        model=_metrics(
+            model_values,
+            settled_values,
+            daily_labels,
+            hourly_labels,
+            hourly_skill=hourly_skill,
+        ),
         persistence=_metrics(
-            persistence_values, settled_values, labels, top_fraction=top_fraction
+            persistence_values,
+            settled_values,
+            daily_labels,
+            hourly_labels,
+            hourly_skill=hourly_skill,
         ),
         climatology=(
             None
             if climatology_values is None
             else _metrics(
-                climatology_values, settled_values, labels, top_fraction=top_fraction
+                climatology_values,
+                settled_values,
+                daily_labels,
+                hourly_labels,
+                hourly_skill=hourly_skill,
             )
         ),
         support=GradeSupport(
-            daily_bound_count=int(labels.any(axis=0).sum()),
-            hourly_bound_count=int(labels.to_numpy().sum()),
+            daily_bound_count=int(daily_labels.sum()),
+            hourly_bound_count=int(hourly_labels.to_numpy().sum()),
             forecast_total=forecast_total,
             settled_total=settled_total,
-            daily_bound_rate=float(labels.any(axis=0).mean()),
-            hourly_bound_rate=float(labels.to_numpy().mean()),
+            daily_bound_rate=float(daily_labels.mean()),
+            hourly_bound_rate=float(hourly_labels.to_numpy().mean()),
             forecast_to_settled_ratio=ratio,
             magnitude_ceiling=ceiling,
             magnitude_of_ceiling=of_ceiling,
