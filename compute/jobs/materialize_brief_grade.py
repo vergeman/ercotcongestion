@@ -116,8 +116,8 @@ def main() -> None:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     "SELECT DISTINCT run_id, delivery_date, horizon FROM analysis_grade_daily "
-                    "WHERE subject = 'nodes' AND (%s IS NULL OR delivery_date >= %s) "
-                    "AND (%s IS NULL OR delivery_date <= %s) "
+                    "WHERE subject = 'nodes' AND (%s::date IS NULL OR delivery_date >= %s) "
+                    "AND (%s::date IS NULL OR delivery_date <= %s) "
                     "ORDER BY delivery_date, run_id, horizon",
                     (args.start_date, args.start_date, args.end_date, args.end_date),
                 )
