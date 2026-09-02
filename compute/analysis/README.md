@@ -195,16 +195,16 @@ above or below system price.
 
 Nearly every settlement point has some nonzero congestion, so a bind/no-bind
 label is not selective enough for the headline node metric. Detection ranks
-scored nodes by total absolute congestion for the delivery day, selects the top
-10% of forecast nodes and the top 10% of settled nodes, then reports their
-overlap.
+all scored nodes by forecast total absolute congestion for the delivery day.
+The positive labels are the settled top 10% by total absolute congestion.
 
-Every scored node competes for the top 10%. Randomly selecting 10% of nodes
-captures 10% on average.
+Detection uses the same average-precision calculation as constraints. With 20
+scored nodes, the settled top 10% is 2 nodes. If those nodes appear at forecast
+ranks 1 and 4, Detection is `(1/1 + 2/4) / 2 = 0.75`. Ties at the settled
+cutoff use the profile's stable node order, so exactly `ceil(0.10 × N)` labels
+are selected.
 
-Example: with 20 scored nodes, the top 10% is 2 nodes. If the forecast top 10%
-is `{A, B}` and the settled top 10% is `{A, C}`, one node is shared, so
-Detection is `1 / 2 = 0.50`.
+`expected_average_precision()` ranks the full node profile against those labels.
 
 **Magnitude**: did forecast and settled absolute congestion agree in amount and
 by node?
@@ -227,18 +227,18 @@ their congestion size even though each forecast has the opposite settled sign.
 
 **Timing**: did the detected nodes appear in the correct delivery hours?
 
-Hourly Timing repeats top-10% capture independently in each delivery hour and
-averages those hourly captures. The displayed daily Timing value is the same
-daily Detection capture, not an additional timing test.
+The displayed daily Timing value applies the same chance adjustment as
+constraint Timing to daily Detection. Hourly Timing selects the settled top 10%
+independently in every delivery hour, calculates chance-adjusted average
+precision for each hour, then averages those skills.
 
 Worked examples:
 
-* **Daily:** the displayed daily Timing value is the same `0.50` Detection
-  capture in the example above.
-* **Hourly:** with the same 20-node universe, suppose four hourly captures are
-  `0.50`, `1.00`, `0.00`, and `0.50`. Hourly Timing is their average:
-  `(0.50 + 1.00 + 0.00 + 0.50) / 4 = 0.50`. A random top-10% selection has
-  expected capture of `0.10` in each hour.
+* **Daily:** with Detection of `0.75` and 2 selected nodes out of 20, daily
+  skill is `(0.75 − 0.10) / (1 − 0.10) = 0.72`.
+* **Hourly:** with 20 nodes each hour, suppose hourly APs are `0.75`, `1.00`,
+  `0.25`, and `0.50`. Their skills above the `0.10` selected-node rate are
+  `0.72`, `1.00`, `0.17`, and `0.44`; hourly Timing is their average, `0.58`.
 
 ### Interpretation limits
 

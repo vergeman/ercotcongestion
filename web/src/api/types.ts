@@ -796,8 +796,6 @@ export interface AnalysisGradeMetrics {
   magnitude_overlap: number | null;
   timing_daily_skill: number | null;
   timing_hourly_skill: number | null;
-  top_decile_daily_capture?: number | null;
-  top_decile_hourly_capture?: number | null;
 }
 
 export interface AnalysisGradeSupport {
