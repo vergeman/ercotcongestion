@@ -92,6 +92,26 @@ predicts forward, and scores the resulting out-of-sample forecasts.
 `compute.jobs.backfill_scoreboard` copies those precomputed screening values
 into the database. The loader does not measure forecasts or create new metrics.
 
+The backtest was a one-time catch-up to build a track record before daily
+forecasts ran reliably; it is not maintained. Once daily grades are current they
+take over past the last backtest week (see the pooled splits below).
+
+#### Track record: pooled splits (All / Pre-RTC+B / Post-RTC+B)
+
+The **Track record · pooled pre/post-RTC+B** panel shows one figure per source
+for three spans, split at the 2025-12-05 RTC+B cutover:
+
+* **Pre-RTC+B** — backtest weeks before the cutover.
+* **Post-RTC+B** — backtest weeks on/after the cutover **plus** the live daily
+  grades (all served days fall after it). This keeps advancing as the backtest
+  ages out.
+* **All weeks** — every period, backtest and live, across all time.
+
+Each span is pooled on its own, weighting each period by its hours scored, so a
+full backtest week (~168 hours) counts about seven times a served day (~24
+hours). A span is not the average of the other two; "All weeks" spans the whole
+history and is dominated by the long backtest record.
+
 #### Daily served grade: did the published forecast hold up?
 
 `scoreboard_daily` grades the nodal forecast that was actually served for a CT
@@ -175,9 +195,13 @@ identical values:
 
 ### Grades
 
-* **Detection**: whether the important constraints rank highly.
-* **Magnitude**: whether the daily Σμ shape overlaps the realized shape.
-* **Timing**: whether important constraint-hours appear at the right times.
+These are explained in greater detail at [/compute/analysis/README.md](/compute/analysis/README.md)
+
+* **Detection**: average precision - did the forecast pick the right binding
+  nodes/constraints?
+* **Magnitude**: soft overlap - congestion in right size and right place?
+* **Timing**: skill score; daily vs hourly avg precision over chance - do
+  correctly identified forecasts have congestion at the right time?
 
 These grades use their own subjects, baselines, and definitions.
 `compute.jobs.materialize_brief_grade` writes them independently of
@@ -230,26 +254,16 @@ is the documented cause of the spread between in-sample R² (≈ 0.99) and OOS R
 caveat on the signed SF detail. `sf_stability` is NULL for early windows that
 lack the 120 days of history.
 
-### 30d / 90d Forecast Scorecard in the Map SidePanel
+### Forecast Scorecard in the Map SidePanel
 
-The Map SidePanel also has **Forecast Run** showing the μ-forecast scorecard and
-30D/90D window controls. It is not a rolling summary of the SF-map diagnostics,
-but an expansion of the daily scoreboard metrics.
-
-These calculations take a weekly "cadence" when calculating metrics, instead of
-daily. Then each metric is an hourly weighted average of several weeks values
-that cover 30d, or 90d. So a 30d value is ~4 weeks of an hourly weighted averaged
-metrics - 4 numbers - averaged.
-
-So for rank spearman, instead of the hourly spearman subsequently averaged over
-24 hours; we calculate the hourly spearman, and then average over an entire
-weeks worth of hours (~168). Repeat with weeks 2,3, and 4 (w.avg) until ~30d.
-
-For sign agreement we expand the pool to a week's worth of hours.
+The Map SidePanel also has a **Forecast Run** section showing the μ-forecast
+scorecard. It is not a rolling summary of the SF-map diagnostics, but a rehash
+of the daily scoreboard metrics seen in `/scoreboard`. It prints the daily value,
+so will change each day, but not hourly.
 
 Each scorecard row compares the model forecast with persistence and the oracle
 ceiling. All three metrics are higher-is-better and are calculated on the
-predicted and realized nodal-congestion vectors for each hour:
+predicted and realized nodal-congestion for each hour:
 
 
 ---
@@ -279,6 +293,13 @@ delivery day because settled DAM outcomes do not yet exist. On each tick it also
 attempts a separate eligible settled-day Scoreboard grade through `grade_day()`
 and `persist_grades()`, then materializes the separate Brief grade. Those are
 settlement-time product grades, not training-time μ-head diagnostics.
+
+* `grade_day()`: creates linear reconstruction of each `M` baseline (oracle,
+  persistence, climatology, null) with `SF`, to get `Yh`.
+  `/compute/evaluation/mu.py:screening_metrics_for_scoreboard(Y, Yh)`, a wrapper
+  for `compute/metrics.py:screening_metrics(Y, Yh)` where the actual metrics for each baseline are
+  calculated.
+
 
 #### SF-map evaluation path — scheduled weekly - served to Map SidePanel
 
