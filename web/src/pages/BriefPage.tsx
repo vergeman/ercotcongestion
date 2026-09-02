@@ -1146,7 +1146,7 @@ function GradeHalf({
           detail={
             nodes
               ? "Overlap of the forecast and settled top 10% of the complete absolute-congestion ranking."
-              : "Ranks the full scored universe by forecast and rewards realized events near the top."
+              : "Sorts every constraint by forecasted congestion, then checks whether those that actually bound are near the top. Only order matters (not the exact dollar amounts.)"
           }
           model={dailyRank}
           persistence={persistenceDailyRank}
@@ -1181,13 +1181,11 @@ function GradeHalf({
             half.support
               ? nodes
                 ? `Top ${Math.ceil(
-                    (half.universe_size ?? 0) * 0.1
-                  ).toLocaleString()} of ${
-                    half.universe_size?.toLocaleString() ?? "—"
-                  } nodes · 10% random capture is the baseline.`
-                : `${half.support.daily_bound_count.toLocaleString()} bound of ${
-                    half.universe_size?.toLocaleString() ?? "—"
-                  } constraints · 100% means every realized event ranked first.`
+                  (half.universe_size ?? 0) * 0.1
+                ).toLocaleString()} of ${half.universe_size?.toLocaleString() ?? "—"
+                } nodes · 10% random capture is the baseline.`
+                : `${half.support.daily_bound_count.toLocaleString()} bound of ${half.universe_size?.toLocaleString() ?? "—"
+                } constraints · 100% means every realized event ranked first.`
               : "Measures average precision."
           }
           formula={
@@ -1200,7 +1198,7 @@ N = complete, unfiltered node universe`
               : `AP  =  (1/B) · Σ  P(k)
                          k ∈ bound
 
-P(k) = bound within top k ÷ k
+P(k) = bound within top k / k
 B    = constraints that bind`
           }
           history={historyFor(
@@ -1232,13 +1230,13 @@ B    = constraints that bind`
           footer={
             half.support
               ? `${usd(half.support.forecast_total)} forecast · ${usd(
-                  half.support.settled_total
-                )} settled.`
+                half.support.settled_total
+              )} settled.`
               : "Measures soft overlap of daily magnitude."
           }
-          formula={`2 × Σ min(forecastᵢ, settledᵢ)
+          formula={`Σ min(forecastᵢ, settledᵢ)
 ────────────────────────────────
-    Σ forecastᵢ  +  Σ settledᵢ`}
+Σ (forecastᵢ  +  settledᵢ) / 2`}
           history={historyFor("magnitude_overlap")}
         />
         <GradeCard
