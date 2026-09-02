@@ -16,7 +16,7 @@ Validate after completion:
     SELECT run_id, delivery_date, horizon
     FROM analysis_grade_daily
     WHERE subject = 'nodes'
-      AND (detail->>'metric_version' <> 'node_ap_v1'
+      AND (detail->>'metric_version' IS DISTINCT FROM 'node_ap_v1'
            OR model->>'detection_ap' IS NULL
            OR model->>'timing_daily_skill' IS NULL
            OR model->>'timing_hourly_skill' IS NULL
