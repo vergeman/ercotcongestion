@@ -32,7 +32,8 @@ model-facing predictor families (`covariates/`), and head fitting/prediction
 artifacts (`model/`). Raw reusable DAM access remains in `inputs/`; weather,
 outage exposure, and SF-derived geography are covariates because they transform
 those inputs into model features. The historical μ walk is
-`compute.mu_forecast.model.walk_forward`.
+`compute.mu_forecast.model.walk_forward`, used by `backfill_scoreboard`; daily
+forecast publication uses `runner.predict_day` instead.
 
 ## Tests
 
