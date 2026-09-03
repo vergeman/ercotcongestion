@@ -52,6 +52,7 @@ sys.path.insert(0, "/ercot_ingest")
 from ErcotClient import BASE_URL, SUB_KEY, ErcotClient  # noqa: E402
 
 from shared.settings import settings  # noqa: E402
+from compute.time import localize_ct
 
 PRODUCT = "NP1-346-ER"
 SHEET = "Unplanned Resource Outages"
@@ -320,8 +321,8 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
     daily = out.groupby(["day", "sp"])[MW].sum().unstack(fill_value=0.0)
     print(f"  located outage MW: {len(daily)} days × {daily.shape[1]} settlement points")
 
-    lo = pd.Timestamp(daily.index.min() - pd.Timedelta(days=240), tz="America/Chicago")
-    hi = pd.Timestamp(daily.index.max() + pd.Timedelta(days=1), tz="America/Chicago")
+    lo = localize_ct(daily.index.min() - pd.Timedelta(days=240))
+    hi = localize_ct(daily.index.max() + pd.Timedelta(days=1))
     with psycopg.connect(settings.pg_dsn) as conn:
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)

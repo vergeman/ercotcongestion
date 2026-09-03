@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 
 from compute.sf_map.model.fit import implied_shift_factors
-from compute.time import normalize_ct_day
+from compute.time import localize_ct, normalize_ct_day
 
 log = logging.getLogger("compute.sf_map.geography.derive")
 
@@ -473,8 +473,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    lo = pd.Timestamp(args.start, tz="America/Chicago")
-    hi = pd.Timestamp(args.end, tz="America/Chicago")
+    lo = localize_ct(args.start)
+    hi = localize_ct(args.end)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
     with psycopg.connect(dsn) as conn:

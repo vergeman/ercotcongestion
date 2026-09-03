@@ -40,6 +40,7 @@ from compute.experiments.mu.feature_ablation import (
 )
 from compute.mu_forecast.model.runner import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                  FEATURE_SETS, feature_cols)
+from compute.time import localize_ct
 
 log = logging.getLogger("compute.experiments.mu.outage_ablation")
 
@@ -132,8 +133,8 @@ def main(argv: list[str] | None = None) -> int:
     preds_dir = Path(args.preds_dir)
     preds_dir.mkdir(parents=True, exist_ok=True)
 
-    lo = pd.Timestamp(args.start, tz="America/Chicago")
-    hi = pd.Timestamp(args.end, tz="America/Chicago")
+    lo = localize_ct(args.start)
+    hi = localize_ct(args.end)
     score_from = pd.Timestamp(args.score_from, tz="UTC")
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
