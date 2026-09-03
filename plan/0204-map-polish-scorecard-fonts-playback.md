@@ -46,10 +46,10 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
 
 ## Acceptance
 
-* [ ] Scrubbing across a day boundary and running playback shows the Scorecard numbers change with no panel unmount/reflow (visually: no blank-then-reappear).
-* [ ] Stale-day scores are never shown as current — abort still gates publishes.
-* [ ] `--font-mono` renders Roboto Mono (weights 400 + 500 bundled, 500 for data) across all `.mono` data; build passes; fallback stack intact.
-* [ ] During playback, node colors transition smoothly between hours; reduced-motion falls back to hard cuts.
-* [ ] No new per-frame network fetches introduced by interpolation.
-* [ ] Playback holds a steady cadence — no hang-then-catch-up; the URL still restores the cursor after pausing or on a shared link.
-* [ ] `dayStats` recomputes on delivery-day change, not every hour.
+* [x] Scrubbing across a day boundary and running playback shows the Scorecard numbers change with no panel unmount/reflow (visually: no blank-then-reappear). — confirmed; the fix was retain + drop the stale-dim, not the cache (cache removed).
+* [x] Stale-day scores are never shown as current — abort still gates publishes.
+* [x] `--font-mono` renders Roboto Mono (weights 400 + 500 bundled, 500 for data) across all `.mono` data; build passes; fallback stack intact.
+* [x] During playback, node colors transition smoothly between hours; reduced-motion falls back to hard cuts.
+* [x] No new per-frame network fetches introduced by interpolation.
+* [~] Playback holds a steady cadence — no hang-then-catch-up; the URL still restores the cursor after pausing or on a shared link. — single-map views steady; compare view improved via rAF clock + 30fps tween throttle, pending final confirmation (two-map repaint at 1106 nodes is the ceiling).
+* [x] `dayStats` recomputes on delivery-day change, not every hour.
