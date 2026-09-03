@@ -393,8 +393,6 @@ class GradeMetricsResponse(BaseModel):
     magnitude_overlap: float | None
     timing_daily_skill: float | None
     timing_hourly_skill: float | None
-    top_decile_daily_capture: float | None = None
-    top_decile_hourly_capture: float | None = None
 
 
 class GradeSupportResponse(BaseModel):

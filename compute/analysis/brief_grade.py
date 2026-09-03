@@ -13,12 +13,9 @@ from datetime import date, timedelta
 import pandas as pd
 from psycopg.rows import tuple_row
 
-from compute.analysis.grade import GradeResult, grade_profiles
+from compute.analysis.grade import GradeResult, grade_profiles, top_fraction_labels
 from compute.projection.codecs import load_sf_mu
 from compute.time import delivery_bounds
-
-NODE_CONGESTION_EPSILON = 1e-6
-
 
 @dataclass(frozen=True)
 class SourceDefinition:
@@ -248,7 +245,7 @@ def grade_constraint_profiles(
         model,
         settled,
         persistence,
-        settled_bound=settled.notna(),
+        hourly_bound=settled.notna(),
         climatology=climatology,
         universe=grade_vocabulary(cur, delivery_date),
     )
@@ -272,13 +269,28 @@ def grade_node_profiles(
     )
     if climatology is not None:
         climatology = climatology.abs()
+    score_universe = list(
+        dict.fromkeys(
+            str(key)
+            for values in (model, settled, persistence, climatology)
+            if values is not None
+            for key in values.columns
+        )
+    )
+    settled_values = (
+        settled.reindex(columns=score_universe, fill_value=0.0).fillna(0.0)
+    )
+    daily_bound = top_fraction_labels(settled_values.sum(axis=0), 0.10)
+    hourly_bound = settled_values.apply(top_fraction_labels, axis=1, fraction=0.10)
     return grade_profiles(
         model,
         settled,
         persistence,
-        settled_bound=settled.gt(NODE_CONGESTION_EPSILON),
+        daily_bound=daily_bound,
+        hourly_bound=hourly_bound,
         climatology=climatology,
-        top_fraction=0.10,
+        universe=score_universe,
+        hourly_skill="mean",
     )
 
 

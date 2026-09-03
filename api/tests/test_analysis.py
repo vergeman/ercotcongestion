@@ -844,8 +844,7 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
 
 def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
     metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
-               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34,
-               "top_decile_daily_capture": None, "top_decile_hourly_capture": None}
+               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34}
     detail = {"graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
               "sources": [{"id": "brief_model_artifact_profile", "label": "stale source label",
                            "definition": "Forecast profile decoded from the served artifact."}],
@@ -901,9 +900,12 @@ def test_node_grade_uses_absolute_congestion_so_opposite_sides_cannot_net(monkey
 
     assert grade is not None
     assert grade.model.magnitude_overlap == 2 / 11
+    assert grade.support is not None
+    assert grade.support.daily_bound_count == 1
+    assert grade.support.hourly_bound_count == 2
 
 
-def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
+def test_node_grade_selects_top_congestion_without_an_epsilon_cutoff(monkeypatch):
     hours = pd.RangeIndex(2)
     forecast = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [0.0, 0.0]}, index=hours)
     settled = pd.DataFrame({"REAL": [0.001, 0.0], "NOISE": [5e-7, 0.0]}, index=hours)
@@ -916,6 +918,4 @@ def test_node_grade_uses_epsilon_only_to_discard_float_residue(monkeypatch):
 
     assert grade is not None
     assert grade.model.detection_ap == 1.0
-    assert grade.model.top_decile_daily_capture == 1.0
-    assert grade.model.top_decile_hourly_capture == 1.0
     assert grade.model.timing_daily_skill == 1.0

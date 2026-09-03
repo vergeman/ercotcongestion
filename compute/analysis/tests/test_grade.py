@@ -1,7 +1,11 @@
 import pandas as pd
 import pytest
 
-from compute.analysis.grade import expected_average_precision, grade_profiles
+from compute.analysis.grade import (
+    expected_average_precision,
+    grade_profiles,
+    top_fraction_labels,
+)
 
 
 def _profiles(rows: dict[str, list[float | None]]) -> pd.DataFrame:
@@ -83,20 +87,54 @@ def test_grade_exposes_calibration_ceiling_and_event_rates_as_support():
     assert grade.support.hourly_bound_rate == 1.0
 
 
-def test_top_decile_capture_ranks_the_full_unfiltered_universe():
-    # No event/magnitude threshold participates: the model must identify the
-    # largest value, even though every node has non-zero congestion.
+def test_top_fraction_labels_use_stable_ties_at_the_cutoff():
     cols = [f"N{i}" for i in range(10)]
-    model = pd.DataFrame([[10.0, *range(1, 10)]], columns=cols)
-    settled = pd.DataFrame([[9.0, 10.0, *range(1, 9)]], columns=cols)
+    labels = top_fraction_labels(
+        pd.Series([10.0, 10.0, *range(8)], index=cols), 0.10
+    )
+
+    assert labels["N0"]
+    assert not labels["N1"]
+    assert labels.sum() == 1
+
+
+def test_node_style_labels_score_ap_over_all_nodes_not_top_slice_capture():
+    cols = [f"N{i}" for i in range(10)]
+    model = pd.DataFrame([[10.0, 9.0, 8.0, *range(7)]], columns=cols)
+    settled = pd.DataFrame([[9.0, 10.0, 8.0, *range(7)]], columns=cols)
     persistence = settled.copy()
+    daily_bound = top_fraction_labels(settled.sum(axis=0), 0.10)
+    hourly_bound = settled.apply(top_fraction_labels, axis=1, fraction=0.10)
 
-    grade = grade_profiles(model, settled, persistence, top_fraction=0.10)
+    grade = grade_profiles(
+        model,
+        settled,
+        persistence,
+        daily_bound=daily_bound,
+        hourly_bound=hourly_bound,
+        hourly_skill="mean",
+    )
 
-    assert grade.model.top_decile_daily_capture == 0.0
-    assert grade.model.top_decile_hourly_capture == 0.0
-    assert grade.persistence.top_decile_daily_capture == 1.0
-    assert grade.model.detection_ap is not None  # epsilon/event diagnostic remains.
+    # The right node is second, so AP is 1/2 rather than the old zero capture.
+    assert grade.model.detection_ap == pytest.approx(0.5)
+    assert grade.model.timing_daily_skill == pytest.approx((0.5 - 0.1) / 0.9)
+    assert grade.model.timing_hourly_skill == pytest.approx((0.5 - 0.1) / 0.9)
+    assert grade.persistence.detection_ap == 1.0
+
+
+def test_hourly_node_labels_are_selected_independently_each_hour():
+    settled = pd.DataFrame(
+        {
+            "A": [10.0, 1.0],
+            "B": [9.0, 10.0],
+            **{f"N{i}": [0.0, 0.0] for i in range(8)},
+        }
+    )
+    hourly_bound = settled.apply(top_fraction_labels, axis=1, fraction=0.10)
+
+    assert hourly_bound.loc[0, "A"]
+    assert hourly_bound.loc[1, "B"]
+    assert hourly_bound.to_numpy().sum() == 2
 
 
 def test_grade_rejects_profiles_that_do_not_share_target_delivery_hours():

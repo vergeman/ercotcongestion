@@ -4,7 +4,26 @@ This intentionally persists the same calculation served by ``/analysis/grade``;
 ``scoreboard_daily`` uses a different, nodal scorecard currency and must not be
 substituted for the Brief's Detection/Magnitude/Timing cards.
 
-One-time local backfill (ending at the latest settled Brief day):
+One-time backfill of every previously served node grade:
+
+    python -m compute.jobs.materialize_brief_grade --backfill-existing
+
+Resume a date range by moving ``--end-date`` backward. The operation is
+idempotent and replaces both Brief subjects for each existing node-grade key.
+
+Validate after completion:
+
+    SELECT run_id, delivery_date, horizon
+    FROM analysis_grade_daily
+    WHERE subject = 'nodes'
+      AND (model->>'detection_ap' IS NULL
+           OR model->>'timing_daily_skill' IS NULL
+           OR model->>'timing_hourly_skill' IS NULL
+           OR persistence->>'detection_ap' IS NULL
+           OR persistence->>'timing_daily_skill' IS NULL
+           OR persistence->>'timing_hourly_skill' IS NULL);
+
+One-time local backfill for one run (ending at the latest settled Brief day):
 
     python -m compute.jobs.materialize_brief_grade \
         --run-id mu-all-v1 --delivery-date 2026-08-12 --days 31
@@ -66,17 +85,60 @@ def materialize_day(conn, run_id: str, delivery_date: date, horizon: int) -> boo
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--delivery-date", required=True, type=date.fromisoformat)
+    parser.add_argument("--run-id")
+    parser.add_argument("--delivery-date", type=date.fromisoformat)
     parser.add_argument("--horizon", type=int, default=1, choices=(1, 2))
-    parser.add_argument("--days", type=int, default=1,
-                        help="Materialize this many days ending at --delivery-date, inclusive.")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=1,
+        help="Materialize this many days ending at --delivery-date, inclusive.",
+    )
+    parser.add_argument(
+        "--backfill-existing",
+        action="store_true",
+        help="Re-score every existing node-grade key.",
+    )
+    parser.add_argument("--start-date", type=date.fromisoformat)
+    parser.add_argument("--end-date", type=date.fromisoformat)
     args = parser.parse_args()
+    if args.backfill_existing and (args.run_id or args.delivery_date):
+        parser.error(
+            "--backfill-existing does not accept --run-id or --delivery-date"
+        )
+    if not args.backfill_existing and (not args.run_id or not args.delivery_date):
+        parser.error(
+            "--run-id and --delivery-date are required without --backfill-existing"
+        )
     with psycopg.connect(settings.pg_dsn) as conn:
-        for offset in range(args.days - 1, -1, -1):
-            day = args.delivery_date - timedelta(days=offset)
-            status = "materialized" if materialize_day(conn, args.run_id, day, args.horizon) else "skipped"
-            print(f"{day.isoformat()} {status}", flush=True)
+        if args.backfill_existing:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT DISTINCT run_id, delivery_date, horizon FROM analysis_grade_daily "
+                    "WHERE subject = 'nodes' AND (%s::date IS NULL OR delivery_date >= %s) "
+                    "AND (%s::date IS NULL OR delivery_date <= %s) "
+                    "ORDER BY delivery_date, run_id, horizon",
+                    (args.start_date, args.start_date, args.end_date, args.end_date),
+                )
+                keys = cur.fetchall()
+            for key in keys:
+                status = "materialized" if materialize_day(
+                    conn, key["run_id"], key["delivery_date"], key["horizon"]
+                ) else "skipped"
+                print(
+                    f"{key['delivery_date'].isoformat()} {key['run_id']} "
+                    f"h{key['horizon']} {status}",
+                    flush=True,
+                )
+        else:
+            for offset in range(args.days - 1, -1, -1):
+                day = args.delivery_date - timedelta(days=offset)
+                status = (
+                    "materialized"
+                    if materialize_day(conn, args.run_id, day, args.horizon)
+                    else "skipped"
+                )
+                print(f"{day.isoformat()} {status}", flush=True)
 
 
 if __name__ == "__main__":

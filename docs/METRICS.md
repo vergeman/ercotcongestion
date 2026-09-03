@@ -31,14 +31,14 @@ Each bundled section can be unavailable independently. A `null` section and its
 All Scoreboard metrics are higher-is-better and are computed on the same
 realized nodal-congestion target: `SPP − system_λ`.
 
-Think of metrics more as away of comparing orderings of forecast vs realized, per hour (except for sign agreement which is pooled.)
+Think of metrics more as away of comparing orderings of forecast vs realized,
+per hour (except for sign agreement which is pooled.)
 
 | Metric                           | Meaning                                                                                                                      | Calculation Cadence      |
 |----------------------------------|------------------------------------------------------------------------------------------------------------------------------|--------------------------|
 | Rank ρ (`rank_spearman`)         | Mean hourly Spearman correlation between the predicted and realized ranking across settlement points.                        | average of hourly        |
 | Top-Decile Hit (`topdecile_hit`) | Of the top 10% highest-congestion nodes, the mean hourly overlap between the predicted and realized.                         | average of hourly        |
 | Sign Agreement (`sign_agree`)    | Fraction of node-hours whose predicted and realized signs (+ or -) match, among realized values outside the $1/MWh deadband. | pooled across entire day |
-
 
 For a typical graded forecast
 
@@ -172,6 +172,9 @@ Brief grades evaluate artifact-derived constraint and nodal-congestion profiles.
 They are not nodal Scoreboard grades: a strong Brief grade does not imply a
 strong Scoreboard result, and vice versa.
 
+`topdecile_hit` is a Scoreboard-only metric. Brief Detection uses average
+precision instead.
+
 ### Data and sources
 
 | Dataset                | What it measures                   | Written by                             | Brief use         |
@@ -230,21 +233,22 @@ price separation, not whether a node was above or below system price.
 * **Detection**: Did the forecast identify the nodes with the largest
   congestion? Nearly every node has some nonzero congestion, so a bind/no-bind
   label (which we use in constraint calculation) is not selective enough.
-  Detection is the overlap between the forecast top 10% and settled top 10% of
-  scored nodes by total absolute congestion. Random selection captures 10% on
-  average.
+  Detection ranks all scored nodes by forecast total absolute congestion using
+  average precision. The positive labels are the settled top 10% by total
+  absolute congestion.
 * **Magnitude**: Did forecast and settled absolute congestion agree in amount
   and by node? It is the same soft-overlap calculation as constraints, applied
   to absolute nodal congestion.
 * **Timing**: Did the detected nodes appear in the correct delivery hours? The
-  hourly value calculates top-10% capture independently in each hour, then
-  averages those captures. The displayed daily value is the same daily Detection
-  capture, not an additional timing test.
+  daily value is Detection rescaled by the selected-node rate, not an additional
+  timing test. The hourly value selects the settled top 10% independently in
+  each hour, calculates chance-adjusted average precision for each hour, then
+  averages those skills.
 
-  Example: for 20 nodes, the top 10% is 2 nodes. If forecast selects `{A, B}`
-  and settlement selects `{A, C}`, daily capture is `1 / 2 = 0.50`. If four
-  hourly captures are `0.50`, `1.00`, `0.00`, and `0.50`, hourly capture is
-  their average: `0.50`. Random selection captures 10% on average.
+  Example: for 20 nodes, the settled top 10% is 2 nodes. If their precision at
+  forecast ranks is `1/1` and `2/4`, Detection is `(1.00 + 0.50) / 2 = 0.75`.
+  Its selected-node rate is `0.10`, so daily Timing is
+  `(0.75 − 0.10) / (1 − 0.10) = 0.72`.
 
 These grades use their own subjects, baselines, and definitions.
 `compute.jobs.materialize_brief_grade` writes them independently of

@@ -1110,15 +1110,9 @@ function GradeHalf({
   const model = gradeSource(half, BRIEF_MODEL_SOURCE);
   const persistence = gradeSource(half, BRIEF_PERSISTENCE_SOURCE);
   const climatology = gradeSource(half, BRIEF_CLIMATOLOGY_SOURCE);
-  const dailyRank = nodes
-    ? model?.top_decile_daily_capture
-    : model?.detection_ap;
-  const persistenceDailyRank = nodes
-    ? persistence?.top_decile_daily_capture
-    : persistence?.detection_ap;
-  const hourlyRank = nodes
-    ? model?.top_decile_hourly_capture
-    : model?.timing_hourly_skill;
+  const dailyRank = model?.detection_ap;
+  const persistenceDailyRank = persistence?.detection_ap;
+  const hourlyRank = model?.timing_hourly_skill;
   const subject = nodes ? "nodes" : "constraints";
   const historyFor = (key: keyof AnalysisGradeMetrics) =>
     (history?.days ?? [])
@@ -1145,7 +1139,7 @@ function GradeHalf({
           }
           detail={
             nodes
-              ? "Ranks scored nodes by total absolute congestion, then compares the forecast top 10% with the settled top 10%."
+              ? "Ranks scored nodes by forecast total absolute congestion. The settled top 10% are the positive labels."
               : "Ranks constraints by forecast shadow price for the day, then checks whether constraints with settled shadow prices are near the top. Only the order matters."
           }
           model={dailyRank}
@@ -1160,50 +1154,33 @@ function GradeHalf({
             },
             {
               value: score(
-                nodes
-                  ? climatology?.top_decile_daily_capture
-                  : climatology?.detection_ap
+                climatology?.detection_ap
               ),
               label: gradeSourceLabel(half, BRIEF_CLIMATOLOGY_SOURCE),
               win: beats(
                 dailyRank,
-                nodes
-                  ? climatology?.top_decile_daily_capture
-                  : climatology?.detection_ap
+                climatology?.detection_ap
               ),
             },
             {
-              value: percent(nodes ? 0.1 : half.support?.daily_bound_rate),
-              label: nodes ? "Random-selection baseline" : "Random-ordering baseline",
+              value: percent(half.support?.daily_bound_rate),
+              label: "Random-ordering baseline",
             },
           ]}
           footer={
             half.support
-              ? nodes
-                ? `Top ${Math.ceil(
-                  (half.universe_size ?? 0) * 0.1
-                ).toLocaleString()} of ${half.universe_size?.toLocaleString() ?? "—"
-                } nodes · random selection captures 10% on average.`
-                : `${half.support.daily_bound_count.toLocaleString()} constraints with settled shadow prices of ${half.universe_size?.toLocaleString() ?? "—"
-                } scored · 1.00 means every settled constraint ranked ahead of every other constraint.`
+              ? `${half.support.daily_bound_count.toLocaleString()} ${nodes ? "settled top-10% nodes by absolute congestion" : "constraints with settled shadow prices"} of ${half.universe_size?.toLocaleString() ?? "—"
+              } scored · 1.00 means every positive label ranked ahead of every other subject.`
               : "Measures average precision."
           }
           formula={
-            nodes
-              ? `Capture₁₀ = | Top₁₀%(forecast) ∩ Top₁₀%(settled) |
-            ───────────────────────────────────────────────
-                         ceil(0.10 × N)
+            `AP  =  (1/B) · Σ  P(k)
+               k ∈ positive labels
 
-N = scored nodes`
-              : `AP  =  (1/B) · Σ  P(k)
-               k ∈ settled constraints
-
-P(k) = settled constraints within top k / k
-B    = constraints with settled shadow prices`
+P(k) = positive labels within top k / k
+B    = ${nodes ? "settled top 10% of scored nodes" : "constraints with settled shadow prices"}`
           }
-          history={historyFor(
-            nodes ? "top_decile_daily_capture" : "detection_ap"
-          )}
+          history={historyFor("detection_ap")}
         />
         <GradeCard
           kind="Magnitude"
@@ -1258,54 +1235,40 @@ B    = constraints with settled shadow prices`
           }
           detail={
             nodes
-              ? "The day value repeats Detection. The hourly value compares the forecast and settled top 10% in each hour, then averages the results."
+              ? "The day value is Detection rescaled so random ordering is 0. Each hour selects its settled top 10%, scores AP, then averages the hourly skills."
               : "The day value is Detection rescaled so random ordering is 0. The hourly value ranks every constraint-hour, testing whether forecast activity appeared in the right hour."
           }
-          model={nodes ? dailyRank : model?.timing_daily_skill}
+          model={model?.timing_daily_skill}
           modelHourly={hourlyRank}
-          persistence={
-            nodes ? persistenceDailyRank : persistence?.timing_daily_skill
-          }
+          persistence={persistence?.timing_daily_skill}
           support={half.support}
           entity={nodes ? "node" : "constraint"}
           supportRows={[
             {
-              value: percent(nodes ? 0.1 : half.support?.daily_bound_rate),
-              label: nodes
-                ? "Random daily selection"
-                : "Daily settled-event rate",
+              value: percent(half.support?.daily_bound_rate),
+              label: nodes ? "Daily selected-node rate" : "Daily settled-event rate",
             },
             {
-              value: percent(nodes ? 0.1 : half.support?.hourly_bound_rate),
-              label: nodes
-                ? "Random hourly selection"
-                : "Hourly settled-event rate",
+              value: percent(half.support?.hourly_bound_rate),
+              label: nodes ? "Hourly selected-node rate" : "Hourly settled-event rate",
             },
           ]}
           footer={
             nodes
-              ? "Day = Detection · hourly = average top-10% capture in each delivery hour. Random selection captures 10%."
+              ? "Day restates Detection on a chance-adjusted scale · hourly averages independently scored delivery hours. 0 = no better than random; negative = worse."
               : "Day restates Detection on a chance-adjusted scale · hourly tests timing. 0 = no better than random; negative = worse."
           }
           formula={
-            nodes
-              ? `Hourly capture₁₀ = (1/H) · Σ  | Top₁₀%(forecastₕ) ∩ Top₁₀%(settledₕ) |
-                                  h                 ────────────────────────────────────
-                                                   ceil(0.10 × N)
-
-N = scored nodes · H = delivery hours`
-              : `(AP − chance) ÷ (1 − chance)
+            `(AP − chance) ÷ (1 − chance)
 
 AP = see Detection calculation
 
-day: daily constraint ranking
-hourly: pooled constraint-hour ranking
+day: daily ${nodes ? "node" : "constraint"} ranking
+hourly: ${nodes ? "AP and skill per hour, then average" : "pooled constraint-hour ranking"}
 
-chance = settled-event rate`
+chance = ${nodes ? "selected-node rate" : "settled-event rate"}`
           }
-          history={historyFor(
-            nodes ? "top_decile_daily_capture" : "timing_daily_skill"
-          )}
+          history={historyFor("timing_daily_skill")}
         />
       </div>
     </div>
