@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from compute.sf_map.model.fit import implied_shift_factors
+from compute.time import unique_days
 
 from .common import REFIT_DAYS, WINDOW_DAYS, load_panels, window
 
@@ -46,7 +47,7 @@ def main() -> None:
         return float(np.corrcoef(A.loc[shared].to_numpy(float).ravel(),
                                  B.loc[shared].to_numpy(float).ravel())[0, 1]), len(shared)
 
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     D = pd.Timedelta(days=1)
     rows: list[dict] = []
 

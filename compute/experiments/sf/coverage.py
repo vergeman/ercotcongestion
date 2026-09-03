@@ -57,6 +57,7 @@ import psycopg
 from shared.settings import settings
 from compute.sf_map.config import MIN_HOURS, REFIT_DAYS, RTC_B, WINDOW_DAYS
 from compute.inputs.dam import load_shadow_prices
+from compute.time import unique_days
 
 log = logging.getLogger("compute.experiments.sf.coverage")
 
@@ -151,7 +152,7 @@ def probe(
     legacy = lookback_days is not None
     look = pd.Timedelta(days=lookback_days or 0)
 
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     data_min, data_max = days[0], days[-1]
 
     # Where the refits start decides which weeks get scored, so legacy mode must
@@ -287,7 +288,7 @@ def admission_stats(
     win = pd.Timedelta(days=window_days)
     refit = pd.Timedelta(days=refit_days)
 
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     data_min, data_max = days[0], days[-1]
     anchor = data_min + win
     starts = pd.date_range(anchor, data_max, freq=refit, inclusive="left")

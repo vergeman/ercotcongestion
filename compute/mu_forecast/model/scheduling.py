@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from compute.time import unique_days
+
 
 def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
                      score_from: pd.Timestamp | None = None,
@@ -15,8 +17,7 @@ def refit_boundaries(panel: pd.DataFrame, train_days: int, refit_days: int,
     wall clock, while a `Timedelta` is DST-oblivious. Both errors yield tidy,
     silently hour-shifted weekly rows after a DST transition.
     """
-    days = pd.DatetimeIndex(
-        panel.index.get_level_values("interval_ts").normalize().unique()).sort_values()
+    days = unique_days(panel.index.get_level_values("interval_ts"))
     step = pd.DateOffset(days=refit_days)
     if score_from is not None:
         origin = pd.Timestamp(score_from)

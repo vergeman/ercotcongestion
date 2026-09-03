@@ -54,6 +54,7 @@ from compute.sf_map.model.grouping import (
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.metrics import row_spearman, sign_agreement, topdecile_hit
 from compute.sf_map.storage.persist import count_null_eval, update_eval_metrics
+from compute.time import unique_days
 
 log = logging.getLogger("compute.evaluation.sf")
 
@@ -133,7 +134,7 @@ def evaluate(
     day = pd.Timedelta(days=1)
     win = pd.Timedelta(days=window_days)
     refit = pd.Timedelta(days=refit_days)
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     end_day = days[-1]
 
     def window_labels(Mw: pd.DataFrame, lo, hi) -> pd.Series | None:
@@ -354,7 +355,7 @@ def sf_decay(
     idx = M.index.union(C.index).sort_values()
     M, C = M.reindex(idx).fillna(0.0), C.reindex(idx)
     win = pd.Timedelta(days=window_days)
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     anchors = pd.date_range(days[0] + win, days[-1],
                             freq=pd.Timedelta(days=anchor_step_days), inclusive="left")
     log.info("sf_decay: fitting %d anchors (window=%dd, λ=%g, rho_min=%s) for Δ=%s",

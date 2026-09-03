@@ -52,6 +52,7 @@ sys.path.insert(0, "/ercot_ingest")
 from ErcotClient import BASE_URL, SUB_KEY, ErcotClient  # noqa: E402
 
 from shared.settings import settings  # noqa: E402
+from compute.time import ERCOT_TZ, delivery_day_of, localize_ct
 
 PRODUCT = "NP1-346-ER"
 SHEET = "Unplanned Resource Outages"
@@ -165,7 +166,7 @@ def legB_vintage(c: ErcotClient, idx: pd.DataFrame) -> None:
     hours = idx["posted"].dt.hour
     print(f"  posting hour (UTC): min {hours.min():02d}  median "
           f"{int(hours.median()):02d}  max {hours.max():02d}")
-    ct = idx["posted"].dt.tz_localize("UTC").dt.tz_convert("America/Chicago")
+    ct = idx["posted"].dt.tz_localize("UTC").dt.tz_convert(ERCOT_TZ)
     late = (ct.dt.hour >= DAM_CLOSE_HOUR).mean()
     print(f"  posted at/after {DAM_CLOSE_HOUR:02d}:00 CT: {late:.1%} of documents")
 
@@ -320,8 +321,8 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
     daily = out.groupby(["day", "sp"])[MW].sum().unstack(fill_value=0.0)
     print(f"  located outage MW: {len(daily)} days × {daily.shape[1]} settlement points")
 
-    lo = pd.Timestamp(daily.index.min() - pd.Timedelta(days=240), tz="America/Chicago")
-    hi = pd.Timestamp(daily.index.max() + pd.Timedelta(days=1), tz="America/Chicago")
+    lo = localize_ct(daily.index.min() - pd.Timedelta(days=240))
+    hi = localize_ct(daily.index.max() + pd.Timedelta(days=1))
     with psycopg.connect(settings.pg_dsn) as conn:
         M = load_shadow_prices(conn, lo, hi)
         C = load_congestion_panel(conn, lo, hi)
@@ -347,8 +348,7 @@ def legD_signal(c: ErcotClient, idx: pd.DataFrame, sps: set[str],
           f"(vs the zonal fallback's 4 numbers, identical for every constraint)")
 
     # Realized daily |μ| per constraint, on the same days.
-    day_of = (pd.DatetimeIndex(M.index).tz_convert("America/Chicago")
-              .tz_localize(None).normalize())
+    day_of = delivery_day_of(M.index)
     mu = M.abs().groupby(day_of).mean()
     days = expo.index.intersection(mu.index)
     keys = expo.columns.intersection(mu.columns)

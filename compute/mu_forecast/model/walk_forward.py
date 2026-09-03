@@ -22,6 +22,7 @@ from compute.mu_forecast.model.runner import (
     spill_panel_features,
 )
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
+from compute.time import localize_ct
 
 log = logging.getLogger("compute.mu_forecast.model.walk_forward")
 
@@ -182,8 +183,8 @@ def walk_forward_from_db(conn, *, start: pd.Timestamp, end: pd.Timestamp,
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
     from compute.mu_forecast.panel.build import build_panel
 
-    score_from = pd.Timestamp(start, tz="America/Chicago")
-    end = pd.Timestamp(end, tz="America/Chicago")
+    score_from = localize_ct(start)
+    end = localize_ct(end)
 
     def build_range(read_start, read_end):
         M = load_shadow_prices(conn, read_start, read_end)

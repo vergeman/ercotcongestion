@@ -28,6 +28,7 @@ import pandas as pd
 from compute.evaluation.sf import predict
 from compute.metrics import screening_metrics
 from compute.sf_map.model.fit import implied_shift_factors
+from compute.time import localize_ct
 
 log = logging.getLogger("compute.evaluation.mu")
 
@@ -323,8 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     log.info("preds = %s rows, %d weeks", f"{len(preds):,}",
              preds["week"].nunique())
 
-    lo = pd.Timestamp(args.start, tz="America/Chicago")
-    hi = pd.Timestamp(args.end, tz="America/Chicago")
+    lo = localize_ct(args.start)
+    hi = localize_ct(args.end)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 

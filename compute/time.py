@@ -14,6 +14,19 @@ import pandas as pd
 ERCOT_TZ = "America/Chicago"
 
 
+def localize_ct(x) -> pd.Timestamp:
+    """Coerce a date/timestamp to the equivalent CT-zoned instant."""
+    ts = pd.Timestamp(x)
+    if pd.isna(ts):
+        return ts
+    return ts.tz_convert(ERCOT_TZ) if ts.tzinfo is not None else ts.tz_localize(ERCOT_TZ)
+
+
+def unique_days(index) -> pd.DatetimeIndex:
+    """Normalize in the index's own tz, without re-zoning to CT."""
+    return pd.DatetimeIndex(pd.Index(index).normalize().unique()).sort_values()
+
+
 def ct_day_bounds(delivery_day) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Return DST-aware UTC ``[start, end)`` bounds for one CT delivery day."""
     ts = pd.Timestamp(delivery_day)

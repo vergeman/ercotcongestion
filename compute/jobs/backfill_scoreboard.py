@@ -11,6 +11,7 @@ import pandas as pd
 from compute.evaluation.mu import evaluate_predictions
 from compute.mu_forecast.model.walk_forward import walk_forward_from_db
 from compute.mu_forecast.model.runner import DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS, arms_for
+from compute.time import localize_ct
 
 log = logging.getLogger("compute.jobs.backfill_scoreboard")
 
@@ -120,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 conn, start=start, end=args.end, train_days=args.train_days,
                 refit_days=args.refit_days, policy=args.policy, arms=arms_for(args.features),
                 chunk_weeks=args.chunk_weeks, spill_dir=spill_dir, scratch_dir=spill_dir)
-            score = evaluate_predictions(conn, preds, end=pd.Timestamp(args.end, tz="America/Chicago"))
+            score = evaluate_predictions(conn, preds, end=localize_ct(args.end))
             if score.empty:
                 log.warning("no scorable weeks; scoreboard unchanged")
                 return 1

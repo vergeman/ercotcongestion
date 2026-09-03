@@ -50,10 +50,11 @@ import pandas as pd
 from compute.experiments.mu.sampling import draw_congestion, residual_pool
 from compute.evaluation.mu import (
     LAM, MIN_HOURS, REFIT_DAYS, STD_FLOOR, WINDOW_DAYS,
-    topdecile_hit_defined, weeks_from_preds,
+    weeks_from_preds,
 )
-from compute.metrics import row_spearman, sign_agreement
+from compute.metrics import screening_metrics
 from compute.sf_map.model.fit import implied_shift_factors
+from compute.time import localize_ct
 
 log = logging.getLogger("compute.experiments.mu.rerank")
 
@@ -82,11 +83,7 @@ def score_ranking(Y: np.ndarray, Yh: np.ndarray) -> dict:
     R² would be scoring it on a job it is not applying for.
 
     """
-    return {
-        "rank_spearman": row_spearman(Y, Yh),
-        "sign_agree": sign_agreement(Y, Yh),
-        "topdecile_hit": topdecile_hit_defined(Y, Yh),
-    }
+    return screening_metrics(Y, Yh)
 
 
 def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
@@ -220,8 +217,8 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     preds = load_preds(args.preds)
-    lo = pd.Timestamp(args.start, tz="America/Chicago")
-    hi = pd.Timestamp(args.end, tz="America/Chicago")
+    lo = localize_ct(args.start)
+    hi = localize_ct(args.end)
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
     with psycopg.connect(dsn) as conn:
