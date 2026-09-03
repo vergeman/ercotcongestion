@@ -827,6 +827,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         focusReach={focusReach}
         ringedSpId={isMobile ? null : hoveredMemberSp}
         tapOnly={isMobile}
+        animateFills={renderedView !== "compare"}
       />
       <MapPaneBadge {...badgeProps} label={predictionLabel} view="forecast" dataMode={dataMode}
         litCount={litFor(leftRows)} litNoun="forecast"
@@ -880,6 +881,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         onSpClick={handleSpClickActual}
         onMapReady={handleRightReady}
         tapOnly={isMobile}
+        animateFills={renderedView !== "compare"}
       />
       <MapPaneBadge {...badgeProps} label="ERCOT: Day Ahead Market (DAM)" view="market" dataMode={dataMode}
         litCount={litCount} litNoun="priced"
@@ -938,6 +940,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         ringedSpId={isMobile ? null : hoveredMemberSp}
         congestionColor={forecastErrorColor}
         tapOnly={isMobile}
+        animateFills={renderedView !== "compare"}
       />
       <MapPaneBadge {...badgeProps} label={errorLabel} view="error" dataMode="congestion"
         litCount={errorLit} litNoun="compared"
