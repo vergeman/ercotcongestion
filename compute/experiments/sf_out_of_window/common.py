@@ -27,6 +27,7 @@ from compute.inputs.dam import (
     load_congestion_panel,
     load_shadow_prices,
 )
+from compute.time import unique_days
 
 START = date(2025, 1, 1)
 END = date(2026, 1, 1)
@@ -46,13 +47,13 @@ def load_panels(start: date = START, end: date = END):
 def refit_starts(M: pd.DataFrame, window_days: int = WINDOW_DAYS,
                  refit_days: int = REFIT_DAYS) -> pd.DatetimeIndex:
     """Refit boundaries with a full trailing window behind each one."""
-    days = pd.Index(M.index.normalize().unique()).sort_values()
+    days = unique_days(M.index)
     return pd.date_range(days[0] + pd.Timedelta(days=window_days), days[-1],
                          freq=pd.Timedelta(days=refit_days), inclusive="left")
 
 
 def last_day(M: pd.DataFrame) -> pd.Timestamp:
-    return pd.Index(M.index.normalize().unique()).sort_values()[-1]
+    return unique_days(M.index)[-1]
 
 
 def window(M: pd.DataFrame, start, end) -> pd.Index:
