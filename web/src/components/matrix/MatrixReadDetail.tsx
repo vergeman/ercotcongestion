@@ -313,22 +313,63 @@ function ConstraintRead({
   );
 }
 
+// A constraint's shadow price this hour, backed out of −SF·μ. Null when the SF
+// is zero (no relationship to divide through).
+function termMu(term: AnalysisContributionTerm): number | null {
+  return term.shift_factor !== 0 ? -term.contribution / term.shift_factor : null;
+}
+
+// The node table's sortable columns. Default is $/MWh (driver strength), so the
+// table opens as the drivers list; sort by SF for structural exposure, and the
+// `*` on a capped SF flags what the fit could not trust.
+type NodeSortKey = "sf" | "side" | "mu" | "contribution" | "binding";
+interface NodeSort {
+  key: NodeSortKey;
+  dir: "asc" | "desc";
+}
+
+const NODE_COLUMNS: Array<{ key: NodeSortKey; label: string; title: string }> = [
+  { key: "binding", label: "bind", title: "Hours the constraint bound on the delivery day." },
+  { key: "side", label: "side", title: "Import (SF<0) or export (SF≥0)." },
+  { key: "sf", label: "SF", title: "Implied shift factor; sorts by |SF|. * = pinned at the fit's clip." },
+  { key: "mu", label: "μ", title: "Constraint shadow price this hour ($/MWh)." },
+  { key: "contribution", label: "$/MWh", title: "This node's congestion from the constraint (−SF·μ); sorts by magnitude." },
+];
+
+// Bigger sorts first under descending. SF and $/MWh key off magnitude (the
+// driver/exposure strength); side keys off the SF sign so imports and exports
+// group together.
+function nodeSortValue(term: AnalysisContributionTerm, key: NodeSortKey): number {
+  switch (key) {
+    case "sf": return Math.abs(term.shift_factor);
+    case "side": return Math.sign(term.shift_factor);
+    case "mu": return termMu(term) ?? -Infinity;
+    case "contribution": return Math.abs(term.contribution);
+    case "binding": return term.binding_hours;
+  }
+}
+
+function nodeDefaultDir(key: NodeSortKey): "asc" | "desc" {
+  return key === "side" ? "asc" : "desc";
+}
+
 function DriverRow({ term }: { term: AnalysisContributionTerm }) {
   const side = term.shift_factor >= 0 ? "export" : "import";
-  const mu =
-    term.shift_factor !== 0 ? -term.contribution / term.shift_factor : null;
+  const mu = termMu(term);
   return (
     <tr>
       <td className="mrd-drv__key mono">
         {constraintName(term.constraint_key)}
       </td>
+      <td className="mono">{term.binding_hours}h</td>
+      <td className="mrd-drv__side">{side}</td>
       <td
         className="mono"
         style={{ color: shiftFactorColor(term.shift_factor) }}
       >
         {term.shift_factor.toFixed(3)}
+        {term.sf_clipped && <span className="mrd-drv__clip">*</span>}
       </td>
-      <td className="mrd-drv__side">{side}</td>
       <td className="mono">{mu == null ? "—" : usd(mu, 2)}</td>
       <td
         className={`mono${
@@ -338,6 +379,71 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
         {usd(term.contribution, 2)}
       </td>
     </tr>
+  );
+}
+
+// One sortable table over the node's full nonzero-SF set — it replaces the old
+// drivers table plus the separate structural-exposure disclosure. Sort by $/MWh
+// (default) for the drivers, by SF for structural exposure, by bind/clip to spot
+// what is not structurally sound.
+function DriverTable({
+  terms,
+  sort,
+  onToggleSort,
+}: {
+  terms: AnalysisContributionTerm[];
+  sort: NodeSort;
+  onToggleSort: (key: NodeSortKey) => void;
+}) {
+  const rows = useMemo(() => {
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...terms].sort(
+      (a, b) => sign * (nodeSortValue(a, sort.key) - nodeSortValue(b, sort.key))
+    );
+  }, [terms, sort]);
+  const clipped = rows.some((t) => t.sf_clipped);
+  return (
+    <>
+      <table className="mrd-drv">
+        <thead>
+          <tr>
+            <th>constraint</th>
+            {NODE_COLUMNS.map((c) => {
+              const active = sort.key === c.key;
+              return (
+                <th
+                  key={c.key}
+                  className={`mrd-drv__sort${active ? " is-active" : ""}`}
+                  title={c.title}
+                  tabIndex={0}
+                  aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+                  onClick={() => onToggleSort(c.key)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onToggleSort(c.key);
+                    }
+                  }}
+                >
+                  {c.label}
+                  {active ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((term) => (
+            <DriverRow key={term.constraint_key} term={term} />
+          ))}
+        </tbody>
+      </table>
+      {clipped && (
+        <div className="mrd-drv__note">
+          * SF pinned at the fit's ±1 clip — a bound, not a measurement
+        </div>
+      )}
+    </>
   );
 }
 
@@ -352,6 +458,8 @@ function NodeRead({
   val,
   deliveryDate,
   damStatus,
+  sort,
+  onToggleSort,
   onNavigateToMap,
 }: {
   point: string;
@@ -365,6 +473,8 @@ function NodeRead({
   val: MatrixValTab;
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
+  sort: NodeSort;
+  onToggleSort: (key: NodeSortKey) => void;
   onNavigateToMap: (search: string) => void;
 }) {
   const basis: AnalysisBasis = val === "dmu" ? "realized" : "predicted";
@@ -408,6 +518,9 @@ function NodeRead({
   const mapHref = mapLinkTo({ kind: "sp", value: point });
   const terms = node?.available ? node.terms ?? [] : [];
   const structuralTerms = node?.available ? node.structural_terms ?? [] : [];
+  // One table over the full nonzero-SF set when we have it (it is the superset
+  // that includes the drivers), else the drivers alone.
+  const tableTerms = structuralTerms.length > 0 ? structuralTerms : terms;
   const market = node?.available ? node.market_state : null;
 
   return (
@@ -510,60 +623,16 @@ function NodeRead({
             No forecast artifact for this node on this delivery day.
           </div>
         )}
-        {node?.available && (
-          <>
-            <div className="mrd-drivers">
-              <span className="mrd-section-title">
-                Current-hour drivers <em>full column · −SF·μ</em>
-              </span>
-              <table className="mrd-drv">
-                <thead>
-                  <tr>
-                    <th>constraint</th>
-                    <th>SF</th>
-                    <th>side</th>
-                    <th>μ</th>
-                    <th>$/MWh</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {terms.map((term) => (
-                    <DriverRow key={term.constraint_key} term={term} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <details className="mrd-structural">
-              <summary>
-                Structural exposure{" "}
-                <em>
-                  {node.structural_terms
-                    ? `${
-                        node.structural_n_terms ?? structuralTerms.length
-                      } nonzero SF relationships`
-                    : "loading…"}
-                </em>
-              </summary>
-              {node.structural_terms && (
-                <table className="mrd-drv">
-                  <thead>
-                    <tr>
-                      <th>constraint</th>
-                      <th>SF</th>
-                      <th>side</th>
-                      <th>μ</th>
-                      <th>$/MWh</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {structuralTerms.map((term) => (
-                      <DriverRow key={term.constraint_key} term={term} />
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </details>
-          </>
+        {node?.available && tableTerms.length > 0 && (
+          <div className="mrd-drivers">
+            <span className="mrd-section-title">
+              Drivers &amp; exposure{" "}
+              <em>
+                {`${node.structural_n_terms ?? tableTerms.length} constraints · −SF·μ · sort any column`}
+              </em>
+            </span>
+            <DriverTable terms={tableTerms} sort={sort} onToggleSort={onToggleSort} />
+          </div>
         )}
       </div>
       <div className="mrd__map">
@@ -594,6 +663,19 @@ export default function MatrixReadDetail({
   nodeMeta,
   onNavigateToMap,
 }: Props) {
+  // The node table's sort lives here, above NodeRead, so it survives switching
+  // between nodes (NodeRead and its table remount, but this frame stays).
+  const [nodeSort, setNodeSort] = useState<NodeSort>({
+    key: "contribution",
+    dir: "desc",
+  });
+  const toggleNodeSort = (key: NodeSortKey) =>
+    setNodeSort((cur) =>
+      cur.key === key
+        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: nodeDefaultDir(key) }
+    );
+
   if (!selection) {
     return (
       <div className="mrd mrd--empty">
@@ -619,6 +701,8 @@ export default function MatrixReadDetail({
           val={val}
           deliveryDate={deliveryDate}
           damStatus={damStatus}
+          sort={nodeSort}
+          onToggleSort={toggleNodeSort}
           onNavigateToMap={onNavigateToMap}
         />
       )}
@@ -678,10 +762,13 @@ export default function MatrixReadDetail({
         .mrd-drv th:first-child, .mrd-drv td:first-child { text-align: left; }
         .mrd-drv__key { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .mrd-drv__side { color: var(--text-muted); }
-        .mrd-structural { margin-top: 14px; }
-        .mrd-structural summary { color: var(--text-secondary); cursor: pointer; font: 600 var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
-        .mrd-structural summary em { color: var(--text-muted); font-style: normal; text-transform: none; }
-        .mrd-structural .mrd-drv { margin-top: 10px; }
+        .mrd-drv__clip { color: var(--text-muted); padding-left: 1px; }
+        /* Clickable sort headers keep the header look, gaining a pointer and an
+           accent when active. */
+        .mrd-drv th.mrd-drv__sort { cursor: pointer; user-select: none; white-space: nowrap; }
+        .mrd-drv th.mrd-drv__sort:hover { color: var(--text-secondary); }
+        .mrd-drv th.mrd-drv__sort.is-active { color: var(--accent); }
+        .mrd-drv__note { margin-top: 8px; color: var(--text-muted); font-size: var(--fs-micro); }
         @media (max-width: 900px) { .mrd-lobes { grid-template-columns: 1fr; } }
       `}</style>
     </div>

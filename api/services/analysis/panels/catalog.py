@@ -22,6 +22,7 @@ from api.schemas.analysis import (
     AnalysisEsspGroupsUnavailableResponse,
 )
 from compute.analysis.metadata import load_sp_metadata
+from compute.sf_map.model.fit import SF_ABS_CAP
 from api.services.sf_artifacts import load_daily_artifact
 from api.services.analysis.repositories.market import (
     essp_member_count as _essp_member_count,
@@ -62,35 +63,39 @@ def _constraint_geo(cur, keys: list[str]) -> dict[str, dict]:
     return result
 
 
+def _term(
+    key, contribution: float, shift_factor: float, binding_hours: pd.Series
+) -> AnalysisContributionTerm:
+    return AnalysisContributionTerm(
+        constraint_key=str(key),
+        contribution=contribution,
+        shift_factor=shift_factor,
+        binding_hours=int(binding_hours.get(key, 0)),
+        sf_clipped=abs(shift_factor) >= SF_ABS_CAP,
+    )
+
+
 def _terms(
-    contributions: pd.Series, shift_factors: pd.Series
+    contributions: pd.Series, shift_factors: pd.Series, binding_hours: pd.Series
 ) -> list[AnalysisContributionTerm]:
     contributions = contributions[contributions != 0.0]
     ordered = contributions.reindex(
         contributions.abs().sort_values(ascending=False).index
     )
     return [
-        AnalysisContributionTerm(
-            constraint_key=str(key),
-            contribution=float(value),
-            shift_factor=float(shift_factors.loc[key]),
-        )
+        _term(key, float(value), float(shift_factors.loc[key]), binding_hours)
         for key, value in ordered.items()
     ]
 
 
 def _structural_terms(
-    shift_factors: pd.Series, contributions: pd.Series
+    shift_factors: pd.Series, contributions: pd.Series, binding_hours: pd.Series
 ) -> list[AnalysisContributionTerm]:
     """Every nonzero SF relationship, including constraints quiet this hour."""
     sf = shift_factors[shift_factors != 0.0]
     ordered = sf.reindex(sf.abs().sort_values(ascending=False).index)
     return [
-        AnalysisContributionTerm(
-            constraint_key=str(key),
-            contribution=float(contributions.loc[key]),
-            shift_factor=float(value),
-        )
+        _term(key, float(contributions.loc[key]), float(value), binding_hours)
         for key, value in ordered.items()
     ]
 

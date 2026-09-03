@@ -762,8 +762,10 @@ def test_node_structural_mode_includes_quiet_nonzero_sf_terms(client, fake_pool,
 
     assert body["n_terms"] == 2
     assert body["terms"] == [
-        {"constraint_key": "ACTIVE|C", "contribution": -4.0, "shift_factor": 1.0},
-        {"constraint_key": "QUIET|C", "contribution": 0.0, "shift_factor": 0.5},
+        {"constraint_key": "ACTIVE|C", "contribution": -4.0, "shift_factor": 1.0,
+         "binding_hours": 1, "sf_clipped": True},
+        {"constraint_key": "QUIET|C", "contribution": 0.0, "shift_factor": 0.5,
+         "binding_hours": 0, "sf_clipped": False},
     ]
 
 

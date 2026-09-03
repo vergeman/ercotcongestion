@@ -5,7 +5,6 @@ import {
   fetchMapReach,
   REACH_THRESHOLD_OPTS,
 } from "../../api/client";
-import type { ExposureRank } from "../../api/types";
 
 /**
  * The map feature's request boundary for constraint ranking, reach, and node
@@ -14,8 +13,10 @@ import type { ExposureRank } from "../../api/types";
 export function useConstraintSelection() {
   return useMemo(() => ({
     loadRanked: fetchMapConstraintsRanked,
-    loadExposures: (spId: string, rank: ExposureRank, cursorTs?: Date) =>
-      fetchMapExposures(spId, 15, cursorTs, rank),
+    // The node card is always the contribution ranking — what drove the node
+    // this hour.
+    loadExposures: (spId: string, cursorTs?: Date) =>
+      fetchMapExposures(spId, 15, cursorTs, "contribution"),
     loadReach: (constraintKey: string, cursorTs?: Date) =>
       fetchMapReach(constraintKey, { t: cursorTs, ...REACH_THRESHOLD_OPTS }),
   }), []);
