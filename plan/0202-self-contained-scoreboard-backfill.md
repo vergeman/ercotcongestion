@@ -28,14 +28,14 @@ Branch: refactor/0202-self-contained-scoreboard-backfill
 * Remove `compute.jobs.backfill_nodal` and its `forecast/mu_nodal.npz` seed/reload workflow once its remaining callers are confirmed absent. Historical forecast/API coverage must continue through the renamed `backfill_forecasts` job.
 * Rename `compute.jobs.backfill_artifacts` to `compute.jobs.backfill_forecasts`. Preserve its production-equivalent per-day behavior, horizons, date range, causal fire-time reconstruction, skip/resume semantics, and DB publication; update imports, tests, documentation, and hand-run instructions in the forecast CronJob manifests. The new name refers to the durable forecast products, not temporary files or encoded database blobs.
 * Delete `compute/artifacts.py` after its callers are removed; delete `RunArtifacts`, canonical μ artifact path helpers, and default μ-artifact output plumbing rather than leaving a deprecated artifact abstraction behind. Update tests, CLI help, README/runbook material, and any experiment references; experiments may retain only explicit user-supplied file inputs where still useful.
-* Rewrite `docs/ARTIFACTS.md` at the same time: remove the four retired filesystem artifacts and describe the durable Postgres forecast state (`forecast_nodal`, `forecast_sf_artifact`, and their `run_id`/delivery-day/horizon keys), plus the distinction between job-owned temporary spill/chunk files and persistent data. Do not preserve a historical artifact catalog merely for compatibility.
+* Consolidate the durable forecast-state documentation into `compute/README.md`: remove the four retired filesystem artifacts and describe `forecast_nodal`, `forecast_sf_artifact`, their `run_id`/delivery-day/horizon keys, and the distinction between job-owned temporary spill/chunk files and persistent data.
 * Do NOT touch: daily forecast/model mathematics, `backfill_artifacts` behavior, Postgres forecast artifact schemas, `forecast_current` publication order, Scoreboard metric definitions/source identities, or the weekly-map spill/PVC deployment contract.
 
 ## Commit groups
 
 1. `refactor(scoreboard): make walk-forward publication self-contained` — expose reusable backtest/evaluation values, add the end-to-end `backfill_scoreboard` orchestration, and preserve the existing database transaction semantics.
 2. `refactor(backtest): make prediction staging job-owned scratch` — route chunk and spill files through a unique cleanup scope, preserve bounded-memory behavior, and retain explicit experiment exports only where justified.
-3. `refactor(artifacts): retire legacy mu run files and nodal seed` — rename `backfill_artifacts` to `backfill_forecasts`, remove `backfill_nodal`, delete `compute/artifacts.py` / `RunArtifacts`, remove default artifact paths, rewrite `docs/ARTIFACTS.md`, and delete obsolete tests after a full dependency scan.
+3. `refactor(artifacts): retire legacy mu run files and nodal seed` — rename `backfill_artifacts` to `backfill_forecasts`, remove `backfill_nodal`, delete `compute/artifacts.py` / `RunArtifacts`, remove default artifact paths, consolidate documentation into `compute/README.md`, and delete obsolete tests after a full dependency scan.
 
 ## Acceptance
 
@@ -45,7 +45,7 @@ Branch: refactor/0202-self-contained-scoreboard-backfill
 * [x] `compute/artifacts.py` is deleted, and no production code, default CLI path, or documentation references `mu_weekly.csv`, `mu_preds.npz`, `mu_score_weekly.csv`, `forecast/mu_nodal.npz`, `RunArtifacts`, or `compute.artifacts`.
 * [x] `compute.jobs.backfill_artifacts` is absent and `compute.jobs.backfill_forecasts` provides its unchanged historical live-forecast behavior; every tracked invocation and runbook uses the new name.
 * [x] `compute.jobs.backfill_nodal` is deleted, including its CLI, tests, documentation, and file-seed/reload modes; historical live forecast coverage is supplied only by `backfill_forecasts`.
-* [x] `docs/ARTIFACTS.md` describes only durable database-backed forecast state and ephemeral job-owned scratch storage; it does not catalog retired filesystem artifacts.
+* [x] `compute/README.md` describes only durable database-backed forecast state and ephemeral job-owned scratch storage; it does not catalog retired filesystem artifacts.
 * [ ] No module under `compute/jobs` reads or writes a persistent μ prediction, weekly-metric, weekly-score, or nodal-panel file; a focused import/reference test covers this boundary.
 * [ ] `backfill_artifacts`, daily forecast publishing, API reads of `forecast_nodal` / `forecast_sf_artifact`, and live daily grading continue unchanged and pass their focused tests.
 * [x] Focused backtest, evaluation, scoreboard, artifact-removal/import-boundary, and database persistence tests pass; a repository-wide reference scan has only deliberately retained explicit experiment-export compatibility references, if any.
