@@ -1,40 +1,44 @@
-# 206 - drivers-card-matrix-columns
+# 206 - drivers-card-sortable-columns
 
 Type: refactor
 Branch: refactor/206-drivers-card-matrix-columns
 
 ## Goal
 
-* Simplify the map node detail card to one list: the constraints that drove this node this hour.
-* Remove the "Gross" column and the drivers/exposure toggle from that card.
-* Move the structural fields (binding hours, peak |SF|, clip marker) into `/matrix` as visible, sortable columns.
-* Keep the matrix default row order exactly as it is today ($/MWh contribution).
+* Replace the map node card's drivers/exposure toggle with one **sortable** table.
+* For a node, the driver rows carry columns: **SF, Side, μ, $/MWh**, plus **binding hours** and a **`*`** where the SF was capped.
+* Sorting lets one table do the job of the old toggle: sort by **$/MWh** for the drivers view, by **SF** for structural exposure — and the `*` flags rows the fit could not trust.
+* Leave the SF/matrix frame a compact matrix — no per-row columns or sort there.
+* Constraint reach card is unchanged (no sort needed).
 
 ## Context
 
-* The node card's "exposure" tab ranks by |SF|, which floats to the top the constraints the fit is least sure of (pinned at ±1) and ones that never bound — it reads as noise.
-* The "Gross" column is a magnitude-share number that doesn't add up on screen and misleads more than it helps.
-* Nothing is lost: every structural field already exists on the matrix frame (`binding_hours`, `max_abs_sf`, and `sf_abs_cap` for the clip marker), so this is a relocation, not a deletion — and needs no backend change.
+* The old card had a drivers/exposure toggle that re-asked the server for a different ranking. One sortable table over the contribution response replaces it: the columns are already on `SpExposure` (`sf`, `sf_clipped`, `mu`, `contribution`, `binding_hours`), so no refetch and no backend change.
+* The "Gross" column was a magnitude-share number that didn't add up on screen — dropped.
+* A capped SF (`sf_clipped`) is the "not structurally sound" signal: the fit pinned the column at its ±1 clip, a bound rather than a measurement. Marking it inline lets a reader sort by SF and immediately see which of the strong exposures are trustworthy.
 
 ## Approach
 
-* Work in: `web/src/components/map/DetailCard.tsx`, `web/src/workspaces/MapWorkspace.tsx`, `web/src/features/*` (the `loadExposures`/`useConstraintSelection` path), `web/src/components/matrix/MatrixGrid.tsx`.
-* Map node card (`DetailCard.tsx` -> `ExposuresBody`):
-  * Delete the "Gross" column and its `node_gross_total` usage.
-  * Delete the drivers/exposure toggle and the |SF|-ranked path; the node list is always "what drove this hour."
-  * Remove the now-dead toggle plumbing: `exposureRank` / `onChangeExposureRank` props and the matching state in `MapWorkspace.tsx`.
-* Keep, do not delete: the `exposures()` fetch itself — the drivers list still uses it (call it with the contribution ranking only). The constraint->node **reach** card (pinned constraint) is unchanged.
-* Matrix (`MatrixGrid.tsx`):
-  * Surface as row columns: **binding hours**, **peak |SF|**, and a **`*` clip marker** where `|SF| >= frame.sf_abs_cap` (the check already exists at `MatrixGrid.tsx:75`; the values are already on `MatrixRow`).
-  * Add click-to-sort on the constraint rows. Sortable by: **$/MWh contribution (default)**, forecast mu, DAM mu, binding hours, peak |SF|. Re-click reverses direction.
-  * Default sort is unchanged — the current `$/MWh` contribution order stays the initial view.
-* Do NOT touch: any API service or schema (`api/services/matrix/frame.py`, `api/services/map/detail.py`), and do NOT remove the `exposures()` endpoint.
+* Work in: `web/src/components/map/DetailCard.tsx`, `web/src/workspaces/MapWorkspace.tsx`, `web/src/features/map/useConstraintSelection.ts`.
+* Node card (`DetailCard.tsx` -> `ExposuresBody`):
+  * One table, columns: `Constraint | SF | Side | μ | $/MWh | Bind`. `Side` = import (SF<0) / export (SF>0), per docs/SF.md. `*` on the SF cell when `sf_clipped`.
+  * Click a column header to sort; re-click reverses. Default (no click) keeps the server's contribution order — the drivers ranking — so the card opens as the drivers list.
+  * Drop the drivers/exposure toggle, the `exposureRank`/`onChangeExposureRank` plumbing, and the "Gross" column + `node_gross_total` usage.
+  * Keep the `exposures()` fetch (called with the contribution ranking only) and the constraint->node reach card.
+* `MapWorkspace.tsx` / `useConstraintSelection.ts`: remove the `exposureRank` state and handler; `loadExposures` always requests `contribution`.
+* Do NOT touch: any API service or schema (`api/services/map/detail.py`), and do NOT remove the `exposures()` endpoint.
+* Matrix (`MatrixGrid.tsx`): unchanged — a compact matrix, no structural columns, no sort.
+
+## Decision / follow-up
+
+* The table is the hour's **drivers** (binding constraints): the contribution response drops constraints that did not bind, and `μ`/`$/MWh` are only defined for that hour. That is enough to replicate the old drivers view and flag unsound (capped) rows.
+* Extending the table to **quiet, non-binding** constraints (the old "exposure" set) would need the `exposures` service to fill `mu`/`contribution` under `rank=sf` — a backend change, left as a follow-up.
 
 ## Acceptance
 
-* [ ] Map node card shows only the "Drove this hour" list — no Gross column, no drivers/exposure toggle.
+* [ ] Node card shows one sortable table: SF, Side, μ, $/MWh, binding hours, with `*` on capped-SF rows — no drivers/exposure toggle, no Gross column.
+* [ ] Clicking a column header sorts the rows by it; clicking again reverses.
+* [ ] The card opens in the drivers ($/MWh contribution) order it does today.
 * [ ] Pinning a constraint still opens the constraint->node reach card as before.
-* [ ] Matrix rows show binding hours, peak |SF|, and a `*` on any row with a clipped cell.
-* [ ] Clicking a matrix column header sorts the rows by it; clicking again reverses.
-* [ ] Matrix opens in the same $/MWh order it does today.
+* [ ] The SF/matrix frame is a plain compact matrix, unchanged.
 * [ ] No backend or schema files changed; `web` builds.
