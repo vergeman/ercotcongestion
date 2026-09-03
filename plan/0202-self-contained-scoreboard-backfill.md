@@ -61,3 +61,7 @@ Focused acceptance suite on 2026-09-02: 111 passed, 1 skipped; the publication
 and filesystem-boundary suite later passed 44 tests with 1 skipped. The unchecked
 equivalence, failure-cleanup, and live API-grading acceptances still need their
 dedicated coverage before this plan is complete.
+
+Forecast publication retains its durable database representations: nodal values
+in `forecast_nodal` and the encoded SF/μ payload in `forecast_sf_artifact`.
+The intermediate nodal NPZ used for COPY is temporary and is not retained.
