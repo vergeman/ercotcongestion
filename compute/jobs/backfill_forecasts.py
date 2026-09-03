@@ -100,7 +100,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--npz-dir", default=None)
     p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS)
     p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE)
     args = p.parse_args(argv)
@@ -157,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
                     min_sf_coverage=args.min_sf_coverage,
                     fire_time=fire_time)
                 if args.to_db:
-                    persist_forecast(conn, result, npz_dir=args.npz_dir)
+                    persist_forecast(conn, result)
             del result
             gc.collect()          # release the ~16 GiB fit before the next day's peak
         except (RuntimeError, ValueError) as e:

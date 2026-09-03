@@ -88,3 +88,19 @@ def test_serving_modules_do_not_import_backtest_orchestration():
             if isinstance(node, ast.ImportFrom) and node.module
         }
         assert "compute.mu_forecast.model.walk_forward" not in modules
+
+
+def test_jobs_do_not_offer_persistent_mu_artifact_paths():
+    """Jobs publish forecast and scoreboard state to Postgres, not run files."""
+    repo_dir = Path(__file__).parents[3]
+    retired = (
+        "mu_preds.npz", "mu_weekly.csv", "mu_score_weekly.csv", "mu_nodal.npz",
+        "--npz-dir",
+    )
+    violations = []
+    for path in (repo_dir / "compute/jobs").glob("*.py"):
+        text = path.read_text()
+        found = [name for name in retired if name in text]
+        if found:
+            violations.append(f"{path.relative_to(repo_dir)}: {', '.join(found)}")
+    assert not violations, "\n".join(violations)

@@ -229,8 +229,7 @@ python -m compute.jobs.backfill_forecasts --run-id "${RUN_ID}" --map-run-id "${M
   common expected skip, so start `--start` at/after the first served week.
 * **Pointer** — like the daily job, each day flips `forecast_current[ercot]` to `--run-id`;
   the tool warns loudly at startup if that is not the promoted run. **Do not mix a different
-  run ID into one range.** Add `--npz-dir` only when it names a persistent mounted directory;
-  it is not required for the DB artifacts.
+  run ID into one range. Forecast publication writes durable state only to Postgres.
 
 For a single date, `--start`/`--end` may be the same day (equivalent to one
 `daily_forecast --delivery-date` run).

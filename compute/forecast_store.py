@@ -7,7 +7,6 @@ back after writing rows, artifacts, and finally the pointer.
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 import pandas as pd
@@ -93,15 +92,10 @@ def sf_artifact_to_db(conn, *, run_id: str, delivery_date, sf_npz: bytes,
 
 
 def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
-                           run_id: str, delivery_date, npz_dir: str | None = None,
+                           run_id: str, delivery_date,
                            horizon: int = 1) -> bytes:
-    """Build and persist one SF+μ artifact, optionally saving its identical npz."""
+    """Build and persist one SF+μ artifact."""
     blob = build_sf_mu_artifact(SF, E_mu)
-    if npz_dir is not None:
-        dd = pd.Timestamp(delivery_date).date()
-        with open(os.path.join(npz_dir, f"sf_mu_{run_id}_{dd.isoformat()}h{horizon}.npz"),
-                  "wb") as fh:
-            fh.write(blob)
     sf_artifact_to_db(conn, run_id=run_id, delivery_date=delivery_date, sf_npz=blob,
                       horizon=horizon)
     return blob
