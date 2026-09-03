@@ -8,12 +8,14 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
 * Stop the Scorecard panel flashing on scrub / playback — update numbers in place, never unmount the section.
 * Replace `--font-mono` (JetBrains Mono) with a less AI-coded monospace; ship a small shortlist to trial.
 * Smooth playback: visually interpolate node colors between hourly frames instead of hard-cutting.
+* Stop the playback scrubber stuttering (hangs on an hour, then lunges to catch up).
 
 ## Context
 
 * Scorecard fetch (`MapWorkspace.tsx:238`) is keyed on `deliveryDay`; the panel is passed `null` whenever `scorecard.delivery_date !== deliveryDay` (`:981`). Crossing a day boundary blanks the whole `<section>` (`SidePanel.tsx:448`), then remounts it when the new fetch lands — that is the FOUT.
 * JetBrains Mono is self-hosted via `web/scripts/fetch-fonts.py` → `web/src/fonts.css`, applied through the `--font-mono` token and every `.mono` class.
 * `GridMap.tsx` colors nodes via maplibre `feature-state` `color`, recomputed per hour from `congestion`/`spp` (`:761`). Feature-state swaps are instantaneous, so hour-to-hour jumps look stitled.
+* Playback stutter is main-thread saturation, not I/O (the window is fully prefetched). Each `setInterval` tick fires two heavy items: `useSharedExplorer` mirrors the cursor into the URL every frame (`:50`) — a router navigation → double re-render — and `dayStats` (`useExplorerSession.ts:136`) recomputes whole-day stats on every hour because it's keyed on `currentIndex`, though its value only changes per delivery day. When a tick runs long the fixed-cadence timer slips, so the scrubber hangs then bunches.
 
 ## Approach
 
@@ -35,6 +37,13 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
   * Respect `prefers-reduced-motion`: fall back to the current hard-cut.
   * Do NOT touch data fetching or the URL time coordinate — interpolation is display-only, between already-loaded frames.
 
+* **Fix 4 — Playback stutter.** Cut the per-tick work so the timer keeps cadence.
+  * Work in: `web/src/hooks/useSharedExplorer.tsx`, `web/src/hooks/useExplorerSession.ts`.
+  * URL mirror: stop writing the URL on every playback frame. Debounce the index→URL `setCoord`, or only sync when playback pauses/stops — a step/scrub still updates the URL, continuous play doesn't. Keep the URL→index direction intact so shared links and page hops still restore the cursor.
+  * `dayStats`: key the memo on the CT `deliveryDay` string, not `currentIndex`, so it recomputes once per day instead of every hour.
+  * Leave the tween as-is for now; revisit only if stutter persists.
+  * Do NOT change what the URL encodes or the landing-load precedence.
+
 ## Acceptance
 
 * [ ] Scrubbing across a day boundary and running playback shows the Scorecard numbers change with no panel unmount/reflow (visually: no blank-then-reappear).
@@ -42,3 +51,5 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
 * [ ] `--font-mono` renders Roboto Mono (weights 400 + 500 bundled, 500 for data) across all `.mono` data; build passes; fallback stack intact.
 * [ ] During playback, node colors transition smoothly between hours; reduced-motion falls back to hard cuts.
 * [ ] No new per-frame network fetches introduced by interpolation.
+* [ ] Playback holds a steady cadence — no hang-then-catch-up; the URL still restores the cursor after pausing or on a shared link.
+* [ ] `dayStats` recomputes on delivery-day change, not every hour.

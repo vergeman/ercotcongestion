@@ -17,6 +17,10 @@ type Explorer = {
 
 const ExplorerContext = createContext<Explorer | null>(null);
 
+// Over the ~400ms play interval, so a URL write never lands mid-playback — it
+// settles once scrubbing/playing stops.
+const MIRROR_DEBOUNCE_MS = 500;
+
 // One explorer instance, mounted once by ExplorerLayout above the Map / Matrix /
 // Analysis routes. Because a layout route element stays mounted while you
 // navigate among its child routes, the live session — window, timestamps,
@@ -36,18 +40,25 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   cursorRef.current = cursor;
 
   // index → URL: scrubbing (or a fresh window) mirrors the cursor hour + window
-  // bounds into the URL, so the coordinate travels across pages.
+  // bounds into the URL, so the coordinate travels across pages. Debounced: each
+  // index change reschedules the write, so continuous playback (a tick every
+  // ~400ms) never lands one mid-play — it fires once motion settles. Writing a
+  // router navigation every frame double-rendered the tree and starved the
+  // playback timer, making the scrubber hang then catch up.
   useEffect(() => {
     if (!timestamps.length) return;
     const t = timestamps[currentIndex];
     const ws = timestamps[0];
     const we = timestamps[timestamps.length - 1];
-    const c = cursorRef.current;
-    const same =
-      c.t?.toISOString() === t?.toISOString() &&
-      c.ws?.toISOString() === ws?.toISOString() &&
-      c.we?.toISOString() === we?.toISOString();
-    if (!same) c.setCoord({ t, ws, we }, { replace: true });
+    const timer = window.setTimeout(() => {
+      const c = cursorRef.current;
+      const same =
+        c.t?.toISOString() === t?.toISOString() &&
+        c.ws?.toISOString() === ws?.toISOString() &&
+        c.we?.toISOString() === we?.toISOString();
+      if (!same) c.setCoord({ t, ws, we }, { replace: true });
+    }, MIRROR_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
   }, [timestamps, currentIndex]);
 
   // URL → index: when a page control moves ?t (e.g. the Analysis peak buttons),
