@@ -202,9 +202,6 @@ interface Props {
   // Phones have no durable hover state. In tap-only mode selection remains, but
   // node/constraint hover cards and transient constraint previews are disabled.
   tapOnly?: boolean;
-  // Ease node fills between hours during playback. Off for the compare view,
-  // where two maps each repaint every frame and the tween starves playback.
-  animateFills?: boolean;
 }
 
 export default function GridMap({
@@ -229,7 +226,6 @@ export default function GridMap({
   onMapReady,
   congestionColor = congestionRampColor,
   tapOnly = false,
-  animateFills = true,
 }: Props) {
   // Node fill colors flip with the theme (light gets a visible grey center — see
   // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
@@ -825,7 +821,7 @@ export default function GridMap({
       }
     };
 
-    if (!animateFills || start.size === 0 || prefersReducedMotion()) {
+    if (start.size === 0 || prefersReducedMotion()) {
       paint(1);
       return;
     }
@@ -859,7 +855,6 @@ export default function GridMap({
     overview,
     congestionColor,
     theme,
-    animateFills,
   ]);
 
   // The metric node fill remains MapLibre data; this separate, zero-sized

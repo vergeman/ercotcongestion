@@ -37,11 +37,11 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
   * Respect `prefers-reduced-motion`: fall back to the current hard-cut.
   * Do NOT touch data fetching or the URL time coordinate — interpolation is display-only, between already-loaded frames.
 
-* **Fix 4 — Playback stutter.** Cut the per-tick work so the timer keeps cadence.
-  * Work in: `web/src/hooks/useSharedExplorer.tsx`, `web/src/hooks/useExplorerSession.ts`.
-  * URL mirror: stop writing the URL on every playback frame. Debounce the index→URL `setCoord`, or only sync when playback pauses/stops — a step/scrub still updates the URL, continuous play doesn't. Keep the URL→index direction intact so shared links and page hops still restore the cursor.
-  * `dayStats`: key the memo on the CT `deliveryDay` string, not `currentIndex`, so it recomputes once per day instead of every hour.
-  * Leave the tween as-is for now; revisit only if stutter persists.
+* **Fix 4 — Playback stutter.** Cut per-tick work so the timer keeps cadence.
+  * `dayStats`: key the memo on the CT `deliveryDay` string, not `currentIndex`, so it recomputes once per day instead of every hour (`useExplorerSession.ts`).
+  * Recolor was the real hotspot (profiled: ~1100 `setFeatureState`/pane = 15–31ms ×2 in compare). Fix (`GridMap.tsx`): skip nodes whose color is unchanged, and memoize the color ramp on a quantized value → median ~2ms/pane. Invalidate the skip cache whenever reach/empty repaints outside the metric path.
+  * Playback clock: rAF wall-clock instead of `setInterval` (`TimeTransport.tsx`), so a slow frame slows playback smoothly rather than bunching.
+  * URL mirror: keep the immediate write (a debounce raced the URL→index sync and jumped the scrubber backward). The above made the per-tick cost small enough that the immediate write is fine.
   * Do NOT change what the URL encodes or the landing-load precedence.
 
 ## Acceptance
@@ -51,5 +51,6 @@ Branch: fix/0204-map-polish-scorecard-fonts-playback
 * [x] `--font-mono` renders Roboto Mono (weights 400 + 500 bundled, 500 for data) across all `.mono` data; build passes; fallback stack intact.
 * [x] During playback, node colors transition smoothly between hours; reduced-motion falls back to hard cuts.
 * [x] No new per-frame network fetches introduced by interpolation.
-* [~] Playback holds a steady cadence — no hang-then-catch-up; the URL still restores the cursor after pausing or on a shared link. — single-map views steady; compare view improved via rAF clock + 30fps tween throttle, pending final confirmation (two-map repaint at 1106 nodes is the ceiling).
+* [x] Playback holds a steady cadence — no hang-then-catch-up, no backward jumps; the URL still restores the cursor after pausing or on a shared link. Confirmed on compare after the recolor fix; tween runs in compare too.
 * [x] `dayStats` recomputes on delivery-day change, not every hour.
+* [x] Recolor cost cut from 15–31ms/pane to ~2ms via skip-unchanged + memoized ramp.
