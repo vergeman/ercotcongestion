@@ -386,14 +386,15 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
 // drivers table plus the separate structural-exposure disclosure. Sort by $/MWh
 // (default) for the drivers, by SF for structural exposure, by bind/clip to spot
 // what is not structurally sound.
-function DriverTable({ terms }: { terms: AnalysisContributionTerm[] }) {
-  const [sort, setSort] = useState<NodeSort>({ key: "contribution", dir: "desc" });
-  const toggleSort = (key: NodeSortKey) =>
-    setSort((cur) =>
-      cur.key === key
-        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: nodeDefaultDir(key) }
-    );
+function DriverTable({
+  terms,
+  sort,
+  onToggleSort,
+}: {
+  terms: AnalysisContributionTerm[];
+  sort: NodeSort;
+  onToggleSort: (key: NodeSortKey) => void;
+}) {
   const rows = useMemo(() => {
     const sign = sort.dir === "asc" ? 1 : -1;
     return [...terms].sort(
@@ -416,11 +417,11 @@ function DriverTable({ terms }: { terms: AnalysisContributionTerm[] }) {
                   title={c.title}
                   tabIndex={0}
                   aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-                  onClick={() => toggleSort(c.key)}
+                  onClick={() => onToggleSort(c.key)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      toggleSort(c.key);
+                      onToggleSort(c.key);
                     }
                   }}
                 >
@@ -457,6 +458,8 @@ function NodeRead({
   val,
   deliveryDate,
   damStatus,
+  sort,
+  onToggleSort,
   onNavigateToMap,
 }: {
   point: string;
@@ -470,6 +473,8 @@ function NodeRead({
   val: MatrixValTab;
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
+  sort: NodeSort;
+  onToggleSort: (key: NodeSortKey) => void;
   onNavigateToMap: (search: string) => void;
 }) {
   const basis: AnalysisBasis = val === "dmu" ? "realized" : "predicted";
@@ -626,7 +631,7 @@ function NodeRead({
                 {`${node.structural_n_terms ?? tableTerms.length} constraints · −SF·μ · sort any column`}
               </em>
             </span>
-            <DriverTable terms={tableTerms} />
+            <DriverTable terms={tableTerms} sort={sort} onToggleSort={onToggleSort} />
           </div>
         )}
       </div>
@@ -658,6 +663,19 @@ export default function MatrixReadDetail({
   nodeMeta,
   onNavigateToMap,
 }: Props) {
+  // The node table's sort lives here, above NodeRead, so it survives switching
+  // between nodes (NodeRead and its table remount, but this frame stays).
+  const [nodeSort, setNodeSort] = useState<NodeSort>({
+    key: "contribution",
+    dir: "desc",
+  });
+  const toggleNodeSort = (key: NodeSortKey) =>
+    setNodeSort((cur) =>
+      cur.key === key
+        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: nodeDefaultDir(key) }
+    );
+
   if (!selection) {
     return (
       <div className="mrd mrd--empty">
@@ -683,6 +701,8 @@ export default function MatrixReadDetail({
           val={val}
           deliveryDate={deliveryDate}
           damStatus={damStatus}
+          sort={nodeSort}
+          onToggleSort={toggleNodeSort}
           onNavigateToMap={onNavigateToMap}
         />
       )}
