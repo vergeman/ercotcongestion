@@ -1,9 +1,5 @@
 import { useState } from "react";
-import type {
-  ExposureRank,
-  ExposuresResponse,
-  ConstraintReach,
-} from "../../api/types";
+import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { formatCT } from "../../lib/time";
 import { shiftFactorColor } from "../../lib/colors";
 
@@ -30,10 +26,6 @@ interface Props {
   // while null with a pinned SP; the card renders the SP body meanwhile.
   exposures?: ExposuresResponse | null;
   exposuresLoading?: boolean;
-  // Which basis the driver list is ordered on, and the toggle that switches it
-  // (0145). Owned upstream because it changes the request, not just the render.
-  exposureRank?: ExposureRank;
-  onChangeExposureRank?: (rank: ExposureRank) => void;
   // The scrubber's instant. The contribution list is specific to this hour, so
   // the basis header names it rather than saying "this hour" and leaving the
   // reader to assume it followed the cursor.
@@ -196,55 +188,30 @@ function SfSign({ sf }: { sf: number }) {
   );
 }
 
-// Node-explorer body. Two bases, named on screen (0145): "Drove this hour"
-// ranks by contribution (−SF × μ) and omits constraints that did not bind,
-// answering what actually moved this node; "Exposure" ranks by |SF| over the
-// whole day's fit, answering what could move it. They read identical SF values
-// — showing which one is active is what keeps the card from looking like it
-// disagrees with the matrix.
+// Node-explorer body: the constraints that drove this node at the cursor's
+// hour, ranked by contribution (−SF × μ). Constraints that did not bind are
+// omitted — the matrix is the place to see the full unfiltered ranking.
 function ExposuresBody({
   exposures,
   loading,
-  rank,
-  onChangeRank,
   cursorTs,
   onSelectConstraint,
   onHoverConstraint,
 }: {
   exposures: ExposuresResponse | null;
   loading?: boolean;
-  rank: ExposureRank;
-  onChangeRank?: (rank: ExposureRank) => void;
   cursorTs?: Date;
   onSelectConstraint?: (c: string) => void;
   onHoverConstraint?: (c: string | null) => void;
 }) {
-  const byContribution = rank === "contribution";
   // Same format as the scrubber and the matrix, so the card is visibly pinned
   // to the same instant the rest of the workspace is showing.
   const hour = cursorTs ? `${formatCT(cursorTs, "MMM d, HH:mm")} CT` : null;
   const header = (
     <div className="dc-drivers-head">
       <span className="dc-drivers-basis label">
-        {byContribution
-          ? hour
-            ? `Drove ${hour}`
-            : "Drove this hour"
-          : "Exposure"}
+        {hour ? `Drove ${hour}` : "Drove this hour"}
       </span>
-      {onChangeRank && (
-        <button
-          className="dc-drivers-toggle label"
-          onClick={() => onChangeRank(byContribution ? "sf" : "contribution")}
-          title={
-            byContribution
-              ? "Show every constraint this node is structurally exposed to, ranked by |SF| — including those that did not bind."
-              : "Show only the constraints that actually drove this node at this hour, ranked by −SF × μ."
-          }
-        >
-          {byContribution ? "exposure" : "drivers"}
-        </button>
-      )}
     </div>
   );
 
@@ -258,16 +225,11 @@ function ExposuresBody({
       </>
     );
   }
-  const grossTotal = exposures.node_gross_total;
   return (
     <>
       {header}
       {exposures.exposures.length === 0 && (
-        <div className="dc-drivers-empty label">
-          {byContribution
-            ? "Nothing bound this hour"
-            : "No constraints in this fit"}
-        </div>
+        <div className="dc-drivers-empty label">Nothing bound this hour</div>
       )}
       <div
         className="dc-drivers"
@@ -288,17 +250,7 @@ function ExposuresBody({
             <span className="dc-driver-col label">
               Constraint | Contingency
             </span>
-            <span className="dc-driver-col label">
-              {byContribution ? "$/MWh" : "SF"}
-            </span>
-            <span
-              className="dc-driver-col label"
-              title={byContribution
-                ? "Share of all driver magnitude (Σ |contribution|). Opposing constraints do not cancel in this denominator."
-                : undefined}
-            >
-              {byContribution ? "Gross" : "Binding"}
-            </span>
+            <span className="dc-driver-col label">$/MWh</span>
           </div>
         )}
         {exposures.exposures.map((e) => (
@@ -318,31 +270,17 @@ function ExposuresBody({
               {e.constraint_key}
               {e.sf_clipped && <span className="dc-driver-clip">*</span>}
             </span>
-            {byContribution && e.contribution != null ? (
-              <>
-                <span
-                  className="dc-driver-sf mono"
-                  style={{ color: shiftFactorColor(-e.contribution) }}
-                >
-                  {fmtDollars(e.contribution)}
-                </span>
-                {/* Share of the full driver magnitude, not of the visible
-                    top-k. A signed-net denominator becomes unbounded when
-                    positive and negative constraints cancel. */}
-                <span className="dc-driver-sup mono">
-                  {grossTotal
-                    ? `${Math.round((Math.abs(e.contribution) / grossTotal) * 100)}%`
-                    : "—"}
-                </span>
-              </>
-            ) : (
-              <>
-                <SfSign sf={e.sf} />
-                <span className="dc-driver-sup mono">
-                  {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
-                </span>
-              </>
-            )}
+            <span
+              className="dc-driver-sf mono"
+              style={{
+                color:
+                  e.contribution != null
+                    ? shiftFactorColor(-e.contribution)
+                    : undefined,
+              }}
+            >
+              {e.contribution != null ? fmtDollars(e.contribution) : "—"}
+            </span>
           </button>
         ))}
       </div>
@@ -441,8 +379,6 @@ export default function DetailCard({
   pinnedSp,
   exposures,
   exposuresLoading,
-  exposureRank,
-  onChangeExposureRank,
   cursorTs,
   reach,
   onClose,
@@ -549,8 +485,6 @@ export default function DetailCard({
                 <ExposuresBody
                   exposures={exposures ?? null}
                   loading={exposuresLoading}
-                  rank={exposureRank ?? "contribution"}
-                  onChangeRank={onChangeExposureRank}
                   cursorTs={cursorTs}
                   onSelectConstraint={onSelectConstraint}
                   onHoverConstraint={onHoverConstraint}
@@ -680,18 +614,6 @@ export default function DetailCard({
           font-size: 11px;
           color: var(--text-secondary);
         }
-        .dc-drivers-toggle {
-          font-size: 11px;
-          color: var(--text-secondary);
-          background: transparent;
-          border: 1px solid var(--border);
-          border-radius: 3px;
-          padding: 1px 5px;
-          cursor: pointer;
-        }
-        .dc-drivers-toggle:hover {
-          color: var(--text);
-        }
         .dc-drivers-note {
           font-size: 10px;
           color: var(--text-secondary);
@@ -713,13 +635,14 @@ export default function DetailCard({
           border-top: 1px solid var(--border);
         }
         /* One grid for the header row and every driver row, so the columns line
-           up in both bases. Four columns: type chip, key, value, support.
-           The numeric tracks are fixed widths, not auto: each row is its own
+           up. Three columns: type chip, key, contribution.
+           The numeric track is a fixed width, not auto: each row is its own
            grid container, so auto sizes every row to its own content and the
-           header drifts out of line with the values under it. */
+           header drifts out of line with the values under it. Reach rows add a
+           fourth column below. */
         .dc-driver {
           display: grid;
-          grid-template-columns: 10px 1fr 58px 46px;
+          grid-template-columns: 10px 1fr 58px;
           align-items: center;
           gap: 8px;
           padding: 3px 0;
