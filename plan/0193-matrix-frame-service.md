@@ -30,9 +30,9 @@ Branch: refactor/0193-matrix-frame-service
 
 ## Acceptance
 
-* [ ] `api/routes/matrix.py` contains router registration, FastAPI query definitions, HTTP input normalization, and one service invocation; it does not execute Matrix SQL or assemble `MatrixFrame` rows/cells.
-* [ ] Matrix frame selection, availability handling, and response assembly live under `api/services/matrix/` and do not import the route module.
-* [ ] Artifact loading and CT delivery-date resolution continue to use `api.services.sf_artifacts` as their sole shared implementation.
-* [ ] Metadata and database access are explicit service collaborators; Matrix tests no longer rely on `_SP_METADATA` or raw cursor-query ordering for selection-policy coverage.
-* [ ] Existing Matrix behavior is unchanged for availability, CT day boundaries, rounding, row orders, pins, peeks, searches, type filtering, column sets, anchors, hub/default seeds, orientations, caps, truncation fields, and DAM status.
-* [ ] `api/tests/test_matrix.py` passes, with focused service tests covering selection and frame assembly and route tests covering the public HTTP contract.
+* [x] `api/routes/matrix.py` contains router registration, FastAPI query definitions, HTTP input normalization, and one service invocation; it does not execute Matrix SQL or assemble `MatrixFrame` rows/cells. (686e5d09 — route ends at `build_frame(request, MatrixRepository(get_pool()), metadata)`; no `cur.execute`/`MatrixFrame(...)` in the route.)
+* [x] Matrix frame selection, availability handling, and response assembly live under `api/services/matrix/` and do not import the route module. (`frame.py`/`selection.py`/`repository.py`/`models.py`; grep confirms no `api.routes` import under `api/services/matrix/`.)
+* [x] Artifact loading and CT delivery-date resolution continue to use `api.services.sf_artifacts` as their sole shared implementation. (`frame.py` imports `delivery_date_for`; `repository.py` imports `load_daily_artifact`/`load_realized_mu` from `sf_artifacts`.)
+* [x] Metadata and database access are explicit service collaborators; Matrix tests no longer rely on `_SP_METADATA` or raw cursor-query ordering for selection-policy coverage. (Route metadata via `Depends(get_settlement_point_metadata)`; `_SP_METADATA` removed from matrix; selection/frame coverage in `test_matrix_frame_service.py` uses `FakeMatrixData` with no cursor queue.)
+* [x] Existing Matrix behavior is unchanged for availability, CT day boundaries, rounding, row orders, pins, peeks, searches, type filtering, column sets, anchors, hub/default seeds, orientations, caps, truncation fields, and DAM status. (Verified via the passing route-contract suite in `test_matrix.py`, which exercises these behaviors against the wire format.)
+* [x] `api/tests/test_matrix.py` passes, with focused service tests covering selection and frame assembly and route tests covering the public HTTP contract. (`docker compose run --rm --no-deps api python -m pytest api/tests/test_matrix.py api/tests/test_matrix_frame_service.py` → 22 passed.)
