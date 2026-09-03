@@ -20,19 +20,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu_forecast.model import runner as mu_model
-from compute.mu_forecast.model.backtest import (
+from compute.mu_forecast.model.walk_forward import (
     walk_forward,
     walk_forward_chunked,
 )
 from compute.mu_forecast.model.artifacts import combine_pred_chunks
 from compute.mu_forecast.model.runner import (FEATURE_SETS, PRIOR_STRENGTH, apply_encoding,
                                  arms_for, bind_metrics, feature_cols,
-                                 load_preds, persist_outputs, predict_day, preds_path_for,
+                                 load_preds, persist_outputs, predict_day,
                                  reliability,
-                                 resolve_output_paths, save_preds,
-                                 target_encoding,
-                                 weekly_path_for)
+                                 save_preds, target_encoding)
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
 
 
@@ -515,49 +512,11 @@ def test_predict_day_drops_historyless_key_and_counts_novelty():
     assert wp.attrs["novel_keys"] == ["B|c"]
 
 
-# ------------------------------------ run-artifact path convention (plan/0113)
-
-def test_run_id_derives_both_outputs_under_the_run_tree():
-    """A run id resolves the weekly metrics and residual pool to deterministic
-    paths under runs/<run-id>/mu/ — the namespace backfill_nodal/daily_forecast
-    read back — when neither output flag is passed."""
-    out, preds_out = resolve_output_paths("mu-all-v1", None, None)
-    assert out == weekly_path_for("mu-all-v1")
-    assert preds_out == preds_path_for("mu-all-v1")
-    assert out and out.endswith("runs/mu-all-v1/mu/mu_weekly.csv")
-    assert preds_out and preds_out.endswith("runs/mu-all-v1/mu/mu_preds.npz")
-
-
-def test_explicit_outputs_override_the_run_id_paths():
-    """--out / --preds-out win over the derived paths, each independently."""
-    out, preds_out = resolve_output_paths("mu-all-v1", "/x/w.csv", None)
-    assert out == "/x/w.csv"                       # explicit weekly kept
-    assert preds_out == preds_path_for("mu-all-v1")  # preds still derived
-
-    out, preds_out = resolve_output_paths("mu-all-v1", None, "/x/p.npz")
-    assert out == weekly_path_for("mu-all-v1")     # weekly still derived
-    assert preds_out == "/x/p.npz"                 # explicit preds kept
-
-
-def test_no_run_id_keeps_the_legacy_explicit_only_mode():
-    """Without a run id nothing is derived: an unset output stays None, an explicit
-    one passes through unchanged."""
-    assert resolve_output_paths(None, None, None) == (None, None)
-    assert resolve_output_paths(None, "/x/w.csv", "/x/p.npz") == (
-        "/x/w.csv", "/x/p.npz")
-
-
-def test_persist_outputs_creates_parent_dirs_before_writing(tmp_path, monkeypatch):
-    """A first run on a fresh PVC must not fail on a missing runs/<id>/mu/ dir:
-    persist_outputs creates the parent tree, then the npz round-trips."""
-    monkeypatch.setattr(mu_model, "RUNS_ROOT", tmp_path / "runs")
-    _, preds_out = resolve_output_paths("mu-all-v1", None, None)
-    assert preds_out and not os.path.exists(
-        os.path.dirname(preds_out))    # the mu/ dir does not exist yet
-
+def test_persist_outputs_creates_explicit_parent_dirs(tmp_path):
     panel = _panel(n_days=40)
     preds, weekly = walk_forward(panel, train_days=21, refit_days=7)
-    out = str(tmp_path / "runs" / "mu-all-v1" / "mu" / "mu_weekly.csv")
+    out = str(tmp_path / "exports" / "weekly.csv")
+    preds_out = str(tmp_path / "exports" / "predictions.npz")
     persist_outputs(weekly, preds, out, preds_out)
 
     assert os.path.exists(out) and os.path.exists(preds_out)

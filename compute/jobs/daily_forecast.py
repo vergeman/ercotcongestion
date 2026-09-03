@@ -21,7 +21,6 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from compute.artifacts import DEFAULT_RUNS_ROOT
 from compute.forecast_store import (
     FORECAST_LAYER,
     nodal_to_db,
@@ -64,9 +63,6 @@ from compute.sf_map.storage.maps import (
 )
 
 log = logging.getLogger(__name__)
-
-# Retained for tests that redirect the mounted runs PVC.
-RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
@@ -174,7 +170,7 @@ def forecast_day(
     daily load/wind/solar snapshot and up to a day of outage snapshots earlier
     than the DAM-close default would read — so a re-backfilled preview stays a
     genuinely disadvantaged preview instead of collapsing into a re-labeled
-    final (`compute/jobs/backfill_artifacts.py` computes it).
+    final (`compute/jobs/backfill_forecasts.py` computes it).
 
     Reads only; writes nothing and does not touch the pointer (the next commit adds
     persistence). Every read sees only intervals < D.
@@ -305,7 +301,6 @@ def _write_nodal_npz(result: ForecastResult, path: str) -> None:
 
 
 def persist_forecast(conn, result: ForecastResult, *,
-                     npz_dir: str | None = None,
                      layer: str = FORECAST_LAYER) -> int:
     """Land one day's forecast and flip this feature's own pointer last.
 
@@ -319,10 +314,8 @@ def persist_forecast(conn, result: ForecastResult, *,
     that horizon's rows and blob.
 
     A horizon-1 (final) publish never touches the preserved horizon-2 (preview)
-    rows and vice versa. `npz_dir` (optional) is the on-disk artifact of
-    record, each tagged with an `h{horizon}` suffix so the two tracks never
-    share a filename. If omitted, only the DB is written (a throwaway temp file
-    carries the nodal panel into `COPY`).
+    rows and vice versa. A job-owned temporary file carries the nodal panel into
+    `COPY`; durable forecast state is written only to Postgres.
 
     `layer` defaults to the served `ercot` pointer; a test overrides it to a
     scratch layer so it never touches the live one.
@@ -333,27 +326,19 @@ def persist_forecast(conn, result: ForecastResult, *,
     D = result.delivery_date
     run_id = result.run_id
     horizon = result.horizon
-    if npz_dir is None:
-        tmp = tempfile.TemporaryDirectory()
-        out_dir = tmp.name
-    else:
-        tmp = None
-        os.makedirs(npz_dir, exist_ok=True)
-        out_dir = npz_dir
+    tmp = tempfile.TemporaryDirectory()
     try:
-        nodal_path = os.path.join(out_dir,
+        nodal_path = os.path.join(tmp.name,
                                   f"nodal_{run_id}_{D.isoformat()}h{horizon}.npz")
         _write_nodal_npz(result, nodal_path)
         n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D,
                         horizon=horizon)
         persist_sf_mu_artifact(conn, result.SF, result.E_mu,
-                               run_id=run_id, delivery_date=D, npz_dir=npz_dir,
-                               horizon=horizon)
+                               run_id=run_id, delivery_date=D, horizon=horizon)
         upsert_pointer(conn, layer, run_id)               # pointer LAST, before commit
         conn.commit()                                     # the atomic flip
     finally:
-        if tmp is not None:
-            tmp.cleanup()
+        tmp.cleanup()
     log.info("published %s nodal rows for %s (horizon %d) under run_id=%s; "
              "pointer[%s] -> %s", f"{n:,}", D, horizon, run_id, layer, run_id)
     return n
@@ -512,9 +497,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="ablation arm set (default 'all' = the shipped lag+geo+wx)")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--npz-dir", default=None,
-                   help="also write the nodal + SF+mu npz here (disk of record, "
-                        "spec §5c); DB-only when omitted")
     p.add_argument("--map-run-id", default=MAP_RUN_ID,
                    help=f"weekly SF-map run to project through (default "
                         f"{MAP_RUN_ID!r}); the forecast reads its persisted SF "
@@ -540,7 +522,7 @@ def main(argv: list[str] | None = None) -> int:
                         "0133); defaults to the actual wall clock (live behavior). "
                         "Pass a historical h2 run's real fire instant (20:15Z on "
                         "D−2, the live cron's own schedule) for a vintage-faithful "
-                        "single-day preview backfill — see backfill_artifacts.py, "
+                        "single-day preview backfill — see backfill_forecasts.py, "
                         "which computes this automatically for a date range")
     args = p.parse_args(argv)
 
@@ -581,7 +563,7 @@ def main(argv: list[str] | None = None) -> int:
                               fire_time=fire_time)
         log.info(_summary(result))
         if args.to_db:
-            persist_forecast(conn, result, npz_dir=args.npz_dir)
+            persist_forecast(conn, result)
             # Grade the most recent realized served day in the same tick. Free the
             # fit's working set first so the two peaks don't sum on a 16Gi node.
             del result

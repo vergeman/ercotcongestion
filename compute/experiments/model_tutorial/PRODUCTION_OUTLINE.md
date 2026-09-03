@@ -50,11 +50,10 @@ stage packages for library imports and CLI commands.
 | Weekly, after map | `python -m compute.sf_map.geography.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
-| Historical rebuild | `python -m compute.mu_forecast.model.backtest` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
-| Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
-| Historical rebuild | `python -m compute.jobs.backfill_scoreboard` | Copies the precomputed weekly μ score CSV into `scoreboard_weekly`; it does not recompute metrics. | weekly Scoreboard rows |
-| Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF to seed nodal forecasts and verdict data. | nodal artifacts, verdict data |
-| Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
+| Historical evaluation | `compute.mu_forecast.model.walk_forward` | Shared trailing-window folds used only by the scoreboard backfill. | Internal library |
+| Historical evaluation | `python -m compute.jobs.backfill_scoreboard` | Runs the walk and common-baseline evaluation, then writes `scoreboard_weekly`. | Weekly Scoreboard rows |
+| Developer evaluation | `python -m compute.evaluation.mu` | Scores explicitly supplied experimental predictions against common baselines. | Explicit developer output |
+| Historical rebuild | `python -m compute.jobs.backfill_forecasts` | Replays `daily_forecast` over dates to publish served-style forecasts. | per-day DB rows |
 | After delivery | `python -m compute.jobs.grade_forecast_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |
 
 The `compute/README.md` runbook contains the exact historical build sequence.
@@ -136,8 +135,9 @@ None of these are called by the map-refresh cron job.  In particular,
 | `panel/build.py` | Assembles the long μ panel, targets, and optional feature arms. | Main feature entry point. |
 | `model/heads.py` | Target encoding; gradient-boosted classifier/regressor fitting and predictions; μ climatology baseline. | Two-head primitives. |
 | `model/scheduling.py` | Calendar-safe refit boundaries and chunks. | Shared walk scheduling. |
-| `model/runner.py` | Feature-set selection, common fold routine, walk-forward runner, one-day prediction, CLI/artifact paths. | Core μ model and historical entry point. |
-| `model/artifacts.py` | Serializes/deserializes μ per-row prediction artifacts and combines chunks. | Backtest-to-projection handoff. |
+| `model/runner.py` | Feature-set selection, common fold routine, and one-day prediction. | Core μ model for daily publication. |
+| `model/walk_forward.py` | Historical trailing-window fold and bounded chunk orchestration. | `backfill_scoreboard` only. |
+| `model/artifacts.py` | Serializes temporary μ prediction chunks and combines them. | Job-owned walk-forward staging. |
 | `sf_map/geography/derive.py` | Builds causal constraint-location features from |SF|-weighted settlement-point geography. | Optional `geo_` arm. |
 | `covariates/weather.py` | Builds causal, per-constraint weather-response vectors. | Optional `wx_` arm. |
 | `covariates/outages/crosswalk.py` | Loads/covers the authoritative resource-unit → settlement-point crosswalk. | Supports outage exposure. |

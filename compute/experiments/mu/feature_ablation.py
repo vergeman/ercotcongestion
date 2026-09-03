@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from compute.evaluation import mu as score_mod
-from compute.mu_forecast.model.backtest import walk_forward
+from compute.mu_forecast.model.walk_forward import walk_forward
 from compute.mu_forecast.model.runner import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                                FEATURE_SETS, arms_for, feature_cols,
                                                load_preds, save_preds)
@@ -184,7 +184,6 @@ def main(argv: list[str] | None = None) -> int:
 
     import psycopg
 
-    from compute.jobs import backfill_nodal
     from compute.mu_forecast.panel.build import build_panel, system_panel
     from compute.mu_forecast.panel.engineering import net_load_regime
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
@@ -199,8 +198,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--arms", default=",".join(ARMS))
     p.add_argument("--preds-dir", default="/compute/runs/experiments/mu/ablation")
     p.add_argument("--out", default="/compute/runs/experiments/mu/ablation.csv")
-    p.add_argument("--bands", action="store_true",
-                   help="also propagate to nodal P10/P50/P90 and report coverage80")
     p.add_argument("--no-resume", action="store_true")
     args = p.parse_args(argv)
 
@@ -243,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("an arm has no columns — the panel is not the ablation panel")
 
     anchor = M.index[0].normalize()
-    rows, band_rows = [], []
+    rows = []
     for arm in arms:
         preds = run_arm(panel, arm, preds_dir / f"preds_{arm}.npz",
                         args.train_days, args.refit_days, score_from, anchor,
@@ -254,23 +251,13 @@ def main(argv: list[str] | None = None) -> int:
         df["arm"] = arm
         rows.append(df)
 
-        if args.bands:
-            b = backfill_nodal.walk(M, C, preds)
-            b["arm"] = arm
-            band_rows.append(b)
-
     out = pd.concat(rows, ignore_index=True)
     check_baselines_identical(out)
 
-    bands = pd.concat(band_rows, ignore_index=True) if band_rows else None
-    print(report(out, bands))
+    print(report(out, None))
 
     out.to_csv(args.out, index=False)
     print(f"\nwrote {args.out}")
-    if bands is not None:
-        bands_path = args.out.replace(".csv", "_bands.csv")
-        bands.to_csv(bands_path, index=False)
-        print(f"wrote {bands_path}")
     log.info("total %.0f min", (time.perf_counter() - t0) / 60)
     return 0
 

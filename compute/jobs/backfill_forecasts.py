@@ -1,11 +1,10 @@
-"""Backfill the per-day SF+μ artifact over a date range (runbook Step 4, looped).
+"""Backfill durable per-day forecasts over a date range.
 
 For each CT delivery date in ``[--start, --end]`` this refits the daily μ heads and
 writes that day's ``forecast_nodal`` rows + ``forecast_sf_artifact`` blob through the
 SAME ``forecast_day``/``persist_forecast`` path the live daily job uses.
 
-Much heavier than ``backfill_nodal``: that shares one weekly fit across 7 days; this
-refits PER DAY (~16 GiB peak each), so it is built to run long and resume.
+This refits per day (~16 GiB peak), so it is built to run long and resume.
 
   Resumable — skips dates already in ``forecast_sf_artifact`` (``--no-skip-existing``
               forces a rewrite), so an interrupted run picks up where it stopped.
@@ -14,7 +13,7 @@ refits PER DAY (~16 GiB peak each), so it is built to run long and resume.
               logged and skipped (``--stop-on-error`` aborts instead). Early dates
               with no causal map window are the common, expected skip.
 
-  python -m compute.jobs.backfill_artifacts --run-id mu-all-v1 --map-run-id map-v1 \
+  python -m compute.jobs.backfill_forecasts --run-id mu-all-v1 --map-run-id map-v1 \
       --start 2025-01-08 --end 2025-05-31 --to-db
 """
 from __future__ import annotations
@@ -38,7 +37,7 @@ from compute.mu_forecast.model.runner import DEFAULT_TRAIN_DAYS
 from compute.sf_map.storage.maps import MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE
 from compute.time import normalize_ct_day
 
-log = logging.getLogger("compute.jobs.backfill_artifacts")
+log = logging.getLogger("compute.jobs.backfill_forecasts")
 
 
 def _dsn() -> str:
@@ -101,7 +100,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--features", default="all")
     p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--npz-dir", default=None)
     p.add_argument("--max-sf-age-days", type=int, default=MAX_SF_AGE_DAYS)
     p.add_argument("--min-sf-coverage", type=float, default=MIN_SF_COVERAGE)
     args = p.parse_args(argv)
@@ -158,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
                     min_sf_coverage=args.min_sf_coverage,
                     fire_time=fire_time)
                 if args.to_db:
-                    persist_forecast(conn, result, npz_dir=args.npz_dir)
+                    persist_forecast(conn, result)
             del result
             gc.collect()          # release the ~16 GiB fit before the next day's peak
         except (RuntimeError, ValueError) as e:

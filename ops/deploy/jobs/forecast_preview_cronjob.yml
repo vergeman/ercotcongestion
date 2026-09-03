@@ -113,9 +113,8 @@ spec:
                 limits:
                   cpu: "6"
                   memory: "16Gi"
-              # The mu residual pool (mu_preds.npz) is read per run_id from this PVC.
-              # Read-only: the preview tick reads the pool and writes only to the DB
-              # (no --npz-dir here).
+              # Backfill jobs create bounded-memory temporary workspaces here.
+              # The preview tick remains database-backed.
               volumeMounts:
                 - name: runs
                   mountPath: /compute/runs

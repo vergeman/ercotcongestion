@@ -8,7 +8,6 @@ import pytest
 from compute.forecast_store import (
     nodal_to_db, persist_sf_mu_artifact, sf_artifact_to_db, upsert_pointer,
 )
-from compute.jobs.backfill_nodal import walk
 from compute.evaluation.mu import REFIT_DAYS, WINDOW_DAYS
 from compute.projection.codecs import (
     DRIVERS_MAX_DAYS,
@@ -229,51 +228,6 @@ def test_accumulator_keeps_ragged_node_axes_per_week(tmp_path):
     assert set(g2["settlement_point"]) == {"B", "C", "D"} and len(g2) == 3 * 3
     vocab = np.load(path)["sp_vocab"]
     assert list(vocab) == ["A", "B", "C", "D"]       # shared 'B' coded once
-
-
-def _walk_frames(seed=7, n_keys=4, n_sp=6):
-    """Two scored weeks so week 2 has a residual pool — a runnable `walk()`."""
-    rng = np.random.default_rng(seed)
-    w1 = pd.Timestamp("2025-06-01", tz="UTC")
-    w2 = w1 + pd.Timedelta(days=REFIT_DAYS)
-    idx = pd.date_range(w1 - pd.Timedelta(days=WINDOW_DAYS),
-                        w2 + pd.Timedelta(days=REFIT_DAYS), freq="h",
-                        inclusive="left")
-    keys = [f"K{i}|Z" for i in range(n_keys)]
-    sps = [f"N{i}" for i in range(n_sp)]
-    true_sf = rng.normal(0, 0.3, (n_keys, n_sp))
-    mu = np.where(rng.random((len(idx), n_keys)) < 0.5, 0.0,
-                  rng.uniform(20, 200, (len(idx), n_keys)))
-    M = pd.DataFrame(mu, index=idx, columns=keys)
-    C = pd.DataFrame(-(mu @ true_sf), index=idx, columns=sps)
-
-    frames = []
-    for w in (w1, w2):
-        shours = idx[(idx >= w) & (idx < w + pd.Timedelta(days=REFIT_DAYS))]
-        for k in keys:
-            p = M.loc[shours, k].to_numpy()
-            frames.append(pd.DataFrame({
-                "interval_ts": shours, "key": k, "week": w,
-                "p_bind": np.where(p > 0, 0.8, 0.1), "mu_gbm": np.clip(p, 1, None),
-                "y_bind": (p > 0).astype(int),
-                "y_mu": np.where(p > 0, p, np.nan)}))
-    return M, C, pd.concat(frames, ignore_index=True)
-
-
-def test_walk_metrics_are_byte_identical_with_and_without_nodal_out(tmp_path):
-    """`--nodal-out` only tees arrays already computed: same seed, same draws, so
-    the returned weekly-metrics frame (→ `mu_bands_weekly.csv`) must be identical
-    whether or not the panel is emitted (spec §7 no-flag invariance)."""
-    M, C, preds = _walk_frames()
-    b0 = walk(M, C, preds)
-    path = str(tmp_path / "n.npz")
-    b1 = walk(M, C, preds, nodal_out=path)
-
-    pd.testing.assert_frame_equal(b0, b1)
-    assert not b0.empty                              # week 2 scored (has a pool)
-    # the flag produced a panel whose node axis matches the scored SPs
-    df = load_nodal(path)
-    assert set(df["settlement_point"]) == set(C.columns)
 
 
 # ------------------------------------------------------ the forecast_nodal load

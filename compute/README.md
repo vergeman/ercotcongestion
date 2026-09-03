@@ -8,7 +8,7 @@ a new input source.
 
 | Area | Use it for | Main entry points |
 |---|---|---|
-| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_nodal`, `backfill_artifacts`, `backfill_scoreboard`, `grade_forecast_day` |
+| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_forecasts`, `backfill_scoreboard`, `grade_forecast_day` |
 | `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
 | `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs |
 | `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs |
@@ -32,7 +32,8 @@ model-facing predictor families (`covariates/`), and head fitting/prediction
 artifacts (`model/`). Raw reusable DAM access remains in `inputs/`; weather,
 outage exposure, and SF-derived geography are covariates because they transform
 those inputs into model features. The historical μ walk is
-`python -m compute.mu_forecast.model.backtest`.
+`compute.mu_forecast.model.walk_forward`, used by `backfill_scoreboard`; daily
+forecast publication uses `runner.predict_day` instead.
 
 ## Tests
 
@@ -78,10 +79,9 @@ forecast.
 > it is built — μ needs that week as a residual seed, and the map needs a persisted SF
 > window ending `≤ X`. So:
 >
-> * **Origin — one week back.** `weekly_map`, `eval`, `model.backtest`, `score`, and
->   `backfill_nodal` take `--start = X − 7d` (an unserved pre-roll week). Only
->   `backfill_artifacts` (per-day) and the live daily job start at `X` itself.
->   (`backfill_scoreboard` has no `--start` — it just reshapes the CSVs it is handed.)
+> * **Origin — one week back.** `weekly_map` takes `--start = X − 7d` when it
+>   needs an unserved pre-roll week. `backfill_forecasts`, the daily job, and
+>   `backfill_scoreboard` start at the first delivery or score date they publish.
 > * **Data — two weeks past the window.** Ingest every feed to
 >   `origin − (train_days + 14) = origin − 254d` — 14 days (2 weeks) earlier than the
 >   bare 240-day window (7 for μ's panel front-edge drop, 7 of step-3 alignment margin).
@@ -91,8 +91,8 @@ forecast.
 > **`2024-04-15`**. The unshifted commands below pass `X` directly as the
 > origin, which instead serves from `X + 7d`.
 >
-> * Steps 1–3 (map, μ pool + score, nodal backfill) are start = target − 7. (2024-12-25)
-> * The daily job (step 6) and `backfill_artifacts` (step 5) are start = target. (2025-01-01)
+> * The map may start one week before the first served date; forecast and scoreboard
+>   backfills start at their requested publication date.
 > * Data prior is − (240 + 14). (~ 2024-04-15)
 
 
@@ -116,8 +116,7 @@ window closes.
 > **Ingest `train_days + 14` back, not exactly `train_days`.** μ's covariate
 > panel drops its first day(s) to DAM/tz edges, so aim the ingest floor at
 > `origin − 247d` (`2024-04-25` for a 2025-01-01 origin). And then additional 7
-> for downstream step 3 backfill_nodal alignment to `2024-04-18`. `model.backtest`
-> already reads from there; this just ensures the data is actually present.
+> for the panel's front-edge margin. The jobs derive their required read floor.
 
 Build and deploy in this order.
 
@@ -135,13 +134,13 @@ The stages take dates literally (they never read `now()` or the DB max). `--star
 now means the **same thing** in all three — the *series origin* — so one date
 (**2025-01-01**, the product origin) drives the whole run:
 
-* **`--start`** (`weekly_map`, `eval`, `model.backtest`, `score`) — the *series origin*: the
+* **`--start`** (`weekly_map`, `backfill_scoreboard`) — the *series origin*: the
   first day you want scored, **not** the data floor. Each stage extends the read back on
-  its own (`weekly_map`/`eval`: `read_start = start − window_days`; `model.backtest`:
+  its own (`weekly_map`: `read_start = start − window_days`; `backfill_scoreboard`:
   `start − train_days − leadin`), so `--start 2025-01-01` scores from 2025-01-01
   while reading whatever history it needs behind that. Leave it at the product
   origin; you never hand-compute a data floor.
-* **`--score-from`** (`model.backtest`, optional) — overrides *only* the scored-grid phase
+* **`--score-from`** (`backfill_scoreboard`, optional) — overrides *only* the scored-grid phase
   and defaults to `--start`. Rarely needed — set it only to pin a phase different
   from the origin (e.g. an ablation on a specific sf week).
 * **`--end`** — a *fixed* completed date, deliberately not "today," so a rebuild is
@@ -187,110 +186,30 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
   `/compute/runs/<run_id>`.
 
 
-### Step 2 — Build offline μ evaluation inputs
+### Step 2 — Historical weekly scoreboard backfill
 
-**Does:** walks μ forward over history and writes out-of-sample `(p_bind, mu_gbm)`
-predictions, then scores them into the per-`(week × source)` screening metrics. The
-predictions are the input to the historical nodal backfill and offline evaluation;
-the score CSV feeds the weekly scoreboard (step 4). Prod-side (~16 GiB).
-
-Use `mu-all-v1` for every forecast artifact and DB write. The SF map deliberately has
-its own run ID, `map-v1`.
-
-`--run-id` is the canonical namespace (plan/0113): `model.backtest` derives its outputs
-under `runs/<run-id>/mu/` (`mu_weekly.csv`, `mu_preds.npz`) and creates that tree
-itself — no `ART_DIR` / `mkdir`. `compute.evaluation.mu` has no `--run-id`, so point it at
-the same derived paths explicitly; it writes `mu/mu_score_weekly.csv` (the *score*
-schema — a different file from `model.backtest`'s `mu_weekly.csv` calibration output).
+**Needs:** settled DAM data and the historical range to score.
+**Does:** runs the μ walk-forward and SF evaluation in one job, then writes the
+computed weekly rows to `scoreboard_weekly`. `--run-id` identifies the durable
+model provenance; it is required and does not name a filesystem path.
 
 ```
-# --start is the series origin (product origin, 2025-01-01) — the same date the SF
-# map used; mu_model derives its own read floor (start − train_days − leadin). --end
-# is a fixed recent completed date — see "Dates in the runbook".
-# YYYY-MM-DD: tomorrow
-
 RUN_ID=mu-all-v1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.mu_forecast.model.backtest --run-id ${RUN_ID} \
-    --start 2025-01-01 --end <YYYY-MM-DD>
-
-python -m compute.evaluation.mu \
-    --preds /compute/runs/${RUN_ID}/mu/mu_preds.npz \
-    --out   /compute/runs/${RUN_ID}/mu/mu_score_weekly.csv \
-    --start 2025-01-01 --end <YYYY-MM-DD>
+python -m compute.jobs.backfill_scoreboard --run-id "${RUN_ID}" \
+    --start 2025-01-01 --end <YYYY-MM-DD> --chunk-weeks 32
 ```
 
-`mu_preds.npz` is retained only for offline walk-forward μ evaluation and historical
-backfill. The daily forecast never reads it: serving computes
-`E_mu = p_bind × mu_gbm`, then `point = −(E_mu · SF)` directly.
+The job creates one temporary workspace beneath `MU_SPILL_DIR` for prediction
+chunks and model spills, then removes it after completion or failure.
 
-> **FOOTGUN — `--end` is a fixed default (`2026-07-01`), not "today."** `model.backtest` and
-> `backfill_nodal` never read the DB max or `now()`. With `--score-from` set (above),
-> the scored walk begins there; without it, the walk begins at `--start + 240d` (the
-> training warm-up), so the first residual week is about eight months after `--start`.
+### Step 3 — Production-equivalent historical forecast backfill
 
-### Step 3 — Historical nodal-price backfill
-
-**Needs:** step 1's persisted `map-v1` and step 2's predictions + score CSV.
-**Does:** projects every eligible walk-forward prediction through its causal persisted
-SF window, writes the deterministic point panel for `mu-all-v1`, then promotes that same
-run only after the bulk write succeeds. This is the historical price backfill.
-
-With `--run-id ${RUN_ID}` every path derives: offline predictions and score CSV are
-read from `runs/${RUN_ID}/mu/`, and the nodal panel is written to
-`runs/${RUN_ID}/forecast/mu_nodal.npz`. Pass `--preds` / `--scores` / `--nodal-out` only to point
-somewhere else.
-
-```
-set -o pipefail
-
-python -m compute.jobs.backfill_nodal \
-    --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
-    --end <tomorrow YYYY-MM-DD> \
-    --to-db 2>&1 | tee -a "$RUN_ID/backfill_nodal.log"
-```
-
-`--to-db` requires `--run-id` (which derives `--nodal-out`) or an explicit
-`--nodal-out`. `mu_nodal.npz` is the audit/reload artifact for the seed. Do not run
-`--load-nodal-npz` after the command above: it only reloads that same panel. Use it
-only to restore an existing NPZ into a fresh DB:
-
-```
-python -m compute.jobs.backfill_nodal --run-id "${RUN_ID}" \
-    --load-nodal-npz /compute/runs/${RUN_ID}/forecast/mu_nodal.npz
-```
-
-This fast historical path writes `forecast_nodal`, but does not write
-`forecast_sf_artifact`: it does not invoke `daily_forecast` once per day.
-
-### Step 4 — Load the weekly scoreboard
-
-**Needs:** step 2's score CSV (`mu/mu_score_weekly.csv`).
-**Does:** COPYs its precomputed weekly rows into `scoreboard_weekly` under
-`${RUN_ID}`, so the API serves indexed board rows rather than files.
-Reshape-and-serve, not new measurement — the numbers are transcribed as-is.
-Idempotent by delete-then-copy scoped to `run_id`.
-
-With `--run-id ${RUN_ID}` the score CSV derives from `runs/${RUN_ID}/` (plan/0113);
-pass `--score` only to override.
-
-```
-python -m compute.jobs.backfill_scoreboard --run-id "${RUN_ID}"
-```
-
-### Step 5 — Optional production-equivalent historical artifact backfill
-
-Step 3 fills prices (`forecast_nodal`) but **not** the per-day SF+μ artifact
-(`forecast_sf_artifact`) — the object the constraint-explorer panel reads
-(`/map/constraints/ranked`). So on a fresh backfill that panel 503s for every historical
-date until this step runs; only live days (step 6) have the artifact otherwise.
-
-`backfill_artifacts` loops the daily job's exact path over a date range: for each UTC
+`backfill_forecasts` loops the daily job's exact path over a date range: for each CT
 delivery date it refits the daily μ model, **replaces that date's nodal rows** with the
 production-equivalent per-day fit, and writes its `forecast_sf_artifact`. It is much more
-expensive than step 3 (a per-day refit, ~16 GiB each, vs. one weekly fit shared across 7
-days), so it is optional and intentionally not the default history seed.
+expensive (~16 GiB per day), so it is intentionally resource-intensive.
 
 ```
 set -o pipefail
@@ -298,9 +217,9 @@ set -o pipefail
 MU_SPILL_PANEL=1
 MU_SPILL_DIR=/compute/runs/__spill__
 
-python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
+python -m compute.jobs.backfill_forecasts --run-id "${RUN_ID}" --map-run-id "${MAP_RUN_ID}" \
     --start 2025-01-08 --end <YYYY-MM-DD> --no-skip-existing --to-db \
-    2>&1 | tee -a "$RUN_ID/backfill_artifacts.log"
+    2>&1 | tee -a "$RUN_ID/backfill_forecasts.log"
 ```
 
 * **Resumable** — skips dates already in `forecast_sf_artifact` (pass `--no-skip-existing`
@@ -310,16 +229,14 @@ python -m compute.jobs.backfill_artifacts --run-id "${RUN_ID}" --map-run-id "${M
   common expected skip, so start `--start` at/after the first served week.
 * **Pointer** — like the daily job, each day flips `forecast_current[ercot]` to `--run-id`;
   the tool warns loudly at startup if that is not the promoted run. **Do not mix a different
-  run ID into one range.** Add `--npz-dir` only when it names a persistent mounted directory;
-  it is not required for the DB artifacts.
+  run ID into one range. Forecast publication writes durable state only to Postgres.
 
 For a single date, `--start`/`--end` may be the same day (equivalent to one
 `daily_forecast --delivery-date` run).
 
-### Step 6 — Daily forecast (append each new day)
+### Step 4 — Daily forecast (append each new day)
 
-**Needs:** a fresh map (step 1) and `mu_preds.npz` on the `compute-runs` PVC at
-`runs/<run-id>/mu/` (step 2), with the PVC mounted at `/compute/runs`.
+**Needs:** a fresh map (step 1) and settled DAM inputs through the fit window.
 **Does:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
 window and predicts D's 24 h, loads the map's latest causal SF window, projects μ through
 it to a point forecast, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
@@ -444,51 +361,26 @@ kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 
 ### Good to know
 
-* **Historic vs live cadence seam.** The backfill (step 3) refits on a 7-day grid and
-  predicts the next 7-day block, so every historic day in `forecast_nodal` shares its
-  week's single fit; the daily job (step 6) refits every day. Both are honest (the two
-  `propagate_window` modes reconcile given identical inputs), but a historic panel row is
-  not bit-for-bit "what the live job would have emitted that day."
+* **Historic vs live cadence.** `backfill_forecasts` replays the daily fit and
+  publication path for each requested date, including its causal fire time. A
+  historical row is therefore produced by the same per-day path as a live row.
 
 ---
 
 
-## Artifacts
+## Durable forecast state
 
-Pipeline outputs land under `compute/runs/<run_id>/`. A run is one of two kinds:
-an **SF map** run (e.g. `map-v1`) produces the `sf/` geography; a **μ forecast**
-run (e.g. `mu-all-v1`) produces `mu/` + `forecast/` and projects through a named
-map run.
+Forecast products are durable Postgres rows, not run-directory files.
+`forecast_nodal` holds point forecasts keyed by `run_id`, delivery day, horizon,
+timestamp, and settlement point. `forecast_sf_artifact` holds the corresponding
+shift-factor and expected-μ payload keyed by `run_id`, delivery day, and horizon;
+`forecast_current` selects the served run. `scoreboard_weekly` retains historical
+evaluation rows keyed by `run_id`, week, and source.
 
-A subdirectory is created when its stage writes, so a path might exist only
-after a run.
-
-### SF map run — `compute/runs/<run_id>/sf/`
-
-Builds the geography: which constraints congest and how each settlement point is
-exposed to them.
-
-| File                        | Produced by                           | Consumed by                   | Contents / purpose                                                                          |
-|-----------------------------|---------------------------------------|-------------------------------|---------------------------------------------------------------------------------------------|
-| `diagnostics_YYYYMMDD.json` | `weekly_map` (one per refit boundary) | human review, `evaluation.sf` | Fit health of that refit: R², constraints kept/dropped, shift factors clipped.              |
-| `eval.csv`                  | `evaluation.sf`                       | human review                  | Out-of-window map accuracy — how well the map predicts congestion on days it wasn't fit on. |
-
-The map itself is stored in the **database**, not a file (`weekly_map` writes it).
-
-### μ forecast run — `compute/runs/<run_id>/mu/` and `compute/runs/<run_id>/forecast/`
-
-Forecasts each constraint's shadow price (μ), then projects those through a map
-run into per-settlement-point prices.
-
-| File                     | Produced by                                         | Consumed by                                   | Contents / purpose                                                                                               |
-|--------------------------|-----------------------------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------|
-| `mu/mu_preds.npz`        | `mu_model` (`--preds-out`)                          | `evaluation.mu`, `backfill_nodal`             | Walk-forward μ predictions per constraint-hour: bind probability, expected shadow price, and the realized truth. |
-| `mu/mu_weekly.csv`       | `mu_model` (`--out`)                                | human review                                  | Weekly calibration of the μ walk (are the probabilities and prices honest).                                      |
-| `mu/mu_score_weekly.csv` | `evaluation.mu`                                     | `backfill_scoreboard` → `scoreboard_weekly` table | Weekly point scores that feed the scoreboard.                                                                    |
-| `forecast/mu_nodal.npz`  | `backfill_nodal` / `daily_forecast` (`--nodal-out`) | `forecast_store` → DB                         | Per-settlement-point point-forecast panel.                                                                         |
-
-The per-day SF-μ blob served by the API is stored in the **database**
-(`forecast_sf_artifact`), written by `daily_forecast`.
+Historical jobs may create panel spills, bind matrices, prediction chunks, and
+combined predictions under `MU_SPILL_DIR` (or the system temporary directory).
+These are job-owned scratch data and are removed when the job exits, including
+after a failure.
 
 ---
 
@@ -537,16 +429,15 @@ The per-day SF-μ blob served by the API is stored in the **database**
     * `sf_win=resolve_sf_window()_`: SF window - just for run log summary
 
     * Step 2: Point Congestion
-      * here called by `daily_forecast.py` job, but also called by
-        `backfill_nodal.py` job (with no forward_hours)
+      * Called by `daily_forecast.py` and `backfill_forecasts.py`.
       * "propagate_window": "propagate" mu against SF to get *congestion* per that
         bounded window interval [s, end).
       * `_, panel_out, SF, E_mu = propagate_window(D, block_end, M, C, wp, sf=SF_map,
                                                    want_panel=True, want_sf_mu=True,
                                                    forward_hours=forward_hours)`
         * `_aligned_score_inputs()`:
-          * `backfill_nodal.py` caller: filter hours and nodes for mutual
-            between `M`, `C` and `SF`
+          * `backfill_forecasts.py`: uses the same per-day causal inputs as the
+            daily job.
           * `daily_forecast.py`: return filtered-hourly `M` (no `C`, no `SF`
             work).
 
