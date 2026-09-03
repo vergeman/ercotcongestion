@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { ExposuresResponse, ConstraintReach } from "../../api/types";
+import type {
+  ExposuresResponse,
+  SpExposure,
+  ConstraintReach,
+} from "../../api/types";
 import { formatCT } from "../../lib/time";
 import { shiftFactorColor } from "../../lib/colors";
 
@@ -188,9 +192,46 @@ function SfSign({ sf }: { sf: number }) {
   );
 }
 
+// The sortable columns on the node driver table. "$/MWh" (contribution) is the
+// default drivers order; sorting by SF surfaces the strongest structural
+// exposure, and the `*` clip marker flags rows the fit could not trust.
+type ExpSortKey = "sf" | "side" | "mu" | "contribution" | "binding";
+interface ExpSort {
+  key: ExpSortKey;
+  dir: "asc" | "desc";
+}
+
+const EXP_COLUMNS: Array<{ key: ExpSortKey; label: string; title: string }> = [
+  { key: "sf", label: "SF", title: "Signed implied shift factor; sorts by |SF|. * = pinned at the fit's clip." },
+  { key: "side", label: "Side", title: "Import (SF<0) or export (SF>0)." },
+  { key: "mu", label: "μ", title: "Constraint's forecast shadow price at this hour ($/MWh)." },
+  { key: "contribution", label: "$/MWh", title: "This node's congestion from the constraint: −SF × μ ($/MWh)." },
+  { key: "binding", label: "Bind", title: "Hours the constraint bound on the delivery day." },
+];
+
+// Bigger sorts first under descending. Side keys off the SF sign so import and
+// export group together.
+function expSortValue(e: SpExposure, key: ExpSortKey): number {
+  switch (key) {
+    case "sf": return Math.abs(e.sf);
+    case "side": return Math.sign(e.sf);
+    case "mu": return e.mu ?? -Infinity;
+    case "contribution": return e.contribution ?? -Infinity;
+    case "binding": return e.binding_hours ?? -1;
+  }
+}
+
+function expDefaultDir(key: ExpSortKey): "asc" | "desc" {
+  return key === "side" ? "asc" : "desc";
+}
+
+function sideLabel(sf: number): string {
+  return sf < 0 ? "imp" : "exp";
+}
+
 // Node-explorer body: the constraints that drove this node at the cursor's
-// hour, ranked by contribution (−SF × μ). Constraints that did not bind are
-// omitted — the matrix is the place to see the full unfiltered ranking.
+// hour. Sortable by any column, so one table replaces the old drivers/exposure
+// toggle — sort by $/MWh for the drivers view, by SF for structural exposure.
 function ExposuresBody({
   exposures,
   loading,
@@ -204,6 +245,16 @@ function ExposuresBody({
   onSelectConstraint?: (c: string) => void;
   onHoverConstraint?: (c: string | null) => void;
 }) {
+  // Null = the server's contribution order (the drivers ranking); a click sorts
+  // client-side without refetching.
+  const [sort, setSort] = useState<ExpSort | null>(null);
+  const toggleSort = (key: ExpSortKey) =>
+    setSort((cur) =>
+      cur?.key === key
+        ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: expDefaultDir(key) }
+    );
+
   // Same format as the scrubber and the matrix, so the card is visibly pinned
   // to the same instant the rest of the workspace is showing.
   const hour = cursorTs ? `${formatCT(cursorTs, "MMM d, HH:mm")} CT` : null;
@@ -225,35 +276,52 @@ function ExposuresBody({
       </>
     );
   }
+
+  const rows = sort
+    ? [...exposures.exposures].sort((a, b) => {
+        const sign = sort.dir === "asc" ? 1 : -1;
+        return sign * (expSortValue(a, sort.key) - expSortValue(b, sort.key));
+      })
+    : exposures.exposures;
+
   return (
     <>
       {header}
-      {exposures.exposures.length === 0 && (
+      {rows.length === 0 && (
         <div className="dc-drivers-empty label">Nothing bound this hour</div>
       )}
       <div
         className="dc-drivers"
         onMouseLeave={() => onHoverConstraint?.(null)}
       >
-        {/* Column headers carry the units, so the rows carry bare numbers. The
-            key column is `constraint|contingency` — the artifact's own key
-            order (services/sf_artifacts.normalize_constraint_key).
-
-            It lives *inside* the scroll container, stuck to the top, so it is
-            subject to the same scrollbar the rows are. Outside it, a classic
-            (space-taking) scrollbar squeezes the rows ~12px narrower than the
-            header and every numeric column reads as shifted right — invisible
-            under macOS/headless overlay scrollbars, plainly wrong elsewhere. */}
-        {exposures.exposures.length > 0 && (
+        {/* The header sticks to the top of the same scroll container the rows
+            are in, so its clickable sort cells stay in reach while scrolling.
+            Numeric columns are right-aligned; the key column is
+            `constraint|contingency` (services/sf_artifacts.normalize_constraint_key). */}
+        {rows.length > 0 && (
           <div className="dc-driver dc-driver--head">
             <span aria-hidden="true" />
-            <span className="dc-driver-col label">
-              Constraint | Contingency
-            </span>
-            <span className="dc-driver-col label">$/MWh</span>
+            <span className="dc-driver-col label">Constraint</span>
+            {EXP_COLUMNS.map((c) => {
+              const active = sort?.key === c.key;
+              return (
+                <button
+                  key={c.key}
+                  className={`dc-driver-col dc-driver-sort label${active ? " is-active" : ""}`}
+                  title={c.title}
+                  aria-sort={
+                    active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"
+                  }
+                  onClick={() => toggleSort(c.key)}
+                >
+                  {c.label}
+                  {active ? (sort!.dir === "asc" ? " ▲" : " ▼") : ""}
+                </button>
+              );
+            })}
           </div>
         )}
-        {exposures.exposures.map((e) => (
+        {rows.map((e) => (
           <button
             key={e.constraint_key}
             className="dc-driver"
@@ -266,9 +334,14 @@ function ExposuresBody({
             }
           >
             <TypeChip ctype={e.ctype} />
-            <span className="dc-driver-key mono">
-              {e.constraint_key}
+            <span className="dc-driver-key mono">{e.constraint_key}</span>
+            <span className="dc-driver-sf mono" style={{ color: shiftFactorColor(e.sf) }}>
+              {fmtSf(e.sf)}
               {e.sf_clipped && <span className="dc-driver-clip">*</span>}
+            </span>
+            <span className="dc-driver-side label">{sideLabel(e.sf)}</span>
+            <span className="dc-driver-sup mono">
+              {e.mu != null ? `$${fmt(e.mu, 2)}` : "—"}
             </span>
             <span
               className="dc-driver-sf mono"
@@ -281,10 +354,13 @@ function ExposuresBody({
             >
               {e.contribution != null ? fmtDollars(e.contribution) : "—"}
             </span>
+            <span className="dc-driver-sup mono">
+              {e.binding_hours != null ? `${e.binding_hours}h` : "—"}
+            </span>
           </button>
         ))}
       </div>
-      {exposures.exposures.some((e) => e.sf_clipped) && (
+      {rows.some((e) => e.sf_clipped) && (
         <div className="dc-drivers-note label">
           * SF pinned at the fit's ±1 clip — a bound, not a measurement
         </div>
@@ -500,7 +576,7 @@ export default function DetailCard({
           position: absolute;
           top: 12px;
           left: 12px;
-          width: 340px;
+          width: 380px;
           background: var(--bg-glass);
           border: 1px solid var(--border-bright);
           border-radius: 4px;
@@ -635,16 +711,16 @@ export default function DetailCard({
           border-top: 1px solid var(--border);
         }
         /* One grid for the header row and every driver row, so the columns line
-           up. Three columns: type chip, key, contribution.
-           The numeric track is a fixed width, not auto: each row is its own
+           up. Seven columns: type chip, key, SF, side, μ, $/MWh, binding hours.
+           The numeric tracks are fixed widths, not auto: each row is its own
            grid container, so auto sizes every row to its own content and the
-           header drifts out of line with the values under it. Reach rows add a
-           fourth column below. */
+           header drifts out of line with the values under it. Reach rows use
+           their own four-column template below. */
         .dc-driver {
           display: grid;
-          grid-template-columns: 10px 1fr 58px;
+          grid-template-columns: 10px minmax(52px, 1fr) 46px 30px 46px 52px 30px;
           align-items: center;
-          gap: 8px;
+          gap: 5px;
           padding: 3px 0;
           background: transparent;
           border: none;
@@ -654,9 +730,10 @@ export default function DetailCard({
           cursor: pointer;
         }
         .dc-driver:hover { background: var(--bg-hover); }
-        /* Reach rows add their signed −SF × shadow contribution at the right. */
+        /* Reach rows: chip, key, SF, signed −SF × shadow contribution. */
         .dc-driver--reach-row {
           grid-template-columns: 10px 1fr 58px 58px;
+          gap: 8px;
         }
         .dc-driver--head {
           cursor: default;
@@ -677,6 +754,21 @@ export default function DetailCard({
           color: var(--text-secondary);
         }
         .dc-driver-col:not(:nth-child(2)) { text-align: right; }
+        /* Clickable sort headers — a bare button that keeps the column's look. */
+        .dc-driver-sort {
+          background: transparent;
+          border: none;
+          padding: 0;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .dc-driver-sort:hover { color: var(--text-primary); }
+        .dc-driver-sort.is-active { color: var(--accent); }
+        .dc-driver-side {
+          font-size: 11px;
+          color: var(--text-secondary);
+          text-align: right;
+        }
         .dc-chip {
           width: 9px;
           height: 9px;
