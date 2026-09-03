@@ -904,6 +904,10 @@ export interface AnalysisContributionTerm {
   constraint_key: string;
   contribution: number;
   shift_factor: number;
+  // Delivery-day binding hours, and whether this node's SF was pinned at the
+  // ridge clip (a bound, not a measurement). Let the node table sort structure.
+  binding_hours: number;
+  sf_clipped: boolean;
 }
 
 export interface NodeMarketState {
