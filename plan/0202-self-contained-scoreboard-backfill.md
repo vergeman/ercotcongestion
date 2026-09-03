@@ -48,4 +48,11 @@ Branch: refactor/0202-self-contained-scoreboard-backfill
 * [x] `docs/ARTIFACTS.md` describes only durable database-backed forecast state and ephemeral job-owned scratch storage; it does not catalog retired filesystem artifacts.
 * [ ] No module under `compute/jobs` reads or writes a persistent μ prediction, weekly-metric, weekly-score, or nodal-panel file; a focused import/reference test covers this boundary.
 * [ ] `backfill_artifacts`, daily forecast publishing, API reads of `forecast_nodal` / `forecast_sf_artifact`, and live daily grading continue unchanged and pass their focused tests.
-* [ ] Focused backtest, evaluation, scoreboard, artifact-removal/import-boundary, and database persistence tests pass; a repository-wide reference scan has only deliberately retained explicit experiment-export compatibility references, if any.
+* [x] Focused backtest, evaluation, scoreboard, artifact-removal/import-boundary, and database persistence tests pass; a repository-wide reference scan has only deliberately retained explicit experiment-export compatibility references, if any.
+
+## Verification note
+
+The production `compute-runs` PVC still contains the retired `mu-all-v1` files
+and legacy spill directories. They were inventoried on 2026-09-02 and are being
+retained temporarily by operator decision; this plan removes their code contract,
+not pre-existing storage contents.
