@@ -79,7 +79,7 @@ def test_serving_modules_do_not_import_backtest_orchestration():
     repo_dir = Path(__file__).parents[3]
     serving = (
         repo_dir / "compute/jobs/daily_forecast.py",
-        repo_dir / "compute/jobs/backfill_artifacts.py",
+        repo_dir / "compute/jobs/backfill_forecasts.py",
     )
     for path in serving:
         modules = {

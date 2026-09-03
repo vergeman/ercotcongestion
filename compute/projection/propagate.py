@@ -1,8 +1,7 @@
 """Deterministic SF projection: ``point = −(E_mu · SF)``.
 
 ``propagate_window`` is the main function that turns a window's expected μ into
-the nodal point forecast. Imported by ``daily_forecast``, ``backfill_nodal``,
-and the one-off``mu_forecast.model.backtest``.
+the nodal point forecast. Imported by forecast publication and evaluation.
 
 This houses the actual forecasts:
   1. E_mu = p_bind * mu_gbm

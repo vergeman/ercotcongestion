@@ -9,7 +9,7 @@ runners in `compute.jobs` handle persistence.
 
 | File           | Description                                                                                                                                                                                                                                                                                             | Used by                                                          |
 |----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
-| `propagate.py` | The projection itself. For one window it picks the SF map (either injected from the persisted weekly map, or fit on the trailing 240 days), lines up the scored hours, multiplies expected μ by SF to get the nodal point forecast, and — outside forward mode — scores it against realized congestion. | `daily_forecast`, `backfill_nodal`, `mu_forecast.model.backtest` |
+| `propagate.py` | The projection itself. For one window it lines up scored hours, multiplies expected μ by SF, and scores it against realized congestion when requested. | forecast publication and evaluation |
 | `codecs.py`    | Read/write formats for projection artifacts, plus small helpers for explaining a node's price. See below.                                                                                                                                                                                               | forecast/backfill jobs, `forecast_store`, the API path           |
 
 
@@ -24,9 +24,7 @@ projections. They group into `Nodal` artifacts, and `SfMuArtifact`.
 
 * **`NodalPanel`**: in-memory holder for one window's forecast: hours ×
   settlement points, plus the point estimate.
-* **`save_nodal` / `load_nodal` / `_NodalAccumulator`**: write and read the
-  flat nodal panel (`mu_nodal.npz`); the accumulator streams many windows into
-  one file.
+* **`NodalPanel`**: carries an in-memory forecast into database persistence.
 * **`build_sf_mu_artifact` / `save_sf_mu` / `load_sf_mu`**: pack one day's SF
   matrix and expected μ into a single blob (`SfMuArtifact`), which is what the
   API serves a node's forecast from.

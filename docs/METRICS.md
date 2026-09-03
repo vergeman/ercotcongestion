@@ -88,7 +88,7 @@ the rows as context for interpreting a score.
 `scoreboard_weekly` repeatedly fits only on information available at the time,
 predicts forward, and scores the resulting out-of-sample forecasts.
 
-`compute.evaluation.mu` writes `mu_score_weekly.csv`;
+`compute.jobs.backfill_scoreboard` persists weekly scores to `scoreboard_weekly`.
 `compute.jobs.backfill_scoreboard` copies those precomputed screening values
 into the database. The loader does not measure forecasts or create new metrics.
 
@@ -374,7 +374,7 @@ This is the SF gate: it holds μ at truth, so its results isolate map quality.
 `compute.evaluation.mu` is an operator-run offline evaluation, not a map-refresh
 CronJob branch. It consumes the prediction artifact from
 `compute.mu_forecast.model.backtest` and uses `walk()` → `score_week()` for each
-prediction week. Produces `mu_score_weekly.csv`.
+prediction week. The scoreboard job persists the resulting rows.
 
 `score_week()` fits the same trailing-window SF map with
 `implied_shift_factors()`, then passes each μ source through the shared
@@ -394,6 +394,6 @@ coverage.
 trailing training window and writes per-week head-1 diagnostics through
 `compute.mu_forecast.model.heads.bind_metrics()` and `reliability()`: Brier
 score, expected calibration error, AUC, base rate, and mean prediction. These
-are not used anywhere except at one point internally. Produces `mu_weekly.csv`.
+are not used anywhere except at one point internally.
 
 There is currently no implemented head-2 R² gate in `/compute`.

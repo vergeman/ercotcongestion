@@ -28,11 +28,10 @@ review tools are run manually.
 
 | File | Description | Caller |
 | --- | --- | --- |
-| `backfill_artifacts.py` | Replays the daily forecast path across a date range to produce production-equivalent nodal forecasts and SF+μ artifacts. Resumable and intentionally resource-intensive. | Manual |
+| `backfill_forecasts.py` | Replays the daily forecast path across a date range to publish production-equivalent nodal forecasts and SF+μ artifacts. Resumable and intentionally resource-intensive. | Manual |
 | `backfill_forecast_history.py` | Builds queryable per-constraint daily forecast history from existing SF+μ artifacts, without refitting forecasts. | Manual |
-| `backfill_nodal.py` | Projects an offline walk-forward μ prediction artifact through the SF map to seed historical nodal forecasts and verdict data. | Manual |
 | `backfill_brief_grade_prod.sh` | Runs `materialize_brief_grade` in resumable 30-day production batches, starting from the latest settled day. | Manual, production compute shell |
-| `backfill_scoreboard.py` | One-shot/reload importer that writes an offline backtest run’s precomputed weekly μ scores to `scoreboard_weekly`; it does not recompute metrics. | Manual, after offline scoring |
+| `backfill_scoreboard.py` | Runs the historical μ walk and evaluation, then writes weekly scores to `scoreboard_weekly`. | Manual |
 
 ## Review and package support — on demand
 

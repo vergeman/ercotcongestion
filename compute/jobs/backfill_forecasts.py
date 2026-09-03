@@ -1,11 +1,10 @@
-"""Backfill the per-day SF+μ artifact over a date range (runbook Step 4, looped).
+"""Backfill durable per-day forecasts over a date range.
 
 For each CT delivery date in ``[--start, --end]`` this refits the daily μ heads and
 writes that day's ``forecast_nodal`` rows + ``forecast_sf_artifact`` blob through the
 SAME ``forecast_day``/``persist_forecast`` path the live daily job uses.
 
-Much heavier than ``backfill_nodal``: that shares one weekly fit across 7 days; this
-refits PER DAY (~16 GiB peak each), so it is built to run long and resume.
+This refits per day (~16 GiB peak), so it is built to run long and resume.
 
   Resumable — skips dates already in ``forecast_sf_artifact`` (``--no-skip-existing``
               forces a rewrite), so an interrupted run picks up where it stopped.
@@ -14,7 +13,7 @@ refits PER DAY (~16 GiB peak each), so it is built to run long and resume.
               logged and skipped (``--stop-on-error`` aborts instead). Early dates
               with no causal map window are the common, expected skip.
 
-  python -m compute.jobs.backfill_artifacts --run-id mu-all-v1 --map-run-id map-v1 \
+  python -m compute.jobs.backfill_forecasts --run-id mu-all-v1 --map-run-id map-v1 \
       --start 2025-01-08 --end 2025-05-31 --to-db
 """
 from __future__ import annotations
@@ -38,7 +37,7 @@ from compute.mu_forecast.model.runner import DEFAULT_TRAIN_DAYS
 from compute.sf_map.storage.maps import MAP_RUN_ID, MAX_SF_AGE_DAYS, MIN_SF_COVERAGE
 from compute.time import normalize_ct_day
 
-log = logging.getLogger("compute.jobs.backfill_artifacts")
+log = logging.getLogger("compute.jobs.backfill_forecasts")
 
 
 def _dsn() -> str:

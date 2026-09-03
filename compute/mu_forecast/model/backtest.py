@@ -1,14 +1,7 @@
 """Historical μ model backtesting.
 
-This is an operator-run, one-off historical build used to create the initial
-offline μ prediction/residual artifacts; it is not part of the daily serving
-path.  Its primary downstream consumer is ``compute.jobs.backfill_nodal``,
-which reads ``mu_preds.npz`` to backfill the historical nodal forecast panel.
-``daily_forecast`` and ``backfill_artifacts`` instead use ``runner.predict_day``
-to produce individual production-equivalent delivery days.
-
-Run it as ``python -m compute.mu_forecast.model.backtest --run-id <run-id>
---start <YYYY-MM-DD> --end <YYYY-MM-DD>``.
+This is a developer-only historical experiment. Production scoreboard backfills
+use ``compute.jobs.backfill_scoreboard`` and publish directly to Postgres.
 """
 from __future__ import annotations
 
@@ -25,7 +18,7 @@ from compute.mu_forecast.model.heads import bind_metrics, reliability
 from compute.mu_forecast.model.runner import (
     BIND_MATRIX_FILE, DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS,
     PANEL_FILE, PANEL_LEADIN_DAYS, _predict_fold, arms_for, feature_cols,
-    persist_outputs, resolve_output_paths, spill_panel_features,
+    persist_outputs, spill_panel_features,
 )
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
 
@@ -266,20 +259,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="build and score this many weekly folds at a time, writing "
                         "temporary prediction chunks to bound full-history memory; "
                         "0 opts into the legacy single-panel walk")
-    p.add_argument("--run-id", default=None,
-                   help="canonical run namespace (plan/0113): derive --out and "
-                        "--preds-out under runs/<run-id>/mu/ (mu_weekly.csv, "
-                        "mu_preds.npz) unless either is passed explicitly")
-    p.add_argument("--out", default=None, help="write weekly metrics CSV here "
-                                               "(overrides the --run-id path)")
+    p.add_argument("--out", default=None, help="write weekly metrics CSV here")
     p.add_argument("--preds-out", default=None,
-                   help="write per-row predictions .npz here (commit 4/5 input); "
-                        "overrides the --run-id path")
+                   help="write per-row predictions .npz here")
     args = p.parse_args(argv)
-
-    # A run id derives both outputs under runs/<run-id>/mu/; explicit flags win.
-    args.out, args.preds_out = resolve_output_paths(
-        args.run_id, args.out, args.preds_out)
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")

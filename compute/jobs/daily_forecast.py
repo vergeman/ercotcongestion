@@ -21,7 +21,6 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from compute.artifacts import DEFAULT_RUNS_ROOT
 from compute.forecast_store import (
     FORECAST_LAYER,
     nodal_to_db,
@@ -64,9 +63,6 @@ from compute.sf_map.storage.maps import (
 )
 
 log = logging.getLogger(__name__)
-
-# Retained for tests that redirect the mounted runs PVC.
-RUNS_ROOT = DEFAULT_RUNS_ROOT
 
 
 DEFAULT_ARMS = ("lag", "geo", "wx")      # the shipped `all` config (FEATURE_SETS)
@@ -174,7 +170,7 @@ def forecast_day(
     daily load/wind/solar snapshot and up to a day of outage snapshots earlier
     than the DAM-close default would read — so a re-backfilled preview stays a
     genuinely disadvantaged preview instead of collapsing into a re-labeled
-    final (`compute/jobs/backfill_artifacts.py` computes it).
+    final (`compute/jobs/backfill_forecasts.py` computes it).
 
     Reads only; writes nothing and does not touch the pointer (the next commit adds
     persistence). Every read sees only intervals < D.
@@ -540,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
                         "0133); defaults to the actual wall clock (live behavior). "
                         "Pass a historical h2 run's real fire instant (20:15Z on "
                         "D−2, the live cron's own schedule) for a vintage-faithful "
-                        "single-day preview backfill — see backfill_artifacts.py, "
+                        "single-day preview backfill — see backfill_forecasts.py, "
                         "which computes this automatically for a date range")
     args = p.parse_args(argv)
 

@@ -1,4 +1,4 @@
-"""Tests for `backfill_artifacts`'s pure orchestration helpers (0133).
+"""Tests for `backfill_forecasts`'s pure orchestration helpers (0133).
 
 `main()` itself is DB/fit-heavy CLI plumbing exercised by the runbook, not unit
 tests; `_fire_time_for` is the one piece of new logic worth pinning in isolation —
@@ -11,7 +11,7 @@ from datetime import date
 
 import pandas as pd
 
-from compute.jobs.backfill_artifacts import _fire_time_for
+from compute.jobs.backfill_forecasts import _fire_time_for
 
 
 def test_final_fire_time_is_1700z_on_d_minus_1():

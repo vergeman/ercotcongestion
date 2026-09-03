@@ -20,7 +20,6 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-from compute.artifacts import DEFAULT_RUNS_ROOT, RunArtifacts
 from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
 from compute.mu_forecast.model.heads import (alloc_bind_matrix as _alloc_bind_matrix,
                                              apply_encoding, bind_metrics, fit_bind_head,
@@ -56,35 +55,6 @@ BIND_MATRIX_FILE = "bind_matrix.f64"
 # The on-disk Arrow copy of the panel's feature block (see `spill_panel_features`),
 # opt-in via MU_SPILL_PANEL. One file, overwritten per run, unlinked when main ends.
 PANEL_FILE = "panel_features.arrow"
-
-# Retained for tests that redirect the mounted runs PVC.
-RUNS_ROOT = DEFAULT_RUNS_ROOT
-
-
-def weekly_path_for(run_id: str) -> str:
-    """The walk's weekly-metrics CSV for `run_id` — `runs/<run-id>/mu/mu_weekly.csv`."""
-    return str(RunArtifacts(run_id, RUNS_ROOT).weekly_metrics)
-
-
-def preds_path_for(run_id: str) -> str:
-    """The walk's per-row predictions / residual-pool npz for `run_id` —
-    `runs/<run-id>/mu/mu_preds.npz`, the path `backfill_nodal`/`daily_forecast`
-    resolve from the same run id (their `preds_path_for` mirrors this)."""
-    return str(RunArtifacts(run_id, RUNS_ROOT).predictions)
-
-
-def resolve_output_paths(run_id: str | None, out: str | None, preds_out: str | None,
-                         ) -> tuple[str | None, str | None]:
-    """Derive the weekly + preds paths under `runs/<run-id>/mu/` from a run id.
-
-    Explicit `--out` / `--preds-out` always win; a run id fills in only the paths
-    the caller left unset. With no run id both stay `None` — the legacy
-    explicit-only mode, unchanged.
-    """
-    if run_id:
-        out = out or weekly_path_for(run_id)
-        preds_out = preds_out or preds_path_for(run_id)
-    return out, preds_out
 
 
 def persist_outputs(weekly: pd.DataFrame, preds: pd.DataFrame,
