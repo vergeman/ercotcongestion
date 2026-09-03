@@ -143,6 +143,9 @@ def node_response(
     contributions = node_contributions(artifact, settlement_point, mu)
     contributions = contributions[sf.abs() >= min_abs_sf]
     total = float(contributions.sum())
+    # Delivery-day binding hours per constraint — the same count the constraint
+    # catalog reports, carried onto each driver row.
+    binding_hours = artifact.E_mu.ne(0.0).sum(axis=0)
     settled = settled_congestion(cur, [settlement_point], selected).get(
         settlement_point
     )
@@ -180,9 +183,9 @@ def node_response(
         ),
         coverage=None if settled in (None, 0.0) else total / settled,
         terms=(
-            structural_terms(sf[sf.abs() >= min_abs_sf], contributions)
+            structural_terms(sf[sf.abs() >= min_abs_sf], contributions, binding_hours)
             if mode == "structural"
-            else terms(contributions, sf)
+            else terms(contributions, sf, binding_hours)
         ),
         market_state=market_state,
         structural_n_terms=(
@@ -191,7 +194,7 @@ def node_response(
         structural_terms=(
             None
             if structural_sf is None
-            else structural_terms(structural_sf, contributions)
+            else structural_terms(structural_sf, contributions, binding_hours)
         ),
         essp_member_count=member_count,
     )
