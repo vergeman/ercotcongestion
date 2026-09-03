@@ -329,11 +329,11 @@ interface NodeSort {
 }
 
 const NODE_COLUMNS: Array<{ key: NodeSortKey; label: string; title: string }> = [
-  { key: "sf", label: "SF", title: "Implied shift factor; sorts by |SF|. * = pinned at the fit's clip." },
+  { key: "binding", label: "bind", title: "Hours the constraint bound on the delivery day." },
   { key: "side", label: "side", title: "Import (SF<0) or export (SF≥0)." },
+  { key: "sf", label: "SF", title: "Implied shift factor; sorts by |SF|. * = pinned at the fit's clip." },
   { key: "mu", label: "μ", title: "Constraint shadow price this hour ($/MWh)." },
   { key: "contribution", label: "$/MWh", title: "This node's congestion from the constraint (−SF·μ); sorts by magnitude." },
-  { key: "binding", label: "bind", title: "Hours the constraint bound on the delivery day." },
 ];
 
 // Bigger sorts first under descending. SF and $/MWh key off magnitude (the
@@ -361,6 +361,8 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
       <td className="mrd-drv__key mono">
         {constraintName(term.constraint_key)}
       </td>
+      <td className="mono">{term.binding_hours}h</td>
+      <td className="mrd-drv__side">{side}</td>
       <td
         className="mono"
         style={{ color: shiftFactorColor(term.shift_factor) }}
@@ -368,7 +370,6 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
         {term.shift_factor.toFixed(3)}
         {term.sf_clipped && <span className="mrd-drv__clip">*</span>}
       </td>
-      <td className="mrd-drv__side">{side}</td>
       <td className="mono">{mu == null ? "—" : usd(mu, 2)}</td>
       <td
         className={`mono${
@@ -377,7 +378,6 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
       >
         {usd(term.contribution, 2)}
       </td>
-      <td className="mono">{term.binding_hours}h</td>
     </tr>
   );
 }
