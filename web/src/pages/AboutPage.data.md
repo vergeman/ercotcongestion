@@ -81,6 +81,40 @@ Screenshot target (§3.5 asset): the Brief page's ranked-constraints panel, or
 
 ---
 
+## Validation note — "how we know the recovered structure is real"
+
+Placement: right after the "what a constraint does" explainer, **before** the forecast
+section. This is the reframe's payoff — the map is the *validated* part of the project;
+the forecast is the honest work-in-progress part. Keep it jargon-light.
+
+**The point.** The shift factors aren't guessed — they're recovered from public price
+data and then checked two independent ways:
+
+- **They reproduce the grid's own arithmetic.** Rebuilding each node's congestion from
+  the recovered constraints (`Σ −SF·μ`) reconstructs the observed nodal congestion — the
+  regression's residual *is* a grade on the map, run every fit.
+- **They match ERCOT's own list, 20/20.** ERCOT publishes an "electrically similar
+  points" set (ESSP). The implied shift factors agree with it on **all 20** checked —
+  an external, held-out confirmation the model never trained on.
+
+**Suggested page copy (safe wording):**
+> The map isn't a guess. The recovered shift factors reproduce each node's observed
+> congestion, and they line up with ERCOT's own published list of electrically-similar
+> points on **20 of 20** we checked — a check the model never saw during fitting. So
+> when the map says two locations move together, the grid's own bookkeeping agrees.
+
+Why it matters for framing: the constraint map has a clean external grade (ESSP), while
+the forecast is graded against persistence and currently loses. Leading with the
+*validated* layer is what earns the "grid-structure explorer, honest forecasting layer"
+positioning. (Contrast, don't hide: the forecast's honesty is a credibility signal, not
+a weakness.)
+
+⚠️ Caveat to carry: shift factors that hit the ±1 clip (`*`) are low-confidence — the
+regression ran to the rail on a poorly-identified cell, not a measurement. The ESSP 20/20
+is on real recovered SFs, not clipped ones.
+
+---
+
 ## §6 — Case-study dates (from `web/src/lib/events.ts`)
 
 `events.ts` already curates real, described events with windows + cursor timestamps.
