@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from compute.mu_forecast.model.backtest import (
+from compute.mu_forecast.model.walk_forward import (
     walk_forward,
     walk_forward_chunked,
 )

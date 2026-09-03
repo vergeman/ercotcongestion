@@ -32,7 +32,7 @@ model-facing predictor families (`covariates/`), and head fitting/prediction
 artifacts (`model/`). Raw reusable DAM access remains in `inputs/`; weather,
 outage exposure, and SF-derived geography are covariates because they transform
 those inputs into model features. The historical μ walk is
-`python -m compute.mu_forecast.model.backtest`.
+`compute.mu_forecast.model.walk_forward`.
 
 ## Tests
 
@@ -133,13 +133,13 @@ The stages take dates literally (they never read `now()` or the DB max). `--star
 now means the **same thing** in all three — the *series origin* — so one date
 (**2025-01-01**, the product origin) drives the whole run:
 
-* **`--start`** (`weekly_map`, `eval`, `model.backtest`, `score`) — the *series origin*: the
+* **`--start`** (`weekly_map`, `backfill_scoreboard`) — the *series origin*: the
   first day you want scored, **not** the data floor. Each stage extends the read back on
-  its own (`weekly_map`/`eval`: `read_start = start − window_days`; `model.backtest`:
+  its own (`weekly_map`: `read_start = start − window_days`; `backfill_scoreboard`:
   `start − train_days − leadin`), so `--start 2025-01-01` scores from 2025-01-01
   while reading whatever history it needs behind that. Leave it at the product
   origin; you never hand-compute a data floor.
-* **`--score-from`** (`model.backtest`, optional) — overrides *only* the scored-grid phase
+* **`--score-from`** (`backfill_scoreboard`, optional) — overrides *only* the scored-grid phase
   and defaults to `--start`. Rarely needed — set it only to pin a phase different
   from the origin (e.g. an ablation on a specific sf week).
 * **`--end`** — a *fixed* completed date, deliberately not "today," so a rebuild is

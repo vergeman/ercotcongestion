@@ -373,7 +373,7 @@ This is the SF gate: it holds μ at truth, so its results isolate map quality.
 
 `compute.evaluation.mu` is an operator-run offline evaluation, not a map-refresh
 CronJob branch. It consumes the prediction artifact from
-`compute.mu_forecast.model.backtest` and uses `walk()` → `score_week()` for each
+`compute.mu_forecast.model.walk_forward` and uses `walk()` → `score_week()` for each
 prediction week. The scoreboard job persists the resulting rows.
 
 `score_week()` fits the same trailing-window SF map with
@@ -390,7 +390,7 @@ coverage.
 
 #### μ-head diagnostics — backtest only (not used)
 
-`compute.mu_forecast.model.backtest.walk_forward()` fits both heads on every
+`compute.mu_forecast.model.walk_forward.walk_forward()` fits both heads on every
 trailing training window and writes per-week head-1 diagnostics through
 `compute.mu_forecast.model.heads.bind_metrics()` and `reliability()`: Brier
 score, expected calibration error, AUC, base rate, and mean prediction. These

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from compute.evaluation.mu import evaluate_predictions
-from compute.mu_forecast.model.backtest import walk_forward_from_db
+from compute.mu_forecast.model.walk_forward import walk_forward_from_db
 from compute.mu_forecast.model.runner import DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS, arms_for
 
 log = logging.getLogger("compute.jobs.backfill_scoreboard")

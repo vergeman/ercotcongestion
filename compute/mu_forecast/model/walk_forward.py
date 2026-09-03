@@ -1,8 +1,4 @@
-"""Historical μ model backtesting.
-
-This is a developer-only historical experiment. Production scoreboard backfills
-use ``compute.jobs.backfill_scoreboard`` and publish directly to Postgres.
-"""
+"""Reusable historical μ walk-forward stages for scoreboard publication."""
 from __future__ import annotations
 
 import gc
@@ -14,15 +10,15 @@ import numpy as np
 import pandas as pd
 
 from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
-from compute.mu_forecast.model.heads import bind_metrics, reliability
+from compute.mu_forecast.model.heads import bind_metrics
 from compute.mu_forecast.model.runner import (
-    BIND_MATRIX_FILE, DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS,
+    BIND_MATRIX_FILE, DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
     PANEL_FILE, PANEL_LEADIN_DAYS, _predict_fold, arms_for, feature_cols,
-    persist_outputs, spill_panel_features,
+    spill_panel_features,
 )
 from compute.mu_forecast.model.scheduling import refit_boundaries, score_chunks
 
-log = logging.getLogger("compute.mu_forecast.model.backtest")
+log = logging.getLogger("compute.mu_forecast.model.walk_forward")
 
 def walk_forward(panel: pd.DataFrame,
                  train_days: int = DEFAULT_TRAIN_DAYS,
@@ -118,16 +114,6 @@ def walk_forward(panel: pd.DataFrame,
 
     return (pd.concat(preds) if preds else pd.DataFrame(),
             pd.DataFrame(weeks))
-
-
-# --------------------------------------------------------------------------
-def _fmt_reliability(rel: pd.DataFrame) -> str:
-    lines = ["  p_bin      n     said    happened     gap"]
-    for b, r in rel.iterrows():
-        bar = "#" * int(round(r["y_rate"] * 20))
-        lines.append(f"  {b/10:.1f}-{(b+1)/10:.1f} {int(r['n']):7d} "
-                     f"{r['p_mean']:7.3f} {r['y_rate']:11.3f} {r['gap']:+7.3f}  {bar}")
-    return "\n".join(lines)
 
 
 def walk_forward_chunked(build_panel_for_range, *, score_from: pd.Timestamp,
@@ -230,182 +216,3 @@ def walk_forward_from_db(conn, *, start: pd.Timestamp, end: pd.Timestamp,
                 os.remove(os.path.join(spill_dir, PANEL_FILE))
             except OSError:
                 pass
-
-
-def main(argv: list[str] | None = None) -> int:
-    import argparse
-
-    import psycopg
-
-    from compute.mu_forecast.panel.build import build_panel
-    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
-
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--start", default=None,
-                   help="series origin: the first scored week (SAME meaning as "
-                        "weekly_map/eval --start). The data-read floor is derived "
-                        "as start − train_days − leadin; do NOT pass a data floor.")
-    p.add_argument("--end", default="2026-07-01")
-    p.add_argument("--score-from", default=None,
-                   help="override the scored-grid phase; defaults to --start. Rarely "
-                        "needed — only to pin a phase different from the origin.")
-    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
-    p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
-    p.add_argument("--policy", default="active_28d", choices=["active_28d", "all"])
-    p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS),
-                   help="ablation arm (plan/0088): which covariate families the "
-                        "model may see. The panel is built identically either way.")
-    p.add_argument("--chunk-weeks", type=int, default=32,
-                   help="build and score this many weekly folds at a time, writing "
-                        "temporary prediction chunks to bound full-history memory; "
-                        "0 opts into the legacy single-panel walk")
-    p.add_argument("--out", default=None, help="write weekly metrics CSV here")
-    p.add_argument("--preds-out", default=None,
-                   help="write per-row predictions .npz here")
-    args = p.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
-
-    # --start is the SERIES ORIGIN (first scored week), the same meaning it carries
-    # in weekly_map/eval. --score-from overrides only the grid phase, defaulting to
-    # the origin — so a single date drives all three stages.
-    origin = args.score_from or args.start
-    if origin is None:
-        p.error("pass --start (the series origin / first scored week)")
-    # CT, matching `lo`/`hi` below and `predict_day`'s CT anchor (0133) — `origin`
-    # is a bare `YYYY-MM-DD` naming a CT calendar date, and `tz="UTC"` here used to
-    # read the SAME string as a different instant (UTC midnight, not CT midnight)
-    # than the read-floor did, desyncing the refit grid's phase from the CT day
-    # boundary `predict_day`/`forecast_day` now score on.
-    score_from_ts = pd.Timestamp(origin, tz="America/Chicago")
-    if args.chunk_weeks < 0:
-        p.error("--chunk-weeks must be non-negative")
-    if args.chunk_weeks and not args.preds_out:
-        p.error("--chunk-weeks requires --run-id or --preds-out for the final artifact")
-
-    # Derive the data-read floor from the origin: the walk needs train_days of history
-    # behind the first scored week, plus PANEL_LEADIN_DAYS of slack for the panel's
-    # front-edge day-loss. This never shifts the scored grid (pinned by score_from);
-    # it only guarantees the first fold gets its full trailing window.
-    lo = (pd.Timestamp(origin, tz="America/Chicago")
-          - pd.Timedelta(days=args.train_days + PANEL_LEADIN_DAYS))
-    hi = pd.Timestamp(args.end, tz="America/Chicago")
-    dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
-           f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
-
-    arms = arms_for(args.features)
-
-    # Resolve the disk spill directory once — both spills share it: the disk-backed
-    # --preds-out PVC by default, MU_SPILL_DIR overrides.
-    spill_dir = os.environ.get("MU_SPILL_DIR")
-    if spill_dir is None and args.preds_out:
-        spill_dir = os.path.join(
-            os.path.dirname(os.path.abspath(args.preds_out)) or ".", "spill")
-
-    if spill_dir:
-        log.info("bind matrix spills to disk at %s", spill_dir)
-
-    if args.chunk_weeks:
-        chunk_dir = os.path.join(
-            spill_dir or os.path.dirname(os.path.abspath(args.preds_out)),
-            "mu-pred-chunks",
-        )
-        with psycopg.connect(dsn) as conn:
-            def build_chunk(read_start, chunk_end):
-                log.info("loading chunk inputs %s → %s", read_start.date(),
-                         chunk_end.date())
-                M = load_shadow_prices(conn, read_start, chunk_end)
-                C = None
-                if "geo" in arms:
-                    C = load_congestion_panel(conn, read_start, chunk_end)
-                    log.info("chunk C = %s", C.shape)
-                panel = build_panel(conn, M, read_start, chunk_end,
-                                    policy=args.policy, C=C,
-                                    score_from=score_from_ts,
-                                    with_weather="wx" in arms)
-                del M, C
-                return panel
-
-            weekly, chunk_paths = walk_forward_chunked(
-                build_chunk, score_from=score_from_ts, end=hi,
-                train_days=args.train_days, refit_days=args.refit_days,
-                chunk_weeks=args.chunk_weeks, arms=arms, spill_dir=spill_dir,
-                chunk_dir=chunk_dir,
-            )
-        n_pred_rows = combine_pred_chunks(chunk_paths, args.preds_out)
-        for path in chunk_paths:
-            os.remove(path)
-        try:
-            os.rmdir(chunk_dir)
-        except OSError:
-            pass
-        preds = None
-        log.info("combined %d prediction chunks into %s (%s rows)",
-                 len(chunk_paths), args.preds_out, f"{n_pred_rows:,}")
-    else:
-        with psycopg.connect(dsn) as conn:
-            log.info("loading shadow prices %s → %s", lo.date(), hi.date())
-            M = load_shadow_prices(conn, lo, hi)
-            # The congestion panel is loaded only for the geography arm — it is what
-            # `SF` is fitted against. Skipping it when no arm needs it keeps the base
-            # run identical to 0085's and saves a large read.
-            C = None
-            if "geo" in arms:
-                C = load_congestion_panel(conn, lo, hi)
-                log.info("C = %s (geography arm is on)", C.shape)
-            log.info("M = %s; building covariate panel (policy=%s)", M.shape, args.policy)
-            panel = build_panel(conn, M, lo, hi, policy=args.policy, C=C,
-                                score_from=score_from_ts,
-                                with_weather="wx" in arms)
-            anchor = M.index[0].normalize()
-            del M, C
-
-        log.info("panel = %s rows x %s cols, %.2f GB — arm %r sees %d features",
-                 f"{len(panel):,}", panel.shape[1],
-                 panel.memory_usage(deep=False).sum() / 1e9, args.features,
-                 len(feature_cols(panel, arms)) + 1)
-        if spill_dir and os.environ.get("MU_SPILL_PANEL"):
-            panel = spill_panel_features(panel, spill_dir)
-
-        # Anchor on the SHADOW-PRICE panel's first day so the scored weeks coincide
-        # with sf/eval's — see refit_boundaries.
-        preds, weekly = walk_forward(panel, args.train_days, args.refit_days,
-                                     score_from_ts, anchor=anchor,
-                                     arms=arms, spill_dir=spill_dir)
-        del panel
-        if spill_dir:
-            try:
-                os.remove(os.path.join(spill_dir, PANEL_FILE))
-            except OSError:
-                pass
-
-    if weekly.empty:
-        print("no scorable weeks")
-        return 1
-
-    print(f"\n=== HEAD 1: P(bind) — calibration first === [arm: {args.features}]")
-    if preds is None:
-        print(f"  weeks {len(weekly)}   rows {n_pred_rows:,}   "
-              "(chunked; pooled calibration is in the prediction artifact)")
-        print(f"  weekly mean Brier {weekly['brier'].mean():.5f}   "
-              f"ECE {weekly['ece'].mean():.4f}   AUC {weekly['auc'].mean():.4f}")
-    else:
-        y = preds["y_bind"].to_numpy()
-        pr = preds["p_bind"].to_numpy()
-        pooled = bind_metrics(y, pr)
-        print(f"  weeks {len(weekly)}   rows {len(preds):,}   "
-              f"base rate {pooled['base_rate']:.4f}   mean pred {pooled['mean_pred']:.4f}")
-        print(f"  Brier {pooled['brier']:.5f}   ECE {pooled['ece']:.4f}   "
-              f"AUC {pooled['auc']:.4f}")
-        print("\n  reliability curve (said vs happened):")
-        print(_fmt_reliability(reliability(y, pr)))
-
-    persist_outputs(weekly, preds if preds is not None else pd.DataFrame(),
-                    args.out, None if preds is None else args.preds_out)
-    return 0
-
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

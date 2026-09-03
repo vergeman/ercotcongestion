@@ -87,4 +87,4 @@ def test_serving_modules_do_not_import_backtest_orchestration():
             for node in ast.walk(ast.parse(path.read_text()))
             if isinstance(node, ast.ImportFrom) and node.module
         }
-        assert "compute.mu_forecast.model.backtest" not in modules
+        assert "compute.mu_forecast.model.walk_forward" not in modules

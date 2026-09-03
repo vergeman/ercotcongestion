@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from compute.evaluation import mu as score_mod
-from compute.mu_forecast.model.backtest import walk_forward
+from compute.mu_forecast.model.walk_forward import walk_forward
 from compute.mu_forecast.model.runner import (DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS,
                                                FEATURE_SETS, arms_for, feature_cols,
                                                load_preds, save_preds)
