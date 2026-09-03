@@ -242,6 +242,25 @@ def walk(M: pd.DataFrame, C: pd.DataFrame, preds: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
+def evaluate_predictions(conn, preds: pd.DataFrame, *, end: pd.Timestamp,
+                         window_days: int = WINDOW_DAYS, lam: float = LAM,
+                         ) -> pd.DataFrame:
+    """Load the causal evaluation inputs and score an in-memory μ walk."""
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
+
+    weeks = weeks_from_preds(preds.reset_index() if isinstance(preds.index, pd.MultiIndex)
+                             else preds)
+    if not len(weeks):
+        return pd.DataFrame()
+    lo = weeks[0] - pd.Timedelta(days=window_days)
+    M = load_shadow_prices(conn, lo, end)
+    C = load_congestion_panel(conn, lo, end)
+    try:
+        return walk(M, C, preds, window_days, REFIT_DAYS, lam)
+    finally:
+        del M, C
+
+
 # --------------------------------------------------------------------------
 # reporting
 # --------------------------------------------------------------------------

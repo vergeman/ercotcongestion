@@ -20,7 +20,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from compute.mu_forecast.model.artifacts import combine_pred_chunks, save_preds
+from compute.mu_forecast.model.artifacts import combine_pred_chunks, load_preds, save_preds
 from compute.mu_forecast.model.heads import bind_metrics, reliability
 from compute.mu_forecast.model.runner import (
     BIND_MATRIX_FILE, DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS,
@@ -184,6 +184,59 @@ def walk_forward_chunked(build_panel_for_range, *, score_from: pd.Timestamp,
             gc.collect()
     return (pd.concat(weekly_parts, ignore_index=True) if weekly_parts
             else pd.DataFrame()), paths
+
+
+def walk_forward_from_db(conn, *, start: pd.Timestamp, end: pd.Timestamp,
+                         train_days: int = DEFAULT_TRAIN_DAYS,
+                         refit_days: int = DEFAULT_REFIT_DAYS,
+                         policy: str = "active_28d",
+                         arms: tuple[str, ...] = ("lag", "geo", "wx"),
+                         chunk_weeks: int = 32, spill_dir: str | None = None,
+                         scratch_dir: str | None = None,
+                         ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run a historical walk from Postgres without publishing its predictions."""
+    from compute.inputs.dam import load_congestion_panel, load_shadow_prices
+    from compute.mu_forecast.panel.build import build_panel
+
+    score_from = pd.Timestamp(start, tz="America/Chicago")
+    end = pd.Timestamp(end, tz="America/Chicago")
+
+    def build_range(read_start, read_end):
+        M = load_shadow_prices(conn, read_start, read_end)
+        C = load_congestion_panel(conn, read_start, read_end) if "geo" in arms else None
+        try:
+            return build_panel(conn, M, read_start, read_end, policy=policy, C=C,
+                               score_from=score_from, with_weather="wx" in arms)
+        finally:
+            del M, C
+
+    if chunk_weeks:
+        if scratch_dir is None:
+            raise ValueError("chunked walk requires a job-owned scratch directory")
+        weekly, paths = walk_forward_chunked(
+            build_range, score_from=score_from, end=end, train_days=train_days,
+            refit_days=refit_days, chunk_weeks=chunk_weeks, arms=arms,
+            spill_dir=spill_dir, chunk_dir=os.path.join(scratch_dir, "mu-pred-chunks"))
+        if not paths:
+            return pd.DataFrame(), weekly
+        combined = os.path.join(scratch_dir, "mu-preds.npz")
+        combine_pred_chunks(paths, combined)
+        return load_preds(combined), weekly
+
+    read_start = score_from - pd.Timedelta(days=train_days + PANEL_LEADIN_DAYS)
+    panel = build_range(read_start, end)
+    try:
+        if spill_dir and os.environ.get("MU_SPILL_PANEL"):
+            panel = spill_panel_features(panel, spill_dir)
+        return walk_forward(panel, train_days, refit_days, score_from,
+                            arms=arms, spill_dir=spill_dir)
+    finally:
+        del panel
+        if spill_dir:
+            try:
+                os.remove(os.path.join(spill_dir, PANEL_FILE))
+            except OSError:
+                pass
 
 
 def main(argv: list[str] | None = None) -> int:

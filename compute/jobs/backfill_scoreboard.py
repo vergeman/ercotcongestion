@@ -1,16 +1,16 @@
-"""One-shot loader: μ weekly point scores -> ``scoreboard_weekly``.
-
-The loader reshapes the pre-computed point metrics from ``mu_score_weekly.csv``;
-it does not re-measure forecasts or require a band artifact.
-"""
+"""Backfill walk-forward μ scoreboard rows directly into ``scoreboard_weekly``."""
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 
 import pandas as pd
 
-from compute.jobs.backfill_nodal import scores_path_for
+from compute.evaluation.mu import evaluate_predictions
+from compute.mu_forecast.model.backtest import walk_forward_from_db
+from compute.mu_forecast.model.runner import DEFAULT_REFIT_DAYS, DEFAULT_TRAIN_DAYS, FEATURE_SETS, arms_for
 
 log = logging.getLogger("compute.jobs.backfill_scoreboard")
 
@@ -50,17 +50,13 @@ SOURCE_DEFINITIONS = (
 SOURCE_BY_COMPUTE_ID = {source.compute_id: source for source in SOURCE_DEFINITIONS}
 
 
-def _read_csv(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, keep_default_na=False, na_values=_NA_VALUES)
-
-
 def _week_ts(s: pd.Series) -> pd.Series:
     return pd.to_datetime(s, utc=True).dt.tz_localize(None).dt.normalize()
 
 
-def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
+def build_rows(score: pd.DataFrame, *, run_id: str) -> list[tuple]:
     """Build one COPY row per source/week screening metric."""
-    score = _read_csv(score_csv)
+    score = score.copy()
     score["week"] = _week_ts(score["week"])
 
     def _v(x):
@@ -81,13 +77,9 @@ def build_rows(score_csv: str, *, run_id: str) -> list[tuple]:
     ]
 
 
-def resolve_board_paths(run_id: str, score: str | None) -> str:
-    return score or scores_path_for(run_id)
-
-
-def load_scoreboard(score_csv: str, conn, *, run_id: str) -> int:
+def load_scoreboard(score: pd.DataFrame, conn, *, run_id: str) -> int:
     """Delete-then-COPY the point-only board for ``run_id``; does not commit."""
-    rows = build_rows(score_csv, run_id=run_id)
+    rows = build_rows(score, run_id=run_id)
     cols = ("run_id", "week", "source", *_SCORE_METRICS,
             *_COVERAGE, *_COUNTS)
     with conn.cursor() as cur:
@@ -105,19 +97,36 @@ def main(argv: list[str] | None = None) -> int:
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--run-id", required=True)
-    p.add_argument("--score", default=None,
-                   help="μ weekly point-score CSV (defaults under runs/<run-id>/mu)")
+    p.add_argument("--start", required=True, help="first CT scored date")
+    p.add_argument("--end", required=True, help="exclusive CT score bound")
+    p.add_argument("--score-from", default=None, help="override the scored-grid phase")
+    p.add_argument("--train-days", type=int, default=DEFAULT_TRAIN_DAYS)
+    p.add_argument("--refit-days", type=int, default=DEFAULT_REFIT_DAYS)
+    p.add_argument("--policy", default="active_28d", choices=["active_28d", "all"])
+    p.add_argument("--features", default="all", choices=sorted(FEATURE_SETS))
+    p.add_argument("--chunk-weeks", type=int, default=32)
     args = p.parse_args(argv)
-    args.score = resolve_board_paths(args.run_id, args.score)
+    if args.chunk_weeks < 0:
+        p.error("--chunk-weeks must be non-negative")
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
-    with psycopg.connect(dsn) as conn:
-        n = load_scoreboard(args.score, conn, run_id=args.run_id)
-        conn.commit()
-    log.info("scoreboard_weekly <- %s rows (run_id=%s) from %s", n, args.run_id,
-             args.score)
+    start = args.score_from or args.start
+    scratch_parent = os.environ.get("MU_SPILL_DIR")
+    with tempfile.TemporaryDirectory(prefix="scoreboard-", dir=scratch_parent) as scratch:
+        with psycopg.connect(dsn) as conn:
+            preds, _ = walk_forward_from_db(
+                conn, start=start, end=args.end, train_days=args.train_days,
+                refit_days=args.refit_days, policy=args.policy, arms=arms_for(args.features),
+                chunk_weeks=args.chunk_weeks, spill_dir=scratch, scratch_dir=scratch)
+            score = evaluate_predictions(conn, preds, end=pd.Timestamp(args.end, tz="America/Chicago"))
+            if score.empty:
+                log.warning("no scorable weeks; scoreboard unchanged")
+                return 1
+            n = load_scoreboard(score, conn, run_id=args.run_id)
+            conn.commit()
+    log.info("scoreboard_weekly <- %s rows (run_id=%s)", n, args.run_id)
     return 0
 
 
