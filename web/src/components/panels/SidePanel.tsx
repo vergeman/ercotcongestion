@@ -34,7 +34,9 @@ interface Props {
   // Compare show the actual.
   conditions: ConditionsEntry | null;
   mapView: MapView;
-  // Day-scoped served grade, or an explicitly dated weekly fallback.
+  // Day-scoped served grade, or an explicitly dated weekly fallback. Retained
+  // across a day change (see MapWorkspace) so the numbers swap in place without
+  // the section unmounting.
   scorecard: MapScorecard | null;
   // Diagnostics for the cursor's artifact and its actual SF window.
   fitMeta: MapFitMetadata | null;
