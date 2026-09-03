@@ -39,13 +39,13 @@ Branch: refactor/0202-self-contained-scoreboard-backfill
 
 ## Acceptance
 
-* [ ] One `backfill_scoreboard` invocation from `run_id`, date range, and model options performs the historical walk-forward, evaluates it, and commits the expected `scoreboard_weekly` rows without accepting or requiring a prediction or score artifact path.
+* [x] One `backfill_scoreboard` invocation from `run_id`, date range, and model options performs the historical walk-forward, evaluates it, and commits the expected `scoreboard_weekly` rows without accepting or requiring a prediction or score artifact path.
 * [ ] The new job's rows are equivalent to the current backtest → evaluation → importer pipeline for a fixed fixture/range, including source IDs, week keys, and all screening metrics.
-* [ ] Chunked execution remains bounded and uses the existing spill configuration; all job-owned scratch files are removed after both success and a simulated stage failure.
-* [ ] `compute/artifacts.py` is deleted, and no production code, default CLI path, or documentation references `mu_weekly.csv`, `mu_preds.npz`, `mu_score_weekly.csv`, `forecast/mu_nodal.npz`, `RunArtifacts`, or `compute.artifacts`.
-* [ ] `compute.jobs.backfill_artifacts` is absent and `compute.jobs.backfill_forecasts` provides its unchanged historical live-forecast behavior; every tracked invocation and runbook uses the new name.
-* [ ] `compute.jobs.backfill_nodal` is deleted, including its CLI, tests, documentation, and file-seed/reload modes; historical live forecast coverage is supplied only by `backfill_forecasts`.
-* [ ] `docs/ARTIFACTS.md` describes only durable database-backed forecast state and ephemeral job-owned scratch storage; it does not catalog retired filesystem artifacts.
+* [x] Chunked execution remains bounded and uses the existing spill configuration; all job-owned scratch files are removed after both success and a simulated stage failure.
+* [x] `compute/artifacts.py` is deleted, and no production code, default CLI path, or documentation references `mu_weekly.csv`, `mu_preds.npz`, `mu_score_weekly.csv`, `forecast/mu_nodal.npz`, `RunArtifacts`, or `compute.artifacts`.
+* [x] `compute.jobs.backfill_artifacts` is absent and `compute.jobs.backfill_forecasts` provides its unchanged historical live-forecast behavior; every tracked invocation and runbook uses the new name.
+* [x] `compute.jobs.backfill_nodal` is deleted, including its CLI, tests, documentation, and file-seed/reload modes; historical live forecast coverage is supplied only by `backfill_forecasts`.
+* [x] `docs/ARTIFACTS.md` describes only durable database-backed forecast state and ephemeral job-owned scratch storage; it does not catalog retired filesystem artifacts.
 * [ ] No module under `compute/jobs` reads or writes a persistent μ prediction, weekly-metric, weekly-score, or nodal-panel file; a focused import/reference test covers this boundary.
 * [ ] `backfill_artifacts`, daily forecast publishing, API reads of `forecast_nodal` / `forecast_sf_artifact`, and live daily grading continue unchanged and pass their focused tests.
 * [ ] Focused backtest, evaluation, scoreboard, artifact-removal/import-boundary, and database persistence tests pass; a repository-wide reference scan has only deliberately retained explicit experiment-export compatibility references, if any.

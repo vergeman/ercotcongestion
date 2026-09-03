@@ -13,7 +13,7 @@ The scoreboard uses rank-Spearman (cross-node, per hour), sign agreement (±$1
 deadband), and top-decile hit.
 
     docker compose run --rm compute python -m compute.evaluation.mu \
-      --preds /compute/mu/mu_preds.npz --out /compute/mu/mu_score_weekly.csv
+      --preds /tmp/predictions.npz --out /tmp/scores.csv
 
 """
 from __future__ import annotations
@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--preds", default="/compute/mu/mu_preds.npz")
+    p.add_argument("--preds", required=True)
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--window-days", type=int, default=WINDOW_DAYS)

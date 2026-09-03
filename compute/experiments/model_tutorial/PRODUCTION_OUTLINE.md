@@ -50,11 +50,10 @@ stage packages for library imports and CLI commands.
 | Weekly, after map | `python -m compute.sf_map.geography.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |
-| Historical rebuild | `python -m compute.mu_forecast.model.backtest` | Runs the μ walk-forward backtest and saves per-row predictions/residuals. | `runs/<run-id>/mu/mu_preds.npz`, weekly μ metrics |
+| Historical rebuild | `python -m compute.mu_forecast.model.backtest` | Runs a μ walk-forward experiment with explicitly supplied export paths. | Explicit developer exports |
 | Historical rebuild | `python -m compute.evaluation.mu` | Scores μ predictions against common baselines. | score CSV |
 | Historical rebuild | `python -m compute.jobs.backfill_scoreboard` | Copies the precomputed weekly μ score CSV into `scoreboard_weekly`; it does not recompute metrics. | weekly Scoreboard rows |
-| Historical rebuild | `python -m compute.jobs.backfill_nodal` | Projects historical μ predictions through SF to seed nodal forecasts and verdict data. | nodal artifacts, verdict data |
-| Historical rebuild | `python -m compute.jobs.backfill_artifacts` | Replays `daily_forecast` over dates to create served-style artifacts. | per-day DB artifacts |
+| Historical rebuild | `python -m compute.jobs.backfill_forecasts` | Replays `daily_forecast` over dates to publish served-style forecasts. | per-day DB rows |
 | After delivery | `python -m compute.jobs.grade_forecast_day` | Grades what was actually served, including nodal and ESSP measures. | forecast grades |
 
 The `compute/README.md` runbook contains the exact historical build sequence.

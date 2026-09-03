@@ -34,8 +34,8 @@ draw that distribution in `propagate.py`; this module only re-reads it.
     confirmation here does not clear it.
 
     docker compose run --rm compute python -m compute.experiments.mu.rerank \
-      --preds /compute/runs/mu-all-v1/mu/mu_preds.npz \
-      --scores /compute/runs/mu-all-v1/mu/mu_score_weekly.csv \
+      --preds /tmp/predictions.npz \
+      --scores /tmp/scores.csv \
       --out /compute/runs/experiments/mu/mu_rerank_weekly.csv
 
 """
@@ -207,8 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--preds", default="/compute/runs/mu-all-v1/mu/mu_preds.npz")
-    p.add_argument("--scores", default="/compute/runs/mu-all-v1/mu/mu_score_weekly.csv")
+    p.add_argument("--preds", required=True)
+    p.add_argument("--scores", required=True)
     p.add_argument("--start", default="2024-12-11")
     p.add_argument("--end", default="2026-07-01")
     p.add_argument("--draws", type=int, default=200)
