@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from compute.mu_forecast.panel.availability import ERCOT_TZ, vintage_cutoff_expr
+from compute.mu_forecast.panel.availability import vintage_cutoff_expr
+from compute.time import ERCOT_TZ
 
 
 def _read(conn, sql: str, params, index_col: str | None = None) -> pd.DataFrame:

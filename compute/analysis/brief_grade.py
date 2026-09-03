@@ -15,7 +15,7 @@ from psycopg.rows import tuple_row
 
 from compute.analysis.grade import GradeResult, grade_profiles, top_fraction_labels
 from compute.projection.codecs import load_sf_mu
-from compute.time import delivery_bounds
+from compute.time import delivery_bounds, delivery_date_of
 
 @dataclass(frozen=True)
 class SourceDefinition:
@@ -174,9 +174,7 @@ def windowed_profiles(
         return {}
     frame = pd.DataFrame(rows, columns=["interval_ts", key, "value"])
     frame["interval_ts"] = pd.to_datetime(frame["interval_ts"], utc=True)
-    frame["delivery_date"] = (
-        frame["interval_ts"].dt.tz_convert("America/Chicago").dt.date
-    )
+    frame["delivery_date"] = delivery_date_of(frame["interval_ts"])
     return {
         day: group.pivot(index="interval_ts", columns=key, values="value").sort_index()
         for day, group in frame.groupby("delivery_date")
