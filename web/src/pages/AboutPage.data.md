@@ -22,21 +22,24 @@ a constraint *"appeared / was binding on N% of days"*, **never** "bound N times"
 
 ### Headline list — trailing 180 days (of 181 delivery days), summer-weighted
 
-| Constraint | Contingency | Days | % days | $/day¹ | Zone | kV | Type |
-|---|---|---:|---:|---:|---|---:|---|
-| **LPLMK_LPLNE_1** | SBWDDBM5 | 175 | **96.7%** | 533 | West | 115 | transmission |
-| HARGRO_TWINBU1_1 | SRUSBIG8 | 175 | 96.7% | 64 | North | 138 | transmission |
-| **NELRIO** | BASE CASE | 173 | 95.6% | 95 | South | 345 | GTC |
-| HEXT_YELWJC1_1 | DYETRJU8 | 173 | 95.6% | 72 | South | 69 | radial |
-| NLARSW_PILONC1_1 | DFOAVLO5 | 171 | 94.5% | 174 | South | 138 | transmission |
-| HARGRO_TWINBU1_1 | DBAKCED5 | 171 | 94.5% | 105 | West | 138 | transmission |
-| **6437__F** | DMTSCOS5 | 170 | 93.9% | 451 | West | 138 | transmission |
-| **E_PASP** | BASE CASE | 163 | 90.1% | 241 | South (El Paso) | 69 | GTC |
-| **6830__B** | DGRMGRS8 | 155 | 85.6% | 361 | West | 69 | transmission |
-| **LAKENA_SAMATH1_1** | DBAKCED5 | 149 | 82.3% | **1,558** | West | 138 | transmission |
-| **BRUNI_69_1** | DFOAVLO5 | 144 | 79.6% | **1,432** | West/South | 69 | transmission |
+| Constraint | Contingency | Days | % days | $/day¹ | Zone | kV | Type | Name reads as² | Conf.³ |
+|---|---|---:|---:|---:|---|---:|---|---|---|
+| **LPLMK_LPLNE_1** | SBWDDBM5 | 175 | **96.7%** | 533 | West | 115 | transmission | Line LPLMK→LPLNE ckt 1; `LPL*` = shared local area/owner code | low |
+| HARGRO_TWINBU1_1 | SRUSBIG8 | 175 | 96.7% | 64 | North | 138 | transmission | Line Hargrove→Twin Buttes ckt 1 (Twin Buttes ≈ San Angelo) | med |
+| **NELRIO** | BASE CASE | 173 | 95.6% | 95 | South | 345 | GTC | GTC (interface limit), reads as Del Rio–area; **BASE CASE = binds in normal ops** | low⁴ |
+| HEXT_YELWJC1_1 | DYETRJU8 | 173 | 95.6% | 72 | South | 69 | radial | Line Hext→Yellowjacket ckt 1 (Hext = Menard Co., west-central) | med |
+| NLARSW_PILONC1_1 | DFOAVLO5 | 171 | 94.5% | 174 | South | 138 | transmission | Line NLARSW→Piloncillo ckt 1 (Piloncillo = S. Texas wind) | low–med |
+| HARGRO_TWINBU1_1 | DBAKCED5 | 171 | 94.5% | 105 | West | 138 | transmission | Same Hargrove→Twin Buttes line, different contingency | med |
+| **6437__F** | DMTSCOS5 | 170 | 93.9% | 451 | West | 138 | transmission | Numeric ERCOT bus element — **no name content**; located by zone only | n/a |
+| **E_PASP** | BASE CASE | 163 | 90.1% | 241 | South | 69 | GTC | GTC; **not El Paso** (El Paso is WECC, not ERCOT); **BASE CASE = binds in normal ops** | low⁴ |
+| **6830__B** | DGRMGRS8 | 155 | 85.6% | 361 | West | 69 | transmission | Numeric ERCOT bus element — **no name content**; located by zone only | n/a |
+| **LAKENA_SAMATH1_1** | DBAKCED5 | 149 | 82.3% | **1,558** | West | 138 | transmission | Line LAKENA→SAMATH ckt 1 | low |
+| **BRUNI_69_1** | DFOAVLO5 | 144 | 79.6% | **1,432** | West/South | 69 | transmission | Bruni station, 69 kV, ckt 1 (Bruni = Webb Co., S. Texas near Laredo) | med |
 
 ¹ `$/day` = mean Σ|shadow price| over the days it appeared (magnitude, not a lower bound).
+² From ERCOT naming grammar: `STNA_STNB_N` = line STNA→STNB circuit N; `NAME_kV_N` = element at one station; `NNNN__X` = numeric bus element (no place content); named tokens = GTC/interface. **kV and Zone are real** (from `constraint_geo`); place names are **inferred** — no name-crosswalk table exists in prod (`bus_snapshots.bus_id` is bare bus numbers). Contingency prefix: `S`=single / `D`=double / `B`=breaker outage; **`BASE CASE`=binds pre-contingency, i.e. in normal steady-state operation.**
+³ Confidence in the inferred substation/place name only (grammar + kV + zone are otherwise solid).
+⁴ Verifying exact GTC/substation location needs an ERCOT EMS network dictionary (not in prod).
 
 ### Full-year robustness (trailing 365 days, of 366) — proves it's not just summer
 
