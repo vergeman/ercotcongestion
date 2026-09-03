@@ -5,11 +5,9 @@ from fastapi import APIRouter
 from api.services.analysis import panels
 from api.schemas.analysis import (
     AnalysisConstraintsAvailableResponse,
-    AnalysisConstraintsUnavailableResponse,
     AnalysisEsspGroupsAvailableResponse,
     AnalysisEsspGroupsUnavailableResponse,
     AnalysisSettlementPointsAvailableResponse,
-    AnalysisSettlementPointsUnavailableResponse,
     NodeAnalysisAvailableResponse,
     NodeAnalysisUnavailableResponse,
 )
@@ -27,7 +25,7 @@ router.add_api_route(
     panels.get_settlement_points,
     methods=["GET"],
     response_model=AnalysisSettlementPointsAvailableResponse
-    | AnalysisSettlementPointsUnavailableResponse,
+    | NodeAnalysisUnavailableResponse,
     summary="Full settlement-point vocabulary for a daily SF artifact",
 )
 router.add_api_route(
@@ -35,7 +33,7 @@ router.add_api_route(
     panels.get_constraints,
     methods=["GET"],
     response_model=AnalysisConstraintsAvailableResponse
-    | AnalysisConstraintsUnavailableResponse,
+    | NodeAnalysisUnavailableResponse,
     summary="Full constraint vocabulary for a daily SF artifact",
 )
 router.add_api_route(
