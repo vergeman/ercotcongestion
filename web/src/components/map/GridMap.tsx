@@ -808,11 +808,18 @@ export default function GridMap({
       return;
     }
 
+    // Throttle to ~30fps: a color fade is smooth at 30, and each painted frame
+    // repaints every node (×2 maps in compare), so halving the frames frees the
+    // main thread for the playback clock. The final frame always lands on target.
     let rafId = 0;
+    let lastPaint = 0;
     const t0 = performance.now();
     const tick = (now: number) => {
       const frac = Math.min(1, (now - t0) / TWEEN_MS);
-      paint(1 - (1 - frac) ** 3); // ease-out cubic
+      if (frac >= 1 || now - lastPaint >= 1000 / 30) {
+        paint(1 - (1 - frac) ** 3); // ease-out cubic
+        lastPaint = now;
+      }
       rafId = frac < 1 ? requestAnimationFrame(tick) : 0;
     };
     rafId = requestAnimationFrame(tick);
