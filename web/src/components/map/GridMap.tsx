@@ -693,6 +693,10 @@ export default function GridMap({
   // each node actually is (see the paint below). A running tween is cancelled by
   // this effect's own cleanup when the frame changes or the map unmounts.
   const normValsRef = useRef<Map<string, number>>(new Map());
+  // Last color pushed to each node, so an hour only re-sets the nodes that
+  // actually changed color — ~1100 setFeatureState calls/tick was the compare
+  // hotspot. Cleared whenever another path (reach/empty) repaints outside here.
+  const lastColorRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("sps") || !points) return;
@@ -752,6 +756,7 @@ export default function GridMap({
         touched.add(id);
       }
       reachIdsRef.current = touched;
+      lastColorRef.current.clear(); // reach overwrote fills; force a full repaint next
       return;
     }
 
@@ -771,15 +776,25 @@ export default function GridMap({
         );
       }
       normValsRef.current.clear();
+      lastColorRef.current.clear();
       return;
     }
 
     // Target normalized fill (0..1 into the active ramp) per node, plus the ramp
     // itself. Same $/MWh → same color on both panes, so the sides stay comparable.
-    const ramp =
+    // Memoized on a quantized nv so ~1100 nodes cost at most a few hundred color
+    // builds, and the cache is reused across a tween's frames.
+    const base =
       dataMode === "congestion"
         ? (nv: number) => congestionColor(nv, theme)
         : (nv: number) => lmpColor(nv, theme);
+    const rampCache = new Map<number, string>();
+    const ramp = (nv: number) => {
+      const key = Math.round(nv * 512);
+      let c = rampCache.get(key);
+      if (c === undefined) { c = base(nv); rampCache.set(key, c); }
+      return c;
+    };
     const targets = new Map<string, number>();
     for (const row of rows) {
       const nv =
@@ -803,7 +818,10 @@ export default function GridMap({
         const from = start.get(id) ?? target;
         const nv = from + (target - from) * frac;
         norms.set(id, nv);
-        map.setFeatureState({ source: "sps", id }, { color: ramp(nv) });
+        const color = ramp(nv);
+        if (lastColorRef.current.get(id) === color) continue; // unchanged → skip
+        lastColorRef.current.set(id, color);
+        map.setFeatureState({ source: "sps", id }, { color });
       }
     };
 
