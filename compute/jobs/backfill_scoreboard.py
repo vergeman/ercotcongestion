@@ -113,13 +113,13 @@ def main(argv: list[str] | None = None) -> int:
     dsn = (f"host={os.environ['PG_HOST']} dbname={os.environ.get('PG_DB', 'ercot')} "
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
     start = args.score_from or args.start
-    scratch_parent = os.environ.get("MU_SPILL_DIR")
-    with tempfile.TemporaryDirectory(prefix="scoreboard-", dir=scratch_parent) as scratch:
+    spill_parent = os.environ.get("MU_SPILL_DIR")
+    with tempfile.TemporaryDirectory(prefix="scoreboard-", dir=spill_parent) as spill_dir:
         with psycopg.connect(dsn) as conn:
             preds, _ = walk_forward_from_db(
                 conn, start=start, end=args.end, train_days=args.train_days,
                 refit_days=args.refit_days, policy=args.policy, arms=arms_for(args.features),
-                chunk_weeks=args.chunk_weeks, spill_dir=scratch, scratch_dir=scratch)
+                chunk_weeks=args.chunk_weeks, spill_dir=spill_dir, scratch_dir=spill_dir)
             score = evaluate_predictions(conn, preds, end=pd.Timestamp(args.end, tz="America/Chicago"))
             if score.empty:
                 log.warning("no scorable weeks; scoreboard unchanged")

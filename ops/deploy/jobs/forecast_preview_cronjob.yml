@@ -113,3 +113,13 @@ spec:
                 limits:
                   cpu: "6"
                   memory: "16Gi"
+              # Backfill jobs create bounded-memory temporary workspaces here.
+              # The preview tick remains database-backed.
+              volumeMounts:
+                - name: runs
+                  mountPath: /compute/runs
+
+          volumes:
+            - name: runs
+              persistentVolumeClaim:
+                claimName: compute-runs
