@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from compute.time import (ct_day_bounds, delivery_date_of, delivery_day_of,
-                          normalize_ct_day)
+                          localize_ct, normalize_ct_day, unique_days)
 
 
 @pytest.mark.parametrize(
@@ -41,3 +41,32 @@ def test_delivery_date_of_uses_ct_instead_of_the_utc_calendar_date():
     seam = pd.Series(pd.to_datetime(["2026-07-31 00:00:00+00:00"]))
 
     assert delivery_date_of(seam).tolist() == [pd.Timestamp("2026-07-30").date()]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-07-01", pd.Timestamp("2026-07-01", tz="America/Chicago")),
+        (pd.Timestamp("2026-07-01", tz="UTC"),
+         pd.Timestamp("2026-06-30 19:00", tz="America/Chicago")),
+        (None, pd.NaT),
+        (pd.NaT, pd.NaT),
+    ],
+)
+def test_localize_ct_coerces_naive_and_aware_values(value, expected):
+    assert localize_ct(value) is pd.NaT if expected is pd.NaT else localize_ct(value) == expected
+
+
+def test_unique_days_preserves_index_timezone_and_sorts():
+    index = pd.DatetimeIndex([
+        "2026-07-02 00:30:00-04:00",
+        "2026-07-01 00:30:00-04:00",
+        "2026-07-02 15:00:00-04:00",
+    ])
+
+    result = unique_days(index)
+
+    assert result.tolist() == [
+        pd.Timestamp("2026-07-01", tz="Etc/GMT+4"),
+        pd.Timestamp("2026-07-02", tz="Etc/GMT+4"),
+    ]
