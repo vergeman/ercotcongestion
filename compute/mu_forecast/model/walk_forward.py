@@ -1,4 +1,9 @@
-"""Reusable historical μ walk-forward stages for scoreboard publication."""
+"""Reusable historical μ walk-forward stages for scoreboard publication.
+
+``backfill_scoreboard`` uses these repeated trailing-window folds to evaluate
+historic weeks. ``daily_forecast`` fits one delivery day through
+``runner.predict_day`` instead; ``backfill_forecasts`` replays that daily path.
+"""
 from __future__ import annotations
 
 import gc
