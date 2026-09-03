@@ -56,3 +56,7 @@ The production `compute-runs` PVC still contains the retired `mu-all-v1` files
 and legacy spill directories. They were inventoried on 2026-09-02 and are being
 retained temporarily by operator decision; this plan removes their code contract,
 not pre-existing storage contents.
+
+Focused acceptance suite on 2026-09-02: 111 passed, 1 skipped. The unchecked
+equivalence, failure-cleanup, job filesystem-boundary, and live API-grading
+acceptances still need their dedicated coverage before this plan is complete.
