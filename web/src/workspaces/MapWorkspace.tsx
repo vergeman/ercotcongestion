@@ -234,7 +234,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [scorecard, setScorecard] = useState<MapScorecard | null>(null);
 
   // The map cursor owns the scorecard's CT delivery date. Abort the previous
-  // fetch so a fast scrub cannot publish a score from an earlier day.
+  // fetch so a fast scrub cannot publish a score from an earlier day. The prior
+  // day's scorecard stays mounted until the new one lands, so the numbers swap
+  // in place with no flash.
   useEffect(() => {
     if (!deliveryDay) {
       return;
@@ -978,8 +980,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     network: networkStats,
     conditions: conditionsStats,
     mapView: renderedView,
-    scorecard: scorecard?.delivery_date === deliveryDay ? scorecard : null,
-    fitMeta: scorecard?.delivery_date === deliveryDay ? scorecard?.fit_metadata ?? null : null,
+    // Keep the last good scorecard mounted while the next day's fetch is in
+    // flight, so scrub/playback swaps the numbers in place — the section never
+    // unmounts and there's no flash.
+    scorecard,
+    fitMeta: scorecard?.fit_metadata ?? null,
     ranked,
     rankedLoading,
     constraintBasis,

@@ -1,4 +1,4 @@
-import { type ReactNode, useState, useEffect, useRef, useCallback } from "react";
+import { type ReactNode, useState, useEffect, useCallback } from "react";
 import TimelineSparkline, {
   TimelineSparklineLegend,
   type SparkPoint,
@@ -70,7 +70,6 @@ export default function TimeTransport({
   onAutoPlayConsumed,
 }: Props) {
   const [playing, setPlaying] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasData = frames.length > 0;
   const current = frames[index];
@@ -83,21 +82,32 @@ export default function TimeTransport({
     [frames.length, onSeek]
   );
 
+  // Advance on a rAF wall-clock rather than setInterval. A fixed interval fires
+  // on a rigid schedule, so when a heavy frame (e.g. the compare view's two
+  // maps) runs long the timer slips and then bunches — the scrubber hangs, then
+  // lurches. Here each animation frame checks elapsed time and steps once when
+  // playIntervalMs has passed, re-anchoring to now so a slow frame never
+  // triggers a catch-up burst; under load playback just slows smoothly.
   useEffect(() => {
     if (!playing) return;
-    intervalRef.current = setInterval(() => {
-      onSeek((prev) => {
-        const next = prev + 1;
-        if (next >= frames.length) {
-          setPlaying(false);
-          return prev;
-        }
-        return next;
-      });
-    }, playIntervalMs);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+    let raf = 0;
+    let last = performance.now();
+    const loop = (now: number) => {
+      if (now - last >= playIntervalMs) {
+        last = now;
+        onSeek((prev) => {
+          const next = prev + 1;
+          if (next >= frames.length) {
+            setPlaying(false);
+            return prev;
+          }
+          return next;
+        });
+      }
+      raf = requestAnimationFrame(loop);
     };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, [playing, frames.length, onSeek, playIntervalMs]);
 
   // A page that can't play (Analysis) never leaves `playing` true.

@@ -130,12 +130,18 @@ export function useExplorerSession(opts?: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadWindow]);
 
+  // The cursor's Central-time delivery day. Keyed on this (not currentIndex) so
+  // the day-scoped stats below recompute once per day, not on every hour tick.
+  const deliveryDay = useMemo(() => {
+    const cursor = timestamps[currentIndex];
+    return cursor ? formatCT(cursor, "yyyy-MM-dd") : null;
+  }, [timestamps, currentIndex]);
+
   // Color domains belong to the cursor's Central-time delivery day. This keeps
   // colors comparable while inspecting that day without letting an extreme on a
   // non-visible day in a multi-day playback window flatten the active palette.
   const dayStats = useMemo(() => {
-    const cursor = timestamps[currentIndex];
-    if (!cursor) {
+    if (!deliveryDay) {
       return {
         congestionStats: null,
         sppStats: null,
@@ -145,7 +151,6 @@ export function useExplorerSession(opts?: {
       };
     }
 
-    const deliveryDay = formatCT(cursor, "yyyy-MM-dd");
     const actualCongestion: Array<number | null> = [];
     const actualLmp: Array<number | null> = [];
     const forecastCongestion: Array<number | null> = [];
@@ -188,7 +193,7 @@ export function useExplorerSession(opts?: {
       forecastLmpStats: forecastLmp.length ? computeLmpStats(forecastLmp) : null,
       errorStats: forecastError.length ? computeCongestionStats(forecastError) : null,
     };
-  }, [timestamps, currentIndex]);
+  }, [timestamps, deliveryDay]);
 
   return {
     timestamps, currentIndex, setCurrentIndex, loading, connectionState, setConnectionState,

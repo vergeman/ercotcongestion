@@ -1,7 +1,7 @@
 /* Fonts live in ONE place. Working on the typeface = editing this @import plus
    the three --font-* tokens below, the two --track-* tokens, and the .label
    spec; nothing else in the app names a font family or sets label tracking.
-   The faces are self-hosted (Inter + JetBrains Mono) from fonts.css +
+   The faces are self-hosted (Inter + Roboto Mono) from fonts.css +
    public/fonts/ -- no network round-trip to Google. */
 @import './fonts.css';
 
@@ -25,7 +25,7 @@
   /* ---- type ------------------------------------------------------------- */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;    /* body / values */
   --font-label: 'Inter', var(--font-sans);                       /* all-caps labels */
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace; /* numbers / ids */
+  --font-mono: 'Roboto Mono', ui-monospace, 'SF Mono', monospace; /* numbers / ids */
   /* Kept for backwards compatibility with .mono and older component styles. */
   --text-mono: var(--font-mono);
 
@@ -296,6 +296,8 @@ input[type='range']::-webkit-slider-thumb {
 
 .mono {
   font-family: var(--font-mono);
+  /* Roboto Mono reads light at 400 on the dark ground; 500 is the data weight. */
+  font-weight: 500;
 }
 
 /* Dense type tier for overlays that float above the map in a fixed-width box

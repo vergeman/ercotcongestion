@@ -27,6 +27,13 @@ import {
 } from "../../lib/colors";
 import { cssVar, onThemeChange, useTheme, type Theme } from "../../lib/theme";
 
+// Playback/scrub eases node fills between hours instead of hard-cutting. Kept a
+// touch under the play interval (~400ms) so a frame settles before the next.
+const TWEEN_MS = 300;
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
 // Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
 // paint properties cannot take var(), so the values are read out of the computed
 // root style and re-applied whenever the theme flips (see the effect below).
@@ -678,6 +685,14 @@ export default function GridMap({
   // would blank the whole map. `reachIdsRef` tracks the nodes reach touched so
   // exiting reach un-fades exactly those.
   const reachIdsRef = useRef<Set<string>>(new Set());
+  // Per-node normalized fill currently on screen, so a new hour eases from where
+  // each node actually is (see the paint below). A running tween is cancelled by
+  // this effect's own cleanup when the frame changes or the map unmounts.
+  const normValsRef = useRef<Map<string, number>>(new Map());
+  // Last color pushed to each node, so an hour only re-sets the nodes that
+  // actually changed color — ~1100 setFeatureState calls/tick was the compare
+  // hotspot. Cleared whenever another path (reach/empty) repaints outside here.
+  const lastColorRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getSource("sps") || !points) return;
@@ -737,6 +752,7 @@ export default function GridMap({
         touched.add(id);
       }
       reachIdsRef.current = touched;
+      lastColorRef.current.clear(); // reach overwrote fills; force a full repaint next
       return;
     }
 
@@ -755,25 +771,77 @@ export default function GridMap({
           { color: null }
         );
       }
+      normValsRef.current.clear();
+      lastColorRef.current.clear();
       return;
     }
 
+    // Target normalized fill (0..1 into the active ramp) per node, plus the ramp
+    // itself. Same $/MWh → same color on both panes, so the sides stay comparable.
+    // Memoized on a quantized nv so ~1100 nodes cost at most a few hundred color
+    // builds, and the cache is reused across a tween's frames.
+    const base =
+      dataMode === "congestion"
+        ? (nv: number) => congestionColor(nv, theme)
+        : (nv: number) => lmpColor(nv, theme);
+    const rampCache = new Map<number, string>();
+    const ramp = (nv: number) => {
+      const key = Math.round(nv * 512);
+      let c = rampCache.get(key);
+      if (c === undefined) { c = base(nv); rampCache.set(key, c); }
+      return c;
+    };
+    const targets = new Map<string, number>();
     for (const row of rows) {
-      let color: string;
-      if (dataMode === "congestion") {
-        color = mcStats
-          ? congestionColor(
-              normalizeCongestion(row.congestion, mcStats),
-              theme
-            )
-          : congestionColor(0, theme);
-      } else {
-        color = lmpStats
-          ? lmpColor(normalizeLmpFromStats(row.spp, lmpStats), theme)
-          : lmpColor(0.5, theme);
-      }
-      map.setFeatureState({ source: "sps", id: row.sp_id }, { color });
+      const nv =
+        dataMode === "congestion"
+          ? mcStats
+            ? normalizeCongestion(row.congestion, mcStats)
+            : 0
+          : lmpStats
+          ? normalizeLmpFromStats(row.spp, lmpStats)
+          : 0.5;
+      targets.set(row.sp_id, nv);
     }
+
+    // Ease each node from where it's shown now to its new target. `start` is the
+    // on-screen value snapshot; `norms` tracks the live value so an interrupting
+    // hour picks up mid-tween. New nodes (no start) jump straight to target.
+    const norms = normValsRef.current;
+    const start = new Map(norms);
+    const paint = (frac: number) => {
+      for (const [id, target] of targets) {
+        const from = start.get(id) ?? target;
+        const nv = from + (target - from) * frac;
+        norms.set(id, nv);
+        const color = ramp(nv);
+        if (lastColorRef.current.get(id) === color) continue; // unchanged → skip
+        lastColorRef.current.set(id, color);
+        map.setFeatureState({ source: "sps", id }, { color });
+      }
+    };
+
+    if (start.size === 0 || prefersReducedMotion()) {
+      paint(1);
+      return;
+    }
+
+    // Throttle to ~30fps: a color fade is smooth at 30, and each painted frame
+    // repaints every node (×2 maps in compare), so halving the frames frees the
+    // main thread for the playback clock. The final frame always lands on target.
+    let rafId = 0;
+    let lastPaint = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const frac = Math.min(1, (now - t0) / TWEEN_MS);
+      if (frac >= 1 || now - lastPaint >= 1000 / 30) {
+        paint(1 - (1 - frac) ** 3); // ease-out cubic
+        lastPaint = now;
+      }
+      rafId = frac < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [
     rows,
     dataMode,

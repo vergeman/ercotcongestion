@@ -36,7 +36,11 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   cursorRef.current = cursor;
 
   // index → URL: scrubbing (or a fresh window) mirrors the cursor hour + window
-  // bounds into the URL, so the coordinate travels across pages.
+  // bounds into the URL, so the coordinate travels across pages. Written
+  // immediately (not debounced): a lagged write can land a stale hour after the
+  // index moved on, and the URL→index effect below then snaps the scrubber
+  // backward — so the URL must always reflect the current index exactly, keeping
+  // that effect the no-op fixed point its comment describes.
   useEffect(() => {
     if (!timestamps.length) return;
     const t = timestamps[currentIndex];
