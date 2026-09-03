@@ -5,40 +5,50 @@ Branch: refactor/206-drivers-card-matrix-columns
 
 ## Goal
 
-* Replace the map node card's drivers/exposure toggle with one **sortable** table.
-* For a node, the driver rows carry columns: **SF, Side, μ, $/MWh**, plus **binding hours** and a **`*`** where the SF was capped.
-* Sorting lets one table do the job of the old toggle: sort by **$/MWh** for the drivers view, by **SF** for structural exposure — and the `*` flags rows the fit could not trust.
-* Leave the SF/matrix frame a compact matrix — no per-row columns or sort there.
-* Constraint reach card is unchanged (no sort needed).
+* Give the node driver lists **sortable** columns so one table replaces the old drivers/exposure toggle.
+* Columns for a node: **SF, Side, μ, $/MWh**, plus **binding hours** and a **`*`** where the SF was capped.
+* Sorting does the toggle's job: sort by **$/MWh** for the drivers view, by **SF** for structural exposure; the `*` flags rows the fit could not trust.
+* Two surfaces get this:
+  * **Map node card** (`components/map/DetailCard.tsx`) — the pinned-SP driver list.
+  * **Matrix Node Detail frame** (`components/matrix/MatrixReadDetail.tsx`) — the `/matrix` read pane's node table.
+* Leave the SF/matrix grid a plain compact matrix — no per-row columns or sort there.
+* Constraint reach / constraint detail is unchanged (no sort needed).
 
 ## Context
 
-* The old card had a drivers/exposure toggle that re-asked the server for a different ranking. One sortable table over the contribution response replaces it: the columns are already on `SpExposure` (`sf`, `sf_clipped`, `mu`, `contribution`, `binding_hours`), so no refetch and no backend change.
-* The "Gross" column was a magnitude-share number that didn't add up on screen — dropped.
-* A capped SF (`sf_clipped`) is the "not structurally sound" signal: the fit pinned the column at its ±1 clip, a bound rather than a measurement. Marking it inline lets a reader sort by SF and immediately see which of the strong exposures are trustworthy.
+* Both node lists already showed a subset of these fields; the change is to make the columns sortable and to fold the separate "exposure" view (a toggle on the map card, a `<details>` disclosure on the matrix frame) into one sortable table.
+* A capped SF (`sf_clipped` / `|SF| >= SF_ABS_CAP`) is the "not structurally sound" signal — the fit pinned the column at its clip, a bound rather than a measurement. Marking it inline lets a reader sort by SF and see which strong exposures are trustworthy.
+* The map card's `exposures` response already carries `sf`, `mu`, `contribution`, `binding_hours`, `sf_clipped`. The matrix frame's analysis term did **not** — it needed the two structural fields added.
 
 ## Approach
 
-* Work in: `web/src/components/map/DetailCard.tsx`, `web/src/workspaces/MapWorkspace.tsx`, `web/src/features/map/useConstraintSelection.ts`.
-* Node card (`DetailCard.tsx` -> `ExposuresBody`):
-  * One table, columns: `Constraint | SF | Side | μ | $/MWh | Bind`. `Side` = import (SF<0) / export (SF>0), per docs/SF.md. `*` on the SF cell when `sf_clipped`.
-  * Click a column header to sort; re-click reverses. Default (no click) keeps the server's contribution order — the drivers ranking — so the card opens as the drivers list.
-  * Drop the drivers/exposure toggle, the `exposureRank`/`onChangeExposureRank` plumbing, and the "Gross" column + `node_gross_total` usage.
-  * Keep the `exposures()` fetch (called with the contribution ranking only) and the constraint->node reach card.
-* `MapWorkspace.tsx` / `useConstraintSelection.ts`: remove the `exposureRank` state and handler; `loadExposures` always requests `contribution`.
-* Do NOT touch: any API service or schema (`api/services/map/detail.py`), and do NOT remove the `exposures()` endpoint.
-* Matrix (`MatrixGrid.tsx`): unchanged — a compact matrix, no structural columns, no sort.
+### Map node card — `DetailCard.tsx` (+ `MapWorkspace.tsx`, `useConstraintSelection.ts`)
 
-## Decision / follow-up
+* One sortable table, columns `Constraint | SF | Side | μ | $/MWh | Bind`, `*` on capped SF. Default keeps the server's contribution (drivers) order.
+* Drop the drivers/exposure toggle, the `exposureRank` plumbing, and the "Gross" column; keep the `exposures()` fetch (contribution ranking) and the reach card.
 
-* The table is the hour's **drivers** (binding constraints): the contribution response drops constraints that did not bind, and `μ`/`$/MWh` are only defined for that hour. That is enough to replicate the old drivers view and flag unsound (capped) rows.
-* Extending the table to **quiet, non-binding** constraints (the old "exposure" set) would need the `exposures` service to fill `mu`/`contribution` under `rank=sf` — a backend change, left as a follow-up.
+### Matrix Node Detail frame — `MatrixReadDetail.tsx`
+
+* One sortable `DriverTable` over the node's **full nonzero-SF set** (`structural_terms`, the superset that includes the drivers). Default sort `$/MWh` (magnitude) = drivers; sort SF = structural exposure. Replaces the old two-table split (current-hour drivers + `Structural exposure` `<details>`).
+* Columns `constraint | SF | side | μ | $/MWh | bind`, `*` on capped SF, footnote when any row is capped.
+
+### Backend — add the two structural fields to the analysis term
+
+* `api/schemas/analysis.py`: `AnalysisContributionTerm` gains `binding_hours: int` and `sf_clipped: bool`.
+* `api/services/analysis/panels/catalog.py`: `_terms` / `_structural_terms` populate them (`binding_hours` per constraint; `sf_clipped = |SF| >= SF_ABS_CAP`).
+* `api/services/analysis/queries.py`: `node_response` computes delivery-day `binding_hours` and passes it to the builders.
+* No new endpoint or DB query; `sf`, `μ`, `$/MWh`, `side` were already derivable.
+
+### Untouched
+
+* The SF/matrix grid (`MatrixGrid.tsx`) — compact matrix, no columns, no sort.
+* The constraint reach card / constraint read.
 
 ## Acceptance
 
-* [ ] Node card shows one sortable table: SF, Side, μ, $/MWh, binding hours, with `*` on capped-SF rows — no drivers/exposure toggle, no Gross column.
-* [ ] Clicking a column header sorts the rows by it; clicking again reverses.
-* [ ] The card opens in the drivers ($/MWh contribution) order it does today.
-* [ ] Pinning a constraint still opens the constraint->node reach card as before.
-* [ ] The SF/matrix frame is a plain compact matrix, unchanged.
-* [ ] No backend or schema files changed; `web` builds.
+* [ ] Map node card: one sortable table (SF, Side, μ, $/MWh, binding, `*`), no toggle, no Gross.
+* [ ] Matrix Node Detail: one sortable table over the full nonzero-SF set (SF, side, μ, $/MWh, bind, `*`), replacing the structural `<details>`.
+* [ ] Clicking a column header sorts; clicking again reverses. Both tables open in the drivers ($/MWh) order.
+* [ ] Capped-SF rows show `*`; a footnote explains it.
+* [ ] Pinning a constraint still opens the reach card; the SF/matrix grid is unchanged.
+* [ ] `web` builds; `api` analysis tests pass.
