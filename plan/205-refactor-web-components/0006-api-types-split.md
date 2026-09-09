@@ -37,7 +37,12 @@ Exact boundaries are the banner comments, not the line numbers above — cut on 
 
 ## Acceptance
 
-* [ ] `api/types.ts` is gone; `api/types/` holds the domain files plus `index.ts`.
-* [ ] Every existing `from "../api/types"` import still resolves and is unchanged.
-* [ ] No type declaration renamed or altered; blocks moved verbatim.
-* [ ] `npx tsc -b` and `npm run lint` clean against baseline; `vite build` succeeds.
+* [x] `api/types.ts` is gone; `api/types/` holds the domain files (`matrix`, `map`, `scoreboard`, `brief`, `analysis`, `common`) plus `index.ts`.
+* [x] Every existing `from "../api/types"` import still resolves and is unchanged (all 55 sites; the barrel re-exports each domain).
+* [x] No type declaration renamed or altered; declaration bodies moved verbatim. (Some banner/field comments were copyedited afterward — the declarations themselves are unchanged.)
+* [x] `tsc -b` and `vite build` succeed; `npm run lint` matches baseline (20 pre-existing errors in `MapWorkspace.tsx` et al., none in `api/types`).
+
+## Notes
+
+* Two genuinely shared primitives went to `api/types/common.ts`: `SourceDescriptor` (scoreboard + brief) and `BootstrapSectionStatus` (scoreboard + map), avoiding a domain→domain import. Cross-file refs use `import type` (`verbatimModuleSyntax` is on).
+* Types were placed by domain, not by the descriptive line-span table: map types physically sitting in the matrix block (`MapDataMode`/`MapView`/`SpRow`/`SPFeatureProperties`) and the scoreboard block (`MapSummary`/`MapScorecard`/`MapScorecardSource`) moved to `map.ts`.
