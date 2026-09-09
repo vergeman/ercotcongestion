@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useModalDismiss } from "../../../hooks/useModalDismiss";
 import {
   briefElementMapHref,
   selectionGeo,
@@ -56,52 +57,16 @@ export default function BriefDetailPanel({
   if (selection && selection !== rendered) setRendered(selection);
 
   // Dialog focus contract (matches MobileDrawer): focus the close control on
-  // open, trap Tab within the panel, close on Escape, and return focus to the
-  // triggering row on close.
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const focusable = () =>
-      panel?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ) ?? [];
-    const closeButton = panel?.querySelector<HTMLElement>("[data-panel-close]");
-    requestAnimationFrame(() => closeButton?.focus());
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const targets = focusable();
-      if (targets.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const first = targets[0];
-      const last = targets[targets.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    // Lock the page scroll behind the modal so the dimmed Brief can't scroll
-    // under it; restore the prior value on close.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus();
-    };
-  }, [selection, onClose]);
+  // open, trap Tab within the panel, close on Escape, return focus to the
+  // triggering row on close, and lock the dimmed Brief from scrolling underneath.
+  useModalDismiss({
+    open,
+    onClose,
+    panelRef,
+    initialFocus: "[data-panel-close]",
+    trapFocus: true,
+    lockScroll: true,
+  });
 
   const geo = rendered ? selectionGeo(rendered) : "constraint";
   const key = rendered ? selectionKey(rendered) : "";

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { usePopoverDismiss } from "../../../hooks/usePopoverDismiss";
 import type {
   AnalysisGrade,
   AnalysisGradeHalf,
@@ -135,22 +136,7 @@ function GradeCard({
 }) {
   const [formulaOpen, setFormulaOpen] = useState(false);
   const formulaRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!formulaOpen) return;
-    const closeIfOutside = (event: MouseEvent) => {
-      if (!formulaRef.current?.contains(event.target as Node))
-        setFormulaOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFormulaOpen(false);
-    };
-    document.addEventListener("mousedown", closeIfOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeIfOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [formulaOpen]);
+  usePopoverDismiss(formulaOpen, formulaRef, () => setFormulaOpen(false));
   return (
     <article className={`an-grade-card an-grade-card--${kind.toLowerCase()}`}>
       <span className="an-grade-card__kind">{kind}</span>

@@ -22,7 +22,7 @@ import {
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useMapBootstrap } from "../hooks/useMapBootstrap";
+import { useMapBootstrap } from "../features/map/useMapBootstrap";
 import { useMapRouteState } from "../features/map/MapRouteState";
 import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
 import "../features/map/mapPresentation.css";

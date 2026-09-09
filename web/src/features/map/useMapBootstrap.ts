@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { fetchMapSummary } from "../api/map";
-import type { MapOverview } from "../api/types";
-import type { ConnectionState } from "./useExplorerSession";
+import { fetchMapSummary } from "../../api/map";
+import type { MapOverview } from "../../api/types";
+import type { ConnectionState } from "../../hooks/useExplorerSession";
 
-/** Loads map-wide, refit-stable resources independently from playback frames. */
+/** Loads the map topology and overview once, separate from per-frame data. */
 export function useMapBootstrap(setConnectionState: (state: ConnectionState) => void) {
   const [topology, setTopology] = useState<unknown | null>(null);
   const [topologyReady, setTopologyReady] = useState(false);

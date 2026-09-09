@@ -6,7 +6,7 @@ import {
   getForecastHorizon,
   getConditionsCached,
 } from "../../api/prefetch";
-import { useMapRows } from "../../hooks/useMapRows";
+import { useMapRows } from "./useMapRows";
 import type { NetworkStats } from "../../components/panels/SidePanel";
 
 /** One SP's forecast / realized / error decomposition, carried by every card. */

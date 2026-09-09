@@ -26,8 +26,8 @@ Branch: refactor/205-0005-ui-effect-hooks
 
 ## Acceptance
 
-* [ ] `usePopoverDismiss` and `useModalDismiss` exist and back the three former hand-rolled sites; no raw `addEventListener("keydown"/"mousedown")` dismiss code remains at those call sites.
-* [ ] The relocated hooks live under their `features/` folder; `hooks/` holds only cross-surface hooks.
-* [ ] Escape/outside-click close, focus-trap, and return-focus behave exactly as before on each surface.
-* [ ] Comments on extracted/relocated hooks are brief plain English — no statistical jargon, over-explanation, or verbosity.
-* [ ] `npx tsc -b` and `npm run lint` clean against baseline.
+* [x] `usePopoverDismiss` and `useModalDismiss` exist and back the three former hand-rolled sites; no raw `addEventListener("keydown"/"mousedown")` dismiss code remains at those call sites.
+* [x] The relocated hooks live under their `features/` folder; `hooks/` holds only cross-surface hooks.
+* [x] Escape/outside-click close, focus-trap, and return-focus behave exactly as before on each surface.
+* [x] Comments on extracted/relocated hooks are brief plain English — no statistical jargon, over-explanation, or verbosity.
+* [x] `npx tsc -b` and `npm run lint` clean against baseline (tsc via `-p --noEmit`; lint 20 err/6 warn — one fewer warning than master, none introduced).

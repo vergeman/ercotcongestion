@@ -6,7 +6,7 @@ import HeaderStatus from "../components/layout/HeaderStatus";
 import { formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useBriefDay } from "../hooks/useBriefDay";
+import { useBriefDay } from "../features/brief/useBriefDay";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import { gw, numeric, percent, usd, zoneLabel } from "../lib/format";
 import { BriefDayControls, BriefHero, DualStatBox } from "../components/brief/hero";
