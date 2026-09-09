@@ -13,6 +13,7 @@ Scope: `web/src/` mechanical refactors — component extraction from large files
 | `0004-map-workspace-seams.md` | `MapWorkspace` → hooks + panes | (own survey) |
 | `0005-ui-effect-hooks.md` | reusable dismiss hooks + `hooks/`→`features/` placement | — |
 | `0006-api-types-split.md` | `api/types.ts` → per-domain files behind a barrel | Tier 1 |
+| `0007-detail-renderer-consolidation.md` | unify the constraint/node detail renderers (coverage-first) | Tier 4 |
 
 Tier 3 (shared KV primitive) and Tier 4 (renderer merge, `GridMap`) are **not** sub-plans — blocked on a design decision or needing behavioral coverage first. They stay parked below as non-goals. The tiers below are the full map; the sub-plans are the phase-1 slices carved from Tiers 1–2 plus hooks.
 
@@ -106,7 +107,7 @@ Consolidate incrementally (one formatter family per commit) so each diff is revi
 
 ## Tier 4 — Deferred (needs coverage first; out of phase 1)
 
-- **Parallel constraint/node detail renderers.** `BriefDetailPanel`'s `ConstraintEvidence`/`NodeEvidence` and `MatrixReadDetail`'s `ConstraintRead`/`NodeRead` are two surfaces solving the same problem with divergent data shapes and CSS. Large potential win, but a real behavioral consolidation, not mechanical. Same spirit as 0004's commit-4 deferral: add focused coverage before merging.
+- **Parallel constraint/node detail renderers → `0007`.** `BriefDetailPanel`'s `ConstraintEvidence`/`NodeEvidence` and `MatrixReadDetail`'s `ConstraintRead`/`NodeRead` are two surfaces solving the same problem with divergent data shapes and CSS. Large potential win, but a real behavioral consolidation, not mechanical. Same spirit as 0004's commit-4 deferral: add focused coverage before merging. Carved into `0007-detail-renderer-consolidation.md` (coverage-first).
 - **`GridMap.tsx` (1327).** Mostly MapLibre expression builders + imperative layer wiring; cohesive and stateful. Not a mechanical extraction target for phase 1.
 
 ---
