@@ -3,8 +3,7 @@ import type { BootstrapSectionStatus, SourceDescriptor } from "./common";
 // =============================================================================
 // /scoreboard/summary weekly — the full weekly backtest series + pooled pre/post-RTC+B
 // summary (the scoreboard page's data). Mirrors api/models.py WeeklyPoint /
-// SourcePooled / WeeklySplit / ScoreboardWeekly. Every response carries all
-// sources so a lone model figure can't be charted (§6).
+// SourcePooled / WeeklySplit / ScoreboardWeekly.
 // =============================================================================
 
 // One (week, source) row for the chart. All nullable — a declined screening
@@ -53,18 +52,17 @@ export interface ScoreboardWeekly {
 }
 
 // =============================================================================
-// /scoreboard/summary daily section — the newest final LIVE grade (plan/0178,
-// spec-phase3 §3). Mirrors api/models.py DailyPoint / ScoreboardDaily. The live
+// /scoreboard/summary daily section — the newest final LIVE grade.
+// Mirrors api/models.py DailyPoint / ScoreboardDaily. The live
 // counterpart to the weekly backtest board: per-day grades of the SERVED
 // forecast, same currency columns as WeeklyPoint so a live number and a backtest
 // number are directly comparable. Every response carries all sources (model +
-// persistence + climatology + oracle + the `null` flat tripwire), so a lone
-// model figure can't be rendered (§6).
+// persistence + climatology + oracle + the `null` flat tripwire.)
 // =============================================================================
 
 // One (delivery_date, source) live grade. Band columns (coverage80 / band_width
 // / pinball) are populated on the model source only; model_coverage is NULL for
-// now (deferred snapshot). All nullable — a declined/flat cell is null.
+// now (deferred snapshot).
 export interface DailyPoint {
   delivery_date: string;
   source_id: string;
@@ -124,9 +122,9 @@ export interface ScoreboardHistory {
   sources: SourceDescriptor[];
 }
 
-// /scoreboard/summary — one bundled payload for the Scoreboard page's
-// load-time requests (0137). `availability` makes every nullable section's
-// soft-fail state explicit.
+// /scoreboard/summary — one bundled payload for the Scoreboard page's load-time
+// requests. `availability` makes every nullable section's soft-fail state
+// explicit.
 export interface ScoreboardSummary {
   weekly: ScoreboardWeekly | null;
   daily: ScoreboardDaily | null;

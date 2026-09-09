@@ -63,8 +63,7 @@ export interface AnalysisSettlementPointMetadata {
 }
 
 // /analysis/constraints — the full constraint vocabulary for one day's
-// artifact (plan/0139-0001), the search index behind the Matrix sidebar
-// (0139-0002). Never a Brief top-k.
+// artifact, the search index behind the Matrix sidebar.
 export interface AnalysisConstraintRow {
   constraint_key: string;
   name: string;

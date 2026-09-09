@@ -1,18 +1,18 @@
 import type { BootstrapSectionStatus } from "./common";
 
-// The Data axis (0130): which ERCOT quantity a map pane colors by.
-//   congestion → SPP − system_λ  (diverging palette)
-//   lmp        → raw DAM SPP / (for the forecast pane) forecast congestion + system_λ, the
+// The Data axis: which ERCOT quantity a map pane colors by.
+//   congestion:  SPP − system_λ  (diverging palette)
+//   lmp:         raw DAM SPP / (for the forecast pane) forecast congestion + system_λ, the
 //                predicted counterpart — see `ForecastRangeEntry.lambda_source`
 //                for its persistence-λ provenance pre-settlement.
 export type MapDataMode = "congestion" | "lmp";
 
-// The View axis (0130), orthogonal to `MapDataMode`. Exactly one is active:
-//   forecast → single map, the model's deterministic prediction (the bare `/map`
+// The View axis, orthogonal to `MapDataMode`. Exactly one is active:
+//   forecast:  single map, the model's deterministic prediction (the bare `/map`
 //              default landing view).
-//   market   → single map, ERCOT's realized DAM values.
-//   compare  → the prediction | ERCOT side-by-side split (formerly `dual`).
-//   error    → single map, forecast − realized congestion (the product
+//   market:    single map, ERCOT's realized DAM values.
+//   compare:   the prediction | ERCOT side-by-side split (formerly `dual`).
+//   error:     single map, forecast − realized congestion (the product
 //              thesis, "where we missed the market"). Because both panes
 //              subtract the same system-λ, LMP forecast error collapses
 //              exactly to congestion forecast error, so this view locks
@@ -55,11 +55,10 @@ export interface ForecastSpState {
 }
 
 // All SPs' forecast congestion at one interval, plus that hour's system-λ.
-// Predicted LMP = forecast_congestion + system_lambda (same reference the market side
-// subtracts). On an unsettled hour `system_lambda` falls back to the most
-// recent settled day's λ at the same Central hour (0130's persistence display
-// convention — never a model input); `lambda_source` says which curve served
-// it, `null` only when no settled day exists yet to persist from.
+// Predicted LMP = forecast_congestion + system_lambda
+//
+// On an unsettled hour `system_lambda` falls back to the most recent settled
+// day's λ at the same Central hour.
 export interface ForecastRangeEntry {
   interval_ts: string;
   system_lambda: number | null;
@@ -71,7 +70,7 @@ export interface ForecastRangeEntry {
 // serving; the served day is the cursor hour's date. `entries` are the forecast
 // hours in [start, end] for the current run. `horizons` maps each served UTC
 // delivery day (`"YYYY-MM-DD"`) to the horizon it came from — 1 = final/t+1,
-// 2 = preview/t+2 (0123) — the provenance behind the one coalesced series.
+// 2 = preview/t+2.
 export interface ForecastRangeResponse {
   start: string;
   end: string;
@@ -83,26 +82,28 @@ export interface ForecastRangeResponse {
 
 // =============================================================================
 // /conditions_range — per-hour Load / Wind / Solar / Outages, merged into one
-// response (plan/0141; replaces the earlier load_zone_range/generation_range/
-// outages_range split once the frontend settled on one "Conditions" section).
+// response.
+//
 // Every row carries both `forecast_mw` and `actual_mw` so the map's Forecast/
 // Market/Compare/Error toggle can pick one client-side, no per-side request.
 //
 //   load    `zone` is one of the 8 NP3-561/NP6-345 weather zones, plus
 //           "system". Forecast is the latest `load_forecast_zonal` vintage
 //           posted no later than the hour it describes (no lookahead).
+//
 //   wind/solar
 //           `region` is one of the 5 wind / 6 solar regions, plus "system".
 //           Forecast reads the vintaged `*_forecast_regional` tables (no
 //           lookahead), not the actual tables' own forecast-looking columns
 //           (those dedup to the most recent posting, ~49h after the hour).
+//
 //   outages a DIFFERENT quantity from wind/solar — MW currently OFFLINE
 //           (NP1-346), not MW produced — and a different cadence underneath:
 //           the source table is a daily snapshot, so a day's values repeat
 //           across its 24 hourly entries. `fuel` is one of gas/wind/solar/
 //           coal/other/hydro, plus "total". `forecast_mw` is the D-1
-//           no-lookahead vintage (mirrors compute.mu_forecast.outage_exposure's leak
-//           boundary); `actual_mw` is the newest vintage through the day.
+//           no-lookahead vintage (mirrors compute.mu_forecast.outage_exposure's
+//           leak boundary); `actual_mw` is the newest vintage through the day.
 //
 // Any list may be empty for an hour with nothing from that source — the
 // client's null-dash rendering handles it the same as a null field.
@@ -193,19 +194,11 @@ export interface SpExposure {
 
 // How /map/exposures orders its list. `contribution` answers "what drove this
 // node at t" and drops constraints that did not bind; `sf` answers "what could
-// move this node" over the whole day's fit, quiet constraints included. The two
-// read identical SF values — only the ordering and filtering differ, which is
-// exactly why they used to look like disagreeing data (0145).
+// move this node" over the whole day's fit, quiet constraints included.
 export type ExposureRank = "contribution" | "sf";
 
 // Top-k constraints driving one node. `node_max_abs_sf` = max_c |SF[sp,c]| is
 // the stable unsigned headline (spec §6); the signed `exposures` follow it.
-//
-// 0144: served from the requested day's SF artifact, so these values match the
-// matrix at the same node and interval. `window_start`/`window_end` bound that
-// day's block, and `sf_oos_r2`/`sf_stability` are null — they describe the rolling
-// fit that no longer backs these numbers. `available: false` means the day has
-// no artifact at all, as opposed to a node that simply drives nothing.
 export interface ExposuresResponse {
   sp: string;
   run_id: string;
@@ -222,7 +215,8 @@ export interface ExposuresResponse {
   node_gross_total: number | null;
   available: boolean;
   // No SF for this node on this day — not the same as being in the fit and
-  // driving nothing (0146). `sp_not_in_service`: the node did not exist yet;
+  // driving nothing.
+  // `sp_not_in_service`: the node did not exist yet;
   // `sp_not_in_fit`: it existed but the fit dropped it.
   unavailable_reason:
     | "artifact_missing"
@@ -269,7 +263,7 @@ export interface ConstraintReach {
   import_members: number | null;
   export_members: number | null;
   available: boolean;
-  // 0144: "artifact_missing" (the day has no artifact) or
+  // "artifact_missing" (the day has no artifact) or
   // "constraint_not_in_artifact" (the day's fit does not carry this key).
   unavailable_reason: string | null;
   // Provenance of the served SF. "artifact" = the requested day's own artifact
@@ -278,8 +272,8 @@ export interface ConstraintReach {
   // reports which. The card labels it "SF as of <date>" so it never silently
   // disagrees with the (empty) matrix for the requested day.
   basis?: "artifact" | "nearest_past";
-  // 0139/0001: reports whether a bounded (`k`-limited) call was cut short of
-  // the constraint's complete reach — always `false` for a `full=true` call.
+  // reports whether a bounded (`k`-limited) call was cut short of the
+  // constraint's complete reach — always `false` for a `full=true` call.
   truncated: boolean;
   sps: ReachSp[];
 }
@@ -311,12 +305,12 @@ export interface MapOverview {
 }
 
 // =============================================================================
-// /map/constraints/ranked — the per-day ranked constraint list (plan/0103). The
-// list-shaped companion to the /map/overview marker pile: "which constraints
-// drive today's congestion", ordered by a day-total contribution the map cannot
-// express. Mirrors api/models.py RankedConstraint / RankedConstraints. `basis`
-// picks the μ series (predicted E_mu vs realized DAM shadow prices); the SF
-// structure — reach, lobes, members — is shared.
+// /map/constraints/ranked — the per-day ranked constraint list. The list-shaped
+// companion to the /map/overview marker pile: "which constraints drive today's
+// congestion", ordered by a day-total contribution the map cannot express.
+// Mirrors api/models.py RankedConstraint / RankedConstraints. `basis` picks the
+// μ series (predicted E_mu vs realized DAM shadow prices); the SF structure —
+// reach, lobes, members — is shared.
 // =============================================================================
 
 // One constraint in the per-day ranking. `congestion_contribution = mu_mass ·
@@ -353,9 +347,8 @@ export interface RankedConstraints {
 }
 
 // /map/summary — one bundled payload for the Map workspace's load-time
-// requests (0137). `topology` is the raw settlement-point GeoJSON (unchanged
-// shape from GET /topology); the other sections are null when their endpoint
-// would 503.
+// requests. `topology` is the raw settlement-point GeoJSON (unchanged shape
+// from GET /topology).
 export interface MapSummary {
   topology: unknown;
   overview: MapOverview | null;
