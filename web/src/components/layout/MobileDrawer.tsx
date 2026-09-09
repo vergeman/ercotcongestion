@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import { useModalDismiss } from "../../hooks/useModalDismiss";
 
 interface Props {
   open: boolean;
@@ -12,47 +13,13 @@ interface Props {
 export default function MobileDrawer({ open, onClose, children }: Props) {
   const panelRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const focusable = () =>
-      panel?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ) ?? [];
-    const closeButton = panel?.querySelector<HTMLElement>("[data-drawer-close]");
-    requestAnimationFrame(() => closeButton?.focus());
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-
-      const targets = focusable();
-      if (targets.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const first = targets[0];
-      const last = targets[targets.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [open, onClose]);
+  useModalDismiss({
+    open,
+    onClose,
+    panelRef,
+    initialFocus: "[data-drawer-close]",
+    trapFocus: true,
+  });
 
   if (!open) return null;
 
