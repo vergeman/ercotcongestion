@@ -14,10 +14,7 @@
 .an-day-controls__caret { min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-panel); color: var(--text-primary); font-size: 24px; line-height: 1; cursor: pointer; }
 .an-day-controls__caret:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .an-day-controls__caret:disabled { cursor: not-allowed; opacity: .38; }
-.an-brief-loader { display: flex; min-height: calc(100dvh - var(--header-h) - 84px); align-items: center; justify-content: center; flex-direction: column; gap: 18px; }
-.an-brief-loader__brand { display: grid; justify-items: center; gap: 7px; }
-.an-brief-loader__title { color: var(--accent); font: 700 var(--fs-xl) var(--font-label); letter-spacing: var(--track-title); }
-.an-brief-loader__bolt { color: var(--accent); font-size: 28px; line-height: 1; }
+.an-brief-hero-loading { display: flex; min-height: 460px; align-items: center; justify-content: center; border: 1px solid var(--border); background: var(--bg-panel); }
 .an-loading-indicator { width: 16px; height: 16px; flex: none; box-sizing: border-box; border: 2px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-top-color: var(--accent); border-radius: 50%; animation: an-loading-spin .75s linear infinite; }
 .an-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 24px 0; padding: 12px 14px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); }
 .an-details-error button { flex: none; }
@@ -214,4 +211,4 @@
   .an-grade__cards { grid-template-columns: 1fr; }
   .an-grade-card { min-height: 0; }
 }
-@media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-brief-loader { min-height: calc(100dvh - var(--header-h) - 56px); } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
+@media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-brief-hero-loading { min-height: 320px; } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }

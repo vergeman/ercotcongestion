@@ -78,7 +78,6 @@ export default function BriefPage() {
     adjacentDays,
     heroPending,
     initialLookupDone,
-    globalLoading,
   } = useBriefDay(cursorDay, detailsRetry);
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
@@ -185,52 +184,39 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        {!globalLoading && (
-          <div className="an-date-picker">
-            {provenance && (
-              <div className="an-brief-meta">
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Model Run</span>
-                  <span className="an-brief-meta__val">
-                    {provenance.run_id}
-                  </span>
+        <div className="an-date-picker">
+          {provenance && (
+            <div className="an-brief-meta">
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Model Run</span>
+                <span className="an-brief-meta__val">{provenance.run_id}</span>
+              </span>
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Status</span>
+                <span className="an-brief-meta__val">
+                  {settled ? "DAM Settled" : "Forecast"} · t+{provenance.horizon}
                 </span>
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Status</span>
-                  <span className="an-brief-meta__val">
-                    {settled ? "DAM Settled" : "Forecast"} · t+
-                    {provenance.horizon}
-                  </span>
-                </span>
-              </div>
-            )}
-            <BriefDayControls
-              day={deliveryDay}
-              adjacentDays={adjacentDays}
-              loading={heroPending}
-              activeEventId={activeEventId}
-              onSelectDay={selectDeliveryDay}
-              onSelectEvent={(event) => {
-                setActiveEventId(event.id);
-                cursor.setCoord({
-                  t: new Date(event.cursor_ts),
-                  ws: new Date(event.window_start),
-                  we: new Date(event.window_end),
-                });
-              }}
-            />
-          </div>
-        )}
-        {globalLoading && (
-          <section
-            className="an-brief-loader"
-            role="status"
-            aria-label="Loading daily congestion brief"
-          >
-            <div className="an-brief-loader__brand" aria-hidden="true">
-              <span className="an-brief-loader__title">ERCOT STRESS</span>
-              <span className="an-brief-loader__bolt">⚡</span>
+              </span>
             </div>
+          )}
+          <BriefDayControls
+            day={deliveryDay}
+            adjacentDays={adjacentDays}
+            loading={heroPending}
+            activeEventId={activeEventId}
+            onSelectDay={selectDeliveryDay}
+            onSelectEvent={(event) => {
+              setActiveEventId(event.id);
+              cursor.setCoord({
+                t: new Date(event.cursor_ts),
+                ws: new Date(event.window_start),
+                we: new Date(event.window_end),
+              });
+            }}
+          />
+        </div>
+        {heroPending && (
+          <section className="an-brief-hero-loading" role="status" aria-label="Loading daily congestion brief">
             <span className="an-loading-indicator" aria-hidden="true" />
           </section>
         )}
