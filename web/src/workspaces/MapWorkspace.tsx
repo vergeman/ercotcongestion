@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type {
   SpRow,
-  MapDataMode,
-  MapView,
   ExposuresResponse,
   ConstraintReach,
   RankedConstraints,
@@ -35,6 +33,7 @@ import "../features/map/mapPresentation.css";
 import { useConstraintSelection } from "../features/map/useConstraintSelection";
 import { useMapCursorData } from "../features/map/useMapCursorData";
 import { useMapScorecard } from "../features/map/useMapScorecard";
+import { useMapViewControls } from "../features/map/useMapViewControls";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -93,10 +92,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // opening on the shipped default and reconciling after. `parseMapViewState`
   // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
   // congestion), so this is never an unreachable combination.
-  const renderedView: MapView = isMobile ? "forecast" : view;
-  // Data selection held from before entering Error, so leaving it restores
-  // rather than defaulting back to congestion.
-  const prevDataModeRef = useRef<MapDataMode>("congestion");
+  // View/data-mode transition rules (constraint-overlay defaults, Error's
+  // congestion lock and restore) live in one hook; mobile still renders Forecast.
+  const {
+    renderedView, showConstraints, setShowConstraints, handleView, handleDataMode,
+  } = useMapViewControls({ view, setView, dataMode, setDataMode, isMobile });
 
   // Mirror view/dataMode into the URL (0131), the same read/write-through-the-
   // URL convention the constraint/sp selection already follows. Fires for both
@@ -130,10 +130,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     actual: null,
   });
 
-  const [showConstraints, setShowConstraints] = useState(true);
-  // Forecast-error (forecast − realized congestion) delivery-day stats, for
-  // the diverging palette centered at 0 in the forecast-error view. The per-hour
-  // error rows are derived below.
   // The per-day ranked constraint list for the side panel's `Constraints` tab
   // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
   // keyed to the cursor's CT delivery day so the realized toggle can reach a past
@@ -564,28 +560,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const handleActualMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp("actual");
   }, [handleClearPinnedSp]);
-
-  // Switch the view axis, applying that view's SF-overlay default: on in
-  // Forecast and Error (the overlay is that view's own mechanism), off in
-  // Compare (a per-pane explainer) and Market (no overlay at all). The manual
-  // overlay toggle then persists until the next view switch. Entering Error
-  // locks the data axis to congestion, remembering whatever was active so
-  // leaving it restores rather than defaulting back.
-  const handleView = useCallback((v: MapView) => {
-    if (v === "error" && view !== "error") {
-      prevDataModeRef.current = dataMode;
-      setDataMode("congestion");
-    } else if (v !== "error" && view === "error") {
-      setDataMode(prevDataModeRef.current);
-    }
-    setView(v);
-    setShowConstraints(v === "forecast" || v === "error");
-  }, [view, dataMode, setView, setDataMode]);
-
-  const handleDataMode = useCallback((d: MapDataMode) => {
-    if (view === "error") return; // locked; the Header disables the chip too
-    setDataMode(d);
-  }, [view, setDataMode]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
