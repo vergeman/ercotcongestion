@@ -47,10 +47,10 @@ Branch: refactor/205-0004-map-workspace-seams
 
 ## Acceptance
 
-* [ ] `MapWorkspace` no longer implements cursor-data transformations or the scorecard fetch lifecycle inline.
-* [ ] View/data-mode and constraint-overlay transition rules have one tested/documented owner and preserve mobile behavior.
-* [ ] Forecast and Error reuse one prediction-pane presentation path; Market remains correctly distinct and Compare remains a Forecast/Market split.
-* [ ] Node/constraint interaction semantics, request cancellation/token guards, and deep links are behaviorally unchanged.
-* [ ] `SidePanel` remains standalone; no speculative SidePanel hook is introduced.
-* [ ] Comments on extracted hooks/panes are brief plain English — no statistical jargon, over-explanation, or verbosity.
-* [ ] TypeScript and ESLint meet the project's existing baseline, and manual map smoke checks pass.
+* [x] `MapWorkspace` no longer implements cursor-data transformations or the scorecard fetch lifecycle inline. — `useMapCursorData` + `useMapScorecard`.
+* [x] View/data-mode and constraint-overlay transition rules have one tested/documented owner and preserve mobile behavior. — `useMapViewControls` (mobile still renders Forecast).
+* [x] Forecast and Error reuse one prediction-pane presentation path; Market remains correctly distinct and Compare remains a Forecast/Market split. — shared `PredictionPane`, standalone `MarketPane`, `CompareMap` split unchanged.
+* [x] Node/constraint interaction semantics, request cancellation/token guards, and deep links are behaviorally unchanged. — interaction controller left in `MapWorkspace` (commit-4 deferral); panes receive grouped `predictionInteractions`/`marketInteractions`.
+* [x] `SidePanel` remains standalone; no speculative SidePanel hook is introduced.
+* [x] Comments on extracted hooks/panes are brief plain English — no statistical jargon, over-explanation, or verbosity.
+* [x] TypeScript and ESLint meet the project's existing baseline, and manual map smoke checks pass. — `tsc -b` clean, `eslint .` byte-identical to baseline (27 problems, 0 in new files), `vite build` succeeds; interactive `/map` smoke confirmed after loading the branch onto master.
