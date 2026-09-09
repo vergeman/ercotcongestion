@@ -12,6 +12,7 @@ Scope: `web/src/` mechanical refactors — component extraction from large files
 | `0003-large-file-components.md` | other large files → subcomponents | Tier 1 |
 | `0004-map-workspace-seams.md` | `MapWorkspace` → hooks + panes | (own survey) |
 | `0005-ui-effect-hooks.md` | reusable dismiss hooks + `hooks/`→`features/` placement | — |
+| `0006-api-types-split.md` | `api/types.ts` → per-domain files behind a barrel | Tier 1 |
 
 Tier 3 (shared KV primitive) and Tier 4 (renderer merge, `GridMap`) are **not** sub-plans — blocked on a design decision or needing behavioral coverage first. They stay parked below as non-goals. The tiers below are the full map; the sub-plans are the phase-1 slices carved from Tiers 1–2 plus hooks.
 
@@ -70,9 +71,9 @@ Already has clean seams: `SpBody` (111), `ExposuresBody` (205), `ReachBody` (360
 
 `ConstraintRead` (167), `NodeRead` (348), `DriverRow` (316), `MemberLobe`/`MemberRow` (124/106), `DetailSummary` (80) → `components/matrix/read/`.
 
-### 6. `api/types.ts` (996) — optional, low value
+### 6. `api/types.ts` (996) → `0006`
 
-Pure type declarations; splitting by domain (map/brief/matrix/scoreboard) is safe but yields little. Defer unless it's actively getting in the way.
+Pure type declarations, already sectioned by endpoint. Splitting by domain (matrix/map/scoreboard/brief/analysis) behind a barrel `index.ts` keeps every `../api/types` import unchanged, so it's safe but low-lift. Carved into `0006-api-types-split.md`.
 
 ---
 
