@@ -97,6 +97,28 @@ export const fmtScore = (v: number | null | undefined): string =>
 export const multiple = (v: number | null | undefined): string =>
   v == null ? "—" : `${v.toFixed(2)}×`;
 
+// Pull a finite number out of a loosely-typed slot; anything else → null.
+export const numeric = (
+  slot: Record<string, unknown> | undefined,
+  key: string
+): number | null => {
+  const value = slot?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+// Megawatts rendered as gigawatts to 1 place, e.g. "12.3 GW".
+export const gw = (value: number): string =>
+  `${(value / 1000).toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} GW`;
+
+// Whether the model matched or beat its comparator (both must be present).
+export const beats = (
+  model: number | null | undefined,
+  comparator: number | null | undefined
+): boolean => model != null && comparator != null && model >= comparator;
+
 export function HistoryWhisker({
   low,
   q25,

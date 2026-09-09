@@ -26,9 +26,12 @@ import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
   HistoryBars,
   HistoryWhisker,
+  beats,
   constraintName,
   fmtScore,
+  gw,
   multiple,
+  numeric,
   percent,
   rankMovement,
   usd,
@@ -860,11 +863,6 @@ function DualStatBox({
   );
 }
 
-const beats = (
-  model: number | null | undefined,
-  comparator: number | null | undefined
-) => model != null && comparator != null && model >= comparator;
-
 function ScoreWhisker({
   model,
   persistence,
@@ -1330,17 +1328,6 @@ function ForecastGrade({
   );
 }
 
-const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
-  const value = slot?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-};
-
-const gw = (value: number) =>
-  `${(value / 1000).toLocaleString(undefined, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} GW`;
-const pct = (value: number) => `${Math.round(value * 100)}%`;
 // The leading zone's signed congestion sense, for the Zone Price pair. The
 // default reading of congestion is scarcity that lifts price; a negative zone
 // (export/oversupply) sits below the system price, which is worth calling out.
@@ -1594,7 +1581,7 @@ export default function BriefPage() {
                     {whereZone && whereShare != null && (
                       <DualStatBox
                         firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                        firstValue={pct(whereShare)}
+                        firstValue={percent(whereShare)}
                         secondLabel={`${zoneLabel(whereZone)} Price`}
                         secondValue={priceDirection(whereCongestion)}
                       />
