@@ -2,12 +2,12 @@ import { useEffect, useMemo, useReducer } from "react";
 import type {
   AnalysisGrade, AnalysisGradeHistory, BriefContext, BriefHero,
   Standouts, TopConstraints, TopNodes,
-} from "../api/types";
+} from "../../api/types";
 import {
   fetchBriefDetailsCached, fetchBriefHeroLatestCached, fetchBriefHeroShellCached,
   fetchBriefStandoutsCached,
-} from "../api/briefCache";
-import type { ConnectionState } from "./useExplorerSession";
+} from "../../api/briefCache";
+import type { ConnectionState } from "../../hooks/useExplorerSession";
 
 type BriefDayState = {
   defaultDay: string | null; initialLookupDone: boolean; hero: BriefHero | null;
@@ -32,7 +32,7 @@ const initialState: BriefDayState = {
 
 export type BriefDayAction = { type: "patch"; patch: Partial<BriefDayState> };
 
-/** Reducces dependent brief loading transitions into an inspectable state machine. */
+/** Merges a partial update into the brief-day loading state. */
 export function briefDayReducer(state: BriefDayState, action: BriefDayAction): BriefDayState {
   return action.type === "patch" ? { ...state, ...action.patch } : state;
 }

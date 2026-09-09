@@ -1,7 +1,7 @@
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
 import Tooltip from "../components/ui/Tooltip";
-import { useScoreboard } from "../hooks/useScoreboard";
+import { useScoreboard } from "../features/scoreboard/useScoreboard";
 import {
   METRICS,
   ScoreboardControls,
