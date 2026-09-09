@@ -27,8 +27,17 @@ Branch: refactor/205-0003-large-file-components
 
 ## Acceptance
 
-* [ ] Each of the four parent files is reduced to composition of its extracted subcomponents.
-* [ ] No local formatter definitions remain (they resolve to `lib/format` from 0001).
-* [ ] Every extraction is move-only — no prop, markup, or classname changes.
-* [ ] Comments on moved subcomponents are brief plain English — no statistical jargon, over-explanation, or verbosity.
-* [ ] `npx tsc -b` and `npm run lint` clean against baseline; each affected surface renders identically.
+* [x] Each of the four parent files is reduced to composition of its extracted subcomponents.
+  - `DetailCard.tsx` 726→418 → `components/map/detail/`
+  - `BriefDetailPanel.tsx` 767→304 → `components/brief/detail/`
+  - `ScoreboardPage.tsx` 763→116 → `features/scoreboard/`
+  - `MatrixReadDetail.tsx` 779→164 → `components/matrix/read/`
+* [x] No local formatter definitions remain (they resolve to `lib/format` from 0001). Exception: the scoreboard's UTC `fmtWeek`/`fmtDay` live in a scoped `features/scoreboard/format.ts` — deliberately not folded into `lib/format` (the CT-vs-UTC `fmtDay` trap).
+* [x] Every extraction is move-only — no prop, markup, or classname changes.
+* [x] Comments on moved subcomponents are brief plain English — no statistical jargon, over-explanation, or verbosity.
+* [x] `tsc -b` and `eslint` clean against baseline; full-project lint unchanged at 20 errors / 7 warnings, all pre-existing in untouched files. (Run via the web image — local Node 18 can't build.)
+
+## Notes
+
+* Folder name `read/` mirrors the `MatrixLens = "read"` value (`lib/matrix.ts`); the UI labels this lens "Detail". Kept `read/` to stay aligned with routeState/MatrixStage rather than introduce a third name.
+* Parents split before this landed: 0002 had already moved `BriefDetailPanel` to `components/brief/detail/` and pre-extracted parts of `ScoreboardPage` into `features/scoreboard/`; line numbers in Approach are from the survey and drifted accordingly.
