@@ -121,21 +121,19 @@ export default function MatrixReadDetail({
         .mrd-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 4px; }
         .mrd-summary__section { min-width: 0; }
         .mrd-summary .mrd-section-title { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-        .mrd-summary .mrd-kv__row { grid-template-columns: minmax(0, 1fr) 112px; gap: 10px; }
+        .mrd-summary .mrd-kv .kv__row { grid-template-columns: minmax(0, 1fr) 112px; gap: 10px; }
         @media (max-width: 760px) {
           .mrd { grid-template-columns: 1fr; height: auto; }
           .mrd__main { overflow-y: visible; padding-right: 2px; }
           .mrd__map { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 16px; margin-top: 4px; height: 320px; }
           .mrd-summary { grid-template-columns: 1fr; gap: 18px; }
         }
-        .mrd-kv__row { display: grid; grid-template-columns: minmax(0, var(--mrd-fact-label)) var(--mrd-fact-value) minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-        .mrd-kv__row:last-child { border-bottom: 0; }
-        .mrd-kv__label { min-width: 0; color: var(--text-muted); font-size: var(--fs-label); }
-        .mrd-kv__value { min-width: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); overflow-wrap: anywhere; }
-        .mrd-kv__value--numeric { text-align: right; font-variant-numeric: tabular-nums; }
-        @media (max-width: 440px) { .mrd-kv__row { grid-template-columns: minmax(0, 1fr) minmax(120px, 150px); } }
-        .mrd-kv__value--pos { color: var(--danger, #d94444); }
-        .mrd-kv__value--neg { color: var(--accent); }
+        /* Matrix lays the shared kv row (components/detail/Fact) out as a
+           label / numeric-value / spare grid instead of the drawer's flex row;
+           the base row, value tone and numeric alignment come from the shared
+           rules. */
+        .mrd-kv .kv__row { display: grid; grid-template-columns: minmax(0, var(--mrd-fact-label)) var(--mrd-fact-value) minmax(0, 1fr); gap: 14px; }
+        @media (max-width: 440px) { .mrd-kv .kv__row { grid-template-columns: minmax(0, 1fr) minmax(120px, 150px); } }
         .mrd-notice, .mrd-loading { margin-top: 14px; padding: 8px 10px; border: 1px solid var(--border); background: var(--accent-dim); color: var(--text-secondary); font-size: var(--fs-label); }
         .mrd-reach, .mrd-drivers { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--border); }
         .mrd-reach__dipole { width: 100%; margin: 8px 0 10px; }

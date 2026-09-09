@@ -13,7 +13,7 @@ import { REACH_THRESHOLD_OPTS } from "../../../api/client";
 import MiniMap from "../../map/MiniMap";
 import { mapLinkTo } from "../../../lib/mapLinks";
 import { constraintName, marketValue, usd, zoneLabel } from "../../../lib/format";
-import { Fact } from "./Fact";
+import { Fact } from "../../detail/Fact";
 import { DetailSummary } from "./DetailSummary";
 import { MemberLobe } from "./MemberLobe";
 

@@ -10,7 +10,7 @@ import MiniMap from "../../map/MiniMap";
 import { mapLinkTo } from "../../../lib/mapLinks";
 import { marketValue, percent, zoneLabel } from "../../../lib/format";
 import type { MatrixValTab } from "../../../lib/matrix";
-import { Fact } from "./Fact";
+import { Fact } from "../../detail/Fact";
 import { DetailSummary } from "./DetailSummary";
 import { DriverTable } from "./DriverTable";
 import type { NodeSort, NodeSortKey } from "./sort";

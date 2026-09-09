@@ -1,6 +1,6 @@
 import type { NodeStandoutRow, TopNodeRow } from "../../../api/types";
 import { constraintName, percent, rankMovement, usd, zoneLabel } from "../../../lib/format";
-import { Fact } from "./Fact";
+import { Fact } from "../../detail/Fact";
 import { HistoryBlock } from "./HistoryBlock";
 
 const STANDOUT_NODE_KIND: Record<string, string> = {
@@ -11,7 +11,7 @@ const STANDOUT_NODE_KIND: Record<string, string> = {
 
 function dollarTone(value: number | null | undefined) {
   if (value == null) return undefined;
-  return value >= 0 ? "positive" : ("negative" as const);
+  return value >= 0 ? "pos" : ("neg" as const);
 }
 
 export function NodeEvidence({

@@ -8,7 +8,7 @@ import {
   REACH_K,
   useConstraintReach,
 } from "../../panels/ConstraintReach";
-import { Fact } from "./Fact";
+import { Fact } from "../../detail/Fact";
 import { HistoryBlock } from "./HistoryBlock";
 
 const STANDOUT_CONSTRAINT_KIND: Record<string, string> = {
