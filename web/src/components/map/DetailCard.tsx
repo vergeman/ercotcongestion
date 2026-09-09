@@ -300,7 +300,6 @@ export default function DetailCard({
         }
         .dc-drivers--reach {
           margin-top: 6px;
-          padding-top: 6px;
           border-top: 1px solid var(--border);
         }
         /* One grid for the header row and every driver row, so the columns line
