@@ -36,6 +36,7 @@ import {
   zoneLabel,
 } from "../lib/format";
 import { HistoryBars, HistoryWhisker } from "../components/brief/HistoryGlyphs";
+import { DualStatBox, LoadingState } from "../components/brief/BriefPrimitives";
 
 const fmtDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
@@ -47,15 +48,6 @@ const fmtDay = (day: string) =>
   });
 
 const MOBILE_BREAKPOINT = "(max-width: 700px)";
-
-function LoadingState({ children }: { children: string }) {
-  return (
-    <p className="an-panel-state an-panel-state--loading">
-      <span className="an-loading-indicator" aria-hidden="true" />
-      {children}
-    </p>
-  );
-}
 
 function StandoutsPanel({
   data,
@@ -830,35 +822,6 @@ function ContextPanel({
         </>
       )}
     </section>
-  );
-}
-
-function DualStatBox({
-  firstLabel,
-  firstValue,
-  secondLabel,
-  secondValue,
-}: {
-  firstLabel: string;
-  firstValue: string;
-  secondLabel?: string;
-  secondValue?: string;
-}) {
-  return (
-    <div className="an-fact an-fact--dual-stat">
-      <span className="an-fact__label">{firstLabel}</span>
-      <strong className="an-fact__value an-fact__value--primary">
-        {firstValue}
-      </strong>
-      {secondLabel != null && (
-        <>
-          <span className="an-fact__label an-fact__secondary">
-            {secondLabel}
-          </span>
-          <strong className="an-fact__value">{secondValue ?? ""}</strong>
-        </>
-      )}
-    </div>
   );
 }
 
