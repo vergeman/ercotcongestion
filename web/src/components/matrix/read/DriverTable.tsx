@@ -30,7 +30,7 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
       <td className="mono">{mu == null ? "—" : usd(mu, 2)}</td>
       <td
         className={`mono${
-          term.contribution >= 0 ? " mrd-kv__value--pos" : " mrd-kv__value--neg"
+          term.contribution >= 0 ? " kv__value--pos" : " kv__value--neg"
         }`}
       >
         {usd(term.contribution, 2)}

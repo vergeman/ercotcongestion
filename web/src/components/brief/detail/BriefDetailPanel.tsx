@@ -215,15 +215,13 @@ export default function BriefDetailPanel({
            labels) so history / reach / why read as their own blocks. */
         .bdp-section-title { display: block; margin-bottom: 8px; color: var(--text-secondary); font: var(--fw-label) var(--fs-md) var(--font-label); letter-spacing: var(--track-label); text-transform: uppercase; }
         .bdp-section-title em { font-style: normal; color: var(--text-muted); text-transform: none; }
-        /* Evidence as a minimal, headerless label→value list: label in a fixed
-           column, value left-aligned right after it (not pushed to the edge). */
+        /* Evidence as a minimal, headerless label→value list: fixed label
+           column, value left-aligned right after it (not pushed to the edge).
+           The row is the shared components/detail/Fact; only the drawer's
+           label/value widths differ from the base flex layout. */
         .bdp-kv { display: flex; flex-direction: column; margin: 0; }
-        .bdp-kv__row { display: flex; gap: 14px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-        .bdp-kv__row:last-child { border-bottom: 0; }
-        .bdp-kv__label { flex: 0 0 118px; color: var(--text-muted); font-size: var(--fs-label); }
-        .bdp-kv__value { flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: var(--fs-md); text-align: left; overflow-wrap: anywhere; }
-        .bdp-kv__value--pos { color: var(--danger, #d94444); }
-        .bdp-kv__value--neg { color: var(--accent); }
+        .bdp-kv .kv__label { flex: 0 0 118px; }
+        .bdp-kv .kv__value { flex: 1 1 auto; }
         .bdp-share { color: var(--text-muted); font-family: var(--font-sans); font-size: var(--fs-micro); }
         .bdp-why { margin-top: 18px; padding: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--warn) 5%, transparent); }
         .bdp-why p { margin: 0 0 4px; color: var(--text-secondary); font-size: var(--fs-label); line-height: 1.4; }
