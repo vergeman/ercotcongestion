@@ -10,6 +10,7 @@ import {
   fetchForecastRange,
   fetchConditionsRange,
 } from "./client";
+import { deliveryDateCT } from "../lib/time";
 
 interface ErcotCongestionEntry {
   interval_ts: string;
@@ -37,7 +38,7 @@ const conditionsCache = new Map<string, ConditionsEntry>();
 // The forecast run_id served for the loaded window — labels which refit the
 // prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
-// Per-UTC-delivery-day horizon provenance for the loaded window (0123):
+// Per-CT-delivery-day horizon provenance for the loaded window (0123):
 // `"YYYY-MM-DD" -> 1|2` (1 = final, 2 = preview). Backs the preview badge; empty
 // until a forecast loads.
 let forecastHorizons: Record<string, number> = {};
@@ -89,11 +90,10 @@ export function getForecastRunId(): string | null {
 }
 
 // The horizon serving `ts`'s delivery day, or `null` when unknown (no forecast
-// this window, or an hour outside it). The delivery day is the UTC calendar date
-// of `ts` — the same key the backend's `horizons` map uses — so a preview day
-// (horizon 2) is identifiable read-only, without any extra fetch.
+// this window, or an hour outside it). The backend keys `horizons` by CT
+// delivery date, so use the same boundary for a read-only preview badge.
 export function getForecastHorizon(ts: Date): number | null {
-  const key = ts.toISOString().slice(0, 10);
+  const key = deliveryDateCT(ts);
   return forecastHorizons[key] ?? null;
 }
 
