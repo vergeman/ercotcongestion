@@ -7,7 +7,7 @@ import type {
   AnalysisGradeSupport,
 } from "../../../api/types";
 import { beats, fmtScore, multiple, percent, usd } from "../../../lib/format";
-import { LoadingState } from "../BriefPrimitives";
+import { LoadingState } from "./LoadingState";
 
 function ScoreWhisker({
   model,

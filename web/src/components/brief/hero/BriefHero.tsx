@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { BriefHero as BriefHeroModel, HeroSegment } from "../../api/types";
-import MiniMap from "../map/MiniMap";
+import type { BriefHero as BriefHeroModel, HeroSegment } from "../../../api/types";
+import MiniMap from "../../map/MiniMap";
 
 function Segments({ segments }: { segments: HeroSegment[] }) {
   return (

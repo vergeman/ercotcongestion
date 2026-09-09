@@ -1,6 +1,6 @@
-import Tooltip from "../ui/Tooltip";
-import DateRangePicker from "../playback/DateRangePicker";
-import { CURATED_EVENTS } from "../../lib/events";
+import Tooltip from "../../ui/Tooltip";
+import DateRangePicker from "../../playback/DateRangePicker";
+import { CURATED_EVENTS } from "../../../lib/events";
 
 const formatDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {

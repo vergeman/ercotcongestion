@@ -2,7 +2,7 @@ import type { TopConstraints } from "../../../api/types";
 import type { BriefSelection } from "../../../lib/briefSelection";
 import { rankMovement, usd, zoneLabel } from "../../../lib/format";
 import { HistoryBars, HistoryWhisker } from "../HistoryGlyphs";
-import { LoadingState } from "../BriefPrimitives";
+import { LoadingState } from "./LoadingState";
 
 export default function TopConstraintsPanel({
   data,

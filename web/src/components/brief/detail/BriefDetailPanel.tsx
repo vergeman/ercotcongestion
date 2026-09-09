@@ -12,13 +12,13 @@ import type {
   StandoutRow,
   TopConstraintRow,
   TopNodeRow,
-} from "../../api/types";
+} from "../../../api/types";
 import {
   briefElementMapHref,
   selectionGeo,
   selectionKey,
   type BriefSelection,
-} from "../../lib/briefSelection";
+} from "../../../lib/briefSelection";
 import {
   compactMoney,
   constraintName,
@@ -26,8 +26,8 @@ import {
   rankMovement,
   usd,
   zoneLabel,
-} from "../../lib/format";
-import { HistoryWhisker } from "./HistoryGlyphs";
+} from "../../../lib/format";
+import { HistoryWhisker } from "../HistoryGlyphs";
 import {
   ConstraintReachStyles,
   Dipole,
@@ -36,9 +36,9 @@ import {
   dipoleCounts,
   REACH_K,
   useConstraintReach,
-} from "../panels/ConstraintReach";
-import MiniMap from "../map/MiniMap";
-import "../../features/brief/brief.css";
+} from "../../panels/ConstraintReach";
+import MiniMap from "../../map/MiniMap";
+import "../../../features/brief/brief.css";
 
 // One shared sliding detail panel for every selectable Brief row (plan/0135). A
 // row is an inspection action, not a link: clicking it opens this right-side

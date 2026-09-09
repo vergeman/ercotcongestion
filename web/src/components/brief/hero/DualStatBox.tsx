@@ -1,16 +1,6 @@
-// Small building blocks shared across the Brief page panels: the spinner shown
-// while a panel loads, and the two-value stat box used in the hero evidence row.
+// Two-value stat box used in the hero evidence row.
 
-export function LoadingState({ children }: { children: string }) {
-  return (
-    <p className="an-panel-state an-panel-state--loading">
-      <span className="an-loading-indicator" aria-hidden="true" />
-      {children}
-    </p>
-  );
-}
-
-export function DualStatBox({
+export default function DualStatBox({
   firstLabel,
   firstValue,
   secondLabel,
