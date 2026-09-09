@@ -10,6 +10,42 @@ export const usd = (value: number, fractionDigits = 0) =>
     maximumFractionDigits: fractionDigits,
   })}`;
 
+// A market value with its per-MWh unit, e.g. "$3.20/MWh". Null → "—".
+export const marketValue = (value: number | null | undefined): string =>
+  value == null ? "—" : `${usd(value, 2)}/MWh`;
+
+// Signed magnitude, 2 decimals, no unit — for a column whose header already
+// states the unit, so it isn't repeated on every row. e.g. "+3.20" / "−1.05".
+export const fmtDollars = (v: number): string =>
+  `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
+
+// Compact contribution magnitude: 1.2k / 3.4M so the figure stays one glance wide.
+export const fmtMag = (v: number): string => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
+  return v.toFixed(0);
+};
+
+// Compact currency for axis/scale labels: $1.1k when large, decimals when small,
+// so a value never runs wider than its tick.
+export const compactMoney = (v: number): string => {
+  const a = Math.abs(v);
+  const s = v < 0 ? "−" : "";
+  if (a >= 1000) return `${s}$${(a / 1000).toFixed(1)}k`;
+  if (a >= 100) return `${s}$${Math.round(a)}`;
+  return `${s}$${a < 10 ? a.toFixed(1) : Math.round(a)}`;
+};
+
+// $1.1k when ≥ $1000, else whole dollars — the Legend's rounded scale labels.
+export const formatDollar = (v: number): string => {
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+};
+
+// Exact dollars to the cent, for the Legend's alarm thresholds.
+export const formatExactDollar = (v: number): string => `$${v.toFixed(2)}`;
+
 export const percent = (value: number | null | undefined) =>
   value == null ? "—" : `${Math.round(value * 100)}%`;
 

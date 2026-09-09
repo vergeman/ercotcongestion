@@ -21,6 +21,7 @@ import {
 } from "../../lib/briefSelection";
 import {
   HistoryWhisker,
+  compactMoney,
   constraintName,
   percent,
   rankMovement,
@@ -96,16 +97,6 @@ function dollarTone(value: number | null | undefined) {
   if (value == null) return undefined;
   return value >= 0 ? "positive" : ("negative" as const);
 }
-
-// Compact currency for the axis/scale labels: $1.1k for large Σμ, decimals for
-// small $/MWh, so a number never runs wider than its tick.
-const compactMoney = (v: number) => {
-  const a = Math.abs(v);
-  const s = v < 0 ? "−" : "";
-  if (a >= 1000) return `${s}$${(a / 1000).toFixed(1)}k`;
-  if (a >= 100) return `${s}$${Math.round(a)}`;
-  return `${s}$${a < 10 ? a.toFixed(1) : Math.round(a)}`;
-};
 
 // The trailing-30-day block (whisker + per-day bars) shared by every kind, with
 // the mark placed on the settled total once settled, else the forecast total.

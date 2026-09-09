@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { formatCT } from "../../lib/time";
+import { fmtDollars } from "../../lib/format";
 import { shiftFactorColor } from "../../lib/colors";
 
 interface HoveredSp {
@@ -89,12 +90,6 @@ function Row({
 }
 
 // Signed congestion $/MWh, e.g. "+$3.20/MWh" / "−$1.05/MWh". Null → "—".
-// Bare signed magnitude for a column whose header already states $/MWh —
-// repeating the unit on every row is what crowded the card.
-function fmtDollars(v: number): string {
-  return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
-}
-
 function fmtCong(v: number | null | undefined): string | null {
   if (v == null) return null;
   return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;

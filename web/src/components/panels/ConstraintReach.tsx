@@ -144,15 +144,6 @@ export function useFullConstraintReach(
   return { reach, loading };
 }
 
-// Compact magnitude for a contribution figure (a relative $·SF·h score):
-// 1.2k / 3.4M so the number stays one glance wide.
-export function fmtMag(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
-  return v.toFixed(0);
-}
-
 // The import↔export split of a reach as (n_import, n_export) — the SF<0 vs SF>0
 // located-node counts that feed the Dipole. Handy when the caller only has the
 // reach payload (the Brief panel), not the ranked row's precomputed counts.

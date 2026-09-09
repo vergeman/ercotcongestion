@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { cssVar, useTheme } from "../../lib/theme";
+import { formatDollar, formatExactDollar } from "../../lib/format";
 import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmpFromStats,
@@ -121,15 +122,6 @@ const HIST_BINS = 24;
 // labels/sub uncramp. Inner elements size to the padded content box (width:100%)
 // rather than this fixed value, so the gradient never overruns the container.
 const BAR_W = 176;
-
-function formatDollar(v: number): string {
-  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
-  return `$${v.toFixed(0)}`;
-}
-
-function formatExactDollar(v: number): string {
-  return `$${v.toFixed(2)}`;
-}
 
 export default function Legend({
   dataMode,

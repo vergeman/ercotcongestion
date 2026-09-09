@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { RankedConstraints } from "../../api/types";
 import Tooltip from "../ui/Tooltip";
+import { fmtMag } from "../../lib/format";
 import {
   ConstraintReachStyles,
   Dipole,
   Membership,
   SfDipoleLegend,
-  fmtMag,
 } from "./ConstraintReach";
 
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
