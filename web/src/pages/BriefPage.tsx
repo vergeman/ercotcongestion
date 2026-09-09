@@ -24,14 +24,18 @@ import BriefEvidence from "../components/brief/BriefEvidence";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
-  HistoryBars,
-  HistoryWhisker,
+  beats,
   constraintName,
+  fmtScore,
+  gw,
+  multiple,
+  numeric,
   percent,
   rankMovement,
   usd,
   zoneLabel,
-} from "../components/brief/briefFormat";
+} from "../lib/format";
+import { HistoryBars, HistoryWhisker } from "../components/brief/HistoryGlyphs";
 
 const fmtDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
@@ -858,15 +862,6 @@ function DualStatBox({
   );
 }
 
-const score = (value: number | null | undefined) =>
-  value == null ? "—" : `${value.toFixed(2)}`;
-const multiple = (value: number | null | undefined) =>
-  value == null ? "—" : `${value.toFixed(2)}×`;
-const beats = (
-  model: number | null | undefined,
-  comparator: number | null | undefined
-) => model != null && comparator != null && model >= comparator;
-
 function ScoreWhisker({
   model,
   persistence,
@@ -924,9 +919,9 @@ function ScoreWhisker({
   return (
     <div
       className="an-grade-card__whisker"
-      aria-label={`Artifact profile forecast ${score(model)}; trailing ${
+      aria-label={`Artifact profile forecast ${fmtScore(model)}; trailing ${
         values.length
-      }-day p10 ${score(p10)}, p90 ${score(p90)}`}
+      }-day p10 ${fmtScore(p10)}, p90 ${fmtScore(p90)}`}
     >
       <span className="an-grade-card__whisker-line" />
       <i
@@ -957,7 +952,7 @@ function ScoreWhisker({
           className={`an-grade-card__whisker-number an-grade-card__whisker-number--${marker.kind}`}
           style={{ left: position(marker.value) }}
         >
-          {score(marker.value)}
+          {fmtScore(marker.value)}
         </span>
       ))}
     </div>
@@ -1015,12 +1010,12 @@ function GradeCard({
       <h4>{question}</h4>
       <p className="an-grade-card__detail">{detail}</p>
       <div className="an-grade-card__value">
-        <strong>{score(model)}</strong>
+        <strong>{fmtScore(model)}</strong>
         {modelHourly !== undefined ? (
           <>
             <small>day</small>
             <span>→</span>
-            <strong>{score(modelHourly)}</strong>
+            <strong>{fmtScore(modelHourly)}</strong>
             <small>hourly</small>
           </>
         ) : (
@@ -1148,12 +1143,12 @@ function GradeHalf({
           entity={nodes ? "node" : "constraint"}
           supportRows={[
             {
-              value: score(persistenceDailyRank),
+              value: fmtScore(persistenceDailyRank),
               label: gradeSourceLabel(half, BRIEF_PERSISTENCE_SOURCE),
               win: beats(dailyRank, persistenceDailyRank),
             },
             {
-              value: score(
+              value: fmtScore(
                 climatology?.detection_ap
               ),
               label: gradeSourceLabel(half, BRIEF_CLIMATOLOGY_SOURCE),
@@ -1204,7 +1199,7 @@ B    = ${nodes ? "settled top 10% of scored nodes" : "constraints with settled s
               label: "Forecast amount ÷ settled amount",
             },
             {
-              value: score(half.support?.magnitude_ceiling),
+              value: fmtScore(half.support?.magnitude_ceiling),
               label: "Best possible score with this total",
             },
             {
@@ -1332,17 +1327,6 @@ function ForecastGrade({
   );
 }
 
-const numeric = (slot: Record<string, unknown> | undefined, key: string) => {
-  const value = slot?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-};
-
-const gw = (value: number) =>
-  `${(value / 1000).toLocaleString(undefined, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} GW`;
-const pct = (value: number) => `${Math.round(value * 100)}%`;
 // The leading zone's signed congestion sense, for the Zone Price pair. The
 // default reading of congestion is scarcity that lifts price; a negative zone
 // (export/oversupply) sits below the system price, which is worth calling out.
@@ -1596,7 +1580,7 @@ export default function BriefPage() {
                     {whereZone && whereShare != null && (
                       <DualStatBox
                         firstLabel={`${zoneLabel(whereZone)} μ Footprint`}
-                        firstValue={pct(whereShare)}
+                        firstValue={percent(whereShare)}
                         secondLabel={`${zoneLabel(whereZone)} Price`}
                         secondValue={priceDirection(whereCongestion)}
                       />

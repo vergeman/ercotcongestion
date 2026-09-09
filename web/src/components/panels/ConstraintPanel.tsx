@@ -1,12 +1,12 @@
 import { useState } from "react";
 import type { RankedConstraints } from "../../api/types";
 import Tooltip from "../ui/Tooltip";
+import { fmtMag, fmtNum } from "../../lib/format";
 import {
   ConstraintReachStyles,
   Dipole,
   Membership,
   SfDipoleLegend,
-  fmtMag,
 } from "./ConstraintReach";
 
 // The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
@@ -37,13 +37,6 @@ interface Props {
   onSelect?: (id: string) => void;
   // A constituent SP hovered in an expanded row → ring that node on the map.
   onMemberHover?: (sp: string | null) => void;
-}
-
-function fmtDailyStat(v: number): string {
-  return v.toLocaleString("en-US", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
 }
 
 export default function ConstraintPanel({
@@ -167,8 +160,8 @@ export default function ConstraintPanel({
                     </span>
                   </span>
                   <span className="cp-key mono">{c.constraint_id}</span>
-                  <span className="cp-daily-value mono">{fmtDailyStat(c.mu_mass)}</span>
-                  <span className="cp-daily-value mono">{fmtDailyStat(c.reach)}</span>
+                  <span className="cp-daily-value mono">{fmtNum(c.mu_mass, 1)}</span>
+                  <span className="cp-daily-value mono">{fmtNum(c.reach, 1)}</span>
                   <span className="cp-n mono">{c.n_members}</span>
                   <Dipole imp={c.n_import} exp={c.n_export} />
                 </button>

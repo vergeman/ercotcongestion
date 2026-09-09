@@ -21,7 +21,13 @@ import { REACH_THRESHOLD_OPTS } from "../../api/client";
 import MiniMap from "../map/MiniMap";
 import { mapLinkTo } from "../../lib/mapLinks";
 import { shiftFactorColor } from "../../lib/colors";
-import { constraintName, percent, usd, zoneLabel } from "../brief/briefFormat";
+import {
+  constraintName,
+  marketValue,
+  percent,
+  usd,
+  zoneLabel,
+} from "../../lib/format";
 import type { MatrixEntitySelection, MatrixValTab } from "../../lib/matrix";
 
 // The Matrix Read lens's detail (plan/0139-0003): a constraint's full SF reach
@@ -447,9 +453,6 @@ function DriverTable({
   );
 }
 
-function marketValue(value: number | null | undefined): string {
-  return value == null ? "—" : `${usd(value, 2)}/MWh`;
-}
 
 function NodeRead({
   point,

@@ -28,8 +28,14 @@ Branch: refactor/205-0001-shared-format-lib
 
 ## Acceptance
 
-* [ ] `lib/format.tsx` holds the shared helpers; `components/brief/briefFormat.tsx` is gone and all imports updated.
-* [ ] No duplicate money/number/percent formatter definitions remain in `DetailCard`, `SidePanel`, `Legend`, `ConstraintReach`, `ConstraintPanel`, `MatrixReadDetail`, `BriefDetailPanel`, `BriefPage`.
-* [ ] The two `fmtDay` timezone behaviors are preserved.
-* [ ] Comments on moved helpers are brief plain English — no statistical jargon, over-explanation, or verbosity.
-* [ ] `npx tsc -b` and `npm run lint` clean against baseline; affected surfaces render identically.
+* [x] `lib/format.ts` holds the shared helpers; `components/brief/briefFormat.tsx` is gone and all imports updated. (Landed as pure `.ts`, not `.tsx` — see note.)
+* [x] No duplicate money/number/percent formatter definitions remain in `DetailCard`, `SidePanel`, `Legend`, `ConstraintReach`, `ConstraintPanel`, `MatrixReadDetail`, `BriefDetailPanel`, `BriefPage`.
+* [x] The two `fmtDay` timezone behaviors are preserved. (Left in place, untouched — they differ in format too, not just zone.)
+* [x] Comments on moved helpers are brief plain English — no statistical jargon, over-explanation, or verbosity.
+* [x] `npx tsc -b` and `npm run lint` clean against baseline; affected surfaces render identically. (Verified in the docker dev container; local Node 18 can't build. Lint 33→27 problems, none new.)
+
+### Deviation — glyphs out of the format module
+
+`HistoryWhisker`/`HistoryBars` did **not** stay in the shared module. They are Brief-only (used just by `BriefPage` and `BriefDetailPanel`), so keeping them alongside the helpers forced `format.tsx` to export components — which trips `react-refresh/only-export-components` and grows lint on every helper added. They moved to `components/brief/HistoryGlyphs.tsx`, letting `lib/format.ts` be pure TS with no eslint-disable. Their CSS ownership is unchanged (still BriefPage's page-level `<style>`, per 0002).
+
+Grouped into commits: (1) promote briefFormat → `lib/format`; (2) money formatters; (3) number formatters; (4) percent/utility helpers; (5) labelled sections; (6) glyphs → brief component.

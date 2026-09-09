@@ -1,32 +1,7 @@
-// Formatting helpers and the two trailing-history glyphs shared by the Brief
-// page tables and the detail panel (plan/0135). Extracted so the panel renders
-// the same μ / dollar / rank text and the same 30-day whisker + bars as the row
-// it opened from, without a second copy drifting out of sync. The whisker/bars
-// CSS lives in BriefPage's page-level <style> (both surfaces mount under it).
-
-export const usd = (value: number, fractionDigits = 0) =>
-  `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  })}`;
-
-export const percent = (value: number | null | undefined) =>
-  value == null ? "—" : `${Math.round(value * 100)}%`;
-
-export const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
-
-export const zoneLabel = (zone: string | null) =>
-  zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
-
-export const rankMovement = (
-  forecastRank: number | null,
-  settledRank: number | null
-) => {
-  if (settledRank == null) return "—";
-  if (forecastRank == null) return `new ${settledRank}`;
-  const movement = settledRank - forecastRank;
-  return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
-};
+// The two trailing-history glyphs shared by the Brief tables and detail panel
+// (plan/0135). Their CSS (`.an-history-whisker`, `.an-history-bars`) lives in
+// BriefPage's page-level <style>; both surfaces mount under it.
+import { usd } from "../../lib/format";
 
 export function HistoryWhisker({
   low,

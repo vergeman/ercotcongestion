@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ExposuresResponse, ConstraintReach } from "../../api/types";
 import { formatCT } from "../../lib/time";
+import { fmt, fmtCong, fmtDollars, fmtSf } from "../../lib/format";
 import { shiftFactorColor } from "../../lib/colors";
 
 interface HoveredSp {
@@ -53,18 +54,6 @@ interface Props {
   mobile?: boolean;
 }
 
-function fmt(v: number | null, decimals = 1): string {
-  if (v == null) return "—";
-  return v.toLocaleString("en-US", { maximumFractionDigits: decimals });
-}
-
-// Shift factors are unitless and often small; 3 decimals keeps 0.03 legible.
-function fmtSf(v: number | null): string {
-  if (v == null) return "—";
-  const sign = v >= 0 ? "+" : "−";
-  return `${sign}${Math.abs(v).toFixed(3)}`;
-}
-
 // Max constraint-reach rows the card lists; the rest are summarized as a count
 // (the map still glows the full footprint). 0147.
 const REACH_ROW_CAP = 20;
@@ -86,18 +75,6 @@ function Row({
       <span className="dc-val mono">{value ?? "—"}</span>
     </div>
   );
-}
-
-// Signed congestion $/MWh, e.g. "+$3.20/MWh" / "−$1.05/MWh". Null → "—".
-// Bare signed magnitude for a column whose header already states $/MWh —
-// repeating the unit on every row is what crowded the card.
-function fmtDollars(v: number): string {
-  return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
-}
-
-function fmtCong(v: number | null | undefined): string | null {
-  if (v == null) return null;
-  return `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
 }
 
 function SpBody({
