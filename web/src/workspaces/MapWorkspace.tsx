@@ -6,15 +6,8 @@ import type {
   ExposuresResponse,
   ConstraintReach,
   RankedConstraints,
-  ConditionsEntry,
-  MapScorecard,
 } from "../api/types";
 import { formatCT } from "../lib/time";
-import {
-  getForecastCached,
-  getForecastHorizon,
-  getConditionsCached,
-} from "../api/prefetch";
 import {
   forecastErrorColor,
   forecastErrorGradientCss,
@@ -26,9 +19,7 @@ import Legend from "../components/map/Legend";
 import CompareMap from "../components/map/CompareMap";
 import DateRangePicker from "../components/playback/DateRangePicker";
 import DetailCard from "../components/map/DetailCard";
-import SidePanel, {
-  type NetworkStats,
-} from "../components/panels/SidePanel";
+import SidePanel from "../components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
 import {
   type MapTarget,
@@ -36,14 +27,14 @@ import {
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useMapRows } from "../hooks/useMapRows";
 import { useMapBootstrap } from "../hooks/useMapBootstrap";
 import { useMapRouteState } from "../features/map/MapRouteState";
 import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
 import { MapPaneBadge } from "../features/map/MapPaneBadge";
 import "../features/map/mapPresentation.css";
 import { useConstraintSelection } from "../features/map/useConstraintSelection";
-import { fetchMapScorecard } from "../api/map";
+import { useMapCursorData } from "../features/map/useMapCursorData";
+import { useMapScorecard } from "../features/map/useMapScorecard";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
 
@@ -206,44 +197,16 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const { onMainReady: handleMainReady, onRightReady: handleRightReady } = useSynchronizedMaps();
 
-  // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
-  // from the current frame's Central date (ERCOT operates on Central), so the
-  // ranking follows the map's day. Undefined before a window loads → the server
-  // defaults to the forecast run's latest built day.
-  const deliveryDay = useMemo<string | undefined>(() => {
-    const ts = timestamps[currentIndex];
-    return ts ? formatCT(ts, "yyyy-MM-dd") : undefined;
-  }, [timestamps, currentIndex]);
-
-  // The cursor instant itself — what /map/exposures and /map/reach take as `t`
-  // (0144). Both serve that CT delivery day's SF artifact, so passing this is
-  // what keeps the DetailCard and the dipole glow on the same day the rest of
-  // the map is showing; omitting it silently served the newest rolling fit.
-  const cursorTs = useMemo<Date | undefined>(
-    () => timestamps[currentIndex],
-    [timestamps, currentIndex]
-  );
-
-  const [scorecard, setScorecard] = useState<MapScorecard | null>(null);
-
-  // The map cursor owns the scorecard's CT delivery date. Abort the previous
-  // fetch so a fast scrub cannot publish a score from an earlier day. The prior
-  // day's scorecard stays mounted until the new one lands, so the numbers swap
-  // in place with no flash.
-  useEffect(() => {
-    if (!deliveryDay) {
-      return;
-    }
-    const controller = new AbortController();
-    fetchMapScorecard(deliveryDay, forecastRunId, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setScorecard(result);
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setScorecard(null);
-      });
-    return () => controller.abort();
-  }, [deliveryDay, forecastRunId]);
+  // Everything the cursor derives for the panes and side panel: the CT delivery
+  // day (undefined before a window loads → server defaults to the latest built
+  // day), the cursor instant (`t` for /map/exposures and /map/reach), preview
+  // status, this hour's rows, forecast-error rows, conditions, network stats,
+  // and the per-SP decomposition.
+  const {
+    cursorTs, deliveryDay, isPreviewDay, spRows, forecastRows, lambdaSource,
+    errorRows, conditionsStats, networkStats, spDecomp,
+  } = useMapCursorData(timestamps, currentIndex, forecastRunId);
+  const scorecard = useMapScorecard(deliveryDay, forecastRunId);
 
   // focusReachCache key: a cached dipole belongs to one constraint on one CT
   // delivery day, never to the constraint alone.
@@ -251,16 +214,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     (id: string) => `${deliveryDay ?? "latest"}|${id}`,
     [deliveryDay]
   );
-
-  // Whether the cursor's forecast day is a PREVIEW (horizon 2, 0123) — read-only
-  // off the per-day provenance the range response carried, keyed by the frame's UTC
-  // date (the backend's delivery_date). No toggle, no extra fetch: the scrubber
-  // still renders the one coalesced series; this only labels which days are still
-  // previews. Recomputed as the cursor moves or a new window loads.
-  const isPreviewDay = useMemo<boolean>(() => {
-    const ts = timestamps[currentIndex];
-    return ts ? getForecastHorizon(ts) === 2 : false;
-  }, [timestamps, currentIndex]);
 
   // Ranked constraints are scoped to the delivery day and basis. Cancellation
   // replaces the prior request-id guard, so a scrub can never publish an old day.
@@ -279,84 +232,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
     return () => controller.abort();
   }, [deliveryDay, constraintBasis, loadRanked]);
-
-  const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
-
-  // Forecast-error rows for the current hour: forecast − realized congestion
-  // per SP, derived client-side from the two series already in state (no new API).
-  // An SP without both a forecast and a realized value rides through with a null
-  // error. Empty when no forecast covers the hour (the error needs a prediction).
-  const errorRows = useMemo<SpRow[]>(() => {
-    if (!forecastRows.length) return [];
-    const marketById = new Map(spRows.map((r) => [r.sp_id, r.congestion]));
-    return forecastRows.map((f) => {
-      const m = marketById.get(f.sp_id);
-      const error =
-        f.congestion != null && m != null ? f.congestion - m : null;
-      return { sp_id: f.sp_id, congestion: error, spp: null };
-    });
-  }, [forecastRows, spRows]);
-
-  // Network stats for the side panel, from state already in hand: the cursor
-  // hour, that hour's realized rows, and the forecast rows. `systemLambda` is the
-  // forecast entry's DAM system-λ at the cursor; `congestionAbsTotal` is Σ|C|
-  // over the realized rows this hour. `modelNodes`/`ercotNodes` are the SP counts
-  // on each side — the model forecasts its full nodal universe, ERCOT lights only
-  // priced nodes, so model ≥ ercot. (Window / hours / cursor live on the scrubber.)
-  // Total Load lives in the Conditions panel's Load by Region row now, not here.
-  const networkStats = useMemo<NetworkStats>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    const fc = cur ? getForecastCached(cur) : null;
-    let absTotal: number | null = null;
-    let ercot = 0;
-    for (const r of spRows) {
-      if (r.congestion != null) {
-        ercot++;
-        absTotal = (absTotal ?? 0) + Math.abs(r.congestion);
-      }
-    }
-    let model = 0;
-    for (const r of forecastRows) if (r.congestion != null) model++;
-    return {
-      forecastRunId,
-      systemLambda: fc?.system_lambda ?? null,
-      congestionAbsTotal: absTotal,
-      modelNodes: model,
-      ercotNodes: ercot,
-    };
-  }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
-
-  // Load / Wind / Solar / Outages (plan/0141): the same cursor hour as
-  // `networkStats`, read from its own soft-fail cache. `undefined` (no cache
-  // entry for this hour) collapses to `null` so SidePanel's null-dash rendering
-  // handles it the same way as every other stat.
-  const conditionsStats = useMemo<ConditionsEntry | null>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    return (cur ? getConditionsCached(cur) : null) ?? null;
-  }, [timestamps, currentIndex]);
-
-  // The full forecast / realized / error decomposition for one SP — carried by
-  // every card in every view, so the error-default never hides raw magnitude.
-  // Side-independent: predicted from the forecast rows, market from the realized
-  // rows, error = predicted − market when both exist.
-  const spDecomp = useCallback(
-    (spId: string) => {
-      const f = forecastRows.find((r) => r.sp_id === spId);
-      const m = spRows.find((r) => r.sp_id === spId);
-      const predicted = f?.congestion ?? null;
-      const market = m?.congestion ?? null;
-      const error =
-        predicted != null && market != null ? predicted - market : null;
-      return {
-        predicted,
-        market,
-        error,
-        marketSpp: m?.spp ?? null,
-        predictedSpp: f?.spp ?? null,
-      };
-    },
-    [forecastRows, spRows]
-  );
 
   const handleSpHover = useCallback(
     (
