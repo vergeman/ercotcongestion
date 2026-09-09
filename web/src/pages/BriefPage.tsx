@@ -31,7 +31,7 @@ import {
   rankMovement,
   usd,
   zoneLabel,
-} from "../components/brief/briefFormat";
+} from "../lib/format";
 
 const fmtDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {

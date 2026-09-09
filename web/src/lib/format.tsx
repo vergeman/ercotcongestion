@@ -1,8 +1,8 @@
-// Formatting helpers and the two trailing-history glyphs shared by the Brief
-// page tables and the detail panel (plan/0135). Extracted so the panel renders
-// the same μ / dollar / rank text and the same 30-day whisker + bars as the row
-// it opened from, without a second copy drifting out of sync. The whisker/bars
-// CSS lives in BriefPage's page-level <style> (both surfaces mount under it).
+/* eslint-disable react-refresh/only-export-components -- shared format lib, not a fast-refresh boundary */
+// The app's shared formatting helpers plus the two trailing-history glyphs used
+// by the Brief tables and detail panel (plan/0135). One copy so every surface
+// renders the same dollar / rank text and the same 30-day whisker + bars. The
+// whisker/bars CSS lives in BriefPage's page-level <style> (both mount under it).
 
 export const usd = (value: number, fractionDigits = 0) =>
   `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, {

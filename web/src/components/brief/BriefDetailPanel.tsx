@@ -26,7 +26,7 @@ import {
   rankMovement,
   usd,
   zoneLabel,
-} from "./briefFormat";
+} from "../../lib/format";
 import {
   ConstraintReachStyles,
   Dipole,
