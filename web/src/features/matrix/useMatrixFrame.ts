@@ -35,7 +35,6 @@ export function useMatrixFrame(
       : null;
   useEffect(() => {
     if (!timestamp) return;
-    const controller = new AbortController();
     const id = ++requestId.current;
     const workingSetEmpty =
       !state.pinnedConstraints.length && !state.pinnedSettlementPoints.length;
@@ -60,7 +59,7 @@ export function useMatrixFrame(
           peekConstraint,
           peekSettlementPoint,
         };
-    void getMatrixFrame(timestamp, request, controller.signal)
+    void getMatrixFrame(timestamp, request)
       .then((next) => {
         if (id !== requestId.current) return;
         rememberedFrame = next;
@@ -86,7 +85,6 @@ export function useMatrixFrame(
       .finally(() => {
         if (id === requestId.current) setLoading(false);
       });
-    return () => controller.abort();
     // onSeed is an event callback; re-subscribing the request for its identity would abort an active request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

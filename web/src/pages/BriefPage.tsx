@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from "react";
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
@@ -87,7 +86,7 @@ export default function BriefPage() {
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
   useEffect(() => {
-    setSelection(null);
+    queueMicrotask(() => setSelection(null));
   }, [deliveryDay]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
@@ -112,8 +111,8 @@ export default function BriefPage() {
     );
     if (pendingDeliveryDayRef.current === heroDay)
       pendingDeliveryDayRef.current = null;
-    setReplaceWithHeroCursor(false);
-  }, [hero, cursor, replaceWithHeroCursor]);
+    queueMicrotask(() => setReplaceWithHeroCursor(false));
+  }, [hero, cursor, replaceWithHeroCursor, deliveryDay]);
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";

@@ -5,10 +5,12 @@ import type {
 } from "../../../api/types";
 import {
   Dipole,
+} from "../../panels/ConstraintReach";
+import {
   dipoleCounts,
   REACH_K,
   useFullConstraintReach,
-} from "../../panels/ConstraintReach";
+} from "../../panels/constraintReachData";
 import { REACH_THRESHOLD_OPTS } from "../../../api/client";
 import MiniMap from "../../map/MiniMap";
 import { mapLinkTo } from "../../../lib/mapLinks";

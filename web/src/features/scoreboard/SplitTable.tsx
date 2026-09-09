@@ -1,5 +1,5 @@
 import type { ScoreboardWeekly } from "../../api/types";
-import { METRICS, type MetricKey } from "./ScoreboardControls";
+import { METRICS, type MetricKey } from "./scoreboardControlsState";
 import { SERIES } from "./seriesMeta";
 
 const SPLIT_LABELS: Record<string, string> = {

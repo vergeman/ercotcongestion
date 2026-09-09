@@ -17,7 +17,7 @@ import {
   settlementPointsFromTopology,
   type SettlementPoint,
 } from "../../lib/texasOutline";
-import { REACH_K, useConstraintReach } from "../panels/ConstraintReach";
+import { REACH_K, useConstraintReach } from "../panels/constraintReachData";
 
 // The data layer for MiniMap: given the mode, fetch and colour the marks to
 // plot. It returns marks in lng/lat (the component owns the projection) plus
@@ -145,6 +145,8 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
 
   // --- lmp mode: the hour's node scatter -----------------------------------
   const lmp = props.mode === "lmp" ? props : null;
+  const lmpCursor = lmp?.cursor.t;
+  const lmpBasis = lmp?.basis;
   const [lmpData, setLmpData] = useState<{
     points: SettlementPoint[];
     values: Map<string, number>;
@@ -152,12 +154,15 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
   } | null>(null);
   const [lmpFailed, setLmpFailed] = useState(false);
   useEffect(() => {
-    if (!lmp) return;
+    if (!lmpCursor || !lmpBasis) return;
     let live = true;
-    setLmpData(null);
-    setLmpFailed(false);
-    const t = new Date(lmp.cursor.t);
-    Promise.all([fetchTopology(), loadHourValues(t, lmp.basis)])
+    queueMicrotask(() => {
+      if (!live) return;
+      setLmpData(null);
+      setLmpFailed(false);
+    });
+    const t = new Date(lmpCursor);
+    Promise.all([fetchTopology(), loadHourValues(t, lmpBasis)])
       .then(([topology, values]) => {
         if (!live) return;
         const points = settlementPointsFromTopology(topology);
@@ -175,7 +180,7 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
     return () => {
       live = false;
     };
-  }, [lmp?.cursor.t, lmp?.basis]);
+  }, [lmpCursor, lmpBasis]);
 
   // --- constraint mode: the SF reach ---------------------------------------
   const constraint = props.mode === "constraint" ? props : null;
@@ -194,27 +199,36 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
 
   // --- node mode: one located point ----------------------------------------
   const node = props.mode === "node" ? props : null;
+  const nodeSelectionKey = node?.selectionKey;
+  const nodeLocation = node?.nodeLocation;
   const [nodePoint, setNodePoint] = useState<NodePoint | null>(null);
   const [nodeResolved, setNodeResolved] = useState(props.mode !== "node");
   useEffect(() => {
-    if (!node) {
-      setNodePoint(null);
-      setNodeResolved(true);
+    if (!nodeSelectionKey) {
+      queueMicrotask(() => {
+        setNodePoint(null);
+        setNodeResolved(true);
+      });
       return;
     }
-    if (node.nodeLocation) {
-      setNodePoint(node.nodeLocation);
-      setNodeResolved(true);
+    if (nodeLocation) {
+      queueMicrotask(() => {
+        setNodePoint(nodeLocation);
+        setNodeResolved(true);
+      });
       return;
     }
     let live = true;
-    setNodeResolved(false);
-    setNodePoint(null);
+    queueMicrotask(() => {
+      if (!live) return;
+      setNodeResolved(false);
+      setNodePoint(null);
+    });
     fetchTopology()
       .then((topology) => {
         if (!live) return;
         const match = settlementPointsFromTopology(topology).find(
-          (p) => p.sp_id === node.selectionKey
+          (p) => p.sp_id === nodeSelectionKey
         );
         if (match) setNodePoint({ lng: match.lng, lat: match.lat });
       })
@@ -223,7 +237,7 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
     return () => {
       live = false;
     };
-  }, [node?.selectionKey, node?.nodeLocation]);
+  }, [nodeSelectionKey, nodeLocation]);
 
   const dots = useMemo<RawDot[]>(() => {
     if (props.mode === "lmp") {

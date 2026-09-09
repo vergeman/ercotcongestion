@@ -97,7 +97,7 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
       .catch((error: unknown) => { if (!controller.signal.aborted && !isAbort(error)) patch({ detailsError: "The rest of this brief could not be loaded." }); })
       .finally(() => { if (!controller.signal.aborted) patch({ contextLoading: false, topNodesLoading: false, topConstraintsLoading: false, gradeLoading: false }); });
     return () => controller.abort();
-  }, [deliveryDay, heroReadyDay, detailsRetry]);
+  }, [deliveryDay, state.hero?.available, state.hero?.provenance?.delivery_date, heroReadyDay, detailsRetry]);
 
   return useMemo(() => ({ ...state, deliveryDay, heroReadyDay, heroPending }), [state, deliveryDay, heroReadyDay, heroPending]);
 }

@@ -112,7 +112,7 @@ export default function TimeTransport({
 
   // A page that can't play (Analysis) never leaves `playing` true.
   useEffect(() => {
-    if (!canPlay && playing) setPlaying(false);
+    if (!canPlay && playing) queueMicrotask(() => setPlaying(false));
   }, [canPlay, playing]);
 
   // Consume a one-shot autoplay request (0131) once there are frames to play.
@@ -125,7 +125,7 @@ export default function TimeTransport({
     onAutoPlayConsumed?.();
     if (prefersReducedMotion()) return;
     if (index >= frames.length - 1) onSeek(0);
-    setPlaying(true);
+    queueMicrotask(() => setPlaying(true));
     // Only a fresh autoplay request (or frames finally arriving) should
     // re-run this — not every index/frames change during normal playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps

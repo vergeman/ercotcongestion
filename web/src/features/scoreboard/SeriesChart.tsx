@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ScoreHistoryPoint } from "../../api/types";
-import { METRICS, type MetricKey } from "./ScoreboardControls";
+import { METRICS, type MetricKey } from "./scoreboardControlsState";
 import { useScoreboardChart } from "./useScoreboardChart";
 import { SERIES, CHART_LABELS } from "./seriesMeta";
 import { fmtWeek, fmtDay } from "./format";

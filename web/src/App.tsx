@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import Header from "./components/layout/Header";
 import ExplorerScrubber from "./components/playback/ExplorerScrubber";
-import { useSharedExplorer } from "./hooks/useSharedExplorer";
+import { useSharedExplorer } from "./hooks/sharedExplorerContext";
 import { hasAutoPlayRequest, stripAutoPlay } from "./lib/mapLinks";
 import MapWorkspace from "./workspaces/MapWorkspace";
 import MatrixWorkspace from "./workspaces/MatrixWorkspace";
