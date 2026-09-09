@@ -1,57 +1,52 @@
-# 205-0007 - Unify the constraint/node detail renderers
+# 205-0007 - Unify the constraint/node detail KV primitive
 
-Type: refactor (behavioral — needs coverage first)
+Type: refactor (behavioral — namespace unification only)
 Branch: refactor/205-0007-detail-renderer-consolidation
 
 ## Goal
 
-* Collapse the two parallel constraint/node detail renderers into one shared body component both surfaces call.
-* Do it behind a safety net: land test coverage of both surfaces FIRST, then consolidate under it.
+* Collapse the one genuinely-duplicated primitive — the constraint/node detail **KV row** — into a single shared component both surfaces call, under one CSS namespace.
+* Leave the two detail **bodies** separate. They look parallel but are not: see the scope decision below.
 
-This is the Tier 4 deferral in the INDEX. Unlike 0002/0003/0006 it is not a move-only diff — it changes rendered output on two surfaces — so it is explicitly sequenced coverage-first.
+## Scope decision (reduced from the original full-body merge)
 
-## The duplication
+The INDEX filed this as a Tier-4 "unify the two parallel constraint/node detail renderers", implying one shared body both shells adapt into. Reading the actual code, that merge was rejected — the two surfaces share far less than the duplication table suggests:
 
-Two files render the same concept — a constraint or node, its numbers, drivers, members, and 30-day history — with independent implementations:
+* `HistoryGlyphs` is **already** shared (0003); Brief's `HistoryBlock` uses the shared whisker. The "re-implements a whisker" tell is stale.
+* The bodies are **deeply divergent**, not parallel: different data sources (Brief pre-aggregated `Top*`/`Standout*` rows vs Matrix live `useFullConstraintReach` / `getAnalysisNode` fetches), different facts, different layouts (Brief single-column + history + why; Matrix two-column summary + driver table + right-rail map), different reach presentation (flat `MemberList` vs import/export `MemberLobe`s). Matrix renders **no** history; Brief renders **no** drivers.
 
-| | `brief/detail/BriefDetailPanel.tsx` (775) | `matrix/MatrixReadDetail.tsx` (689) |
+Forcing those into one body means a `variant`-branched component that is really two implementations under one roof — a worse read than what's there. So the only honest, low-risk consolidation is the shared KV row.
+
+**A test runner was NOT added.** The original plan sequenced a vitest safety net first; a prototype was built and then removed by request (refactoring is mid-flight; snapshots weren't worth maintaining yet). The KV change is a pure class-rename verified by `tsc` + `lint` + `vite build` and a diff review instead. See the test-runner setup notes for how to re-add vitest when tests return.
+
+## The duplication that was removed
+
+Two structurally identical `Fact` components differing only in CSS namespace:
+
+| | `brief/detail/Fact.tsx` | `matrix/read/Fact.tsx` |
 |---|---|---|
-| opened from | a Brief evidence-table row | the Matrix grid read view |
-| constraint body | `ConstraintEvidence` | `ConstraintRead` |
-| node body | `NodeEvidence` | `NodeRead` |
-| KV row primitive | `Fact` → `.bdp-kv__*` | `Fact` → `.mrd-kv__*` |
-| history glyph | hand-rolled `.bdp-whisker` markup | shares `HistoryGlyphs` / reach parts |
-| chrome | portal drawer + focus trap | inline pane |
-| local interaction | — | node-table sort state in the shell |
+| row/label/value classes | `.bdp-kv__*` | `.mrd-kv__*` |
+| tone prop | `"positive"` / `"negative"` | `"pos"` / `"neg"` |
+| numeric right-align | — | `numeric` prop |
 
-Tells: two structurally identical `Fact` components differing only in CSS namespace; BriefDetailPanel re-implements a whisker that already exists in `HistoryGlyphs`.
+Both re-declared the same value tone (`--pos` danger, `--neg` accent) and, for Matrix, numeric alignment.
 
-## The three real blockers (why it isn't mechanical)
+## What shipped
 
-1. **Divergent data shapes.** BriefDetailPanel takes a `BriefSelection` (brief row + hero cursor); MatrixReadDetail takes `constraintRow`/`nodeMeta`/frame + reach data. The shared body needs a normalized view-model both call sites adapt into — designing that model is the core of the work.
-2. **Two CSS namespaces** (`bdp-` vs `mrd-`). The shared body needs one namespace (or a class-name/token prop). Same blocker as the Tier-3 KV primitive.
-3. **Shell vs body split.** The outer chrome differs (drawer+focus-trap vs inline pane with node sort). Only the inner body consolidates; each shell keeps its own chrome and passes the body its view-model plus interaction hooks (e.g. node sort stays owned by the matrix shell).
-
-## Approach
-
-### Phase A — coverage (own commit, no behavior change)
-
-* Stand up a test runner. The project is Vite → **vitest + @testing-library/react + jsdom**; there is no test setup today, so this phase adds it (`vitest.config`, a `test` script, one setup file).
-* Add render tests that snapshot both surfaces against fixture data, for constraint AND node, in both `settled` and unsettled states: the Brief detail drawer and the Matrix read pane. Capture the KV facts, drivers, member/reach lists, and the history block.
-* Keep fixtures small and colocated (`__fixtures__/`); these snapshots are the regression oracle for Phase B.
-
-### Phase B — consolidate (separate commit(s), under Phase A's net)
-
-* Define the shared view-model and a `components/brief/detail/`- or a new `components/detail/`-level `ConstraintDetail`/`NodeDetail` body (placement decided when the view-model is drafted — if both surfaces import it, it should not live under `brief/`).
-* Pick one CSS namespace/token for the body; drop the duplicate `Fact` and the hand-rolled whisker in favor of the shared primitive + `HistoryGlyphs`.
-* Rewrite each shell to adapt its data into the view-model and mount the shared body. Delete `ConstraintEvidence`/`NodeEvidence` and `ConstraintRead`/`NodeRead` once unused.
-* Re-run Phase A snapshots. Intentional visual changes (namespace unification) get the snapshot updated in the same commit with the diff called out in the message; anything unexpected is a regression to fix, not to bless.
+* New shared `components/detail/Fact.tsx` (props `label`, `value`, `tone?: "pos" | "neg"`, `numeric?`) emitting one `.kv__*` namespace, plus `components/detail/detail.css` holding the shared base row + value tone + numeric rules.
+* Both `Fact.tsx` copies deleted; all four bodies (`ConstraintEvidence`, `NodeEvidence`, `ConstraintRead`, `NodeRead`) import the shared one. `NodeEvidence`'s `dollarTone` moved to `"pos"/"neg"`; `DriverTable`'s `mrd-kv__value--pos/neg` → `kv__value--pos/neg`.
+* The `.bdp-kv` / `.mrd-kv` **containers stay** and keep their own layout (drawer flex vs two-column grid), now expressed as container-scoped overrides of the shared `.kv__*` rules — specificity relationships (Matrix summary/media overrides) preserved.
 
 ## Acceptance
 
-* [ ] Phase A merged first: a working test runner + passing snapshots of both detail surfaces (constraint & node, settled & unsettled).
-* [ ] One shared constraint/node body renders both surfaces; the four old body components are deleted.
-* [ ] One KV primitive and `HistoryGlyphs` used on both; no `bdp-`/`mrd-` duplicate of either remains.
-* [ ] Each shell keeps its own chrome (drawer/focus-trap; inline/node-sort) — only the body is shared.
-* [ ] `npx tsc -b`, `npm run lint`, `vitest`, and `vite build` all clean.
-* [ ] Any snapshot change is intentional and explained; no unreviewed rendered-output drift.
+* [x] One shared KV row primitive (`components/detail/Fact`) renders both surfaces; both `bdp-`/`mrd-` `Fact.tsx` copies are deleted.
+* [x] One `.kv__*` namespace for the row/label/value; no `bdp-kv__*` / `mrd-kv__*` element classes remain (the `.bdp-kv` / `.mrd-kv` layout containers intentionally stay).
+* [x] `HistoryGlyphs` already shared by both (0003) — left as-is.
+* [x] Each shell keeps its own chrome and body; only the KV row is shared.
+* [x] `npx tsc -b`, `npm run lint` (touched files), and `vite build` clean.
+* [ ] **Deferred, not done:** the full body merge (one `ConstraintDetail`/`NodeDetail` view-model both shells adapt into, deleting the four body components). Rejected for now — see scope decision. Revisit only with a test net and a real appetite for centralizing divergent logic.
+* [ ] **Deferred:** a test runner + render snapshots of both surfaces. See the test-runner setup notes.
+
+## Note
+
+jsdom snapshots (had they stayed) capture DOM/classes, not computed CSS — this was a CSS-namespace refactor, so it still warrants a visual check of the Brief detail drawer and the Matrix read pane. The live `web` compose container serves master, so verify against a dev server pointed at this worktree.
