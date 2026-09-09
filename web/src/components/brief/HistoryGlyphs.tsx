@@ -1,6 +1,6 @@
 // The two trailing-history glyphs shared by the Brief tables and detail panel
 // (plan/0135). Their CSS (`.an-history-whisker`, `.an-history-bars`) lives in
-// BriefPage's page-level <style>; both surfaces mount under it.
+// features/brief/brief.css, imported by both surfaces.
 import { usd } from "../../lib/format";
 
 export function HistoryWhisker({

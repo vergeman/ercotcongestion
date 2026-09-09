@@ -38,6 +38,7 @@ import {
   useConstraintReach,
 } from "../panels/ConstraintReach";
 import MiniMap from "../map/MiniMap";
+import "../../features/brief/brief.css";
 
 // One shared sliding detail panel for every selectable Brief row (plan/0135). A
 // row is an inspection action, not a link: clicking it opens this right-side
