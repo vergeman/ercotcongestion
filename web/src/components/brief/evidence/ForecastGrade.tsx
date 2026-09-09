@@ -5,9 +5,9 @@ import type {
   AnalysisGradeHistory,
   AnalysisGradeMetrics,
   AnalysisGradeSupport,
-} from "../../api/types";
-import { beats, fmtScore, multiple, percent, usd } from "../../lib/format";
-import { LoadingState } from "./BriefPrimitives";
+} from "../../../api/types";
+import { beats, fmtScore, multiple, percent, usd } from "../../../lib/format";
+import { LoadingState } from "../BriefPrimitives";
 
 function ScoreWhisker({
   model,

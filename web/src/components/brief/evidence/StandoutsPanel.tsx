@@ -1,14 +1,14 @@
-import type { Standouts } from "../../api/types";
-import type { BriefSelection } from "../../lib/briefSelection";
+import type { Standouts } from "../../../api/types";
+import type { BriefSelection } from "../../../lib/briefSelection";
 import {
   constraintName,
   percent,
   rankMovement,
   usd,
   zoneLabel,
-} from "../../lib/format";
-import { HistoryBars, HistoryWhisker } from "./HistoryGlyphs";
-import { LoadingState } from "./BriefPrimitives";
+} from "../../../lib/format";
+import { HistoryBars, HistoryWhisker } from "../HistoryGlyphs";
+import { LoadingState } from "../BriefPrimitives";
 
 export default function StandoutsPanel({
   data,

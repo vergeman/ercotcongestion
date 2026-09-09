@@ -1,6 +1,6 @@
-import type { BriefContext } from "../../api/types";
-import { percent, usd } from "../../lib/format";
-import { LoadingState } from "./BriefPrimitives";
+import type { BriefContext } from "../../../api/types";
+import { percent, usd } from "../../../lib/format";
+import { LoadingState } from "../BriefPrimitives";
 
 export default function ContextPanel({
   data,

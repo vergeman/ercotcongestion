@@ -1,50 +1,55 @@
-import type { TopConstraints } from "../../api/types";
-import type { BriefSelection } from "../../lib/briefSelection";
-import { rankMovement, usd, zoneLabel } from "../../lib/format";
-import { HistoryBars, HistoryWhisker } from "./HistoryGlyphs";
-import { LoadingState } from "./BriefPrimitives";
+import type { TopNodes } from "../../../api/types";
+import type { BriefSelection } from "../../../lib/briefSelection";
+import {
+  constraintName,
+  percent,
+  rankMovement,
+  usd,
+  zoneLabel,
+} from "../../../lib/format";
+import { HistoryBars, HistoryWhisker } from "../HistoryGlyphs";
+import { LoadingState } from "../BriefPrimitives";
 
-export default function TopConstraintsPanel({
+export default function TopNodesPanel({
   data,
   loading,
   settled,
   onSelect,
 }: {
-  data: TopConstraints | null;
+  data: TopNodes | null;
   loading: boolean;
   settled: boolean;
   onSelect: (selection: BriefSelection) => void;
 }) {
-  // Post-settlement, a row absent from the forecast top-k is marked. The
-  // threshold is the k the server actually served (a required field on the
-  // available response) — never a client-side constant that could desync.
+  // Same served-k derivation as the constraints table.
   const forecastK = data?.k;
   return (
-    <section className="an-constraints" aria-labelledby="top-constraints-title">
+    <section className="an-nodes" aria-labelledby="top-nodes-title">
       <div className="an-section-heading">
-        <h2 id="top-constraints-title">Top Constraints by Shadow Price (μ)</h2>
+        <h2 id="top-nodes-title">Top Nodal Congestion</h2>
         <p>
           {settled
-            ? "The complete forecast artifact, with same-key DAM evidence—not the legacy brief cast."
-            : "The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast."}
+            ? "Forecast and DAM congestion, attributed across each node’s complete shift-factor column."
+            : "Forecast congestion, attributed across each node’s complete shift-factor column."}
         </p>
       </div>
-      {loading && <LoadingState>Loading constraints…</LoadingState>}
+      {loading && <LoadingState>Loading nodal congestion…</LoadingState>}
       {!loading && (!data?.available || !data.rows?.length) && (
         <p className="an-panel-state">
-          No ranked forecast constraints are available for this delivery day.
+          No ranked nodal congestion is available for this delivery day.
         </p>
       )}
       {!loading && data?.available && !!data.rows?.length && (
         <div className="an-table-wrap">
-          <table className="an-table an-table--constraints">
+          <table className="an-table an-table--nodes">
             <colgroup>
               <col className="an-col-rank" />
-              <col className="an-col-constraint" />
+              <col className="an-col-node" />
               <col className="an-col-zone" />
-              <col className="an-col-kv" />
+              <col className="an-col-driver" />
+              <col className="an-col-share" />
+              <col className="an-col-share" />
               <col className="an-col-rank" />
-              <col className="an-col-money" />
               <col className="an-col-money" />
               {settled && (
                 <>
@@ -58,8 +63,8 @@ export default function TopConstraintsPanel({
             </colgroup>
             <thead>
               <tr className="an-table__groups">
-                <th colSpan={4} />
-                <th className="an-table__forecast" colSpan={3}>
+                <th colSpan={6} />
+                <th className="an-table__forecast" colSpan={2}>
                   Forecast
                 </th>
                 {settled && (
@@ -71,38 +76,27 @@ export default function TopConstraintsPanel({
               </tr>
               <tr>
                 <th>#</th>
-                <th>Constraint</th>
+                <th>Node</th>
                 <th>Zone</th>
-                <th>kV</th>
+                <th>Dominant driver</th>
+                <th>Share</th>
+                <th>Cov</th>
                 <th>Rank</th>
-                <th>
-                  <span className="an-table__mu">μ</span> peak
-                </th>
-                <th>
-                  Σ<span className="an-table__mu">μ</span> $/MW
-                </th>
+                <th>Peak</th>
                 {settled && (
                   <>
                     <th className="an-table__split">Rank</th>
-                    <th>
-                      <span className="an-table__mu">μ</span> peak
-                    </th>
-                    <th>
-                      Σ<span className="an-table__mu">μ</span> $/MW
-                    </th>
+                    <th>Peak</th>
+                    <th>Δ</th>
                   </>
                 )}
-                <th>
-                  Σ<span className="an-table__mu">μ</span> p10–p90
-                </th>
-                <th>
-                  Σ<span className="an-table__mu">μ</span> each day
-                </th>
+                <th>$/MWh p10–p90</th>
+                <th>$/MWh each day</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((row, index) => (
-                <tr key={row.constraint_key}>
+                <tr key={row.settlement_point}>
                   <td className="an-table__rank">
                     {settled ? index + 1 : row.forecast_rank ?? "—"}
                   </td>
@@ -116,30 +110,61 @@ export default function TopConstraintsPanel({
                     <button
                       type="button"
                       className="an-row-link"
-                      onClick={() => onSelect({ kind: "constraint", row })}
+                      onClick={() => onSelect({ kind: "node", row })}
                     >
-                      {row.constraint_key}
+                      {row.settlement_point}
+                      {row.essp_member_count > 1 && (
+                        <sup>≈{row.essp_member_count}</sup>
+                      )}
                     </button>
                   </td>
                   <td>{zoneLabel(row.zone)}</td>
-                  <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
+                  <td
+                    className="an-table__driver"
+                    title={row.dominant_driver ?? undefined}
+                  >
+                    {constraintName(row.dominant_driver)}
+                  </td>
+                  <td>{percent(row.driver_share)}</td>
+                  <td>{percent(row.coverage)}</td>
                   <td>{row.forecast_rank ?? "—"}</td>
-                  <td>{usd(row.forecast_peak, 2)}</td>
-                  <td>{usd(row.forecast_total, 2)}</td>
+                  <td
+                    className={
+                      row.forecast_total >= 0
+                        ? "an-table__positive"
+                        : "an-table__negative"
+                    }
+                  >
+                    {usd(row.forecast_total, 2)}
+                  </td>
                   {settled && (
                     <>
                       <td className="an-table__split">
                         {rankMovement(row.forecast_rank, row.settled_rank)}
                       </td>
-                      <td>
-                        {row.settled_peak == null
-                          ? "—"
-                          : usd(row.settled_peak, 2)}
-                      </td>
-                      <td>
+                      <td
+                        className={
+                          row.settled_total == null
+                            ? ""
+                            : row.settled_total >= 0
+                            ? "an-table__positive"
+                            : "an-table__negative"
+                        }
+                      >
                         {row.settled_total == null
                           ? "—"
                           : usd(row.settled_total, 2)}
+                      </td>
+                      <td
+                        className={
+                          row.delta == null
+                            ? ""
+                            : row.delta >= 0
+                            ? "an-table__positive"
+                            : "an-table__negative"
+                        }
+                      >
+                        {row.delta == null ? "—" : usd(row.delta, 2)}
                       </td>
                     </>
                   )}

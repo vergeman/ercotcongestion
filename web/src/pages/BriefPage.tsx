@@ -9,16 +9,16 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useBriefDay } from "../hooks/useBriefDay";
 import BriefDayControls from "../components/brief/BriefDayControls";
 import BriefHero from "../components/brief/BriefHero";
-import BriefEvidence from "../components/brief/BriefEvidence";
+import BriefEvidence from "../components/brief/evidence/BriefEvidence";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import { gw, numeric, percent, usd, zoneLabel } from "../lib/format";
 import { DualStatBox } from "../components/brief/BriefPrimitives";
-import ForecastGrade from "../components/brief/ForecastGrade";
-import StandoutsPanel from "../components/brief/StandoutsPanel";
-import TopConstraintsPanel from "../components/brief/TopConstraintsPanel";
-import TopNodesPanel from "../components/brief/TopNodesPanel";
-import ContextPanel from "../components/brief/ContextPanel";
+import ForecastGrade from "../components/brief/evidence/ForecastGrade";
+import StandoutsPanel from "../components/brief/evidence/StandoutsPanel";
+import TopConstraintsPanel from "../components/brief/evidence/TopConstraintsPanel";
+import TopNodesPanel from "../components/brief/evidence/TopNodesPanel";
+import ContextPanel from "../components/brief/evidence/ContextPanel";
 import "../features/brief/brief.css";
 
 const fmtDay = (day: string) =>
