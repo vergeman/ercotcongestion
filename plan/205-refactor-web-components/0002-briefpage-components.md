@@ -27,10 +27,26 @@ Branch: refactor/205-0002-briefpage-components
 * Comments: as components move, revise their comments to brief, plain-English intent — cut statistical jargon, over-explanation, and verbosity (power terminology is fine).
 * Do NOT touch: `useBriefDay`, `BriefHero`, `BriefEvidence`, `BriefDayControls`, `BriefDetailPanel` internals, or any rendered markup/classnames.
 
+## Follow-on grouping (beyond the original extract)
+
+After the extraction, the brief components were grouped by role and given barrels:
+
+```
+components/brief/
+  HistoryGlyphs.tsx        shared by evidence + detail
+  hero/     BriefHero, BriefDayControls, DualStatBox + index.ts
+  evidence/ BriefEvidence, StandoutsPanel, TopConstraintsPanel, TopNodesPanel,
+            ForecastGrade, ContextPanel, LoadingState + index.ts
+  detail/   BriefDetailPanel + index.ts
+```
+
+`BriefPrimitives` was dissolved: `DualStatBox` → `hero/` (its only consumer), `LoadingState` → `evidence/` (its only consumers). Subdir `index.ts` barrels expose each group's public surface; `LoadingState` and `HistoryGlyphs` stay internal. `BriefPage` imports through the three barrels.
+
 ## Acceptance
 
-* [ ] `BriefPage.tsx` no longer defines the panels or the grade cluster inline; it composes them.
-* [ ] The `<style>` block lives in a shared stylesheet; whisker/bars glyphs still render on both the page and the detail panel.
-* [ ] Each extracted component is move-only (no prop or markup changes).
-* [ ] Comments on moved components are brief plain English — no statistical jargon, over-explanation, or verbosity.
-* [ ] `npx tsc -b` and `npm run lint` clean against baseline; the Brief page renders identically at desktop and mobile widths.
+* [x] `BriefPage.tsx` no longer defines the panels or the grade cluster inline; it composes them. (1869 → ~340 lines)
+* [x] The `<style>` block lives in a shared stylesheet (`features/brief/brief.css`) imported by `BriefPage` and `BriefDetailPanel`; whisker/bars glyphs still render on both.
+* [x] Each extracted component is move-only (no prop or markup changes).
+* [x] Comments on moved components are brief plain English — no statistical jargon, over-explanation, or verbosity.
+* [x] `npx tsc -b` and `npm run lint` clean against baseline (only pre-existing `exhaustive-deps` warnings); `vite build` succeeds.
+* [ ] Visual smoke — Brief page renders identically at desktop and mobile widths. *(not verified here: the live container serves the master checkout, not this worktree.)*
