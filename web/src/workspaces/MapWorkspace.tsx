@@ -1,34 +1,20 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type {
   SpRow,
-  MapDataMode,
-  MapView,
   ExposuresResponse,
   ConstraintReach,
   RankedConstraints,
-  ConditionsEntry,
-  MapScorecard,
 } from "../api/types";
 import { formatCT } from "../lib/time";
-import {
-  getForecastCached,
-  getForecastHorizon,
-  getConditionsCached,
-} from "../api/prefetch";
 import {
   forecastErrorColor,
   forecastErrorGradientCss,
 } from "../lib/colors";
 import Header from "../components/layout/Header";
 import MobileDrawer from "../components/layout/MobileDrawer";
-import GridMap from "../components/map/GridMap";
-import Legend from "../components/map/Legend";
 import CompareMap from "../components/map/CompareMap";
 import DateRangePicker from "../components/playback/DateRangePicker";
-import DetailCard from "../components/map/DetailCard";
-import SidePanel, {
-  type NetworkStats,
-} from "../components/panels/SidePanel";
+import SidePanel from "../components/panels/SidePanel";
 import { CURATED_EVENTS, type CuratedEvent } from "../lib/events";
 import {
   type MapTarget,
@@ -36,32 +22,25 @@ import {
 import { useTheme } from "../lib/theme";
 import { useExplorerSession } from "../hooks/useExplorerSession";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useMapRows } from "../hooks/useMapRows";
 import { useMapBootstrap } from "../hooks/useMapBootstrap";
 import { useMapRouteState } from "../features/map/MapRouteState";
 import { useSynchronizedMaps } from "../features/map/useSynchronizedMaps";
-import { MapPaneBadge } from "../features/map/MapPaneBadge";
 import "../features/map/mapPresentation.css";
 import { useConstraintSelection } from "../features/map/useConstraintSelection";
-import { fetchMapScorecard } from "../api/map";
+import { useMapCursorData } from "../features/map/useMapCursorData";
+import { useMapScorecard } from "../features/map/useMapScorecard";
+import { useMapViewControls } from "../features/map/useMapViewControls";
+import { PredictionPane } from "../features/map/PredictionPane";
+import { MarketPane } from "../features/map/MarketPane";
+import type {
+  PaneSide,
+  PaneSp,
+  PredictionInteractions,
+  MarketInteractions,
+  PredictionPaneConfig,
+} from "../features/map/mapPaneTypes";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
-
-interface HoveredSp {
-  spId: string;
-  props: Record<string, unknown>;
-  // Which pane the node was touched on, so its card renders in that pane and
-  // (in dual) whether it shows SF drivers. The decomposition itself is
-  // side-independent — every card shows forecast / realized / error.
-  side: "prediction" | "actual";
-  spState: {
-    predicted: number | null;
-    market: number | null;
-    error: number | null;
-    marketSpp: number | null;
-    predictedSpp: number | null;
-  } | null;
-}
 
 export interface MapWorkspaceProps {
   session: ReturnType<typeof useExplorerSession>;
@@ -102,10 +81,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // opening on the shipped default and reconciling after. `parseMapViewState`
   // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
   // congestion), so this is never an unreachable combination.
-  const renderedView: MapView = isMobile ? "forecast" : view;
-  // Data selection held from before entering Error, so leaving it restores
-  // rather than defaulting back to congestion.
-  const prevDataModeRef = useRef<MapDataMode>("congestion");
+  // View/data-mode transition rules (constraint-overlay defaults, Error's
+  // congestion lock and restore) live in one hook; mobile still renders Forecast.
+  const {
+    renderedView, showConstraints, setShowConstraints, handleView, handleDataMode,
+  } = useMapViewControls({ view, setView, dataMode, setDataMode, isMobile });
 
   // Mirror view/dataMode into the URL (0131), the same read/write-through-the-
   // URL convention the constraint/sp selection already follows. Fires for both
@@ -130,19 +110,15 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   // Each map owns its own card interaction. In dual view, touching the ERCOT
   // pane must not replace or close the prediction pane's card (and vice versa).
-  const [hoveredSp, setHoveredSp] = useState<Record<"prediction" | "actual", HoveredSp | null>>({
+  const [hoveredSp, setHoveredSp] = useState<Record<PaneSide, PaneSp | null>>({
     prediction: null,
     actual: null,
   });
-  const [pinnedSp, setPinnedSp] = useState<Record<"prediction" | "actual", HoveredSp | null>>({
+  const [pinnedSp, setPinnedSp] = useState<Record<PaneSide, PaneSp | null>>({
     prediction: null,
     actual: null,
   });
 
-  const [showConstraints, setShowConstraints] = useState(true);
-  // Forecast-error (forecast − realized congestion) delivery-day stats, for
-  // the diverging palette centered at 0 in the forecast-error view. The per-hour
-  // error rows are derived below.
   // The per-day ranked constraint list for the side panel's `Constraints` tab
   // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
   // keyed to the cursor's CT delivery day so the realized toggle can reach a past
@@ -206,44 +182,16 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const { onMainReady: handleMainReady, onRightReady: handleRightReady } = useSynchronizedMaps();
 
-  // The cursor's CT delivery day — the day the `Constraints` tab ranks. Derived
-  // from the current frame's Central date (ERCOT operates on Central), so the
-  // ranking follows the map's day. Undefined before a window loads → the server
-  // defaults to the forecast run's latest built day.
-  const deliveryDay = useMemo<string | undefined>(() => {
-    const ts = timestamps[currentIndex];
-    return ts ? formatCT(ts, "yyyy-MM-dd") : undefined;
-  }, [timestamps, currentIndex]);
-
-  // The cursor instant itself — what /map/exposures and /map/reach take as `t`
-  // (0144). Both serve that CT delivery day's SF artifact, so passing this is
-  // what keeps the DetailCard and the dipole glow on the same day the rest of
-  // the map is showing; omitting it silently served the newest rolling fit.
-  const cursorTs = useMemo<Date | undefined>(
-    () => timestamps[currentIndex],
-    [timestamps, currentIndex]
-  );
-
-  const [scorecard, setScorecard] = useState<MapScorecard | null>(null);
-
-  // The map cursor owns the scorecard's CT delivery date. Abort the previous
-  // fetch so a fast scrub cannot publish a score from an earlier day. The prior
-  // day's scorecard stays mounted until the new one lands, so the numbers swap
-  // in place with no flash.
-  useEffect(() => {
-    if (!deliveryDay) {
-      return;
-    }
-    const controller = new AbortController();
-    fetchMapScorecard(deliveryDay, forecastRunId, controller.signal)
-      .then((result) => {
-        if (!controller.signal.aborted) setScorecard(result);
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setScorecard(null);
-      });
-    return () => controller.abort();
-  }, [deliveryDay, forecastRunId]);
+  // Everything the cursor derives for the panes and side panel: the CT delivery
+  // day (undefined before a window loads → server defaults to the latest built
+  // day), the cursor instant (`t` for /map/exposures and /map/reach), preview
+  // status, this hour's rows, forecast-error rows, conditions, network stats,
+  // and the per-SP decomposition.
+  const {
+    cursorTs, deliveryDay, isPreviewDay, spRows, forecastRows, lambdaSource,
+    errorRows, conditionsStats, networkStats, spDecomp,
+  } = useMapCursorData(timestamps, currentIndex, forecastRunId);
+  const scorecard = useMapScorecard(deliveryDay, forecastRunId);
 
   // focusReachCache key: a cached dipole belongs to one constraint on one CT
   // delivery day, never to the constraint alone.
@@ -251,16 +199,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     (id: string) => `${deliveryDay ?? "latest"}|${id}`,
     [deliveryDay]
   );
-
-  // Whether the cursor's forecast day is a PREVIEW (horizon 2, 0123) — read-only
-  // off the per-day provenance the range response carried, keyed by the frame's UTC
-  // date (the backend's delivery_date). No toggle, no extra fetch: the scrubber
-  // still renders the one coalesced series; this only labels which days are still
-  // previews. Recomputed as the cursor moves or a new window loads.
-  const isPreviewDay = useMemo<boolean>(() => {
-    const ts = timestamps[currentIndex];
-    return ts ? getForecastHorizon(ts) === 2 : false;
-  }, [timestamps, currentIndex]);
 
   // Ranked constraints are scoped to the delivery day and basis. Cancellation
   // replaces the prior request-id guard, so a scrub can never publish an old day.
@@ -279,84 +217,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
     return () => controller.abort();
   }, [deliveryDay, constraintBasis, loadRanked]);
-
-  const { spRows, forecastRows, lambdaSource } = useMapRows(timestamps, currentIndex);
-
-  // Forecast-error rows for the current hour: forecast − realized congestion
-  // per SP, derived client-side from the two series already in state (no new API).
-  // An SP without both a forecast and a realized value rides through with a null
-  // error. Empty when no forecast covers the hour (the error needs a prediction).
-  const errorRows = useMemo<SpRow[]>(() => {
-    if (!forecastRows.length) return [];
-    const marketById = new Map(spRows.map((r) => [r.sp_id, r.congestion]));
-    return forecastRows.map((f) => {
-      const m = marketById.get(f.sp_id);
-      const error =
-        f.congestion != null && m != null ? f.congestion - m : null;
-      return { sp_id: f.sp_id, congestion: error, spp: null };
-    });
-  }, [forecastRows, spRows]);
-
-  // Network stats for the side panel, from state already in hand: the cursor
-  // hour, that hour's realized rows, and the forecast rows. `systemLambda` is the
-  // forecast entry's DAM system-λ at the cursor; `congestionAbsTotal` is Σ|C|
-  // over the realized rows this hour. `modelNodes`/`ercotNodes` are the SP counts
-  // on each side — the model forecasts its full nodal universe, ERCOT lights only
-  // priced nodes, so model ≥ ercot. (Window / hours / cursor live on the scrubber.)
-  // Total Load lives in the Conditions panel's Load by Region row now, not here.
-  const networkStats = useMemo<NetworkStats>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    const fc = cur ? getForecastCached(cur) : null;
-    let absTotal: number | null = null;
-    let ercot = 0;
-    for (const r of spRows) {
-      if (r.congestion != null) {
-        ercot++;
-        absTotal = (absTotal ?? 0) + Math.abs(r.congestion);
-      }
-    }
-    let model = 0;
-    for (const r of forecastRows) if (r.congestion != null) model++;
-    return {
-      forecastRunId,
-      systemLambda: fc?.system_lambda ?? null,
-      congestionAbsTotal: absTotal,
-      modelNodes: model,
-      ercotNodes: ercot,
-    };
-  }, [timestamps, currentIndex, spRows, forecastRows, forecastRunId]);
-
-  // Load / Wind / Solar / Outages (plan/0141): the same cursor hour as
-  // `networkStats`, read from its own soft-fail cache. `undefined` (no cache
-  // entry for this hour) collapses to `null` so SidePanel's null-dash rendering
-  // handles it the same way as every other stat.
-  const conditionsStats = useMemo<ConditionsEntry | null>(() => {
-    const cur = timestamps[currentIndex] ?? null;
-    return (cur ? getConditionsCached(cur) : null) ?? null;
-  }, [timestamps, currentIndex]);
-
-  // The full forecast / realized / error decomposition for one SP — carried by
-  // every card in every view, so the error-default never hides raw magnitude.
-  // Side-independent: predicted from the forecast rows, market from the realized
-  // rows, error = predicted − market when both exist.
-  const spDecomp = useCallback(
-    (spId: string) => {
-      const f = forecastRows.find((r) => r.sp_id === spId);
-      const m = spRows.find((r) => r.sp_id === spId);
-      const predicted = f?.congestion ?? null;
-      const market = m?.congestion ?? null;
-      const error =
-        predicted != null && market != null ? predicted - market : null;
-      return {
-        predicted,
-        market,
-        error,
-        marketSpp: m?.spp ?? null,
-        predictedSpp: f?.spp ?? null,
-      };
-    },
-    [forecastRows, spRows]
-  );
 
   const handleSpHover = useCallback(
     (
@@ -690,28 +550,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     handleClearPinnedSp("actual");
   }, [handleClearPinnedSp]);
 
-  // Switch the view axis, applying that view's SF-overlay default: on in
-  // Forecast and Error (the overlay is that view's own mechanism), off in
-  // Compare (a per-pane explainer) and Market (no overlay at all). The manual
-  // overlay toggle then persists until the next view switch. Entering Error
-  // locks the data axis to congestion, remembering whatever was active so
-  // leaving it restores rather than defaulting back.
-  const handleView = useCallback((v: MapView) => {
-    if (v === "error" && view !== "error") {
-      prevDataModeRef.current = dataMode;
-      setDataMode("congestion");
-    } else if (v !== "error" && view === "error") {
-      setDataMode(prevDataModeRef.current);
-    }
-    setView(v);
-    setShowConstraints(v === "forecast" || v === "error");
-  }, [view, dataMode, setView, setDataMode]);
-
-  const handleDataMode = useCallback((d: MapDataMode) => {
-    if (view === "error") return; // locked; the Header disables the chip too
-    setDataMode(d);
-  }, [view, setDataMode]);
-
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
     setPinnedSp((current) => {
@@ -756,17 +594,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     : "—";
   const badgeProps = { cursorLabel, nodeCount: featCount, emptyTopology: spTopologyEmpty };
 
-
-  // Shared across both panes. Per-side hover/click handlers are passed
-  // separately so each card renders in — and reads — its own pane.
-  const paneProps = {
-    points: spPoints,
-    rows: spRows,
-    dataMode,
-    lmpStats: sppStats,
-    mcStats: congestionStats,
-  };
-
   // The forecast pane's label: which refit is serving + the served day (the
   // cursor hour's date), or the realized fallback.
   const predictionLabel =
@@ -787,172 +614,106 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Legend gates its own "Indicative" note on the LMP palette internally.
   const lambdaIndicative = lambdaSource === "persisted";
 
-  const forecastPane = (
-    <>
-      <GridMap
-        {...paneProps}
-        rows={leftRows}
-        lmpStats={leftLmpStats}
-        mcStats={leftMcStats}
-        onMapClick={handlePredictionMapBackgroundClick}
-        selectedSpId={pinnedSp.prediction?.spId ?? null}
-        side="prediction"
-        onSpHover={handleSpHoverMain}
-        onSpClick={handleSpClickPrediction}
-        onMapReady={handleMainReady}
-        showConstraints={showConstraints}
-        reach={reach}
-        overview={overview}
-        isolatedConstraint={effectiveConstraintId}
-        onIsolateConstraint={handleConstraintHover}
-        onConstraintPreview={handleConstraintPreview}
-        onConstraintSelect={handleConstraintSelectFromCard}
-        focusReach={focusReach}
-        ringedSpId={isMobile ? null : hoveredMemberSp}
-        tapOnly={isMobile}
-      />
-      <MapPaneBadge {...badgeProps} label={predictionLabel} view="forecast" dataMode={dataMode}
-        litCount={litFor(leftRows)} litNoun="forecast"
-        litHint="Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count.">
-        {isPreviewDay && (
-          <span className="pane-badge__preview" role="status">
-            Preview — refreshes at noon CT
-          </span>
-        )}
-      </MapPaneBadge>
-      <Legend
-        dataMode={dataMode}
-        rows={leftRows}
-        lmpStats={leftLmpStats}
-        mcStats={leftMcStats}
-        constraintOverlay={showConstraints && !!overview?.constraints.length}
-        overviewTypes={showConstraints && !!overview?.constraints.length}
-        constraintsToggle={constraintsToggle}
-        lambdaIndicative={lambdaIndicative}
-      />
-      {/* Prediction card: the node's forecast readout + its SF drivers. */}
-      <DetailCard
-        hoveredSp={hoveredSp.prediction}
-        pinnedSp={pinnedSp.prediction}
-        valueMode="forecast"
-        exposures={exposures}
-        exposuresLoading={exposuresLoading}
-        cursorTs={cursorTs}
-        reach={reach}
-        onClose={() => handleClearPinnedSp("prediction")}
-        onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
-        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
-        onSelectMember={handleMemberSelect}
-        mobile={isMobile}
-      />
-    </>
-  );
+  // Prediction-side state + callbacks, shared by the Forecast and Error panes so
+  // both carry the decomposition and SF drivers. Ownership stays here.
+  const predictionInteractions: PredictionInteractions = {
+    hoveredSp: hoveredSp.prediction,
+    pinnedSp: pinnedSp.prediction,
+    reach,
+    focusReach,
+    effectiveConstraintId,
+    exposures,
+    exposuresLoading,
+    hoveredMemberSp,
+    onMapBackgroundClick: handlePredictionMapBackgroundClick,
+    onSpHover: handleSpHoverMain,
+    onSpClick: handleSpClickPrediction,
+    onMapReady: handleMainReady,
+    onIsolateConstraint: handleConstraintHover,
+    onConstraintPreview: handleConstraintPreview,
+    onConstraintSelect: handleConstraintSelectFromCard,
+    onClearPinned: () => handleClearPinnedSp("prediction"),
+    onCloseReach: handleCloseReach,
+    onHoverConstraint: handleConstraintHover,
+    onHoverMember: setHoveredMemberSp,
+    onSelectMember: handleMemberSelect,
+  };
+  const marketInteractions: MarketInteractions = {
+    hoveredSp: hoveredSp.actual,
+    pinnedSp: pinnedSp.actual,
+    onMapBackgroundClick: handleActualMapBackgroundClick,
+    onSpHover: handleSpHoverRight,
+    onSpClick: handleSpClickActual,
+    onMapReady: handleRightReady,
+    onClearPinned: () => handleClearPinnedSp("actual"),
+  };
 
-  const marketPane = (
-    <>
-      <GridMap
-        {...paneProps}
-        side="actual"
-        onMapClick={handleActualMapBackgroundClick}
-        selectedSpId={pinnedSp.actual?.spId ?? null}
-        onSpHover={handleSpHoverRight}
-        onSpClick={handleSpClickActual}
-        onMapReady={handleRightReady}
-        tapOnly={isMobile}
-      />
-      <MapPaneBadge {...badgeProps} label="ERCOT: Day Ahead Market (DAM)" view="market" dataMode={dataMode}
-        litCount={litCount} litNoun="priced"
-        litHint="Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count." />
-      <Legend
-        dataMode={dataMode}
-        rows={spRows}
-        lmpStats={sppStats}
-        mcStats={congestionStats}
-      />
-      {/* Actual card: the node's realized readout only — no SF drivers (those
-          are a prediction-side concern). */}
-      <DetailCard
-        hoveredSp={hoveredSp.actual}
-        pinnedSp={pinnedSp.actual}
-        valueMode="ercot"
-        showDrivers={false}
-        onClose={() => handleClearPinnedSp("actual")}
-        mobile={isMobile}
-      />
-    </>
-  );
+  const forecastConfig: PredictionPaneConfig = {
+    view: "forecast",
+    rows: leftRows,
+    lmpStats: leftLmpStats,
+    mcStats: leftMcStats,
+    dataMode,
+    label: predictionLabel,
+    litCount: litFor(leftRows),
+    litNoun: "forecast",
+    litHint: "Nodes the model forecasts a value for at this hour (colored on the map). The model covers its full nodal universe — including resource nodes (RN / CC / PUN) that ERCOT publishes no settlement price for — so this exceeds the ERCOT priced count.",
+    lambdaIndicative,
+    previewBadge: isPreviewDay,
+  };
 
-  // Forecast-error view: a single full-width map colored by forecast −
-  // realized congestion on the diverging palette (forced congestion, its own
-  // error-anchored stats), SF overlay on. Interactions route through the
-  // prediction handlers so the card carries the decomposition + SF drivers, same
-  // as the dual left pane.
+  // Forecast-error view: forecast − realized congestion on the diverging palette
+  // (forced congestion, error-anchored stats). Uses the same prediction pane, so
+  // the card carries the decomposition + SF drivers just like the dual left pane.
   const errorLit = errorRows.filter((r) => r.congestion != null).length;
   const errorLabel =
     hasForecast && forecastRunId
       ? "Forecast Error: Prediction Model − ERCOT DAM"
       : "Forecast Error: no forecast this window";
+  const errorConfig: PredictionPaneConfig = {
+    view: "error",
+    rows: errorRows,
+    lmpStats: null,
+    mcStats: errorStats,
+    dataMode: "congestion",
+    congestionColor: forecastErrorColor,
+    label: errorLabel,
+    litCount: errorLit,
+    litNoun: "compared",
+    litHint: "Nodes with both a model forecast and a realized value, so an error is defined",
+    titleOverride: "Congestion Forecast Error · Forecast − Realized ($/MWh)",
+    signLabels: { neg: "Under", pos: "Over" },
+    barGradientOverride: forecastErrorGradientCss(),
+  };
+
+  const sharedPaneProps = {
+    points: spPoints,
+    overview,
+    showConstraints,
+    constraintsToggle,
+    cursorTs,
+    badge: badgeProps,
+    isMobile,
+  };
+
+  const forecastPane = (
+    <PredictionPane config={forecastConfig} interactions={predictionInteractions} {...sharedPaneProps} />
+  );
+  const marketPane = (
+    <MarketPane
+      interactions={marketInteractions}
+      points={spPoints}
+      rows={spRows}
+      dataMode={dataMode}
+      lmpStats={sppStats}
+      mcStats={congestionStats}
+      litCount={litCount}
+      badge={badgeProps}
+      isMobile={isMobile}
+    />
+  );
   const errorPane = (
-    <>
-      <GridMap
-        points={spPoints}
-        rows={errorRows}
-        dataMode="congestion"
-        lmpStats={null}
-        mcStats={errorStats}
-        onMapClick={handlePredictionMapBackgroundClick}
-        selectedSpId={pinnedSp.prediction?.spId ?? null}
-        side="prediction"
-        onSpHover={handleSpHoverMain}
-        onSpClick={handleSpClickPrediction}
-        onMapReady={handleMainReady}
-        showConstraints={showConstraints}
-        reach={reach}
-        overview={overview}
-        isolatedConstraint={effectiveConstraintId}
-        onIsolateConstraint={handleConstraintHover}
-        onConstraintPreview={handleConstraintPreview}
-        onConstraintSelect={handleConstraintSelectFromCard}
-        focusReach={focusReach}
-        ringedSpId={isMobile ? null : hoveredMemberSp}
-        congestionColor={forecastErrorColor}
-        tapOnly={isMobile}
-      />
-      <MapPaneBadge {...badgeProps} label={errorLabel} view="error" dataMode="congestion"
-        litCount={errorLit} litNoun="compared"
-        litHint="Nodes with both a model forecast and a realized value, so an error is defined" />
-      <Legend
-        dataMode="congestion"
-        rows={errorRows}
-        lmpStats={null}
-        mcStats={errorStats}
-        titleOverride="Congestion Forecast Error · Forecast − Realized ($/MWh)"
-        signLabels={{ neg: "Under", pos: "Over" }}
-        barGradientOverride={forecastErrorGradientCss()}
-        constraintOverlay={showConstraints && !!overview?.constraints.length}
-        overviewTypes={showConstraints && !!overview?.constraints.length}
-        constraintsToggle={constraintsToggle}
-      />
-      {/* Forecast-error card: the node's forecast / realized / error + SF drivers. */}
-      <DetailCard
-        hoveredSp={hoveredSp.prediction}
-        pinnedSp={pinnedSp.prediction}
-        valueMode="forecast"
-        exposures={exposures}
-        exposuresLoading={exposuresLoading}
-        cursorTs={cursorTs}
-        reach={reach}
-        onClose={() => handleClearPinnedSp("prediction")}
-        onCloseReach={handleCloseReach}
-        onSelectConstraint={handleConstraintSelectFromCard}
-        onHoverConstraint={isMobile ? undefined : handleConstraintHover}
-        onHoverMember={isMobile ? undefined : setHoveredMemberSp}
-        onSelectMember={handleMemberSelect}
-        mobile={isMobile}
-      />
-    </>
+    <PredictionPane config={errorConfig} interactions={predictionInteractions} {...sharedPaneProps} />
   );
 
   const sidePanelProps = {
