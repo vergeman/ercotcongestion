@@ -1,9 +1,10 @@
-/* eslint-disable react-refresh/only-export-components -- shared format lib, not a fast-refresh boundary */
+/* eslint-disable react-refresh/only-export-components */
 // The app's shared formatting helpers plus the two trailing-history glyphs used
-// by the Brief tables and detail panel (plan/0135). One copy so every surface
-// renders the same dollar / rank text and the same 30-day whisker + bars. The
-// whisker/bars CSS lives in BriefPage's page-level <style> (both mount under it).
+// by the Brief tables and detail panel
 
+// ── Money & currency ────────────────────────────────────────────────────────
+
+// Signed dollars with grouping, e.g. "$1,234" / "−$5". `fractionDigits` places.
 export const usd = (value: number, fractionDigits = 0) =>
   `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, {
     minimumFractionDigits: fractionDigits,
@@ -46,23 +47,7 @@ export const formatDollar = (v: number): string => {
 // Exact dollars to the cent, for the Legend's alarm thresholds.
 export const formatExactDollar = (v: number): string => `$${v.toFixed(2)}`;
 
-export const percent = (value: number | null | undefined) =>
-  value == null ? "—" : `${Math.round(value * 100)}%`;
-
-export const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
-
-export const zoneLabel = (zone: string | null) =>
-  zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
-
-export const rankMovement = (
-  forecastRank: number | null,
-  settledRank: number | null
-) => {
-  if (settledRank == null) return "—";
-  if (forecastRank == null) return `new ${settledRank}`;
-  const movement = settledRank - forecastRank;
-  return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
-};
+// ── Numbers & percentages ───────────────────────────────────────────────────
 
 // Grouped number, up to `decimals` places (trailing zeros dropped). Null → "—".
 export const fmt = (v: number | null, decimals = 1): string =>
@@ -97,6 +82,36 @@ export const fmtScore = (v: number | null | undefined): string =>
 export const multiple = (v: number | null | undefined): string =>
   v == null ? "—" : `${v.toFixed(2)}×`;
 
+// A fraction as a whole percent, e.g. "42%". Null → "—".
+export const percent = (value: number | null | undefined) =>
+  value == null ? "—" : `${Math.round(value * 100)}%`;
+
+// Megawatts rendered as gigawatts to 1 place, e.g. "12.3 GW".
+export const gw = (value: number): string =>
+  `${(value / 1000).toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} GW`;
+
+// ── Labels & text ───────────────────────────────────────────────────────────
+
+export const constraintName = (key: string | null) => key?.split("|")[0] ?? "—";
+
+export const zoneLabel = (zone: string | null) =>
+  zone == null ? "—" : `${zone[0].toUpperCase()}${zone.slice(1)}`;
+
+export const rankMovement = (
+  forecastRank: number | null,
+  settledRank: number | null
+) => {
+  if (settledRank == null) return "—";
+  if (forecastRank == null) return `new ${settledRank}`;
+  const movement = settledRank - forecastRank;
+  return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
+};
+
+// ── Values & comparisons ────────────────────────────────────────────────────
+
 // Pull a finite number out of a loosely-typed slot; anything else → null.
 export const numeric = (
   slot: Record<string, unknown> | undefined,
@@ -106,18 +121,13 @@ export const numeric = (
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 };
 
-// Megawatts rendered as gigawatts to 1 place, e.g. "12.3 GW".
-export const gw = (value: number): string =>
-  `${(value / 1000).toLocaleString(undefined, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} GW`;
-
 // Whether the model matched or beat its comparator (both must be present).
 export const beats = (
   model: number | null | undefined,
   comparator: number | null | undefined
 ): boolean => model != null && comparator != null && model >= comparator;
+
+// ── Trailing-history glyphs ─────────────────────────────────────────────────
 
 export function HistoryWhisker({
   low,
