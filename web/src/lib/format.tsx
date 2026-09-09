@@ -64,6 +64,39 @@ export const rankMovement = (
   return `${movement < 0 ? "↑" : movement > 0 ? "↓" : "="} ${settledRank}`;
 };
 
+// Grouped number, up to `decimals` places (trailing zeros dropped). Null → "—".
+export const fmt = (v: number | null, decimals = 1): string =>
+  v == null
+    ? "—"
+    : v.toLocaleString("en-US", { maximumFractionDigits: decimals });
+
+// Grouped number, always `decimals` places. Null → "—".
+export const fmtNum = (v: number | null, decimals = 1): string =>
+  v == null
+    ? "—"
+    : v.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+
+// Shift factor: unitless and often small, so 3 places keeps 0.03 legible.
+// Signed, e.g. "+0.031" / "−0.004". Null → "—".
+export const fmtSf = (v: number | null): string =>
+  v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(3)}`;
+
+// Signed congestion with unit, e.g. "+$3.20/MWh" / "−$1.05/MWh". Null → null,
+// so the caller can drop the row rather than render a dash.
+export const fmtCong = (v: number | null | undefined): string | null =>
+  v == null ? null : `${v >= 0 ? "+" : "−"}$${fmt(Math.abs(v), 2)}/MWh`;
+
+// A score to 2 places (hit-rates and correlations all sit near [0,1]). Null → "—".
+export const fmtScore = (v: number | null | undefined): string =>
+  v == null ? "—" : v.toFixed(2);
+
+// A "× persistence" multiple to 2 places, e.g. "1.42×". Null → "—".
+export const multiple = (v: number | null | undefined): string =>
+  v == null ? "—" : `${v.toFixed(2)}×`;
+
 export function HistoryWhisker({
   low,
   q25,

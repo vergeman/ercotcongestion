@@ -27,6 +27,8 @@ import {
   HistoryBars,
   HistoryWhisker,
   constraintName,
+  fmtScore,
+  multiple,
   percent,
   rankMovement,
   usd,
@@ -858,10 +860,6 @@ function DualStatBox({
   );
 }
 
-const score = (value: number | null | undefined) =>
-  value == null ? "—" : `${value.toFixed(2)}`;
-const multiple = (value: number | null | undefined) =>
-  value == null ? "—" : `${value.toFixed(2)}×`;
 const beats = (
   model: number | null | undefined,
   comparator: number | null | undefined
@@ -924,9 +922,9 @@ function ScoreWhisker({
   return (
     <div
       className="an-grade-card__whisker"
-      aria-label={`Artifact profile forecast ${score(model)}; trailing ${
+      aria-label={`Artifact profile forecast ${fmtScore(model)}; trailing ${
         values.length
-      }-day p10 ${score(p10)}, p90 ${score(p90)}`}
+      }-day p10 ${fmtScore(p10)}, p90 ${fmtScore(p90)}`}
     >
       <span className="an-grade-card__whisker-line" />
       <i
@@ -957,7 +955,7 @@ function ScoreWhisker({
           className={`an-grade-card__whisker-number an-grade-card__whisker-number--${marker.kind}`}
           style={{ left: position(marker.value) }}
         >
-          {score(marker.value)}
+          {fmtScore(marker.value)}
         </span>
       ))}
     </div>
@@ -1015,12 +1013,12 @@ function GradeCard({
       <h4>{question}</h4>
       <p className="an-grade-card__detail">{detail}</p>
       <div className="an-grade-card__value">
-        <strong>{score(model)}</strong>
+        <strong>{fmtScore(model)}</strong>
         {modelHourly !== undefined ? (
           <>
             <small>day</small>
             <span>→</span>
-            <strong>{score(modelHourly)}</strong>
+            <strong>{fmtScore(modelHourly)}</strong>
             <small>hourly</small>
           </>
         ) : (
@@ -1148,12 +1146,12 @@ function GradeHalf({
           entity={nodes ? "node" : "constraint"}
           supportRows={[
             {
-              value: score(persistenceDailyRank),
+              value: fmtScore(persistenceDailyRank),
               label: gradeSourceLabel(half, BRIEF_PERSISTENCE_SOURCE),
               win: beats(dailyRank, persistenceDailyRank),
             },
             {
-              value: score(
+              value: fmtScore(
                 climatology?.detection_ap
               ),
               label: gradeSourceLabel(half, BRIEF_CLIMATOLOGY_SOURCE),
@@ -1204,7 +1202,7 @@ B    = ${nodes ? "settled top 10% of scored nodes" : "constraints with settled s
               label: "Forecast amount ÷ settled amount",
             },
             {
-              value: score(half.support?.magnitude_ceiling),
+              value: fmtScore(half.support?.magnitude_ceiling),
               label: "Best possible score with this total",
             },
             {
