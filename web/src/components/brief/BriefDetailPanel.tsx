@@ -20,7 +20,6 @@ import {
   type BriefSelection,
 } from "../../lib/briefSelection";
 import {
-  HistoryWhisker,
   compactMoney,
   constraintName,
   percent,
@@ -28,6 +27,7 @@ import {
   usd,
   zoneLabel,
 } from "../../lib/format";
+import { HistoryWhisker } from "./HistoryGlyphs";
 import {
   ConstraintReachStyles,
   Dipole,

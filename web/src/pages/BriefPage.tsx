@@ -24,8 +24,6 @@ import BriefEvidence from "../components/brief/BriefEvidence";
 import { briefDayBounds, briefMapWatchHref } from "../features/brief/routes";
 import BriefDetailPanel from "../components/brief/BriefDetailPanel";
 import {
-  HistoryBars,
-  HistoryWhisker,
   beats,
   constraintName,
   fmtScore,
@@ -37,6 +35,7 @@ import {
   usd,
   zoneLabel,
 } from "../lib/format";
+import { HistoryBars, HistoryWhisker } from "../components/brief/HistoryGlyphs";
 
 const fmtDay = (day: string) =>
   new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
