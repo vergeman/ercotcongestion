@@ -1,0 +1,90 @@
+import type { ConstraintReach } from "../../../api/types";
+import { fmtCong, fmtDollars } from "../../../lib/format";
+import { shiftFactorColor } from "../../../lib/colors";
+import { Row } from "./Row";
+import { NodeChip, SfSign } from "./chips";
+
+// Max constraint-reach rows the card lists; the rest are summarized as a count
+// (the map still glows the full footprint). 0147.
+const REACH_ROW_CAP = 20;
+
+// Which nodes this constraint drives, split into the import (SF<0) and export
+// (SF>0) ends (docs/SF.md).
+export function ReachBody({
+  reach,
+  onHoverMember,
+  onSelectMember,
+}: {
+  reach: ConstraintReach;
+  onHoverMember?: (sp: string | null) => void;
+  onSelectMember?: (sp: string) => void;
+}) {
+  const importEnd = reach.sps.filter((s) => s.sf < 0).length;
+  const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
+  return (
+    <>
+      {reach.basis === "nearest_past" && (
+        <div className="dc-support label">
+          SF as of {reach.window_start.slice(0, 10)} — no artifact for the
+          selected day
+        </div>
+      )}
+      <Row
+        label="Binding hours"
+        value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
+      />
+      <Row label="Shadow Price" value={fmtCong(reach.shadow_price)} />
+      <Row label="Import nodes" value={importEnd} />
+      <Row label="Export nodes" value={exportEnd} />
+      <div
+        className="dc-drivers dc-drivers--reach"
+        onMouseLeave={() => onHoverMember?.(null)}
+      >
+        {/* The map glows the constraint's full driven footprint (0147); the card
+            lists the strongest REACH_ROW_CAP and reports the rest as a count, so a
+            broad constraint's hundreds of members stay scannable here. */}
+        <div className="dc-driver dc-driver--head dc-driver--reach-row">
+          <span aria-hidden="true" />
+          <span className="dc-driver-col label">Settlement Point</span>
+          <span className="dc-driver-col label">SF</span>
+          <span
+            className="dc-driver-col label"
+            title="Signed nodal congestion contribution: −SF × the constraint's forecast shadow price at the selected hour ($/MWh)."
+          >
+            Contrib
+          </span>
+        </div>
+        {reach.sps.slice(0, REACH_ROW_CAP).map((s) => (
+          <button
+            key={s.settlement_point}
+            className="dc-driver dc-driver--reach-row"
+            onClick={() => onSelectMember?.(s.settlement_point)}
+            onMouseEnter={() => onHoverMember?.(s.settlement_point)}
+          >
+            <NodeChip />
+            <span className="dc-driver-key mono">{s.settlement_point}</span>
+            <SfSign sf={s.sf} />
+            <span
+              className="dc-driver-sup mono"
+              style={{
+                color:
+                  reach.shadow_price == null
+                    ? undefined
+                    : shiftFactorColor(-s.sf * reach.shadow_price),
+              }}
+            >
+              {reach.shadow_price == null
+                ? "—"
+                : fmtDollars(-s.sf * reach.shadow_price)}
+            </span>
+          </button>
+        ))}
+        {reach.sps.length > REACH_ROW_CAP && (
+          <div className="dc-support label">
+            + {reach.sps.length - REACH_ROW_CAP} more nodes
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
