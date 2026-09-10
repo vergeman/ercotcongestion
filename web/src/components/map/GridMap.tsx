@@ -345,10 +345,11 @@ export default function GridMap({
       setContainerWidth(entries[0]?.contentRect.width ?? 0);
     });
     resizeObserver.observe(containerRef.current);
+    const alarmMarkers = alarmMarkersRef.current;
     return () => {
       resizeObserver.disconnect();
-      for (const { marker } of alarmMarkersRef.current.values()) marker.remove();
-      alarmMarkersRef.current.clear();
+      for (const { marker } of alarmMarkers.values()) marker.remove();
+      alarmMarkers.clear();
       map.remove();
       mapRef.current = null;
       setSourcesReady(false);

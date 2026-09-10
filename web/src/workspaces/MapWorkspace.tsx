@@ -204,7 +204,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // replaces the prior request-id guard, so a scrub can never publish an old day.
   useEffect(() => {
     const controller = new AbortController();
-    setRankedLoading(true);
+    queueMicrotask(() => setRankedLoading(true));
     loadRanked(constraintBasis, deliveryDay, 30, controller.signal)
       .then((r) => {
         if (!controller.signal.aborted) setRanked(r);
@@ -364,7 +364,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   useEffect(() => {
     if (!target) {
       handledTargetRef.current = null;
-      setTargetUnavailable(false);
+      queueMicrotask(() => setTargetUnavailable(false));
       return;
     }
     const key = `${target.kind}:${target.value}`;
@@ -387,21 +387,29 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         (point.properties?.sp_id as string | undefined) === target.value
       );
       if (!feature) {
-        setTargetUnavailable(true);
+        queueMicrotask(() => setTargetUnavailable(true));
         return;
       }
-      setTargetUnavailable(false);
-      handleSpClickPrediction(target.value, (feature.properties ?? { sp_id: target.value }) as Record<string, unknown>, false);
+      queueMicrotask(() => setTargetUnavailable(false));
+      queueMicrotask(() =>
+        handleSpClickPrediction(
+          target.value,
+          (feature.properties ?? { sp_id: target.value }) as Record<string, unknown>,
+          false,
+        )
+      );
       return;
     }
 
     handledTargetRef.current = key;
-    setTargetUnavailable(false);
-    setPinnedSp((current) => ({ ...current, prediction: null }));
-    setExposures(null);
+    queueMicrotask(() => setTargetUnavailable(false));
+    queueMicrotask(() => {
+      setPinnedSp((current) => ({ ...current, prediction: null }));
+      setExposures(null);
+      setHoveredConstraintId(null);
+    });
     exposureReqRef.current++;
     previewReachRef.current = false;
-    setHoveredConstraintId(null);
     const token = ++reachReqRef.current;
     loadReach(target.value, cursorTs)
       .then((nextReach) => {
@@ -441,7 +449,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       // node view. Without this increment, a late response can reapply its old
       // constraint focus after the pointer has already left the row.
       focusReqRef.current++;
-      setFocusReach(null);
+      queueMicrotask(() => setFocusReach(null));
       return;
     }
     const cached = focusReachCache.current.get(focusReachKey(id));
@@ -552,7 +560,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
-    setPinnedSp((current) => {
+    queueMicrotask(() => setPinnedSp((current) => {
       let changed = false;
       const next = { ...current };
       for (const side of ["prediction", "actual"] as const) {
@@ -567,7 +575,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         }
       }
       return changed ? next : current;
-    });
+    }));
   }, [spRows, forecastRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The forecast covers this hour when its cache had a row for it. When it does,

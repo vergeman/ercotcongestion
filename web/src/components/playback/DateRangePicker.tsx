@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { subDays, subHours } from "date-fns";
 import type { CuratedEvent } from "../../lib/events";
 import { ctInputToUtc, utcToCTInputString } from "../../lib/time";
@@ -78,13 +78,9 @@ export default function DateRangePicker({
     utcToCTHourInputString(subDays(new Date(), 1))
   );
   const [endStr, setEndStr] = useState(() => utcToCTHourInputString(new Date()));
-  const [dateStr, setDateStr] = useState(() => utcToCTInputString(new Date()).slice(0, 10));
-
-  // The Brief's selected delivery day is URL-owned. Keep its date field in
-  // step when navigation or a curated event changes that coordinate elsewhere.
-  useEffect(() => {
-    if (singleDate && selectedDate) setDateStr(selectedDate);
-  }, [singleDate, selectedDate]);
+  const [dateStr, setDateStr] = useState(
+    () => selectedDate ?? utcToCTInputString(new Date()).slice(0, 10)
+  );
 
   const handlePreset = (start: () => Date, end: () => Date) => {
     const s = floorToHour(start());

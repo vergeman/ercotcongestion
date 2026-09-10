@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -9,13 +7,7 @@ import {
 import { Outlet } from "react-router-dom";
 import { useExplorerSession } from "./useExplorerSession";
 import { useTimeCursor, snapToFrames } from "./useTimeCursor";
-
-type Explorer = {
-  session: ReturnType<typeof useExplorerSession>;
-  cursor: ReturnType<typeof useTimeCursor>;
-};
-
-const ExplorerContext = createContext<Explorer | null>(null);
+import { ExplorerContext } from "./sharedExplorerContext";
 
 // One explorer instance, mounted once by ExplorerLayout above the Map / Matrix /
 // Analysis routes. Because a layout route element stays mounted while you
@@ -33,7 +25,10 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   const { timestamps, currentIndex, setCurrentIndex } = session;
 
   const cursorRef = useRef(cursor);
-  cursorRef.current = cursor;
+
+  useEffect(() => {
+    cursorRef.current = cursor;
+  }, [cursor]);
 
   // index → URL: scrubbing (or a fresh window) mirrors the cursor hour + window
   // bounds into the URL, so the coordinate travels across pages. Written
@@ -78,11 +73,4 @@ export function ExplorerLayout() {
       <Outlet />
     </ExplorerProvider>
   );
-}
-
-export function useSharedExplorer(): Explorer {
-  const ctx = useContext(ExplorerContext);
-  if (!ctx)
-    throw new Error("useSharedExplorer must be used within ExplorerProvider");
-  return ctx;
 }

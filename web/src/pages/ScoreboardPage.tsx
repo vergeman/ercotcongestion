@@ -2,11 +2,8 @@ import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
 import Tooltip from "../components/ui/Tooltip";
 import { useScoreboard } from "../features/scoreboard/useScoreboard";
-import {
-  METRICS,
-  ScoreboardControls,
-  useScoreboardControls,
-} from "../features/scoreboard/ScoreboardControls";
+import { ScoreboardControls } from "../features/scoreboard/ScoreboardControls";
+import { METRICS, useScoreboardControls } from "../features/scoreboard/scoreboardControlsState";
 import { SERIES, CHART_LABELS } from "../features/scoreboard/seriesMeta";
 import { SeriesChart } from "../features/scoreboard/SeriesChart";
 import { LiveGradePanel } from "../features/scoreboard/LiveGradePanel";

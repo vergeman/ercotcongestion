@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from "react";
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
@@ -88,7 +87,7 @@ export default function BriefPage() {
   // The detail panel is opened over a specific day's row; close it whenever the
   // delivery day changes so a stale selection can't survive into another day.
   useEffect(() => {
-    setSelection(null);
+    queueMicrotask(() => setSelection(null));
   }, [deliveryDay]);
 
   // A cold visit has no coordinate.  The hero supplies an exact delivery-day
@@ -113,8 +112,8 @@ export default function BriefPage() {
     );
     if (pendingDeliveryDayRef.current === heroDay)
       pendingDeliveryDayRef.current = null;
-    setReplaceWithHeroCursor(false);
-  }, [hero, cursor, replaceWithHeroCursor]);
+    queueMicrotask(() => setReplaceWithHeroCursor(false));
+  }, [hero, cursor, replaceWithHeroCursor, deliveryDay]);
 
   const provenance = hero?.provenance;
   const settled = provenance?.basis === "settled";
@@ -185,48 +184,39 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        {!globalLoading && (
-          <div className="an-date-picker">
-            {provenance && (
-              <div className="an-brief-meta">
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Model Run</span>
-                  <span className="an-brief-meta__val">
-                    {provenance.run_id}
-                  </span>
+        {!globalLoading && <div className="an-date-picker">
+          {provenance && (
+            <div className="an-brief-meta">
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Model Run</span>
+                <span className="an-brief-meta__val">{provenance.run_id}</span>
+              </span>
+              <span className="an-brief-meta__item">
+                <span className="an-brief-meta__label label">Status</span>
+                <span className="an-brief-meta__val">
+                  {settled ? "DAM Settled" : "Forecast"} · t+{provenance.horizon}
                 </span>
-                <span className="an-brief-meta__item">
-                  <span className="an-brief-meta__label label">Status</span>
-                  <span className="an-brief-meta__val">
-                    {settled ? "DAM Settled" : "Forecast"} · t+
-                    {provenance.horizon}
-                  </span>
-                </span>
-              </div>
-            )}
-            <BriefDayControls
-              day={deliveryDay}
-              adjacentDays={adjacentDays}
-              loading={heroPending}
-              activeEventId={activeEventId}
-              onSelectDay={selectDeliveryDay}
-              onSelectEvent={(event) => {
-                setActiveEventId(event.id);
-                cursor.setCoord({
-                  t: new Date(event.cursor_ts),
-                  ws: new Date(event.window_start),
-                  we: new Date(event.window_end),
-                });
-              }}
-            />
-          </div>
-        )}
+              </span>
+            </div>
+          )}
+          <BriefDayControls
+            day={deliveryDay}
+            adjacentDays={adjacentDays}
+            loading={heroPending}
+            activeEventId={activeEventId}
+            onSelectDay={selectDeliveryDay}
+            onSelectEvent={(event) => {
+              setActiveEventId(event.id);
+              cursor.setCoord({
+                t: new Date(event.cursor_ts),
+                ws: new Date(event.window_start),
+                we: new Date(event.window_end),
+              });
+            }}
+          />
+        </div>}
         {globalLoading && (
-          <section
-            className="an-brief-loader"
-            role="status"
-            aria-label="Loading daily congestion brief"
-          >
+          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
             <div className="an-brief-loader__brand" aria-hidden="true">
               <span className="an-brief-loader__title">ERCOT STRESS</span>
               <span className="an-brief-loader__bolt">⚡</span>

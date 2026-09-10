@@ -4,10 +4,12 @@ import {
   Dipole,
   MemberList,
   SfDipoleLegend,
+} from "../../panels/ConstraintReach";
+import {
   dipoleCounts,
   REACH_K,
   useConstraintReach,
-} from "../../panels/ConstraintReach";
+} from "../../panels/constraintReachData";
 import { Fact } from "../../detail/Fact";
 import { HistoryBlock } from "./HistoryBlock";
 

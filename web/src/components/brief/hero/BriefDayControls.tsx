@@ -64,6 +64,7 @@ export default function BriefDayControls({
         ›
       </button>
       <DateRangePicker
+        key={day}
         singleDate
         showLabel={false}
         triggerLabel="Choose delivery date"
