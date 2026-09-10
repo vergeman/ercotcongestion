@@ -58,6 +58,7 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
   const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
   const heroPending = !!deliveryDay && !state.heroError && (state.heroLoading || !heroMatchesDeliveryDay);
   const heroReadyDay = state.hero?.available ? state.hero.provenance?.delivery_date : null;
+  const globalLoading = (!deliveryDay && !state.initialLookupDone) || heroPending;
 
   useEffect(() => {
     if (!deliveryDay) { patch({ adjacentDays: { previous: null, next: null } }); return; }
@@ -99,5 +100,5 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
     return () => controller.abort();
   }, [deliveryDay, state.hero?.available, state.hero?.provenance?.delivery_date, heroReadyDay, detailsRetry]);
 
-  return useMemo(() => ({ ...state, deliveryDay, heroReadyDay, heroPending }), [state, deliveryDay, heroReadyDay, heroPending]);
+  return useMemo(() => ({ ...state, deliveryDay, heroReadyDay, heroPending, globalLoading }), [state, deliveryDay, heroReadyDay, heroPending, globalLoading]);
 }

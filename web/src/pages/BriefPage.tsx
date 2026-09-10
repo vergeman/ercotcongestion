@@ -77,6 +77,7 @@ export default function BriefPage() {
     adjacentDays,
     heroPending,
     initialLookupDone,
+    globalLoading,
   } = useBriefDay(cursorDay, detailsRetry);
   // Router search params publish on the following render. This ref records a
   // picker selection synchronously, so the current hero cannot win the brief
@@ -183,7 +184,7 @@ export default function BriefPage() {
       </header>
 
       <main className="an-main">
-        <div className="an-date-picker">
+        {!globalLoading && <div className="an-date-picker">
           {provenance && (
             <div className="an-brief-meta">
               <span className="an-brief-meta__item">
@@ -213,9 +214,13 @@ export default function BriefPage() {
               });
             }}
           />
-        </div>
-        {heroPending && (
-          <section className="an-brief-hero-loading" role="status" aria-label="Loading daily congestion brief">
+        </div>}
+        {globalLoading && (
+          <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
+            <div className="an-brief-loader__brand" aria-hidden="true">
+              <span className="an-brief-loader__title">ERCOT STRESS</span>
+              <span className="an-brief-loader__bolt">⚡</span>
+            </div>
             <span className="an-loading-indicator" aria-hidden="true" />
           </section>
         )}
