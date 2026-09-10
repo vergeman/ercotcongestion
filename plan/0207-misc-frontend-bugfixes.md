@@ -50,8 +50,8 @@ Branch: fix/0207-misc-frontend-bugfixes
 
 ## Acceptance
 
-* [ ] At 19:00 CST / 18:00 CDT, a settled CT delivery day never inherits tomorrow’s `Preview — refreshes at noon CT` badge; its real h2 day still displays it.
-* [ ] Scrolling a long constraint reach list leaves no visible/translucent gap above the sticky column header on desktop or mobile.
-* [ ] Brief displays stable chrome/date controls immediately, renders the hero before secondary sections, and does not block the page on the old global loading screen.
-* [ ] Curated events are materially shorter with identical navigation data.
-* [ ] `npm run lint` and `npm run build` pass in `web/` with no ESLint errors or warnings.
+* [x] At 19:00 CST / 18:00 CDT, a settled CT delivery day never inherits tomorrow’s `Preview — refreshes at noon CT` badge; its real h2 day still displays it.
+* [x] Scrolling a long constraint reach list leaves no visible/translucent gap above the sticky column header on desktop or mobile.
+* [x] Brief displays the loading screen first, then the populated hero before secondary sections.
+* [x] Curated events are materially shorter with identical navigation data.
+* [x] `npm run lint` and `npm run build` pass in `web/` with no ESLint errors or warnings.
