@@ -80,7 +80,7 @@ export const CURATED_EVENTS: CuratedEvent[] = [
     id: "winter_storm_fern_2026_jan24",
     label: "Winter Storm Fern",
     description:
-      "Jan 24-26, 2026: Winter Storm Fern brings scarcity and severe regional congestion.",
+      "Jan 24-26, 2026: Winter Storm Fern brings scarcity and severe congestion in San Antonio and beyond.",
     what_it_tests:
       "Systemwide weather-driven scarcity and congestion.",
     window_start: "2026-01-24T06:00:00Z",
