@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BriefSelection } from "../lib/briefSelection";
 import HeaderNav from "../components/layout/HeaderNav";
 import HeaderStatus from "../components/layout/HeaderStatus";
+import { APP_TITLE } from "../lib/brand";
 import { formatCT } from "../lib/time";
 import { useTimeCursor } from "../hooks/useTimeCursor";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -218,7 +219,7 @@ export default function BriefPage() {
         {globalLoading && (
           <section className="an-brief-loader" role="status" aria-label="Loading daily congestion brief">
             <div className="an-brief-loader__brand" aria-hidden="true">
-              <span className="an-brief-loader__title">ERCOT STRESS</span>
+              <span className="an-brief-loader__title">{APP_TITLE}</span>
               <span className="an-brief-loader__bolt">⚡</span>
             </div>
             <span className="an-loading-indicator" aria-hidden="true" />

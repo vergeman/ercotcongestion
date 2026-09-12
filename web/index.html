@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ercot Stress</title>
+    <title>%VITE_APP_TITLE%</title>
     <!-- Resolve the theme before first paint. Inline and synchronous on purpose:
          deferring this to the bundle makes a light-theme user flash dark.
          Keep the storage key in sync with lib/theme.ts. -->
     <script>
       (function () {
         try {
-          var t = localStorage.getItem('ercotstress:theme');
+          var t = localStorage.getItem('%VITE_APP_STORAGE_PREFIX%:theme');
           document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light';
         } catch (e) {
           document.documentElement.dataset.theme = 'light';  // default theme

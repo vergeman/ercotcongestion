@@ -5,6 +5,7 @@
 
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { APP_TITLE } from "../../lib/brand";
 import Tooltip from "../ui/Tooltip";
 
 type NavKey = "map" | "matrix" | "scoreboard" | "brief" | "analysis";
@@ -46,7 +47,7 @@ export default function HeaderNav({
       <a
         className="brand-nav__brand"
         href="/"
-        aria-label="ERCOT Stress home"
+        aria-label={`${APP_TITLE} home`}
         onClick={(event) => {
           // The brand is a home link, so it deliberately drops every page-local
           // and shared query parameter instead of using the nav coordinate.
@@ -56,7 +57,7 @@ export default function HeaderNav({
         }}
       >
         <span className="brand-nav__logo">⚡</span>
-        <span className="brand-nav__title">ERCOT Stress</span>
+        <span className="brand-nav__title">{APP_TITLE}</span>
       </a>
       <nav className="brand-nav__links" aria-label="Primary">
         {NAV.map((n) =>
