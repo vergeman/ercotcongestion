@@ -797,10 +797,10 @@ export default function GridMap({
       const nv =
         dataMode === "congestion"
           ? mcStats
-            ? normalizeCongestion(row.congestion, mcStats)
+            ? normalizeCongestion(row.congestion)
             : 0
           : lmpStats
-          ? normalizeLmpFromStats(row.spp, lmpStats)
+          ? normalizeLmpFromStats(row.spp)
           : 0.5;
       targets.set(row.sp_id, nv);
     }
@@ -894,8 +894,8 @@ export default function GridMap({
         const coordinate = coordinates.get(row.sp_id);
         const alarm =
           dataMode === "congestion"
-            ? !!mcStats && isCongestionAlarm(row.congestion, mcStats)
-            : !!lmpStats && isLmpAlarm(row.spp, lmpStats);
+            ? !!mcStats && isCongestionAlarm(row.congestion)
+            : !!lmpStats && isLmpAlarm(row.spp);
         if (coordinate && alarm) {
           desired.set(row.sp_id, coordinate);
         }

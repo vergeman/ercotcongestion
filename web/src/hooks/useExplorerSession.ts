@@ -14,7 +14,6 @@ import {
 } from "../lib/colors";
 import type { CuratedEvent } from "../lib/events";
 import type { SparkPoint } from "../components/playback/TimelineSparkline";
-import { formatCT } from "../lib/time";
 
 export type ConnectionState = "ok" | "error" | "loading";
 
@@ -130,18 +129,10 @@ export function useExplorerSession(opts?: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadWindow]);
 
-  // The cursor's Central-time delivery day. Keyed on this (not currentIndex) so
-  // the day-scoped stats below recompute once per day, not on every hour tick.
-  const deliveryDay = useMemo(() => {
-    const cursor = timestamps[currentIndex];
-    return cursor ? formatCT(cursor, "yyyy-MM-dd") : null;
-  }, [timestamps, currentIndex]);
-
-  // Color domains belong to the cursor's Central-time delivery day. This keeps
-  // colors comparable while inspecting that day without letting an extreme on a
-  // non-visible day in a multi-day playback window flatten the active palette.
+  // Stats describe the loaded playback range for the cropped legend only.
+  // Fixed dollar transforms own map colors.
   const dayStats = useMemo(() => {
-    if (!deliveryDay) {
+    if (!timestamps.length) {
       return {
         congestionStats: null,
         sppStats: null,
@@ -158,7 +149,6 @@ export function useExplorerSession(opts?: {
     const forecastError: Array<number | null> = [];
 
     for (const timestamp of timestamps) {
-      if (formatCT(timestamp, "yyyy-MM-dd") !== deliveryDay) continue;
 
       const congestion = getErcotCached(timestamp);
       if (congestion) for (const sp of congestion.sps) actualCongestion.push(sp.congestion);
@@ -193,7 +183,7 @@ export function useExplorerSession(opts?: {
       forecastLmpStats: forecastLmp.length ? computeLmpStats(forecastLmp) : null,
       errorStats: forecastError.length ? computeCongestionStats(forecastError) : null,
     };
-  }, [timestamps, deliveryDay]);
+  }, [timestamps]);
 
   return {
     timestamps, currentIndex, setCurrentIndex, loading, connectionState, setConnectionState,
