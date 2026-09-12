@@ -1,4 +1,4 @@
-import { constraintName, usd } from "../brief/briefFormat";
+import { constraintName, usd } from "../../lib/format";
 import type { BasisResult, BasisRow } from "../../lib/basis";
 
 // Vivid import/export hues for the shift-factor columns. The app's soft SF role

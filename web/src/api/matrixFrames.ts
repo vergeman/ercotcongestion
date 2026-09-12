@@ -39,7 +39,6 @@ export function matrixFrameCacheKey(
 export function getMatrixFrame(
   intervalTs: Date,
   bounds: MatrixFrameBounds = {},
-  _signal?: AbortSignal,
 ): Promise<MatrixFrame> {
   const request = key({ intervalTs: intervalTs.toISOString(), ...normalizedBounds(bounds) });
   return frames.load(request, (signal) => fetchMatrixFrame(intervalTs, { ...bounds, signal }));

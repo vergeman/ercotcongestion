@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { cssVar, useTheme } from "../../lib/theme";
+import { cssVar } from "../../lib/theme";
 import { shiftFactorColor } from "../../lib/colors";
 import type { OvMember } from "./overviewSources";
 
@@ -38,13 +38,11 @@ export default function OverviewPopover({
   onRowClick,
   onLeave,
 }: Props) {
-  const theme = useTheme();
   const colors = useMemo(() => {
     const byType: Record<string, string> = {};
     for (const [k, tok] of Object.entries(SF_TOKENS)) byType[k] = cssVar(tok);
     return { byType, untyped: cssVar("--sf-untyped") };
-    // theme drives a re-resolve of the token values.
-  }, [theme]);
+  }, []);
 
   const flip = x > containerWidth - 300;
   const left = flip ? x - 300 : x + 12;

@@ -1,0 +1,24 @@
+/* Shared KV evidence row (components/detail/Fact), used by the Brief detail
+   drawer and the Matrix read pane. The base row is the drawer's flex layout;
+   Matrix re-lays it out as a grid via its own `.mrd-kv` container. Value tone
+   and numeric alignment are shared. */
+.kv__row {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.kv__row:last-child { border-bottom: 0; }
+.kv__label { min-width: 0; color: var(--text-muted); font-size: var(--fs-label); }
+.kv__value {
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.kv__value--pos { color: var(--danger, #d94444); }
+.kv__value--neg { color: var(--accent); }
+.kv__value--numeric { text-align: right; font-variant-numeric: tabular-nums; }

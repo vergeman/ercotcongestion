@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer } from "react";
-import { fetchScoreboardSummary } from "../api/scoreboard";
-import type { ScoreboardDaily, ScoreboardHistory, ScoreboardWeekly } from "../api/types";
-import type { ConnectionState } from "./useExplorerSession";
+import { fetchScoreboardSummary } from "../../api/scoreboard";
+import type { ScoreboardDaily, ScoreboardHistory, ScoreboardWeekly } from "../../api/types";
+import type { ConnectionState } from "../../hooks/useExplorerSession";
 
 type ScoreboardState = {
   weekly: ScoreboardWeekly | null;

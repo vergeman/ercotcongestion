@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { SpRow } from "../api/types";
-import { getErcotCached, getErcotSppCached, getForecastCached } from "../api/prefetch";
+import type { SpRow } from "../../api/types";
+import { getErcotCached, getErcotSppCached, getForecastCached } from "../../api/prefetch";
 
 /** Derives the current map rows from the shared explorer's cached frame. */
 export function useMapRows(timestamps: Date[], currentIndex: number) {

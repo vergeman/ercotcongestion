@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
 import type { ConstraintReach } from "../../api/types";
-import { fetchMapReach, REACH_THRESHOLD_OPTS } from "../../api/client";
-import { deliveryDateCT } from "../../lib/time";
 import {
   SF_EXPORT_COLOR,
   SF_IMPORT_COLOR,
   shiftFactorColor,
 } from "../../lib/colors";
+import { REACH_ROW_CAP, useConstraintReach } from "./constraintReachData";
 
 // Shared constraint-structure primitives, used by BOTH the map's ranked
 // Constraints sidebar (ConstraintPanel, plan/0103) and the Brief's detail panel
@@ -17,157 +15,6 @@ import {
 //
 // Colour: import/export is a structural polarity (docs/SF.md). Import (SF<0,
 // receiving/expensive) is soft magenta; export (SF>0, trapped/cheap) is teal.
-
-// A /map/reach lookup is stable for a given constraint *on a given delivery
-// day* (0144 — reach is served from that day's SF artifact, not a session-wide
-// rolling fit), so cache it module-side under both: re-opening the same
-// constraint on the same day — a row hover in the sidebar, or re-opening the
-// Brief panel — is instant and never re-hits the endpoint, while moving the
-// scrubber to another day correctly refetches. Keying on the constraint alone
-// would pin the first-viewed day's reach for every day after it.
-//
-// The key uses the CT delivery day rather than the instant so sweeping hours
-// within one day is still a single fetch.
-const reachCache = new Map<string, ConstraintReach | null>();
-
-function reachKey(id: string, t?: Date): string {
-  return `${t ? deliveryDateCT(t) : "latest"}|${id}`;
-}
-
-// How many driven nodes a bounded reach request asks for. Every display consumer
-// (map sidebar, Brief evidence, Brief footprint) wants the same depth, and they
-// share one cache — a caller passing a different `k` would store a shorter list
-// under a key the others then read, so keep them on this one value.
-export const REACH_K = 20;
-
-// Max member rows a list surface (map sidebar, Brief evidence, DetailCard) renders
-// before summarizing the rest as a count. The fetch now returns the FULL driven
-// set (0147, REACH_THRESHOLD_OPTS) so a broad constraint's footprint maps fully;
-// the lists slice to stay scannable.
-export const REACH_ROW_CAP = 20;
-
-// The reach for one constraint, from the shared cache or a single fetch. `id`
-// null (nothing selected) resolves to no reach without a request. Both panels
-// read through this so they share the cache and the soft-fail contract.
-export function useConstraintReach(
-  id: string | null,
-  k = REACH_K,
-  t?: Date
-): { reach: ConstraintReach | null; loading: boolean } {
-  const key = id ? reachKey(id, t) : null;
-  const [reach, setReach] = useState<ConstraintReach | null>(
-    key && reachCache.has(key) ? reachCache.get(key)! : null
-  );
-  const [loading, setLoading] = useState(!!key && !reachCache.has(key));
-
-  useEffect(() => {
-    if (!id || !key) {
-      setReach(null);
-      setLoading(false);
-      return;
-    }
-    if (reachCache.has(key)) {
-      setReach(reachCache.get(key)!);
-      setLoading(false);
-      return;
-    }
-    let live = true;
-    setLoading(true);
-    fetchMapReach(id, { k, t, ...REACH_THRESHOLD_OPTS })
-      .then((r) => {
-        reachCache.set(key, r);
-        if (live) setReach(r);
-      })
-      .catch(() => {
-        reachCache.set(key, null);
-        if (live) setReach(null);
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [id, k, key, t]);
-
-  return { reach, loading };
-}
-
-// The constraint's complete reach (bounded only by the noise floor, no row
-// limit — plan/0139-0001's `full=true` mode), separately cached from the
-// bounded `useConstraintReach` above since the two payloads are not
-// interchangeable (a k=20 cache hit must never satisfy a full-reach request,
-// or vice versa). Used by the Matrix Read pane (0139-0003), which needs both
-// dipole lobes complete, not a display top-k.
-const fullReachCache = new Map<string, ConstraintReach | null>();
-
-export function useFullConstraintReach(
-  id: string | null,
-  t?: Date
-): { reach: ConstraintReach | null; loading: boolean } {
-  const key = id ? reachKey(id, t) : null;
-  const [reach, setReach] = useState<ConstraintReach | null>(
-    key && fullReachCache.has(key) ? fullReachCache.get(key)! : null
-  );
-  const [loading, setLoading] = useState(!!key && !fullReachCache.has(key));
-
-  useEffect(() => {
-    if (!id || !key) {
-      setReach(null);
-      setLoading(false);
-      return;
-    }
-    if (fullReachCache.has(key)) {
-      setReach(fullReachCache.get(key)!);
-      setLoading(false);
-      return;
-    }
-    let live = true;
-    setLoading(true);
-    fetchMapReach(id, { full: true, minFrac: 0, t })
-      .then((r) => {
-        fullReachCache.set(key, r);
-        if (live) setReach(r);
-      })
-      .catch(() => {
-        fullReachCache.set(key, null);
-        if (live) setReach(null);
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [id, key, t]);
-
-  return { reach, loading };
-}
-
-// Compact magnitude for a contribution figure (a relative $·SF·h score):
-// 1.2k / 3.4M so the number stays one glance wide.
-export function fmtMag(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
-  return v.toFixed(0);
-}
-
-// The import↔export split of a reach as (n_import, n_export) — the SF<0 vs SF>0
-// located-node counts that feed the Dipole. Handy when the caller only has the
-// reach payload (the Brief panel), not the ranked row's precomputed counts.
-export function dipoleCounts(reach: ConstraintReach | null): {
-  imp: number;
-  exp: number;
-} {
-  let imp = 0;
-  let exp = 0;
-  for (const s of reach?.sps ?? []) {
-    if (s.sf < 0) imp += 1;
-    else exp += 1;
-  }
-  return { imp, exp };
-}
 
 // The import↔export dipole as a compact bicolor gauge: soft magenta (import,
 // SF<0) vs teal (export, SF>0), split by located-node share, so a constraint

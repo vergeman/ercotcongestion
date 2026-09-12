@@ -80,6 +80,11 @@ class AnalysisContributionTerm(BaseModel):
     constraint_key: str
     contribution: float
     shift_factor: float
+    # Hours the constraint bound on the delivery day, and whether this node's SF
+    # was pinned at the ridge clip (|SF| >= SF_ABS_CAP) — a bound, not a
+    # measurement. Both let the Matrix node table sort structure alongside price.
+    binding_hours: int
+    sf_clipped: bool
 
 
 class NodeMarketState(BaseModel):

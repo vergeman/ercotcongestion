@@ -2,12 +2,12 @@ import { useEffect, useMemo, useReducer } from "react";
 import type {
   AnalysisGrade, AnalysisGradeHistory, BriefContext, BriefHero,
   Standouts, TopConstraints, TopNodes,
-} from "../api/types";
+} from "../../api/types";
 import {
   fetchBriefDetailsCached, fetchBriefHeroLatestCached, fetchBriefHeroShellCached,
   fetchBriefStandoutsCached,
-} from "../api/briefCache";
-import type { ConnectionState } from "./useExplorerSession";
+} from "../../api/briefCache";
+import type { ConnectionState } from "../../hooks/useExplorerSession";
 
 type BriefDayState = {
   defaultDay: string | null; initialLookupDone: boolean; hero: BriefHero | null;
@@ -32,7 +32,7 @@ const initialState: BriefDayState = {
 
 export type BriefDayAction = { type: "patch"; patch: Partial<BriefDayState> };
 
-/** Reducces dependent brief loading transitions into an inspectable state machine. */
+/** Merges a partial update into the brief-day loading state. */
 export function briefDayReducer(state: BriefDayState, action: BriefDayAction): BriefDayState {
   return action.type === "patch" ? { ...state, ...action.patch } : state;
 }
@@ -98,7 +98,7 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
       .catch((error: unknown) => { if (!controller.signal.aborted && !isAbort(error)) patch({ detailsError: "The rest of this brief could not be loaded." }); })
       .finally(() => { if (!controller.signal.aborted) patch({ contextLoading: false, topNodesLoading: false, topConstraintsLoading: false, gradeLoading: false }); });
     return () => controller.abort();
-  }, [deliveryDay, heroReadyDay, detailsRetry]);
+  }, [deliveryDay, state.hero?.available, state.hero?.provenance?.delivery_date, heroReadyDay, detailsRetry]);
 
   return useMemo(() => ({ ...state, deliveryDay, heroReadyDay, heroPending, globalLoading }), [state, deliveryDay, heroReadyDay, heroPending, globalLoading]);
 }

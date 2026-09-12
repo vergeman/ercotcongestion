@@ -217,7 +217,10 @@ export default function MatrixGrid({ frame, orientation, topRowKey, previewKey, 
 
   const axes = useMemo(() => matrixDisplayAxes(frame, orientation, topRowKey), [frame, orientation, topRowKey]);
   const axesRef = useRef(axes);
-  axesRef.current = axes;
+
+  useEffect(() => {
+    axesRef.current = axes;
+  }, [axes]);
 
   useEffect(() => {
     if (!selection) return;

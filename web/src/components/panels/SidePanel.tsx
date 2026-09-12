@@ -9,6 +9,7 @@ import type {
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
 import { formatCT } from "../../lib/time";
+import { fmtNum, fmtScore } from "../../lib/format";
 
 // The right-hand side panel, hosting two tabs in one region (plan/0103): `Stats`
 // (0102) — a compact network readout over the rolling backtest scorecard — and
@@ -58,18 +59,6 @@ interface Props {
   loadWindow?: ReactNode;
 }
 
-function fmtNum(v: number | null, decimals = 1): string {
-  if (v == null) return "—";
-  return v.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
-
-// Two decimals, uniform across currencies so the table reads as a grid of
-// comparable figures (top-decile / sign are hit-rates, rank ρ a correlation —
-// all live in ~[0,1]).
-const fmtScore = (v: number | null): string => (v == null ? "—" : v.toFixed(2));
 
 // The three scorecard currencies with per-row hover copy.
 const CURRENCY_ORDER = [
