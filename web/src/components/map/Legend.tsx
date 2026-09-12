@@ -3,12 +3,13 @@ import { cssVar, useTheme } from "../../lib/theme";
 import { formatDollar, formatExactDollar } from "../../lib/format";
 import type { SpRow, MapDataMode } from "../../api/types";
 import {
-  normalizeLmpFromStats,
+  normalizeLmp,
   isLmpAlarm,
-  lmpAlarmThreshold,
+  EXTREME_PRICE_THRESHOLD,
+  LMP_SCALE_CONTROLS,
+  CONGESTION_SCALE_CONTROLS,
   normalizeCongestion,
   congestionAlarmColor,
-  congestionAlarmThreshold,
   congestionColor,
   lmpColor,
   type LmpStats,
@@ -118,10 +119,93 @@ function AggregateMark({ label }: { label: "H" | "Z" }) {
 }
 
 const HIST_BINS = 24;
-// Widened from 130 so the palette title fits on one line and the diverging
-// labels/sub uncramp. Inner elements size to the padded content box (width:100%)
-// rather than this fixed value, so the gradient never overruns the container.
-const BAR_W = 176;
+// Leave room for a compact set of dollar ticks without turning the overlay into
+// a side panel.
+const BAR_W = 280;
+
+type LegendTick = { value: number; pct: number };
+type LegendDomain = { start: number; end: number };
+
+function anchorsFor(isCongestion: boolean): number[] {
+  if (!isCongestion) return LMP_SCALE_CONTROLS.map(([value]) => value);
+  return [
+    ...CONGESTION_SCALE_CONTROLS.slice(1).map(([value]) => -value).reverse(),
+    0,
+    ...CONGESTION_SCALE_CONTROLS.map(([value]) => value),
+  ];
+}
+
+function legendDomain(min: number, max: number, isCongestion: boolean): LegendDomain {
+  const anchors = anchorsFor(isCongestion);
+  const start = [...anchors].reverse().find((value) => value <= min) ?? anchors[0];
+  const end = anchors.find((value) => value >= max) ?? anchors[anchors.length - 1];
+  return { start, end };
+}
+
+function colorPosition(value: number, isCongestion: boolean): number {
+  return isCongestion ? (normalizeCongestion(value) + 1) / 2 : normalizeLmp(value);
+}
+
+function slicePosition(value: number, domainSlice: LegendDomain, isCongestion: boolean): number {
+  const start = colorPosition(domainSlice.start, isCongestion);
+  const end = colorPosition(domainSlice.end, isCongestion);
+  const span = end - start;
+  // The neutral congestion plateau intentionally shares one color position.
+  if (Math.abs(span) < 1e-9) {
+    return ((value - domainSlice.start) / (domainSlice.end - domainSlice.start || 1)) * 100;
+  }
+  return ((colorPosition(value, isCongestion) - start) / span) * 100;
+}
+
+function legendTicks(domainSlice: LegendDomain, isCongestion: boolean): LegendTick[] {
+  const { start, end } = domainSlice;
+  const anchors = anchorsFor(isCongestion);
+  const candidates = anchors.filter((value) => value >= start && value <= end);
+  const reference = isCongestion ? 0 : 25;
+  const extreme = start <= EXTREME_PRICE_THRESHOLD && end >= EXTREME_PRICE_THRESHOLD
+    ? EXTREME_PRICE_THRESHOLD
+    : null;
+  const ordered = [start, end, reference, 0, extreme]
+    .filter((value): value is number => value != null && value >= start && value <= end)
+    .concat(candidates.filter((value) => value !== start && value !== end && value !== reference && value !== extreme)
+      .sort((a, b) => Math.abs(a - (start + end) / 2) - Math.abs(b - (start + end) / 2)));
+  const selected: number[] = [];
+  const width = (value: number) => tickLabel(value, isCongestion).length * 7 + 6;
+  const fits = (value: number) => {
+    const center = (slicePosition(value, domainSlice, isCongestion) / 100) * BAR_W;
+    const half = width(value) / 2;
+    const left = value === start ? 0 : value === end ? BAR_W - width(value) : center - half;
+    const right = left + width(value);
+    return selected.every((other) => {
+      const otherCenter = (slicePosition(other, domainSlice, isCongestion) / 100) * BAR_W;
+      const otherLeft = other === start ? 0 : other === end ? BAR_W - width(other) : otherCenter - width(other) / 2;
+      return right + 4 <= otherLeft || left >= otherLeft + width(other) + 4;
+    });
+  };
+  for (const value of ordered) {
+    if (selected.length === 5 || selected.includes(value) || !fits(value)) continue;
+    selected.push(value);
+  }
+  selected.sort((a, b) => a - b);
+  return selected.map((value) => ({ value, pct: slicePosition(value, domainSlice, isCongestion) }));
+}
+
+function tickLabel(value: number, signed: boolean): string {
+  return signed && value > 0 ? `+${formatDollar(value)}` : formatDollar(value);
+}
+
+function slicedGradient(domainSlice: LegendDomain, congestion: boolean): string {
+  const { start, end } = domainSlice;
+  if (start === end) return congestion ? congestionColor(0) : lmpColor(normalizeLmp(start));
+  const values = [start, ...anchorsFor(congestion).filter((value) => value > start && value < end), end];
+  const stops = values.map((value) => {
+    const color = congestion
+      ? congestionColor(normalizeCongestion(value))
+      : lmpColor(normalizeLmp(value));
+    return `${color} ${slicePosition(value, domainSlice, congestion)}%`;
+  });
+  return `linear-gradient(to right, ${stops.join(", ")})`;
+}
 
 export default function Legend({
   dataMode,
@@ -146,15 +230,24 @@ export default function Legend({
   // the gradient color its values fall in. Computed for BOTH palettes (LMP off
   // spp, congestion off the signed value mapped through the same diverging
   // normalization the map uses) so every legend carries the distribution.
+  const domainSlice = useMemo(() => {
+    const stats = isCongestion ? mcStats : lmpStats;
+    return stats?.n ? legendDomain(stats.min, stats.max, isCongestion) : null;
+  }, [isCongestion, lmpStats, mcStats]);
+
+  const ticks = useMemo(() => {
+    return domainSlice ? legendTicks(domainSlice, isCongestion) : [];
+  }, [domainSlice, isCongestion]);
+
   const hist = useMemo(() => {
     if (rows.length === 0) return null;
+    if (!domainSlice) return null;
     const counts = new Array(HIST_BINS).fill(0);
     let n = 0;
     if (isLmp && lmpStats) {
       for (const r of rows) {
         if (r.spp == null) continue;
-        const norm = normalizeLmpFromStats(r.spp, lmpStats); // 0..1
-        let idx = Math.floor(norm * HIST_BINS);
+        let idx = Math.floor((slicePosition(r.spp, domainSlice, false) / 100) * HIST_BINS);
         if (idx >= HIST_BINS) idx = HIST_BINS - 1;
         if (idx < 0) idx = 0;
         counts[idx] += 1;
@@ -163,9 +256,7 @@ export default function Legend({
     } else if (isCongestion && mcStats) {
       for (const r of rows) {
         if (r.congestion == null) continue;
-        const norm = normalizeCongestion(r.congestion, mcStats); // −1..1
-        const t = (norm + 1) / 2; // 0..1, center = 0
-        let idx = Math.floor(t * HIST_BINS);
+        let idx = Math.floor((slicePosition(r.congestion, domainSlice, true) / 100) * HIST_BINS);
         if (idx >= HIST_BINS) idx = HIST_BINS - 1;
         if (idx < 0) idx = 0;
         counts[idx] += 1;
@@ -177,29 +268,16 @@ export default function Legend({
     if (n === 0) return null;
     const peak = Math.max(...counts);
     return { counts, peak };
-  }, [rows, isLmp, isCongestion, lmpStats, mcStats]);
-
-  // SPP tick marks: p_low (left), median (center), p_high (right).
-  const lmpTicks = useMemo(() => {
-    if (!isLmp || !lmpStats) return [];
-    return [
-      { label: formatDollar(lmpStats.p_low), pct: 0 },
-      { label: formatDollar(lmpStats.median), pct: 50 },
-      { label: formatDollar(lmpStats.p_high), pct: 100 },
-    ];
-  }, [isLmp, lmpStats]);
+  }, [rows, isLmp, isCongestion, lmpStats, mcStats, domainSlice]);
 
   // Built from the palette functions so the bar tracks the theme (light gets the
   // grey center + deepened ends); useTheme() above re-renders on a flip.
   const barGradient =
     barGradientOverride ??
+    (domainSlice && slicedGradient(domainSlice, isCongestion)) ??
     (isCongestion
-      ? `linear-gradient(to right, ${congestionColor(-1)}, ${congestionColor(
-          0
-        )}, ${congestionColor(1)})`
-      : `linear-gradient(to right, ${lmpColor(0)}, ${lmpColor(0.5)}, ${lmpColor(
-          1
-        )})`);
+      ? `linear-gradient(to right, ${congestionColor(-1)}, ${congestionColor(0)}, ${congestionColor(1)})`
+      : `linear-gradient(to right, ${lmpColor(0)}, ${lmpColor(0.5)}, ${lmpColor(1)})`);
 
   // Title splits into a name (own line) and the quantity/equation (own line,
   // smaller). Built-ins carry both explicitly; an override is split on " · ".
@@ -218,15 +296,15 @@ export default function Legend({
   }
   const negLabel = signLabels?.neg ?? "Export";
   const posLabel = signLabels?.pos ?? "Import";
-  const extremePrice = isCongestion && mcStats && mcStats.max >= congestionAlarmThreshold(mcStats)
+  const extremePrice = isCongestion && mcStats && mcStats.max >= EXTREME_PRICE_THRESHOLD
     ? {
         color: congestionAlarmColor(theme),
-        label: `Extreme Price ≥ +${formatExactDollar(congestionAlarmThreshold(mcStats))}`,
+        label: `Extreme Price ≥ +${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
       }
-    : isLmp && lmpStats && isLmpAlarm(lmpStats.max, lmpStats)
+    : isLmp && lmpStats && isLmpAlarm(lmpStats.max)
     ? {
         color: lmpColor(1, theme),
-        label: `Extreme Price ≥ ${formatExactDollar(lmpAlarmThreshold(lmpStats))}`,
+        label: `Extreme Price ≥ ${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
       }
     : null;
 
@@ -256,19 +334,10 @@ export default function Legend({
 
       <div className="legend__bar" style={{ background: barGradient }} />
 
-      {/* Diverging congestion family: signed, center = 0, edges = ±P90. */}
       {isCongestion && mcStats && (
         <>
           <div className="legend__ticks">
-            <span className="label mono legend__tick legend__tick--start">
-              −{formatDollar(mcStats.p_high)}
-            </span>
-            <span className="label mono legend__tick" style={{ left: "50%" }}>
-              0
-            </span>
-            <span className="label mono legend__tick legend__tick--end">
-              +{formatDollar(mcStats.p_high)}
-            </span>
+            {ticks.map((tick) => <span key={tick.value} className={`label mono legend__tick${tick.pct === 0 ? " legend__tick--start" : tick.pct === 100 ? " legend__tick--end" : ""}`} style={tick.pct === 0 || tick.pct === 100 ? undefined : { left: `${tick.pct}%` }}>{tickLabel(tick.value, true)}</span>)}
           </div>
           <div className="legend__labels">
             <span className="label">{negLabel}</span>
@@ -286,9 +355,9 @@ export default function Legend({
 
       {isLmp && lmpStats && (
         <div className="legend__ticks">
-          {lmpTicks.map((t, i) => (
+          {ticks.map((t) => (
             <span
-              key={i}
+              key={t.value}
               className={`label mono legend__tick${
                 t.pct === 0
                   ? " legend__tick--start"
@@ -300,7 +369,7 @@ export default function Legend({
                 t.pct === 0 || t.pct === 100 ? undefined : { left: `${t.pct}%` }
               }
             >
-              {t.label}
+              {tickLabel(t.value, false)}
             </span>
           ))}
         </div>
