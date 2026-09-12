@@ -1,10 +1,5 @@
 # `/about` — working outline & build checklist
 
-Consumer-facing page. Route `/about`, component `web/src/pages/AboutPage.tsx`.
-This file is the tracking list for building that page — each section below is a
-checkbox with its coverage note and boundaries. Fill the page section by section;
-check items off as they land.
-
 **Audience & boundary.** `/about` answers *"what does this tell me and why trust
 it."* Keep it narrative and visual. The full model math stays in
 `docs/MODELS.md`; metric mechanics (source IDs, cadence, pooling) stay in
@@ -31,29 +26,6 @@ hierarchy, **not** three co-equal features:
 Positioning line: **not** "a congestion forecaster" (that invites the one comparison it
 loses) — it's **"a grid-structure explorer with an honest forecasting layer."** The core
 is the validated map; the forecast is rigorous research built on top.
-
-## Open handoff — data gathering (separate agent)
-
-Two sections depend on **real, pulled data** and are being spun off to a
-dedicated data agent — do not invent numbers for them:
-
-- [ ] **§3.5 always-on constraints** — the constraints that bind near-constantly.
-      Pull real names + frequencies from `/map/constraints/ranked`, the μ top-ten
-      feed, or ESSP. Honor the *"appeared" not "bound"* lower-bound caveat.
-- [ ] **§6 case-study dates** — pick 2–3 real graded load-window / heat days from
-      Scoreboard/Brief history and gather what the model called vs. what settled.
-
-The content/build agent can stub these sections and wire the page; the data
-agent supplies the concrete constraints, dates, and numbers to drop in.
-
-## Wiring (do first)
-
-- [ ] Add `AboutPage.tsx` under `web/src/pages/`.
-- [ ] Register route `/about` in `web/src/main.tsx`.
-- [ ] Add **About** link to `web/src/components/layout/HeaderNav.tsx`
-      (`NAV` array — currently Brief / Map / Matrix / Scoreboard).
-- [ ] Use existing tokens/`.label` styling only (no hardcoded colors — see
-      `web/src/index.css`); light + dark must both work.
 
 ## Content sections
 
