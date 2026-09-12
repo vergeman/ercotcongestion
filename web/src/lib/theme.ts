@@ -6,12 +6,13 @@
 // the map's data palettes in lib/colors.ts are still anchored for a dark ground.
 
 import { useEffect, useState } from "react";
+import { APP_STORAGE_PREFIX } from "./brand";
 
 export type Theme = "dark" | "light";
 
-const STORAGE_KEY = "ercotstress:theme";
+const STORAGE_KEY = `${APP_STORAGE_PREFIX}:theme`;
 
-export const THEME_CHANGE_EVENT = "ercotstress:themechange";
+export const THEME_CHANGE_EVENT = `${APP_STORAGE_PREFIX}:themechange`;
 
 export function readStoredTheme(): Theme {
   try {

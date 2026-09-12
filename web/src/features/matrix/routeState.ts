@@ -6,8 +6,9 @@ import type {
   MatrixTab,
   MatrixValTab,
 } from "../../lib/matrix";
+import { APP_STORAGE_PREFIX } from "../../lib/brand";
 
-export const PIN_STORAGE_KEY = "ercotstress.matrix-pins.v1";
+export const PIN_STORAGE_KEY = `${APP_STORAGE_PREFIX}.matrix-pins.v1`;
 export const MAX_PINS = 20;
 
 let rememberedTab: MatrixTab = "constraints";
