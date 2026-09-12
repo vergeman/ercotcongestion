@@ -69,6 +69,7 @@ export interface LmpStats {
   min: number;
   max: number;
   n: number;
+  hasLocalExtreme: boolean;
 }
 
 
@@ -86,15 +87,27 @@ export function computeLmpStats(
     max = Math.max(max, v);
     n += 1;
   }
-  return n ? { min, max, n } : { min: 0, max: 0, n: 0 };
+  return n ? { min, max, n, hasLocalExtreme: false } : { min: 0, max: 0, n: 0, hasLocalExtreme: false };
 }
 
 export function normalizeLmpFromStats(value: number | null): number {
   return normalizeLmp(value);
 }
 
-export function isLmpAlarm(value: number | null): boolean {
-  return value != null && isFinite(value) && value >= EXTREME_PRICE_THRESHOLD;
+export function localExtremeThreshold(
+  values: Array<number | null | undefined>,
+  positiveOnly = false
+): number | null {
+  const valid = values.filter(
+    (value): value is number => value != null && isFinite(value) && (!positiveOnly || value > 0)
+  ).sort((a, b) => b - a);
+  if (!valid.length) return null;
+  const threshold = valid[Math.max(0, Math.ceil(valid.length * 0.01) - 1)];
+  return threshold >= EXTREME_PRICE_THRESHOLD ? threshold : null;
+}
+
+export function isLocalExtreme(value: number | null, threshold: number | null): boolean {
+  return value != null && isFinite(value) && threshold != null && value >= threshold;
 }
 
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
@@ -127,6 +140,7 @@ export interface CongestionStats {
   min: number;
   max: number;
   n: number;
+  hasLocalExtreme: boolean;
 }
 
 // Compute window-wide congestion stats. Pass a flat array of all observed
@@ -143,7 +157,7 @@ export function computeCongestionStats(
     if (v > max) max = v;
     n += 1;
   }
-  return { min, max, n };
+  return { min, max, n, hasLocalExtreme: false };
 }
 
 export function normalizeCongestion(value: number | null): number {
@@ -154,10 +168,6 @@ export function normalizeCongestion(value: number | null): number {
 
 // Scarcity is operationally asymmetric: a huge positive import-side price is
 // the alarm condition. Negative congestion stays on its signed blue scale.
-export function isCongestionAlarm(value: number | null): boolean {
-  return value != null && isFinite(value) && value >= EXTREME_PRICE_THRESHOLD;
-}
-
 // Diverging blue (−) → cream (0) → red (+). Endpoints match the LMP scale's
 // blue (#3b82f6) for palette consistency; red end is the shared "critical"
 // crimson (#ef4444) that also drives --mc-accent and --danger.

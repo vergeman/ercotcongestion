@@ -11,6 +11,7 @@ import {
 import {
   computeCongestionStats,
   computeLmpStats,
+  localExtremeThreshold,
 } from "../lib/colors";
 import type { CuratedEvent } from "../lib/events";
 import type { SparkPoint } from "../components/playback/TimelineSparkline";
@@ -147,15 +148,36 @@ export function useExplorerSession(opts?: {
     const forecastCongestion: Array<number | null> = [];
     const forecastLmp: Array<number | null> = [];
     const forecastError: Array<number | null> = [];
+    let hasCongestionExtreme = false;
+    let hasLmpExtreme = false;
+    let hasForecastCongestionExtreme = false;
+    let hasForecastLmpExtreme = false;
+    let hasErrorExtreme = false;
 
     for (const timestamp of timestamps) {
 
       const congestion = getErcotCached(timestamp);
-      if (congestion) for (const sp of congestion.sps) actualCongestion.push(sp.congestion);
+      if (congestion) {
+        const values = congestion.sps.map((sp) => sp.congestion);
+        actualCongestion.push(...values);
+        hasCongestionExtreme ||= localExtremeThreshold(values, true) != null;
+      }
       const spp = getErcotSppCached(timestamp);
-      if (spp) for (const sp of spp.sps) actualLmp.push(sp.spp);
+      if (spp) {
+        const values = spp.sps.map((sp) => sp.spp);
+        actualLmp.push(...values);
+        hasLmpExtreme ||= localExtremeThreshold(values) != null;
+      }
       const forecast = getForecastCached(timestamp);
       if (forecast) {
+        const congestionValues = forecast.sps.map((sp) => sp.forecast_congestion);
+        const lmpValues = forecast.sps.map((sp) =>
+          sp.forecast_congestion != null && forecast.system_lambda != null
+            ? sp.forecast_congestion + forecast.system_lambda
+            : null
+        );
+        hasForecastCongestionExtreme ||= localExtremeThreshold(congestionValues, true) != null;
+        hasForecastLmpExtreme ||= localExtremeThreshold(lmpValues) != null;
         for (const sp of forecast.sps) {
           forecastCongestion.push(sp.forecast_congestion);
           forecastLmp.push(
@@ -167,21 +189,25 @@ export function useExplorerSession(opts?: {
       }
       if (congestion && forecast) {
         const marketById = new Map(congestion.sps.map((sp) => [sp.sp_id, sp.congestion]));
+        const errors: Array<number | null> = [];
         for (const sp of forecast.sps) {
           const market = marketById.get(sp.sp_id);
-          if (sp.forecast_congestion != null && market != null) forecastError.push(sp.forecast_congestion - market);
+          const error = sp.forecast_congestion != null && market != null ? sp.forecast_congestion - market : null;
+          forecastError.push(error);
+          errors.push(error);
         }
+        hasErrorExtreme ||= localExtremeThreshold(errors, true) != null;
       }
     }
 
     return {
-      congestionStats: actualCongestion.length ? computeCongestionStats(actualCongestion) : null,
-      sppStats: actualLmp.length ? computeLmpStats(actualLmp) : null,
+      congestionStats: actualCongestion.length ? { ...computeCongestionStats(actualCongestion), hasLocalExtreme: hasCongestionExtreme } : null,
+      sppStats: actualLmp.length ? { ...computeLmpStats(actualLmp), hasLocalExtreme: hasLmpExtreme } : null,
       forecastCongestionStats: forecastCongestion.length
-        ? computeCongestionStats(forecastCongestion)
+        ? { ...computeCongestionStats(forecastCongestion), hasLocalExtreme: hasForecastCongestionExtreme }
         : null,
-      forecastLmpStats: forecastLmp.length ? computeLmpStats(forecastLmp) : null,
-      errorStats: forecastError.length ? computeCongestionStats(forecastError) : null,
+      forecastLmpStats: forecastLmp.length ? { ...computeLmpStats(forecastLmp), hasLocalExtreme: hasForecastLmpExtreme } : null,
+      errorStats: forecastError.length ? { ...computeCongestionStats(forecastError), hasLocalExtreme: hasErrorExtreme } : null,
     };
   }, [timestamps]);
 

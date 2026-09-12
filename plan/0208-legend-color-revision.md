@@ -67,6 +67,15 @@ Branch: fix/0208-legend-color-revision
 * Position gradient stops, histogram bins, and ticks with the canonical color transform rather than raw dollar spacing for both LMP and congestion.
 * Preserve the neutral congestion plateau with a linear fallback only when its displayed slice has no color-position span.
 
+### Commit 8 — local extreme halos
+
+* Keep `$500/MWh` as the fixed eligibility floor, but show LMP and positive-congestion halos only for the highest 1% of relevant values in the current frame.
+* Rename the LMP legend key to `Extreme local price` to distinguish a local outlier from a systemwide high-price interval.
+
+### Commit 9 — stable local-extreme key
+
+* Reserve the local-extreme legend key when any loaded playback frame qualifies; dim it when the current frame has none, rather than changing the legend height.
+
 ## Acceptance
 
 * [ ] A congestion value in `−$10…+$10` is near-neutral on every playback day; it never becomes a saturated endpoint solely because the day's range is quiet.

@@ -15,11 +15,11 @@ import {
 } from "./overviewSources";
 import {
   lmpColor,
-  isLmpAlarm,
+  isLocalExtreme,
+  localExtremeThreshold,
   normalizeLmpFromStats,
   congestionColor as congestionRampColor,
   congestionAlarmColor,
-  isCongestionAlarm,
   normalizeCongestion,
   shiftFactorColor,
   type LmpStats,
@@ -873,6 +873,10 @@ export default function GridMap({
             ?.nodes.length
         : 0);
     const desired = new Map<string, [number, number]>();
+    const alarmThreshold = localExtremeThreshold(
+      rows.map((row) => dataMode === "congestion" ? row.congestion : row.spp),
+      dataMode === "congestion"
+    );
     const alarmColor =
       dataMode === "congestion"
         ? congestionAlarmColor(theme)
@@ -894,8 +898,8 @@ export default function GridMap({
         const coordinate = coordinates.get(row.sp_id);
         const alarm =
           dataMode === "congestion"
-            ? !!mcStats && isCongestionAlarm(row.congestion)
-            : !!lmpStats && isLmpAlarm(row.spp);
+            ? !!mcStats && isLocalExtreme(row.congestion, alarmThreshold)
+            : !!lmpStats && isLocalExtreme(row.spp, alarmThreshold);
         if (coordinate && alarm) {
           desired.set(row.sp_id, coordinate);
         }

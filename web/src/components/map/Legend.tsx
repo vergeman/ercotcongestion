@@ -4,7 +4,7 @@ import { formatDollar, formatExactDollar } from "../../lib/format";
 import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmp,
-  isLmpAlarm,
+  localExtremeThreshold,
   EXTREME_PRICE_THRESHOLD,
   LMP_SCALE_CONTROLS,
   CONGESTION_SCALE_CONTROLS,
@@ -296,15 +296,24 @@ export default function Legend({
   }
   const negLabel = signLabels?.neg ?? "Export";
   const posLabel = signLabels?.pos ?? "Import";
-  const extremePrice = isCongestion && mcStats && mcStats.max >= EXTREME_PRICE_THRESHOLD
+  const alarmThreshold = useMemo(
+    () => localExtremeThreshold(
+      rows.map((row) => isCongestion ? row.congestion : row.spp),
+      isCongestion
+    ),
+    [isCongestion, rows]
+  );
+  const extremePrice = isCongestion && mcStats?.hasLocalExtreme
     ? {
         color: congestionAlarmColor(theme),
         label: `Extreme Price ≥ +${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
+        active: alarmThreshold != null,
       }
-    : isLmp && lmpStats && isLmpAlarm(lmpStats.max)
+    : isLmp && lmpStats?.hasLocalExtreme
     ? {
         color: lmpColor(1, theme),
-        label: `Extreme Price ≥ ${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
+        label: `Extreme local price ≥ ${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
+        active: alarmThreshold != null,
       }
     : null;
 
@@ -385,7 +394,7 @@ export default function Legend({
       {extremePrice && (
         <div className="legend__alarm">
           <span
-            className="legend__alarm-swatch"
+            className={`legend__alarm-swatch${extremePrice.active ? "" : " legend__alarm-swatch--inactive"}`}
             style={{ backgroundColor: extremePrice.color }}
           />
           <span className="label legend__alarm-text">{extremePrice.label}</span>
@@ -563,6 +572,10 @@ export default function Legend({
              1.4s raised-cosine fade between 0.28 and full so the legend key
              breathes in step with the outlier nodes. */
           animation: legend-alarm-pulse 1.4s ease-in-out infinite;
+        }
+        .legend__alarm-swatch--inactive {
+          animation: none;
+          opacity: 0.35;
         }
         @keyframes legend-alarm-pulse {
           0%,
