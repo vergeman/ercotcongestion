@@ -5,6 +5,7 @@ import pandas as pd
 from fastapi import Query
 
 from api.services.analysis import panels as analysis_module
+from api.services.analysis import brief as brief_service
 from api.services.analysis.panels import catalog as catalog_module
 from api.services.analysis.panels import nodes as nodes_module
 from api.services.analysis.features import hero as hero_service
@@ -379,11 +380,22 @@ def _brief_section_counter(monkeypatch):
     return calls
 
 
-def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
-    """A past final day (horizon 1, DAM landed) composes once, then serves from
-    the response cache — the sections are not re-invoked."""
+def test_brief_snapshots_a_settled_day(client, fake_pool, monkeypatch):
+    """A final day composes once, then reads its durable snapshot."""
     _, we = delivery_bounds(date(2026, 7, 28))  # DAM ts past the day's midpoint
     calls = _brief_section_counter(monkeypatch)
+    stored = None
+
+    def snapshot_get(_cur, _key):
+        return stored
+
+    def snapshot_put(_conn, _key, snapshot):
+        nonlocal stored
+        stored = snapshot
+        return stored
+
+    monkeypatch.setattr(brief_service, "_snapshot_get", snapshot_get)
+    monkeypatch.setattr(brief_service, "_snapshot_put", snapshot_put)
     for _ in range(2):  # run + horizon + dam-landed probe, per request
         fake_pool.cursor.queue([{"run_id": "run-x"}])
         fake_pool.cursor.queue([{"h": 1}])
@@ -394,7 +406,7 @@ def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
 
     assert first.status_code == 200 and second.status_code == 200
     assert first.content == second.content
-    assert calls["n"] == 7, "settled day should compose once, then hit the cache"
+    assert calls["n"] == 7, "settled day should compose once, then read the snapshot"
 
 
 def test_brief_recomputes_an_unsettled_day(client, fake_pool, monkeypatch):

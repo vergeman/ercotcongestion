@@ -98,15 +98,9 @@ class FakePool:
 @pytest.fixture
 def fake_pool(monkeypatch):
     """Replace the module-level pool with a FakePool; return it for queueing rows."""
-    # Unit-test requests share a process, while decoded artifacts are intentionally
-    # process-cached in production. Isolate queued database expectations between
-    # tests without changing the production cache lifetime.
+    # Unit-test requests share a process, so reset decoded artifacts between tests.
     from api.services.sf_artifacts import _ARTIFACT_CACHE
     _ARTIFACT_CACHE.clear()
-    from api.services.analysis import brief
-    brief._BRIEF_CACHE.clear()
-    brief._BRIEF_HERO_CACHE.clear()
-    brief._BRIEF_DETAILS_CACHE.clear()
     pool = FakePool()
     monkeypatch.setattr(db_module, 'pool', pool)
     return pool
