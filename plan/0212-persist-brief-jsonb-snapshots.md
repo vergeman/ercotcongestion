@@ -26,7 +26,8 @@ Branch: feat/0212-persist-brief-jsonb-snapshots
 
 ## Acceptance
 
-* [ ] A final settled Brief reads identical hero/details/standouts JSONB after an API restart, without recomposing panels.
-* [ ] A snapshot miss produces one durable row; concurrent requests converge on the stored payload.
-* [ ] Non-final or non-h1 Briefs still compose live and create no snapshot.
-* [ ] Tests cover cache removal, snapshot hit/miss, finality gating, and idempotent write behavior.
+* [x] A final settled Brief reads identical hero/details/standouts JSONB after an API restart, without recomposing panels.
+* [x] A snapshot miss produces one durable row; concurrent requests converge on the stored payload.
+* [x] Non-final or non-h1 Briefs still compose live and create no snapshot.
+* [x] Snapshot hits bypass slow-composition profiling; misses and live days retain it.
+* [x] Tests cover cache removal, snapshot hit/miss, finality gating, and idempotent write behavior.
