@@ -15,9 +15,9 @@ interface Props {
   height?: number;
 }
 
-const VIEW_W = 1000;
-const PAD_TOP = 4;
-const PAD_BOTTOM = 4;
+const VIEW_W = 1000; // viewBox width — gets stretched horizontally
+const PAD_TOP = 4; // px space at top of viewBox
+const PAD_BOTTOM = 4; // px space at bottom of viewBox
 
 // Forecast blue, ERCOT congestion yellow, system λ violet.
 const FORECAST_CONGESTION_COLOR = "#38bdf8";

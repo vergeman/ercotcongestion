@@ -28,10 +28,12 @@ interface Props {
   mapView: MapView;
   scorecard: MapScorecard | null;
   fitMeta: MapFitMetadata | null;
+  // ── Constraints tab ─────────────────────────────────────────────────────
   ranked: RankedConstraints | null;
   rankedLoading: boolean;
   constraintBasis: "predicted" | "realized";
   onConstraintBasis: (b: "predicted" | "realized") => void;
+  // Synced hover: the constraint currently isolated on the map.
   highlightedConstraintId?: string | null;
   onHoverConstraint?: (id: string | null) => void;
   onSelectConstraint?: (id: string) => void;

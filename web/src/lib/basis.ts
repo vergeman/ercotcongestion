@@ -1,23 +1,45 @@
 import type { AnalysisNodeResponse } from "../api/types";
 
-// Constraint-by-constraint congestion basis between two settlement points.
+// Two full node columns of implied shift factors, joined on constraint, are a
+// congestion basis: `LMP_A,cong − LMP_B,cong`, decomposed constraint-by-
+// constraint.
+//
+//   contribᶜ = −(SF[c,A] − SF[c,B]) · μᶜ     signed $/MWh added to (cong_A − cong_B)
+//   basis    = Σ contribᶜ                     = LMP_A,cong − LMP_B,cong
 
 export interface BasisRow {
   constraint: string;
+  // `null` where the node has no located SF for this constraint (one-sided).
   sfA: number | null;
   sfB: number | null;
+  // The constraint's shadow price μ (node-independent), or `null` when it could
+  // not be recovered (an SF of exactly zero carries no μ).
   mu: number | null;
+  // Signed $/MWh this constraint adds to (cong_A − cong_B).
   contrib: number;
+  // True when both nodes locate this constraint; false for a one-sided term.
   mutual: boolean;
 }
 
 export interface BasisResult {
+  // Ranked by |contrib| descending.
   rows: BasisRow[];
+  // Σ contrib = the signed congestion basis (cong_A − cong_B), $/MWh.
   total: number;
+  // The top row's |contrib| as a fraction (0..1) of |total|; 0 when there is
+  // no basis. Powers the "N% of the basis is [top constraint]" readout.
   topShare: number;
+  // The constraint key of the top row, or null when there are no shared terms.
   topConstraint: string | null;
 }
 
+// One node's implied-SF column, reduced from an /analysis/node response into
+// the two maps the basis join needs: constraint → SF, and constraint → μ.
+//
+// μ is derived per term from the app's convention (contribution = −SF·μ ⇒
+// μ = −contribution / SF). It reflects whichever basis the node was fetched at:
+// `predicted` carries Forecast μ, `realized` carries ERCOT DAM μ — the SF-lens
+// value sub-toggle picks the fetch, so μ here already follows the toggle.
 export interface NodeColumn {
   sf: Map<string, number>;
   mu: Map<string, number | null>;
