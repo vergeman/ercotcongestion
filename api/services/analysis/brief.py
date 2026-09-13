@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+import json
 import logging
-from threading import Lock
 from time import perf_counter
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
+from psycopg.types.json import Jsonb
 from psycopg.rows import dict_row
 
 from api.services.analysis import panels
 from api.db import get_pool
+from api.dependencies import server_selected_run as _server_selected_run
 from api.schemas.analysis import (
     BriefDayResponse,
     BriefDetailsResponse,
@@ -24,54 +26,34 @@ from api.schemas.analysis import (
 logger = logging.getLogger(__name__)
 _CT = ZoneInfo("America/Chicago")
 _BRIEF_SLOW_REQUEST_SECONDS = 1.0
-
-# A settled delivery day's Brief is immutable: a past day's final artifact and
-# its day-ahead DAM inputs no longer change, so the whole composed payload —
-# decode and all the section pandas can be memoized. Payloads are small JSON,
-# so this is bounded by count, not bytes. Keyed by (run_id, day, horizon).
-_BRIEF_CACHE_MAX = 512
-_BRIEF_CACHE: "OrderedDict[tuple[str, date, int], BriefDayResponse]" = OrderedDict()
-_BRIEF_HERO_CACHE: "OrderedDict[tuple[str, date, int], BriefHeroShellResponse]" = (
-    OrderedDict()
-)
-_BRIEF_DETAILS_CACHE: "OrderedDict[tuple[str, date, int], BriefDetailsResponse]" = (
-    OrderedDict()
-)
-_BRIEF_CACHE_LOCK = Lock()
+_SNAPSHOT_SCHEMA_VERSION = 1
 
 
-def _brief_cache_get(key: tuple[str, date, int]) -> "BriefDayResponse | None":
-    with _BRIEF_CACHE_LOCK:
-        response = _BRIEF_CACHE.get(key)
-        if response is not None:
-            _BRIEF_CACHE.move_to_end(key)
-        return response
+def _snapshot_get(cur, key: tuple[str, date, int]):
+    cur.execute(
+        "SELECT hero, details, standouts FROM brief_daily_snapshot "
+        "WHERE run_id = %s AND delivery_date = %s AND horizon = %s "
+        "AND schema_version = %s",
+        (*key, _SNAPSHOT_SCHEMA_VERSION),
+    )
+    return cur.fetchone()
 
 
-def _brief_cache_put(key: tuple[str, date, int], response: "BriefDayResponse") -> None:
-    with _BRIEF_CACHE_LOCK:
-        _BRIEF_CACHE[key] = response
-        _BRIEF_CACHE.move_to_end(key)
-        while len(_BRIEF_CACHE) > _BRIEF_CACHE_MAX:
-            _BRIEF_CACHE.popitem(last=False)
-
-
-def _brief_section_cache_get(cache: OrderedDict, key: tuple[str, date, int]):
-    with _BRIEF_CACHE_LOCK:
-        response = cache.get(key)
-        if response is not None:
-            cache.move_to_end(key)
-        return response
-
-
-def _brief_section_cache_put(
-    cache: OrderedDict, key: tuple[str, date, int], response
-) -> None:
-    with _BRIEF_CACHE_LOCK:
-        cache[key] = response
-        cache.move_to_end(key)
-        while len(cache) > _BRIEF_CACHE_MAX:
-            cache.popitem(last=False)
+def _snapshot_put(conn, key: tuple[str, date, int], snapshot: dict):
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "INSERT INTO brief_daily_snapshot "
+            "(run_id, delivery_date, horizon, schema_version, hero, details, standouts) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (run_id, delivery_date, horizon) DO UPDATE SET "
+            "schema_version = EXCLUDED.schema_version, hero = EXCLUDED.hero, "
+            "details = EXCLUDED.details, standouts = EXCLUDED.standouts, computed_at = now() "
+            "WHERE brief_daily_snapshot.schema_version <> EXCLUDED.schema_version",
+            (*key, _SNAPSHOT_SCHEMA_VERSION, Jsonb(snapshot["hero"]),
+             Jsonb(snapshot["details"]), Jsonb(snapshot["standouts"])),
+        )
+        stored = _snapshot_get(cur, key)
+    return stored
 
 
 def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
@@ -202,6 +184,68 @@ def _compose_brief_details(
     return response
 
 
+def _snapshot_payload(
+    day: date, run_id: str, horizon: int
+) -> dict[str, dict]:
+    """Compose the immutable panels once for a settled delivery day."""
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        hero_future = pool.submit(panels.get_hero, day, run_id, horizon)
+        details_future = pool.submit(
+            _compose_brief_details, day, run_id, horizon, include_standouts=False
+        )
+        standouts_future = pool.submit(panels.get_standouts, day, run_id, horizon, 4)
+        hero = hero_future.result()
+        details = details_future.result()
+        standouts = standouts_future.result()
+    return {
+        "hero": _json_payload(hero),
+        "details": _json_payload(details),
+        "standouts": _json_payload(standouts),
+    }
+
+
+def _json_payload(response) -> dict:
+    return json.loads(
+        json.dumps(jsonable_encoder(response), default=str),
+        parse_constant=lambda _: None,
+    )
+
+
+def _snapshot_or_compose(
+    key: tuple[str, date, int]
+) -> dict:
+    """Return a settled Brief snapshot, allowing one writer across API pods."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        stored = _snapshot_get(cur, key)
+    if stored is not None:
+        return stored
+    snapshot = _snapshot_payload(key[1], key[0], key[2])
+    with get_pool().connection() as conn:
+        return _snapshot_put(conn, key, snapshot)
+
+
+def materialize_final_snapshot(run_id: str, delivery_date: date, horizon: int) -> bool:
+    """Write one settled Brief snapshot for the forecast job."""
+    key = (run_id, delivery_date, horizon)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        if _snapshot_get(cur, key) is not None:
+            return True
+        if not _brief_is_final(cur, delivery_date, horizon):
+            return False
+    snapshot = _snapshot_payload(delivery_date, run_id, horizon)
+    with get_pool().connection() as conn:
+        _snapshot_put(conn, key, snapshot)
+    return True
+
+
+def _snapshot_details(snapshot: dict, *, include_standouts: bool) -> BriefDetailsResponse:
+    if not include_standouts:
+        return BriefDetailsResponse.model_validate(snapshot["details"])
+    return BriefDetailsResponse.model_validate(
+        {**snapshot["details"], "standouts": snapshot["standouts"]}
+    )
+
+
 def hero_shell(
     delivery_date: date | None, run_id: str | None, day: date | None = None
 ) -> BriefHeroShellResponse:
@@ -210,33 +254,18 @@ def hero_shell(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
-        if (
-            horizon is not None
-            and horizon == 1
-            and delivery_date < datetime.now(_CT).date()
-        ):
-            cached = _brief_section_cache_get(
-                _BRIEF_HERO_CACHE, (run_id, delivery_date, horizon)
-            )
-            if cached is not None:
-                return cached
+        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
         previous, following = _brief_neighbor_dates(cur, run_id, delivery_date)
-    hero = panels.get_hero(delivery_date, run_id, horizon)
+    if final:
+        snapshot = _snapshot_or_compose((run_id, delivery_date, horizon))
+        hero = snapshot["hero"]
+    else:
+        hero = panels.get_hero(delivery_date, run_id, horizon)
     response = BriefHeroShellResponse(
         hero=hero,
         previous_delivery_date=previous,
         next_delivery_date=following,
     )
-    if (
-        horizon is not None
-        and horizon == 1
-        and delivery_date < datetime.now(_CT).date()
-        and response.hero.available
-        and response.hero.provenance.basis == "settled"
-    ):
-        _brief_section_cache_put(
-            _BRIEF_HERO_CACHE, (run_id, delivery_date, horizon), response
-        )
     return response
 
 
@@ -251,23 +280,32 @@ def details(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
-        cache_key = None if horizon is None else (run_id, delivery_date, horizon)
-        if (
-            include_standouts
-            and cache_key is not None
-            and horizon == 1
-            and delivery_date < datetime.now(_CT).date()
-        ):
-            cached = _brief_section_cache_get(_BRIEF_DETAILS_CACHE, cache_key)
-            if cached is not None:
-                return cached
         final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
+    if final:
+        return _snapshot_details(
+            _snapshot_or_compose((run_id, delivery_date, horizon)),
+            include_standouts=include_standouts,
+        )
     response = _compose_brief_details(
         delivery_date, run_id, horizon, include_standouts=include_standouts
     )
-    if include_standouts and final and cache_key is not None:
-        _brief_section_cache_put(_BRIEF_DETAILS_CACHE, cache_key, response)
     return response
+
+
+def standouts(
+    delivery_date: date = Query(...),
+    run_id: str | None = Depends(_server_selected_run),
+    horizon: int | None = Query(None, ge=1, le=2),
+    k: int = Query(4, ge=1, le=20),
+):
+    """Serve the root Brief's durable k=4 standouts payload when final."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        run_id = panels._resolve_run(cur, run_id)
+        horizon = panels._resolve_horizon(cur, run_id, delivery_date, horizon)
+        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
+    if final and k == 4:
+        return _snapshot_or_compose((run_id, delivery_date, horizon))["standouts"]
+    return panels.get_standouts(delivery_date, run_id, horizon, k)
 
 
 def day(
@@ -290,11 +328,18 @@ def day(
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
         final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
-    key = (run_id, delivery_date, horizon)
     if final:
-        cached = _brief_cache_get(key)
-        if cached is not None:
-            return cached
+        snapshot = _snapshot_or_compose((run_id, delivery_date, horizon))
+        details = _snapshot_details(snapshot, include_standouts=True)
+        return BriefDayResponse(
+            hero=snapshot["hero"],
+            context=details.context,
+            standouts=details.standouts,
+            top_nodes=details.top_nodes,
+            top_constraints=details.top_constraints,
+            grade=details.grade,
+            grade_history=details.grade_history,
+        )
     with ThreadPoolExecutor(max_workers=7) as pool:
         sections = {
             "hero": pool.submit(
@@ -382,6 +427,4 @@ def day(
             elapsed,
             timings,
         )
-    if final:
-        _brief_cache_put(key, response)
     return response

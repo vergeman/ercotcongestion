@@ -5,6 +5,8 @@ import pandas as pd
 from fastapi import Query
 
 from api.services.analysis import panels as analysis_module
+from api.services.analysis import brief as brief_service
+from api.schemas.analysis import StandoutRow
 from api.services.analysis.panels import catalog as catalog_module
 from api.services.analysis.panels import nodes as nodes_module
 from api.services.analysis.features import hero as hero_service
@@ -37,6 +39,23 @@ def test_brief_delivery_date_alias_resolves_to_the_canonical_name():
     assert analysis_module._resolve_brief_delivery_date(delivery_date, None) == delivery_date
     assert analysis_module._resolve_brief_delivery_date(None, delivery_date) == delivery_date
     assert analysis_module._resolve_brief_delivery_date(Query(None), delivery_date) == delivery_date
+
+
+def test_brief_snapshot_payload_encodes_dates():
+    assert brief_service._json_payload({"delivery_date": date(2026, 7, 28)}) == {
+        "delivery_date": "2026-07-28"
+    }
+    assert brief_service._json_payload({"value": float("nan")}) == {"value": None}
+
+
+def test_standout_history_median_allows_unavailable_history():
+    assert StandoutRow(
+        constraint_key="A|B",
+        kind="settled_elevated",
+        forecast_total=0.0,
+        forecast_history_median=None,
+        forecast_history_days=0,
+    ).forecast_history_median is None
 
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
@@ -379,11 +398,22 @@ def _brief_section_counter(monkeypatch):
     return calls
 
 
-def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
-    """A past final day (horizon 1, DAM landed) composes once, then serves from
-    the response cache — the sections are not re-invoked."""
+def test_brief_snapshots_a_settled_day(client, fake_pool, monkeypatch):
+    """A final day composes once, then reads its durable snapshot."""
     _, we = delivery_bounds(date(2026, 7, 28))  # DAM ts past the day's midpoint
     calls = _brief_section_counter(monkeypatch)
+    stored = None
+
+    def snapshot_get(_cur, _key):
+        return stored
+
+    def snapshot_put(_conn, _key, snapshot):
+        nonlocal stored
+        stored = snapshot
+        return stored
+
+    monkeypatch.setattr(brief_service, "_snapshot_get", snapshot_get)
+    monkeypatch.setattr(brief_service, "_snapshot_put", snapshot_put)
     for _ in range(2):  # run + horizon + dam-landed probe, per request
         fake_pool.cursor.queue([{"run_id": "run-x"}])
         fake_pool.cursor.queue([{"h": 1}])
@@ -394,7 +424,7 @@ def test_brief_caches_a_settled_day(client, fake_pool, monkeypatch):
 
     assert first.status_code == 200 and second.status_code == 200
     assert first.content == second.content
-    assert calls["n"] == 7, "settled day should compose once, then hit the cache"
+    assert calls["n"] == 7, "settled day should compose once, then read the snapshot"
 
 
 def test_brief_recomputes_an_unsettled_day(client, fake_pool, monkeypatch):

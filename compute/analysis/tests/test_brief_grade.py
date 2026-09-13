@@ -10,6 +10,7 @@ from compute.analysis.brief_grade import SOURCE_DEFINITIONS, serialize_grade_hal
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.jobs import daily_forecast
 from compute.jobs import materialize_brief_grade
+from compute.jobs import materialize_brief_snapshot
 
 
 def test_compute_brief_grade_modules_do_not_import_the_api_application():
@@ -104,3 +105,28 @@ def test_brief_materialization_failure_remains_non_fatal_after_publish(monkeypat
     assert daily_forecast._grade_latest(conn, "run-x") is None
     assert conn.commits == 1
     assert conn.rollbacks == 1
+
+
+def test_snapshot_materializer_uses_a_temporary_api_pool(monkeypatch):
+    closed = False
+
+    class Pool:
+        def wait(self):
+            pass
+
+        def close(self):
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(materialize_brief_snapshot, "ConnectionPool", lambda **_: Pool())
+    monkeypatch.setattr(
+        materialize_brief_snapshot.brief,
+        "materialize_final_snapshot",
+        lambda run_id, delivery_date, horizon: (run_id, delivery_date, horizon) == (
+            "run-x", date(2026, 7, 28), 1
+        ),
+    )
+
+    assert materialize_brief_snapshot.materialize_day("run-x", date(2026, 7, 28), 1)
+    assert closed
+    assert not materialize_brief_snapshot.materialize_day("run-x", date(2026, 7, 28), 2)

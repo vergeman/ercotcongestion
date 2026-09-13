@@ -94,7 +94,7 @@ export interface StandoutRow {
   constraint_key: string;
   kind: "forecast_elevated" | "chronic_under_called" | "settled_elevated";
   forecast_total: number;
-  forecast_history_median: number;
+  forecast_history_median: number | null;
   forecast_history_days: number;
   chronic_bound_days: number | null;
   settled_total: number | null;
@@ -121,7 +121,7 @@ export interface NodeStandoutRow {
   zone: string | null;
   forecast_total: number;
   forecast_rank: number | null;
-  forecast_history_median: number;
+  forecast_history_median: number | null;
   forecast_history_days: number;
   settled_total: number | null;
   settled_rank: number | null;
