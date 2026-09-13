@@ -6,9 +6,7 @@ day-ahead prices, while visualizing the electrical footprints of the binding
 constraints that drive them. A forecast for the next delivery day is generated
 and evaluated.
 
-<video src="https://ercotcongestion.com/screenshots/ercot-congestion-intro.mp4" controls muted playsinline width="100%">
-  ERCOT Congestion Explorer walkthrough
-</video>
+[<img src="web/public/screenshots/ercot-congestion-intro.gif" alt="ERCOT Congestion Explorer walkthrough: tracing South Texas congestion to its dominant constraints" width="960">](https://ercotcongestion.com/screenshots/ercot-congestion-intro.mp4)
 
 ## The Four Pages
 
