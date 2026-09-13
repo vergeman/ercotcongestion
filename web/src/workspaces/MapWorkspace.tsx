@@ -30,14 +30,12 @@ import { useConstraintSelection } from "../features/map/useConstraintSelection";
 import { useMapCursorData } from "../features/map/useMapCursorData";
 import { useMapScorecard } from "../features/map/useMapScorecard";
 import { useMapViewControls } from "../features/map/useMapViewControls";
-import { PredictionPane } from "../features/map/PredictionPane";
-import { MarketPane } from "../features/map/MarketPane";
+import { MapPane } from "../features/map/MapPane";
 import type {
   PaneSide,
   PaneSp,
-  PredictionInteractions,
-  MarketInteractions,
-  PredictionPaneConfig,
+  MapPaneInteractions,
+  MapPaneConfig,
 } from "../features/map/mapPaneTypes";
 
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
@@ -654,10 +652,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       ? `Prediction Model: forecast ${forecastRunId}`
       : "Prediction Model: no forecast this window";
 
-  // The constraints-overlay control (0130): lives in the legend of every pane
-  // that draws forecast data (Forecast/Compare's prediction pane, Error) —
-  // never Market. Hidden until the overview has actually loaded, matching the
-  // old header control's own hidden-until-loaded rule.
+  // The constraints-overlay control (0130): shared by every pane and hidden
+  // until the overview has loaded, matching the old header control's rule.
   const constraintsToggle = overview?.constraints.length
     ? { checked: showConstraints, onChange: setShowConstraints }
     : undefined;
@@ -669,7 +665,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   // Prediction-side state + callbacks, shared by the Forecast and Error panes so
   // both carry the decomposition and SF drivers. Ownership stays here.
-  const predictionInteractions: PredictionInteractions = {
+  const predictionInteractions: MapPaneInteractions = {
     hoveredSp: hoveredSp.prediction,
     pinnedSp: pinnedSp.prediction,
     reach,
@@ -691,7 +687,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     onHoverMember: setHoveredMemberSp,
     onSelectMember: handleMemberSelect,
   };
-  const marketInteractions: MarketInteractions = {
+  const marketInteractions: MapPaneInteractions = {
     hoveredSp: hoveredSp.actual,
     pinnedSp: pinnedSp.actual,
     reach,
@@ -717,8 +713,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     onSelectMember: handleActualMemberSelect,
   };
 
-  const forecastConfig: PredictionPaneConfig = {
+  const forecastConfig: MapPaneConfig = {
     view: "forecast",
+    side: "prediction",
+    valueMode: "forecast",
     rows: leftRows,
     lmpStats: leftLmpStats,
     mcStats: leftMcStats,
@@ -739,8 +737,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     hasForecast && forecastRunId
       ? "Forecast Error: Prediction Model − ERCOT DAM"
       : "Forecast Error: no forecast this window";
-  const errorConfig: PredictionPaneConfig = {
+  const errorConfig: MapPaneConfig = {
     view: "error",
+    side: "prediction",
+    valueMode: "forecast",
     rows: errorRows,
     lmpStats: null,
     mcStats: errorStats,
@@ -766,27 +766,26 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   };
 
   const forecastPane = (
-    <PredictionPane config={forecastConfig} interactions={predictionInteractions} {...sharedPaneProps} />
+    <MapPane config={forecastConfig} interactions={predictionInteractions} {...sharedPaneProps} />
   );
+  const marketConfig: MapPaneConfig = {
+    view: "market",
+    side: "actual",
+    valueMode: "ercot",
+    rows: spRows,
+    lmpStats: sppStats,
+    mcStats: congestionStats,
+    dataMode,
+    label: "ERCOT: Day Ahead Market (DAM)",
+    litCount,
+    litNoun: "priced",
+    litHint: "Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count.",
+  };
   const marketPane = (
-    <MarketPane
-      interactions={marketInteractions}
-      points={spPoints}
-      rows={spRows}
-      dataMode={dataMode}
-      lmpStats={sppStats}
-      mcStats={congestionStats}
-      litCount={litCount}
-      badge={badgeProps}
-      isMobile={isMobile}
-      cursorTs={cursorTs}
-      overview={overview}
-      showConstraints={showConstraints}
-      constraintsToggle={constraintsToggle}
-    />
+    <MapPane config={marketConfig} interactions={marketInteractions} {...sharedPaneProps} />
   );
   const errorPane = (
-    <PredictionPane config={errorConfig} interactions={predictionInteractions} {...sharedPaneProps} />
+    <MapPane config={errorConfig} interactions={predictionInteractions} {...sharedPaneProps} />
   );
 
   const sidePanelProps = {

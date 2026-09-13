@@ -2,6 +2,7 @@ import type maplibregl from "maplibre-gl";
 import type {
   SpRow,
   MapDataMode,
+  MapView,
   ConstraintReach,
   ExposuresResponse,
 } from "../../api/types";
@@ -20,9 +21,9 @@ export interface PaneSp extends HoveredSp {
 type SpHover = (spId: string | null, props: Record<string, unknown> | null) => void;
 type SpClick = (spId: string, props: Record<string, unknown>) => void;
 
-// The prediction side's state + callbacks, grouped so ownership stays in
-// MapWorkspace while Forecast and Error share one presentation path.
-export interface PredictionInteractions {
+// State and callbacks shared by every map pane. MapWorkspace owns the side-
+// specific data so Forecast and Market cards can stay independent in Compare.
+export interface MapPaneInteractions {
   hoveredSp: PaneSp | null;
   pinnedSp: PaneSp | null;
   reach: ConstraintReach | null;
@@ -41,31 +42,6 @@ export interface PredictionInteractions {
   onClearPinned: () => void;
   onCloseReach: () => void;
   onHoverConstraint: (key: string | null) => void;
-  onHoverMember: (sp: string | null) => void;
-  onSelectMember: (sp: string) => void;
-}
-
-// The realized (ERCOT) side keeps its node card realized-only, while sharing
-// the constraint overlay interactions with the prediction panes.
-export interface MarketInteractions {
-  hoveredSp: PaneSp | null;
-  pinnedSp: PaneSp | null;
-  reach: ConstraintReach | null;
-  focusReach: ConstraintReach | null;
-  effectiveConstraintId: string | null;
-  exposures: ExposuresResponse | null;
-  exposuresLoading: boolean;
-  hoveredMemberSp: string | null;
-  onMapBackgroundClick: () => void;
-  onSpHover: SpHover;
-  onSpClick: SpClick;
-  onMapReady: (map: maplibregl.Map) => void;
-  onIsolateConstraint: (id: string | null) => void;
-  onConstraintPreview: (key: string | null) => void;
-  onConstraintSelect: (key: string) => void;
-  onHoverConstraint: (key: string | null) => void;
-  onClearPinned: () => void;
-  onCloseReach: () => void;
   onHoverMember: (sp: string | null) => void;
   onSelectMember: (sp: string) => void;
 }
@@ -77,9 +53,11 @@ export interface PaneBadge {
   emptyTopology: boolean;
 }
 
-// The only differences between the Forecast and Error prediction panes.
-export interface PredictionPaneConfig {
-  view: "forecast" | "error";
+// The data and readout differences between Forecast, Market, and Error.
+export interface MapPaneConfig {
+  view: MapView;
+  side: PaneSide;
+  valueMode: "forecast" | "ercot";
   rows: SpRow[];
   lmpStats: LmpStats | null;
   mcStats: CongestionStats | null;

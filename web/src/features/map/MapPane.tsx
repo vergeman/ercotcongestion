@@ -1,47 +1,39 @@
-import type { MapDataMode, MapOverview, SpRow } from "../../api/types";
-import type { LmpStats, CongestionStats } from "../../lib/colors";
+import type { MapOverview } from "../../api/types";
 import GridMap from "../../components/map/GridMap";
 import Legend from "../../components/map/Legend";
 import DetailCard from "../../components/map/DetailCard";
 import { MapPaneBadge } from "./MapPaneBadge";
-import type { MarketInteractions, PaneBadge } from "./mapPaneTypes";
+import type { MapPaneConfig, MapPaneInteractions, PaneBadge } from "./mapPaneTypes";
 
-interface MarketPaneProps {
-  interactions: MarketInteractions;
+interface MapPaneProps {
+  config: MapPaneConfig;
+  interactions: MapPaneInteractions;
   points: GeoJSON.FeatureCollection | null;
-  rows: SpRow[];
-  dataMode: MapDataMode;
-  lmpStats: LmpStats | null;
-  mcStats: CongestionStats | null;
-  litCount: number;
-  badge: PaneBadge;
-  isMobile: boolean;
-  cursorTs: Date | undefined;
   overview: MapOverview | null;
   showConstraints: boolean;
-  constraintsToggle?: {
-    checked: boolean;
-    onChange: (show: boolean) => void;
-  };
+  constraintsToggle?: { checked: boolean; onChange: (v: boolean) => void };
+  cursorTs: Date | undefined;
+  badge: PaneBadge;
+  isMobile: boolean;
 }
 
-/** ERCOT's realized DAM map: the node's realized readout only, no SF drivers. */
-export function MarketPane({
-  interactions: ix, points, rows, dataMode, lmpStats, mcStats, litCount,
-  badge, isMobile, cursorTs, overview, showConstraints, constraintsToggle,
-}: MarketPaneProps) {
+/** Shared map presentation; config supplies each view's data and provenance. */
+export function MapPane({
+  config, interactions: ix, points, overview, showConstraints,
+  constraintsToggle, cursorTs, badge, isMobile,
+}: MapPaneProps) {
   const hasOverlay = showConstraints && !!overview?.constraints.length;
   return (
     <>
       <GridMap
         points={points}
-        rows={rows}
-        dataMode={dataMode}
-        lmpStats={lmpStats}
-        mcStats={mcStats}
-        side="actual"
+        rows={config.rows}
+        dataMode={config.dataMode}
+        lmpStats={config.lmpStats}
+        mcStats={config.mcStats}
         onMapClick={ix.onMapBackgroundClick}
         selectedSpId={ix.pinnedSp?.spId ?? null}
+        side={config.side}
         onSpHover={ix.onSpHover}
         onSpClick={ix.onSpClick}
         onMapReady={ix.onMapReady}
@@ -54,33 +46,43 @@ export function MarketPane({
         onConstraintSelect={ix.onConstraintSelect}
         focusReach={ix.focusReach}
         ringedSpId={isMobile ? null : ix.hoveredMemberSp}
+        congestionColor={config.congestionColor}
         tapOnly={isMobile}
       />
       <MapPaneBadge
         cursorLabel={badge.cursorLabel}
         nodeCount={badge.nodeCount}
         emptyTopology={badge.emptyTopology}
-        label="ERCOT: Day Ahead Market (DAM)"
-        view="market"
-        dataMode={dataMode}
-        litCount={litCount}
-        litNoun="priced"
-        litHint="Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
-      />
+        label={config.label}
+        view={config.view}
+        dataMode={config.dataMode}
+        litCount={config.litCount}
+        litNoun={config.litNoun}
+        litHint={config.litHint}
+      >
+        {config.previewBadge && (
+          <span className="pane-badge__preview" role="status">
+            Preview — refreshes at noon CT
+          </span>
+        )}
+      </MapPaneBadge>
       <Legend
-        dataMode={dataMode}
-        rows={rows}
-        lmpStats={lmpStats}
-        mcStats={mcStats}
+        dataMode={config.dataMode}
+        rows={config.rows}
+        lmpStats={config.lmpStats}
+        mcStats={config.mcStats}
         constraintOverlay={hasOverlay}
         overviewTypes={hasOverlay}
         constraintsToggle={constraintsToggle}
+        lambdaIndicative={config.lambdaIndicative}
+        titleOverride={config.titleOverride}
+        signLabels={config.signLabels}
+        barGradientOverride={config.barGradientOverride}
       />
-      {/* Actual node values with the shared constraint-driver drill-down. */}
       <DetailCard
         hoveredSp={ix.hoveredSp}
         pinnedSp={ix.pinnedSp}
-        valueMode="ercot"
+        valueMode={config.valueMode}
         exposures={ix.exposures}
         exposuresLoading={ix.exposuresLoading}
         cursorTs={cursorTs}
@@ -91,7 +93,7 @@ export function MarketPane({
         onHoverConstraint={isMobile ? undefined : ix.onHoverConstraint}
         onHoverMember={isMobile ? undefined : ix.onHoverMember}
         onSelectMember={ix.onSelectMember}
-        reachValueMode="ercot"
+        reachValueMode={config.valueMode}
         mobile={isMobile}
       />
     </>
