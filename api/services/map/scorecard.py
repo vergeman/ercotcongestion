@@ -41,13 +41,13 @@ def _complete(rows: list[dict], identities: dict[str, str]) -> bool:
 
 
 def build(delivery_date: date, run_id: str | None = None) -> MapScorecard:
-    """Prefer this day's complete h1 grade; otherwise use one weekly set."""
-    run_clause = " AND run_id = %s::text" if run_id is not None else ""
-    daily_params = (delivery_date, list(_DAILY_SOURCES), run_id) if run_id else (
+    """Return the selected day's final, pending, or historical scorecard."""
+    requested_run_id = run_id
+    run_clause = " AND run_id = %s::text" if requested_run_id is not None else ""
+    daily_params = (delivery_date, list(_DAILY_SOURCES), requested_run_id) if requested_run_id else (
         delivery_date,
         list(_DAILY_SOURCES),
     )
-    weekly_params = (list(_WEEKLY_SOURCES),)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             f"""
@@ -61,42 +61,70 @@ def build(delivery_date: date, run_id: str | None = None) -> MapScorecard:
         )
         daily_rows = cur.fetchall()
         daily_runs = {row["run_id"] for row in daily_rows}
-        for run_id in sorted(daily_runs):
-            rows = [row for row in daily_rows if row["run_id"] == run_id]
+        for daily_run_id in sorted(daily_runs):
+            rows = [row for row in daily_rows if row["run_id"] == daily_run_id]
             if _complete(rows, _DAILY_SOURCES):
                 return MapScorecard(
                     available=True,
                     basis="served_daily",
-                    run_id=run_id,
+                    run_id=daily_run_id,
                     delivery_date=delivery_date,
                     horizon=1,
                     sources=_sources(rows, _DAILY_SOURCES),
                 )
 
+        pending_params = (delivery_date, delivery_date, requested_run_id) if requested_run_id else (
+            delivery_date,
+            delivery_date,
+        )
         cur.execute(
             f"""
+            SELECT run_id
+            FROM (
+                SELECT run_id FROM forecast_nodal
+                WHERE delivery_date = %s AND horizon = 1
+                UNION
+                SELECT run_id FROM forecast_sf_artifact
+                WHERE delivery_date = %s AND horizon = 1
+            ) AS served
+            WHERE TRUE {run_clause}
+            ORDER BY run_id
+            LIMIT 1
+            """,
+            pending_params,
+        )
+        pending_row = cur.fetchone()
+        if pending_row is not None:
+            return MapScorecard(
+                available=True,
+                basis="served_daily_pending",
+                run_id=pending_row["run_id"],
+                delivery_date=delivery_date,
+                horizon=1,
+            )
+
+        cur.execute(
+            """
             SELECT run_id, week, source, rank_spearman, sign_agree, topdecile_hit
             FROM scoreboard_weekly
-            WHERE source = ANY(%s)
+            WHERE source = ANY(%s) AND week <= %s AND %s < week + 7
             ORDER BY week DESC, run_id, source
             """,
-            weekly_params,
+            (list(_WEEKLY_SOURCES), delivery_date, delivery_date),
         )
         weekly_rows = cur.fetchall()
 
-    for week in sorted({row["week"] for row in weekly_rows}, reverse=True):
-        week_rows = [row for row in weekly_rows if row["week"] == week]
-        for run_id in sorted({row["run_id"] for row in week_rows}):
-            rows = [row for row in week_rows if row["run_id"] == run_id]
-            if _complete(rows, _WEEKLY_SOURCES):
-                return MapScorecard(
-                    available=True,
-                    basis="weekly_backtest_fallback",
-                    run_id=run_id,
-                    delivery_date=delivery_date,
-                    scored_week=week,
-                    sources=_sources(rows, _WEEKLY_SOURCES),
-                )
+    for weekly_run_id in sorted({row["run_id"] for row in weekly_rows}):
+        rows = [row for row in weekly_rows if row["run_id"] == weekly_run_id]
+        if _complete(rows, _WEEKLY_SOURCES):
+            return MapScorecard(
+                available=True,
+                basis="weekly_backtest_fallback",
+                run_id=weekly_run_id,
+                delivery_date=delivery_date,
+                scored_week=rows[0]["week"],
+                sources=_sources(rows, _WEEKLY_SOURCES),
+            )
 
     return MapScorecard(
         available=False,

@@ -93,6 +93,19 @@ function leaderOf(
   return modelWins ? "model" : "persist";
 }
 
+function scorecardLabel(scorecard: MapScorecard): string {
+  switch (scorecard.basis) {
+    case "served_daily":
+      return `Final served · ${scorecard.delivery_date}`;
+    case "served_daily_pending":
+      return "Final score pending";
+    case "weekly_backtest_fallback":
+      return `Historical backtest · week of ${scorecard.scored_week}`;
+    default:
+      return "No score available";
+  }
+}
+
 // ── Load-by-region / Generation panels (plan/0141) ──────────────────────────
 // Three regionalizations, none crosswalked to each other: 8 load weather
 // zones, 5 wind regions, 6 solar regions (compute/ercot/zones.py,
@@ -436,15 +449,13 @@ export default function SidePanel({
           </section>
 
           {/* ── Day-scoped scorecard (compact table) ───────────────────────── */}
-          {scorecard?.available && (
+          {scorecard && (
             <section className="np-section">
               <div className="np-section__header sc-header">
                 <span className="label">Scorecard</span>
               </div>
               <div className="sc-meta label">
-                  {scorecard.basis === "served_daily"
-                    ? `Final served · ${scorecard.delivery_date}`
-                    : `Backfill · week of ${scorecard.scored_week}`}
+                {scorecardLabel(scorecard)}
               </div>
 
               <div className="sc-table">

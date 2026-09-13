@@ -165,7 +165,7 @@ def get_map_constraints_ranked(
 @router.get(
     "/scorecard",
     response_model=MapScorecard,
-    summary="Day-scoped served scorecard with weekly fallback",
+    summary="Day-scoped served scorecard with historical backtest",
 )
 def get_map_scorecard(
     day: date = Query(..., description="CT delivery date shown by the map cursor."),

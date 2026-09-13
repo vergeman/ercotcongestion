@@ -367,7 +367,7 @@ export interface MapScorecardSource {
 export interface MapScorecard {
   available: boolean;
   unavailable_reason: string | null;
-  basis: "served_daily" | "weekly_backtest_fallback" | null;
+  basis: "served_daily" | "served_daily_pending" | "weekly_backtest_fallback" | null;
   run_id: string | null;
   delivery_date: string;
   scored_week: string | null;
