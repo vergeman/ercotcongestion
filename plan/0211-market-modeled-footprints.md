@@ -35,3 +35,4 @@ Branch: feat/0211-market-modeled-footprints
 * Consolidate Forecast, Market, and Error map panes behind one side-aware pane component.
 * Remove the parallel pane contracts and superseded pane components.
 * Verify TypeScript and lint after the behavior-preserving consolidation.
+* Replace verbose map comments with brief explanations of current behavior.

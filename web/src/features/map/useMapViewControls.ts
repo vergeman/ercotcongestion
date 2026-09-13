@@ -10,7 +10,7 @@ interface MapViewControlsOptions {
 }
 
 export interface MapViewControls {
-  /** The layout actually mounted: mobile is forced to Forecast, desktop honors `view`. */
+  /** Mobile shows Forecast; desktop shows the selected view. */
   renderedView: MapView;
   showConstraints: boolean;
   setShowConstraints: (show: boolean) => void;
@@ -18,28 +18,16 @@ export interface MapViewControls {
   handleDataMode: (d: MapDataMode) => void;
 }
 
-/**
- * Owns the view/data-mode transition rules: the constraint-overlay default per
- * view, and Error's congestion-only lock (remembering the prior data mode so
- * leaving Error restores it). Mobile always renders Forecast while keeping the
- * user's desktop choice in `view`.
- */
+/** View, data-mode, and overlay transitions. */
 export function useMapViewControls({
   view, setView, dataMode, setDataMode, isMobile,
 }: MapViewControlsOptions): MapViewControls {
   const renderedView: MapView = isMobile ? "forecast" : view;
-  // Data selection held from before entering Error, so leaving it restores
-  // rather than defaulting back to congestion.
   const prevDataModeRef = useRef<MapDataMode>("congestion");
   const [showConstraints, setShowConstraints] = useState(
     isMobile || view === "forecast" || view === "error"
   );
 
-  // Switch the view axis, applying that view's SF-overlay default: on in
-  // Forecast and Error (the overlay is that view's own mechanism), off in
-  // Compare and Market. Entering Error locks
-  // the data axis to congestion, remembering whatever was active so leaving it
-  // restores rather than defaulting back.
   const handleView = useCallback((v: MapView) => {
     if (v === "error" && view !== "error") {
       prevDataModeRef.current = dataMode;
@@ -52,7 +40,7 @@ export function useMapViewControls({
   }, [view, dataMode, setView, setDataMode]);
 
   const handleDataMode = useCallback((d: MapDataMode) => {
-    if (view === "error") return; // locked; the Header disables the chip too
+    if (view === "error") return;
     setDataMode(d);
   }, [view, setDataMode]);
 

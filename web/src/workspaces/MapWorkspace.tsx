@@ -47,52 +47,18 @@ export interface MapWorkspaceProps {
   onSelectionRouteChange: (search: string) => void;
 }
 
-// The map's selection convention (the `MapTarget` shape, parse + serialize, and
-// the two `?…=` param names) is single-sourced in lib/mapLinks so other pages
-// can build deep links into the map that match exactly what a click here writes.
-
 export default function MapWorkspace({ session, onNavigate, routeSearch, onSelectionRouteChange }: MapWorkspaceProps) {
-  // Mobile is intentionally a map-first experience. Keep the user's desktop
-  // view choice in state, but never mount the second synchronized map below the
-  // breakpoint; returning to desktop restores their chosen view.
   const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
-  // Re-render on theme flip so the forecast-error legend gradient (built from the
-  // theme-aware palette) stays in sync with the map fills.
   useTheme();
   const {
     view, setView, dataMode, setDataMode, target, selectTarget,
   } = useMapRouteState({ search: routeSearch, onChange: onSelectionRouteChange });
   const [targetUnavailable, setTargetUnavailable] = useState(false);
   const handledTargetRef = useRef<string | null>(null);
-  // Two orthogonal axes (0130). `view` picks the layout: `forecast` (default
-  // landing) is a single map of the model's deterministic prediction; `market` is a
-  // single map of ERCOT's realized DAM values; `compare` is the prediction |
-  // ERCOT split; `error` is a single map of forecast − realized congestion.
-  // `dataMode` picks the ERCOT quantity a single/compare pane colors by; `error`
-  // is congestion-based regardless (forced below). Mobile is forced-single and
-  // always resolves to the Forecast layout, following whichever `dataMode` is
-  // active — never `market`/`compare`/`error` (no room for two panes, and the
-  // realized-only/error layouts read the operator's own vantage, not a
-  // reader's).
-  // Seeded from the URL (0131): a deep link (the Brief hero, a shared /map
-  // link) lands directly on the requested view/data rather than always
-  // opening on the shipped default and reconciling after. `parseMapViewState`
-  // already canonicalizes (unknown/missing → Forecast × Congestion, Error →
-  // congestion), so this is never an unreachable combination.
-  // View/data-mode transition rules (constraint-overlay defaults, Error's
-  // congestion lock and restore) live in one hook; mobile still renders Forecast.
   const {
     renderedView, showConstraints, setShowConstraints, handleView, handleDataMode,
   } = useMapViewControls({ view, setView, dataMode, setDataMode, isMobile });
 
-  // Mirror view/dataMode into the URL (0131), the same read/write-through-the-
-  // URL convention the constraint/sp selection already follows. Fires for both
-  // a manual Header click and the no-settled-data downgrade effect further
-  // below — whatever changed the local axis — and carries the current
-  // selection forward explicitly (App's `withCoord` only fills in the shared
-  // coordinate, not constraint/sp, so a selection would otherwise be dropped
-  // by a view-only change). Guarded against the URL already agreeing, so it
-  // doesn't fire redundantly on mount or fight an inbound deep link.
   const {
     timestamps, currentIndex, loading, connectionState: connState,
     setConnectionState: setConnState, lastUpdated, activeEventId,
@@ -106,8 +72,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // Each map owns its own card interaction. In dual view, touching the ERCOT
-  // pane must not replace or close the prediction pane's card (and vice versa).
+  // Keep cards separate when both maps are visible.
   const [hoveredSp, setHoveredSp] = useState<Record<PaneSide, PaneSp | null>>({
     prediction: null,
     actual: null,
@@ -117,44 +82,22 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     actual: null,
   });
 
-  // The per-day ranked constraint list for the side panel's `Constraints` tab
-  // (plan/0103). `basis` toggles predicted (default) vs realized μ; the list is
-  // keyed to the cursor's CT delivery day so the realized toggle can reach a past
-  // day's published DAM prices. `null` on 503 (no artifact for the day) — the tab
-  // then shows its empty state.
+  // Ranked constraints for the selected delivery day.
   const [ranked, setRanked] = useState<RankedConstraints | null>(null);
   const [rankedLoading, setRankedLoading] = useState(false);
   const [constraintBasis, setConstraintBasis] =
     useState<"predicted" | "realized">("predicted");
-  // Synced hover (plan/0103 Group 4): the constraint isolated across BOTH the
-  // Constraints panel and the map overview. A panel-row hover and a map-mark hover
-  // both write here, and both read it, so hovering either isolates that constraint
-  // everywhere — the panel row lights and every other overview mark dims.
-  // Constraint focus follows an effective = hovered ?? locked model (plan/0112).
-  // A click LOCKS a constraint (`lockedConstraintId`, persists until another click
-  // or a background click); a hover transiently overlays a different one
-  // (`hoveredConstraintId`); un-hovering reverts to the lock — hover NEVER clears
-  // the lock. `effectiveConstraintId` is what the map isolates and the focus-reach
-  // recolors, so both the panel and the overview honor the same rule.
+  // Hover temporarily overrides the selected constraint.
   const [hoveredConstraintId, setHoveredConstraintId] =
     useState<string | null>(null);
   const [lockedConstraintId, setLockedConstraintId] =
     useState<string | null>(null);
   const effectiveConstraintId = hoveredConstraintId ?? lockedConstraintId;
-  // Focus-reach view (plan/0103): the src/sink dipole SP-coloring for the effective
-  // constraint — its constituent nodes glow signed, every other node fades to the
-  // no-data fill. Separate from `reach` (the node-explorer click that opens the
-  // DetailCard) so a hover just recolors nodes. Cached per constraint AND CT
-  // delivery day so sweeping the list doesn't spam /map/reach while moving the
-  // scrubber across days still refetches (0144); kept in sync with the effective
-  // id below.
+  // Hovering a constraint recolors its footprint without opening a card.
   const [focusReach, setFocusReach] = useState<ConstraintReach | null>(null);
   const focusReqRef = useRef(0);
   const focusReachCache = useRef<Map<string, ConstraintReach>>(new Map());
-  // The SP a constituent row in the panel's expanded list is hovering — rings that
-  // node white on the map so the row and the node point at each other.
   const [hoveredMemberSp, setHoveredMemberSp] = useState<string | null>(null);
-  // Node-explorer click: top-k constraints driving the pinned SP.
   const [exposures, setExposures] = useState<Record<PaneSide, ExposuresResponse | null>>({
     prediction: null,
     actual: null,
@@ -163,12 +106,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     prediction: false,
     actual: false,
   });
-  // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
   const { topology, topologyReady, overview } = useMapBootstrap(setConnState);
   const { loadRanked, loadExposures: requestExposures, loadReach } = useConstraintSelection();
 
-  // settlement_points FeatureCollection, shared by both panes.
   const spPoints = useMemo(() => {
     if (!topology) return null;
     const t = topology as {
@@ -186,26 +127,18 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const { onMainReady: handleMainReady, onRightReady: handleRightReady } = useSynchronizedMaps();
 
-  // Everything the cursor derives for the panes and side panel: the CT delivery
-  // day (undefined before a window loads → server defaults to the latest built
-  // day), the cursor instant (`t` for /map/exposures and /map/reach), preview
-  // status, this hour's rows, forecast-error rows, conditions, network stats,
-  // and the per-SP decomposition.
   const {
     cursorTs, deliveryDay, isPreviewDay, spRows, forecastRows, lambdaSource,
     errorRows, conditionsStats, networkStats, spDecomp,
   } = useMapCursorData(timestamps, currentIndex, forecastRunId);
   const scorecard = useMapScorecard(deliveryDay, forecastRunId);
 
-  // focusReachCache key: a cached dipole belongs to one constraint on one CT
-  // delivery day, never to the constraint alone.
   const focusReachKey = useCallback(
     (id: string) => `${deliveryDay ?? "latest"}|${id}`,
     [deliveryDay]
   );
 
-  // Ranked constraints are scoped to the delivery day and basis. Cancellation
-  // replaces the prior request-id guard, so a scrub can never publish an old day.
+  // Cancel stale ranking requests when the day or basis changes.
   useEffect(() => {
     const controller = new AbortController();
     queueMicrotask(() => setRankedLoading(true));
@@ -246,12 +179,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [handleSpHover]
   );
 
-  // Request-id guards so a slow in-flight fetch can't clobber a newer click.
   const exposureReqRef = useRef<Record<PaneSide, number>>({ prediction: 0, actual: 0 });
   const reachReqRef = useRef(0);
-  // True while the card's `reach` is a transient hover preview (an overview
-  // popover row), so leaving the row clears it — but a *clicked* reach is not a
-  // preview and survives (plan/0112).
+  // Preview reaches disappear when the pointer leaves.
   const previewReachRef = useRef(false);
   const setSelectionRoute = useCallback((target: MapTarget) => {
     handledTargetRef.current = `${target.kind}:${target.value}`;
@@ -259,17 +189,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     selectTarget(target);
   }, [selectTarget]);
 
-  // Prediction-pane click: pin the node and trace its SF drivers (the overview /
-  // One place the driver list is requested from, so the click path, the basis
-  // toggle and the scrubber cannot fetch it differently. The token guard drops
-  // responses from a superseded request — all three race, and scrubbing fires
-  // one per hour tick.
-  //
-  // Fetch only — it never sets state synchronously, so the effect below can
-  // call it without cascading a render. Clearing the previous list is the
-  // caller's job, and only click and basis-toggle do it: there the old list is
-  // about to become wrong. Scrubbing leaves it up until the new one lands,
-  // since the node is unchanged and blanking on every hour tick would strobe.
+  // Ignore driver responses for a node or hour that is no longer selected.
   const loadExposures = useCallback(
     (side: PaneSide, spId: string) => {
       const token = ++exposureReqRef.current[side];
@@ -293,14 +213,11 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [cursorTs, requestExposures]
   );
 
-  // reach machinery lives on this pane).
   const handleSpClickPrediction = useCallback(
     (spId: string, props: Record<string, unknown>, writeRoute = true) => {
       if (writeRoute) setSelectionRoute({ kind: "sp", value: spId });
       setReach(null); // a node click leaves constraint-reach mode
       reachReqRef.current++;
-      // Also drop any locked/previewed constraint focus, so the overview marks
-      // un-isolate instead of staying filtered to the prior constraint (plan/0112).
       previewReachRef.current = false;
       setLockedConstraintId(null);
       setHoveredConstraintId(null);
@@ -308,8 +225,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         ...current,
         prediction: { spId, props, side: "prediction", spState: spDecomp(spId) },
       }));
-      // The load itself is the effect's job (it also owns cursor changes), so
-      // this only clears the outgoing node's drivers.
       setExposures((current) => ({ ...current, prediction: null }));
       setExposuresLoading((current) => ({ ...current, prediction: true }));
       exposureReqRef.current.prediction++;
@@ -319,11 +234,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   const pinnedPredictionSp = pinnedSp.prediction?.spId;
 
-  // The pinned node's drivers follow the scrubber. Every value in the response
-  // is specific to the cursor's CT delivery day and hour (0144/0145) — mu and
-  // the contribution ranking — so a card left on the hour it was opened at
-  // silently disagrees with the map under it. Keyed on the hour and the node,
-  // both of which change the request.
+  // Refresh driver values as the selected hour changes.
   useEffect(() => {
     if (!pinnedPredictionSp) return;
     loadExposures("prediction", pinnedPredictionSp);
@@ -335,8 +246,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     loadExposures("actual", pinnedActualSp);
   }, [pinnedActualSp, loadExposures]);
 
-  // Actual-pane click keeps the node card scoped to realized values and exits
-  // any modeled-footprint interaction.
   const handleSpClickActual = useCallback(
     (spId: string, props: Record<string, unknown>) => {
       setSelectionRoute({ kind: "sp", value: spId });
@@ -363,8 +272,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     exposureReqRef.current[side]++;
   }, []);
 
-  // Constraint click (map marker or a driver row) → trace its reach; leaves the
-  // node-explorer view. handleCloseReach / a background click return to normal.
   const handleConstraintClick = useCallback((
     constraintKey: string,
     writeRoute = true,
@@ -385,9 +292,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
   }, [setSelectionRoute, cursorTs, loadReach]);
 
-  // Deep links from the Matrix retain the requested identifier in the URL and
-  // replay the equivalent Map selection once its representation is available.
-  // The map fetches are selection work, not inspector metadata lookups.
+  // Apply node and constraint links once the map and cursor are ready.
   useEffect(() => {
     if (!target) {
       handledTargetRef.current = null;
@@ -397,14 +302,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     const key = `${target.kind}:${target.value}`;
     if (handledTargetRef.current === key) return;
 
-    // Wait for the scrubber to resolve the cursor before replaying. The URL
-    // carries the coordinate, but `timestamps` fills in asynchronously — and
-    // this workspace stays mounted on the Matrix route (App.tsx), so a Matrix
-    // deep link replays the target here while the map's own window is still
-    // loading. Firing then sends the click fetches with no `t`, which serves the
-    // latest built day instead of the linked one, and `handledTargetRef` below
-    // would mark the target done and suppress the corrected refetch. `cursorTs`
-    // is a dependency, so the effect re-runs once the cursor arrives.
     if (!cursorTs) return;
 
     if (target.kind === "sp") {
@@ -464,17 +361,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     reachReqRef.current++;
   }, []);
 
-  // ── Constraint focus (plan/0103, remodeled 0112) ────────────────────────────
-  // Keep the focus-reach (node recolor) in sync with the EFFECTIVE constraint —
-  // hovered when hovering, else the lock. Cached per constraint so sweeping the
-  // panel doesn't spam /map/reach. This is the single source of node recoloring,
-  // so hover previews and reverting to the lock both fall out of one effect.
+  // Load the active constraint footprint for map highlighting.
   useEffect(() => {
     const id = effectiveConstraintId;
     if (!id) {
-      // Invalidate any just-started hover request before restoring the normal
-      // node view. Without this increment, a late response can reapply its old
-      // constraint focus after the pointer has already left the row.
       focusReqRef.current++;
       queueMicrotask(() => setFocusReach(null));
       return;
@@ -495,14 +385,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
   }, [effectiveConstraintId, cursorTs, focusReachKey, loadReach]);
 
-  // Hover a constraint (panel row or popover row): the transient overlay. Leaving
-  // (id === null) reverts to whatever is locked — it never clears the lock.
   const handleConstraintHover = useCallback((id: string | null) => {
     setHoveredConstraintId(id);
   }, []);
 
-  // Click a constraint: lock it. Clear the transient hover so the effective id
-  // resolves to the lock immediately (and moving the mouse off doesn't reset it).
   const handleConstraintLock = useCallback((id: string, writeRoute = true) => {
     if (writeRoute) setSelectionRoute({ kind: "constraint", value: id });
     setLockedConstraintId(id);
@@ -514,11 +400,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     setHoveredConstraintId(null);
   }, []);
 
-  // Constraint selection from either a DetailCard driver row or the Constraints
-  // tab: load its member list into the constraint card AND lock map isolation, so
-  // the isolated view persists after the pointer leaves — until a background
-  // click or another selection. Both entry points deliberately share this
-  // composite route + reach + lock behavior.
   const handleConstraintSelectFromCard = useCallback(
     (key: string) => {
       handleConstraintClick(key);
@@ -527,10 +408,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [handleConstraintClick, handleConstraintLock]
   );
 
-  // Card member-row click: open that node's card (pinning + highlighting it) and
-  // drop the locked constraint isolation, so the click moves the locked focus
-  // from the constraint to the node. The SP lookup mirrors a map marker click so
-  // the card body (sp_type / load_zone) populates the same way.
   const handleMemberSelect = useCallback(
     (sp: string) => {
       setHoveredMemberSp(null);
@@ -561,13 +438,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [spPoints, handleSpClickActual]
   );
 
-  // Overview node → DetailCard flow (plan/0112): a node dot rides the base `sps`
-  // layer, so its hover/click already flow through handleSpHover /
-  // handleSpClickPrediction — no overview-specific node handler needed.
-
-  // Hover previews may recolor/isolate the map, but never replace a clicked card.
-  // A transient reach card is allowed only while neither a node nor a constraint
-  // card is locked; click remains the only action that changes the DetailCard.
+  // Preview a reach only when no card is pinned.
   const handleConstraintPreview = useCallback((key: string | null) => {
     if (pinnedSp.prediction || (reach && !previewReachRef.current)) return;
     if (key == null) {
@@ -589,7 +460,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       });
   }, [pinnedSp, reach, cursorTs, loadReach]);
 
-  // Background (empty-map) click clears whichever mode is active.
   const handlePredictionMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp("prediction");
     handleCloseReach();
@@ -601,7 +471,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     clearFocus();
   }, [handleClearPinnedSp, handleCloseReach, clearFocus]);
 
-  // Keep a pinned SP's decomposition fresh as playback advances.
+  // Keep pinned values in sync with playback.
   useEffect(() => {
     queueMicrotask(() => setPinnedSp((current) => {
       let changed = false;
@@ -621,15 +491,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     }));
   }, [spRows, forecastRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The forecast covers this hour when its cache had a row for it. When it does,
-  // the left pane shows the forecast; otherwise it renders empty — we do NOT fall
-  // back to the realized rows (duplicating the ERCOT pane hid the fact that there
-  // was no prediction). `forecastRows` is already [] without a forecast.
   const hasForecast = forecastRows.length > 0;
   const leftRows = forecastRows;
-  // Color the forecast on the realized day's scale when both exist, so the two
-  // panes are directly comparable; fall back to the forecast's own daily scale
-  // on a forecast-only window (tomorrow, no realized rows yet).
+  // Match the realized scale when both sides are available.
   const leftMcStats = congestionStats ?? forecastCongestionStats;
   const leftLmpStats = sppStats ?? forecastLmpStats;
 
@@ -637,34 +501,21 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     rows.filter((r) => (dataMode === "lmp" ? r.spp != null : r.congestion != null))
       .length;
   const litCount = litFor(spRows);
-  // The cursor hour, formatted once for every pane badge's coordinate line —
-  // "view · data · timestamp" (0130), a first-class label so a reader always
-  // knows what a pane shows without cross-referencing the header.
   const cursorLabel = timestamps[currentIndex]
     ? `${formatCT(timestamps[currentIndex], "MMM d, HH:mm")} CT`
     : "—";
   const badgeProps = { cursorLabel, nodeCount: featCount, emptyTopology: spTopologyEmpty };
 
-  // The forecast pane's label: which refit is serving + the served day (the
-  // cursor hour's date), or the realized fallback.
   const predictionLabel =
     hasForecast && forecastRunId
       ? `Prediction Model: forecast ${forecastRunId}`
       : "Prediction Model: no forecast this window";
 
-  // The constraints-overlay control (0130): shared by every pane and hidden
-  // until the overview has loaded, matching the old header control's rule.
   const constraintsToggle = overview?.constraints.length
     ? { checked: showConstraints, onChange: setShowConstraints }
     : undefined;
-  // Persistence-λ provenance (0130): a property of the cursor hour, not the
-  // active view — the DetailCard's Predicted LMP row is part of the full
-  // decomposition shown in every view, so this stays independent of `dataMode`.
-  // Legend gates its own "Indicative" note on the LMP palette internally.
   const lambdaIndicative = lambdaSource === "persisted";
 
-  // Prediction-side state + callbacks, shared by the Forecast and Error panes so
-  // both carry the decomposition and SF drivers. Ownership stays here.
   const predictionInteractions: MapPaneInteractions = {
     hoveredSp: hoveredSp.prediction,
     pinnedSp: pinnedSp.prediction,
@@ -729,9 +580,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     previewBadge: isPreviewDay,
   };
 
-  // Forecast-error view: forecast − realized congestion on the diverging palette
-  // (forced congestion, error-anchored stats). Uses the same prediction pane, so
-  // the card carries the decomposition + SF drivers just like the dual left pane.
   const errorLit = errorRows.filter((r) => r.congestion != null).length;
   const errorLabel =
     hasForecast && forecastRunId
@@ -792,9 +640,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     network: networkStats,
     conditions: conditionsStats,
     mapView: renderedView,
-    // Keep the last good scorecard mounted while the next day's fetch is in
-    // flight, so scrub/playback swaps the numbers in place — the section never
-    // unmounts and there's no flash.
     scorecard,
     fitMeta: scorecard?.fit_metadata ?? null,
     ranked,
@@ -833,10 +678,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       />
 
       <div className="app-workspace">
-        {/* Forecast/Market/Error = a single map; Compare = the prediction | ERCOT
-            split. All render under the active `dataMode` (Error forces congestion). */}
-        {/* Map area 5 : side panel 2 → panel is ~2/7 (a bit under a third), wide
-            enough that the constraint list/table don't wrap without overshooting. */}
         <div className="app-map-area">
           {targetUnavailable && target && (
             <div className="map-target-notice" role="status">
@@ -856,10 +697,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           )}
         </div>
 
-        {/* Right side panel: [Stats] (network + scorecard) | [Constraints] (the
-            per-day ranked list) in one tabbed region. Row click traces the
-            constraint on the map via /map/reach (same as a marker click); the
-            synced hover is wired in the next group. */}
         <SidePanel {...sidePanelProps} />
       </div>
 
@@ -868,9 +705,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
           open={mobileDrawerOpen}
           onClose={() => setMobileDrawerOpen(false)}
         >
-          {/* The constraints-overlay control lives in the forecast pane's own
-              Legend (0130) — mobile is forced-single onto that pane, so it's
-              already on screen; no duplicate control needed here. */}
           <SidePanel
             {...sidePanelProps}
             variant="drawer"

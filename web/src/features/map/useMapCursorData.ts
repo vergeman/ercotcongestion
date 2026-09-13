@@ -37,8 +37,7 @@ export interface MapCursorData {
 /**
  * Everything the map cursor derives for the panes and side panel: the CT day,
  * the current hour's rows, the forecast-error rows, conditions, network stats,
- * and the per-SP decomposition. All null/fallback semantics match what the panes
- * expect (forecast-only error rows, model ≥ ercot node counts).
+ * and the per-SP decomposition.
  */
 export function useMapCursorData(
   timestamps: Date[],
@@ -55,8 +54,7 @@ export function useMapCursorData(
     [timestamps, currentIndex]
   );
 
-  // Read-only off the per-day provenance the range response carried; no toggle
-  // and no extra fetch, so this only labels which days are still previews.
+  // Preview status comes from the loaded range.
   const isPreviewDay = useMemo<boolean>(() => {
     const ts = timestamps[currentIndex];
     return ts ? getForecastHorizon(ts) === 2 : false;
@@ -78,10 +76,7 @@ export function useMapCursorData(
     });
   }, [forecastRows, spRows]);
 
-  // Side-panel network stats from state already in hand. `systemLambda` is the
-  // forecast entry's DAM system-λ at the cursor; `congestionAbsTotal` is Σ|C|
-  // over this hour's realized rows. The model forecasts its full nodal universe
-  // while ERCOT lights only priced nodes, so model ≥ ercot.
+  // Build network stats from the rows already loaded.
   const networkStats = useMemo<NetworkStats>(() => {
     const cur = timestamps[currentIndex] ?? null;
     const fc = cur ? getForecastCached(cur) : null;

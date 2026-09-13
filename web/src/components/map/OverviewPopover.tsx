@@ -3,10 +3,7 @@ import { cssVar } from "../../lib/theme";
 import { shiftFactorColor } from "../../lib/colors";
 import type { OvMember } from "./overviewSources";
 
-// The multi-constraint hover box (plan/0112). A plain positioned <div> anchored
-// at the hovered node's pixel position — no SVG. Opened by the base `sps` hover
-// when a node belongs to 2+ overview constraints; each row previews that
-// constraint in the DetailCard on hover and pins it on click.
+// Hover menu for nodes that belong to multiple constraints.
 const SF_TOKENS: Record<string, string> = {
   gtc: "--sf-gtc",
   transmission: "--sf-transmission",

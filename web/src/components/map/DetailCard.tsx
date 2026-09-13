@@ -32,9 +32,7 @@ interface Props {
   onHoverMember?: (sp: string | null) => void;
   // Click a reach member node → load that node's card (leaves reach mode).
   onSelectMember?: (sp: string) => void;
-  // Whether to render the pinned SP's SF-driver section. The actual/ERCOT pane
-  // passes false — its card is scoped to realized values only (drivers are a
-  // prediction-side concern). Defaults to true.
+  // Whether to render the pinned SP's constraint list.
   showDrivers?: boolean;
   // Constraint reach values follow the pane: forecast artifact values on the
   // prediction pane, published DAM values on the ERCOT pane.
@@ -68,8 +66,7 @@ export default function DetailCard({
   const inReach = !!reach;
   const sp = mobile ? pinnedSp : pinnedSp ?? hoveredSp;
   const isPinned = !!pinnedSp;
-  // No SF for this node on this day (0146). Guarded on `sp`, so a stale
-  // response never labels the next node.
+  // Do not show a stale availability status on a new node.
   const noSf =
     !inReach && isPinned && exposures?.sp === sp?.spId
       ? exposures?.unavailable_reason

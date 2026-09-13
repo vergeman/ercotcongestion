@@ -20,46 +20,26 @@ import {
 interface Props {
   dataMode: MapDataMode;
   rows: SpRow[];
-  // Cursor-day stats. Stable while playback stays within a delivery day.
   lmpStats: LmpStats | null;
   mcStats: CongestionStats | null;
-  // Forecast-error view overrides: a custom palette title, and the diverging end
-  // labels (default "export (−)" / "import (+)" for congestion; the error view
-  // relabels these to "under-forecast" / "over-forecast"). Both apply only to the
-  // congestion palette.
+  // Forecast-error palette options.
   titleOverride?: string;
   signLabels?: { neg: string; pos: string };
-  // Overrides the palette bar's gradient — the forecast-error view passes its
-  // emerald↔magenta ramp so the legend bar matches the map's error coloring.
   barGradientOverride?: string;
-  // When set, appends a constraint-overlay key (violet marker, size ∝ max|SF|).
-  // Shown only on the pane that carries the overlay, and only while it's on.
-  // Legacy centroid overlay only — mutually exclusive with `overviewTypes`.
   constraintOverlay?: boolean;
-  // When set, appends the de-piled overview's type key: three marks whose SHAPE
-  // (region / corridor / point) carries the constraint type, so identity never
-  // rides on hue alone (dataviz a11y). Replaces `constraintOverlay` when present.
+  // Show the GTC, transmission, and radial mark key.
   overviewTypes?: boolean;
-  // The constraints-overlay on/off control itself (0130): rendered only on panes
-  // that carry the overlay.
   constraintsToggle?: { checked: boolean; onChange: (v: boolean) => void };
-  // True when the current hour's predicted LMP used the persistence-λ fallback
-  // (no DAM system-λ published yet for this hour) rather than a settled value —
-  // a display-only provenance marker (0130), never a graded signal. Only
-  // meaningful on a forecast pane's `lmp` legend.
+  // Mark forecast LMPs that use the prior system price.
   lambdaIndicative?: boolean;
 }
 
-// The overview's type marks. Hue is validated (CVD ΔE 47+ between the three;
-// see plan/0092-0003) but the *shape* is the primary type channel — a colorblind
-// or monochrome reader still tells region from corridor from point.
+// Constraint mark types used by the overview.
 const OVERVIEW_TYPES: {
   label: string;
   mark: "region" | "corridor" | "point";
   token: string;
 }[] = [
-  // Theme-aware: resolved per theme via cssVar() so the type key stays legible
-  // on a light ground (the --sf-* tokens carry a darkened light-mode set).
   { label: "GTC / interface — region", mark: "region", token: "--sf-gtc" },
   {
     label: "Transmission — corridor",
@@ -224,8 +204,6 @@ export default function Legend({
   constraintsToggle,
   lambdaIndicative = false,
 }: Props) {
-  // Subscribes the legend to theme flips so the cssVar() type-mark lookups below
-  // re-resolve (SVG presentation attributes cannot take var()).
   const theme = useTheme();
   const isCongestion = dataMode === "congestion";
   const isLmp = dataMode === "lmp";
@@ -307,10 +285,7 @@ export default function Legend({
     ),
     [isCongestion, rows]
   );
-  // Halos are a per-frame local-outlier cue.  The $500 threshold merely gates
-  // whether this hour's highest 1% receives the cue; it is not an absolute
-  // rule that every value above $500 gets a halo. Keep the key present when
-  // inactive so its appearance never shifts the legend's layout.
+  // Keep the halo key visible so the legend does not shift.
   const extremePrice = isCongestion && mcStats
     ? {
         color: congestionAlarmColor(theme),
@@ -330,9 +305,7 @@ export default function Legend({
     <div className="legend">
       <div className="legend__title label">{titleName}</div>
       {titleEq && <div className="legend__eq label">{titleEq}</div>}
-      {/* Persistence-λ provenance (0130): the predicted LMP this hour used the
-          most recent settled day's λ curve, not a settled DAM value — display
-          only, never a graded signal. */}
+      {/* This hour uses the most recent settled system price. */}
       {isLmp && lambdaIndicative && (
         <div className="legend__indicative label">Indicative — persisted λ</div>
       )}

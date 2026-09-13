@@ -1,9 +1,4 @@
-// Overview → maplibre GeoJSON sources (plan/0112). The de-piled constraint
-// overview is drawn as NATIVE maplibre layers instead of an SVG overlay: a soft
-// blended circle cloud for GTC regions, MST corridor lines for transmission, a
-// ring for radials. Node interaction rides the base `sps` layer, so overview
-// nodes behave exactly like every other settlement point (the SVG overlay's
-// pointer-events fight with the canvas was the whole source of the click bugs).
+// Build GeoJSON sources for the constraint overview.
 import type { MapOverview, ReachSp } from "../../api/types";
 
 export interface OvMember {
@@ -13,8 +8,7 @@ export interface OvMember {
   bh: number | null;
 }
 
-// Corridor edges longer than this are dropped — a stylized transmission run
-// shouldn't leap across the whole state between two weakly-related nodes.
+// Avoid drawing corridor links across the state.
 const MAX_CORRIDOR_KM = 150;
 
 function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -29,8 +23,7 @@ function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): nu
   return 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
-// Prim's MST over haversine distance — the skeleton the corridor draws. Returns
-// (i, j) index pairs into `nodes`.
+// Return minimum-spanning-tree edges for a corridor.
 function mstEdges(nodes: { lat: number; lon: number }[]): [number, number][] {
   const n = nodes.length;
   if (n < 2) return [];
@@ -73,8 +66,7 @@ export interface OverviewSources {
   radial: GeoJSON.FeatureCollection<GeoJSON.Point>;
 }
 
-// Split the overview into three typed sources. Every feature carries its
-// `constraint_key` so the layers can be isolation-filtered to one constraint.
+// Build sources by constraint type. Each feature keeps its constraint key.
 export function buildOverviewSources(overview: MapOverview | null): OverviewSources {
   const gtcAxis: GeoJSON.Feature<GeoJSON.LineString>[] = [];
   const gtcGate: GeoJSON.Feature<GeoJSON.LineString>[] = [];
@@ -82,11 +74,7 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
   const corridor: GeoJSON.Feature<GeoJSON.LineString>[] = [];
   const radial: GeoJSON.Feature<GeoJSON.Point>[] = [];
 
-  // A GTC is an interface limit, not an area. Its overview glyph derives a
-  // signed |SF|-weighted axis, then marks that interface with a compact gate.
-  // Think of each node as casting a vote for where its side of the constraint
-  // lives. A larger |SF| gets a larger vote, so the result follows the nodes
-  // the constraint affects most rather than a simple geographic average.
+  // Locate each end of a GTC from its signed, weighted nodes.
   const pole = (nodes: (ReachSp & { lat: number; lon: number })[], sign: 1 | -1) => {
     let wSum = 0;
     let lonSum = 0;
@@ -101,11 +89,7 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
     return wSum > 0 ? { lon: lonSum / wSum, lat: latSum / wSum } : null;
   };
 
-  // When the top-|SF| sample carries only one sign, it still deserves an
-  // interface glyph. First find the same weighted center: strong-effect nodes
-  // pull it toward themselves. Then find the cluster's longest natural direction
-  // (like laying a matchstick across the cluster). The stub spans that footprint;
-  // a one-node sample gets only the short minimum stub, not a made-up corridor.
+  // Use the cluster's main direction when only one end is available.
   const oneSidedAxis = (nodes: (ReachSp & { lat: number; lon: number })[]) => {
     let wSum = 0;
     let lonSum = 0;
@@ -118,8 +102,7 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
     }
     if (wSum <= 0) return null;
     const center: GeoPoint = { lon: lonSum / wSum, lat: latSum / wSum };
-    // Longitude degrees get physically narrower farther north. Scale them here
-    // so east/west and north/south distances use roughly the same ruler.
+    // Adjust longitude for latitude before finding the direction.
     const cosLat = Math.cos((center.lat * Math.PI) / 180);
     let xx = 0;
     let xy = 0;
@@ -135,14 +118,11 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
     xx /= wSum;
     xy /= wSum;
     yy /= wSum;
-    // This is the standard covariance shortcut for the direction with the most
-    // spread. In plain terms: which way would a thin stick cover the cluster best?
     const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
     const ux = Math.cos(angle);
     const uy = Math.sin(angle);
     const lambda = Math.max(0, (xx + yy + Math.hypot(xx - yy, 2 * xy)) / 2);
-    // Degrees of latitude. Clamped so a singleton is a visible stub and a broad
-    // footprint remains bounded at the overview zoom.
+    // Keep the marker visible without letting it span the map.
     const halfSpan = Math.max(0.07, Math.min(0.38, 1.5 * Math.sqrt(lambda)));
     return {
       a: { lon: center.lon - (ux * halfSpan) / cosLat, lat: center.lat - uy * halfSpan },
@@ -150,7 +130,7 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
     };
   };
 
-  // Emit each non-GTC constraint's MST run as a transmission corridor.
+  // Draw non-GTC constraints as connected corridors.
   const pushEdges = (
     nodes: (ReachSp & { lat: number; lon: number })[],
     ctype: string,
@@ -198,14 +178,9 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
           },
           properties: props,
         });
-        // The GTC glyph is a small double crossbar perpendicular to the signed
-        // axis: `— ║ —`. It reads as an interface gate/limit, not as a resource
-        // node located at the midpoint.
         const midLat = (axis.a.lat + axis.b.lat) / 2;
         const midLon = (axis.a.lon + axis.b.lon) / 2;
-        // A tiny transparent point gives the thin double-bar a practical hover
-        // target. GridMap explicitly yields this target to any SP under the
-        // cursor, so it can never steal a node's click or hover.
+        // A larger invisible target makes the gate easier to hover.
         gtcHit.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: [midLon, midLat] },
@@ -240,14 +215,13 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
         }
       }
     } else if (c.ctype === "radial") {
-      const p = nodes[0]; // peak-|SF| node (overview nodes are |SF|-sorted)
+      const p = nodes[0];
       radial.push({
         type: "Feature",
         geometry: { type: "Point", coordinates: [p.lon, p.lat] },
         properties: props,
       });
     } else {
-      // transmission (and untyped): the MST run, minus cross-state leaps.
       pushEdges(nodes, "transmission", c.constraint_key, MAX_CORRIDOR_KM);
     }
   }
@@ -265,9 +239,7 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
   };
 }
 
-// settlement_point → the constraints it belongs to (|SF|-desc), for the
-// multi-constraint hover popover. Keyed by sp_id so the base `sps` hover can
-// look it up directly.
+// Index nearby constraint marks by settlement point for the hover popover.
 export function buildSpMembers(overview: MapOverview | null): Map<string, OvMember[]> {
   const m = new Map<string, OvMember[]>();
   for (const c of overview?.constraints ?? []) {
