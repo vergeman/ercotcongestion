@@ -26,5 +26,6 @@ compute/runs/*
 *.odt
 *.png
 !docs/v1/*.png
+!web/public/screenshots/*.png
 .image-tag
 web/dist/
