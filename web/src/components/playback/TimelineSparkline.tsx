@@ -39,11 +39,8 @@ export function TimelineSparklineLegend() {
       placement="bottom"
       tip={
         <>
-          Each line is normalized independently within the loaded timeline, so
-          its height shows its own shape—not a shared dollar scale. Forecast
-          and ERCOT Congestion each run from $0 to that series’ maximum
-          Σ|nodal congestion|; ERCOT System λ runs from its observed minimum
-          to maximum $/MWh.
+          Each line is normalized independently. Its height shows a relative level,
+          not a shared dollar scale.
         </>
       }
     >
