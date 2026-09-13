@@ -21,23 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Combined dep set (api + compute + ingest).
-RUN pip install --no-cache-dir \
-        requests \
-        fastapi \
-        uvicorn[standard] \
-        pytest \
-        pypsa==1.2.2 \
-        pandas \
-        numpy \
-        scipy \
-        scikit-learn \
-        pyarrow \
-        folium \
-        psycopg[binary,pool] \
-        matpowercaseframes \
-        openpyxl \
-        python-dotenv \
-        httpx
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Create the unprivileged user before COPY so we can chown in one shot.
 RUN groupadd -g 1000 shifty && useradd -m -u 1000 -g 1000 shifty
