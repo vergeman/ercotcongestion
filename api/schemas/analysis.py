@@ -309,7 +309,7 @@ class StandoutRow(ConstraintRowBase):
     """One server-selected constraint compared with its own forecast history."""
 
     kind: Literal["forecast_elevated", "chronic_under_called", "settled_elevated"]
-    forecast_history_median: float
+    forecast_history_median: float | None = None
     forecast_history_days: int
     chronic_bound_days: int | None = None
 
@@ -318,7 +318,7 @@ class NodeStandoutRow(NodeRowBase):
     """One anomaly-selected node compared with its own forecast history."""
 
     kind: Literal["forecast_elevated", "forecast_depressed", "settled_elevated"]
-    forecast_history_median: float
+    forecast_history_median: float | None = None
     forecast_history_days: int
 
 

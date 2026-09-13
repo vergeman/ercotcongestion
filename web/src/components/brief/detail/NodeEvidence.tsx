@@ -89,7 +89,7 @@ export function NodeEvidence({
             <Fact label="Today" value={usd(standout.forecast_total, 2)} />
             <Fact
               label="30-day median"
-              value={usd(standout.forecast_history_median, 2)}
+              value={standout.forecast_history_median == null ? "—" : usd(standout.forecast_history_median, 2)}
             />
             <Fact label="History days" value={standout.forecast_history_days} />
           </div>

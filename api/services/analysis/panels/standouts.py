@@ -45,6 +45,14 @@ from api.services.analysis.panels.nodes import (
 )
 
 
+def _history_median(values, *, absolute: bool = False) -> float | None:
+    series = pd.Series(values, dtype=float)
+    if absolute:
+        series = series.abs()
+    value = series.median()
+    return None if pd.isna(value) else float(value)
+
+
 def get_standouts(
     delivery_date: date = Query(...),
     run_id: str | None = Depends(_server_selected_run),
@@ -211,8 +219,8 @@ def get_standouts(
                     kind="settled_elevated",
                     zone=metadata.get(point, {}).get("load_zone"),
                     forecast_total=float(node_forecast_total.get(point, 0.0)),
-                    forecast_history_median=float(
-                        pd.Series(node_histories.get(point, [])).abs().median()
+                    forecast_history_median=_history_median(
+                        node_histories.get(point, []), absolute=True
                     ),
                     forecast_history_days=len(node_histories.get(point, [])),
                     settled_total=float(node_settled_total.get(point, 0.0)),
@@ -266,7 +274,7 @@ def get_standouts(
             constraint_key=key,
             kind="settled_elevated",
             forecast_total=float(forecast_total.get(key, 0.0)),
-            forecast_history_median=float(pd.Series(histories.get(key, [])).median()),
+            forecast_history_median=_history_median(histories.get(key, [])),
             forecast_history_days=len(histories.get(key, [])),
             chronic_bound_days=chronic.get(key),
             settled_total=float(settled_total[key]),

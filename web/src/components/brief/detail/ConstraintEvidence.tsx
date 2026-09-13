@@ -88,7 +88,7 @@ export function ConstraintEvidence({
             />
             <Fact
               label="Σμ, 30-day median"
-              value={usd(standout.forecast_history_median, 2)}
+              value={standout.forecast_history_median == null ? "—" : usd(standout.forecast_history_median, 2)}
             />
             <Fact
               label="History days"

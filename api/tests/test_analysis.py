@@ -6,6 +6,7 @@ from fastapi import Query
 
 from api.services.analysis import panels as analysis_module
 from api.services.analysis import brief as brief_service
+from api.schemas.analysis import StandoutRow
 from api.services.analysis.panels import catalog as catalog_module
 from api.services.analysis.panels import nodes as nodes_module
 from api.services.analysis.features import hero as hero_service
@@ -45,6 +46,16 @@ def test_brief_snapshot_payload_encodes_dates():
         "delivery_date": "2026-07-28"
     }
     assert brief_service._json_payload({"value": float("nan")}) == {"value": None}
+
+
+def test_standout_history_median_allows_unavailable_history():
+    assert StandoutRow(
+        constraint_key="A|B",
+        kind="settled_elevated",
+        forecast_total=0.0,
+        forecast_history_median=None,
+        forecast_history_days=0,
+    ).forecast_history_median is None
 
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
