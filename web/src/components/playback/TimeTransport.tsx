@@ -1,9 +1,10 @@
-import { type ReactNode, useState, useEffect, useCallback } from "react";
+import { type ReactNode, useState, useEffect, useCallback, useMemo } from "react";
 import TimelineSparkline, {
   TimelineSparklineLegend,
   type SparkPoint,
 } from "./TimelineSparkline";
 import Tooltip from "../ui/Tooltip";
+import { formatCT } from "../../lib/time";
 
 // The shared transport: play/step/seek + sparkline + a "what am I looking at"
 // label. It owns none of the domain — a page injects its own `frames` (the live
@@ -74,6 +75,17 @@ export default function TimeTransport({
   const hasData = frames.length > 0;
   const current = frames[index];
   const endCap = rangeLabel ?? frameLabel;
+  // One marker per Central-time delivery day makes a long window scannable
+  // without adding visual treatment behind the data lines.
+  const dayMarkers = useMemo(
+    () =>
+      frames.flatMap((frame, i) =>
+        i > 0 && formatCT(frame, "yyyy-MM-dd") !== formatCT(frames[i - 1], "yyyy-MM-dd")
+          ? [{ index: i, label: formatCT(frame, "MMM d") }]
+          : []
+      ),
+    [frames]
+  );
 
   const step = useCallback(
     (dir: 1 | -1) => {
@@ -213,6 +225,15 @@ export default function TimeTransport({
           />
           <div className="scrubber__range-labels">
             <span className="label">{frames[0] ? endCap(frames[0]) : ""}</span>
+            {dayMarkers.map(({ index: dayIndex, label }) => (
+              <span
+                key={dayIndex}
+                className="scrubber__day-marker label"
+                style={{ left: `${(dayIndex / (frames.length - 1)) * 100}%` }}
+              >
+                {label}
+              </span>
+            ))}
             <span className="label">
               {frames.length ? endCap(frames[frames.length - 1]) : ""}
             </span>
@@ -300,7 +321,8 @@ export default function TimeTransport({
           margin-right: 4px;
         }
         .scrubber__track { display: flex; flex-direction: column; gap: 2px; }
-        .scrubber__range-labels { display: flex; justify-content: space-between; opacity: 0.5; }
+        .scrubber__range-labels { position: relative; display: flex; justify-content: space-between; opacity: 0.5; }
+        .scrubber__day-marker { position: absolute; transform: translateX(-50%); white-space: nowrap; }
         /* Right column mirrors the left: a page-owned control (e.g. whole-day). */
         .scrubber__right {
           display: flex;
