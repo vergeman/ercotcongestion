@@ -34,6 +34,7 @@ from compute.jobs.grade_forecast_day import (
     resolve_gradeable_date,
 )
 from compute.jobs.materialize_brief_grade import materialize_day as materialize_brief_grade
+from compute.jobs.materialize_brief_snapshot import materialize_day as materialize_brief_snapshot
 from compute.mu_forecast.panel.build import build_panel
 from compute.time import ERCOT_TZ, ct_day_bounds, normalize_ct_day
 from compute.mu_forecast.model.runner import (
@@ -569,7 +570,16 @@ def main(argv: list[str] | None = None) -> int:
             del result
             gc.collect()
             if not args.no_grade:
-                _grade_latest(conn, args.run_id, args.horizon)
+                graded_day = _grade_latest(conn, args.run_id, args.horizon)
+                if graded_day is not None and args.horizon == 1:
+                    try:
+                        materialized = materialize_brief_snapshot(
+                            args.run_id, graded_day.date(), args.horizon
+                        )
+                        if not materialized:
+                            log.warning("Brief snapshot skipped for %s", graded_day.date())
+                    except Exception:
+                        log.exception("Brief snapshot failed for %s", graded_day.date())
             _forecast_history_latest(conn, args.run_id, D, args.horizon)
         else:
             log.info("dry run (--to-db not set): nothing written, pointer unchanged")

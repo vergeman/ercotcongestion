@@ -219,6 +219,20 @@ def _snapshot_or_compose(
         return _snapshot_put(conn, key, snapshot)
 
 
+def materialize_final_snapshot(run_id: str, delivery_date: date, horizon: int) -> bool:
+    """Write one settled Brief snapshot for the forecast job."""
+    key = (run_id, delivery_date, horizon)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        if _snapshot_get(cur, key) is not None:
+            return True
+        if not _brief_is_final(cur, delivery_date, horizon):
+            return False
+    snapshot = _snapshot_payload(delivery_date, run_id, horizon)
+    with get_pool().connection() as conn:
+        _snapshot_put(conn, key, snapshot)
+    return True
+
+
 def _snapshot_details(snapshot: dict, *, include_standouts: bool) -> BriefDetailsResponse:
     if not include_standouts:
         return BriefDetailsResponse.model_validate(snapshot["details"])
