@@ -114,7 +114,11 @@ function TypeMark({
 function AggregateMark({ label }: { label: "H" | "Z" }) {
   return (
     <span className="legend__aggregate-mark-box" aria-hidden="true">
-      <span className="legend__aggregate-mark mono">{label}</span>
+      <span
+        className={`legend__aggregate-mark legend__aggregate-mark--${label === "H" ? "hub" : "load-zone"} mono`}
+      >
+        <span className="legend__aggregate-mark-label">{label}</span>
+      </span>
     </span>
   );
 }
@@ -632,8 +636,31 @@ export default function Legend({
           border-radius: 50%;
           color: var(--map-aggregate-label);
           font-size: 11px;
-          font-weight: 300;
+          font-weight: 600;
           line-height: 1;
+        }
+        .legend__aggregate-mark--load-zone {
+          /* A rotated square's diagonal is √2 larger than its side. Reducing
+             the side keeps the diamond's visible footprint aligned with the
+             16px circular Hub mark. */
+          width: 12px;
+          height: 12px;
+          border-radius: 0;
+          transform: rotate(45deg);
+        }
+        .legend__aggregate-mark--load-zone .legend__aggregate-mark-label {
+          font-size: 9px;
+          transform: rotate(-45deg);
+        }
+        .legend__aggregate-mark--hub .legend__aggregate-mark-label {
+          font-size: 10px;
+        }
+        /* Light mode keeps the original near-black outline. In dark mode the
+           same unfilled treatment needs its colour inverted to remain visible
+           over the legend panel. */
+        :root:not([data-theme='light']) .legend__aggregate-mark {
+          border-color: var(--map-node-idle);
+          color: var(--text-primary);
         }
         .legend__aggregate-mark-box {
           display: grid;
