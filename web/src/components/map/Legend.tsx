@@ -41,13 +41,8 @@ interface Props {
   // rides on hue alone (dataviz a11y). Replaces `constraintOverlay` when present.
   overviewTypes?: boolean;
   // The constraints-overlay on/off control itself (0130): rendered only on panes
-  // that draw the overlay.
-  constraintsToggle?: {
-    checked: boolean;
-    onChange: (v: boolean) => void;
-    label?: string;
-    description?: string;
-  };
+  // that carry the overlay.
+  constraintsToggle?: { checked: boolean; onChange: (v: boolean) => void };
   // True when the current hour's predicted LMP used the persistence-λ fallback
   // (no DAM system-λ published yet for this hour) rather than a settled value —
   // a display-only provenance marker (0130), never a graded signal. Only
@@ -419,25 +414,16 @@ export default function Legend({
         </Tooltip>
       )}
 
-      {/* Constraints-overlay control lives on the pane that draws it. */}
+      {/* Constraints-overlay control (0130): lives on the pane that draws it. */}
       {constraintsToggle && (
-        <div className="legend__toggle-group">
-          <label className="legend__toggle">
-            <input
-              type="checkbox"
-              checked={constraintsToggle.checked}
-              onChange={(e) => constraintsToggle.onChange(e.target.checked)}
-            />
-            <span className="label legend__toggle-text">
-              {constraintsToggle.label ?? "Constraints overlay"}
-            </span>
-          </label>
-          {constraintsToggle.description && (
-            <div className="label legend__toggle-description">
-              {constraintsToggle.description}
-            </div>
-          )}
-        </div>
+        <label className="legend__toggle">
+          <input
+            type="checkbox"
+            checked={constraintsToggle.checked}
+            onChange={(e) => constraintsToggle.onChange(e.target.checked)}
+          />
+          <span className="label legend__toggle-text">Constraints overlay</span>
+        </label>
       )}
 
       <div className="legend__types">
@@ -510,13 +496,6 @@ export default function Legend({
         .legend__toggle-text {
           font-size: var(--fs-label);
           opacity: 0.85;
-        }
-        .legend__toggle-description {
-          margin: 3px 0 0 20px;
-          max-width: 210px;
-          font-size: var(--fs-label);
-          line-height: 1.35;
-          opacity: 0.72;
         }
         .legend__hist {
           height: 26px;

@@ -16,6 +16,7 @@ interface MarketPaneProps {
   litCount: number;
   badge: PaneBadge;
   isMobile: boolean;
+  cursorTs: Date | undefined;
   overview: MapOverview | null;
   showConstraints: boolean;
   constraintsToggle?: {
@@ -27,7 +28,7 @@ interface MarketPaneProps {
 /** ERCOT's realized DAM map: the node's realized readout only, no SF drivers. */
 export function MarketPane({
   interactions: ix, points, rows, dataMode, lmpStats, mcStats, litCount,
-  badge, isMobile, overview, showConstraints, constraintsToggle,
+  badge, isMobile, cursorTs, overview, showConstraints, constraintsToggle,
 }: MarketPaneProps) {
   const hasOverlay = showConstraints && !!overview?.constraints.length;
   return (
@@ -73,21 +74,21 @@ export function MarketPane({
         mcStats={mcStats}
         constraintOverlay={hasOverlay}
         overviewTypes={hasOverlay}
-        constraintsToggle={constraintsToggle && {
-          ...constraintsToggle,
-          label: "Modeled constraint footprints",
-          description: "Regression-derived structure; not a published ERCOT footprint or binding indicator.",
-        }}
+        constraintsToggle={constraintsToggle}
       />
-      {/* Actual card: the node's realized readout only — no SF drivers. */}
+      {/* Actual node values with the shared constraint-driver drill-down. */}
       <DetailCard
         hoveredSp={ix.hoveredSp}
         pinnedSp={ix.pinnedSp}
         valueMode="ercot"
-        showDrivers={false}
+        exposures={ix.exposures}
+        exposuresLoading={ix.exposuresLoading}
+        cursorTs={cursorTs}
         reach={ix.reach}
         onClose={ix.onClearPinned}
         onCloseReach={ix.onCloseReach}
+        onSelectConstraint={ix.onConstraintSelect}
+        onHoverConstraint={isMobile ? undefined : ix.onHoverConstraint}
         onHoverMember={isMobile ? undefined : ix.onHoverMember}
         onSelectMember={ix.onSelectMember}
         reachValueMode="ercot"

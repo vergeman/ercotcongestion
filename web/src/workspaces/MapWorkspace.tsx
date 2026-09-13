@@ -157,8 +157,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // node white on the map so the row and the node point at each other.
   const [hoveredMemberSp, setHoveredMemberSp] = useState<string | null>(null);
   // Node-explorer click: top-k constraints driving the pinned SP.
-  const [exposures, setExposures] = useState<ExposuresResponse | null>(null);
-  const [exposuresLoading, setExposuresLoading] = useState(false);
+  const [exposures, setExposures] = useState<Record<PaneSide, ExposuresResponse | null>>({
+    prediction: null,
+    actual: null,
+  });
+  const [exposuresLoading, setExposuresLoading] = useState<Record<PaneSide, boolean>>({
+    prediction: false,
+    actual: false,
+  });
   // Constraint click: the reach (signed SP fade + corridor). Wins the map.
   const [reach, setReach] = useState<ConstraintReach | null>(null);
   const { topology, topologyReady, overview } = useMapBootstrap(setConnState);
@@ -243,7 +249,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   );
 
   // Request-id guards so a slow in-flight fetch can't clobber a newer click.
-  const exposureReqRef = useRef(0);
+  const exposureReqRef = useRef<Record<PaneSide, number>>({ prediction: 0, actual: 0 });
   const reachReqRef = useRef(0);
   // True while the card's `reach` is a transient hover preview (an overview
   // popover row), so leaving the row clears it — but a *clicked* reach is not a
@@ -267,17 +273,23 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // about to become wrong. Scrubbing leaves it up until the new one lands,
   // since the node is unchanged and blanking on every hour tick would strobe.
   const loadExposures = useCallback(
-    (spId: string) => {
-      const token = ++exposureReqRef.current;
+    (side: PaneSide, spId: string) => {
+      const token = ++exposureReqRef.current[side];
       requestExposures(spId, cursorTs)
         .then((r) => {
-          if (exposureReqRef.current === token) setExposures(r);
+          if (exposureReqRef.current[side] === token) {
+            setExposures((current) => ({ ...current, [side]: r }));
+          }
         })
         .catch(() => {
-          if (exposureReqRef.current === token) setExposures(null);
+          if (exposureReqRef.current[side] === token) {
+            setExposures((current) => ({ ...current, [side]: null }));
+          }
         })
         .finally(() => {
-          if (exposureReqRef.current === token) setExposuresLoading(false);
+          if (exposureReqRef.current[side] === token) {
+            setExposuresLoading((current) => ({ ...current, [side]: false }));
+          }
         });
     },
     [cursorTs, requestExposures]
@@ -300,9 +312,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       }));
       // The load itself is the effect's job (it also owns cursor changes), so
       // this only clears the outgoing node's drivers.
-      setExposures(null);
-      setExposuresLoading(true);
-      exposureReqRef.current++;
+      setExposures((current) => ({ ...current, prediction: null }));
+      setExposuresLoading((current) => ({ ...current, prediction: true }));
+      exposureReqRef.current.prediction++;
     },
     [spDecomp, setSelectionRoute]
   );
@@ -316,8 +328,14 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // both of which change the request.
   useEffect(() => {
     if (!pinnedPredictionSp) return;
-    loadExposures(pinnedPredictionSp);
+    loadExposures("prediction", pinnedPredictionSp);
   }, [pinnedPredictionSp, loadExposures]);
+
+  const pinnedActualSp = pinnedSp.actual?.spId;
+  useEffect(() => {
+    if (!pinnedActualSp) return;
+    loadExposures("actual", pinnedActualSp);
+  }, [pinnedActualSp, loadExposures]);
 
   // Actual-pane click keeps the node card scoped to realized values and exits
   // any modeled-footprint interaction.
@@ -333,16 +351,18 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
         ...current,
         actual: { spId, props, side: "actual", spState: spDecomp(spId) },
       }));
+      setExposures((current) => ({ ...current, actual: null }));
+      setExposuresLoading((current) => ({ ...current, actual: true }));
+      exposureReqRef.current.actual++;
     },
     [spDecomp, setSelectionRoute]
   );
 
   const handleClearPinnedSp = useCallback((side: "prediction" | "actual") => {
     setPinnedSp((current) => ({ ...current, [side]: null }));
-    if (side !== "prediction") return;
-    setExposures(null);
-    setExposuresLoading(false);
-    exposureReqRef.current++;
+    setExposures((current) => ({ ...current, [side]: null }));
+    setExposuresLoading((current) => ({ ...current, [side]: false }));
+    exposureReqRef.current[side]++;
   }, []);
 
   // Constraint click (map marker or a driver row) → trace its reach; leaves the
@@ -354,8 +374,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   ) => {
     if (writeRoute) setSelectionRoute({ kind: "constraint", value: constraintKey });
     setPinnedSp((current) => ({ ...current, [side]: null }));
-    setExposures(null);
-    exposureReqRef.current++;
+    setExposures((current) => ({ ...current, [side]: null }));
+    exposureReqRef.current[side]++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
     const token = ++reachReqRef.current;
     loadReach(constraintKey, cursorTs)
@@ -414,10 +434,10 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     queueMicrotask(() => setTargetUnavailable(false));
     queueMicrotask(() => {
       setPinnedSp((current) => ({ ...current, prediction: null }));
-      setExposures(null);
+      setExposures((current) => ({ ...current, prediction: null }));
       setHoveredConstraintId(null);
     });
-    exposureReqRef.current++;
+    exposureReqRef.current.prediction++;
     previewReachRef.current = false;
     const token = ++reachReqRef.current;
     loadReach(target.value, cursorTs)
@@ -655,8 +675,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     reach,
     focusReach,
     effectiveConstraintId,
-    exposures,
-    exposuresLoading,
+    exposures: exposures.prediction,
+    exposuresLoading: exposuresLoading.prediction,
     hoveredMemberSp,
     onMapBackgroundClick: handlePredictionMapBackgroundClick,
     onSpHover: handleSpHoverMain,
@@ -677,6 +697,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     reach,
     focusReach,
     effectiveConstraintId,
+    exposures: exposures.actual,
+    exposuresLoading: exposuresLoading.actual,
     hoveredMemberSp,
     onMapBackgroundClick: handleActualMapBackgroundClick,
     onSpHover: handleSpHoverRight,
@@ -688,6 +710,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       handleConstraintClick(key, true, "actual");
       handleConstraintLock(key, false);
     },
+    onHoverConstraint: handleConstraintHover,
     onClearPinned: () => handleClearPinnedSp("actual"),
     onCloseReach: handleCloseReach,
     onHoverMember: setHoveredMemberSp,
@@ -756,6 +779,7 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       litCount={litCount}
       badge={badgeProps}
       isMobile={isMobile}
+      cursorTs={cursorTs}
       overview={overview}
       showConstraints={showConstraints}
       constraintsToggle={constraintsToggle}

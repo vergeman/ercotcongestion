@@ -53,6 +53,8 @@ export interface MarketInteractions {
   reach: ConstraintReach | null;
   focusReach: ConstraintReach | null;
   effectiveConstraintId: string | null;
+  exposures: ExposuresResponse | null;
+  exposuresLoading: boolean;
   hoveredMemberSp: string | null;
   onMapBackgroundClick: () => void;
   onSpHover: SpHover;
@@ -61,6 +63,7 @@ export interface MarketInteractions {
   onIsolateConstraint: (id: string | null) => void;
   onConstraintPreview: (key: string | null) => void;
   onConstraintSelect: (key: string) => void;
+  onHoverConstraint: (key: string | null) => void;
   onClearPinned: () => void;
   onCloseReach: () => void;
   onHoverMember: (sp: string | null) => void;
