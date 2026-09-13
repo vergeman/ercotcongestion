@@ -78,9 +78,9 @@ Branch: fix/0208-legend-color-revision
 
 ## Acceptance
 
-* [ ] A congestion value in `−$10…+$10` is near-neutral on every playback day; it never becomes a saturated endpoint solely because the day's range is quiet.
-* [ ] LMP and congestion colors change smoothly during playback, and the same dollar value has the same color across realized, forecast, error (magnitude), and mini-map consumers.
-* [ ] The LMP ramp gives visibly finer continuous distinction through `$25–100` and `$100–300`; the congestion ramp concentrates distinguishable color changes below `$100` while preserving a smooth tail to `$500`.
-* [ ] `$500+` LMP and positive congestion receive the existing Extreme Price halo and fixed `$500.00` legend key; negative congestion remains signed blue without a scarcity halo.
-* [ ] The legend displays a cropped slice of the canonical ramp with non-overlapping meaningful ticks and histogram bins aligned to map-fill positions; it does not alter the map color contract.
-* [ ] `npm run lint` and `npm run build` pass in `web/`.
+* [x] A congestion value in `−$10…+$10` is near-neutral on every playback day; it never becomes a saturated endpoint solely because the day's range is quiet.
+* [x] LMP and congestion colors change smoothly during playback, and the same dollar value has the same color across realized, forecast, error (magnitude), and mini-map consumers.
+* [x] The LMP ramp gives visibly finer continuous distinction through `$25–100` and `$100–300`; the congestion ramp concentrates distinguishable color changes below `$100` while preserving a smooth tail to `$500`.
+* [x] `$500+` LMP and positive congestion receive the existing Extreme Price halo and fixed `$500.00` legend key; negative congestion remains signed blue without a scarcity halo.
+* [x] The legend displays a cropped slice of the canonical ramp with non-overlapping meaningful ticks and histogram bins aligned to map-fill positions; it does not alter the map color contract.
+* [x] `npm run lint` and `npm run build` pass in `web/`.
