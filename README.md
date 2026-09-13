@@ -16,7 +16,7 @@ and evaluated.
   constraint's electrical footprint. Switch between forecast and settled data;
   use hourly playback to see when and where congestion occurs.
 - [**Matrix**](https://ercotcongestion.com/matrix): explores recovered shift
-  factors and each constraint's contribution to a settlement point—the "why"
+  factors and each constraint's contribution to a settlement point - the "why"
   behind a node's price.
 - [**Scoreboard**](https://ercotcongestion.com/scoreboard): evaluates the
   forecast over time and against baselines.
@@ -32,8 +32,8 @@ that map.
 At each settlement point, congestion is estimated as the sum of the active
 constraints' shadow prices (`μ`) weighted by their recovered shift factors
 (`SF`): `congestion = −Σ SF · μ`. This is what maps a constraint's footprint and
-lets the shift factor matrix trace a node's price to the constraints that
-contribute to it.
+lets the shift factor matrix trace a node's price to each constraint's
+contribution.
 
 ## Quickstart
 
@@ -45,10 +45,9 @@ contribute to it.
 
 ### Run locally
 
-1. Create local configuration from the checked-in template and supply the
-   values it requires. For a standard local database, set `PG_USER=ercot`,
-   `PG_PASSWORD` to a local-only password, `PG_HOST=db`, `PG_PORT=5432`, and
-   `PG_DATABASE=ercot`.
+1. Create local configuration from the checked-in template and supply the values
+   it requires; `PG_USER`, `PG_PASSWORD`,`PG_HOST`, `PG_PORT=5432`, and
+   `PG_DATABASE`.
 
    ```sh
    cp .env.stub .env.dev
