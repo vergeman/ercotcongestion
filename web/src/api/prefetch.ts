@@ -25,22 +25,10 @@ interface ErcotSppEntry {
 
 const ercotCache = new Map<string, ErcotCongestionEntry>();
 const ercotSppCache = new Map<string, ErcotSppEntry>();
-// Forecast (prediction) side — deterministic congestion + system-λ for the current
-// forecast run. Aligned to the same interval keys as the realized caches so the
-// left pane reads it hour for hour off the scrubber.
 const forecastCache = new Map<string, ForecastRangeEntry>();
-// Load / Wind / Solar / Outages (plan/0141) — supplementary Stats-tab data,
-// keyed the same way as the caches above so it reads off the same scrubber
-// cursor. Does not contribute to `getAvailableTimestamps()`: it is
-// read-if-present at whatever hour the primary caches already put the cursor
-// on, not a reason to grow the timeline.
+// Supplemental ERCOT load, wind, solar, and outage data for the Stats tab.
 const conditionsCache = new Map<string, ConditionsEntry>();
-// The forecast run_id served for the loaded window — labels which refit the
-// prediction pane is showing. `null` until a window with a forecast loads.
 let forecastRunId: string | null = null;
-// Per-CT-delivery-day horizon provenance for the loaded window (0123):
-// `"YYYY-MM-DD" -> 1|2` (1 = final, 2 = preview). Backs the preview badge; empty
-// until a forecast loads.
 let forecastHorizons: Record<string, number> = {};
 let activeRequest: AbortController | null = null;
 
@@ -52,54 +40,38 @@ function roundToInterval(ts: Date, intervalMs = 15 * 60 * 1000): Date {
   return new Date(Math.round(ts.getTime() / intervalMs) * intervalMs);
 }
 
-// Backend hours arrive as either plain ISO or scenario-labeled
-// ``<label>|<iso>`` (see ercot congestion matrices). Strip the label so the
-// cache key stays aligned across the two ERCOT sides.
+// Strip optional scenario labels from backend timestamps.
 function normalizeInterval(raw: string): Date {
   const iso = raw.includes("|") ? raw.split("|", 2)[1] : raw;
   return roundToInterval(new Date(iso));
 }
 
-// ERCOT congestion (SPP − system_λ) side. `undefined` means either the
-// backend has no artifact for this window (503) or this hour wasn't requested.
 export function getErcotCached(ts: Date): ErcotCongestionEntry | undefined {
   return ercotCache.get(cacheKey(roundToInterval(ts)));
 }
 
-// Raw DAM SPP side. Same soft-fail contract as `getErcotCached`.
 export function getErcotSppCached(ts: Date): ErcotSppEntry | undefined {
   return ercotSppCache.get(cacheKey(roundToInterval(ts)));
 }
 
-// Forecast (prediction) side. Same soft-fail contract: `undefined` when the
-// current run has no forecast for this hour (503 or an unrequested interval).
 export function getForecastCached(ts: Date): ForecastRangeEntry | undefined {
   return forecastCache.get(cacheKey(roundToInterval(ts)));
 }
 
-// Load / Wind / Solar / Outages side (plan/0141). Same soft-fail contract:
-// `undefined` when this hour has nothing from any of the four sources.
 export function getConditionsCached(ts: Date): ConditionsEntry | undefined {
   return conditionsCache.get(cacheKey(roundToInterval(ts)));
 }
 
-// The forecast run_id served for the loaded window, or `null` when no forecast
-// covered it (the prediction pane falls back to the realized rows).
 export function getForecastRunId(): string | null {
   return forecastRunId;
 }
 
-// The horizon serving `ts`'s delivery day, or `null` when unknown (no forecast
-// this window, or an hour outside it). The backend keys `horizons` by CT
-// delivery date, so use the same boundary for a read-only preview badge.
 export function getForecastHorizon(ts: Date): number | null {
   const key = deliveryDateCT(ts);
   return forecastHorizons[key] ?? null;
 }
 
-// Decode the compact wire shape exactly once at the API boundary. Rendering and
-// cache lookups keep their simple object-based shape, while the network avoids
-// repeating every settlement-point ID in every hour and in both realized feeds.
+// Expand compact ERCOT rows at the API boundary.
 function ingestErcotRange(data: ErcotRangeResponse | null): void {
   if (!data) return;
   for (const entry of data.entries) {
@@ -143,27 +115,15 @@ function ingestConditionsRange(data: ConditionsRangeResponse | null): void {
   }
 }
 
-// Load a window into the caches. With an explicit [start, end] (a history scrub)
-// the compact realized range and forecast fetch in parallel. With no window — the default landing view —
-// the forecast leads: fetch the current run's latest delivery day first, then
-// the realized ranges for the span its response reports, so the prediction pane
-// defines the day and realized is fetched to match. Returns the resolved window
-// for cursor placement, or null when there's nothing to show (no explicit window
-// and no forecast published).
+// Load a window into the shared playback caches.
 export async function prefetchWindow(
   start?: Date,
   end?: Date,
 ): Promise<{ start: Date; end: Date } | null> {
-  // This orchestration layer owns a single active window. A newer cursor/window
-  // invalidates older work before it can repopulate the shared playback caches.
   activeRequest?.abort();
   const controller = new AbortController();
   activeRequest = controller;
   const isCurrent = () => activeRequest === controller;
-  // Replace, don't accumulate: the caches are module-level and back the union
-  // in getAvailableTimestamps(), so a stale prior window would otherwise linger
-  // on the timeline (and leave the cursor stranded on an old frame). Clear first
-  // on every load — explicit window or default landing.
   clearCache();
   if (start && end) {
     const [ercotData, forecastData, conditionsData] = await Promise.all([

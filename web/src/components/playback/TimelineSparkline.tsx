@@ -2,8 +2,7 @@ import { useMemo, useRef, useCallback } from "react";
 import Tooltip from "../ui/Tooltip";
 
 export interface SparkPoint {
-  // Congestion is magnitude, not signed — signed sums cancel visually across
-  // strong bidirectional snapshots. λ remains signed in $/MWh.
+  // Congestion totals use magnitude so import and export values do not cancel.
   forecast_congestion_abs_total: number | null;
   market_congestion_abs_total: number | null;
   system_lambda: number | null;
@@ -20,17 +19,14 @@ const VIEW_W = 1000; // viewBox width — gets stretched horizontally
 const PAD_TOP = 4; // px space at top of viewBox
 const PAD_BOTTOM = 4; // px space at bottom of viewBox
 
-// Forecast blue, ERCOT market congestion yellow, system λ violet.
+// Forecast blue, ERCOT congestion yellow, system λ violet.
 const FORECAST_CONGESTION_COLOR = "#38bdf8";
 const MARKET_CONGESTION_COLOR = "#eab308";
 const SYSTEM_LAMBDA_COLOR = "#a78bfa";
-// Chrome, not data — routed through the theme tokens. These are applied via the
-// `style` prop rather than the `stroke` attribute, because SVG presentation
-// attributes do not parse var().
+// Theme tokens must be passed through the style prop for SVG strokes.
 const CURSOR_COLOR = "var(--accent)";
 const BASELINE_COLOR = "var(--border)";
 
-// The transport places this in its metadata row, opposite the selected date.
 export function TimelineSparklineLegend() {
   return (
     <Tooltip
@@ -71,22 +67,18 @@ export default function TimelineSparkline({
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Each signal has different units and scale, so render its shape normalized
-  // to its own observed range. Missing values make a visible gap, rather than
-  // implying a zero observation.
+  // Normalize each series independently and leave gaps for missing values.
   const geometry = useMemo(() => {
     if (series.length === 0) {
       return { forecastPath: "", marketPath: "", lambdaPath: "" };
     }
 
-    const innerH = 100; // viewBox y range; CSS scales to actual px
+    const innerH = 100;
     const usableH = innerH - PAD_TOP - PAD_BOTTOM;
 
-    // x position for index i, centered in its slot.
     const xAt = (i: number) =>
       series.length === 1 ? VIEW_W / 2 : (i / (series.length - 1)) * VIEW_W;
 
-    // y position from a [0..1] normalized value (0 = bottom, 1 = top).
     const yFrom = (norm: number) =>
       innerH - PAD_BOTTOM - usableH * Math.max(0, Math.min(1, norm));
 
@@ -127,7 +119,6 @@ export default function TimelineSparkline({
     };
   }, [series]);
 
-  // Click/drag to seek. We translate the click X to the nearest series index.
   const handleSeekFromEvent = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
       const svg = svgRef.current;

@@ -9,33 +9,16 @@ import {
   SfDipoleLegend,
 } from "./ConstraintReach";
 
-// The `Constraints` tab (plan/0103): a per-day ranked list of the constraints
-// driving congestion — the list-shaped companion to the map's marker pile, which
-// piles up and can't rank. Each row shows its congestion-contribution magnitude
-// (a gauge), its member count, and its import↔export dipole; hovering a row isolates
-// that constraint — here (dim every other row, reveal its members) AND on the map
-// overlay (via `onHover`), the same way the map itself is navigated. The server
-// owns the order — this component never re-ranks.
-//
-// The reach fetch/cache, the Dipole/Membership glyphs, and the SF legend are the
-// shared constraint-structure primitives (./ConstraintReach) — the same evidence
-// the Brief detail panel renders (plan/0135), so they live once, not per page.
+// Daily constraint ranking shared by the map and Brief detail views.
 
 interface Props {
   ranked: RankedConstraints | null;
   loading: boolean;
   basis: "predicted" | "realized";
   onBasis: (b: "predicted" | "realized") => void;
-  // Synced hover: the constraint the MAP is isolating (drives which row lights),
-  // and the callback a hovered row fires to isolate on the map. Optional so the
-  // panel stands alone, but App wires both so hover is symmetric.
   highlightedId?: string | null;
   onHover?: (id: string | null) => void;
-  // Primary row click → lock the map's focus on this constraint (isolation + the
-  // src/sink reach coloring), so the user can pan/zoom into it without a mouse-out
-  // clearing it. The adjacent disclosure button alone expands its members.
   onSelect?: (id: string) => void;
-  // A constituent SP hovered in an expanded row → ring that node on the map.
   onMemberHover?: (sp: string | null) => void;
 }
 
@@ -49,18 +32,12 @@ export default function ConstraintPanel({
   onSelect,
   onMemberHover,
 }: Props) {
-  // Hover is non-destructive: it isolates the constraint on the MAP (via onHover)
-  // and lights its row, but leaves the list intact so you can scroll freely. Click
-  // is the only thing that selects a row; its adjacent disclosure control expands
-  // member nodes. `litId` is whichever row the hover points at — panel-side
-  // (hoverId) or map-side (highlightedId).
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const litId = hoverId ?? highlightedId ?? null;
 
   const rows = ranked?.constraints ?? [];
-  // The gauge is relative to the heaviest constraint (rank 1, since the server
-  // sorts descending). Guard the empty/zero case.
+  // Scale bars to the top-ranked constraint.
   const maxContrib = rows.length ? rows[0].congestion_contribution || 1 : 1;
 
   const setHover = (id: string | null) => {

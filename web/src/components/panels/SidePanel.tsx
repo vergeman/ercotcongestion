@@ -11,13 +11,7 @@ import Tooltip from "../ui/Tooltip";
 import { formatCT } from "../../lib/time";
 import { fmtNum, fmtScore } from "../../lib/format";
 
-// The right-hand side panel, hosting two tabs in one region (plan/0103): `Stats`
-// (0102) — a compact network readout over the rolling backtest scorecard — and
-// `Constraints` (0103) — the per-day ranked constraint list. One region, tabbed;
-// never a second panel. The scorecard's one rule (spec §6): a model figure never
-// renders alone — each row shows the model, the persistence baseline it must beat,
-// and the oracle ceiling, with the model↔persistence leader bolded so "did we beat
-// the baseline" reads at a glance.
+// Map sidebar with Stats and Constraints tabs.
 
 export interface NetworkStats {
   forecastRunId: string | null;
@@ -29,38 +23,26 @@ export interface NetworkStats {
 
 interface Props {
   network: NetworkStats;
-  // Load / Wind / Solar / Outages (plan/0141), null when this hour's cache
-  // has nothing from any of the four sources. `mapView` picks which side of
-  // each row renders: Forecast/Error show the forecast number, Market/
-  // Compare show the actual.
+  // ERCOT load, wind, solar, and outage data for the cursor hour.
   conditions: ConditionsEntry | null;
   mapView: MapView;
-  // Day-scoped served grade, or an explicitly dated weekly fallback. Retained
-  // across a day change (see MapWorkspace) so the numbers swap in place without
-  // the section unmounting.
   scorecard: MapScorecard | null;
-  // Diagnostics for the cursor's artifact and its actual SF window.
   fitMeta: MapFitMetadata | null;
-  // ── Constraints tab (plan/0103) ──────────────────────────────────────────
+  // ── Constraints tab ─────────────────────────────────────────────────────
   ranked: RankedConstraints | null;
   rankedLoading: boolean;
   constraintBasis: "predicted" | "realized";
   onConstraintBasis: (b: "predicted" | "realized") => void;
-  // Synced hover (Group 4): the constraint the map is isolating, and the callback
-  // a hovered row fires. Optional so the panel works before the sync is wired.
+  // Synced hover: the constraint currently isolated on the map.
   highlightedConstraintId?: string | null;
   onHoverConstraint?: (id: string | null) => void;
   onSelectConstraint?: (id: string) => void;
-  // A constituent SP hovered in an expanded row — App rings that node on the map.
   onMemberHover?: (sp: string | null) => void;
   variant?: "sidebar" | "drawer";
-  // Mobile supplies the inline date/event picker here. Keeping it as a panel
-  // tab avoids placing a tall form ahead of the stats and constraint explorer.
   loadWindow?: ReactNode;
 }
 
 
-// The three scorecard currencies with per-row hover copy.
 const CURRENCY_ORDER = [
   "rank_spearman",
   "sign_agree",
@@ -81,8 +63,6 @@ const CURRENCY_META: Record<string, { label: string; hint: string }> = {
   },
 };
 
-// Which of model / persistence leads for this currency's orientation. Oracle is
-// the ceiling reference, not a competitor, so it is never the "leader".
 function leaderOf(
   model: number | null,
   persist: number | null,
@@ -106,12 +86,7 @@ function scorecardLabel(scorecard: MapScorecard): string {
   }
 }
 
-// ── Load-by-region / Generation panels (plan/0141) ──────────────────────────
-// Three regionalizations, none crosswalked to each other: 8 load weather
-// zones, 5 wind regions, 6 solar regions (compute/ercot/zones.py,
-// db/migrations/06_wind_solar_region_data.sql). Row order below matches each
-// table's natural ordering; display names follow the prototype's own PRETTY
-// convention where ERCOT's region key isn't already a plain word.
+// ERCOT load weather zones and wind/solar generation regions.
 const WEATHER_ZONES = [
   "coast", "east", "far_west", "north",
   "north_central", "south_central", "southern", "west",
@@ -120,8 +95,7 @@ const WIND_REGIONS = ["panhandle", "coastal", "south", "west", "north"] as const
 const SOLAR_REGIONS = [
   "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
 ] as const;
-// Outaged capacity by fuel (NP1-346, plan/0141 follow-up) — a different
-// quantity from generation, matching the prototype's 6-bucket fuel table.
+// ERCOT NP1-346 outage capacity by fuel.
 const OUTAGE_FUELS = ["gas", "wind", "solar", "coal", "other", "hydro"] as const;
 
 const REGION_PRETTY: Record<string, string> = {
@@ -148,9 +122,7 @@ type ConditionValue = {
   isForecast: boolean;
 };
 
-// Forecast/Error show the forecast. Market/Compare show the actual when it has
-// published, with a row-level forecast fallback while supporting ERCOT data is
-// still catching up to DAM settlement.
+// Market and Compare use actuals when published, otherwise forecast values.
 function conditionValue(
   row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
   mapView: MapView
@@ -163,8 +135,7 @@ function conditionValue(
   return { mw: row.forecast_mw, isForecast: row.forecast_mw != null };
 }
 
-// Outages retain their existing actual-or-empty behavior. They are a separate
-// daily-vintage quantity from the load/wind/solar supporting-data fallback.
+// Outages do not fall back to forecast values in Market and Compare.
 function regionMw(
   row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
   mapView: MapView
@@ -202,10 +173,7 @@ function Stat({
   );
 }
 
-// A System total row that discloses its regions on click (plan/0141). The
-// caret button is the whole label — one click target, not a separate row plus
-// a separate toggle — so the group reads as "System, expandable" rather than
-// two things stacked.
+// A System total row that expands to its regions.
 function ExpandableGroup({
   label,
   systemValue,

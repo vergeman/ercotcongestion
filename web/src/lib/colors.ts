@@ -1,26 +1,7 @@
-// =============================================================================
-// Data palettes.
-// =============================================================================
-//
-// Sign is carried by hue (blue↔red, emerald↔magenta); the endpoints stay legible
-// on white and near-black alike. What DOES flip with the theme is the diverging
-// *center* + endpoint depth: on the dark ground the near-white cream center glows,
-// but on the white light-map ground that cream vanishes — the low/mid-congestion
-// majority reads as nothing — so light gets a visible cool-grey center and
-// deepened endpoints. The theme is read via currentTheme(); GridMap re-runs its
-// node-color effect on a theme flip so the map repaints.
-//
-// Map *chrome* — labels, halos, node strokes, the state boundary — flips via the
-// --map-* tokens in index.css.
-//
-// (The sequential binding-proximity ramp used to live here and could not survive
-// a ground flip, since a sequential scale encodes magnitude as luminance. It was
-// removed with the IBP pipeline; see plan/0097-compute-pipeline-remove-ibp.md.)
+// Data palettes for map values and annotations.
 
 import { currentTheme, type Theme } from "./theme";
 
-// Diverging endpoint/center triples. `_LIGHT` variants swap the pale cream for a
-// cool grey that separates from the white map ground and deepen the hue ends.
 const rgb = (c: readonly number[]) => `rgb(${c[0]},${c[1]},${c[2]})`;
 function rgbMix(from: readonly number[], to: readonly number[], m: number): string {
   const k = Math.max(0, Math.min(1, m));
@@ -30,16 +11,10 @@ function rgbMix(from: readonly number[], to: readonly number[], m: number): stri
     Math.round(from[2] + (to[2] - from[2]) * k),
   ]);
 }
-// Shared cool-grey neutral for every light-mode diverging center.
-// The old neutral was dark enough that the many near-zero nodes became their
-// own dense visual network on white. This quieter blue-grey preserves a visible
-// midpoint without competing with meaningful forecast-error color.
+// Light-map neutral that remains visible on a white background.
 const NEUTRAL_LIGHT = [216, 222, 230];
 
-// LMP color anchors ($/MWh) — fixed-scale fallback
-//   - negative: oversupply (rare but informative; renewables curtailment)
-//   - mid: nominal market clearing
-//   - high: scarcity / congestion
+// LMP colors: blue for low prices and orange for high prices.
 export const EXTREME_PRICE_THRESHOLD = 500;
 type ScaleControl = readonly [value: number, position: number];
 export const LMP_SCALE_CONTROLS: readonly ScaleControl[] = [
@@ -73,8 +48,6 @@ export interface LmpStats {
 }
 
 
-// Compute window-wide LMP stats. Pass a flat array of all observed LMP
-// values across every (bus, snapshot) pair in the window.
 export function computeLmpStats(
   values: Array<number | null | undefined>
 ): LmpStats {
@@ -110,8 +83,6 @@ export function isLocalExtreme(value: number | null, threshold: number | null): 
   return value != null && isFinite(value) && threshold != null && value >= threshold;
 }
 
-// LMP: blue (low) → white → orange (high), per-snapshot normalized
-// blue (oversupply) ↔ neutral (nominal) ↔ orange (scarcity).
 const LMP_BLUE = [59, 130, 246];
 const LMP_CREAM = [226, 232, 200];
 const LMP_ORANGE = [249, 115, 22];
@@ -127,15 +98,6 @@ export function lmpColor(norm: number, theme: Theme = currentTheme()): string {
   return t < 0.5 ? rgbMix(cold, mid, t * 2) : rgbMix(mid, warm, (t - 0.5) * 2);
 }
 
-// =============================================================================
-// Congestion (diverging): signed Σ PTDF·μ per bus
-// =============================================================================
-//
-// Diverging blue↔cream↔red centered at 0.
-//   norm > 0  → import side, red
-//   norm < 0  → export side, blue
-//   norm ≈ 0  → cream (no signal)
-//
 export interface CongestionStats {
   min: number;
   max: number;
@@ -143,8 +105,6 @@ export interface CongestionStats {
   hasLocalExtreme: boolean;
 }
 
-// Compute window-wide congestion stats. Pass a flat array of all observed
-// congestion values across every (bus, snapshot) pair.
 export function computeCongestionStats(
   values: Array<number | null | undefined>
 ): CongestionStats {
@@ -166,20 +126,13 @@ export function normalizeCongestion(value: number | null): number {
   return abs <= 10 ? 0 : Math.sign(value) * scalePosition(abs, CONGESTION_SCALE_CONTROLS);
 }
 
-// Scarcity is operationally asymmetric: a huge positive import-side price is
-// the alarm condition. Negative congestion stays on its signed blue scale.
-// Diverging blue (−) → cream (0) → red (+). Endpoints match the LMP scale's
-// blue (#3b82f6) for palette consistency; red end is the shared "critical"
-// crimson (#ef4444) that also drives --mc-accent and --danger.
+// Congestion: blue for export-side and red for import-side values.
 const MC_BLUE = [59, 130, 246];
 const MC_CREAM = [232, 226, 215];
 const MC_RED = [239, 68, 68];
 const MC_BLUE_LIGHT = [47, 111, 214];
 const MC_RED_LIGHT = [214, 59, 59];
 export function congestionAlarmColor(theme: Theme = currentTheme()): string {
-  // The map keeps the normal signed red scale; the animated legend swatch
-  // supplies the categorical extreme-price cue without competing with the
-  // constraint overlay's gold GTC marks.
   return congestionColor(1, theme);
 }
 
@@ -195,15 +148,7 @@ export function congestionColor(
   return rgbMix(mid, t > 0 ? pos : neg, Math.abs(t));
 }
 
-// =============================================================================
-// Shift-factor role palette
-// =============================================================================
-//
-// Import/export is a structural role within one selected constraint, not a
-// congestion, price, or forecast-error sign. Keep it off the metric blue↔red
-// axis so exploring a constraint never reverses the apparent meaning of a map
-// fill. Soft magenta marks the importing/expensive end (SF < 0); teal marks
-// the exporting/trapped end (SF >= 0).
+// Shift-factor roles use a separate import/export palette.
 export const SF_IMPORT_COLOR = "#d382ae";
 export const SF_EXPORT_COLOR = "#4aa892";
 
@@ -211,39 +156,22 @@ export function shiftFactorColor(sf: number): string {
   return sf < 0 ? SF_IMPORT_COLOR : SF_EXPORT_COLOR;
 }
 
-// =============================================================================
-// Forecast error (diverging): forecast − realized congestion
-// =============================================================================
-//
-// Same diverging math as congestionColor, but a DIFFERENT hue axis on
-// purpose. Forecast error is not a temperature or a source/sink quantity, so it
-// must not borrow the blue↔red of congestion / LMP. Emerald ↔ cream ↔ magenta
-// also sits clear of the quieter SF-overlay annotation family (lavender clouds,
-// violet corridors, teal radials).
-//   norm > 0 → over-forecast  (predicted > realized, magenta)
-//   norm < 0 → under-forecast (predicted < realized, emerald)
-//   norm ≈ 0 → cream (on target — shares the neutral with congestion)
-// Reach/SF glow deliberately uses the separate shift-factor role palette: it
-// must not imply a forecast-error or congestion sign.
-const ERROR_EMERALD = [52, 211, 153]; // under-forecast (−) — brighter emerald-400
-const ERROR_CREAM = MC_CREAM; // on target (0)
-const ERROR_MAGENTA = [244, 114, 182]; // over-forecast (+) — brighter pink-400
-const ERROR_EMERALD_LIGHT = [16, 185, 129]; // vivid emerald-500 on the white ground
-const ERROR_MAGENTA_LIGHT = [236, 72, 153]; // vivid pink-500 on the white ground
+// Forecast error is forecast minus realized congestion.
+const ERROR_EMERALD = [52, 211, 153]; // under-forecast
+const ERROR_CREAM = MC_CREAM; // on target
+const ERROR_MAGENTA = [244, 114, 182]; // over-forecast
+const ERROR_EMERALD_LIGHT = [16, 185, 129];
+const ERROR_MAGENTA_LIGHT = [236, 72, 153];
 
-// TRIAL (plan/0112): reuse the congestion blue↔red ramp for forecast error, so it
-// reads on the same familiar axis (blue = under-forecast, red = over-forecast).
-// Flip to false to use the distinct emerald↔magenta set (ERROR_* anchors) if
-// this reads worse.
 const ERROR_USE_CONGESTION: boolean = true;
 
 function errorAnchors(theme: Theme) {
   const light = theme === "light";
   if (ERROR_USE_CONGESTION) {
     return {
-      neg: light ? MC_BLUE_LIGHT : MC_BLUE, // under-forecast (−) → blue
+      neg: light ? MC_BLUE_LIGHT : MC_BLUE,
       mid: light ? NEUTRAL_LIGHT : MC_CREAM,
-      pos: light ? MC_RED_LIGHT : MC_RED, // over-forecast (+) → red
+      pos: light ? MC_RED_LIGHT : MC_RED,
     };
   }
   return {
@@ -262,20 +190,10 @@ export function forecastErrorColor(
   return rgbMix(mid, t > 0 ? pos : neg, Math.abs(t));
 }
 
-// The forecast-error legend bar, kept in lockstep with forecastErrorColor's
-// endpoints — theme-aware so the light bar matches the light map fills.
 export function forecastErrorGradientCss(theme: Theme = currentTheme()): string {
   const { neg, mid, pos } = errorAnchors(theme);
   return `linear-gradient(to right, ${rgb(neg)}, ${rgb(mid)}, ${rgb(pos)})`;
 }
-
-// =============================================================================
-// Cluster tag palette
-// =============================================================================
-//
-// Distinct hues for the 5–7 "tight" anchor clusters surfaced by the scorecard.
-// The residual/background cluster (any id not in the tight set) collapses to
-// `CLUSTER_GRAY` so it visually recedes.
 
 export const CLUSTER_GRAY = "#3a4451";
 
@@ -289,7 +207,6 @@ const CLUSTER_PALETTE = [
   "#22d3ee", // cyan
 ];
 
-// Order tight ids ascending so cluster 1 always claims palette[0].
 export function clusterColor(
   clusterId: number | null | undefined,
   tightSet: Set<number>

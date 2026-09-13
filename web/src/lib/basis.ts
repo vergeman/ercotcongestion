@@ -1,17 +1,8 @@
 import type { AnalysisNodeResponse } from "../api/types";
 
-// 0139/0006 — node-vs-node congestion basis in the SF lens.
-//
 // Two full node columns of implied shift factors, joined on constraint, are a
 // congestion basis: `LMP_A,cong − LMP_B,cong`, decomposed constraint-by-
-// constraint. This is the one number implied SF is most entitled to compute,
-// since CRRs hedge the congestion component only — energy and loss never enter.
-//
-// The reduction is a straight port of the prototype `nodeBasis()`
-// (docs/matrix_index_prototype.html): the union of constraints located on
-// either node (a one-sided constraint still creates basis), the app's
-// `congestion adder = −SF·μ` convention (see docs/SF.md and lib/matrix.ts's
-// matrixContribution), and a |contrib| sort. No new SF↔contribution math.
+// constraint.
 //
 //   contribᶜ = −(SF[c,A] − SF[c,B]) · μᶜ     signed $/MWh added to (cong_A − cong_B)
 //   basis    = Σ contribᶜ                     = LMP_A,cong − LMP_B,cong
@@ -65,11 +56,6 @@ export function nodeColumn(node: AnalysisNodeResponse | null): NodeColumn {
   return { sf, mu };
 }
 
-// The pure reduction. `colA`/`colB` are constraint → SF maps (only located
-// constraints appear); `muByConstraint` is constraint → μ (node-independent).
-// Callers merge the two columns' μ before calling — both sides should agree on
-// a shared constraint, so either works; `basisFromNodes` prefers A and falls
-// back to B.
 export function nodeBasis(
   colA: Map<string, number>,
   colB: Map<string, number>,
@@ -84,8 +70,6 @@ export function nodeBasis(
     const sfA = hasA ? colA.get(constraint)! : null;
     const sfB = hasB ? colB.get(constraint)! : null;
     const mu = muByConstraint.get(constraint) ?? null;
-    // A missing μ contributes nothing (an SF of exactly zero carries no price),
-    // but the row still shows so the user sees the located, un-priced term.
     const contrib = mu == null ? 0 : -((sfA ?? 0) - (sfB ?? 0)) * mu;
     total += contrib;
     rows.push({ constraint, sfA, sfB, mu, contrib, mutual: hasA && hasB });
@@ -96,8 +80,6 @@ export function nodeBasis(
   return { rows, total, topShare, topConstraint: top?.constraint ?? null };
 }
 
-// Convenience join over two /analysis/node responses fetched at the same hour
-// and basis: build each column, merge μ (prefer A, fall back to B), reduce.
 export function basisFromNodes(
   a: AnalysisNodeResponse | null,
   b: AnalysisNodeResponse | null,
@@ -106,7 +88,6 @@ export function basisFromNodes(
   const colB = nodeColumn(b);
   const mu = new Map<string, number | null>(colB.mu);
   for (const [constraint, value] of colA.mu) {
-    // Prefer A's μ, but fill from B when A could not recover it (SF == 0 on A).
     if (value != null || !mu.has(constraint)) mu.set(constraint, value);
   }
   return nodeBasis(colA.sf, colB.sf, mu);

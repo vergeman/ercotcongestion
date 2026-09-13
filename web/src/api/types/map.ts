@@ -1,25 +1,9 @@
 import type { BootstrapSectionStatus } from "./common";
 
-// The Data axis: which ERCOT quantity a map pane colors by.
-//   congestion:  SPP − system_λ  (diverging palette)
-//   lmp:         raw DAM SPP / (for the forecast pane) forecast congestion + system_λ, the
-//                predicted counterpart — see `ForecastRangeEntry.lambda_source`
-//                for its persistence-λ provenance pre-settlement.
+// Map colors show congestion (SPP − system λ) or LMP.
 export type MapDataMode = "congestion" | "lmp";
 
-// The View axis, orthogonal to `MapDataMode`. Exactly one is active:
-//   forecast:  single map, the model's deterministic prediction (the bare `/map`
-//              default landing view).
-//   market:    single map, ERCOT's realized DAM values.
-//   compare:   the prediction | ERCOT side-by-side split (formerly `dual`).
-//   error:     single map, forecast − realized congestion (the product
-//              thesis, "where we missed the market"). Because both panes
-//              subtract the same system-λ, LMP forecast error collapses
-//              exactly to congestion forecast error, so this view locks
-//              `MapDataMode` to `"congestion"` regardless of the prior
-//              selection.
-// `market`, `compare`, and `error` require settled data in the loaded window;
-// pre-market they fall back to `forecast`.
+// Market, Compare, and Error require settled data.
 export type MapView = "forecast" | "market" | "compare" | "error";
 
 // Per-SP row for the current hour, merged from the congestion and SPP caches.
@@ -39,26 +23,12 @@ export interface SPFeatureProperties {
   capacity_mw: number;
 }
 
-// =============================================================================
-// /forecast_range — per-hour forecast congestion for the current forecast run,
-// the prediction counterpart to /ercot_range. Feeds the left ("prediction")
-// pane through the same prefetch/scrubber path as the realized ranges, so the
-// two panes align hour for hour. Each SP carries deterministic congestion,
-// plus each hour's system-λ. Mirrors api/models.py ForecastSpState /
-// ForecastRangeEntry / ForecastRangeResponse.
-// =============================================================================
-
-// One SP's deterministic forecast congestion at one hour: −(E_mu · SF).
+// Forecast congestion is the modeled congestion adder for one settlement point.
 export interface ForecastSpState {
   sp_id: string;
   forecast_congestion: number | null;
 }
 
-// All SPs' forecast congestion at one interval, plus that hour's system-λ.
-// Predicted LMP = forecast_congestion + system_lambda
-//
-// On an unsettled hour `system_lambda` falls back to the most recent settled
-// day's λ at the same Central hour.
 export interface ForecastRangeEntry {
   interval_ts: string;
   system_lambda: number | null;
@@ -66,11 +36,7 @@ export interface ForecastRangeEntry {
   sps: ForecastSpState[];
 }
 
-// Per-hour forecast congestion across a window. `run_id` labels which refit is
-// serving; the served day is the cursor hour's date. `entries` are the forecast
-// hours in [start, end] for the current run. `horizons` maps each served UTC
-// delivery day (`"YYYY-MM-DD"`) to the horizon it came from — 1 = final/t+1,
-// 2 = preview/t+2.
+// `horizons` maps each delivery date to its forecast horizon (1 or 2).
 export interface ForecastRangeResponse {
   start: string;
   end: string;
@@ -80,35 +46,8 @@ export interface ForecastRangeResponse {
   horizons: Record<string, number>;
 }
 
-// =============================================================================
-// /conditions_range — per-hour Load / Wind / Solar / Outages, merged into one
-// response.
-//
-// Every row carries both `forecast_mw` and `actual_mw` so the map's Forecast/
-// Market/Compare/Error toggle can pick one client-side, no per-side request.
-//
-//   load    `zone` is one of the 8 NP3-561/NP6-345 weather zones, plus
-//           "system". Forecast is the latest `load_forecast_zonal` vintage
-//           posted no later than the hour it describes (no lookahead).
-//
-//   wind/solar
-//           `region` is one of the 5 wind / 6 solar regions, plus "system".
-//           Forecast reads the vintaged `*_forecast_regional` tables (no
-//           lookahead), not the actual tables' own forecast-looking columns
-//           (those dedup to the most recent posting, ~49h after the hour).
-//
-//   outages a DIFFERENT quantity from wind/solar — MW currently OFFLINE
-//           (NP1-346), not MW produced — and a different cadence underneath:
-//           the source table is a daily snapshot, so a day's values repeat
-//           across its 24 hourly entries. `fuel` is one of gas/wind/solar/
-//           coal/other/hydro, plus "total". `forecast_mw` is the D-1
-//           no-lookahead vintage (mirrors compute.mu_forecast.outage_exposure's
-//           leak boundary); `actual_mw` is the newest vintage through the day.
-//
-// Any list may be empty for an hour with nothing from that source — the
-// client's null-dash rendering handles it the same as a null field.
-// =============================================================================
-
+// Load uses ERCOT weather zones; wind and solar use ERCOT generation regions.
+// Outages are offline capacity from ERCOT NP1-346, not generation.
 export interface ZoneLoad {
   zone: string;
   forecast_mw: number | null;
@@ -142,14 +81,6 @@ export interface ConditionsRangeResponse {
   entries: ConditionsEntry[];
 }
 
-// =============================================================================
-// /map/* — the implied shift-factor structure (not time-indexed; one refit).
-// Mirrors api/models.py MapMeta / SpExposure / ExposuresResponse / ReachSp /
-// ConstraintReach.
-// =============================================================================
-
-// The refit the map is serving — one sf_window_meta row. `sf_oos_r2` /
-// `sf_stability` are the confidence caveats every signed exposure renders with.
 export interface MapMeta {
   run_id: string;
   window_start: string;
@@ -161,8 +92,7 @@ export interface MapMeta {
   n_kept: number | null;
 }
 
-// Diagnostics for the SF window that produced the cursor's daily artifact.
-// Unlike MapMeta, this is deliberately cursor-scoped.
+// Fit details for the cursor's daily artifact.
 export interface MapFitMetadata {
   run_id: string | null;
   window_start: string | null;
@@ -175,12 +105,7 @@ export interface MapFitMetadata {
   available: boolean;
 }
 
-// One constraint driving the queried node (a /map/exposures row). `sf` is the
-// signed exposure ($/MWh per $ of μ) — caveated, read against window confidence.
-// `contribution` = -sf * mu is the constraint's actual $/MWh of this node's
-// congestion at the requested interval, and is what `rank=contribution` orders
-// by; both it and `mu` are null under `rank=sf`, which describes structure and
-// has no hour attached. `sf_clipped` marks a cell the fit pinned at its cap.
+// A constraint's signed effect on a settlement point.
 export interface SpExposure {
   constraint_key: string;
   ctype: string | null;
@@ -192,13 +117,9 @@ export interface SpExposure {
   binding_hours: number | null;
 }
 
-// How /map/exposures orders its list. `contribution` answers "what drove this
-// node at t" and drops constraints that did not bind; `sf` answers "what could
-// move this node" over the whole day's fit, quiet constraints included.
 export type ExposureRank = "contribution" | "sf";
 
-// Top-k constraints driving one node. `node_max_abs_sf` = max_c |SF[sp,c]| is
-// the stable unsigned headline (spec §6); the signed `exposures` follow it.
+// Constraints driving a selected settlement point.
 export interface ExposuresResponse {
   sp: string;
   run_id: string;
@@ -209,15 +130,10 @@ export interface ExposuresResponse {
   sf_stability: number | null;
   node_max_abs_sf: number | null;
   rank: ExposureRank;
-  // Full-constraint gross magnitude, independent of the returned top-k:
-  // `sum(abs(contribution))`. It supports a bounded share when drivers offset
-  // and is null under `rank=sf`.
+  // Sum of absolute contributions across all constraints, not just the top k.
   node_gross_total: number | null;
   available: boolean;
-  // No SF for this node on this day — not the same as being in the fit and
-  // driving nothing.
-  // `sp_not_in_service`: the node did not exist yet;
-  // `sp_not_in_fit`: it existed but the fit dropped it.
+  // The point may be unavailable because it was not in service or in the fit.
   unavailable_reason:
     | "artifact_missing"
     | "interval_not_in_artifact"
@@ -227,8 +143,6 @@ export interface ExposuresResponse {
   exposures: SpExposure[];
 }
 
-// One node a constraint drives (a /map/reach row). Signed `sf` splits the
-// driven nodes into the constraint's import and export ends (the dipole).
 export interface ReachSp {
   settlement_point: string;
   sf: number;
@@ -238,8 +152,7 @@ export interface ReachSp {
   load_zone: string | null;
 }
 
-// Top-k nodes one constraint drives — the constraint click. `sps` carries the
-// signed reach for the dipole glow, each node placed from its own coords.
+// Settlement points affected by a selected constraint.
 export interface ConstraintReach {
   constraint_key: string;
   ctype: string | null;
@@ -253,8 +166,6 @@ export interface ConstraintReach {
   n_rail: number | null;
   peak_offrail: number | null;
   binding_hours: number | null;
-  // Forecast μ from the requested cursor hour's daily artifact. It is null for
-  // a structural nearest-past fallback or when no cursor hour was requested.
   shadow_price: number | null;
   dam_mu: number | null;
   forecast_error: number | null;
@@ -263,26 +174,17 @@ export interface ConstraintReach {
   import_members: number | null;
   export_members: number | null;
   available: boolean;
-  // "artifact_missing" (the day has no artifact) or
-  // "constraint_not_in_artifact" (the day's fit does not carry this key).
+  // `artifact_missing` means no daily artifact; `constraint_not_in_artifact`
+  // means the day's fit does not contain this constraint.
   unavailable_reason: string | null;
-  // Provenance of the served SF. "artifact" = the requested day's own artifact
-  // (day-exact). "nearest_past" = that day had no artifact (a lagging/failed
-  // forecast job), so the nearest earlier built day was served — window_start
-  // reports which. The card labels it "SF as of <date>" so it never silently
-  // disagrees with the (empty) matrix for the requested day.
+  // `nearest_past` uses the latest earlier artifact when the requested day is missing.
   basis?: "artifact" | "nearest_past";
-  // reports whether a bounded (`k`-limited) call was cut short of the
-  // constraint's complete reach — always `false` for a `full=true` call.
+  // True when the response is limited to the requested top k.
   truncated: boolean;
   sps: ReachSp[];
 }
 
-// One constraint in the de-piled overview (a /map/overview row). `ctype` picks the
-// mark's form; `nodes` is the signed top-k field the mark draws over AND anchors on
-// (the client positions the mark from these coords — the radial ring on the peak-|SF|
-// node — so there is no persisted centroid). The overview ignores the sign; the
-// drill-down colors it.
+// A constraint marker in the map overview.
 export interface OverviewConstraint {
   constraint_key: string;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
@@ -291,8 +193,6 @@ export interface OverviewConstraint {
   nodes: ReachSp[];
 }
 
-// The whole overview for the current refit — top-`n` constraints by binding hours,
-// each at its core with its type and signed top-`k` field. One bulk payload.
 export interface MapOverview {
   run_id: string;
   window_start: string;
@@ -304,22 +204,7 @@ export interface MapOverview {
   constraints: OverviewConstraint[];
 }
 
-// =============================================================================
-// /map/constraints/ranked — the per-day ranked constraint list. The list-shaped
-// companion to the /map/overview marker pile: "which constraints drive today's
-// congestion", ordered by a day-total contribution the map cannot express.
-// Mirrors api/models.py RankedConstraint / RankedConstraints. `basis` picks the
-// μ series (predicted E_mu vs realized DAM shadow prices); the SF structure —
-// reach, lobes, members — is shared.
-// =============================================================================
-
-// One constraint in the per-day ranking. `congestion_contribution = mu_mass ·
-// reach` is the sort key (descending); `rank` its 1-based position. `mu_mass`
-// (Σ_ts |μ|) and `reach` (Σ_sp |SF|) are surfaced so the score is legible.
-// `constraint_id` matches the overview's `constraint_key`, so a row highlights the
-// same overlay mark; `n_import`/`n_export` (located-node counts on the SF<0/SF>0
-// sides) carry the import/export dipole. The μ statistics follow `basis`; SF
-// reach is a fixed structural summary from the daily artifact.
+// A daily constraint ranking. The basis selects forecast or ERCOT DAM shadow prices.
 export interface RankedConstraint {
   constraint_id: string;
   rank: number;
@@ -333,10 +218,6 @@ export interface RankedConstraint {
   n_export: number;
 }
 
-// The per-day ranked list for one forecast run and basis. `n_ranked` is how many
-// constraints carried a non-zero contribution (the pool the top-`k` is drawn
-// from); `constraints` is that top-`k`, already ordered — the client never
-// re-ranks (the server owns the order).
 export interface RankedConstraints {
   run_id: string;
   delivery_date: string; // ISO date (YYYY-MM-DD)
@@ -346,9 +227,7 @@ export interface RankedConstraints {
   constraints: RankedConstraint[];
 }
 
-// /map/summary — one bundled payload for the Map workspace's load-time
-// requests. `topology` is the raw settlement-point GeoJSON (unchanged shape
-// from GET /topology).
+// Initial Map workspace payload, including settlement-point GeoJSON.
 export interface MapSummary {
   topology: unknown;
   overview: MapOverview | null;
