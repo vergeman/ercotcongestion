@@ -451,7 +451,7 @@ export default function SidePanel({
                       : "No score available"}
               </div>
 
-              {scorecard.sources.length > 0 && <div className="sc-table">
+              <div className="sc-table">
                 <span className="sc-h sc-h--cat" />
                 <span className="sc-h">Model</span>
                 <span className="sc-h">Persist</span>
@@ -492,7 +492,7 @@ export default function SidePanel({
                     </Fragment>
                   );
                 })}
-              </div>}
+              </div>
 
               {fitMeta && (
                 <div className="sc-fit">
