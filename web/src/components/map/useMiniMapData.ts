@@ -6,11 +6,9 @@ import {
 } from "../../api/client";
 import type { ConstraintReach } from "../../api/types";
 import {
-  computeLmpStats,
   lmpColor,
   normalizeLmpFromStats,
   shiftFactorColor,
-  type LmpStats,
 } from "../../lib/colors";
 import { useTheme } from "../../lib/theme";
 import {
@@ -150,7 +148,6 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
   const [lmpData, setLmpData] = useState<{
     points: SettlementPoint[];
     values: Map<string, number>;
-    stats: LmpStats;
   } | null>(null);
   const [lmpFailed, setLmpFailed] = useState(false);
   useEffect(() => {
@@ -173,7 +170,6 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
         setLmpData({
           points,
           values,
-          stats: computeLmpStats(Array.from(values.values())),
         });
       })
       .catch(() => live && setLmpFailed(true));
@@ -242,7 +238,7 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
   const dots = useMemo<RawDot[]>(() => {
     if (props.mode === "lmp") {
       if (!lmpData) return [];
-      const { points, values, stats } = lmpData;
+      const { points, values } = lmpData;
       return points.flatMap((p) => {
         const v = values.get(p.sp_id);
         if (v == null) return [];
@@ -251,7 +247,7 @@ export function useMiniMapData(props: MiniMapProps): MiniMapData {
             id: p.sp_id,
             lng: p.lng,
             lat: p.lat,
-            color: lmpColor(normalizeLmpFromStats(v, stats), theme),
+            color: lmpColor(normalizeLmpFromStats(v), theme),
             focus: false,
           },
         ];

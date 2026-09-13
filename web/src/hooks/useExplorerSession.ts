@@ -11,10 +11,10 @@ import {
 import {
   computeCongestionStats,
   computeLmpStats,
+  localExtremeThreshold,
 } from "../lib/colors";
 import type { CuratedEvent } from "../lib/events";
 import type { SparkPoint } from "../components/playback/TimelineSparkline";
-import { formatCT } from "../lib/time";
 
 export type ConnectionState = "ok" | "error" | "loading";
 
@@ -130,18 +130,10 @@ export function useExplorerSession(opts?: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadWindow]);
 
-  // The cursor's Central-time delivery day. Keyed on this (not currentIndex) so
-  // the day-scoped stats below recompute once per day, not on every hour tick.
-  const deliveryDay = useMemo(() => {
-    const cursor = timestamps[currentIndex];
-    return cursor ? formatCT(cursor, "yyyy-MM-dd") : null;
-  }, [timestamps, currentIndex]);
-
-  // Color domains belong to the cursor's Central-time delivery day. This keeps
-  // colors comparable while inspecting that day without letting an extreme on a
-  // non-visible day in a multi-day playback window flatten the active palette.
+  // Stats describe the loaded playback range for the cropped legend only.
+  // Fixed dollar transforms own map colors.
   const dayStats = useMemo(() => {
-    if (!deliveryDay) {
+    if (!timestamps.length) {
       return {
         congestionStats: null,
         sppStats: null,
@@ -156,16 +148,36 @@ export function useExplorerSession(opts?: {
     const forecastCongestion: Array<number | null> = [];
     const forecastLmp: Array<number | null> = [];
     const forecastError: Array<number | null> = [];
+    let hasCongestionExtreme = false;
+    let hasLmpExtreme = false;
+    let hasForecastCongestionExtreme = false;
+    let hasForecastLmpExtreme = false;
+    let hasErrorExtreme = false;
 
     for (const timestamp of timestamps) {
-      if (formatCT(timestamp, "yyyy-MM-dd") !== deliveryDay) continue;
 
       const congestion = getErcotCached(timestamp);
-      if (congestion) for (const sp of congestion.sps) actualCongestion.push(sp.congestion);
+      if (congestion) {
+        const values = congestion.sps.map((sp) => sp.congestion);
+        actualCongestion.push(...values);
+        hasCongestionExtreme ||= localExtremeThreshold(values, true) != null;
+      }
       const spp = getErcotSppCached(timestamp);
-      if (spp) for (const sp of spp.sps) actualLmp.push(sp.spp);
+      if (spp) {
+        const values = spp.sps.map((sp) => sp.spp);
+        actualLmp.push(...values);
+        hasLmpExtreme ||= localExtremeThreshold(values) != null;
+      }
       const forecast = getForecastCached(timestamp);
       if (forecast) {
+        const congestionValues = forecast.sps.map((sp) => sp.forecast_congestion);
+        const lmpValues = forecast.sps.map((sp) =>
+          sp.forecast_congestion != null && forecast.system_lambda != null
+            ? sp.forecast_congestion + forecast.system_lambda
+            : null
+        );
+        hasForecastCongestionExtreme ||= localExtremeThreshold(congestionValues, true) != null;
+        hasForecastLmpExtreme ||= localExtremeThreshold(lmpValues) != null;
         for (const sp of forecast.sps) {
           forecastCongestion.push(sp.forecast_congestion);
           forecastLmp.push(
@@ -177,23 +189,27 @@ export function useExplorerSession(opts?: {
       }
       if (congestion && forecast) {
         const marketById = new Map(congestion.sps.map((sp) => [sp.sp_id, sp.congestion]));
+        const errors: Array<number | null> = [];
         for (const sp of forecast.sps) {
           const market = marketById.get(sp.sp_id);
-          if (sp.forecast_congestion != null && market != null) forecastError.push(sp.forecast_congestion - market);
+          const error = sp.forecast_congestion != null && market != null ? sp.forecast_congestion - market : null;
+          forecastError.push(error);
+          errors.push(error);
         }
+        hasErrorExtreme ||= localExtremeThreshold(errors, true) != null;
       }
     }
 
     return {
-      congestionStats: actualCongestion.length ? computeCongestionStats(actualCongestion) : null,
-      sppStats: actualLmp.length ? computeLmpStats(actualLmp) : null,
+      congestionStats: actualCongestion.length ? { ...computeCongestionStats(actualCongestion), hasLocalExtreme: hasCongestionExtreme } : null,
+      sppStats: actualLmp.length ? { ...computeLmpStats(actualLmp), hasLocalExtreme: hasLmpExtreme } : null,
       forecastCongestionStats: forecastCongestion.length
-        ? computeCongestionStats(forecastCongestion)
+        ? { ...computeCongestionStats(forecastCongestion), hasLocalExtreme: hasForecastCongestionExtreme }
         : null,
-      forecastLmpStats: forecastLmp.length ? computeLmpStats(forecastLmp) : null,
-      errorStats: forecastError.length ? computeCongestionStats(forecastError) : null,
+      forecastLmpStats: forecastLmp.length ? { ...computeLmpStats(forecastLmp), hasLocalExtreme: hasForecastLmpExtreme } : null,
+      errorStats: forecastError.length ? { ...computeCongestionStats(forecastError), hasLocalExtreme: hasErrorExtreme } : null,
     };
-  }, [timestamps, deliveryDay]);
+  }, [timestamps]);
 
   return {
     timestamps, currentIndex, setCurrentIndex, loading, connectionState, setConnectionState,

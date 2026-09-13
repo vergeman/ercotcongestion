@@ -40,167 +40,74 @@ const NEUTRAL_LIGHT = [216, 222, 230];
 //   - negative: oversupply (rare but informative; renewables curtailment)
 //   - mid: nominal market clearing
 //   - high: scarcity / congestion
-const LMP_LOW = -50; // deeply negative → blue
-const LMP_MID = 30; // normal market → neutral/cream
-const LMP_HIGH = 500; // scarcity territory → orange/red
-
-export function normalizeLmp(value: number | null): number {
-  if (value == null) return 0.5;
-  if (value <= LMP_MID) {
-    // LOW → MID maps to 0 → 0.5
-    const t = (value - LMP_LOW) / (LMP_MID - LMP_LOW);
-    return Math.max(0, Math.min(0.5, t * 0.5));
-  } else {
-    // MID → HIGH maps to 0.5 → 1.0, log-scaled for the long tail
-    const logMid = Math.log10(LMP_MID);
-    const logHi = Math.log10(LMP_HIGH);
-    const logV = Math.log10(Math.min(LMP_HIGH, value));
-    return 0.5 + ((logV - logMid) / (logHi - logMid)) * 0.5;
+export const EXTREME_PRICE_THRESHOLD = 500;
+type ScaleControl = readonly [value: number, position: number];
+export const LMP_SCALE_CONTROLS: readonly ScaleControl[] = [
+  [-50, 0], [-20, .14], [0, .3], [10, .4], [20, .46], [25, .5], [30, .54], [40, .6], [50, .65], [60, .69], [75, .74], [100, .8], [125, .84], [150, .87], [175, .895], [200, .915], [225, .93], [250, .945], [300, .965], [350, .978], [400, .987], [450, .994], [500, 1],
+];
+export const CONGESTION_SCALE_CONTROLS: readonly ScaleControl[] = [
+  [10, 0], [25, .2], [50, .42], [75, .58], [100, .7], [125, .78], [150, .84], [175, .88], [200, .91], [225, .93], [250, .945], [300, .965], [350, .978], [400, .987], [450, .994], [500, 1],
+];
+function scalePosition(value: number, controls: readonly ScaleControl[]): number {
+  if (value <= controls[0][0]) return controls[0][1];
+  const last = controls[controls.length - 1];
+  if (value >= last[0]) return last[1];
+  for (let i = 1; i < controls.length; i += 1) {
+    const [rightValue, rightPosition] = controls[i];
+    if (value <= rightValue) {
+      const [leftValue, leftPosition] = controls[i - 1];
+      return leftPosition + (value - leftValue) / (rightValue - leftValue) * (rightPosition - leftPosition);
+    }
   }
+  return last[1];
+}
+export function normalizeLmp(value: number | null): number {
+  return value == null || !isFinite(value) ? .5 : scalePosition(value, LMP_SCALE_CONTROLS);
 }
 
-// Window-wide LMP scaling. Computed once when a playback window loads, then
-// reused for every frame so the same dollar value renders as the same color
-// across the entire playback session.
-//
-// Three anchors derived from percentiles of every (bus, snapshot) LMP in the
-// window:
-//   p_low  (P5)   → deepest blue
-//   median        → cream
-//   p_high (P95)  → deepest orange
-//
-// Percentiles (not std/MAD) because the distribution is heavy-tailed and
-// degenerate-clustered at the gas-marginal floor (~$28.55) — spread-based
-// stats collapse there. Percentiles describe the actual observed range.
-// Asymmetric blue / orange halves let the gradient stretch independently
-// in each direction, since curtailment range and scarcity range differ.
 export interface LmpStats {
-  median: number;
-  p_low: number; // low percentile anchor (P5 by default)
-  p_high: number; // high percentile anchor (P95 by default)
-  min: number; // observed window min (for legend display only)
-  max: number; // observed window max (for legend display only)
-  n: number; // number of LMP samples used
+  min: number;
+  max: number;
+  n: number;
+  hasLocalExtreme: boolean;
 }
 
-// Trim percentiles. Values inside [p_low, p_high] occupy the main color
-// gradient (with γ damping near the median). Values outside fall into a
-// log-extended tail that keeps deepening — so a single $1500 outlier doesn't
-// crush the scale, but $40 / $65 / $90 still register as visibly distinct
-// shades of orange.
-export const LMP_PCT_LOW = 0.01;
-export const LMP_PCT_HIGH = 0.99;
-
-// Response-curve exponent. Linear interpolation (γ=1) puts maximum color
-// sensitivity right at the median, which is where the gas-marginal cluster
-// sits — small ($0.50) noise reads as visibly orange. Pushing γ > 1 flattens
-// the curve near the median and steepens it toward the percentile anchors,
-// so noise stays cream and only meaningful moves toward p_low / p_high
-// register as color.
-export const LMP_GAMMA = 1.8;
-
-// Linear-interpolated percentile of a sorted array.
-function percentile(sorted: number[], p: number): number {
-  const n = sorted.length;
-  if (n === 0) return 0;
-  if (n === 1) return sorted[0];
-  const idx = p * (n - 1);
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
 
 // Compute window-wide LMP stats. Pass a flat array of all observed LMP
 // values across every (bus, snapshot) pair in the window.
 export function computeLmpStats(
   values: Array<number | null | undefined>
 ): LmpStats {
-  const xs: number[] = [];
+  let min = Infinity;
+  let max = -Infinity;
+  let n = 0;
   for (const v of values) {
     if (v == null || !isFinite(v)) continue;
-    xs.push(v);
+    min = Math.min(min, v);
+    max = Math.max(max, v);
+    n += 1;
   }
-  if (xs.length === 0) {
-    return { median: 0, p_low: 0, p_high: 1, min: 0, max: 0, n: 0 };
-  }
-  const sorted = [...xs].sort((a, b) => a - b);
-  return {
-    median: percentile(sorted, 0.5),
-    p_low: percentile(sorted, LMP_PCT_LOW),
-    p_high: percentile(sorted, LMP_PCT_HIGH),
-    min: sorted[0],
-    max: sorted[sorted.length - 1],
-    n: xs.length,
-  };
+  return n ? { min, max, n, hasLocalExtreme: false } : { min: 0, max: 0, n: 0, hasLocalExtreme: false };
 }
 
-// Map an LMP value to [0, 1] using window stats.
-//
-// In-bounds  (p_low ≤ value ≤ p_high):
-//   value === median → 0.5  (cream)
-//   value === p_low  → BLUE_CORE_END   (mid-deep blue, not deepest)
-//   value === p_high → ORANGE_CORE_END (mid-deep orange, not deepest)
-//   γ-damped so values close to the median stay cream regardless of small noise.
-//
-// Out-of-bounds: log-compressed extension into the reserved [0, BLUE_CORE_END]
-// or [ORANGE_CORE_END, 1] range. Keeps darkening so $40 / $65 / $90 are
-// distinguishable, but a $1500 outlier asymptotes rather than crushing
-// the rest of the scale.
-const BLUE_CORE_END = 0.1; // p_low maps here
-const ORANGE_CORE_END = 0.9; // p_high maps here
-
-export function normalizeLmpFromStats(
-  value: number | null,
-  stats: LmpStats
-): number {
-  if (value == null) return 0.5;
-  const { median, p_low, p_high } = stats;
-
-  if (value <= median) {
-    const span = median - p_low;
-    if (span <= 0) return 0.5;
-
-    if (value >= p_low) {
-      // In-bounds: γ-damped, p_low → BLUE_CORE_END, median → 0.5
-      const d = (median - value) / span; // 0 at median, 1 at p_low
-      const damped = Math.pow(d, LMP_GAMMA);
-      return 0.5 - (0.5 - BLUE_CORE_END) * damped;
-    } else {
-      // Out-of-bounds (below p_low): rational tail into [0, BLUE_CORE_END].
-      // x is "p_low-spans below p_low" — 1 means another full span out.
-      // x/(1+x) is 0 at the boundary, 0.5 at one span, 0.91 at ten — slow
-      // enough that $40/$65/$90 in the high tail stay distinguishable.
-      const x = (p_low - value) / span;
-      const tail = x / (1 + x);
-      return BLUE_CORE_END * (1 - tail);
-    }
-  } else {
-    const span = p_high - median;
-    if (span <= 0) return 0.5;
-
-    if (value <= p_high) {
-      // In-bounds: γ-damped, median → 0.5, p_high → ORANGE_CORE_END
-      const d = (value - median) / span;
-      const damped = Math.pow(d, LMP_GAMMA);
-      return 0.5 + (ORANGE_CORE_END - 0.5) * damped;
-    } else {
-      // Out-of-bounds (above p_high): rational tail into [ORANGE_CORE_END, 1].
-      const x = (value - p_high) / span;
-      const tail = x / (1 + x);
-      return ORANGE_CORE_END + (1 - ORANGE_CORE_END) * tail;
-    }
-  }
+export function normalizeLmpFromStats(value: number | null): number {
+  return normalizeLmp(value);
 }
 
-// LMP uses its high percentile anchor as the ordinary scarcity scale. Reserve
-// the same categorical 3× threshold used by congestion for exceptional prices.
-export function lmpAlarmThreshold(stats: LmpStats): number {
-  return stats.p_high * CONGESTION_ALARM_MULTIPLIER;
+export function localExtremeThreshold(
+  values: Array<number | null | undefined>,
+  positiveOnly = false
+): number | null {
+  const valid = values.filter(
+    (value): value is number => value != null && isFinite(value) && (!positiveOnly || value > 0)
+  ).sort((a, b) => b - a);
+  if (!valid.length) return null;
+  const threshold = valid[Math.max(0, Math.ceil(valid.length * 0.01) - 1)];
+  return threshold >= EXTREME_PRICE_THRESHOLD ? threshold : null;
 }
 
-export function isLmpAlarm(value: number | null, stats: LmpStats): boolean {
-  return value != null && isFinite(value) && stats.p_high > 0 && value >= lmpAlarmThreshold(stats);
+export function isLocalExtreme(value: number | null, threshold: number | null): boolean {
+  return value != null && isFinite(value) && threshold != null && value >= threshold;
 }
 
 // LMP: blue (low) → white → orange (high), per-snapshot normalized
@@ -229,124 +136,38 @@ export function lmpColor(norm: number, theme: Theme = currentTheme()): string {
 //   norm < 0  → export side, blue
 //   norm ≈ 0  → cream (no signal)
 //
-// Window-percentile anchors (mirrors LmpStats): p_high = percentile(|mc|, 0.90);
-// p_low = −p_high so the palette is symmetric around zero. γ damping flattens
-// the cream band so noise near zero stays neutral. The normal scale retains its
-// rational tail; exceptionally high positive congestion is marked separately
-// with an alarm color so it cannot flatten the rest of the day.
-
-// P90 (not P99) so the anchor is set by "typical binding hours," not by a
-// single scarcity event. On a multi-day window one $400+ mc value at P99
-// pushes normal-hour buses (|mc| = $30–$90) into the damped cream band.
-// P90 leaves the tail's darkest pixels for the outlier hours (they still
-// ride the rational tail past MC_CORE_END) while giving mid-range values
-// visible saturation.
-const MC_PCT_HIGH = 0.9;
-// γ closer to 1 keeps the sensitivity roughly linear from floor to anchor.
-// The old γ = 1.8 combined with a P99 anchor was doubly damping: it took
-// both the anchor stretch and a strong power curve on top, so a $36 bus
-// against a $400 P99 rendered near-cream.
-const MC_GAMMA = 1.2;
-// |mc| = p_high maps to |norm| = MC_CORE_END; the remaining band is the
-// compressed normal tail for values above the core.
-const MC_CORE_END = 0.9;
-// Values with |mc| below this fraction of p_high read as cream (no signal).
-// Small floor — a diverging signal at 2% of the window's top percentile is
-// still meaningful; a heavier floor would wash out the map.
-const MC_FLOOR_FRAC = 0.02;
-// A discrete alarm bin reserves a categorical signal for rare scarcity nodes
-// without changing the P90 scale that keeps ordinary values readable.
-export const CONGESTION_ALARM_MULTIPLIER = 3;
-// Relative thresholds collapse on quiet days (for example, 3 × a $1 P90 is
-// not an extreme price).  Keep the alarm reserved for a materially elevated
-// positive congestion price even when the daily distribution is near zero.
-export const CONGESTION_ALARM_FLOOR = 100;
-
 export interface CongestionStats {
-  p_high: number; // percentile(|mc|, MC_PCT_HIGH); positive
-  p_low: number; // −p_high (symmetric)
-  min: number; // observed negative daily extreme; 0 when no negative values
-  max: number; // observed positive daily extreme; 0 when no positive values
+  min: number;
+  max: number;
   n: number;
+  hasLocalExtreme: boolean;
 }
-
-export const CONGESTION_ANCHORS = {
-  pct_high: MC_PCT_HIGH,
-  gamma: MC_GAMMA,
-  core_end: MC_CORE_END,
-  floor_frac: MC_FLOOR_FRAC,
-};
 
 // Compute window-wide congestion stats. Pass a flat array of all observed
 // congestion values across every (bus, snapshot) pair.
 export function computeCongestionStats(
   values: Array<number | null | undefined>
 ): CongestionStats {
-  const abs_xs: number[] = [];
   let min = 0;
   let max = 0;
+  let n = 0;
   for (const v of values) {
     if (v == null || !isFinite(v)) continue;
-    abs_xs.push(Math.abs(v));
     if (v < min) min = v;
     if (v > max) max = v;
+    n += 1;
   }
-  if (abs_xs.length === 0) {
-    return { p_high: 1, p_low: -1, min: 0, max: 0, n: 0 };
-  }
-  const sorted = [...abs_xs].sort((a, b) => a - b);
-  const p_high = Math.max(percentile(sorted, MC_PCT_HIGH), 1e-9);
-  return {
-    p_high,
-    p_low: -p_high,
-    min,
-    max,
-    n: abs_xs.length,
-  };
+  return { min, max, n, hasLocalExtreme: false };
 }
 
-// Map a signed congestion value to [-1, 1] using window stats.
-//   |v| ≤ floor           → 0 (cream)
-//   floor < |v| ≤ p_high  → sign(v) · γ-damped(|v|) into [0, MC_CORE_END]
-//   |v| > p_high          → sign(v) · rational tail into [MC_CORE_END, 1]
-export function normalizeCongestion(
-  value: number | null,
-  stats: CongestionStats
-): number {
+export function normalizeCongestion(value: number | null): number {
   if (value == null || !isFinite(value)) return 0;
-  const p = stats.p_high;
-  if (p <= 0) return 0;
-  const floor = p * MC_FLOOR_FRAC;
   const abs = Math.abs(value);
-  if (abs <= floor) return 0;
-  const sign = Math.sign(value);
-  if (abs <= p) {
-    const d = (abs - floor) / (p - floor); // 0 at floor, 1 at anchor
-    const damped = Math.pow(d, MC_GAMMA);
-    return sign * MC_CORE_END * damped;
-  }
-  // Rational tail: 0 at anchor, 0.5 at 2× anchor, ~0.91 at 11× anchor.
-  const x = (abs - p) / p;
-  const tail = x / (1 + x);
-  return sign * (MC_CORE_END + (1 - MC_CORE_END) * tail);
-}
-
-export function congestionAlarmThreshold(stats: CongestionStats): number {
-  return Math.max(
-    stats.p_high * CONGESTION_ALARM_MULTIPLIER,
-    CONGESTION_ALARM_FLOOR
-  );
+  return abs <= 10 ? 0 : Math.sign(value) * scalePosition(abs, CONGESTION_SCALE_CONTROLS);
 }
 
 // Scarcity is operationally asymmetric: a huge positive import-side price is
 // the alarm condition. Negative congestion stays on its signed blue scale.
-export function isCongestionAlarm(
-  value: number | null,
-  stats: CongestionStats
-): boolean {
-  return value != null && isFinite(value) && value >= congestionAlarmThreshold(stats);
-}
-
 // Diverging blue (−) → cream (0) → red (+). Endpoints match the LMP scale's
 // blue (#3b82f6) for palette consistency; red end is the shared "critical"
 // crimson (#ef4444) that also drives --mc-accent and --danger.
