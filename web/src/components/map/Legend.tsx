@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { cssVar, useTheme } from "../../lib/theme";
-import { formatDollar, formatExactDollar } from "../../lib/format";
+import { formatDollar } from "../../lib/format";
+import Tooltip from "../ui/Tooltip";
 import type { SpRow, MapDataMode } from "../../api/types";
 import {
   normalizeLmp,
@@ -303,19 +304,24 @@ export default function Legend({
     ),
     [isCongestion, rows]
   );
-  const extremePrice = isCongestion && mcStats?.hasLocalExtreme
+  // Halos are a per-frame local-outlier cue.  The $500 threshold merely gates
+  // whether this hour's highest 1% receives the cue; it is not an absolute
+  // rule that every value above $500 gets a halo. Keep the key present when
+  // inactive so its appearance never shifts the legend's layout.
+  const extremePrice = isCongestion && mcStats
     ? {
         color: congestionAlarmColor(theme),
-        label: `Extreme Price ≥ +${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
         active: alarmThreshold != null,
       }
-    : isLmp && lmpStats?.hasLocalExtreme
+    : isLmp && lmpStats
     ? {
         color: lmpColor(1, theme),
-        label: `Extreme local price ≥ ${formatExactDollar(EXTREME_PRICE_THRESHOLD)}`,
         active: alarmThreshold != null,
       }
     : null;
+  const extremePriceTip = extremePrice?.active
+    ? `Highlights the highest-priced 1% of nodes at the current hour, only when their cutoff is at least $${EXTREME_PRICE_THRESHOLD}/MWh. The highlighted nodes may change as playback advances.`
+    : `No local outlier halos at this hour. Halos highlight the highest-priced 1% of nodes only when their cutoff is at least $${EXTREME_PRICE_THRESHOLD}/MWh.`;
 
   return (
     <div className="legend">
@@ -392,13 +398,17 @@ export default function Legend({
       )}
 
       {extremePrice && (
-        <div className="legend__alarm">
+        <Tooltip
+          as="div"
+          className="legend__alarm"
+          tip={extremePriceTip}
+        >
           <span
             className={`legend__alarm-swatch${extremePrice.active ? "" : " legend__alarm-swatch--inactive"}`}
             style={{ backgroundColor: extremePrice.color }}
           />
-          <span className="label legend__alarm-text">{extremePrice.label}</span>
-        </div>
+          <span className="label legend__alarm-text">Extreme 1% prices</span>
+        </Tooltip>
       )}
 
       {/* Constraints-overlay control (0130): lives on the pane that draws the
