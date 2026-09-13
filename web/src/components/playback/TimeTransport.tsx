@@ -6,43 +6,27 @@ import TimelineSparkline, {
 import Tooltip from "../ui/Tooltip";
 import { formatCT } from "../../lib/time";
 
-// The shared transport: play/step/seek + sparkline + a "what am I looking at"
-// label. It owns none of the domain — a page injects its own `frames` (the live
-// hourly window for Map/Matrix, one day's 24 hours for Analysis), its own
-// labeling, and whether continuous play even makes sense here. Everything the
-// old PlaybackScrubber hard-coded to the explorer window is now a prop, so the
-// same control renders identically on every page while quantizing time however
-// that page needs. Styles moved here verbatim from PlaybackScrubber.
+// Shared playback controls. Each page supplies its own frames and labels.
 interface Props {
-  // The domain this page can show, and where the cursor currently sits in it.
   frames: Date[];
   index: number;
   onSeek: (i: number | ((prev: number) => number)) => void;
 
-  // How this page names a frame and the axis — Explorer: "Aug 3, 2026 18:00 CT";
-  // Analysis: "HE19 · 6–7 PM CT". The transport never assumes a format.
   frameLabel: (t: Date) => string;
-  rangeLabel?: (t: Date) => string; // the two end captions; defaults to frameLabel
+  rangeLabel?: (t: Date) => string;
   axisLabel?: ReactNode;
   axisTip?: ReactNode;
 
-  // Capability + decoration — this is what lets one component fit both worlds.
-  canPlay?: boolean; // Explorer true; Analysis false (heavy per-hour briefs)
+  canPlay?: boolean;
   playIntervalMs?: number;
-  stepUnit?: string; // aria only: "hour" | "day"
+  stepUnit?: string;
 
   sparkSeries?: SparkPoint[];
   loading?: boolean;
   eventLabel?: string | null;
-  leftSlot?: ReactNode; // e.g. the Explorer's Load Window picker
-  rightSlot?: ReactNode; // e.g. the Analysis whole-day toggle
+  leftSlot?: ReactNode;
+  rightSlot?: ReactNode;
 
-  // A one-shot playback request (0131 — the Brief hero's `autoPlay=true`
-  // link): start playing once frames are available, then report back so the
-  // caller can strip the request from wherever it came from (the URL). This
-  // is behaviour, not a durable preference — `autoPlay` flipping back to
-  // false (the caller's own doing, after consuming it) must never itself
-  // start or stop playback.
   autoPlay?: boolean;
   onAutoPlayConsumed?: () => void;
 }
@@ -75,8 +59,7 @@ export default function TimeTransport({
   const hasData = frames.length > 0;
   const current = frames[index];
   const endCap = rangeLabel ?? frameLabel;
-  // One marker per Central-time delivery day makes a long window scannable
-  // without adding visual treatment behind the data lines.
+  // Mark Central-time delivery-day boundaries.
   const dayMarkers = useMemo(
     () =>
       frames.flatMap((frame, i) =>
@@ -94,12 +77,7 @@ export default function TimeTransport({
     [frames.length, onSeek]
   );
 
-  // Advance on a rAF wall-clock rather than setInterval. A fixed interval fires
-  // on a rigid schedule, so when a heavy frame (e.g. the compare view's two
-  // maps) runs long the timer slips and then bunches — the scrubber hangs, then
-  // lurches. Here each animation frame checks elapsed time and steps once when
-  // playIntervalMs has passed, re-anchoring to now so a slow frame never
-  // triggers a catch-up burst; under load playback just slows smoothly.
+  // Use animation frames so slow renders do not queue playback steps.
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
@@ -122,24 +100,16 @@ export default function TimeTransport({
     return () => cancelAnimationFrame(raf);
   }, [playing, frames.length, onSeek, playIntervalMs]);
 
-  // A page that can't play (Analysis) never leaves `playing` true.
   useEffect(() => {
     if (!canPlay && playing) queueMicrotask(() => setPlaying(false));
   }, [canPlay, playing]);
 
-  // Consume a one-shot autoplay request (0131) once there are frames to play.
-  // Always reports consumption straight away — reduced motion suppresses the
-  // playback itself, not the request being spent — so the caller strips it
-  // from wherever it came from (the URL) either way, and this never fires
-  // again for the same request.
   useEffect(() => {
     if (!autoPlay || !canPlay || !hasData) return;
     onAutoPlayConsumed?.();
     if (prefersReducedMotion()) return;
     if (index >= frames.length - 1) onSeek(0);
     queueMicrotask(() => setPlaying(true));
-    // Only a fresh autoplay request (or frames finally arriving) should
-    // re-run this — not every index/frames change during normal playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPlay, canPlay, hasData, onAutoPlayConsumed]);
 
