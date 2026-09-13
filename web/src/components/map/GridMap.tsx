@@ -27,16 +27,13 @@ import {
 } from "../../lib/colors";
 import { cssVar, onThemeChange, useTheme, type Theme } from "../../lib/theme";
 
-// Playback/scrub eases node fills between hours instead of hard-cutting. Kept a
-// touch under the play interval (~400ms) so a frame settles before the next.
+// Animate node color changes between playback hours.
 const TWEEN_MS = 300;
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-// Map chrome resolved from the --map-* / theme tokens in index.css. maplibre
-// paint properties cannot take var(), so the values are read out of the computed
-// root style and re-applied whenever the theme flips (see the effect below).
+// MapLibre needs resolved theme colors rather than CSS variables.
 function chromeColors() {
   return {
     label: cssVar("--map-label"),
@@ -113,8 +110,7 @@ function spStrokeColor(chrome: ReturnType<typeof chromeColors>): maplibregl.Expr
   ] as maplibregl.ExpressionSpecification;
 }
 
-// Major ERCOT-region cities, for map orientation only. Rendered as a faint
-// symbol layer beneath the data layers — no basemap, keeps the dark canvas.
+// City labels provide map orientation without a basemap.
 const CITY_LABELS: GeoJSON.FeatureCollection<GeoJSON.Point> = {
   type: "FeatureCollection",
   features: (
@@ -141,8 +137,6 @@ const CITY_LABELS: GeoJSON.FeatureCollection<GeoJSON.Point> = {
 };
 
 interface Props {
-  // settlement_points FeatureCollection from /topology. Features carry
-  // `sp_id` (the promoteId) plus sp_type / load_zone / capacity_mw.
   points: unknown | null;
   rows: SpRow[];
   dataMode: MapDataMode;
@@ -155,52 +149,25 @@ interface Props {
   onSpClick: (spId: string, props: Record<string, unknown>) => void;
   onMapClick: () => void;
   selectedSpId: string | null;
-  // `showConstraints` toggles the constraint layer's visibility (the header's
-  // constraints toggle). Passed only to the pane that owns the overlay (the
-  // left/prediction map).
+  // Show or hide constraint marks.
   showConstraints?: boolean;
-  // The de-piled overview (typed marks) — the sole constraint presentation, drawn
-  // as native maplibre layers here (GTC interface axes, MST corridor lines, radial
-  // rings) beneath the `sps` layer. The old flat centroid marker pile
-  // (/map/constraints) it replaced has been retired.
+  // Constraint marks drawn beneath settlement points.
   overview?: MapOverview | null;
-  // Synced isolation (plan/0103 Group 4). `isolatedConstraint` is a constraint the
-  // side-panel is hovering — it isolates that mark on the overview. `onIsolateConstraint`
-  // reports the overview's OWN hover back so the panel row highlights in step.
-  // `isolatedConstraint` filters the overview mark layers to a single constraint
-  // (the side-panel row being hovered). `onIsolateConstraint` reports/loads a
-  // constraint's focus — driven by the multi-constraint popover rows here.
+  // Highlight one constraint mark and report mark hover.
   isolatedConstraint?: string | null;
   onIsolateConstraint?: (id: string | null) => void;
-  // Focus reach (plan/0103): the dipole SP-coloring for a hovered/locked constraint
-  // — its constituent nodes glow signed import/export, every other node fades to the
-  // no-data fill. Distinct from `reach` (the click/DetailCard node-explorer) so a
-  // hover doesn't open that card; it just recolors the SP layer.
+  // Recolor nodes for the highlighted constraint without opening a card.
   focusReach?: ConstraintReach | null;
-  // A settlement point to ring white — the member node hovered in the panel's
-  // constituent list, so the panel row and the map node point at each other.
   ringedSpId?: string | null;
-  // Multi-constraint popover rows (plan/0112): hover previews that constraint in
-  // the DetailCard, click pins it. Node hover/click itself rides the base `sps`
-  // layer (onSpHover/onSpClick) — the overview no longer intercepts it.
   onConstraintPreview?: (key: string | null) => void;
   onConstraintSelect?: (key: string) => void;
-  // Constraint-reach mode. When set, the SP layer recolors: nodes the
-  // constraint drives glow by *signed* SF (the export/import dipole), the rest
-  // fade; a corridor arc traces the dipole axis. Null → normal node coloring.
+  // Selected constraint footprint; overrides normal node colors.
   reach?: ConstraintReach | null;
-  // `side` names the pane so App can namespace per-side state; `onMapReady`
-  // exposes the maplibre instance so App can mirror the camera across panes.
   side?: "prediction" | "actual";
   onMapReady?: (map: maplibregl.Map) => void;
-  // The diverging color ramp for the `congestion` palette. Defaults to the
-  // blue↔red congestion ramp; the forecast-error view passes `forecastErrorColor`
-  // (emerald↔magenta) so the error reads on its own hue axis. Only affects node
-  // fill — the reach/SF glow stays on congestionColor (there the sign is the
-  // export/import dipole).
+  // Optional congestion palette for forecast error.
   congestionColor?: (norm: number, theme: Theme) => string;
-  // Phones have no durable hover state. In tap-only mode selection remains, but
-  // node/constraint hover cards and transient constraint previews are disabled.
+  // Disable hover-only interactions on touch screens.
   tapOnly?: boolean;
 }
 
@@ -227,15 +194,10 @@ export default function GridMap({
   congestionColor = congestionRampColor,
   tapOnly = false,
 }: Props) {
-  // Node fill colors flip with the theme (light gets a visible grey center — see
-  // lib/colors.ts). Subscribing here re-runs the color effect below on a flip.
   const theme = useTheme();
   const prevSelectedRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Flipped inside the topology effect's onLoad handler after the `sps` source
-  // is added. Coloring / selection effects gate on this so a remount doesn't
-  // paint into a map whose source isn't ready yet — and re-fire the paint the
-  // moment the source lands.
+  // Wait for the settlement-point source before updating feature state.
   const [sourcesReady, setSourcesReady] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -248,8 +210,7 @@ export default function GridMap({
     onMapReadyRef.current = onMapReady;
   }, [onMapReady]);
 
-  // Stash the latest callback props in a ref so the map setup effect can bind
-  // handlers once on mount and still call the latest version of each callback.
+  // Map event handlers read current callbacks without rebinding.
   const callbacksRef = useRef({
     onSpHover,
     onSpClick,
@@ -276,8 +237,6 @@ export default function GridMap({
     onConstraintSelect,
   ]);
 
-  // One React-owned map hover card. Nodes use it either as a compact header or
-  // as a full member list; GTC gates use the same compact header form.
   const [popover, setPopover] = useState<{
     name: string;
     kind: "node" | "gtc" | "transmission";
@@ -286,11 +245,7 @@ export default function GridMap({
     x: number;
     y: number;
   } | null>(null);
-  // Mirror the popover into a ref so the (bind-once) constraint hover handlers can
-  // see the currently-shown card without re-binding. A node card carrying a member
-  // list is "sticky" — it survives leaving the node so the pointer can travel onto
-  // it and hover the constraint rows. The corridor/GTC hit layers sit under that
-  // travel path, so they must yield to a sticky node card rather than overwrite it.
+  // Keep member popovers open while moving the pointer into them.
   const popoverRef = useRef(popover);
   useEffect(() => {
     popoverRef.current = popover;
@@ -309,7 +264,6 @@ export default function GridMap({
   useEffect(() => {
     spMembersRef.current = spMembers;
   }, [spMembers]);
-  // Initialize map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
@@ -335,11 +289,7 @@ export default function GridMap({
 
     mapRef.current = map;
     onMapReadyRef.current?.(map);
-    // MapLibre measures its container at construction time. Switching from the
-    // full-width forecast-error map to the half-width dual pane does not emit a
-    // window resize, leaving projection coordinates based on the old map width.
-    // Observe the actual pane instead so both map geometry and the React hover
-    // popover (which uses projected pixels) stay in the same coordinate space.
+    // Resize when a single map becomes a split pane.
     const resizeObserver = new ResizeObserver((entries) => {
       map.resize();
       setContainerWidth(entries[0]?.contentRect.width ?? 0);
@@ -356,18 +306,13 @@ export default function GridMap({
     };
   }, []);
 
-  // Repaint map chrome when the theme flips. CSS custom properties cascade to
-  // stylesheet rules on their own, but maplibre paint properties are baked in at
-  // addLayer() time, so every --map-* dependent value has to be pushed again.
-  // Data colors are untouched: lib/colors.ts anchors are shared across themes.
+  // Refresh MapLibre paint values after a theme change.
   useEffect(() => {
     return onThemeChange(() => {
       const map = mapRef.current;
       if (!map || !map.isStyleLoaded()) return;
       const c = chromeColors();
 
-      // Layers are added conditionally (constraints overlay, reach arc), so
-      // guard each one rather than assuming the full set exists.
       const set = (layer: string, prop: string, value: unknown) => {
         if (map.getLayer(layer)) map.setPaintProperty(layer, prop, value);
       };
@@ -377,7 +322,6 @@ export default function GridMap({
       set("city-labels", "text-color", c.label);
       set("city-labels", "text-halo-color", c.halo);
       set("sps", "circle-stroke-color", spStrokeColor(c));
-      // The null-data fallback is the second branch of the circle-color case.
       set("sps", "circle-color", [
         "case",
         ["!=", ["feature-state", "color"], null],
@@ -399,7 +343,7 @@ export default function GridMap({
     });
   }, []);
 
-  // Load settlement points as a source + base layers
+  // Load settlement points and base layers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !points) return;
@@ -417,9 +361,6 @@ export default function GridMap({
 
       const chrome = chromeColors();
 
-      // Texas state boundary. The map has no basemap, so this is the only
-      // geographic reference besides the city labels; it is drawn first and
-      // therefore sits beneath everything else.
       if (!map.getSource("texas")) {
         map.addSource("texas", { type: "geojson", data: "/texas.geojson" });
       }
@@ -454,7 +395,6 @@ export default function GridMap({
         });
       }
 
-      // City orientation labels — added first so the SP circles draw on top.
       if (!map.getSource("cities")) {
         map.addSource("cities", { type: "geojson", data: CITY_LABELS });
       }
@@ -481,7 +421,6 @@ export default function GridMap({
         });
       }
 
-      // SP circles, colored per palette via feature-state.
       if (!map.getLayer("sps")) {
         map.addLayer({
           id: "sps",
@@ -497,22 +436,13 @@ export default function GridMap({
               ["feature-state", "color"],
               chrome.nodeNull,
             ],
-            // Faded feature-state dims nodes outside a constraint's reach.
             "circle-opacity": [
               "case",
               ["boolean", ["feature-state", "faded"], false],
               0.08,
               0.9,
             ],
-            // Hubs and load zones are aggregate price points, not physical
-            // generator/load nodes. Their larger neutral keylines preserve the
-            // congestion fill while shape and label make their class obvious.
             "circle-radius": spRadius(),
-            // Selected = a distinct, persistent high-contrast ring (thicker than
-            // hover) so the active click stays visible until another node is
-            // selected or the selection is cleared. Hover keeps the sky-blue
-            // ring. The ring color inverts with the theme -- white over the dark
-            // ground, near-black over the light one.
             "circle-stroke-width": spStrokeWidth(),
             "circle-stroke-color": spStrokeColor(chrome),
             "circle-stroke-opacity": [
@@ -525,9 +455,6 @@ export default function GridMap({
         });
       }
 
-      // Load zones are aggregate price areas, rendered as diamonds so they
-      // cannot be mistaken for physical settlement-point circles. Their fill
-      // still uses the active congestion/LMP feature-state color.
       if (!map.getLayer("load-zone-diamonds")) {
         map.addLayer({
           id: "load-zone-diamonds",
@@ -603,7 +530,6 @@ export default function GridMap({
         });
       }
 
-      // Hover interactions
       const handleSpMove = (e: maplibregl.MapLayerMouseEvent) => {
         if (tapOnlyRef.current) return;
         if (!e.features?.length) return;
@@ -619,9 +545,6 @@ export default function GridMap({
           kind: "node",
           members: hasMembers ? mem : undefined,
           meta: typeof props.load_zone === "string" ? props.load_zone : null,
-          // Event pixels are already relative to this map's own canvas. Using
-          // them avoids re-projecting against a stale full-width transform while
-          // the dual pane is being laid out.
           x: e.point.x,
           y: e.point.y,
         });
@@ -642,9 +565,7 @@ export default function GridMap({
 
       const handleSpClick = (e: maplibregl.MapLayerMouseEvent, layer: string) => {
         if (!e.features?.length) return;
-        // A large aggregate marker can cover a nearby regular node in screen
-        // space. The aggregate is the intended click target, even when both
-        // layers report a feature at the same pixel.
+        // Prefer an overlapping load-zone marker.
         if (layer === "sps" && map.queryRenderedFeatures(e.point, {
           layers: ["load-zone-diamonds"],
         }).length) return;
@@ -656,11 +577,10 @@ export default function GridMap({
         map.on("click", layer, (e) => handleSpClick(e, layer));
       }
 
-      // Sources are live — coloring/selection effects can now paint.
       setSourcesReady(true);
     };
 
-    // Click on empty map → clear pinned + close the constraint box
+    // Clear selection when the map background is clicked.
     map.on("click", (e) => {
       if (e.defaultPrevented) return;
       setPopover(null);
@@ -674,25 +594,9 @@ export default function GridMap({
     }
   }, [points]);
 
-  // Color SPs when rows/palette/stats change. Same $/MWh quantity → same
-  // color mapping on both panes, so prediction and actual are comparable by
-  // eye. With no rows loaded, clear the color feature-state so the circles
-  // fall back to the base fill.
-  //
-  // Clearing always uses setFeatureState(..., null), never removeFeatureState:
-  // a keyed delete on a feature with no committed state crashes maplibre's
-  // coalesceChanges (this.state[sourceLayer][id] is undefined), and the
-  // overlay/corridor addSource calls trigger that coalesce mid-batch — which
-  // would blank the whole map. `reachIdsRef` tracks the nodes reach touched so
-  // exiting reach un-fades exactly those.
+  // Update node colors when data or the active palette changes.
   const reachIdsRef = useRef<Set<string>>(new Set());
-  // Per-node normalized fill currently on screen, so a new hour eases from where
-  // each node actually is (see the paint below). A running tween is cancelled by
-  // this effect's own cleanup when the frame changes or the map unmounts.
   const normValsRef = useRef<Map<string, number>>(new Map());
-  // Last color pushed to each node, so an hour only re-sets the nodes that
-  // actually changed color — ~1100 setFeatureState calls/tick was the compare
-  // hotspot. Cleared whenever another path (reach/empty) repaints outside here.
   const lastColorRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const map = mapRef.current;
@@ -702,25 +606,7 @@ export default function GridMap({
       { sp_id: string }
     >;
 
-    // Reach mode: a focused constraint's driven nodes glow by signed SF role:
-    // soft-magenta import end (SF<0) or teal export end (SF>0). This deliberately does
-    // not reuse a metric-map gradient, whose sign can mean something different.
-    // Every other node fades to the no-data fill. This is SF *structure*,
-    // deliberately overriding the realized/forecast-error palette while a
-    // constraint is focused.
-    //
-    // Membership + signed SF come from the SAME reach the DetailCard shows, so the
-    // map glow and the card can never disagree. `reach`/`focusReach` is the
-    // constraint's FULL driven set (top-k), day-exact when the day has an artifact
-    // and the nearest-past SF run otherwise (server fallback), so it is populated
-    // on every day — the original reason for keying off the overview is gone now
-    // that reach never comes back empty.
-    //
-    // The overview's `nodes` is only a TRUNCATED top-few field for drawing the mark
-    // glyph (k=6 in the bundle), NOT the full membership — keying the fade off it
-    // faded every member past the glyph's top-6 while the card listed all of them.
-    // So it is only a pre-load fallback, used until reach lands for the isolated
-    // constraint, never the primary source.
+    // Highlight the full reach; use overview nodes only while it loads.
     const rch = focusReach ?? reach;
     const members =
       rch && rch.sps.length > 0
@@ -757,7 +643,6 @@ export default function GridMap({
       return;
     }
 
-    // Leaving reach mode: un-fade exactly the nodes reach touched.
     if (reachIdsRef.current.size) {
       for (const id of reachIdsRef.current) {
         map.setFeatureState({ source: "sps", id }, { faded: false });
@@ -777,10 +662,6 @@ export default function GridMap({
       return;
     }
 
-    // Target normalized fill (0..1 into the active ramp) per node, plus the ramp
-    // itself. Same $/MWh → same color on both panes, so the sides stay comparable.
-    // Memoized on a quantized nv so ~1100 nodes cost at most a few hundred color
-    // builds, and the cache is reused across a tween's frames.
     const base =
       dataMode === "congestion"
         ? (nv: number) => congestionColor(nv, theme)
@@ -805,9 +686,7 @@ export default function GridMap({
       targets.set(row.sp_id, nv);
     }
 
-    // Ease each node from where it's shown now to its new target. `start` is the
-    // on-screen value snapshot; `norms` tracks the live value so an interrupting
-    // hour picks up mid-tween. New nodes (no start) jump straight to target.
+    // Continue transitions from the current on-screen color.
     const norms = normValsRef.current;
     const start = new Map(norms);
     const paint = (frac: number) => {
@@ -827,9 +706,7 @@ export default function GridMap({
       return;
     }
 
-    // Throttle to ~30fps: a color fade is smooth at 30, and each painted frame
-    // repaints every node (×2 maps in compare), so halving the frames frees the
-    // main thread for the playback clock. The final frame always lands on target.
+    // Limit color transitions to 30 fps.
     let rafId = 0;
     let lastPaint = 0;
     const t0 = performance.now();
@@ -858,9 +735,7 @@ export default function GridMap({
     theme,
   ]);
 
-  // The metric node fill remains MapLibre data; this separate, zero-sized
-  // DOM marker contributes only a CSS halo. MapLibre keeps its geographic
-  // position through pan/zoom while the browser handles the animation.
+  // DOM markers provide animated halos over MapLibre data layers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !points || !sourcesReady) return;
@@ -960,8 +835,6 @@ export default function GridMap({
     prevSelectedRef.current = selectedSpId;
   }, [selectedSpId, sourcesReady]);
 
-  // Ringed SP — the member node hovered in the panel's constituent list. A white
-  // ring on the corresponding map node, cleared when the hover moves off.
   const prevRingedRef = useRef<string | null>(null);
   useEffect(() => {
     const map = mapRef.current;
@@ -978,8 +851,6 @@ export default function GridMap({
     prevRingedRef.current = ringedSpId ?? null;
   }, [ringedSpId, sourcesReady]);
 
-  // Retire the former purple reach-corridor arc, including after hot reloads
-  // where the old maplibre layer can otherwise survive the code change.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady) return;
@@ -987,10 +858,7 @@ export default function GridMap({
     if (map.getSource("reach-corridor")) map.removeSource("reach-corridor");
   }, [sourcesReady]);
 
-  // Overview mark layers: GTCs are signed-axis gate glyphs, transmission is
-  // MST corridors, and radials are rings. All draw beneath `sps` so node clicks
-  // stay on the base layer. Empty sources when off; `isolatedConstraint` filters
-  // every mark to a single constraint.
+  // Draw constraint marks below settlement points.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady) return;
@@ -1050,9 +918,7 @@ export default function GridMap({
           before
         );
       }
-      // Small, effectively invisible interaction target for a gate's thin bars.
-      // It is intentionally below `sps`, and the event handlers below yield to a
-      // rendered settlement-point feature before responding.
+      // Larger hit area for thin GTC gates.
       if (!map.getLayer("ov-gtc-hit")) {
         map.addLayer(
           {
@@ -1084,10 +950,7 @@ export default function GridMap({
           before
         );
       }
-      // Wide, effectively invisible interaction target for the thin corridor
-      // line — the transmission analogue of `ov-gtc-hit`. Same source as the
-      // rendered corridor, so it carries `constraint_key`/`ctype` too. Below
-      // `sps`; the handlers yield to any settlement point under the cursor.
+      // Larger hit area for transmission corridors.
       if (!map.getLayer("ov-corridor-hit")) {
         map.addLayer(
           {
@@ -1131,9 +994,6 @@ export default function GridMap({
         );
       }
 
-      // Theme refresh + isolation filter, applied every pass. Use an explicit
-      // all-pass filter (`["all"]`) rather than clearing with null — clearing to
-      // null was intermittently leaving every mark hidden when un-isolating.
       map.setPaintProperty("ov-gtc-axis", "line-color", sf.gtc);
       map.setPaintProperty("ov-gtc-gate", "line-color", sf.gtc);
       map.setPaintProperty("ov-gtc-hit", "circle-color", sf.gtc);
@@ -1151,13 +1011,7 @@ export default function GridMap({
       map.setFilter("ov-corridor-hit", filt);
     };
 
-    // `sourcesReady` already implies the style is loaded (it flips inside the
-    // topology onLoad), so apply directly — deferring to a `once("load")` that has
-    // already fired would strand the update and leave marks in a stale state.
     apply();
-    // `selectedSpId`/`reach`/`focusReach` are here so the marks re-assert (setData
-    // + re-add any missing layer + re-filter) after any node/constraint interaction
-    // — they can never be left stranded by another effect touching the style.
   }, [
     overview,
     showConstraints,
@@ -1169,33 +1023,19 @@ export default function GridMap({
     focusReach,
   ]);
 
-  // Desktop gate interaction previews/isolates on hover, then commits on click.
-  // Tap-only mode binds only the click path: a constraint is either selected or
-  // not selected, never transiently previewed under a finger.
+  // Preview constraints on hover; touch screens select on tap.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !sourcesReady || !map.getLayer("ov-gtc-hit")) return;
 
-    // Both overview constraint glyphs carry an invisible hit layer: GTC gates a
-    // circle, transmission corridors a fat line. They share one handler set.
     const hitLayers = ["ov-gtc-hit", "ov-corridor-hit"];
     const overSettlementPoint = (e: maplibregl.MapLayerMouseEvent) =>
       map.queryRenderedFeatures(e.point, { layers: ["sps", "load-zone-diamonds"] }).length > 0;
     const keyAt = (e: maplibregl.MapLayerMouseEvent) =>
       e.features?.[0]?.properties?.constraint_key as string | undefined;
-    // Corridor features tag `ctype: "transmission"`; the gate hit target does
-    // not, so an absent ctype reads as a GTC.
     const kindAt = (e: maplibregl.MapLayerMouseEvent) =>
       e.features?.[0]?.properties?.ctype === "transmission" ? "transmission" : "gtc";
-    // Read callbacks off the ref, never the closure. Binding these handlers to
-    // the callback props would re-run this effect (and rebind the maplibre
-    // listeners) every time `reach`/`focusReach` changed — and since `onEnter`
-    // itself drives those, the rebind reset maplibre's mouseenter state and the
-    // next mousemove re-fired `onEnter`, spraying duplicate /map/reach fetches
-    // and thrashing the DetailCard. Binding once keeps one enter per hover.
     const onEnter = (e: maplibregl.MapLayerMouseEvent) => {
-      // Yield to a sticky node member-card the pointer is travelling toward, and
-      // to a settlement point directly under the cursor.
       if (overStickyNodeCard() || overSettlementPoint(e)) return;
       const key = keyAt(e);
       if (!key) return;
@@ -1210,9 +1050,6 @@ export default function GridMap({
       if (key) setPopover({ name: key, kind: kindAt(e), x: e.point.x, y: e.point.y });
     };
     const onLeave = () => {
-      // Leaving the corridor onto a sticky node card (a DOM element that steals
-      // the pointer off the canvas) must NOT tear that card down — the corridor
-      // yielded on enter/move, so it owns no popover or focus to clear here.
       if (overStickyNodeCard()) return;
       map.getCanvas().style.cursor = "";
       setPopover(null);
@@ -1265,9 +1102,6 @@ export default function GridMap({
               onConstraintPreview?.(key);
             }}
             onRowClick={(key) => {
-              // Commit + dismiss the box. Leaving it open lets the mouse graze
-              // other rows on the way out, and a row-hover unlocks the focus we
-              // just locked — so close it here and the lock holds.
               onConstraintSelect?.(key);
               setPopover(null);
             }}

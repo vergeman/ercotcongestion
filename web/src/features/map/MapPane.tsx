@@ -3,15 +3,11 @@ import GridMap from "../../components/map/GridMap";
 import Legend from "../../components/map/Legend";
 import DetailCard from "../../components/map/DetailCard";
 import { MapPaneBadge } from "./MapPaneBadge";
-import type {
-  PaneBadge,
-  PredictionInteractions,
-  PredictionPaneConfig,
-} from "./mapPaneTypes";
+import type { MapPaneConfig, MapPaneInteractions, PaneBadge } from "./mapPaneTypes";
 
-interface PredictionPaneProps {
-  config: PredictionPaneConfig;
-  interactions: PredictionInteractions;
+interface MapPaneProps {
+  config: MapPaneConfig;
+  interactions: MapPaneInteractions;
   points: GeoJSON.FeatureCollection | null;
   overview: MapOverview | null;
   showConstraints: boolean;
@@ -21,16 +17,11 @@ interface PredictionPaneProps {
   isMobile: boolean;
 }
 
-/**
- * The prediction map shared by the Forecast and Error views: the same GridMap
- * overlay, prediction DetailCard, constraint toggle, and member ring. Only the
- * rows/stats, data mode, error color, legend text, and preview badge differ —
- * all passed as `config`. Interaction ownership stays in MapWorkspace.
- */
-export function PredictionPane({
+/** Shared map presentation; config supplies each view's data and provenance. */
+export function MapPane({
   config, interactions: ix, points, overview, showConstraints,
   constraintsToggle, cursorTs, badge, isMobile,
-}: PredictionPaneProps) {
+}: MapPaneProps) {
   const hasOverlay = showConstraints && !!overview?.constraints.length;
   return (
     <>
@@ -42,7 +33,7 @@ export function PredictionPane({
         mcStats={config.mcStats}
         onMapClick={ix.onMapBackgroundClick}
         selectedSpId={ix.pinnedSp?.spId ?? null}
-        side="prediction"
+        side={config.side}
         onSpHover={ix.onSpHover}
         onSpClick={ix.onSpClick}
         onMapReady={ix.onMapReady}
@@ -88,11 +79,10 @@ export function PredictionPane({
         signLabels={config.signLabels}
         barGradientOverride={config.barGradientOverride}
       />
-      {/* Prediction card: the node's forecast / realized / error + SF drivers. */}
       <DetailCard
         hoveredSp={ix.hoveredSp}
         pinnedSp={ix.pinnedSp}
-        valueMode="forecast"
+        valueMode={config.valueMode}
         exposures={ix.exposures}
         exposuresLoading={ix.exposuresLoading}
         cursorTs={cursorTs}
@@ -103,6 +93,7 @@ export function PredictionPane({
         onHoverConstraint={isMobile ? undefined : ix.onHoverConstraint}
         onHoverMember={isMobile ? undefined : ix.onHoverMember}
         onSelectMember={ix.onSelectMember}
+        reachValueMode={config.valueMode}
         mobile={isMobile}
       />
     </>

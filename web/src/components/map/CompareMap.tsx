@@ -6,9 +6,7 @@ interface Props {
   right: React.ReactNode;
 }
 
-// Layout-only wrapper for the model / ERCOT panes. Camera sync between
-// the two maps lives in App so it can hook `onMapReady` callbacks without
-// prop-drilling refs through this component.
+// Layout wrapper for the model and ERCOT panes.
 export default function CompareMap({ main, right }: Props) {
   return (
     <div className="compare-container">

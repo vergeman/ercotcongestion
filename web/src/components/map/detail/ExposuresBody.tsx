@@ -51,15 +51,7 @@ export function ExposuresBody({
         className="dc-drivers"
         onMouseLeave={() => onHoverConstraint?.(null)}
       >
-        {/* Column headers carry the units, so the rows carry bare numbers. The
-            key column is `constraint|contingency` — the artifact's own key
-            order (services/sf_artifacts.normalize_constraint_key).
-
-            It lives *inside* the scroll container, stuck to the top, so it is
-            subject to the same scrollbar the rows are. Outside it, a classic
-            (space-taking) scrollbar squeezes the rows ~12px narrower than the
-            header and every numeric column reads as shifted right — invisible
-            under macOS/headless overlay scrollbars, plainly wrong elsewhere. */}
+        {/* Keep headers inside the scroll area so columns stay aligned. */}
         {exposures.exposures.length > 0 && (
           <div className="dc-driver dc-driver--head">
             <span aria-hidden="true" />
