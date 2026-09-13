@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+import json
 import logging
 from time import perf_counter
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from psycopg.types.json import Jsonb
 from psycopg.rows import dict_row
 
@@ -197,13 +199,13 @@ def _snapshot_payload(
         standouts = standouts_future.result()
     return {
         "hero": _json_payload(hero),
-        "details": details.model_dump(mode="json"),
+        "details": _json_payload(details),
         "standouts": _json_payload(standouts),
     }
 
 
 def _json_payload(response) -> dict:
-    return response.model_dump(mode="json") if hasattr(response, "model_dump") else response
+    return json.loads(json.dumps(jsonable_encoder(response), default=str))
 
 
 def _snapshot_or_compose(

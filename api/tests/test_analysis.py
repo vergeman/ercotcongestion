@@ -40,6 +40,12 @@ def test_brief_delivery_date_alias_resolves_to_the_canonical_name():
     assert analysis_module._resolve_brief_delivery_date(Query(None), delivery_date) == delivery_date
 
 
+def test_brief_snapshot_payload_encodes_dates():
+    assert brief_service._json_payload({"delivery_date": date(2026, 7, 28)}) == {
+        "delivery_date": "2026-07-28"
+    }
+
+
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):
     """One artifact covers its whole CT day now (0133) — no cross-day stitch."""
     monkeypatch.setattr(brief_grade, "_load_daily_artifact", lambda *_: _artifact())
