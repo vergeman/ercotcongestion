@@ -5,6 +5,7 @@ import './index.css'
 import App, { ExplorerApp } from './App.tsx'
 import ScoreboardPage from './pages/ScoreboardPage.tsx'
 import BriefPage from './pages/BriefPage.tsx'
+import AboutPage from './pages/AboutPage.tsx'
 import { ExplorerLayout } from './hooks/useSharedExplorer'
 
 createRoot(document.getElementById('root')!).render(
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')!).render(
             session or transport, while App itself stays mounted across hops. */}
         <Route element={<App />}>
           <Route path="/" element={<BriefPage />} />
+          <Route path="/about" element={<AboutPage />} />
           {/* Map and Matrix keep their shared live session and scrubber. */}
           <Route element={<ExplorerLayout />}>
             <Route path="/map" element={<ExplorerApp />} />

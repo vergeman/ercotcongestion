@@ -8,7 +8,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { APP_TITLE } from "../../lib/brand";
 import Tooltip from "../ui/Tooltip";
 
-type NavKey = "map" | "matrix" | "scoreboard" | "brief" | "analysis";
+type NavKey = "map" | "matrix" | "scoreboard" | "brief" | "analysis" | "about";
 
 // `reload: true` opts a destination out of client-side routing — its link does a
 // full-page load instead. Everything else routes through the Router (no reload).
@@ -18,6 +18,7 @@ const NAV: { key: NavKey; label: string; href?: string; newTab?: boolean; reload
   { key: "map", label: "Map", href: "/map" },
   { key: "matrix", label: "Matrix", href: "/matrix" },
   { key: "scoreboard", label: "Scoreboard", href: "/scoreboard", reload: true },
+  { key: "about", label: "About", href: "/about" },
 ];
 
 export default function HeaderNav({
