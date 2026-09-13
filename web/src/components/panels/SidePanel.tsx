@@ -436,18 +436,22 @@ export default function SidePanel({
           </section>
 
           {/* ── Day-scoped scorecard (compact table) ───────────────────────── */}
-          {scorecard?.available && (
+          {scorecard && (
             <section className="np-section">
               <div className="np-section__header sc-header">
                 <span className="label">Scorecard</span>
               </div>
               <div className="sc-meta label">
-                  {scorecard.basis === "served_daily"
-                    ? `Final served · ${scorecard.delivery_date}`
-                    : `Backfill · week of ${scorecard.scored_week}`}
+                {scorecard.basis === "served_daily"
+                  ? `Final served · ${scorecard.delivery_date}`
+                  : scorecard.basis === "served_daily_pending"
+                    ? "Final score pending"
+                    : scorecard.basis === "weekly_backtest_fallback"
+                      ? `Historical backtest · week of ${scorecard.scored_week}`
+                      : "No score available"}
               </div>
 
-              <div className="sc-table">
+              {scorecard.sources.length > 0 && <div className="sc-table">
                 <span className="sc-h sc-h--cat" />
                 <span className="sc-h">Model</span>
                 <span className="sc-h">Persist</span>
@@ -488,7 +492,7 @@ export default function SidePanel({
                     </Fragment>
                   );
                 })}
-              </div>
+              </div>}
 
               {fitMeta && (
                 <div className="sc-fit">
