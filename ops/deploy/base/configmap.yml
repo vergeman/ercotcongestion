@@ -10,7 +10,7 @@ data:
   PG_DATABASE: "ercot"
 
   # CORS: comma-separated list, parsed by shared.settings.frontend_origins
-  FRONTEND_ORIGIN: "https://ercotstress.com,https://www.ercotstress.com"
+  FRONTEND_ORIGIN: "https://ercotcongestion.com,https://www.ercotcongestion.com"
 
   # Data paths inside the image (baked at build time in api/Dockerfile)
   DATA_DIR: "/data/raw"

@@ -6,7 +6,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@ercotstress.com
+    email: admin@ercotcongestion.com
     privateKeySecretRef:
       name: letsencrypt-cluster-issuer-secret
     solvers:
@@ -17,4 +17,4 @@ spec:
               key: api-token
         selector:
           dnsNames:
-            - api.ercotstress.com
+            - api.ercotcongestion.com

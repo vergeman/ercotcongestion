@@ -64,6 +64,11 @@ spec:
             - name: migrations
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
+            # Kubernetes otherwise supplies Docker's default 64 MiB /dev/shm.
+            # PostgreSQL uses this tmpfs for dynamic shared memory, including
+            # parallel-query segments.
+            - name: dshm
+              mountPath: /dev/shm
           readinessProbe:
             exec:
               command:
@@ -94,3 +99,7 @@ spec:
         - name: migrations
           configMap:
             name: postgres-migrations
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

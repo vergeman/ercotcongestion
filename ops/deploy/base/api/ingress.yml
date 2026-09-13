@@ -7,7 +7,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`api.ercotstress.com`)
+    - match: Host(`api.ercotcongestion.com`)
       kind: Rule
       middlewares:
         - name: api-compress
@@ -15,7 +15,7 @@ spec:
         - name: api
           port: 8000
   tls:
-    secretName: api-ercotstress-tls
+    secretName: api-ercotcongestion-tls
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -45,7 +45,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`api.ercotstress.com`)
+    - match: Host(`api.ercotcongestion.com`)
       kind: Rule
       middlewares:
         - name: redirect-to-https
