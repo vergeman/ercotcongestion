@@ -24,7 +24,7 @@ export default function AboutPage() {
               ERCOT Stress maps where congestion is priced across ERCOT, then recovers the hidden shift factors behind it.
               It uses that structure to forecast tomorrow’s congestion and evaluates its track record after settlement.
             </p>
-            <a className="about-page__github" href="https://github.com/vergeman/ercotstress">View on GitHub</a>
+            <a className="about-page__github" href="https://github.com/vergeman/ercotstress" target="_blank" rel="noopener noreferrer">View on GitHub</a>
           </div>
           <video className="about-page__video" controls playsInline preload="metadata" aria-label="ERCOT Stress congestion explorer demonstration">
             <source src={introVideo} type="video/mp4" />
@@ -35,10 +35,10 @@ export default function AboutPage() {
         <section aria-labelledby="four-pages">
           <h2 id="four-pages">The Four Pages of ERCOT Stress</h2>
           <ul className="about-page__page-list">
-            <li><Link to="/">Homepage Brief</Link> — a daily scan of nodal congestion and constraint shadow prices of interest, typically outside their recent p10–p90 30-day range.</li>
-            <li><Link to="/map">Map</Link> — displays nodal congestion, LMPs, and each constraint’s electrical footprint. Toggle between forecast and settlement data; hourly playback shows when and where congestion occurs.</li>
-            <li><Link to="/matrix">Matrix</Link> — explore recovered shift factors and each constraint’s congestion contribution to a node; it shows why a node prices the way it does.</li>
-            <li><Link to="/scoreboard">Scoreboard</Link> — evaluates the forecast over time and against baselines.</li>
+            <li><Link to="/">Homepage Brief</Link>: a daily scan of nodal congestion and constraint shadow prices of interest, typically outside their recent p10–p90 30-day range.</li>
+            <li><Link to="/map">Map</Link>: displays nodal congestion, LMPs, and each constraint’s electrical footprint. Toggle between forecast and settlement data; hourly playback shows when and where congestion occurs.</li>
+            <li><Link to="/matrix">Matrix</Link>: explore recovered shift factors and each constraint’s congestion contribution to a node; it shows why a node prices the way it does.</li>
+            <li><Link to="/scoreboard">Scoreboard</Link>: evaluates the forecast over time and against baselines.</li>
           </ul>
           <p>Each page presents a distinct lens on ERCOT’s network topology, congestion, shift factors, and an attempt at price forecasting.</p>
         </section>
