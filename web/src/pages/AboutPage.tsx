@@ -18,22 +18,22 @@ export default function AboutPage() {
       <main className="about-page__main">
         <section className="about-page__hero" aria-labelledby="about-title">
           <div>
-            <p className="about-page__eyebrow label">Grid structure explorer</p>
-            <h1 id="about-title">ERCOT Stress</h1>
+            <p className="about-page__eyebrow label">Grid Structure Explorer</p>
+            <h1 id="about-title">ERCOT Congestion</h1>
             <p className="about-page__lede">
-              ERCOT Stress maps where congestion is priced across ERCOT, then recovers the hidden shift factors behind it.
+              ERCOT Congestion maps where congestion is priced across ERCOT, then recovers the hidden shift factors behind it.
               It uses that structure to forecast tomorrow’s congestion and evaluates its track record after settlement.
             </p>
-            <a className="about-page__github" href="https://github.com/vergeman/ercotstress" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+            <a className="about-page__github" href="https://github.com/vergeman/ercotcongestion" target="_blank" rel="noopener noreferrer">View on GitHub</a>
           </div>
-          <video className="about-page__video" controls playsInline preload="metadata" aria-label="ERCOT Stress congestion explorer demonstration">
+          <video className="about-page__video" controls playsInline preload="metadata" aria-label="ERCOT Congestion explorer demonstration">
             <source src={introVideo} type="video/mp4" />
             Your browser does not support embedded video.
           </video>
         </section>
 
         <section aria-labelledby="four-pages">
-          <h2 id="four-pages">The Four Pages of ERCOT Stress</h2>
+          <h2 id="four-pages">The Four Pages of ERCOT Congestion</h2>
           <ul className="about-page__page-list">
             <li><Link to="/">Homepage Brief</Link>: a daily scan of nodal congestion and constraint shadow prices of interest, typically outside their recent p10–p90 30-day range.</li>
             <li><Link to="/map">Map</Link>: displays nodal congestion, LMPs, and each constraint’s electrical footprint. Toggle between forecast and settlement data; hourly playback shows when and where congestion occurs.</li>
@@ -84,9 +84,9 @@ export default function AboutPage() {
           <ol><li><code>LMP = System Price (λ) + congestion</code></li><li><code>congestion = LMP − System Price (λ)</code></li><li><code>congestion = −Σ SF·μ</code></li></ol>
           <Formula>{"C = −M · SFᵀ"}</Formula>
           <ul><li><strong>C</strong>: congestion, hours × settlement points.</li><li><strong>M</strong>: shadow prices, hours × constraints.</li><li><strong>SF</strong>: shift factors, constraints × settlement points.</li></ul>
-          <p>ERCOT provides <code>M</code> and <code>C</code>. ERCOT Stress solves for <code>SF</code> with ridge regression on a trailing 240-day window, refit weekly, with no load, weather, or other covariates. The recovered values are checked against settlement data: combined with settled shadow prices, they reproduce observed congestion with a residual measured on every refit.</p>
+          <p>ERCOT provides <code>M</code> and <code>C</code>. ERCOT Congestion solves for <code>SF</code> with ridge regression on a trailing 240-day window, refit weekly, with no load, weather, or other covariates. The recovered values are checked against settlement data: combined with settled shadow prices, they reproduce observed congestion with a residual measured on every refit.</p>
           <p>As an independent check, ERCOT’s Electrically Similar Settlement Points (ESSP) list identifies nodes that should share shift-factor signatures. Across 20 published ESSP groups, the recovered map matched every group. Public EIA-860 location data then attaches latitude and longitude to settlement points so footprints can be displayed on the map.</p>
-          <p>See <a href="https://github.com/vergeman/ercotstress/blob/master/docs/MODELS.md">model details</a> and the <a href="https://github.com/vergeman/ercotstress/tree/master/compute/evaluation">ESSP evaluation</a>.</p>
+          <p>See <a href="https://github.com/vergeman/ercotcongestion/blob/master/docs/MODELS.md">model details</a> and the <a href="https://github.com/vergeman/ercotcongestion/tree/master/compute/evaluation">ESSP evaluation</a>.</p>
         </section>
 
         <section aria-labelledby="forecast">

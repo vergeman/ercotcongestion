@@ -1,6 +1,6 @@
 # [ERCOT Congestion Explorer](https://ercotcongestion.com)
 
-[![CI](https://github.com/vergeman/ercotstress/actions/workflows/ci.yml/badge.svg)](https://github.com/vergeman/ercotstress/actions/workflows/ci.yml)
+[![CI](https://github.com/vergeman/ercotcongestion/actions/workflows/ci.yml/badge.svg)](https://github.com/vergeman/ercotcongestion/actions/workflows/ci.yml)
 
 ERCOT Congestion Explorer maps where congestion is priced across ERCOT and
 recovers the estimated shift factors behind it. Use the map to query hourly
