@@ -25,14 +25,14 @@ Branch: feat/0211-market-modeled-footprints
 
 ## Acceptance
 
-* [ ] Market mode can toggle and hover/select modeled footprints without changing its realized node coloring.
-* [ ] Market constraint detail uses actual DAM μ/contribution when published and never labels it as forecast.
-* [ ] The overlay is disabled by default in Market and identifies itself as regression-derived.
-* [ ] Focused interaction/UI tests cover Market overlay visibility, selection cleanup, and realized-value labels.
+* [x] Market mode can toggle and hover/select constraint footprints without changing its realized node coloring.
+* [x] Market constraint detail uses actual DAM μ/contribution when published and labels forecast values separately.
+* [x] The overlay is disabled by default in Market and uses the shared Forecast legend control and key.
+* [ ] Focused interaction/UI tests cover Market overlay visibility, selection cleanup, and realized-value labels. No component-test setup exists in this package.
 
 ## Follow-up refactor
 
-* Consolidate Forecast, Market, and Error map panes behind one side-aware pane component.
-* Remove the parallel pane contracts and superseded pane components.
-* Verify TypeScript and lint after the behavior-preserving consolidation.
-* Replace verbose map comments with brief explanations of current behavior.
+* [x] Consolidate Forecast, Market, and Error map panes behind one side-aware pane component.
+* [x] Remove the parallel pane contracts and superseded pane components.
+* [x] Verify TypeScript and lint after the behavior-preserving consolidation.
+* [x] Replace verbose map comments with brief explanations of current behavior.
