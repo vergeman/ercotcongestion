@@ -34,12 +34,12 @@ export default function AboutPage() {
 
         <section aria-labelledby="four-pages">
           <h2 id="four-pages">The Four Pages of ERCOT Stress</h2>
-          <div className="about-page__page-grid">
-            <article><h3><Link to="/">Homepage Brief</Link></h3><p>A daily scan of nodal congestion and constraint shadow prices of interest, typically outside their recent p10–p90 30-day range.</p></article>
-            <article><h3><Link to="/map">Map</Link></h3><p>Displays nodal congestion, LMPs, and each constraint’s electrical footprint. Toggle between forecast and settlement data; hourly playback shows when and where congestion occurs.</p></article>
-            <article><h3><Link to="/matrix">Matrix</Link></h3><p>Explore recovered shift factors and each constraint’s congestion contribution to a node; it shows why a node prices the way it does.</p></article>
-            <article><h3><Link to="/scoreboard">Scoreboard</Link></h3><p>Evaluates the forecast over time and against baselines.</p></article>
-          </div>
+          <ul className="about-page__page-list">
+            <li><Link to="/">Homepage Brief</Link> — a daily scan of nodal congestion and constraint shadow prices of interest, typically outside their recent p10–p90 30-day range.</li>
+            <li><Link to="/map">Map</Link> — displays nodal congestion, LMPs, and each constraint’s electrical footprint. Toggle between forecast and settlement data; hourly playback shows when and where congestion occurs.</li>
+            <li><Link to="/matrix">Matrix</Link> — explore recovered shift factors and each constraint’s congestion contribution to a node; it shows why a node prices the way it does.</li>
+            <li><Link to="/scoreboard">Scoreboard</Link> — evaluates the forecast over time and against baselines.</li>
+          </ul>
           <p>Each page presents a distinct lens on ERCOT’s network topology, congestion, shift factors, and an attempt at price forecasting.</p>
         </section>
 
@@ -107,8 +107,8 @@ export default function AboutPage() {
           <h2 id="case-studies">Case Studies</h2>
           <p>Explore how the map and forecasts behaved during specific moments in ERCOT history.</p>
           <article><h3>Far West Sign Flip: June 20–21, 2025</h3><p>Overnight, the Permian imported power with congestion around <strong>+$34/MWh</strong>. By midday, <strong>5.6 GW</strong> of local solar saturated export paths and the area reached about <strong>−$24/MWh</strong>, turning into an export hub. The nodal map flips from an expensive receiving side to a cheap exporting side; a constraint footprint reveals the mechanism beneath both views.</p><div className="about-page__image-pair"><img src="/screenshots/far-west-1.png" alt="Far West congestion map during the overnight import period" /><img src="/screenshots/far-west-2.png" alt="Far West congestion map during the midday solar export period" /></div></article>
-          <article><h3>Rabbit Hill: February 19–21, 2025</h3><p>A winter morning radial overload in an Austin suburb pushed local congestion to <strong>+$5,977/MWh</strong> at 6 a.m. on February 20, then down to <strong>+$242 by noon</strong>. The constraint peaked at <strong>$7,577</strong> on the 20th versus <strong>$323</strong> the prior day.</p><figure className="about-page__figure"><img src="/screenshots/rabbit-hill.png" alt="Rabbit Hill case-study congestion map" /></figure></article>
-          <article><h3>Winter Storm Fern: January 24–26, 2026</h3><p>A winter storm created system-wide extremes in which scarcity and congestion coincided. The widest congestion spread was <strong>$1,618/MWh</strong> while system λ peaked near <strong>$1,915</strong>. Rio Grande Valley wind was bottled at <strong>−$1,454</strong>, while <code>PALACIOS_RN</code> reached <strong>$20,941</strong> at 0600.</p><div className="about-page__image-pair"><img src="/screenshots/winter-fern-lmp.png" alt="Winter Storm Fern locational marginal price map" /><img src="/screenshots/winter-fern-congestion.png" alt="Winter Storm Fern congestion map" /></div></article>
+          <article><h3>Rabbit Hill: February 19–21, 2025</h3><p>A winter morning radial overload in an Austin suburb pushed local congestion to <strong>+$5,832/MWh</strong> at 7 a.m. on February 20, then down to <strong>+$242 by noon</strong>. The constraint peaked at <strong>$7,577</strong> on the 20th versus <strong>$323</strong> the prior day.</p><figure className="about-page__figure"><img src="/screenshots/rabbit-hill.png" alt="Rabbit Hill case-study congestion map" /></figure></article>
+          <article><h3>Winter Storm Fern: January 24–26, 2026</h3><p>A winter storm created system-wide extremes in which scarcity and congestion coincided. The widest congestion spread was <strong>$1,618/MWh</strong> while system λ peaked near <strong>$1,915</strong>. Rio Grande Valley wind was bottled at <strong>−$1,454</strong>, while <code>PALACIOS_RN</code> reached <strong>$20,941</strong> at 0600. The left image shows LMP; the right shows congestion.</p><div className="about-page__image-pair"><img src="/screenshots/winter-fern-lmp.png" alt="Winter Storm Fern locational marginal price map" /><img src="/screenshots/winter-fern-congestion.png" alt="Winter Storm Fern congestion map" /></div></article>
         </section>
 
         <section aria-labelledby="limitations">
