@@ -45,15 +45,26 @@ export interface PredictionInteractions {
   onSelectMember: (sp: string) => void;
 }
 
-// The realized (ERCOT) side's state + callbacks — no SF drivers or reach.
+// The realized (ERCOT) side keeps its node card realized-only, while sharing
+// the constraint overlay interactions with the prediction panes.
 export interface MarketInteractions {
   hoveredSp: PaneSp | null;
   pinnedSp: PaneSp | null;
+  reach: ConstraintReach | null;
+  focusReach: ConstraintReach | null;
+  effectiveConstraintId: string | null;
+  hoveredMemberSp: string | null;
   onMapBackgroundClick: () => void;
   onSpHover: SpHover;
   onSpClick: SpClick;
   onMapReady: (map: maplibregl.Map) => void;
+  onIsolateConstraint: (id: string | null) => void;
+  onConstraintPreview: (key: string | null) => void;
+  onConstraintSelect: (key: string) => void;
   onClearPinned: () => void;
+  onCloseReach: () => void;
+  onHoverMember: (sp: string | null) => void;
+  onSelectMember: (sp: string) => void;
 }
 
 // Provenance/coverage badge inputs shared by every pane.

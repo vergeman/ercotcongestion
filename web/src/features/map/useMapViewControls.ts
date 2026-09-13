@@ -31,11 +31,13 @@ export function useMapViewControls({
   // Data selection held from before entering Error, so leaving it restores
   // rather than defaulting back to congestion.
   const prevDataModeRef = useRef<MapDataMode>("congestion");
-  const [showConstraints, setShowConstraints] = useState(true);
+  const [showConstraints, setShowConstraints] = useState(
+    isMobile || view === "forecast" || view === "error"
+  );
 
   // Switch the view axis, applying that view's SF-overlay default: on in
   // Forecast and Error (the overlay is that view's own mechanism), off in
-  // Compare (a per-pane explainer) and Market (no overlay). Entering Error locks
+  // Compare and Market. Entering Error locks
   // the data axis to congestion, remembering whatever was active so leaving it
   // restores rather than defaulting back.
   const handleView = useCallback((v: MapView) => {

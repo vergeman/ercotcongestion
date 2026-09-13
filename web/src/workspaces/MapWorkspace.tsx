@@ -319,11 +319,16 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     loadExposures(pinnedPredictionSp);
   }, [pinnedPredictionSp, loadExposures]);
 
-  // Actual-pane click: pin the node scoped to the realized values only — no SF
-  // drivers (those belong to the prediction pane), so drop any in-flight fetch.
+  // Actual-pane click keeps the node card scoped to realized values and exits
+  // any modeled-footprint interaction.
   const handleSpClickActual = useCallback(
     (spId: string, props: Record<string, unknown>) => {
       setSelectionRoute({ kind: "sp", value: spId });
+      setReach(null);
+      reachReqRef.current++;
+      previewReachRef.current = false;
+      setLockedConstraintId(null);
+      setHoveredConstraintId(null);
       setPinnedSp((current) => ({
         ...current,
         actual: { spId, props, side: "actual", spState: spDecomp(spId) },
@@ -342,9 +347,13 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
 
   // Constraint click (map marker or a driver row) → trace its reach; leaves the
   // node-explorer view. handleCloseReach / a background click return to normal.
-  const handleConstraintClick = useCallback((constraintKey: string, writeRoute = true) => {
+  const handleConstraintClick = useCallback((
+    constraintKey: string,
+    writeRoute = true,
+    side: PaneSide = "prediction",
+  ) => {
     if (writeRoute) setSelectionRoute({ kind: "constraint", value: constraintKey });
-    setPinnedSp((current) => ({ ...current, prediction: null }));
+    setPinnedSp((current) => ({ ...current, [side]: null }));
     setExposures(null);
     exposureReqRef.current++;
     previewReachRef.current = false; // a clicked reach is locked, not a preview
@@ -520,6 +529,20 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     [spPoints, handleSpClickPrediction, clearFocus]
   );
 
+  const handleActualMemberSelect = useCallback(
+    (sp: string) => {
+      setHoveredMemberSp(null);
+      const feat = spPoints?.features.find(
+        (f) => (f.properties?.sp_id as string | undefined) === sp
+      );
+      handleSpClickActual(
+        sp,
+        (feat?.properties ?? { sp_id: sp }) as Record<string, unknown>,
+      );
+    },
+    [spPoints, handleSpClickActual]
+  );
+
   // Overview node → DetailCard flow (plan/0112): a node dot rides the base `sps`
   // layer, so its hover/click already flow through handleSpHover /
   // handleSpClickPrediction — no overview-specific node handler needed.
@@ -556,7 +579,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   }, [handleClearPinnedSp, handleCloseReach, clearFocus]);
   const handleActualMapBackgroundClick = useCallback(() => {
     handleClearPinnedSp("actual");
-  }, [handleClearPinnedSp]);
+    handleCloseReach();
+    clearFocus();
+  }, [handleClearPinnedSp, handleCloseReach, clearFocus]);
 
   // Keep a pinned SP's decomposition fresh as playback advances.
   useEffect(() => {
@@ -649,11 +674,24 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const marketInteractions: MarketInteractions = {
     hoveredSp: hoveredSp.actual,
     pinnedSp: pinnedSp.actual,
+    reach,
+    focusReach,
+    effectiveConstraintId,
+    hoveredMemberSp,
     onMapBackgroundClick: handleActualMapBackgroundClick,
     onSpHover: handleSpHoverRight,
     onSpClick: handleSpClickActual,
     onMapReady: handleRightReady,
+    onIsolateConstraint: handleConstraintHover,
+    onConstraintPreview: handleConstraintPreview,
+    onConstraintSelect: (key) => {
+      handleConstraintClick(key, true, "actual");
+      handleConstraintLock(key, false);
+    },
     onClearPinned: () => handleClearPinnedSp("actual"),
+    onCloseReach: handleCloseReach,
+    onHoverMember: setHoveredMemberSp,
+    onSelectMember: handleActualMemberSelect,
   };
 
   const forecastConfig: PredictionPaneConfig = {
@@ -718,6 +756,9 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       litCount={litCount}
       badge={badgeProps}
       isMobile={isMobile}
+      overview={overview}
+      showConstraints={showConstraints}
+      constraintsToggle={constraintsToggle}
     />
   );
   const errorPane = (

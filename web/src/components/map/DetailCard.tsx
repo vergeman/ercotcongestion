@@ -36,6 +36,9 @@ interface Props {
   // passes false — its card is scoped to realized values only (drivers are a
   // prediction-side concern). Defaults to true.
   showDrivers?: boolean;
+  // Constraint reach values follow the pane: forecast artifact values on the
+  // prediction pane, published DAM values on the ERCOT pane.
+  reachValueMode?: "forecast" | "ercot";
   // Which side of the decomposition this card represents. Compare mounts one
   // card per pane, so this is passed explicitly rather than inferred from the
   // URL's layout state.
@@ -57,6 +60,7 @@ export default function DetailCard({
   onHoverMember,
   onSelectMember,
   showDrivers = true,
+  reachValueMode = "forecast",
   valueMode,
   mobile = false,
 }: Props) {
@@ -145,6 +149,7 @@ export default function DetailCard({
             reach={reach!}
             onHoverMember={onHoverMember}
             onSelectMember={onSelectMember}
+            valueMode={reachValueMode}
           />
         ) : (
           <>

@@ -14,13 +14,18 @@ export function ReachBody({
   reach,
   onHoverMember,
   onSelectMember,
+  valueMode = "forecast",
 }: {
   reach: ConstraintReach;
   onHoverMember?: (sp: string | null) => void;
   onSelectMember?: (sp: string) => void;
+  valueMode?: "forecast" | "ercot";
 }) {
   const importEnd = reach.sps.filter((s) => s.sf < 0).length;
   const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
+  const shadowPrice = valueMode === "ercot" ? reach.dam_mu : reach.shadow_price;
+  const shadowPriceLabel =
+    valueMode === "ercot" ? "ERCOT DAM Shadow Price" : "Forecast Shadow Price";
   return (
     <>
       {reach.basis === "nearest_past" && (
@@ -33,7 +38,7 @@ export function ReachBody({
         label="Binding hours"
         value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
       />
-      <Row label="Shadow Price" value={fmtCong(reach.shadow_price)} />
+      <Row label={shadowPriceLabel} value={fmtCong(shadowPrice)} />
       <Row label="Import nodes" value={importEnd} />
       <Row label="Export nodes" value={exportEnd} />
       <div
@@ -49,7 +54,7 @@ export function ReachBody({
           <span className="dc-driver-col label">SF</span>
           <span
             className="dc-driver-col label"
-            title="Signed nodal congestion contribution: −SF × the constraint's forecast shadow price at the selected hour ($/MWh)."
+            title={`Signed nodal congestion contribution: −SF × the constraint's ${valueMode === "ercot" ? "ERCOT DAM" : "forecast"} shadow price at the selected hour ($/MWh).`}
           >
             Contrib
           </span>
@@ -68,14 +73,14 @@ export function ReachBody({
               className="dc-driver-sup mono"
               style={{
                 color:
-                  reach.shadow_price == null
+                  shadowPrice == null
                     ? undefined
-                    : shiftFactorColor(-s.sf * reach.shadow_price),
+                    : shiftFactorColor(-s.sf * shadowPrice),
               }}
             >
-              {reach.shadow_price == null
+              {shadowPrice == null
                 ? "—"
-                : fmtDollars(-s.sf * reach.shadow_price)}
+                : fmtDollars(-s.sf * shadowPrice)}
             </span>
           </button>
         ))}

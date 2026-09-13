@@ -1,4 +1,4 @@
-import type { MapDataMode, SpRow } from "../../api/types";
+import type { MapDataMode, MapOverview, SpRow } from "../../api/types";
 import type { LmpStats, CongestionStats } from "../../lib/colors";
 import GridMap from "../../components/map/GridMap";
 import Legend from "../../components/map/Legend";
@@ -16,13 +16,20 @@ interface MarketPaneProps {
   litCount: number;
   badge: PaneBadge;
   isMobile: boolean;
+  overview: MapOverview | null;
+  showConstraints: boolean;
+  constraintsToggle?: {
+    checked: boolean;
+    onChange: (show: boolean) => void;
+  };
 }
 
 /** ERCOT's realized DAM map: the node's realized readout only, no SF drivers. */
 export function MarketPane({
   interactions: ix, points, rows, dataMode, lmpStats, mcStats, litCount,
-  badge, isMobile,
+  badge, isMobile, overview, showConstraints, constraintsToggle,
 }: MarketPaneProps) {
+  const hasOverlay = showConstraints && !!overview?.constraints.length;
   return (
     <>
       <GridMap
@@ -37,6 +44,15 @@ export function MarketPane({
         onSpHover={ix.onSpHover}
         onSpClick={ix.onSpClick}
         onMapReady={ix.onMapReady}
+        showConstraints={showConstraints}
+        reach={ix.reach}
+        overview={overview}
+        isolatedConstraint={ix.effectiveConstraintId}
+        onIsolateConstraint={ix.onIsolateConstraint}
+        onConstraintPreview={ix.onConstraintPreview}
+        onConstraintSelect={ix.onConstraintSelect}
+        focusReach={ix.focusReach}
+        ringedSpId={isMobile ? null : ix.hoveredMemberSp}
         tapOnly={isMobile}
       />
       <MapPaneBadge
@@ -50,14 +66,31 @@ export function MarketPane({
         litNoun="priced"
         litHint="Nodes with a published ERCOT DAM settlement price (SPP) at this hour (colored on the map). Resource nodes (RN / CC / PUN) carry no published price, so this is fewer than the model's forecast count."
       />
-      <Legend dataMode={dataMode} rows={rows} lmpStats={lmpStats} mcStats={mcStats} />
+      <Legend
+        dataMode={dataMode}
+        rows={rows}
+        lmpStats={lmpStats}
+        mcStats={mcStats}
+        constraintOverlay={hasOverlay}
+        overviewTypes={hasOverlay}
+        constraintsToggle={constraintsToggle && {
+          ...constraintsToggle,
+          label: "Modeled constraint footprints",
+          description: "Regression-derived structure; not a published ERCOT footprint or binding indicator.",
+        }}
+      />
       {/* Actual card: the node's realized readout only — no SF drivers. */}
       <DetailCard
         hoveredSp={ix.hoveredSp}
         pinnedSp={ix.pinnedSp}
         valueMode="ercot"
         showDrivers={false}
+        reach={ix.reach}
         onClose={ix.onClearPinned}
+        onCloseReach={ix.onCloseReach}
+        onHoverMember={isMobile ? undefined : ix.onHoverMember}
+        onSelectMember={ix.onSelectMember}
+        reachValueMode="ercot"
         mobile={isMobile}
       />
     </>
