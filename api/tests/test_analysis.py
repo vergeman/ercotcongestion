@@ -44,6 +44,7 @@ def test_brief_snapshot_payload_encodes_dates():
     assert brief_service._json_payload({"delivery_date": date(2026, 7, 28)}) == {
         "delivery_date": "2026-07-28"
     }
+    assert brief_service._json_payload({"value": float("nan")}) == {"value": None}
 
 
 def test_forecast_mu_profile_returns_the_artifacts_own_ct_day_hours(monkeypatch):

@@ -205,7 +205,10 @@ def _snapshot_payload(
 
 
 def _json_payload(response) -> dict:
-    return json.loads(json.dumps(jsonable_encoder(response), default=str))
+    return json.loads(
+        json.dumps(jsonable_encoder(response), default=str),
+        parse_constant=lambda _: None,
+    )
 
 
 def _snapshot_or_compose(
