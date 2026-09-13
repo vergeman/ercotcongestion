@@ -48,6 +48,7 @@ def test_final_h1_scorecard_is_preferred_and_normalized(fake_pool):
 
 def test_h2_rows_are_excluded_before_weekly_fallback(fake_pool):
     fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
     fake_pool.cursor.queue(_metrics([
         _weekly("scoreboard_model_backtest_nodal"),
         _weekly("scoreboard_persistence_backtest_nodal"),
@@ -66,22 +67,22 @@ def test_incomplete_daily_set_falls_back_without_blending(fake_pool):
         _daily("scoreboard_model_served_nodal"),
         _daily("scoreboard_persistence_prior_day_nodal"),
     ]))
+    fake_pool.cursor.queue([])
     fake_pool.cursor.queue(_metrics([
-        _weekly("scoreboard_model_backtest_nodal", week=date(2026, 6, 22)),
-        _weekly("scoreboard_persistence_backtest_nodal", week=date(2026, 6, 22)),
-        _weekly("scoreboard_oracle_backtest_nodal", week=date(2026, 6, 22)),
         _weekly("scoreboard_model_backtest_nodal"),
         _weekly("scoreboard_persistence_backtest_nodal"),
+        _weekly("scoreboard_oracle_backtest_nodal"),
     ]))
 
     result = scorecard.build(DAY)
 
     assert result.basis == "weekly_backtest_fallback"
-    assert result.scored_week == date(2026, 6, 22)
+    assert result.scored_week == date(2026, 6, 29)
     assert all("backtest" in source.source_id for source in result.sources)
 
 
 def test_returns_explicit_unavailable_when_no_complete_set_exists(fake_pool):
+    fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
     fake_pool.cursor.queue([])
 
@@ -138,6 +139,7 @@ def test_route_combines_scorecard_and_fit_metadata(client, monkeypatch):
 
 def test_requested_run_does_not_filter_weekly_fallback(fake_pool):
     fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
     fake_pool.cursor.queue(_metrics([
         _weekly("scoreboard_model_backtest_nodal", run_id="backtest-v1"),
         _weekly("scoreboard_persistence_backtest_nodal", run_id="backtest-v1"),
@@ -148,8 +150,39 @@ def test_requested_run_does_not_filter_weekly_fallback(fake_pool):
 
     assert result.run_id == "backtest-v1"
     assert fake_pool.cursor.queries[0][1][-1:] == ("served-v1",)
-    assert fake_pool.cursor.queries[1][1] == ([
+    assert fake_pool.cursor.queries[2][1] == ([
         "scoreboard_model_backtest_nodal",
         "scoreboard_persistence_backtest_nodal",
         "scoreboard_oracle_backtest_nodal",
-    ],)
+    ], DAY, DAY)
+
+
+def test_published_h1_without_grade_is_pending(fake_pool):
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([{"run_id": "served-v1"}])
+
+    result = scorecard.build(DAY)
+
+    assert result.model_dump() == {
+        "available": True,
+        "unavailable_reason": None,
+        "basis": "served_daily_pending",
+        "run_id": "served-v1",
+        "delivery_date": DAY,
+        "scored_week": None,
+        "horizon": 1,
+        "sources": [],
+        "fit_metadata": None,
+    }
+    assert len(fake_pool.cursor.queries) == 2
+
+
+def test_weekly_backtest_must_cover_requested_day(fake_pool):
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+    fake_pool.cursor.queue([])
+
+    result = scorecard.build(DAY)
+
+    assert result.available is False
+    assert "week <=" in fake_pool.cursor.queries[2][0]

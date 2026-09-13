@@ -301,11 +301,13 @@ class MapScorecardSource(BaseModel):
 
 
 class MapScorecard(BaseModel):
-    """A delivery-day served grade, or one dated weekly fallback."""
+    """A delivery-day scorecard and its provenance."""
 
     available: bool
     unavailable_reason: str | None = None
-    basis: Literal["served_daily", "weekly_backtest_fallback"] | None = None
+    basis: Literal[
+        "served_daily", "served_daily_pending", "weekly_backtest_fallback"
+    ] | None = None
     run_id: str | None = None
     delivery_date: date
     scored_week: date | None = None
