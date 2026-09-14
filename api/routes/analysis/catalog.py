@@ -5,8 +5,6 @@ from fastapi import APIRouter
 from api.services.analysis import panels
 from api.schemas.analysis import (
     AnalysisConstraintsAvailableResponse,
-    AnalysisEsspGroupsAvailableResponse,
-    AnalysisEsspGroupsUnavailableResponse,
     AnalysisSettlementPointsAvailableResponse,
     NodeAnalysisAvailableResponse,
     NodeAnalysisUnavailableResponse,
@@ -35,12 +33,4 @@ router.add_api_route(
     response_model=AnalysisConstraintsAvailableResponse
     | NodeAnalysisUnavailableResponse,
     summary="Full constraint vocabulary for a daily SF artifact",
-)
-router.add_api_route(
-    "/essp",
-    panels.get_essp_groups,
-    methods=["GET"],
-    response_model=AnalysisEsspGroupsAvailableResponse
-    | AnalysisEsspGroupsUnavailableResponse,
-    summary="Hourly ERCOT electrically-similar settlement-point groups",
 )

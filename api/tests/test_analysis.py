@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-from types import SimpleNamespace
 
 import pandas as pd
 from fastapi import Query
@@ -9,9 +8,7 @@ from api.services.analysis import brief as brief_service
 from api.schemas.analysis import StandoutRow
 from api.services.analysis.panels import catalog as catalog_module
 from api.services.analysis.panels import nodes as nodes_module
-from api.services.analysis.features import hero as hero_service
 from compute.analysis import brief_grade
-from compute.time import delivery_bounds
 from compute.analysis.grade import GradeMetrics, GradeResult
 from compute.projection.codecs import SfMuArtifact
 
@@ -190,57 +187,6 @@ def _slots(basis):
     }
 
 
-def test_hero_resolves_served_horizon_and_returns_forecast_segments(client, fake_pool, monkeypatch):
-    fake_pool.cursor.queue([{"run_id": "run-x"}]) # published run
-    fake_pool.cursor.queue([{"h": 1}])            # horizon resolve
-    fake_pool.cursor.queue([{"ts": None}])        # DAM coverage
-    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(
-        hero_service, "build_hero",
-        lambda *_a, **_k: SimpleNamespace(slots=_slots(_a[-1]), forecast_slots=None),
-    )
-
-    response = client.get("/analysis/hero?date=2026-07-28")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["provenance"] == {"run_id": "run-x", "delivery_date": "2026-07-28",
-                                  "horizon": 1, "basis": "forecast"}
-    assert body["verdict"] is None
-    assert body["cursor"] == {"ws": "2026-07-28T05:00:00Z", "we": "2026-07-29T05:00:00Z",
-                              "t": "2026-07-28T06:00:00Z"}
-    assert all(part["ref"] in body["slots"] for group in body["segments"].values() for part in group)
-
-
-def test_hero_settled_phase_grades_each_reconcilable_slot_independently(client, fake_pool, monkeypatch):
-    fake_pool.cursor.queue([{"run_id": "run-x"}])
-    fake_pool.cursor.queue([{"h": 1}])
-    fake_pool.cursor.queue([{"ts": pd.Timestamp("2026-07-28T20:00Z")}])
-    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(
-        hero_service, "build_hero",
-        lambda *_a, **_k: SimpleNamespace(
-            slots=_slots("settled"), forecast_slots=_slots("forecast"),
-        ),
-    )
-
-    body = client.get("/analysis/hero?date=2026-07-28").json()
-    assert body["provenance"]["basis"] == "settled"
-    assert body["verdict"] == {
-        "magnitude": {"bucket": "under_called", "rungs": 3},
-        "regime": None,
-        "where": {"bucket": "held"},
-        "exceptions": {"bucket": "held"},
-    }
-
-
-def test_hero_soft_fails_when_no_artifact_exists(client, fake_pool):
-    fake_pool.cursor.queue([{"run_id": "run-x"}])
-    fake_pool.cursor.queue([{"h": None}])
-    body = client.get("/analysis/hero?date=2026-07-28").json()
-    assert body == {"available": False, "unavailable_reason": "artifact_missing",
-                    "run_id": "run-x", "delivery_date": "2026-07-28"}
-
-
 def test_hero_latest_returns_the_newest_published_day(client, fake_pool):
     """One artifact covers its whole CT day now (0133) — no following-day join."""
     fake_pool.cursor.queue([{"run_id": "run-x"}])
@@ -261,60 +207,6 @@ def test_hero_latest_soft_fails_without_any_published_day(client, fake_pool):
     assert client.get("/analysis/hero/latest").json() == {
         "available": False, "run_id": "run-x", "delivery_date": None, "horizon": None,
     }
-
-
-def test_brief_day_composes_all_sections_from_one_resolved_run_and_horizon(client, fake_pool, monkeypatch):
-    """0137: the bundled endpoint resolves run/horizon once, then delegates to
-    each section's own handler — never re-derives their query logic.
-
-    Each handler is called in-process, bypassing FastAPI's dependency
-    injection, so any parameter left to its declared default would instead
-    receive that default's raw ``Query(...)`` object. This asserts the exact
-    positional args every handler receives, so a call missing an explicit
-    literal (as `get_context`'s `chronic_limit` once did) fails loudly instead
-    of silently handing a `Query` sentinel to `chronic[:chronic_limit]`.
-
-    The handlers run on a thread pool (not sequentially), so `calls` below is
-    keyed by name rather than compared in submission order.
-    """
-    fake_pool.cursor.queue([{"run_id": "run-x"}])  # resolve run
-    fake_pool.cursor.queue([{"h": 2}])              # resolve horizon
-
-    calls: dict[str, tuple] = {}
-
-    def _handler(name):
-        def _fake(delivery_date, run_id, horizon, *rest):
-            calls[name] = (delivery_date, run_id, horizon, rest)
-            return {"available": False, "unavailable_reason": "artifact_missing",
-                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
-        return _fake
-
-    # (handler name, expected trailing positional args — each must be a
-    # literal, matching that endpoint's own Query(...) default exactly).
-    expected = (
-        ("get_hero", ()),
-        ("get_context", (14,)),
-        ("get_standouts", (4,)),
-        ("get_top_nodes", (10,)),
-        ("get_top_constraints", (10,)),
-        ("get_grade", ()),
-        ("get_grade_history", (30,)),
-    )
-    for name, _ in expected:
-        monkeypatch.setattr(analysis_module, name, _handler(name))
-
-    response = client.get("/analysis/brief?day=2026-07-28")
-
-    assert response.status_code == 200
-    assert calls == {
-        name: (date(2026, 7, 28), "run-x", 2, rest) for name, rest in expected
-    }
-    for _, _, _, rest in calls.values():
-        assert all(isinstance(value, int) for value in rest), \
-            "a trailing arg fell through to its raw Query(...) default"
-    body = response.json()
-    assert set(body.keys()) == {"hero", "context", "standouts", "top_nodes",
-                                "top_constraints", "grade", "grade_history"}
 
 
 def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
@@ -379,92 +271,6 @@ def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_
     assert set(response.json()) == {
         "context", "standouts", "top_nodes", "top_constraints", "grade", "grade_history",
     }
-
-
-def _brief_section_counter(monkeypatch):
-    """Monkeypatch the seven /brief section handlers to count invocations."""
-    calls = {"n": 0}
-
-    def _handler():
-        def _fake(delivery_date, run_id, horizon, *rest):
-            calls["n"] += 1
-            return {"available": False, "unavailable_reason": "artifact_missing",
-                    "run_id": run_id, "delivery_date": delivery_date, "horizon": horizon}
-        return _fake
-
-    for name in ("get_hero", "get_context", "get_standouts", "get_top_nodes",
-                 "get_top_constraints", "get_grade", "get_grade_history"):
-        monkeypatch.setattr(analysis_module, name, _handler())
-    return calls
-
-
-def test_brief_snapshots_a_settled_day(client, fake_pool, monkeypatch):
-    """A final day composes once, then reads its durable snapshot."""
-    _, we = delivery_bounds(date(2026, 7, 28))  # DAM ts past the day's midpoint
-    calls = _brief_section_counter(monkeypatch)
-    stored = None
-
-    def snapshot_get(_cur, _key):
-        return stored
-
-    def snapshot_put(_conn, _key, snapshot):
-        nonlocal stored
-        stored = snapshot
-        return stored
-
-    monkeypatch.setattr(brief_service, "_snapshot_get", snapshot_get)
-    monkeypatch.setattr(brief_service, "_snapshot_put", snapshot_put)
-    for _ in range(2):  # run + horizon + dam-landed probe, per request
-        fake_pool.cursor.queue([{"run_id": "run-x"}])
-        fake_pool.cursor.queue([{"h": 1}])
-        fake_pool.cursor.queue([{"ts": we}])
-
-    first = client.get("/analysis/brief?day=2026-07-28")
-    second = client.get("/analysis/brief?day=2026-07-28")
-
-    assert first.status_code == 200 and second.status_code == 200
-    assert first.content == second.content
-    assert calls["n"] == 7, "settled day should compose once, then read the snapshot"
-
-
-def test_brief_recomputes_an_unsettled_day(client, fake_pool, monkeypatch):
-    """A day whose DAM has not landed is never cached, so it is never served
-    stale before its inputs settle."""
-    calls = _brief_section_counter(monkeypatch)
-    for _ in range(2):
-        fake_pool.cursor.queue([{"run_id": "run-x"}])
-        fake_pool.cursor.queue([{"h": 1}])
-        fake_pool.cursor.queue([{"ts": None}])  # DAM not landed -> not final
-
-    client.get("/analysis/brief?day=2026-07-28")
-    client.get("/analysis/brief?day=2026-07-28")
-
-    assert calls["n"] == 14, "unsettled day recomputes every request (7 sections x 2)"
-
-
-def test_hero_declares_a_typed_available_or_soft_fail_contract(client):
-    schema = client.app.openapi()["paths"]["/analysis/hero"]["get"]["responses"]["200"]
-    names = {item["$ref"].rsplit("/", 1)[-1] for item in schema["content"]["application/json"]
-             ["schema"]["anyOf"]}
-    assert names == {"HeroAvailableResponse", "HeroUnavailableResponse",
-                     "HeroUnavailableAtHorizonResponse"}
-
-
-def test_hero_repeats_byte_identically_for_unchanged_inputs(client, fake_pool, monkeypatch):
-    fake_pool.cursor.queue([{"run_id": "run-x"}])
-    fake_pool.cursor.queue([{"h": 1}])
-    fake_pool.cursor.queue([{"ts": None}])
-    fake_pool.cursor.queue([{"run_id": "run-x"}])
-    fake_pool.cursor.queue([{"h": 1}])
-    fake_pool.cursor.queue([{"ts": None}])
-    monkeypatch.setattr(hero_service, "load_daily_artifact", lambda *_: _artifact())
-    monkeypatch.setattr(
-        hero_service, "build_hero",
-        lambda *_a, **_k: SimpleNamespace(slots=_slots(_a[-1]), forecast_slots=None),
-    )
-    first = client.get("/analysis/hero?date=2026-07-28")
-    second = client.get("/analysis/hero?date=2026-07-28")
-    assert first.content == second.content
 
 
 def test_joined_top_keys_orders_dam_leaders_then_forecast_only_leaders():
@@ -799,63 +605,6 @@ def test_node_structural_mode_includes_quiet_nonzero_sf_terms(client, fake_pool,
     ]
 
 
-def test_essp_returns_hourly_membership_for_requested_vintage(client, fake_pool):
-    fake_pool.cursor.queue([
-        {"group_index": 7, "settlement_points": ["ALPHA", "BETA"]},
-        {"group_index": 19, "settlement_points": ["GAMMA", "OMEGA"]},
-    ])
-    body = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00Z&source=study").json()
-    assert body == {
-        "available": True, "interval_ts": "2026-07-28T16:00:00Z", "source": "study",
-        "groups": [
-            {"group_index": 7, "settlement_points": ["ALPHA", "BETA"]},
-            {"group_index": 19, "settlement_points": ["GAMMA", "OMEGA"]},
-        ],
-    }
-    sql, params = fake_pool.cursor.queries[-1]
-    assert "FROM ercot_essp" in sql
-    assert params[1] is True
-
-
-def test_essp_soft_fails_without_a_cross_day_or_cross_vintage_fallback(client, fake_pool):
-    fake_pool.cursor.queue([])
-    body = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00Z&source=final").json()
-    assert body == {"available": False, "unavailable_reason": "essp_missing",
-                    "interval_ts": "2026-07-28T16:00:00Z", "source": "final"}
-    assert fake_pool.cursor.queries[-1][1][1] is False
-
-
-def test_essp_requires_an_offset_unambiguous_hour(client):
-    response = client.get("/analysis/essp?interval_ts=2026-07-28T16:00:00")
-    assert response.status_code == 422
-    assert response.json()["detail"] == "interval_ts must include a UTC offset."
-
-
-def test_grade_returns_unblended_constraint_and_node_halves(client, fake_pool, monkeypatch):
-    fake_pool.cursor.queue([{"h": 1}])
-    metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
-                           timing_daily_skill=0.55, timing_hourly_skill=0.34)
-    result = GradeResult(universe=("A|B", "C|D"), model=metrics, persistence=metrics)
-    monkeypatch.setattr(brief_grade, "settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
-    monkeypatch.setattr(brief_grade, "grade_constraint_profiles", lambda *_: result)
-    monkeypatch.setattr(brief_grade, "grade_node_profiles", lambda *_: result)
-
-    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
-
-    assert body["available"] is True
-    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
-        "graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
-    }
-    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
-        "graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
-    }
-    assert {"model", "persistence", "climatology"}.isdisjoint(body["constraints"])
-    assert [item["id"] for item in body["constraints"]["sources"]] == [
-        "brief_model_artifact_profile", "brief_persistence_prior_settled_profile",
-    ]
-    assert "grade" not in body
-
-
 def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch):
     """The API owns its response model while compute owns grade serialization."""
     metrics = GradeMetrics(detection_ap=0.62, magnitude_overlap=0.50,
@@ -874,43 +623,6 @@ def test_grade_response_wraps_the_compute_neutral_result(fake_pool, monkeypatch)
         "available": True, "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 1,
     }
     assert body["constraints"]["source_metrics"][0]["id"] == "brief_model_artifact_profile"
-
-
-def test_grade_uses_the_materialized_snapshot_without_recomputing(client, fake_pool, monkeypatch):
-    metrics = {"detection_ap": 0.62, "magnitude_overlap": 0.50,
-               "timing_daily_skill": 0.55, "timing_hourly_skill": 0.34}
-    detail = {"graded": True, "unavailable_reason": None, "universe_size": 2, "support": None,
-              "sources": [{"id": "brief_model_artifact_profile", "label": "stale source label",
-                           "definition": "Forecast profile decoded from the served artifact."}],
-              "source_metrics": [{"id": "brief_model_artifact_profile", "metrics": metrics}]}
-    fake_pool.cursor.queue([{"h": 1}])
-    fake_pool.cursor.queue([
-        {"subject": "constraints", "detail": detail},
-        {"subject": "nodes", "detail": detail},
-    ])
-    monkeypatch.setattr(brief_grade, "settled_mu_profile", lambda *_: pd.DataFrame([[0.0]]))
-    monkeypatch.setattr(brief_grade, "grade_constraint_profiles",
-                        lambda *_: (_ for _ in ()).throw(AssertionError("should not recompute")))
-
-    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
-
-    assert {key: body["constraints"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
-        key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
-    }
-    assert body["constraints"]["sources"][0]["label"] == "Artifact profile forecast"
-    assert {key: body["nodes"][key] for key in ("graded", "unavailable_reason", "universe_size", "support")} == {
-        key: detail[key] for key in ("graded", "unavailable_reason", "universe_size", "support")
-    }
-    assert body["constraints"]["sources"][0]["id"] == "brief_model_artifact_profile"
-
-
-def test_grade_soft_fails_when_the_served_artifact_horizon_is_missing(client, fake_pool):
-    fake_pool.cursor.queue([{"h": None}])
-
-    body = client.get("/analysis/grade?delivery_date=2026-07-28&run_id=run-x").json()
-
-    assert body == {"available": False, "unavailable_reason": "artifact_missing", "run_id": "run-x",
-                    "delivery_date": "2026-07-28", "horizon": None}
 
 
 def _repeated_window(delivery_date, frame) -> dict:

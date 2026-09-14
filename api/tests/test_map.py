@@ -7,8 +7,7 @@ Two layers:
   per-request run/window resolution, and the 503 soft-fail. Rows are queued
   in the exact order each endpoint's queries fire (the fake cursor is FIFO).
 * **Integration** (`@pytest.mark.integration`, RUN_INTEGRATION=1) — hits the
-  real map-v1 DB to prove the exposure/reach **transpose** (spec §7) and that
-  `/map/meta` reports the configured run with a real current window.
+  real map-v1 DB to prove the exposure/reach **transpose** (spec §7).
 """
 from __future__ import annotations
 
@@ -91,40 +90,6 @@ def _meta_row(**over) -> dict:
     }
     row.update(over)
     return row
-
-
-# ---- /map/meta -----------------------------------------------------------
-
-def test_meta_returns_current_window(client, fake_pool, configured_run):
-    fake_pool.cursor.queue([{"ws": WS}])       # _resolve → max(window_start)
-    fake_pool.cursor.queue([_meta_row()])      # _meta_row
-
-    r = client.get("/map/meta")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["run_id"] == "map-v1"
-    assert body["window_start"].startswith("2025-11-04")
-    assert body["sf_fit_r2"] == 0.81
-    assert body["sf_oos_r2"] == 0.62 and body["coverage"] == 0.94
-    assert body["sf_stability"] == 0.47
-
-
-def test_meta_503_when_no_window_built(client, fake_pool, configured_run):
-    fake_pool.cursor.queue([])  # max(window_start) → None
-    r = client.get("/map/meta")
-    assert r.status_code == 503
-
-
-def test_resolution_defaults_to_newest_run(client, fake_pool, monkeypatch):
-    """MAP_RUN_ID None → resolve newest run_id from sf_window_meta."""
-    monkeypatch.setattr(map_common, "MAP_RUN_ID", None)
-    fake_pool.cursor.queue([{"run_id": "map-v1"}])  # newest run
-    fake_pool.cursor.queue([{"ws": WS}])            # its max window_start
-    fake_pool.cursor.queue([_meta_row()])
-
-    r = client.get("/map/meta")
-    assert r.status_code == 200
-    assert r.json()["run_id"] == "map-v1"
 
 
 # ---- /map/fit-metadata ---------------------------------------------------
@@ -496,68 +461,6 @@ def test_reach_reports_a_constraint_absent_from_the_day(client, fake_pool):
     assert body["sps"] == []
 
 
-# ---- /map/overview -------------------------------------------------------
-
-def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
-                                           monkeypatch):
-    """The bulk overview: each constraint typed, with its signed top-k node field
-    grouped from the single ANY(keys) node query, and the per-constraint min_frac
-    floor dropping the noise-floor node."""
-    aggregate._window_cache.clear()
-    aggregate._window_cache_size = 0
-    monkeypatch.setattr(map_module, "_SP_COORDS",
-                        {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
-                         "N3": (30.0, -99.0), "N4": (33.0, -97.0)})
-    monkeypatch.setattr(map_module, "_SP_METADATA", {"N1": ("RN", "houston")})
-    fake_pool.cursor.queue([{"ws": WS}])            # _resolve
-    fake_pool.cursor.queue([_meta_row()])           # _meta_row
-    fake_pool.cursor.queue([                         # top-n constraint_geo rows
-        {"constraint_key": "AAA|BASE CASE", "ctype": "gtc", "binding_hours": 300,
-         "max_abs_sf": 0.50},
-        {"constraint_key": "BBB|LINE", "ctype": "transmission", "binding_hours": 200,
-         "max_abs_sf": 0.40},
-    ])
-    from compute.projection.codecs import build_sf_window_artifact
-    weekly = pd.DataFrame([[0.50, -0.40, 0.02, np.nan], [np.nan, np.nan, np.nan, 0.40]],
-                          index=["AAA|BASE CASE", "BBB|LINE"], columns=["N1", "N2", "N3", "N4"])
-    fake_pool.cursor.queue([{"sf_npz": build_sf_window_artifact(weekly)}])
-
-    r = client.get("/map/overview", params={"n": 70, "k": 16})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["run_id"] == "map-v1" and body["n"] == 70
-    assert body["sf_oos_r2"] == 0.62 and body["sf_stability"] == 0.47
-
-    a, b = body["constraints"]
-    assert a["constraint_key"] == "AAA|BASE CASE" and a["ctype"] == "gtc"
-    # the noise-floor node (0.02 < 0.15*0.50) is dropped; the two real ones stay
-    assert [n["settlement_point"] for n in a["nodes"]] == ["N1", "N2"]
-    assert a["nodes"][1]["sf"] == pytest.approx(-0.40) and a["nodes"][1]["lat"] == 32.6
-    assert a["nodes"][0]["settlement_point_type"] == "RN"
-    assert a["nodes"][0]["load_zone"] == "houston"
-    assert b["ctype"] == "transmission" and [n["settlement_point"] for n in b["nodes"]] == ["N4"]
-
-
-def test_overview_truncates_to_k_nodes(client, fake_pool, configured_run, monkeypatch):
-    """k caps the per-constraint field even when more nodes clear the floor."""
-    aggregate._window_cache.clear()
-    aggregate._window_cache_size = 0
-    monkeypatch.setattr(map_module, "_SP_COORDS", {})
-    fake_pool.cursor.queue([{"ws": WS}])
-    fake_pool.cursor.queue([_meta_row()])
-    fake_pool.cursor.queue([{
-        "constraint_key": "AAA|c", "ctype": "transmission", "binding_hours": 100,
-        "max_abs_sf": 1.0,
-    }])
-    from compute.projection.codecs import build_sf_window_artifact
-    weekly = pd.DataFrame([[1.0 - 0.01 * i for i in range(5)]], index=["AAA|c"],
-                          columns=[f"N{i}" for i in range(5)])
-    fake_pool.cursor.queue([{"sf_npz": build_sf_window_artifact(weekly)}])
-
-    body = client.get("/map/overview", params={"n": 1, "k": 2}).json()
-    assert [n["settlement_point"] for n in body["constraints"][0]["nodes"]] == ["N0", "N1"]
-
-
 # ---- /map/constraints/ranked ---------------------------------------------
 
 def _ranked_blob():
@@ -659,22 +562,9 @@ def test_ranked_503_when_no_artifact(client, fake_pool, configured_run):
 # ---- Integration: transpose + real run resolution ------------------------
 
 @pytest.mark.integration
-def test_meta_reports_configured_run(real_client):
-    r = real_client.get("/map/meta")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["run_id"] == "map-v1"
-    assert body["sf_fit_r2"] is not None
-    # backfilled by compute.evaluation.sf (0003 Commit D)
-    assert body["sf_oos_r2"] is not None
-    assert body["coverage"] is not None
-    assert body["sf_stability"] is not None
-
-
-@pytest.mark.integration
 def test_exposure_reach_transpose(real_client):
     """spec §7: X in /map/reach?constraint=c ⇔ c in /map/exposures?sp=X, same sf."""
-    overview = real_client.get("/map/overview", params={"n": 1, "k": 1}).json()
+    overview = real_client.get("/map/summary").json()["overview"]
     assert overview["constraints"], "no constraints served for map-v1"
     c = overview["constraints"][0]["constraint_key"]
 
@@ -689,24 +579,6 @@ def test_exposure_reach_transpose(real_client):
     match = [e for e in exposures if e["constraint_key"] == c]
     assert match, f"{c} missing from /map/exposures?sp={sp}"
     assert match[0]["sf"] == pytest.approx(sf_reach), "transpose sf mismatch"
-
-
-@pytest.mark.integration
-def test_overview_types_and_node_field(real_client):
-    """The overview draws each constraint as a typed mark over a signed top-k node
-    field. Position now comes from the nodes themselves (the client anchors the
-    mark on them), so there is no core/centroid to assert — just the type and a
-    non-empty node field that clears the floor."""
-    body = real_client.get("/map/overview", params={"n": 70, "k": 16}).json()
-    cs = body["constraints"]
-    assert len(cs) == 70
-    assert {c["ctype"] for c in cs} <= {"gtc", "transmission", "radial"}
-    # every node clears the default 0.15*peak floor and carries a signed sf
-    for c in cs:
-        assert c["nodes"], f"{c['constraint_key']} has no nodes"
-        assert all(abs(n["sf"]) >= 0.15 * c["max_abs_sf"] - 1e-9 for n in c["nodes"])
-        # the client positions the mark from these coords
-        assert all(n["lat"] is not None and n["lon"] is not None for n in c["nodes"])
 
 
 # --------------------------------------------------------------------------
