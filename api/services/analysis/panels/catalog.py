@@ -18,8 +18,6 @@ from api.schemas.analysis import (
     NodeAnalysisUnavailableResponse,
     AnalysisSettlementPointsAvailableResponse,
     AnalysisConstraintsAvailableResponse,
-    AnalysisEsspGroupsAvailableResponse,
-    AnalysisEsspGroupsUnavailableResponse,
 )
 from compute.analysis.metadata import load_sp_metadata
 from compute.sf_map.model.fit import SF_ABS_CAP
@@ -32,7 +30,6 @@ from api.services.analysis.repositories.market import (
 from api.services.analysis.resolution import selected_hours as _selected_hours
 from api.services.analysis.queries import (
     constraints_response,
-    essp_groups_response,
     node_response,
     settlement_points_response,
 )
@@ -215,26 +212,3 @@ def get_constraints(
         delivery_date=delivery_date,
         horizon=horizon,
     )
-
-
-def get_essp_groups(
-    interval_ts: datetime = Query(...),
-    source: str = Query("study", pattern="^(study|final)$"),
-) -> AnalysisEsspGroupsAvailableResponse | AnalysisEsspGroupsUnavailableResponse:
-    """Return raw ESSP membership for one hour and vintage.
-
-    """
-    if interval_ts.tzinfo is None:
-        raise HTTPException(
-            status_code=422, detail="interval_ts must include a UTC offset."
-        )
-    interval_ts = pd.Timestamp(interval_ts).tz_convert("UTC").to_pydatetime()
-    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            "SELECT group_index, array_agg(settlement_point ORDER BY settlement_point) AS settlement_points "
-            "FROM ercot_essp WHERE interval_ts = %s AND is_study = %s "
-            "GROUP BY group_index ORDER BY group_index",
-            (interval_ts, source == "study"),
-        )
-        rows = cur.fetchall()
-    return essp_groups_response(rows=rows, interval_ts=interval_ts, source=source)

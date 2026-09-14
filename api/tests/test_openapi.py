@@ -26,6 +26,9 @@ def test_openapi_omits_deleted_schemas(client):
         'IbpErcotPoint', 'IbpErcotResponse', 'IbpErcotRangeEntry', 'IbpErcotRangeResponse',
         # legacy zonal-map serving snapshot (removed in 0094-0001)
         'MetaResponse',
+        # retired API-only resources
+        'AnalysisEsspGroupsAvailableResponse', 'AnalysisEsspGroupsUnavailableResponse',
+        'BriefDayResponse', 'EsspGroup',
     )
     for name in deleted:
         assert name not in schemas, f'{name} should have been removed'
@@ -47,7 +50,7 @@ def test_openapi_includes_map_schemas(client):
     assert r.status_code == 200
     schemas = r.json()['components']['schemas']
 
-    for name in ('MapMeta', 'SpExposure', 'ExposuresResponse',
+    for name in ('SpExposure', 'ExposuresResponse',
                  'ConstraintReach', 'ReachSp'):
         assert name in schemas, f'{name} should be present'
 
@@ -60,14 +63,11 @@ def test_openapi_documents_contract_migrations_and_bootstrap_availability(client
     assert '/ercot_state_range' not in paths
     assert '/ercot_spp_range' not in paths
 
-    brief_parameters = {
-        parameter['name']: parameter
-        for parameter in paths['/analysis/brief']['get']['parameters']
+    retired_routes = {
+        '/map/meta', '/map/overview', '/analysis/hero', '/analysis/brief',
+        '/analysis/grade', '/analysis/essp',
     }
-    assert {'delivery_date', 'day'} <= brief_parameters.keys()
-    assert brief_parameters['day']['deprecated'] is True
-    assert 'run_id' not in brief_parameters
-    assert 'run' not in brief_parameters
+    assert retired_routes.isdisjoint(paths)
 
     bootstrap_status = schemas['BootstrapSectionStatus']['properties']
     assert {'available', 'unavailable_reason', 'run_id', 'delivery_date', 'horizon'} <= bootstrap_status.keys()
@@ -79,9 +79,9 @@ def test_openapi_hides_backend_run_selection_from_public_read_routes(client):
     paths = client.get('/openapi.json').json()['paths']
     public_routes = (
         '/forecast_range', '/map/constraints/ranked', '/analysis/hero/latest',
-        '/analysis/hero', '/analysis/brief', '/analysis/brief/hero',
+        '/analysis/brief/hero',
         '/analysis/brief/details', '/analysis/node',
-        '/analysis/settlement-points', '/analysis/constraints', '/analysis/grade',
+        '/analysis/settlement-points', '/analysis/constraints',
         '/analysis/standouts',
     )
     for route in public_routes:

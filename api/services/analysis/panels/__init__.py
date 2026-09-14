@@ -30,7 +30,6 @@ from api.services.analysis.panels.catalog import (
     _structural_terms,
     _terms,
     get_constraints,
-    get_essp_groups,
     get_node,
     get_settlement_points,
 )

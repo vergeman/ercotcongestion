@@ -29,8 +29,8 @@ export default function TopNodesPanel({
         <h2 id="top-nodes-title">Top Nodal Congestion</h2>
         <p>
           {settled
-            ? "Forecast and DAM congestion, attributed across each node’s complete shift-factor column."
-            : "Forecast congestion, attributed across each node’s complete shift-factor column."}
+            ? "Ranked by forecast and DAM congestion, aggregated over each node’s complete shift-factor column."
+            : "Ranked by forecast congestion, aggregated over each node’s complete shift-factor column."}
         </p>
       </div>
       {loading && <LoadingState>Loading nodal congestion…</LoadingState>}
@@ -147,8 +147,8 @@ export default function TopNodesPanel({
                           row.settled_total == null
                             ? ""
                             : row.settled_total >= 0
-                            ? "an-table__positive"
-                            : "an-table__negative"
+                              ? "an-table__positive"
+                              : "an-table__negative"
                         }
                       >
                         {row.settled_total == null
@@ -160,8 +160,8 @@ export default function TopNodesPanel({
                           row.delta == null
                             ? ""
                             : row.delta >= 0
-                            ? "an-table__positive"
-                            : "an-table__negative"
+                              ? "an-table__positive"
+                              : "an-table__negative"
                         }
                       >
                         {row.delta == null ? "—" : usd(row.delta, 2)}
@@ -190,4 +190,3 @@ export default function TopNodesPanel({
     </section>
   );
 }
-

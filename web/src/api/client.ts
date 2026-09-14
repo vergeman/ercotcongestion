@@ -18,12 +18,10 @@ export {
   fetchAnalysisNode,
   fetchAnalysisSettlementPoints,
   fetchAnalysisConstraints,
-  fetchAnalysisEsspGroups,
 } from "./matrix";
 export type { MatrixFrameRequest, AnalysisAttributionRequest } from "./matrix";
 export {
   fetchBriefHeroLatest,
-  fetchBriefDay,
   fetchBriefHeroShell,
   fetchBriefStandouts,
   fetchBriefDetails,

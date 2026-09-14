@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, Query
 
 from api.dependencies import server_selected_run as _server_selected_run
 from api.schemas.analysis import (
-    BriefDayResponse,
     BriefDetailsResponse,
     BriefHeroShellResponse,
 )
@@ -48,19 +47,3 @@ def get_brief_details(
     ),
 ) -> BriefDetailsResponse:
     return brief_service.details(delivery_date, run_id, include_standouts, day)
-
-
-@router.get(
-    "/brief",
-    response_model=BriefDayResponse,
-    summary="One bundled payload for a Brief delivery day (0137)",
-)
-def get_brief_day(
-    delivery_date: date | None = Query(None, description="ERCOT delivery day."),
-    run_id: str | None = Depends(_server_selected_run),
-    *,
-    day: date | None = Query(
-        None, deprecated=True, description="Deprecated alias for delivery_date."
-    ),
-) -> BriefDayResponse:
-    return brief_service.day(delivery_date, run_id, day)

@@ -12,8 +12,6 @@ from api.schemas.map import (
     ConstraintReach,
     ExposuresResponse,
     MapFitMetadata,
-    MapMeta,
-    MapOverview,
     MapScorecard,
     MapSummaryResponse,
     RankedConstraints,
@@ -35,11 +33,6 @@ def _sp_coords() -> dict[str, tuple[float, float]]:
 
 def _sp_metadata() -> dict[str, tuple[str | None, str | None]]:
     return _SP_METADATA if _SP_METADATA is not None else settlement_point_metadata()
-
-
-@router.get("/meta", response_model=MapMeta, summary="The refit the map is serving")
-def get_map_meta() -> MapMeta:
-    return aggregate.meta()
 
 
 @router.get(
@@ -105,33 +98,6 @@ def get_map_reach(
         abs_floor,
         coordinates=_sp_coords,
         metadata=_sp_metadata,
-    )
-
-
-@router.get(
-    "/overview",
-    response_model=MapOverview,
-    summary="De-piled overview: top-n constraints at their |SF|² cores",
-)
-def get_map_overview(
-    n: int = Query(
-        70, ge=1, le=500, description="Number of top constraints by binding hours."
-    ),
-    k: int = Query(
-        16,
-        ge=1,
-        le=100,
-        description="Top signed nodes per constraint (the mark's field).",
-    ),
-    min_frac: float = Query(
-        0.15,
-        ge=0.0,
-        le=1.0,
-        description="Noise floor: drop a constraint's nodes whose |SF| is below this fraction of its peak |SF|, so a weakly-fit constraint's mark is its real nodes, not the noise floor",
-    ),
-) -> MapOverview:
-    return aggregate.overview(
-        n, k, min_frac, coordinates=_sp_coords, metadata=_sp_metadata
     )
 
 

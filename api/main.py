@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.config import FRONTEND_ORIGIN
 from api.db import lifespan
 from api.routes import conditions, ercot_range, forecast, map, matrix, scoreboard, topology
-from api.routes.analysis import brief, catalog, grading, hero, insights
+from api.routes.analysis import brief, catalog, hero, insights
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 
@@ -39,7 +39,7 @@ app.add_middleware(
 # Routers mounted at root. URLs:
 #   /topology  /ercot_range  /forecast_range
 #   /conditions_range
-#   /map/meta  /map/constraints  /map/exposures  /map/reach
+#   /map/summary  /map/constraints  /map/exposures  /map/reach
 #   /scoreboard/summary
 app.include_router(topology.router,    tags=['topology'])
 app.include_router(ercot_range.router, tags=['ercot_range'])
@@ -50,7 +50,6 @@ app.include_router(matrix.router,      tags=['matrix'])
 app.include_router(scoreboard.router,  tags=['scoreboard'])
 app.include_router(catalog.router,     tags=['analysis'])
 app.include_router(insights.router,    tags=['analysis'])
-app.include_router(grading.router,     tags=['analysis'])
 app.include_router(hero.router,        tags=['analysis'])
 app.include_router(brief.router,       tags=['analysis'])
 

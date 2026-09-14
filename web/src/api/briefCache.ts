@@ -1,13 +1,11 @@
 import { QueryCache } from "./cache";
 import {
-  fetchBriefDay,
   fetchBriefDetails,
   fetchBriefStandouts,
   fetchBriefHeroLatest,
   fetchBriefHeroShell,
 } from "./client";
 import type {
-  BriefDay,
   BriefDetails,
   Standouts,
   BriefHeroLatest,
@@ -27,18 +25,8 @@ function cached<T>(
   return entries.load(key, request) as Promise<T>;
 }
 
-export function clearBriefCache(): void { entries.invalidate(); }
-
 export function fetchBriefHeroLatestCached(signal?: AbortSignal): Promise<BriefHeroLatest | null> {
   return cached("hero-latest", fetchBriefHeroLatest, signal);
-}
-
-export function fetchBriefDayCached(
-  deliveryDate: string,
-  signal?: AbortSignal,
-): Promise<BriefDay | null> {
-  return cached(`brief:${deliveryDate}`, (requestSignal) =>
-    fetchBriefDay(deliveryDate, requestSignal), signal);
 }
 
 export function fetchBriefHeroShellCached(

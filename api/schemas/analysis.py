@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from api.schemas.common import SourceDescriptor
 
-# ---- /analysis/hero ------------------------------------------------------
+# ---- Brief hero -----------------------------------------------------------
 
 
 class HeroSegment(BaseModel):
@@ -174,34 +174,6 @@ class AnalysisConstraintsAvailableResponse(BaseModel):
     n_total: int
 
 
-# ---- /analysis/essp ------------------------------------------------------
-
-
-class EsspGroup(BaseModel):
-    """One ERCOT electrically-similar settlement-point group for one hour."""
-
-    group_index: int
-    settlement_points: list[str]
-
-
-class AnalysisEsspGroupsAvailableResponse(BaseModel):
-    """Hourly ESSP membership from one explicitly selected ERCOT vintage."""
-
-    available: Literal[True]
-    interval_ts: datetime
-    source: Literal["study", "final"]
-    groups: list[EsspGroup]
-
-
-class AnalysisEsspGroupsUnavailableResponse(BaseModel):
-    """Soft failure: the requested vintage has not been ingested for this hour."""
-
-    available: Literal[False]
-    unavailable_reason: Literal["essp_missing"]
-    interval_ts: datetime
-    source: Literal["study", "final"]
-
-
 # ---- shared ranked-row bases ---------------------------------------------
 
 
@@ -353,7 +325,7 @@ class TopNodesAvailableResponse(BaseModel):
     grouping: Literal["study_delivery_day", "exact_settled", "study_essp_missing"]
 
 
-# ---- /analysis/grade -----------------------------------------------------
+# ---- Brief grade ----------------------------------------------------------
 
 
 class GradeMetricsResponse(BaseModel):
@@ -421,7 +393,7 @@ class GradeHistoryAvailableResponse(BaseModel):
     days: list[GradeHistoryDayResponse]
 
 
-# ---- /analysis/brief ------------------------------------------------------
+# ---- /analysis/brief -----------------------------------------------------
 
 
 class BriefHeroShellResponse(BaseModel):
@@ -441,27 +413,6 @@ class BriefDetailsResponse(BaseModel):
 
     context: ContextAvailableResponse | ContextUnavailableResponse
     standouts: StandoutsAvailableResponse | NodeAnalysisUnavailableResponse | None = None
-    top_nodes: TopNodesAvailableResponse | NodeAnalysisUnavailableResponse
-    top_constraints: TopConstraintsAvailableResponse | NodeAnalysisUnavailableResponse
-    grade: GradeAvailableResponse | NodeAnalysisUnavailableResponse
-    grade_history: GradeHistoryAvailableResponse | NodeAnalysisUnavailableResponse
-
-
-class BriefDayResponse(BaseModel):
-    """One bundled payload for a Brief delivery day (0137).
-
-    Replaces the eight-request per-day fan-out with a single call; each field
-    keeps the exact response shape its single-section endpoint already served,
-    so consumers built against those shapes are untouched.
-    """
-
-    hero: (
-        HeroAvailableResponse
-        | HeroUnavailableResponse
-        | HeroUnavailableAtHorizonResponse
-    )
-    context: ContextAvailableResponse | ContextUnavailableResponse
-    standouts: StandoutsAvailableResponse | NodeAnalysisUnavailableResponse
     top_nodes: TopNodesAvailableResponse | NodeAnalysisUnavailableResponse
     top_constraints: TopConstraintsAvailableResponse | NodeAnalysisUnavailableResponse
     grade: GradeAvailableResponse | NodeAnalysisUnavailableResponse

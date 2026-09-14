@@ -23,18 +23,6 @@ function normalizedBounds(bounds: MatrixFrameBounds = {}) {
 
 function key(parts: Record<string, unknown>): string { return JSON.stringify(parts); }
 
-export function matrixFrameCacheKey(
-  frame: Pick<MatrixFrame, "run_id" | "delivery_date" | "interval_ts">,
-  bounds: MatrixFrameBounds = {},
-): string {
-  return key({
-    runId: frame.run_id,
-    deliveryDate: frame.delivery_date,
-    intervalTs: frame.interval_ts,
-    ...normalizedBounds(bounds),
-  });
-}
-
 /** Read or load a matrix frame; every response-affecting query parameter is keyed. */
 export function getMatrixFrame(
   intervalTs: Date,
@@ -43,5 +31,3 @@ export function getMatrixFrame(
   const request = key({ intervalTs: intervalTs.toISOString(), ...normalizedBounds(bounds) });
   return frames.load(request, (signal) => fetchMatrixFrame(intervalTs, { ...bounds, signal }));
 }
-
-export function clearMatrixFrameCache(): void { frames.invalidate(); }

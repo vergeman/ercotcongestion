@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from fastapi import HTTPException
 
 from compute.analysis.metadata import load_sp_metadata
@@ -15,33 +13,8 @@ from api.schemas.analysis import (
     AnalysisConstraintsAvailableResponse,
     AnalysisSettlementPointMetadata,
     AnalysisSettlementPointsAvailableResponse,
-    AnalysisEsspGroupsAvailableResponse,
-    AnalysisEsspGroupsUnavailableResponse,
-    EsspGroup,
     NodeAnalysisAvailableResponse,
 )
-
-
-def essp_groups_response(*, rows: list[dict], interval_ts, source: str):
-    if not rows:
-        return AnalysisEsspGroupsUnavailableResponse(
-            available=False,
-            unavailable_reason="essp_missing",
-            interval_ts=interval_ts,
-            source=source,
-        )
-    return AnalysisEsspGroupsAvailableResponse(
-        available=True,
-        interval_ts=interval_ts,
-        source=source,
-        groups=[
-            EsspGroup(
-                group_index=int(row["group_index"]),
-                settlement_points=list(row["settlement_points"]),
-            )
-            for row in rows
-        ],
-    )
 
 
 def settlement_points_response(

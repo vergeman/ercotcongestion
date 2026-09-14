@@ -1,7 +1,6 @@
 import type { SourceDescriptor } from "./common";
 
-// /analysis/hero — the on-demand v6 daily-brief hero.  Unlike the legacy
-// analysis brief this is composed from query-layer slots, not a stored blob.
+// Brief hero content is composed from query-layer slots, not a stored blob.
 export interface HeroSegment {
   text: string;
   ref: string;
@@ -178,8 +177,7 @@ export interface TopNodes {
   rows?: TopNodeRow[];
 }
 
-// /analysis/grade — independent daily verification halves. Constraint and node
-// scores intentionally never blend into one headline value.
+// Independent daily verification halves. Constraint and node scores never blend.
 export interface AnalysisGradeMetrics {
   detection_ap: number | null;
   magnitude_overlap: number | null;
@@ -243,22 +241,7 @@ export interface AnalysisGradeHistory {
   days?: AnalysisGradeHistoryDay[];
 }
 
-// /analysis/brief — one bundled payload for a Brief delivery day (0137).
-// Each field keeps the exact shape its single-section endpoint already
-// served, so section consumers built against those shapes are untouched.
-export interface BriefDay {
-  hero: BriefHero;
-  context: BriefContext;
-  standouts: Standouts;
-  top_nodes: TopNodes;
-  top_constraints: TopConstraints;
-  grade: AnalysisGrade;
-  grade_history: AnalysisGradeHistory;
-}
-
-// `/analysis/brief/hero` is the first-paint payload. It deliberately carries
-// only the hero plus inexpensive artifact-backed date navigation; the tables
-// and grade arrive through `/analysis/brief/details` afterwards.
+// The first-paint payload carries the hero and lightweight date navigation.
 export interface BriefHeroShell {
   hero: BriefHero;
   previous_delivery_date: string | null;
