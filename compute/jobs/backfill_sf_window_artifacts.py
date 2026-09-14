@@ -58,8 +58,8 @@ def main(argv: list[str] | None = None) -> int:
                     "INSERT INTO sf_window_artifact (run_id, window_start, sf_npz) VALUES (%s, %s, %s)",
                     (args.run_id, window_start, blob),
                 )
-        if args.write:
-            conn.commit()
+                # One committed window makes an interrupted run safely resumable.
+                conn.commit()
         if args.backfill_provenance:
             cur.execute(
                 "SELECT run_id, delivery_date, horizon FROM forecast_sf_artifact "
