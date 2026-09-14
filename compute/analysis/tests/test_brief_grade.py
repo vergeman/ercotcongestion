@@ -109,6 +109,7 @@ def test_brief_materialization_failure_remains_non_fatal_after_publish(monkeypat
 
 def test_snapshot_materializer_uses_a_temporary_api_pool(monkeypatch):
     closed = False
+    calls = []
 
     class Pool:
         def wait(self):
@@ -121,12 +122,23 @@ def test_snapshot_materializer_uses_a_temporary_api_pool(monkeypatch):
     monkeypatch.setattr(materialize_brief_snapshot, "ConnectionPool", lambda **_: Pool())
     monkeypatch.setattr(
         materialize_brief_snapshot.brief,
-        "materialize_final_snapshot",
-        lambda run_id, delivery_date, horizon: (run_id, delivery_date, horizon) == (
-            "run-x", date(2026, 7, 28), 1
-        ),
+        "materialize_snapshot",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True,
     )
 
     assert materialize_brief_snapshot.materialize_day("run-x", date(2026, 7, 28), 1)
+    assert materialize_brief_snapshot.materialize_day("run-x", date(2026, 7, 28), 2)
     assert closed
-    assert not materialize_brief_snapshot.materialize_day("run-x", date(2026, 7, 28), 2)
+    assert calls == [
+        (("run-x", date(2026, 7, 28), 1), {"replace": True}),
+        (("run-x", date(2026, 7, 28), 2), {"replace": True}),
+    ]
+
+
+def test_warm_snapshot_failure_does_not_rollback_a_published_forecast(monkeypatch):
+    monkeypatch.setattr(
+        daily_forecast, "materialize_brief_snapshot",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("brief unavailable")),
+    )
+
+    assert daily_forecast._warm_brief_snapshot("run-x", date(2026, 7, 28), 2, "preview") is None

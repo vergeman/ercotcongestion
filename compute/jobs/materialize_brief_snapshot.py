@@ -10,10 +10,8 @@ from api.services.analysis import brief
 from shared.settings import settings
 
 
-def materialize_day(run_id: str, delivery_date: date, horizon: int) -> bool:
-    """Materialize one final Brief day using the API's panel composition."""
-    if horizon != 1:
-        return False
+def materialize_day(run_id: str, delivery_date: date, horizon: int, *, replace: bool = True) -> bool:
+    """Materialize one forecast or settled Brief day through API composition."""
     pool = ConnectionPool(
         conninfo=settings.pg_dsn,
         min_size=1,
@@ -24,7 +22,7 @@ def materialize_day(run_id: str, delivery_date: date, horizon: int) -> bool:
     previous = db.pool
     db.pool = pool
     try:
-        return brief.materialize_final_snapshot(run_id, delivery_date, horizon)
+        return brief.materialize_snapshot(run_id, delivery_date, horizon, replace=replace)
     finally:
         db.pool = previous
         pool.close()
