@@ -1,7 +1,7 @@
 """Persist per-window constraint geography into ``constraint_geo`` (plan/0090).
 
-Sibling to the runner's ``--persist-sf`` path. For a run already in
-``implied_shift_factors``, it reads each window's SF matrix back from the DB,
+Sibling to the runner's ``--persist-sf`` path. For a run with canonical weekly
+artifacts, it decodes each window's SF matrix from the DB,
 applies ``geo.constraint_geography`` to locate every constraint at its
 |SF|-weighted centroid, and upserts one ``constraint_geo`` row per
 ``(window, constraint)`` — adding ``max_abs_sf`` (peak exposure, the *stable*
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         for window_start, window_end in windows:
             SF = load_window_sf(conn, args.run_id, window_start, fill_value=None)
             if SF.empty:
-                log.warning("no SF rows for window %s; skipping", window_start)
+                log.warning("no SF artifact for window %s; skipping", window_start)
                 continue
             Mw = M.loc[(M.index >= window_start) & (M.index < window_end)]
             geo = _window_geo(SF, sp, Mw)

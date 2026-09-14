@@ -449,6 +449,10 @@ CREATE TABLE IF NOT EXISTS forecast_sf_artifact (
   run_id text NOT NULL, delivery_date date NOT NULL, sf_npz bytea NOT NULL,
   horizon smallint NOT NULL DEFAULT 1,
   PRIMARY KEY (run_id, delivery_date, horizon));
+ALTER TABLE forecast_sf_artifact
+  ADD COLUMN IF NOT EXISTS sf_map_run_id text,
+  ADD COLUMN IF NOT EXISTS sf_window_start timestamptz,
+  ADD COLUMN IF NOT EXISTS sf_window_end timestamptz;
 """
 
 

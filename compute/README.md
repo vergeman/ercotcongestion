@@ -65,7 +65,7 @@ forecast loud and leaves the prior served day intact.
 | Cadence | weekly, Sun 18:00 UTC | daily ×2: final 17:00 UTC (h1) + preview 19:45 UTC (h2) |
 | Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `forecast_cronjob.yml` (final), `forecast_preview_cronjob.yml` (preview) |
 | Entry | `weekly_map` → `geo_persist` → `eval` | `daily_forecast` |
-| Writes | `implied_shift_factors`, `sf_window_meta`, `constraint_geo` | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
+| Writes | `sf_window_artifact`, `sf_window_meta`, `constraint_geo` | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
 
 **μ vs SF — why they are separate.** The two are orthogonal and multiply. μ is the
 *temporal* signal: per constraint, per hour, does it bind and how hard — driven by load,
@@ -165,13 +165,13 @@ python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomo
 ```
 
 * `compute.jobs.weekly_map`: `--start` is the series origin. Add `--rebuild` to
-wipe the run and refit from scratch (~30 min / ~67M rows); omit it for the
+wipe the run and refit from scratch; omit it for the
 normal cheap append. **Extending the ingest floor backward** — the initial
 2024-05-06 build that fills the 2025-01-01 → 2025-08 windows — is a from-scratch
 case: pass `--rebuild`, since a plain append only fits *forward* boundaries it
 does not already have.
 
-* `--persist-sf`: `implied_shift_factors` stored in db:
+* `--persist-sf`: one full dense float32 NPZ in `sf_window_artifact` per weekly window:
 
 ```
 MAP_RUN_ID=map-v1
@@ -417,7 +417,7 @@ after a failure.
 
     * `SF_map = load_forecast_sf(D, wp, map_run_id, ...)`: SF weekly map query db
       * `resolve_sf_window()` -> queries win: (`window_start`, `window_end`) from `sf_window_meta limit 1`
-      * `SF = load_window_sf(run_id, window_start)`: load the SF map from `implied_shift_factors` table
+      * `SF = load_window_sf(run_id, window_start)`: decode the canonical weekly SF artifact
       * `cov = sf_mass_coverage(SF, wp)` - calculate SF coverage
         * calculates the E[mu] value from the panel for each constraint row: `E_mu = _p_bind * mu_gbm`
         * total = sum mu for all constraints (single number)
@@ -567,7 +567,7 @@ For evaluation purposes (`/compute/evaluation/sf.py`) [`score_start`,
 
 * `jobs/weekly_map.py`:
   * setup start/end date ranges
-  * if `args.persist_sf` setup (connect db, delete existing sf if overwrite)
+  * if `args.persist_sf` setup (connect DB, delete existing artifacts and metadata on rebuild)
 
   * bounded chunked execution (`--chunk-weeks` must be positive):
     * `window start --- 240 days ----------------  | score start/refit_start   ---  score end / window end`
@@ -592,8 +592,8 @@ For evaluation purposes (`/compute/evaluation/sf.py`) [`score_start`,
             common rows (hours), columns (constraints); compare actual (Y) vs
             prediction (Y_hat) to get R^2
             * returns bunch of diagnostic stats, counts post-fit.
-          * persist SF via `copy_sf_rows`, and `window_meta` to db; notably
-            window and score dates, `sf_fit_r2`, `sf_oos_r2`, `coverage` stats.
+          * persist the full SF matrix as one NPZ artifact after its metadata;
+            metadata records window and score dates plus fit/evaluation fields.
 
 * `sf_map/model/rolling.py:fit_refit_window()`:
   * intersect and align `M` and `C` hours, mask on window start/end dates

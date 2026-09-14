@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+import numpy as np
 from fastapi import HTTPException
 
 import pandas as pd
@@ -136,7 +137,8 @@ def test_fit_metadata_uses_the_artifacts_causal_window(fake_pool, configured_run
     fake_pool.cursor.queue([{"run_id": "mu-all-v1"}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"sf_npz": blob}])
-    fake_pool.cursor.queue([{"window_start": old_start, "window_end": old_end}])
+    fake_pool.cursor.queue([{"sf_map_run_id": "map-v1", "sf_window_start": old_start,
+                              "sf_window_end": old_end}])
     fake_pool.cursor.queue([_meta_row(window_start=old_start, window_end=old_end,
                                       sf_oos_r2=0.31, coverage=0.78, sf_stability=0.22)])
 
@@ -157,7 +159,8 @@ def test_fit_metadata_labels_nearest_past_artifact(fake_pool, configured_run):
     fake_pool.cursor.queue([{"d": fallback_day}])
     fake_pool.cursor.queue([{"h": 1}])
     fake_pool.cursor.queue([{"sf_npz": blob}])
-    fake_pool.cursor.queue([{"window_start": WS, "window_end": WE}])
+    fake_pool.cursor.queue([{"sf_map_run_id": "map-v1", "sf_window_start": WS,
+                              "sf_window_end": WE}])
     fake_pool.cursor.queue([_meta_row()])
 
     result = aggregate.fit_metadata(delivery_day=DAY)
@@ -500,6 +503,8 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
     """The bulk overview: each constraint typed, with its signed top-k node field
     grouped from the single ANY(keys) node query, and the per-constraint min_frac
     floor dropping the noise-floor node."""
+    aggregate._window_cache.clear()
+    aggregate._window_cache_size = 0
     monkeypatch.setattr(map_module, "_SP_COORDS",
                         {"N1": (29.7, -95.3), "N2": (32.6, -101.0),
                          "N3": (30.0, -99.0), "N4": (33.0, -97.0)})
@@ -512,12 +517,10 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
         {"constraint_key": "BBB|LINE", "ctype": "transmission", "binding_hours": 200,
          "max_abs_sf": 0.40},
     ])
-    fake_pool.cursor.queue([                         # ANY(keys) nodes, key then |sf|
-        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N1", "sf": 0.50},
-        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N2", "sf": -0.40},
-        {"constraint_key": "AAA|BASE CASE", "settlement_point": "N3", "sf": 0.02},  # < 0.15*0.50, dropped
-        {"constraint_key": "BBB|LINE", "settlement_point": "N4", "sf": 0.40},
-    ])
+    from compute.projection.codecs import build_sf_window_artifact
+    weekly = pd.DataFrame([[0.50, -0.40, 0.02, np.nan], [np.nan, np.nan, np.nan, 0.40]],
+                          index=["AAA|BASE CASE", "BBB|LINE"], columns=["N1", "N2", "N3", "N4"])
+    fake_pool.cursor.queue([{"sf_npz": build_sf_window_artifact(weekly)}])
 
     r = client.get("/map/overview", params={"n": 70, "k": 16})
     assert r.status_code == 200, r.text
@@ -529,7 +532,7 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
     assert a["constraint_key"] == "AAA|BASE CASE" and a["ctype"] == "gtc"
     # the noise-floor node (0.02 < 0.15*0.50) is dropped; the two real ones stay
     assert [n["settlement_point"] for n in a["nodes"]] == ["N1", "N2"]
-    assert a["nodes"][1]["sf"] == -0.40 and a["nodes"][1]["lat"] == 32.6  # opposite end, coord joined
+    assert a["nodes"][1]["sf"] == pytest.approx(-0.40) and a["nodes"][1]["lat"] == 32.6
     assert a["nodes"][0]["settlement_point_type"] == "RN"
     assert a["nodes"][0]["load_zone"] == "houston"
     assert b["ctype"] == "transmission" and [n["settlement_point"] for n in b["nodes"]] == ["N4"]
@@ -537,6 +540,8 @@ def test_overview_cores_types_and_grouping(client, fake_pool, configured_run,
 
 def test_overview_truncates_to_k_nodes(client, fake_pool, configured_run, monkeypatch):
     """k caps the per-constraint field even when more nodes clear the floor."""
+    aggregate._window_cache.clear()
+    aggregate._window_cache_size = 0
     monkeypatch.setattr(map_module, "_SP_COORDS", {})
     fake_pool.cursor.queue([{"ws": WS}])
     fake_pool.cursor.queue([_meta_row()])
@@ -544,10 +549,10 @@ def test_overview_truncates_to_k_nodes(client, fake_pool, configured_run, monkey
         "constraint_key": "AAA|c", "ctype": "transmission", "binding_hours": 100,
         "max_abs_sf": 1.0,
     }])
-    fake_pool.cursor.queue([
-        {"constraint_key": "AAA|c", "settlement_point": f"N{i}", "sf": 1.0 - 0.01 * i}
-        for i in range(5)
-    ])
+    from compute.projection.codecs import build_sf_window_artifact
+    weekly = pd.DataFrame([[1.0 - 0.01 * i for i in range(5)]], index=["AAA|c"],
+                          columns=[f"N{i}" for i in range(5)])
+    fake_pool.cursor.queue([{"sf_npz": build_sf_window_artifact(weekly)}])
 
     body = client.get("/map/overview", params={"n": 1, "k": 2}).json()
     assert [n["settlement_point"] for n in body["constraints"][0]["nodes"]] == ["N0", "N1"]

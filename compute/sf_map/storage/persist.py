@@ -1,19 +1,17 @@
-"""Persist the SF matrix and constraint geography into Postgres.
+"""Persist canonical weekly SF artifacts and constraint geography into Postgres.
 
-The map runner (``runner.py``) streams each refit window here: its
-``implied_shift_factors`` matrix (``copy_sf_rows``) and one ``sf_window_meta``
-row (``write_window_meta``). ``geo_persist.py`` writes the constraint-geo
-overlay (``copy_constraint_geo_rows``); ``eval.py`` backfills the per-window OOS
-metrics (``update_eval_metrics``). Every write is idempotent per ``run_id``
-(delete-then-copy, or upsert), so a re-persist replaces cleanly.
+The weekly map writes metadata then one canonical NPZ payload per refit window.
+Geography writes the constraint overlay; evaluation backfills window metrics.
+All writes are idempotent per run and window.
 """
 from __future__ import annotations
 
 import json
 from typing import Iterable, Mapping
 
-import numpy as np
 import pandas as pd
+
+from compute.projection.codecs import build_sf_window_artifact
 
 REQUIRED_REF_METHOD = "system_lambda"
 
@@ -34,14 +32,14 @@ def check_ref_method(ref_method: str | None) -> None:
 
 
 def delete_sf_run(conn, run_id: str) -> tuple[int, int]:
-    """Clear any prior SF rows for ``run_id`` from both S0b tables.
+    """Clear any prior weekly artifacts and metadata for ``run_id``.
 
-    Makes ``--persist-sf`` idempotent. Returns ``(n_sf_rows, n_meta_rows)``
+    Makes ``--persist-sf`` idempotent. Returns ``(n_artifacts, n_meta_rows)``
     deleted.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM implied_shift_factors WHERE run_id = %s", (run_id,)
+            "DELETE FROM sf_window_artifact WHERE run_id = %s", (run_id,)
         )
         n_sf = cur.rowcount
         cur.execute(
@@ -67,43 +65,19 @@ def existing_sf_windows(conn, run_id: str) -> set:
         return {row[0] for row in cur.fetchall()}
 
 
-def copy_sf_rows(
-    conn,
-    run_id: str,
-    window_start,
-    SF: pd.DataFrame,
-    threshold: float,
-) -> int:
-    """Stream one refit window's SF matrix via ``COPY FROM STDIN``.
-
-    ``SF`` is (constraint_key × settlement_point); it is unpivoted to
-    ``(run_id, window_start, constraint_key, settlement_point, sf)``. Entries
-    with ``|sf| < threshold`` or non-finite are skipped. Returns the number of
-    rows written.
-
-    """
-    if SF.empty:
-        return 0
-    ws = str(window_start)
-    keys = [str(k) for k in SF.index]
-    sps = [str(s) for s in SF.columns]
-    values = SF.to_numpy(dtype=float)
-    sql = (
-        "COPY implied_shift_factors "
-        "(run_id, window_start, constraint_key, settlement_point, sf) "
-        "FROM STDIN"
-    )
-    n_rows = 0
-    with conn.cursor() as cur, cur.copy(sql) as cp:
-        for i, key in enumerate(keys):
-            row = values[i]
-            for j, sp in enumerate(sps):
-                v = float(row[j])
-                if not np.isfinite(v) or abs(v) < threshold:
-                    continue
-                cp.write_row((run_id, ws, key, sp, v))
-                n_rows += 1
-    return n_rows
+def write_sf_window_artifact(conn, run_id: str, window_start, SF: pd.DataFrame) -> int:
+    """Upsert one full weekly matrix after its ``sf_window_meta`` row exists."""
+    blob = build_sf_window_artifact(SF)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sf_window_artifact (run_id, window_start, sf_npz) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (run_id, window_start) DO UPDATE "
+            "SET sf_npz = EXCLUDED.sf_npz, codec_version = EXCLUDED.codec_version, "
+            "created_at = now()",
+            (run_id, pd.Timestamp(window_start), blob),
+        )
+    return len(blob)
 
 
 def delete_constraint_geo(conn, run_id: str) -> int:

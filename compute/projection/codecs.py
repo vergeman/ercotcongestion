@@ -99,6 +99,46 @@ class SfMuArtifact:
     E_mu: pd.DataFrame
 
 
+@dataclass(frozen=True)
+class SfWindowArtifact:
+    """One canonical weekly SF matrix before serving-time thresholding."""
+    SF: pd.DataFrame
+
+
+def build_sf_window_artifact(SF: pd.DataFrame) -> bytes:
+    """Serialize a dense float32 weekly SF matrix with stable UTF-8 labels."""
+    if not SF.index.is_unique or not SF.columns.is_unique:
+        raise ValueError("SF artifact labels must be unique")
+    values = SF.to_numpy(dtype=np.float32)
+    if np.isinf(values).any():
+        raise ValueError("SF artifact values must be finite or NaN")
+    buf = io.BytesIO()
+    np.savez_compressed(
+        buf,
+        codec_version=np.array(1, dtype=np.int8),
+        key_vocab=np.asarray(SF.index, dtype=object).astype("U"),
+        sp_vocab=np.asarray(SF.columns, dtype=object).astype("U"),
+        sf=values,
+    )
+    return buf.getvalue()
+
+
+def load_sf_window_artifact(src) -> SfWindowArtifact:
+    """Decode a canonical weekly SF artifact from bytes or a path."""
+    z = np.load(io.BytesIO(src) if isinstance(src, (bytes, bytearray, memoryview)) else src,
+                allow_pickle=False)
+    required = {"codec_version", "key_vocab", "sp_vocab", "sf"}
+    if not required.issubset(z.files) or int(z["codec_version"]) != 1:
+        raise ValueError("unsupported SF window artifact")
+    values = z["sf"]
+    keys, sps = z["key_vocab"], z["sp_vocab"]
+    if values.dtype != np.float32 or values.shape != (len(keys), len(sps)):
+        raise ValueError("invalid SF window artifact shape")
+    if np.isinf(values).any() or len(set(keys.tolist())) != len(keys) or len(set(sps.tolist())) != len(sps):
+        raise ValueError("invalid SF window artifact values or labels")
+    return SfWindowArtifact(pd.DataFrame(values, index=keys, columns=sps))
+
+
 def build_sf_mu_artifact(SF: pd.DataFrame, E_mu: pd.DataFrame) -> bytes:
     """Serialize the day's SF and expected μ matrices to an NPZ blob."""
     E = E_mu.reindex(columns=SF.index)
