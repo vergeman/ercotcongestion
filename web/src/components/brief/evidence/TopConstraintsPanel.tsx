@@ -15,9 +15,7 @@ export default function TopConstraintsPanel({
   settled: boolean;
   onSelect: (selection: BriefSelection) => void;
 }) {
-  // Post-settlement, a row absent from the forecast top-k is marked. The
-  // threshold is the k the server actually served (a required field on the
-  // available response) — never a client-side constant that could desync.
+
   const forecastK = data?.k;
   return (
     <section className="an-constraints" aria-labelledby="top-constraints-title">
@@ -25,8 +23,8 @@ export default function TopConstraintsPanel({
         <h2 id="top-constraints-title">Top Constraints by Shadow Price (μ)</h2>
         <p>
           {settled
-            ? "The complete forecast artifact, with same-key DAM evidence—not the legacy brief cast."
-            : "The complete forecast artifact, ranked by daily forecast μ—not the legacy brief cast."}
+            ? "Ranked by DAM settled μ."
+            : "Ranked by daily forecast μ."}
         </p>
       </div>
       {loading && <LoadingState>Loading constraints…</LoadingState>}
@@ -165,4 +163,3 @@ export default function TopConstraintsPanel({
     </section>
   );
 }
-

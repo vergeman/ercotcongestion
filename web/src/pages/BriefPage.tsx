@@ -32,11 +32,8 @@ const fmtDay = (day: string) =>
 
 const MOBILE_BREAKPOINT = "(max-width: 700px)";
 
-// The leading zone's signed congestion sense, for the Zone Price pair. The
-// default reading of congestion is scarcity that lifts price; a negative zone
-// (export/oversupply) sits below the system price, which is worth calling out.
-// Sign only — the mean magnitude is node-sampling sensitive. A ±$1/MWh dead band
-// leaves a flat zone unlabelled.
+// The leading zone's signed congestion sense, for the Zone Price pair. A
+// ±$1/MWh dead band leaves a flat zone unlabelled.
 const priceDirection = (congestion: number | null) =>
   congestion == null || Math.abs(congestion) < 1
     ? "—"
@@ -44,17 +41,13 @@ const priceDirection = (congestion: number | null) =>
     ? "Below system"
     : "Above system";
 
-// v6 is deliberately a separate composition from the legacy, precomputed
-// Analysis page. It owns only a delivery day; the map/matrix playback session
-// remains mounted exclusively on those surfaces.
+
 export default function BriefPage() {
   const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const cursor = useTimeCursor();
   const cursorDay = cursor.t ? formatCT(cursor.t, "yyyy-MM-dd") : null;
   const [detailsRetry, setDetailsRetry] = useState(0);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
-  // The row a reader opened the shared detail panel over (plan/0135); null when
-  // closed. Purely UI state — it never touches the Brief's time coordinate.
   const [selection, setSelection] = useState<BriefSelection | null>(null);
   const [replaceWithHeroCursor, setReplaceWithHeroCursor] = useState(false);
   const {
@@ -80,9 +73,7 @@ export default function BriefPage() {
     initialLookupDone,
     globalLoading,
   } = useBriefDay(cursorDay, detailsRetry);
-  // Router search params publish on the following render. This ref records a
-  // picker selection synchronously, so the current hero cannot win the brief
-  // cursor during that short handoff.
+
   const pendingDeliveryDayRef = useRef<string | null>(null);
 
   // The detail panel is opened over a specific day's row; close it whenever the
@@ -127,7 +118,7 @@ export default function BriefPage() {
   const actualLoadNet = numeric(regime, "actual_net_load");
   // T+2 is always the DAM-close forecast. On settled T+1, prefer the complete
   // realized pair, falling back to the complete forecast pair when actual load
-  // data has not landed yet. Never mix the two sources within this card.
+  // data has not landed yet.
   const hasActualLoadPair = actualLoadTotal != null && actualLoadNet != null;
   const loadSource =
     provenance?.horizon == null
@@ -157,15 +148,7 @@ export default function BriefPage() {
   const whereShare = numeric(where, "share");
   const whereZone = typeof where?.zone === "string" ? where.zone : null;
   const whereCongestion = numeric(where, "zone_congestion");
-  // The hero's own map action (0131): settled heroes open the ERCOT DAM view;
-  // forecast heroes (including t+2 previews) open the latest price forecast.
-  // Shared by the image CTA and its mobile fallback below.
-  //
-  // `t` is deliberately `cursor.ws` (the delivery day's start), not
-  // `cursor.t` (the peak-μ hour `_cursor` computes it as). Autoplay starts
-  // wherever the scrubber's cursor lands and only rewinds if it's already at
-  // the window's end — landing mid-day would give the reader just the
-  // tail of the day to watch move, not the full arc.
+
   const watchHref = briefMapWatchHref(hero, settled);
   const selectDeliveryDay = (day: string) => {
     const { start, end } = briefDayBounds(day);
