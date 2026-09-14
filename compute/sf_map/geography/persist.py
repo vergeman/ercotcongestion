@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         for window_start, window_end in windows:
             SF = load_window_sf(conn, args.run_id, window_start, fill_value=None)
             if SF.empty:
-            log.warning("no SF artifact for window %s; skipping", window_start)
+                log.warning("no SF artifact for window %s; skipping", window_start)
                 continue
             Mw = M.loc[(M.index >= window_start) & (M.index < window_end)]
             geo = _window_geo(SF, sp, Mw)
