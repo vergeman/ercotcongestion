@@ -2,10 +2,8 @@ import { requestRequiredJson } from "./http";
 import type {
   AnalysisBasis,
   AnalysisConstraintsResponse,
-  AnalysisEsspGroupsResponse,
   AnalysisNodeResponse,
   AnalysisSettlementPointsResponse,
-  EsspSource,
   MatrixFrame,
 } from "./types";
 
@@ -112,15 +110,4 @@ export function fetchAnalysisConstraints(
   const query = new URLSearchParams({ delivery_date: deliveryDate });
   if (horizon != null) query.set("horizon", String(horizon));
   return requestRequiredJson("/analysis/constraints", { query, signal });
-}
-
-export function fetchAnalysisEsspGroups(
-  intervalTs: string,
-  source: EsspSource = "study",
-  signal?: AbortSignal,
-): Promise<AnalysisEsspGroupsResponse> {
-  return requestRequiredJson("/analysis/essp", {
-    query: new URLSearchParams({ interval_ts: intervalTs, source }),
-    signal,
-  });
 }

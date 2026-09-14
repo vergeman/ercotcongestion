@@ -45,5 +45,3 @@ export async function getAnalysisNode(
     }),
   );
 }
-
-export function clearAnalysisNodeCache(): void { cache.invalidate(); }
