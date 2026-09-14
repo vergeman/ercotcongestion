@@ -103,15 +103,15 @@ panels for the requested date range, walks the rolling window, and:
   boundary, with the fit's R² (overall and per-SP), kept/dropped constraint
   lists with binding-hour counts, and `n_sf_clipped` (SF entries the post-fit
   `[-1, 1]` cap caught);
-* with `--persist-sf`, writes each refit's `SF` matrix to
-  `implied_shift_factors` and one metadata row to `sf_window_meta`, keyed by
+* with `--persist-sf`, writes one dense float32 NPZ matrix to
+  `sf_window_artifact` and one metadata row to `sf_window_meta`, keyed by
   `run_id`.
 
 ### Parameters
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--run-id` | *required* | Row key in `implied_shift_factors` / `sf_window_meta`; also `runs/<run_id>/sf/` for diagnostics. |
+| `--run-id` | *required* | Key in `sf_window_artifact` / `sf_window_meta`; also `runs/<run_id>/sf/` for diagnostics. |
 | `--start`, `--end` | *required* | `[start, end)`; date-only, YYYY-MM-DD. `--start` is just the series origin. |
 | `--window-days` | `240` | Trailing window used for each fit. |
 | `--refit-days` | `7` | Days between successive fits. `1` reproduces the prototype's daily refit. |
@@ -120,9 +120,8 @@ panels for the requested date range, walks the rolling window, and:
 | `--std-floor` | `100.0` | Lower bound on per-column std used for standardization; see "Fit knobs". |
 | `--ref-method` | `system_lambda` | Reference price for congestion. Only distributed-slack refs are compatible with this fit. |
 | `--no-standardize` | (off) | Skip per-column standardization of `M`. |
-| `--persist-sf` | (off) | Write the per-refit SF matrix to `implied_shift_factors` (+ `sf_window_meta`). Incremental by default. |
-| `--rebuild` | (off) | With `--persist-sf`, wipe all rows for this `run_id` first, then refit + persist every complete window from scratch. |
-| `--sf-threshold` | `1e-3` | With `--persist-sf`, drop SF entries with `\|sf\| <` this. The matrix is dense but mostly negligible; keeps row counts sane. |
+| `--persist-sf` | (off) | Write the full per-refit SF matrix as `sf_window_artifact` (+ `sf_window_meta`). Incremental by default. |
+| `--rebuild` | (off) | With `--persist-sf`, wipe all artifacts and metadata for this `run_id`, then refit every complete window. |
 | `--chunk-weeks` | `32` | Required positive number of refit windows to load and fit per chunk. |
 
 ### DB persistence (incremental append)
@@ -135,7 +134,7 @@ fixed grid — are persisted. The clamped terminal week is never written, so eve
 persisted `window_start` is immutable and the served map advances one complete
 week per run. Re-running the same `--end` is a DB no-op.
 
-`--rebuild` restores the old delete-then-rewrite: it wipes every row for the
+`--rebuild` restores delete-then-rewrite: it wipes every artifact and metadata row for the
 `run_id`, then refits and persists every complete window. The wipe shares the
 fit loop's transaction (committed at the end), so a crash mid-rebuild leaves the
 prior served windows intact.

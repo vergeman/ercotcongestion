@@ -46,7 +46,7 @@ stage packages for library imports and CLI commands.
 
 | When | Command/module | What it does | Main output |
 | --- | --- | --- | --- |
-| Weekly | `python -m compute.jobs.weekly_map` | Loads DAM M/C panels; fits each new rolling SF window; writes diagnostics and, with `--persist-sf`, the map. | `implied_shift_factors`, `sf_window_meta`, run diagnostics |
+| Weekly | `python -m compute.jobs.weekly_map` | Loads DAM M/C panels; fits each new rolling SF window; writes diagnostics and, with `--persist-sf`, the canonical map artifact. | `sf_window_artifact`, `sf_window_meta`, run diagnostics |
 | Weekly, after map | `python -m compute.sf_map.geography.persist` | Derives and persists a map-based geographic overlay for constraints. | `constraint_geo` |
 | Weekly, after map | `python -m compute.evaluation.sf` | Performs honest out-of-window SF evaluation and can persist metrics. | map evaluation fields / CSV |
 | Daily | `python -m compute.jobs.daily_forecast` | Builds the DAM-close-safe μ panel for one delivery day, fits/predicts μ, loads a causal persisted SF map, projects it, and optionally publishes. | nodal forecast + SF/μ artifact + current pointer |

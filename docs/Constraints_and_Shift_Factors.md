@@ -257,31 +257,31 @@ coupling is ground truth the name-based geocoder never sees.
 
 ## 6. Reproducing this: the queries and the co-binding result
 
-Two tables back everything above (`run_id = 'map-v1'`):
+The canonical weekly artifact and the derived geography table back everything
+above (`run_id = 'map-v1'`):
 
-- **`implied_shift_factors(run_id, window_start, constraint_key, settlement_point, sf)`**
-  — one row per fitted SF per refit window. This is the reach.
+- **`sf_window_artifact(run_id, window_start, sf_npz)`** — one dense float32
+  matrix per fitted weekly window. This is the reach source of truth.
 - **`constraint_geo(run_id, window_start, constraint_key, lat, lon, spread_km,
   max_abs_sf, binding_hours, …)`** — the derived per-constraint centroid (§3).
 
 Settlement-point coordinates are **not** in the DB; they live only in
 `data/processed/settlement_points_geocoded.csv`. So any *geography* question is a
-join across the DB and that CSV. Every query below pins to the latest refit
-window with:
+join across the DB and that CSV. Decode the latest artifact before inspecting
+reach:
 
-```sql
-WITH w AS (SELECT max(window_start) AS ws
-           FROM implied_shift_factors WHERE run_id='map-v1')
+```python
+from compute.projection.codecs import load_sf_window_artifact
+
+cur.execute("SELECT sf_npz FROM sf_window_artifact WHERE run_id=%s "
+            "ORDER BY window_start DESC LIMIT 1", ("map-v1",))
+SF = load_sf_window_artifact(cur.fetchone()[0]).SF
 ```
 
 ### Reach — which nodes a constraint drives
 
-```sql
-SELECT settlement_point, round(sf::numeric,3) AS sf
-FROM implied_shift_factors, w
-WHERE run_id='map-v1' AND window_start=w.ws
-  AND constraint_key='VALEXP|BASE CASE'
-ORDER BY abs(sf) DESC LIMIT 12;
+```python
+SF.loc["VALEXP|BASE CASE"].sort_values(key=lambda s: s.abs(), ascending=False).head(12)
 ```
 
 `VALEXP` returns a **plateau** — 61 nodes at |SF|≈0.80 (`MV_VALV4_RN` 0.824,
@@ -295,12 +295,8 @@ the interface. Swap the key to `HAINE__LA_PAL1_1|MHARNED5` and you instead get a
 Flip the filter: hold the *node* fixed and rank its constraints. This is the
 co-binding check that tells mis-geocode from ridge leakage.
 
-```sql
-SELECT constraint_key, round(sf::numeric,3) AS sf
-FROM implied_shift_factors, w
-WHERE run_id='map-v1' AND window_start=w.ws
-  AND settlement_point='CFLAT_ES_RN'
-ORDER BY abs(sf) DESC LIMIT 8;
+```python
+SF["CFLAT_ES_RN"].sort_values(key=lambda s: s.abs(), ascending=False).head(8)
 ```
 
 **Result** — the two suspect nodes' entire profiles are RGV constraints:
@@ -330,13 +326,11 @@ Because coordinates are not in the DB, run the audit as an export + pandas join:
 high-|SF| `VALEXP` nodes that were geocoded *outside* the RGV (lat > 28) are the
 suspects.
 
-```sql
--- SQL: pocket-level VALEXP nodes → valexp_hi.csv
-SELECT settlement_point, round(sf::numeric,3)
-FROM implied_shift_factors, w
-WHERE run_id='map-v1' AND window_start=w.ws
-  AND constraint_key='VALEXP|BASE CASE' AND abs(sf) >= 0.5
-ORDER BY abs(sf) DESC;
+```python
+# Pocket-level VALEXP nodes → valexp_hi.csv
+(SF.loc["VALEXP|BASE CASE"].rename("sf").loc[lambda s: s.abs() >= 0.5]
+   .sort_values(key=lambda s: s.abs(), ascending=False).rename_axis("settlement_point")
+   .reset_index().to_csv("valexp_hi.csv", index=False))
 ```
 
 ```python

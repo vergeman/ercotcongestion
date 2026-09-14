@@ -1,11 +1,8 @@
 """Persist canonical weekly SF artifacts and constraint geography into Postgres.
 
-The map runner (``runner.py``) streams each refit window here: its
-``implied_shift_factors`` matrix (``copy_sf_rows``) and one ``sf_window_meta``
-row (``write_window_meta``). ``geo_persist.py`` writes the constraint-geo
-overlay (``copy_constraint_geo_rows``); ``eval.py`` backfills the per-window OOS
-metrics (``update_eval_metrics``). Every write is idempotent per ``run_id``
-(delete-then-copy, or upsert), so a re-persist replaces cleanly.
+The weekly map writes metadata then one canonical NPZ payload per refit window.
+Geography writes the constraint overlay; evaluation backfills window metrics.
+All writes are idempotent per run and window.
 """
 from __future__ import annotations
 
@@ -37,7 +34,7 @@ def check_ref_method(ref_method: str | None) -> None:
 def delete_sf_run(conn, run_id: str) -> tuple[int, int]:
     """Clear any prior weekly artifacts and metadata for ``run_id``.
 
-    Makes ``--persist-sf`` idempotent. Returns ``(n_sf_rows, n_meta_rows)``
+    Makes ``--persist-sf`` idempotent. Returns ``(n_artifacts, n_meta_rows)``
     deleted.
     """
     with conn.cursor() as cur:
