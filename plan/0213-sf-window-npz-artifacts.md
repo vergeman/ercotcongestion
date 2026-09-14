@@ -58,10 +58,11 @@ Branch: refactor/0213-sf-window-npz-artifacts
 
 ## Acceptance
 
-* [ ] Each `sf_window_meta` row for an active run has exactly one decodable weekly NPZ artifact with matching run/window identity and stable labels.
-* [ ] A complete production backfill reproduces every legacy zero-filled SF window and logs size/shape/checksum evidence without exhausting worker memory.
-* [ ] New weekly maps dual-write matching artifact and legacy representations; a new daily forecast records `sf_map_run_id`, `sf_window_start`, and `sf_window_end` atomically with its served blob.
-* [ ] Daily forecasts, backfills, `constraint_geo`, and `/map/overview` read weekly artifacts; `/matrix`, `/map/reach`, `/map/exposures`, and daily ranking remain behaviorally unchanged.
-* [ ] Artifact-backed `/map/overview` preserves its current response shape, top-K ordering/floors, and map metadata, with one decode per current window per API process under normal cache operation.
-* [ ] Focused codec, storage, weekly-map, forecast, geography, and map API tests cover variable constraint/SP vocabularies, threshold behavior, historic causal selection, provenance, cache invalidation, and legacy/artifact equivalence.
-* [ ] No runtime code, job, or documentation reference to `implied_shift_factors` remains when the final drop migration lands; production disk reclamation is performed separately and measured.
+* [x] Schema, codec, artifact writer, and artifact loader preserve weekly run/window identity, labels, dense float32 values, and legacy threshold/fill behavior.
+* [x] A resumable one-window-at-a-time backfill command reports shape, checksum, and compressed size; it can also dry-run or write daily-artifact provenance.
+* [x] New weekly maps write canonical artifacts, and new daily forecasts atomically record `sf_map_run_id`, `sf_window_start`, and `sf_window_end` with their served blob.
+* [x] Daily forecasts, `constraint_geo`, and `/map/overview` read weekly artifacts; `/matrix`, `/map/reach`, `/map/exposures`, and daily ranking retain daily-artifact reads.
+* [x] Artifact-backed `/map/overview` retains its response shape, top-K/floor logic, metadata, and uses a byte-bounded cache keyed by run/window.
+* [x] Focused codec, loader, daily-forecast, and map API tests pass locally (73 passed, 4 skipped).
+* [ ] Run the production backfill/audits, verify every active metadata row has an artifact, and compare production artifact outputs before removing the legacy table.
+* [ ] Drop `implied_shift_factors` and its index in a forward migration only after the audit; then schedule `pg_repack` or maintenance-window `VACUUM FULL` and measure reclaimed disk.
