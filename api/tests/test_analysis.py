@@ -231,10 +231,14 @@ def test_brief_hero_shell_returns_navigation_without_running_detail_handlers(
             analysis_module, name,
             lambda *_: (_ for _ in ()).throw(AssertionError("detail handler ran")),
         )
+    monkeypatch.setattr(brief_service, "_snapshot_or_compose", lambda *_: {
+        "hero": {"available": False, "unavailable_reason": "artifact_missing",
+                 "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
+    })
 
     body = client.get("/analysis/brief/hero?day=2026-07-28").json()
 
-    assert calls == {"hero": 1}
+    assert calls == {"hero": 0}
     assert body == {
         "hero": {"available": False, "unavailable_reason": "artifact_missing",
                  "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2},
@@ -263,11 +267,19 @@ def test_brief_details_composes_every_secondary_panel_but_not_hero(client, fake_
              "get_grade", "get_grade_history")
     for name in names:
         monkeypatch.setattr(analysis_module, name, detail(name))
+    unavailable = {"available": False, "unavailable_reason": "artifact_missing",
+                   "run_id": "run-x", "delivery_date": "2026-07-28", "horizon": 2}
+    monkeypatch.setattr(brief_service, "_snapshot_or_compose", lambda *_: {
+        "details": {"context": unavailable, "standouts": None, "top_nodes": unavailable,
+                    "top_constraints": unavailable, "grade": unavailable,
+                    "grade_history": unavailable},
+        "standouts": unavailable,
+    })
 
     response = client.get("/analysis/brief/details?day=2026-07-28")
 
     assert response.status_code == 200
-    assert calls == set(names)
+    assert calls == set()
     assert set(response.json()) == {
         "context", "standouts", "top_nodes", "top_constraints", "grade", "grade_history",
     }

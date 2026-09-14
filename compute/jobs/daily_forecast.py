@@ -484,6 +484,17 @@ def _forecast_history_latest(conn, run_id: str, published: "pd.Timestamp",
                       "already published for this tick)", published.date())
 
 
+def _warm_brief_snapshot(run_id: str, delivery_date: date, horizon: int, state: str) -> None:
+    """Prewarm the published Brief without putting publication at risk."""
+    try:
+        if not materialize_brief_snapshot(run_id, delivery_date, horizon):
+            log.warning("Brief snapshot skipped (run_id=%s delivery_date=%s horizon=%d state=%s)",
+                        run_id, delivery_date, horizon, state)
+    except Exception:
+        log.exception("Brief snapshot failed (run_id=%s delivery_date=%s horizon=%d state=%s)",
+                      run_id, delivery_date, horizon, state)
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -576,6 +587,10 @@ def main(argv: list[str] | None = None) -> int:
         log.info(_summary(result))
         if args.to_db:
             persist_forecast(conn, result)
+            _warm_brief_snapshot(
+                args.run_id, result.delivery_date, args.horizon,
+                "preview" if args.horizon == 2 else "forecast",
+            )
             # Grade the most recent realized served day in the same tick. Free the
             # fit's working set first so the two peaks don't sum on a 16Gi node.
             del result
@@ -583,14 +598,9 @@ def main(argv: list[str] | None = None) -> int:
             if not args.no_grade:
                 graded_day = _grade_latest(conn, args.run_id, args.horizon)
                 if graded_day is not None and args.horizon == 1:
-                    try:
-                        materialized = materialize_brief_snapshot(
-                            args.run_id, graded_day.date(), args.horizon
-                        )
-                        if not materialized:
-                            log.warning("Brief snapshot skipped for %s", graded_day.date())
-                    except Exception:
-                        log.exception("Brief snapshot failed for %s", graded_day.date())
+                    _warm_brief_snapshot(
+                        args.run_id, graded_day.date(), args.horizon, "settled"
+                    )
             _forecast_history_latest(conn, args.run_id, D, args.horizon)
         else:
             log.info("dry run (--to-db not set): nothing written, pointer unchanged")
