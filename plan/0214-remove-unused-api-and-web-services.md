@@ -36,7 +36,7 @@ Branch: refactor/0214-remove-unused-api-and-web-services
 
 ## Acceptance
 
-* [ ] Removed routes return 404 and no longer appear in OpenAPI or the route inventory.
-* [ ] `/map/summary` still returns overview and metadata; Brief hero/details and Matrix behavior remain unchanged.
-* [ ] The web build, lint, and API tests pass with no dead wrapper, type, cache, or import left behind.
-* [ ] A source search confirms no web request path targets a removed route.
+* [x] Removed routes return 404 and no longer appear in OpenAPI or the route inventory.
+* [x] `/map/summary` still returns overview and metadata; Brief hero/details and Matrix behavior remain unchanged.
+* [x] The web build, lint, and API tests pass with no dead wrapper, type, cache, or import left behind.
+* [x] A source search confirms no web request path targets a removed route.
