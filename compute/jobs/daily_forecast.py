@@ -25,6 +25,7 @@ from compute.forecast_store import (
     FORECAST_LAYER,
     nodal_to_db,
     persist_sf_mu_artifact,
+    SfWindowProvenance,
     upsert_pointer,
 )
 from compute.jobs.forecast_history import load_artifact, persist_rollup
@@ -339,13 +340,13 @@ def persist_forecast(conn, result: ForecastResult, *,
         _write_nodal_npz(result, nodal_path)
         n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D,
                         horizon=horizon)
-        provenance = (result.map_run_id, result.sf_window_start, result.sf_window_end)
-        if not all(provenance):
-            provenance = (None, None, None)
+        provenance = None
+        if result.map_run_id and result.sf_window_start and result.sf_window_end:
+            provenance = SfWindowProvenance(result.map_run_id, result.sf_window_start,
+                                             result.sf_window_end)
         persist_sf_mu_artifact(conn, result.SF, result.E_mu,
                                run_id=run_id, delivery_date=D, horizon=horizon,
-                               sf_map_run_id=provenance[0], sf_window_start=provenance[1],
-                               sf_window_end=provenance[2])
+                               sf_provenance=provenance)
         upsert_pointer(conn, layer, run_id)               # pointer LAST, before commit
         conn.commit()                                     # the atomic flip
     finally:

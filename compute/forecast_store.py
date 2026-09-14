@@ -7,6 +7,7 @@ back after writing rows, artifacts, and finally the pointer.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,14 @@ from compute.projection.codecs import build_sf_mu_artifact, load_nodal
 log = logging.getLogger(__name__)
 
 FORECAST_LAYER = "ercot"
+
+
+@dataclass(frozen=True)
+class SfWindowProvenance:
+    """The single weekly SF vintage embedded in a daily artifact."""
+    map_run_id: str
+    window_start: object
+    window_end: object
 
 
 def _delivery_dates(ts: pd.Series) -> pd.Series:
@@ -79,8 +88,8 @@ def upsert_pointer(conn, layer: str, run_id: str) -> None:
 
 
 def sf_artifact_to_db(conn, *, run_id: str, delivery_date, sf_npz: bytes,
-                      horizon: int = 1, sf_map_run_id: str | None = None,
-                      sf_window_start=None, sf_window_end=None) -> None:
+                      horizon: int = 1,
+                      sf_provenance: SfWindowProvenance | None = None) -> None:
     """Upsert one SF+μ artifact; the caller owns the transaction."""
     dd = pd.Timestamp(delivery_date).date()
     with conn.cursor() as cur:
@@ -91,16 +100,18 @@ def sf_artifact_to_db(conn, *, run_id: str, delivery_date, sf_npz: bytes,
             "ON CONFLICT (run_id, delivery_date, horizon) DO UPDATE "
             "SET sf_npz = EXCLUDED.sf_npz, sf_map_run_id = EXCLUDED.sf_map_run_id, "
             "sf_window_start = EXCLUDED.sf_window_start, sf_window_end = EXCLUDED.sf_window_end",
-            (run_id, dd, sf_npz, horizon, sf_map_run_id, sf_window_start, sf_window_end))
+            (run_id, dd, sf_npz, horizon,
+             sf_provenance.map_run_id if sf_provenance else None,
+             sf_provenance.window_start if sf_provenance else None,
+             sf_provenance.window_end if sf_provenance else None))
 
 
 def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
                            run_id: str, delivery_date,
-                           horizon: int = 1, sf_map_run_id: str | None = None,
-                           sf_window_start=None, sf_window_end=None) -> bytes:
+                           horizon: int = 1,
+                           sf_provenance: SfWindowProvenance | None = None) -> bytes:
     """Build and persist one SF+μ artifact."""
     blob = build_sf_mu_artifact(SF, E_mu)
     sf_artifact_to_db(conn, run_id=run_id, delivery_date=delivery_date, sf_npz=blob,
-                      horizon=horizon, sf_map_run_id=sf_map_run_id,
-                      sf_window_start=sf_window_start, sf_window_end=sf_window_end)
+                      horizon=horizon, sf_provenance=sf_provenance)
     return blob
