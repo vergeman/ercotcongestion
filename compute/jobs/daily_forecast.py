@@ -90,6 +90,7 @@ class ForecastResult:
     novel_keys: list[str] = field(default_factory=list)
     n_scored_keys: int = 0        # constraints predicted (in wp) — coverage numerator
     map_run_id: str = ""          # weekly SF map projected through (run-log provenance)
+    sf_window_start: pd.Timestamp | None = None
     sf_window_end: date | None = None   # its window close — pins the SF vintage used
 
 
@@ -241,12 +242,15 @@ def forecast_day(
              f"{len(panel):,}", wp["key"].nunique() if len(wp) else 0, novelty)
 
     # Load the weekly map's persisted SF
+    sf_win = resolve_sf_window(conn, map_run_id, as_of=D)
+    if sf_win is None:
+        raise RuntimeError(f"no causal SF window for {D.date()}")
     SF_map = load_forecast_sf(conn, D, wp, run_id=map_run_id,
                               max_age_days=max_sf_age_days,
                               min_coverage=min_sf_coverage)
 
-    # Pin the SF vintage in the result for the run log
-    sf_win = resolve_sf_window(conn, map_run_id, as_of=D)
+    # Pin the exact SF vintage with the served daily artifact.
+    sf_window_start = sf_win[0]
     sf_window_end = sf_win[1].date() if sf_win is not None else None
 
     # Stage 2 needs only `wp` and the loaded `SF_map` — never the feature
@@ -287,7 +291,8 @@ def forecast_day(
         SF=SF, E_mu=E_mu, sf_mu=sf_mu, horizon=horizon,
         novelty=novelty, novel_keys=novel_keys,
         n_scored_keys=int(wp["key"].nunique()) if len(wp) else 0,
-        map_run_id=map_run_id, sf_window_end=sf_window_end)
+        map_run_id=map_run_id, sf_window_start=sf_window_start,
+        sf_window_end=sf_window_end)
 
 
 def _write_nodal_npz(result: ForecastResult, path: str) -> None:
@@ -334,8 +339,13 @@ def persist_forecast(conn, result: ForecastResult, *,
         _write_nodal_npz(result, nodal_path)
         n = nodal_to_db(nodal_path, conn, run_id=run_id, delivery_date=D,
                         horizon=horizon)
+        provenance = (result.map_run_id, result.sf_window_start, result.sf_window_end)
+        if not all(provenance):
+            provenance = (None, None, None)
         persist_sf_mu_artifact(conn, result.SF, result.E_mu,
-                               run_id=run_id, delivery_date=D, horizon=horizon)
+                               run_id=run_id, delivery_date=D, horizon=horizon,
+                               sf_map_run_id=provenance[0], sf_window_start=provenance[1],
+                               sf_window_end=provenance[2])
         upsert_pointer(conn, layer, run_id)               # pointer LAST, before commit
         conn.commit()                                     # the atomic flip
     finally:
@@ -410,7 +420,7 @@ def _summary(result: ForecastResult) -> str:
             f"{len(result.panel.ts)} h; scored {seen} keys, "
             f"{result.novelty} novel (enforced D-1, no fit history; "
             f"{cov:.1%} scored); map_run_id={result.map_run_id} "
-            f"SF window_end={result.sf_window_end}"
+            f"SF window=[{result.sf_window_start},{result.sf_window_end}]"
             + (f" — e.g. {sample}" if sample else ""))
 
 

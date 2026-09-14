@@ -151,11 +151,22 @@ def resolve_artifact_provenance(
     if artifact is None:
         return result
 
+    cur.execute(
+        "SELECT sf_map_run_id, sf_window_start, sf_window_end "
+        "FROM forecast_sf_artifact WHERE run_id = %s AND delivery_date = %s "
+        "ORDER BY horizon LIMIT 1",
+        (forecast_run, artifact_day),
+    )
+    row = cur.fetchone()
+    if row is not None and row.get("sf_map_run_id") is not None:
+        result.map_run_id = row["sf_map_run_id"]
+        result.window_start, result.window_end = row["sf_window_start"], row["sf_window_end"]
+        return result
+
     result.map_run_id = map_run_id(cur)
     cur.execute(
         "SELECT window_start, window_end FROM sf_window_meta "
-        "WHERE run_id = %s AND window_end <= %s "
-        "ORDER BY window_start DESC LIMIT 1",
+        "WHERE run_id = %s AND window_end <= %s ORDER BY window_start DESC LIMIT 1",
         (result.map_run_id, artifact_day),
     )
     row = cur.fetchone()

@@ -79,23 +79,28 @@ def upsert_pointer(conn, layer: str, run_id: str) -> None:
 
 
 def sf_artifact_to_db(conn, *, run_id: str, delivery_date, sf_npz: bytes,
-                      horizon: int = 1) -> None:
+                      horizon: int = 1, sf_map_run_id: str | None = None,
+                      sf_window_start=None, sf_window_end=None) -> None:
     """Upsert one SF+μ artifact; the caller owns the transaction."""
     dd = pd.Timestamp(delivery_date).date()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO forecast_sf_artifact (run_id, delivery_date, sf_npz, horizon) "
-            "VALUES (%s, %s, %s, %s) "
+            "INSERT INTO forecast_sf_artifact "
+            "(run_id, delivery_date, sf_npz, horizon, sf_map_run_id, sf_window_start, sf_window_end) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (run_id, delivery_date, horizon) DO UPDATE "
-            "SET sf_npz = EXCLUDED.sf_npz",
-            (run_id, dd, sf_npz, horizon))
+            "SET sf_npz = EXCLUDED.sf_npz, sf_map_run_id = EXCLUDED.sf_map_run_id, "
+            "sf_window_start = EXCLUDED.sf_window_start, sf_window_end = EXCLUDED.sf_window_end",
+            (run_id, dd, sf_npz, horizon, sf_map_run_id, sf_window_start, sf_window_end))
 
 
 def persist_sf_mu_artifact(conn, SF: pd.DataFrame, E_mu: pd.DataFrame, *,
                            run_id: str, delivery_date,
-                           horizon: int = 1) -> bytes:
+                           horizon: int = 1, sf_map_run_id: str | None = None,
+                           sf_window_start=None, sf_window_end=None) -> bytes:
     """Build and persist one SF+μ artifact."""
     blob = build_sf_mu_artifact(SF, E_mu)
     sf_artifact_to_db(conn, run_id=run_id, delivery_date=delivery_date, sf_npz=blob,
-                      horizon=horizon)
+                      horizon=horizon, sf_map_run_id=sf_map_run_id,
+                      sf_window_start=sf_window_start, sf_window_end=sf_window_end)
     return blob

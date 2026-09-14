@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import date, datetime
 from typing import Callable
 
@@ -21,10 +22,38 @@ from api.schemas.map import (
 )
 from api.services.constraint_keys import normalize_constraint_key
 from api.services.sf_artifacts import load_daily_artifact
+from compute.projection.codecs import load_sf_window_artifact
 from . import common
 
 Coordinates = Callable[[], dict[str, tuple[float, float]]]
 Metadata = Callable[[], dict[str, tuple[str | None, str | None]]]
+_WINDOW_CACHE_BYTES = 32 * 1024 * 1024
+_window_cache: OrderedDict[tuple[str, object], tuple[pd.DataFrame, int]] = OrderedDict()
+_window_cache_size = 0
+
+
+def _weekly_sf(cur, run_id: str, window_start) -> pd.DataFrame:
+    """Decode a weekly artifact once per API process and map window."""
+    global _window_cache_size
+    key = (run_id, window_start)
+    cached = _window_cache.pop(key, None)
+    if cached is not None:
+        _window_cache[key] = cached
+        return cached[0]
+    cur.execute("SELECT sf_npz FROM sf_window_artifact WHERE run_id = %s AND window_start = %s",
+                (run_id, window_start))
+    row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=503, detail=f"SF artifact missing for {run_id} window {window_start}.")
+    blob = row["sf_npz"] if isinstance(row, dict) else row[0]
+    sf = load_sf_window_artifact(blob).SF
+    size = int(sf.memory_usage(index=True, deep=True).sum())
+    _window_cache[key] = (sf, size)
+    _window_cache_size += size
+    while _window_cache and _window_cache_size > _WINDOW_CACHE_BYTES:
+        _, (_, removed) = _window_cache.popitem(last=False)
+        _window_cache_size -= removed
+    return sf
 
 
 def meta() -> MapMeta:
@@ -75,12 +104,7 @@ def overview(
         keys = [row["constraint_key"] for row in rows]
         by_key: dict[str, list[ReachSp]] = {key: [] for key in keys}
         if keys:
-            # One indexed slice; the per-constraint floor depends on each row's
-            # peak, so it is applied while building the running top-k buckets.
-            cur.execute(
-                "SELECT constraint_key, settlement_point, sf FROM implied_shift_factors WHERE run_id = %s AND window_start = %s AND constraint_key = ANY(%s) ORDER BY constraint_key, abs(sf) DESC",
-                (run_id, window_start, keys),
-            )
+            sf = _weekly_sf(cur, run_id, window_start)
             coords, metadata_rows = coordinates(), metadata()
             floors = {
                 row["constraint_key"]: (
@@ -88,24 +112,20 @@ def overview(
                 )
                 for row in rows
             }
-            for row in cur.fetchall():
-                bucket = by_key[row["constraint_key"]]
-                if len(bucket) >= k or abs(row["sf"]) < floors[row["constraint_key"]]:
+            for constraint_key in keys:
+                if constraint_key not in sf.index:
                     continue
-                lat, lon = coords.get(row["settlement_point"], (None, None))
-                point_type, load_zone = metadata_rows.get(
-                    row["settlement_point"], (None, None)
-                )
-                bucket.append(
-                    ReachSp(
-                        settlement_point=row["settlement_point"],
-                        sf=row["sf"],
-                        lat=lat,
-                        lon=lon,
-                        settlement_point_type=point_type,
-                        load_zone=load_zone,
-                    )
-                )
+                members = sf.loc[constraint_key].dropna().sort_values(
+                    key=lambda values: values.abs(), ascending=False)
+                for settlement_point, value in members.items():
+                    if len(by_key[constraint_key]) >= k or abs(value) < floors[constraint_key]:
+                        break
+                    lat, lon = coords.get(settlement_point, (None, None))
+                    point_type, load_zone = metadata_rows.get(settlement_point, (None, None))
+                    by_key[constraint_key].append(ReachSp(
+                        settlement_point=settlement_point, sf=value, lat=lat, lon=lon,
+                        settlement_point_type=point_type, load_zone=load_zone,
+                    ))
         constraints = [
             OverviewConstraint(
                 constraint_key=row["constraint_key"],
