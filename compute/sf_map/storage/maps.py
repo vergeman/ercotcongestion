@@ -6,6 +6,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from compute.projection.codecs import load_sf_window_artifact
+
 from shared.settings import settings
 
 log = logging.getLogger(__name__)
@@ -33,18 +35,19 @@ def resolve_sf_window(conn, run_id: str, *, as_of=None
 
 
 def load_window_sf(conn, run_id: str, window_start, *,
-                   fill_value: float | None = 0.0) -> pd.DataFrame:
-    """Load one threshold-sparsified persisted map, filling omitted cells if set."""
+                   fill_value: float | None = 0.0,
+                   threshold: float = 1e-3) -> pd.DataFrame:
+    """Load one weekly artifact with legacy threshold/fill semantics."""
     with conn.cursor() as cur:
-        cur.execute("SELECT constraint_key, settlement_point, sf FROM implied_shift_factors "
+        cur.execute("SELECT sf_npz FROM sf_window_artifact "
                     "WHERE run_id = %s AND window_start = %s",
                     (run_id, pd.Timestamp(window_start)))
-        rows = cur.fetchall()
-    if not rows:
+        row = cur.fetchone()
+    if row is None:
         return pd.DataFrame()
-    df = pd.DataFrame(rows, columns=["constraint_key", "settlement_point", "sf"])
-    SF = df.pivot_table(index="constraint_key", columns="settlement_point", values="sf",
-                        aggfunc="mean")
+    blob = row["sf_npz"] if isinstance(row, dict) else row[0]
+    SF = load_sf_window_artifact(blob).SF
+    SF = SF.where(np.isfinite(SF) & (SF.abs() >= threshold))
     if fill_value is not None:
         SF = SF.fillna(fill_value)
     SF.index.name = SF.columns.name = None

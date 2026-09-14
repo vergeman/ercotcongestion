@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from compute.projection.codecs import build_sf_window_artifact
 from compute.sf_map.geography import persist
 from compute.sf_map.storage.maps import load_window_sf
 
@@ -24,6 +25,9 @@ class _Cursor:
     def fetchall(self):
         return self.rows
 
+    def fetchone(self):
+        return None if not self.rows else self.rows[0]
+
 
 class _Connection:
     def __init__(self, rows):
@@ -33,13 +37,10 @@ class _Connection:
         return self.cursor_
 
 
-def test_load_window_sf_fills_omitted_cells_by_default_and_can_keep_them_sparse():
-    rows = [
-        ("c1", "sp1", 0.4),
-        ("c1", "sp2", -0.2),
-        ("c2", "sp1", 0.1),
-    ]
-    conn = _Connection(rows)
+def test_load_window_sf_applies_legacy_threshold_and_fill_modes():
+    sf = pd.DataFrame([[0.4, -0.2], [0.1, 0.0001]],
+                      index=["c1", "c2"], columns=["sp1", "sp2"])
+    conn = _Connection([(build_sf_window_artifact(sf),)])
 
     dense = load_window_sf(conn, "map-v1", "2026-01-01")
     sparse = load_window_sf(conn, "map-v1", "2026-01-01", fill_value=None)

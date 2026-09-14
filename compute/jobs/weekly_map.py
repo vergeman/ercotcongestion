@@ -1,4 +1,4 @@
-"""CLI for the implied shift-factor (SF) stage.
+"""CLI for the weekly shift-factor (SF) stage.
 
 Reads NP4-191-CD shadow prices and DAM SPP congestion for the requested date
 range, fits ``C ≈ −M · SFᵀ`` on a rolling window (refit every ``--refit-days``),
@@ -8,10 +8,8 @@ and writes per-refit-window diagnostics to
 
 Reference-price method is fixed at ``system_lambda``
 
-SF matrix persistence: pass ``--persist-sf`` to write the per-refit ``SF``
-matrix into ``implied_shift_factors`` and one row per refit into
-``sf_window_meta``, keyed by ``run_id``. Entries below ``--sf-threshold`` are
-dropped.
+SF matrix persistence: pass ``--persist-sf`` to write one dense NPZ artifact
+and one metadata row per refit, keyed by ``run_id``.
 
 Incremental append (the default under ``--persist-sf``): a run fits and
 persists only new refit boundaries
@@ -55,9 +53,9 @@ from compute.inputs.dam import (
 )
 from compute.sf_map.storage.persist import (
     check_ref_method,
-    copy_sf_rows,
     delete_sf_run,
     existing_sf_windows,
+    write_sf_window_artifact,
     write_window_meta,
 )
 from compute.sf_map.model.rolling import RefitWindow, fit_refit_window
@@ -70,7 +68,6 @@ RUNS_ROOT = BASE_DIR.parent / "runs"
 # Window/refit cadence come from `compute.sf_map.config`:
 # window=240 / refit=7 with RIDGE_LAMBDA=1.0
 DEFAULT_REF_METHOD = "system_lambda"
-DEFAULT_SF_THRESHOLD = 1e-3
 
 
 def _parse_date(s: str) -> date:
@@ -129,17 +126,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Skip per-column standardization of M before the ridge "
                         "solve (default: on).")
     p.add_argument("--persist-sf", action="store_true",
-                   help="Write the per-refit SF matrix to implied_shift_factors "
-                        "(+ sf_window_meta) under this run_id. Incremental by "
+                   help="Write one canonical weekly SF artifact and metadata under this run_id. Incremental by "
                         "default: only new complete windows are fit + written.")
     p.add_argument("--rebuild", action="store_true",
-                   help="With --persist-sf, wipe all SF/meta rows for this run_id "
+                   help="With --persist-sf, wipe all weekly artifacts/meta rows for this run_id "
                         "first, then refit + persist every complete window from "
                         "scratch. Omit for the default incremental append.")
-    p.add_argument("--sf-threshold", type=float, default=DEFAULT_SF_THRESHOLD,
-                   help=f"With --persist-sf, drop SF entries with |sf| below "
-                        f"this (default {DEFAULT_SF_THRESHOLD}). The matrix is "
-                        f"dense but mostly negligible; this keeps row counts sane.")
     p.add_argument("--chunk-weeks", type=int, default=32,
                    help="Load and fit this many refit windows at a time "
                         "(default 32). Bounds dense M/C pivots during rebuilds; "
@@ -170,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     # keeps memory flat and shares the on_refit callback that already carries
     # SF.
     sf_conn = None
-    sf_stats = {"windows": 0, "rows": 0}
+    sf_stats = {"windows": 0, "bytes": 0}
 
     # window_start ns-instants already persisted for this run_id (ns: nanoseconds)
     existing_ns: set[int] = set()
@@ -184,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
             # window survives a crash mid-rebuild.
             n_sf, n_meta = delete_sf_run(sf_conn, args.run_id)
             log.info(
-                "--rebuild: cleared %d prior SF rows / %d meta rows for run_id=%s",
+                "--rebuild: cleared %d prior artifacts / %d meta rows for run_id=%s",
                 n_sf, n_meta, args.run_id,
             )
         else:
@@ -245,9 +237,6 @@ def main(argv: list[str] | None = None) -> int:
 
         ws = window.window_start.isoformat()
 
-        # copy here is postgres COPY to bulk "insert" the SF matrix
-        n = copy_sf_rows(sf_conn, args.run_id, ws, window.SF, args.sf_threshold)
-
         write_window_meta(sf_conn, args.run_id, {
             "window_start": ws,
             "window_end": window.window_end.isoformat(),
@@ -258,8 +247,11 @@ def main(argv: list[str] | None = None) -> int:
             "n_sf_clipped": n_clipped,
             "sf_fit_r2": sf_fit_r2,
         })
+        n_bytes = write_sf_window_artifact(sf_conn, args.run_id, ws, window.SF)
         sf_stats["windows"] += 1
-        sf_stats["rows"] += n
+        sf_stats["bytes"] += n_bytes
+        log.info("persisted SF artifact: %d constraints x %d SPs, %.1f MiB",
+                 window.SF.shape[0], window.SF.shape[1], n_bytes / 1024**2)
 
     # Discover the panel endpoints, then construct the fixed refit grid.
     # `bounds` is `(lo, hi)` from the DAM shadow-price, system-lambda, and SPP
@@ -355,8 +347,8 @@ def main(argv: list[str] | None = None) -> int:
         sf_conn.commit()
         sf_conn.close()
         log.info(
-            "persisted SF: %d windows, %d rows into implied_shift_factors",
-            sf_stats["windows"], sf_stats["rows"],
+            "persisted SF: %d weekly artifacts, %.1f MiB compressed",
+            sf_stats["windows"], sf_stats["bytes"] / 1024**2,
         )
 
     return 0
