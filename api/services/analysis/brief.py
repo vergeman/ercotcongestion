@@ -38,21 +38,40 @@ def _snapshot_get(cur, key: tuple[str, date, int]):
     return cur.fetchone()
 
 
-def _snapshot_put(conn, key: tuple[str, date, int], snapshot: dict):
+def _snapshot_put(conn, key: tuple[str, date, int], snapshot: dict, state: str):
+    """Insert a reader-composed snapshot without replacing a published one."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             "INSERT INTO brief_daily_snapshot "
-            "(run_id, delivery_date, horizon, schema_version, hero, details, standouts) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "(run_id, delivery_date, horizon, schema_version, snapshot_state, hero, details, standouts) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (run_id, delivery_date, horizon) DO UPDATE SET "
-            "schema_version = EXCLUDED.schema_version, hero = EXCLUDED.hero, "
-            "details = EXCLUDED.details, standouts = EXCLUDED.standouts, computed_at = now() "
+            "schema_version = EXCLUDED.schema_version, snapshot_state = EXCLUDED.snapshot_state, "
+            "hero = EXCLUDED.hero, details = EXCLUDED.details, standouts = EXCLUDED.standouts, "
+            "computed_at = now() "
             "WHERE brief_daily_snapshot.schema_version <> EXCLUDED.schema_version",
-            (*key, _SNAPSHOT_SCHEMA_VERSION, Jsonb(snapshot["hero"]),
+            (*key, _SNAPSHOT_SCHEMA_VERSION, state, Jsonb(snapshot["hero"]),
              Jsonb(snapshot["details"]), Jsonb(snapshot["standouts"])),
         )
         stored = _snapshot_get(cur, key)
     return stored
+
+
+def _snapshot_replace(conn, key: tuple[str, date, int], snapshot: dict, state: str):
+    """Replace a snapshot at a deliberate publish or settlement stage."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "INSERT INTO brief_daily_snapshot "
+            "(run_id, delivery_date, horizon, schema_version, snapshot_state, hero, details, standouts) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (run_id, delivery_date, horizon) DO UPDATE SET "
+            "schema_version = EXCLUDED.schema_version, snapshot_state = EXCLUDED.snapshot_state, "
+            "hero = EXCLUDED.hero, details = EXCLUDED.details, standouts = EXCLUDED.standouts, "
+            "computed_at = now()",
+            (*key, _SNAPSHOT_SCHEMA_VERSION, state, Jsonb(snapshot["hero"]),
+             Jsonb(snapshot["details"]), Jsonb(snapshot["standouts"])),
+        )
+        return _snapshot_get(cur, key)
 
 
 def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
@@ -65,6 +84,12 @@ def _brief_is_final(cur, delivery_date: date, horizon: int) -> bool:
     if horizon != 1 or delivery_date >= datetime.now(_CT).date():
         return False
     return panels._dam_landed(cur, delivery_date)
+
+
+def _snapshot_state(cur, delivery_date: date, horizon: int) -> str:
+    if horizon == 2:
+        return "preview"
+    return "settled" if _brief_is_final(cur, delivery_date, horizon) else "forecast"
 
 
 def _timed_brief_section(name: str, handler, *args):
@@ -186,7 +211,7 @@ def _compose_brief_details(
 def _snapshot_payload(
     day: date, run_id: str, horizon: int
 ) -> dict[str, dict]:
-    """Compose the immutable panels once for a settled delivery day."""
+    """Compose the immutable panels once for a forecast snapshot."""
     with ThreadPoolExecutor(max_workers=3) as pool:
         hero_future = pool.submit(panels.get_hero, day, run_id, horizon)
         details_future = pool.submit(
@@ -213,27 +238,31 @@ def _json_payload(response) -> dict:
 def _snapshot_or_compose(
     key: tuple[str, date, int]
 ) -> dict:
-    """Return a settled Brief snapshot, allowing one writer across API pods."""
+    """Return a snapshot, letting concurrent cache-aside readers converge."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         stored = _snapshot_get(cur, key)
     if stored is not None:
         return stored
     snapshot = _snapshot_payload(key[1], key[0], key[2])
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        state = _snapshot_state(cur, key[1], key[2])
     with get_pool().connection() as conn:
-        return _snapshot_put(conn, key, snapshot)
+        return _snapshot_put(conn, key, snapshot, state)
 
 
-def materialize_final_snapshot(run_id: str, delivery_date: date, horizon: int) -> bool:
-    """Write one settled Brief snapshot for the forecast job."""
+def materialize_snapshot(run_id: str, delivery_date: date, horizon: int, *, replace: bool = True) -> bool:
+    """Write one Brief snapshot at a forecast job's explicit lifecycle stage."""
     key = (run_id, delivery_date, horizon)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        if _snapshot_get(cur, key) is not None:
+        state = _snapshot_state(cur, delivery_date, horizon)
+        if not replace and _snapshot_get(cur, key) is not None:
             return True
-        if not _brief_is_final(cur, delivery_date, horizon):
-            return False
     snapshot = _snapshot_payload(delivery_date, run_id, horizon)
     with get_pool().connection() as conn:
-        _snapshot_put(conn, key, snapshot)
+        if replace:
+            _snapshot_replace(conn, key, snapshot, state)
+        else:
+            _snapshot_put(conn, key, snapshot, state)
     return True
 
 
@@ -253,9 +282,8 @@ def hero_shell(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
-        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
         previous, following = _brief_neighbor_dates(cur, run_id, delivery_date)
-    if final:
+    if horizon is not None:
         snapshot = _snapshot_or_compose((run_id, delivery_date, horizon))
         hero = snapshot["hero"]
     else:
@@ -279,8 +307,7 @@ def details(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, None)
-        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
-    if final:
+    if horizon is not None:
         return _snapshot_details(
             _snapshot_or_compose((run_id, delivery_date, horizon)),
             include_standouts=include_standouts,
@@ -297,11 +324,10 @@ def standouts(
     horizon: int | None = Query(None, ge=1, le=2),
     k: int = Query(4, ge=1, le=20),
 ):
-    """Serve the root Brief's durable k=4 standouts payload when final."""
+    """Serve the root Brief's durable k=4 standouts payload when available."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         run_id = panels._resolve_run(cur, run_id)
         horizon = panels._resolve_horizon(cur, run_id, delivery_date, horizon)
-        final = horizon is not None and _brief_is_final(cur, delivery_date, horizon)
-    if final and k == 4:
+    if horizon is not None and k == 4:
         return _snapshot_or_compose((run_id, delivery_date, horizon))["standouts"]
     return panels.get_standouts(delivery_date, run_id, horizon, k)
