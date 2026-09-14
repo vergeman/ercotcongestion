@@ -8,6 +8,7 @@ import {
   fetchBriefStandoutsCached,
 } from "../../api/briefCache";
 import type { ConnectionState } from "../../hooks/useExplorerSession";
+import { deliveryDateCT } from "../../lib/time";
 
 type BriefDayState = {
   defaultDay: string | null; initialLookupDone: boolean; hero: BriefHero | null;
@@ -39,6 +40,9 @@ export function briefDayReducer(state: BriefDayState, action: BriefDayAction): B
 
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
+const boundedDefaultDay = (today: string, latestAvailableDay?: string) =>
+  latestAvailableDay ? (latestAvailableDay < today ? latestAvailableDay : today) : null;
+
 /** Owns a delivery day's progressive Brief requests and their cancellation. */
 export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
   const [state, dispatch] = useReducer(briefDayReducer, initialState);
@@ -48,11 +52,22 @@ export function useBriefDay(cursorDay: string | null, detailsRetry: number) {
     if (cursorDay) { patch({ initialLookupDone: true }); return; }
     const controller = new AbortController();
     fetchBriefHeroLatestCached(controller.signal)
-      .then((latest) => { if (!controller.signal.aborted) patch({ defaultDay: latest?.delivery_date ?? null, initialLookupDone: true }); })
-      .catch((error: unknown) => { if (!controller.signal.aborted && !isAbort(error)) patch({ initialLookupDone: true }); });
+      .then((latest) => {
+        if (!controller.signal.aborted) {
+          patch({
+            defaultDay: boundedDefaultDay(deliveryDateCT(new Date()), latest?.delivery_date),
+            initialLookupDone: true,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && !isAbort(error)) patch({ initialLookupDone: true });
+      });
     return () => controller.abort();
   }, [cursorDay]);
 
+  // Direct root visits use today's CT delivery date unless the newest published
+  // artifact is older. Shared coordinates still win over this default.
   const deliveryDay = cursorDay ?? state.defaultDay;
   const heroDeliveryDay = state.hero?.available ? state.hero.provenance?.delivery_date : state.hero?.delivery_date;
   const heroMatchesDeliveryDay = heroDeliveryDay === deliveryDay;
