@@ -11,13 +11,10 @@ import { SplitTable } from "../features/scoreboard/SplitTable";
 import { Glossary } from "../features/scoreboard/Glossary";
 import "../features/scoreboard/scoreboard.css";
 
-// The full backtest scoreboard page (plan/0102 §0002, spec-phase3 §5). The board
-// the panel's "View full scoreboard" link targets the weekly
-// metric-vs-baselines-vs-oracle series, a coverage strip on the shared x-axis,
-// and independently hours-weighted pre/post-RTC+B pools. All weeks spans all
-// time rather than averaging the two splits; post-RTC+B includes live days.
-// independent of the forecast run. Integrity (§6): a model figure never appears
-// without persistence + oracle in frame.
+// The full backtest scoreboard page
+//
+// All weeks spans all time rather than averaging the two splits; post-RTC+B includes live days.
+// independent of the forecast run.
 
 export default function ScoreboardPage() {
   const [controls, dispatchControls] = useScoreboardControls();
@@ -39,8 +36,7 @@ export default function ScoreboardPage() {
 
       <div className="sb-body">
         <main className="sb-main">
-          {/* The live half — rendered independently of the backtest board, and
-          gracefully absent until a served day has been graded (§0004). */}
+          {/* The live half — rendered independently of the backtest board */}
           {daily && (
             <LiveGradePanel
               daily={daily}
@@ -75,7 +71,7 @@ export default function ScoreboardPage() {
                 <div className="sb-empty label">track history could not be loaded.</div>
               )}
 
-              {/* legend — identity for ≥2 series, alongside the direct end-labels */}
+              {/* legend */}
               <div className="sb-legend">
                 {SERIES.map((s) => (
                   <span key={s.seriesId} className="sb-legend__item">
