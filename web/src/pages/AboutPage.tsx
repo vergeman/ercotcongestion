@@ -30,6 +30,15 @@ export default function AboutPage() {
               structure to forecast tomorrow’s congestion and evaluates its
               track record after settlement.
             </p>
+            <p>
+              Questions? Feel free to{" "}
+              <a
+                className="about-page__contact"
+                href="mailto:admin@ercotcongestion.com"
+              >
+                reach out.
+              </a>
+            </p>
             <a
               className="about-page__github"
               href="https://github.com/vergeman/ercotcongestion"
