@@ -45,6 +45,7 @@ interface Props {
   basis: ReturnType<typeof useMatrixBasis>;
   basisType: AnalysisBasis;
   timestamp: Date | null;
+  routeSearch: string;
   onNavigateToMap: (search: string) => void;
 }
 
@@ -66,6 +67,7 @@ export default function MatrixStage({
   basis,
   basisType,
   timestamp,
+  routeSearch,
   onNavigateToMap,
 }: Props) {
   const detailKey = selection
@@ -219,6 +221,7 @@ export default function MatrixStage({
             damStatus={frame.dam_status}
             constraintRow={selectedConstraint}
             nodeMeta={selectedNode}
+            routeSearch={routeSearch}
             onNavigateToMap={onNavigateToMap}
           />
         </div>

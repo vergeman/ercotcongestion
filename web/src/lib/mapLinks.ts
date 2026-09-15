@@ -14,14 +14,35 @@ export function parseMapTarget(search: string): MapTarget | null {
   return sp ? { kind: "sp", value: sp } : null;
 }
 
-export function mapTargetSearch(target: MapTarget): string {
+// Parameters that describe a shared explorer session rather than a workspace
+// selection. Keeping these on the literal Map href matters for opening it in a
+// new tab (where ExplorerApp's in-app navigation merge cannot run).
+const SHARED_EXPLORER_PARAMS = [
+  "t",
+  "ws",
+  "we",
+  "span",
+  "run",
+  "view",
+  "data",
+  "autoPlay",
+] as const;
+
+export function mapTargetSearch(target: MapTarget, sourceSearch?: string): string {
   const params = new URLSearchParams();
+  if (sourceSearch) {
+    const source = new URLSearchParams(sourceSearch);
+    for (const key of SHARED_EXPLORER_PARAMS) {
+      const value = source.get(key);
+      if (value) params.set(key, value);
+    }
+  }
   params.set(target.kind, target.value);
   return `?${params.toString()}`;
 }
 
-export function mapLinkTo(target: MapTarget): string {
-  return `${MAP_PATH}${mapTargetSearch(target)}`;
+export function mapLinkTo(target: MapTarget, sourceSearch?: string): string {
+  return `${MAP_PATH}${mapTargetSearch(target, sourceSearch)}`;
 }
 
 export const mapConstraintLink = (constraintKey: string): string =>

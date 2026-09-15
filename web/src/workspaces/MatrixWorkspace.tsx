@@ -283,6 +283,7 @@ export default function MatrixWorkspace({
             basis={basis}
             basisType={basisType}
             timestamp={timestamp}
+            routeSearch={routeSearch}
             onNavigateToMap={onNavigateToMap}
           />
         </div>

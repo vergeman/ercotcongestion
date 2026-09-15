@@ -37,11 +37,13 @@ export function ConstraintRead({
   selectionKey,
   row,
   timestamp,
+  routeSearch,
   onNavigateToMap,
 }: {
   selectionKey: string;
   row: AnalysisConstraintRow | null;
   timestamp: Date | null;
+  routeSearch: string;
   onNavigateToMap: (search: string) => void;
 }) {
   // The scrubbed interval selects the CT delivery day whose artifact backs the
@@ -53,7 +55,10 @@ export function ConstraintRead({
   const contingency = selectionKey.includes("|")
     ? selectionKey.split("|")[1]
     : null;
-  const mapHref = mapLinkTo({ kind: "constraint", value: selectionKey });
+  const mapHref = mapLinkTo(
+    { kind: "constraint", value: selectionKey },
+    routeSearch
+  );
 
   const sps = reach?.sps ?? [];
   const mapReach = useMemo(() => footprintReach(reach), [reach]);

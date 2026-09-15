@@ -22,6 +22,7 @@ export function NodeRead({
   val,
   deliveryDate,
   damStatus,
+  routeSearch,
   sort,
   onToggleSort,
   onNavigateToMap,
@@ -37,6 +38,7 @@ export function NodeRead({
   val: MatrixValTab;
   deliveryDate: string | null;
   damStatus: MatrixDamStatus | null;
+  routeSearch: string;
   sort: NodeSort;
   onToggleSort: (key: NodeSortKey) => void;
   onNavigateToMap: (search: string) => void;
@@ -79,7 +81,7 @@ export function NodeRead({
     return () => controller.abort();
   }, [point, deliveryDate, timestamp, basis]);
 
-  const mapHref = mapLinkTo({ kind: "sp", value: point });
+  const mapHref = mapLinkTo({ kind: "sp", value: point }, routeSearch);
   const terms = node?.available ? node.terms ?? [] : [];
   const structuralTerms = node?.available ? node.structural_terms ?? [] : [];
   // One table over the full nonzero-SF set when we have it (it is the superset

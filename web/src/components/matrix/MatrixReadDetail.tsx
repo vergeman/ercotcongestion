@@ -38,6 +38,7 @@ interface Props {
     lat: number | null;
     lon: number | null;
   } | null;
+  routeSearch: string;
   onNavigateToMap: (search: string) => void;
 }
 
@@ -49,6 +50,7 @@ export default function MatrixReadDetail({
   damStatus,
   constraintRow,
   nodeMeta,
+  routeSearch,
   onNavigateToMap,
 }: Props) {
   // The node table's sort lives here, above NodeRead, so it survives switching
@@ -79,6 +81,7 @@ export default function MatrixReadDetail({
           selectionKey={selection.key}
           row={constraintRow}
           timestamp={timestamp}
+          routeSearch={routeSearch}
           onNavigateToMap={onNavigateToMap}
         />
       ) : (
@@ -89,6 +92,7 @@ export default function MatrixReadDetail({
           val={val}
           deliveryDate={deliveryDate}
           damStatus={damStatus}
+          routeSearch={routeSearch}
           sort={nodeSort}
           onToggleSort={toggleNodeSort}
           onNavigateToMap={onNavigateToMap}
