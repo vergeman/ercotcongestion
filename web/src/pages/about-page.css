@@ -3,7 +3,7 @@
 html:has(.about-page), body:has(.about-page) { overflow: auto; }
 #root:has(.about-page) { height: auto; overflow: visible; }
 .about-page { min-height: 100vh; background: var(--bg-app); color: var(--text-primary); }
-.about-page__topbar { height: var(--header-h); display: flex; align-items: center; padding: 0 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.about-page__topbar { position: sticky; top: 0; z-index: 10; height: var(--header-h); display: flex; align-items: center; padding: 0 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
 .about-page__main { width: min(100% - 32px, 960px); margin: 0 auto; padding: 44px 0 80px; }
 .about-page section { margin: 0 0 54px; }
 .about-page h1, .about-page h2, .about-page h3, .about-page h4 { font-family: var(--font-sans); color: var(--text-primary); }
@@ -21,6 +21,7 @@ html:has(.about-page), body:has(.about-page) { overflow: auto; }
 .about-page__hero { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); align-items: center; gap: 36px; }
 .about-page__eyebrow { margin: 0 0 8px; color: var(--accent); }
 .about-page__lede { font-size: 18px; line-height: 1.55; }
+.about-page__contact { margin: 0; }
 .about-page__github { display: inline-block; padding: 8px 12px; border: 1px solid var(--border-bright); border-radius: 4px; text-decoration: none; }
 .about-page__video { width: 100%; display: block; border: 1px solid var(--border-bright); border-radius: 6px; background: #000; }
 .about-page__columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin-bottom: 18px; }
