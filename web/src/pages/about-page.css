@@ -3,7 +3,7 @@
 html:has(.about-page), body:has(.about-page) { overflow: auto; }
 #root:has(.about-page) { height: auto; overflow: visible; }
 .about-page { min-height: 100vh; background: var(--bg-app); color: var(--text-primary); }
-.about-page__topbar { height: var(--header-h); display: flex; align-items: center; padding: 0 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.about-page__topbar { position: sticky; top: 0; z-index: 10; height: var(--header-h); display: flex; align-items: center; padding: 0 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
 .about-page__main { width: min(100% - 32px, 960px); margin: 0 auto; padding: 44px 0 80px; }
 .about-page section { margin: 0 0 54px; }
 .about-page h1, .about-page h2, .about-page h3, .about-page h4 { font-family: var(--font-sans); color: var(--text-primary); }
