@@ -7,7 +7,6 @@
 
 Directories:
 
-* `legacy/`: older notes and retired design material.
 * `notes/`: background notes on power system economics and analysis.
 * `refs/`: reference material.
 * `v1/`: first version results and screenshots.
