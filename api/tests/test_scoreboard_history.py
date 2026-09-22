@@ -55,9 +55,9 @@ def test_history_returns_weekly_fallback_and_final_served_points(fake_pool):
     ]
 
 
-def test_history_prefers_served_points_over_same_day_weekly_points(fake_pool):
+def test_history_prefers_served_points_over_overlapping_weekly_points(fake_pool):
     fake_pool.cursor.queue([{"run_id": "served-v2"}])
-    fake_pool.cursor.queue([_daily(date(2026, 7, 11), rank_spearman=0.5)])
+    fake_pool.cursor.queue([_daily(date(2026, 7, 15), rank_spearman=0.5)])
 
     history = scoreboard_service.build_history(_board(
         _weekly(date(2026, 7, 4), rank_spearman=0.2),
@@ -70,7 +70,7 @@ def test_history_prefers_served_points_over_same_day_weekly_points(fake_pool):
         (date(2026, 7, 11), "persistence"),
     ]
     assert [point.delivery_date for point in history.served_daily_points] == [
-        date(2026, 7, 11)
+        date(2026, 7, 15)
     ]
 
 

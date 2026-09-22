@@ -1,8 +1,8 @@
 import type { BootstrapSectionStatus, SourceDescriptor } from "./common";
 
 // =============================================================================
-// /scoreboard/summary weekly — the full weekly backtest series + pooled pre/post-RTC+B
-// summary (the scoreboard page's data). Mirrors api/models.py WeeklyPoint /
+// /scoreboard/summary weekly — the full weekly backtest series + served-first
+// pooled pre/post-RTC+B summary. Mirrors api/models.py WeeklyPoint /
 // SourcePooled / WeeklySplit / ScoreboardWeekly.
 // =============================================================================
 

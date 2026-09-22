@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import HTTPException
 from psycopg.rows import dict_row
@@ -109,6 +109,24 @@ _SOURCES = tuple(
 )
 _POOL_METRICS = ("rank_spearman", "sign_agree", "topdecile_hit")
 RTC_B_CUTOVER = date(2025, 12, 5)
+
+
+def _served_keys(daily_rows: list[dict]) -> set[tuple[date, str]]:
+    return {
+        (row["delivery_date"], _DAILY_BY_ID[row["source"]].series_id)
+        for row in daily_rows
+    }
+
+
+def _weekly_has_served_coverage(
+    week: date,
+    series_id: str,
+    served_keys: set[tuple[date, str]],
+) -> bool:
+    return any(
+        (week + timedelta(days=offset), series_id) in served_keys
+        for offset in range(7)
+    )
 
 
 def _resolve_weekly_run_id(cur) -> str:
@@ -220,10 +238,19 @@ def _latest_final_daily_rows(cur) -> tuple[str | None, list[dict]]:
 
 
 def _split_rows(weekly_rows: list[dict], daily_rows: list[dict]) -> list[dict]:
-    """Normalize backtest weeks and live days for independently pooled splits."""
+    """Normalize served-first history for independently pooled splits."""
+    served_keys = _served_keys(daily_rows)
+
+    def weekly_is_fallback(row: dict) -> bool:
+        series_id = _WEEKLY_BY_ID[row["source"]].series_id
+        return not _weekly_has_served_coverage(
+            row["week"], series_id, served_keys
+        )
+
     rows = [
         {**row, "period": row["week"], "cadence": "backtest_weekly"}
         for row in weekly_rows
+        if weekly_is_fallback(row)
     ]
     rows.extend(
         {
@@ -365,15 +392,11 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
         )
         for row in daily_rows
     ]
-    served_keys = {
-        (point.delivery_date, point.series_id)
-        for point in served_daily_points
-        if point.delivery_date is not None
-    }
+    served_keys = _served_keys(daily_rows)
     weekly_points = [
         ScoreHistoryPoint(**point.model_dump())
         for point in weekly.points
-        if (point.week, point.series_id) not in served_keys
+        if not _weekly_has_served_coverage(point.week, point.series_id, served_keys)
     ]
     return ScoreboardHistory(
         primary_source_id=weekly.primary_source_id,

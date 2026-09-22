@@ -13,8 +13,7 @@ import "../features/scoreboard/scoreboard.css";
 
 // The full backtest scoreboard page
 //
-// All weeks spans all time rather than averaging the two splits; post-RTC+B includes live days.
-// independent of the forecast run.
+// All record spans all time; served daily grades take precedence over weekly fallback.
 
 export default function ScoreboardPage() {
   const [controls, dispatchControls] = useScoreboardControls();
@@ -88,13 +87,13 @@ export default function ScoreboardPage() {
                 as="div"
                 className="sb-section-h label"
                 placement="bottom"
-                tip="Each cell is an independent hours-weighted pool. Post-RTC+B includes final served grades; All weeks spans the full record."
+                tip="Each cell is an independent hours-weighted pool. Served daily grades take precedence; weekly grades fill only weeks with no served coverage."
               >
                 Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Served days open in focus; scroll left for weekly context. Pooled cells combine them by scored hours.
+                Served grades are authoritative; weekly grades are used when daily grades are unavailable. Results reflect all scored hours; a full week is weighted 7× a day.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>

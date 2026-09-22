@@ -97,21 +97,21 @@ The backtest was a one-time catch-up to build a track record before daily
 forecasts ran reliably; it is not maintained. Served daily grades take
 precedence in the chart, with weekly points retained only as fallback.
 
-#### Track record: pooled splits (All / Pre-RTC+B / Post-RTC+B)
+#### Track record: pooled splits (All record / Pre-RTC+B / Post-RTC+B)
 
 The **Track record · pooled pre/post-RTC+B** panel shows one figure per source
 for three spans, split at the 2025-12-05 RTC+B cutover:
 
-* **Pre-RTC+B** — backtest weeks before the cutover.
-* **Post-RTC+B** — backtest weeks on/after the cutover **plus** the live daily
-  grades (all served days fall after it). This keeps advancing as the backtest
-  ages out.
-* **All weeks** — every period, backtest and live, across all time.
+* **Pre-RTC+B** — included fallback weeks and served days before the cutover.
+* **Post-RTC+B** — included fallback weeks and served days on/after the cutover.
+* **All record** — every included period across all time.
 
-Each span is pooled on its own, weighting each period by its hours scored, so a
-full backtest week (~168 hours) counts about seven times a served day (~24
-hours). A span is not the average of the other two; "All weeks" spans the whole
-history and is dominated by the long backtest record.
+Each span is pooled on its own, weighting each included observation by its hours
+scored, so a fallback backtest week (~168 hours) counts about seven times a
+served day (~24 hours). A weekly aggregate is included only when that source has
+no served-grade coverage during its scored week; it is never converted to an
+invented day-level score. A span is not the average of the other two; "All
+record" spans the whole resolved history.
 
 #### Daily served grade: did the published forecast hold up?
 

@@ -3,7 +3,7 @@ import { METRICS, type MetricKey } from "./scoreboardControlsState";
 import { SERIES } from "./seriesMeta";
 
 const SPLIT_LABELS: Record<string, string> = {
-  all: "All weeks",
+  all: "All record",
   pre_rtc_b: "Pre-RTC+B",
   post_rtc_b: "Post-RTC+B",
 };

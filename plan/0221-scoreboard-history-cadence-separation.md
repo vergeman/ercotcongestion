@@ -65,3 +65,8 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 
 * [x] Make served-daily grades authoritative for chart history and retain weekly points only where a served grade is absent for that date and series.
 * [x] Render the resolved values as one path per source, and identify fallback observations in the tooltip.
+
+## Follow-up — pooled history precedence
+
+* [x] Use served daily rows in pooled splits whenever available, retaining a weekly aggregate only when its scored week has no served coverage for that series.
+* [x] Keep weekly aggregates at their native hours-weighted granularity; do not derive artificial daily values from them.

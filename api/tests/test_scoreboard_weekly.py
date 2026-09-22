@@ -82,3 +82,37 @@ def test_splits_blend_live_days_by_hours_and_keep_cadence_counts():
     assert post.n_days == 1
     assert model.rank_spearman == pytest.approx(0.7875)
     assert post.beats_persistence is True
+
+
+def test_splits_drop_weekly_aggregate_when_served_day_overlaps_week():
+    weekly_rows = [
+        {
+            "week": date(2026, 7, 11),
+            "source": "scoreboard_model_backtest_nodal",
+            "n_hours": 168,
+            "rank_spearman": 0.9,
+            "sign_agree": 0.9,
+            "topdecile_hit": 0.9,
+        },
+    ]
+    daily_rows = [
+        {
+            "delivery_date": date(2026, 7, 15),
+            "source": "scoreboard_model_served_nodal",
+            "n_hours": 24,
+            "rank_spearman": 0.2,
+            "sign_agree": 0.2,
+            "topdecile_hit": 0.2,
+        },
+    ]
+
+    post = next(
+        split
+        for split in _build_splits(_split_rows(weekly_rows, daily_rows))
+        if split.label == "post_rtc_b"
+    )
+    model = next(source for source in post.sources if source.series_id == "model")
+
+    assert post.n_weeks == 0
+    assert post.n_days == 1
+    assert model.rank_spearman == pytest.approx(0.2)

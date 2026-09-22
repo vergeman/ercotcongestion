@@ -6,8 +6,8 @@ from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 
 # ---- /scoreboard/summary weekly ------------------------------------------
 #
-# The full weekly backtest series plus independently hours-weighted pools. All
-# spans all time; pre-RTC+B is backtest-only and post-RTC+B includes live days.
+# The full weekly backtest series plus served-first, independently hours-weighted
+# pools. Weekly aggregates are fallback only where served coverage is absent.
 
 
 class WeeklyPoint(BaseModel):
