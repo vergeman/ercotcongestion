@@ -36,7 +36,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
 * Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
 * In `LiveGradePanel`, retain the model, persistence, and Oracle values; color and arrow the model-versus-persistence direction without displaying the derived difference.
-* Ensure each chart has a metric-appropriate y-domain. Do not claim rank Spearman is constrained to `[0, 1]`; support its valid `[-1, 1]` range or a domain that includes all returned values.
+* Use the Scoreboard's `[0, 1]` display range for all three screening metrics.
 * Do NOT alter the API's score values in the browser, coerce negative rank values, aggregate daily grades into weekly values, or re-run/backfill any data as part of this presentation fix.
 
 ### Commit 3 — Verify the boundary and communicate the data contract
