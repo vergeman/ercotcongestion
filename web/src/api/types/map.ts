@@ -33,6 +33,14 @@ export interface ForecastRangeEntry {
   interval_ts: string;
   system_lambda: number | null;
   lambda_source: "settled" | "persisted" | null;
+  congestion: Array<number | null>;
+}
+
+// Expanded at the API boundary for map consumers.
+export interface ForecastStateEntry {
+  interval_ts: string;
+  system_lambda: number | null;
+  lambda_source: "settled" | "persisted" | null;
   sps: ForecastSpState[];
 }
 
@@ -42,6 +50,7 @@ export interface ForecastRangeResponse {
   end: string;
   run_id: string;
   count: number;
+  sp_ids: string[];
   entries: ForecastRangeEntry[];
   horizons: Record<string, number>;
 }

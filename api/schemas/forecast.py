@@ -41,17 +41,6 @@ class ErcotRangeResponse(BaseModel):
 # which refit is serving; the served day is the cursor hour's date.
 
 
-class ForecastSpState(BaseModel):
-    """One SP's forecast congestion at one hour — a ``forecast_nodal`` row.
-
-    ``forecast_congestion`` is ``−(E_mu · SF)``. It is nullable so an invalid
-    persisted value remains explicit rather than dropping the settlement point.
-    """
-
-    sp_id: str
-    forecast_congestion: float | None = None
-
-
 class ForecastRangeEntry(BaseModel):
     """All SPs' forecast congestion at one interval, plus that hour's system-λ.
 
@@ -68,7 +57,9 @@ class ForecastRangeEntry(BaseModel):
     interval_ts: datetime
     system_lambda: float | None = None
     lambda_source: Literal["settled", "persisted"] | None = None
-    sps: list[ForecastSpState]
+    # Values align with ``ForecastRangeResponse.sp_ids``. A null preserves the
+    # shared index when an SP is absent or has an invalid persisted value.
+    congestion: list[float | None]
 
 
 class ForecastRangeResponse(BaseModel):
@@ -92,5 +83,7 @@ class ForecastRangeResponse(BaseModel):
     end: datetime
     run_id: str
     count: int
+    # Shared settlement-point index for each entry's ``congestion`` values.
+    sp_ids: list[str]
     entries: list[ForecastRangeEntry]
     horizons: dict[str, int] = {}

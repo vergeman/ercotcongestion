@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from psycopg.rows import dict_row
 
 from api.db import get_pool
-from api.schemas.forecast import ForecastRangeEntry, ForecastRangeResponse, ForecastSpState
+from api.schemas.forecast import ForecastRangeEntry, ForecastRangeResponse
 from api.services.system_lambda import (
     forecast_system_lambda,
     persisted_system_lambdas_by_ct_hour,
@@ -123,35 +123,37 @@ def forecast_range(
 
     # Each row of a delivery date carries its coalesced horizon provenance.
     horizons: dict[str, int] = {}
-    by_ts: dict[datetime, list[ForecastSpState]] = {}
+    # Keep a shared index across the entire response. Missing SPs remain null
+    # at their index rather than changing positions between intervals.
+    sp_ids = sorted({str(row["settlement_point"]) for row in rows})
+    sp_index = {sp_id: index for index, sp_id in enumerate(sp_ids)}
+    by_ts: dict[datetime, ForecastRangeEntry] = {}
     for row in rows:
         ts = coerce_utc(row["ts"])
         horizons[row["delivery_date"].isoformat()] = int(row["horizon"])
-        by_ts.setdefault(ts, []).append(
-            ForecastSpState(
-                sp_id=str(row["settlement_point"]),
-                forecast_congestion=_round_congestion(row["forecast_congestion"]),
+        entry = by_ts.get(ts)
+        if entry is None:
+            system_lambda, lambda_source = forecast_system_lambda(
+                ts, lam_by_ts_raw, persisted_by_hour
             )
-        )
-
-    entries = []
-    for ts, sps in sorted(by_ts.items()):
-        system_lambda, lambda_source = forecast_system_lambda(
-            ts, lam_by_ts_raw, persisted_by_hour
-        )
-        entries.append(
-            ForecastRangeEntry(
+            entry = ForecastRangeEntry(
                 interval_ts=ts,
                 system_lambda=system_lambda,
                 lambda_source=lambda_source,
-                sps=sps,
+                congestion=[None] * len(sp_ids),
             )
+            by_ts[ts] = entry
+        entry.congestion[sp_index[str(row["settlement_point"])]] = _round_congestion(
+            row["forecast_congestion"]
         )
+
+    entries = [by_ts[ts] for ts in sorted(by_ts)]
     return ForecastRangeResponse(
         start=start_u,
         end=end_u,
         run_id=run_id,
         count=len(entries),
+        sp_ids=sp_ids,
         entries=entries,
         horizons=horizons,
     )

@@ -1,7 +1,7 @@
 import type {
   ErcotRangeResponse,
-  ForecastRangeEntry,
   ForecastRangeResponse,
+  ForecastStateEntry,
   ConditionsEntry,
   ConditionsRangeResponse,
 } from "./types";
@@ -25,7 +25,7 @@ interface ErcotSppEntry {
 
 const ercotCache = new Map<string, ErcotCongestionEntry>();
 const ercotSppCache = new Map<string, ErcotSppEntry>();
-const forecastCache = new Map<string, ForecastRangeEntry>();
+const forecastCache = new Map<string, ForecastStateEntry>();
 // Supplemental ERCOT load, wind, solar, and outage data for the Stats tab.
 const conditionsCache = new Map<string, ConditionsEntry>();
 let forecastRunId: string | null = null;
@@ -54,7 +54,7 @@ export function getErcotSppCached(ts: Date): ErcotSppEntry | undefined {
   return ercotSppCache.get(cacheKey(roundToInterval(ts)));
 }
 
-export function getForecastCached(ts: Date): ForecastRangeEntry | undefined {
+export function getForecastCached(ts: Date): ForecastStateEntry | undefined {
   return forecastCache.get(cacheKey(roundToInterval(ts)));
 }
 
@@ -102,8 +102,17 @@ function ingestForecast(data: ForecastRangeResponse | null): void {
   forecastRunId = data.run_id;
   forecastHorizons = data.horizons ?? {};
   for (const entry of data.entries) {
+    const stateEntry: ForecastStateEntry = {
+      interval_ts: entry.interval_ts,
+      system_lambda: entry.system_lambda,
+      lambda_source: entry.lambda_source,
+      sps: data.sp_ids.map((sp_id, index) => ({
+        sp_id,
+        forecast_congestion: entry.congestion[index] ?? null,
+      })),
+    };
     const ts = roundToInterval(new Date(entry.interval_ts));
-    forecastCache.set(cacheKey(ts), entry);
+    forecastCache.set(cacheKey(ts), stateEntry);
   }
 }
 
