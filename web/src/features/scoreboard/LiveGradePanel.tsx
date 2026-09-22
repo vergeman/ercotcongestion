@@ -52,6 +52,8 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           const m = val(model, mk.name);
           const p = val(persistence, mk.name);
           const o = val(oracle, mk.name);
+          const delta = m != null && p != null ? m - p : null;
+          const good = delta == null ? null : delta >= 0;
           return (
             <div key={mk.name} className="sb-tile">
               <div className="label">{mk.label}</div>
@@ -59,9 +61,11 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
                 {m == null ? "—" : m.toFixed(2)}
               </div>
               <div className="sb-tile__cmp">
-                <span className="sb-persistence">
-                  Prior-day (Persistence) {p == null ? "—" : p.toFixed(2)}
-                </span>
+                {good != null && (
+                  <span className="sb-delta" data-good={good}>
+                    {good ? "▲" : "▼"} vs Prior-day (Persistence) {p!.toFixed(2)}
+                  </span>
+                )}
                 <span className="sb-ceiling">
                   Settled-μ Benchmark (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>

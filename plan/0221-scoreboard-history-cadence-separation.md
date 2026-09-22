@@ -35,7 +35,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * Make `SeriesChart` accept both cadence collections and render their paths separately on a fixed-per-day chronological x-axis. Size the newest viewport to roughly four weeks, open at the newest data, and use a visibly dashed bridge between the last weekly and first served observation without manufacturing daily values.
 * Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
 * Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
-* In `LiveGradePanel`, retain the model, persistence, and Oracle values as independently labeled scores; do not add a derived model-minus-persistence delta.
+* In `LiveGradePanel`, retain the model, persistence, and Oracle values; color and arrow the model-versus-persistence direction without displaying the derived difference.
 * Ensure each chart has a metric-appropriate y-domain. Do not claim rank Spearman is constrained to `[0, 1]`; support its valid `[-1, 1]` range or a domain that includes all returned values.
 * Do NOT alter the API's score values in the browser, coerce negative rank values, aggregate daily grades into weekly values, or re-run/backfill any data as part of this presentation fix.
 
@@ -52,5 +52,5 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
 * [x] A Scoreboard with only weekly rows renders the fixed-per-day scrollable chart without failure.
 * [x] With both datasets present, the UI renders one chart with separate paths, a visibly dashed weekly-to-served transition, and fixed daily spacing for both cadences.
-* [x] The latest live card displays model, persistence, and Oracle scores separately without a derived delta.
+* [x] The latest live card colors the model-versus-persistence direction and displays the persistence score without a derived delta.
 * [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.
