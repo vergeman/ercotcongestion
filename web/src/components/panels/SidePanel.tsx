@@ -472,7 +472,9 @@ export default function SidePanel({
               {fitMeta && (
                 <div className="sc-fit">
                   <div className="sc-fit__header label">
-                    SF Window{fitMeta.window_start ? ` · ${formatCT(new Date(fitMeta.window_start), "MMM d, yyyy")} CT` : " · unavailable"}
+                    SF Window{fitMeta.window_start && fitMeta.window_end
+                      ? ` · ${formatCT(new Date(fitMeta.window_start), "MMM d, yyyy")} – ${formatCT(new Date(fitMeta.window_end), "MMM d, yyyy")}`
+                      : " · unavailable"}
                   </div>
                   {fitMeta.basis === "nearest_past" && fitMeta.artifact_delivery_date && (
                     <div className="sc-fit__note">
