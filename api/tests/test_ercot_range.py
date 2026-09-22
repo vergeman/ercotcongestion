@@ -4,6 +4,24 @@ from datetime import datetime, timezone
 
 T0 = datetime(2026, 3, 25, 22, tzinfo=timezone.utc)
 T1 = datetime(2026, 3, 25, 23, tzinfo=timezone.utc)
+RANGE_START = "2026-01-01T00:00:00Z"
+RANGE_END_336H = "2026-01-15T00:00:00Z"
+RANGE_END_337H = "2026-01-15T01:00:00Z"
+
+
+def test_compact_range_accepts_a_336_hour_window(client, fake_pool):
+    response = client.get("/ercot_range", params={"start": RANGE_START, "end": RANGE_END_336H})
+
+    assert response.status_code == 503
+    assert len(fake_pool.cursor.queries) == 1
+
+
+def test_compact_range_rejects_invalid_windows_before_queries(client, fake_pool):
+    for end in (RANGE_END_337H, "2025-12-31T23:00:00Z"):
+        response = client.get("/ercot_range", params={"start": RANGE_START, "end": end})
+        assert response.status_code == 422
+
+    assert fake_pool.cursor.queries == []
 
 
 def test_compact_range_shares_sp_index_and_combines_realized_values(client, fake_pool):
