@@ -62,8 +62,8 @@ export default function ConstraintPanel({
               aria-pressed={basis === b}
               tip={
                 b === "predicted"
-                  ? "Rank constraints by the model's forecast — what it expected to bind before the day."
-                  : "Rank constraints by ERCOT's actual published results for the day — what really bound."
+                  ? "Rank constraints by the model's forecast."
+                  : "Rank constraints by ERCOT's actual published results for the day."
               }
               onClick={() => onBasis(b)}
             >
@@ -82,9 +82,7 @@ export default function ConstraintPanel({
       )}
       <div className="cp-caption">
         Ranked by <b>contribution</b> = shadow-price mass × SF reach (how much a
-        constraint drives the day's congestion). The bar is its share of the top
-        constraint. Hover a row to isolate it on the map; click it to select the
-        constraint, or use its chevron to preview member nodes.
+        constraint drives the day's congestion).
         <SfDipoleLegend />
       </div>
 
@@ -102,8 +100,8 @@ export default function ConstraintPanel({
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Rank by contribution">#</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Congestion contribution (shadow-price mass × SF reach)">Contrib</Tooltip>
           <Tooltip className="cp-ch" tabIndex={-1} tip="ERCOT's identifier for the transmission constraint (line/element and contingency)">Constraint</Tooltip>
-          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Daily shadow-price mass: Σ |μ| across the active delivery-day basis.">μ mass</Tooltip>
-          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Daily SF reach: Σ |SF| across all settlement points. Structural, so it does not change with basis.">SF reach</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day shadow-price mass: Σ |μ| across its hours. Predicted hourly E[μ] = P(bind) × E[μ | bind]; Realized μ is ERCOT's published DAM shadow price.">μ mass</Tooltip>
+          <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day SF reach: Σ |SF| across all settlement points. It comes from the fitted structural shift-factor map.">SF reach</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
           <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, soft magenta) ↔ export (SF>0, teal) split by node share">Dipole</Tooltip>
           <span />
