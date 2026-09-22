@@ -149,9 +149,10 @@ and repeats with a newly shifted 240-day window.
 
 `/scoreboard/summary` returns `history.weekly_points` and
 `history.served_daily_points` separately, with independent `weekly_run_id` and
-`daily_run_id`. The Scoreboard renders them in separate charts: weekly points
-are walk-forward observations and served points are final per-delivery-day
-grades. The chart does not interpolate or join one cadence to the other.
+`daily_run_id`. The Scoreboard renders them as separate paths in one time-scaled
+chart: weekly points are walk-forward observations and served points are final
+per-delivery-day grades. The chart does not interpolate or join one cadence to
+the other.
 
 Pooled split cells are a separate summary: they combine their eligible weekly
 and served rows by scored hours, as described above.

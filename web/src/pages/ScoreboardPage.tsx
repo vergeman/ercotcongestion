@@ -58,17 +58,17 @@ export default function ScoreboardPage() {
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Walk-forward weekly backtest ({METRICS[controls.metric].label})
+                Track record · walk-forward weekly and served daily grades ({METRICS[controls.metric].label})
               </div>
               {history ? (
                 <SeriesChart
-                  points={history.weekly_points}
+                  weeklyPoints={history.weekly_points}
+                  servedDailyPoints={history.served_daily_points}
                   metric={controls.metric}
-                  cadence="weekly"
                   cutover={weekly.rtc_b_cutover}
                 />
               ) : (
-                <div className="sb-empty label">weekly history could not be loaded.</div>
+                <div className="sb-empty label">track history could not be loaded.</div>
               )}
 
               {/* legend */}
@@ -84,19 +84,6 @@ export default function ScoreboardPage() {
                 ))}
               </div>
 
-              <div className="sb-section-h label">
-                Final served daily grades ({METRICS[controls.metric].label})
-              </div>
-              {history?.served_daily_points.length ? (
-                <SeriesChart
-                  points={history.served_daily_points}
-                  metric={controls.metric}
-                  cadence="daily"
-                />
-              ) : (
-                <div className="sb-section-copy">no final served grades available.</div>
-              )}
-
               <Tooltip
                 as="div"
                 className="sb-section-h label"
@@ -107,7 +94,7 @@ export default function ScoreboardPage() {
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Charts keep weekly walk-forward and served-daily grades separate; pooled cells combine them by scored hours.
+                The chart uses separate weekly and served-daily paths on one time scale; pooled cells combine them by scored hours.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>

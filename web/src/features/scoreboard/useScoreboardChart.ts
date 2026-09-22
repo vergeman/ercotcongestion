@@ -25,8 +25,7 @@ export function useScoreboardChart(length: number) {
     width,
     hover,
     clearHover: () => setHover(null),
-    setHoverFromCoordinate: (coordinate: number, plotWidth: number) =>
-      setHover(clampChartIndex((coordinate / plotWidth) * (length - 1), length)),
+    setHoverIndex: setHover,
     moveHover: (delta: number) => setHover((current) =>
       clampChartIndex((current ?? (delta > 0 ? -1 : length)) + delta, length),
     ),

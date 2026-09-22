@@ -6,7 +6,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 ## Goal
 
 * Return weekly walk-forward and final served-daily Scoreboard histories as distinct API series.
-* Render the two cadences in separate chart sections so neither is interpolated, connected, or equally spaced with the other.
+* Render the two cadences as separate paths in one time-scaled chart so neither is interpolated, connected, or equally spaced with the other.
 * Make the latest served-grade comparison show its signed model-minus-persistence delta explicitly.
 
 ## Context
@@ -31,10 +31,10 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 ### Commit 2 — Render weekly and served history as separate Scoreboard sections
 
 * Work in: `web/src/api/types/scoreboard.ts`, `web/src/features/scoreboard/SeriesChart.tsx`, `web/src/pages/ScoreboardPage.tsx`, `web/src/features/scoreboard/LiveGradePanel.tsx`, relevant Scoreboard CSS, and focused web tests if the project has coverage for these components.
-* Entry point / primary change: pass `history.weekly_points` and `history.served_daily_points` to independently rendered chart sections rather than concatenating them.
-* Make `SeriesChart` accept one cadence's points and its native time label. Render the weekly chart only from weekly observations and the served chart only from daily observations; do not draw a boundary connector or label intended to bridge the two.
-* Keep source colors, metric controls, tooltips, and direct labels consistent across both charts. Show a clear empty state for the served section when final grades are unavailable; do not hide the weekly track record.
-* Update page copy to call the sections “Walk-forward weekly backtest” and “Final served daily grades,” replacing language that calls the combined output one track record.
+* Entry point / primary change: pass `history.weekly_points` and `history.served_daily_points` separately to one chart rather than flattening them into one source sequence.
+* Make `SeriesChart` accept both cadence collections and render their paths separately on one chronological x-axis. Do not draw a connector across the weekly/served boundary; retain a served-grade marker.
+* Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
+* Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
 * In `LiveGradePanel`, retain the model, persistence, and Oracle values but display an explicit signed `Δ vs persistence` value (for example, `−0.14`) alongside the direction indicator so it cannot be read as a negative persistence score.
 * Ensure each chart has a metric-appropriate y-domain. Do not claim rank Spearman is constrained to `[0, 1]`; support its valid `[-1, 1]` range or a domain that includes all returned values.
 * Do NOT alter the API's score values in the browser, coerce negative rank values, aggregate daily grades into weekly values, or re-run/backfill any data as part of this presentation fix.
@@ -50,7 +50,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 
 * [x] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
 * [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
-* [x] A Scoreboard with only weekly rows renders the weekly chart and a clear unavailable/empty served-daily section without failure.
-* [x] With both datasets present, the UI renders two charts with no line joining the final weekly observation to the first daily grade and no equal-spacing mix of weeks and days.
+* [x] A Scoreboard with only weekly rows renders the time-scaled chart without failure.
+* [x] With both datasets present, the UI renders one chart with separate paths, no line joining the final weekly observation to the first daily grade, and no equal-spacing mix of weeks and days.
 * [x] The latest live card explicitly labels model-minus-persistence as a signed delta, while displaying persistence's own score separately.
 * [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.

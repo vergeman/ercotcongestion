@@ -6,290 +6,183 @@ import { SERIES, CHART_LABELS } from "./seriesMeta";
 import { fmtWeek, fmtDay } from "./format";
 
 type Cadence = "weekly" | "daily";
-const dateOf = (point: ScoreHistoryPoint, cadence: Cadence) =>
-  cadence === "weekly" ? point.week : point.delivery_date;
 
-// One cadence's series chart (hand-rolled SVG).
+const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
+
+// One time-scaled chart with separately sourced weekly and served-daily paths.
 export function SeriesChart({
-  points,
+  weeklyPoints,
+  servedDailyPoints,
   metric,
-  cadence,
   cutover,
 }: {
-  points: ScoreHistoryPoint[];
+  weeklyPoints: ScoreHistoryPoint[];
+  servedDailyPoints: ScoreHistoryPoint[];
   metric: MetricKey;
-  cadence: Cadence;
-  cutover?: string;
+  cutover: string;
 }) {
-  const dates = useMemo(
-    () => Array.from(new Set(points.map((point) => dateOf(point, cadence))
-      .filter((date): date is string => date != null))).sort(),
-    [points, cadence]
-  );
-  const byKey = useMemo(() => {
-    const m = new Map<string, ScoreHistoryPoint>();
-    for (const p of points) {
-      const date = dateOf(p, cadence);
-      if (date != null) m.set(`${date}|${p.series_id}`, p);
-    }
-    return m;
-  }, [points, cadence]);
+  const dates = useMemo(() => Array.from(new Set([
+    ...weeklyPoints.map((point) => point.week),
+    ...servedDailyPoints.map((point) => point.delivery_date),
+  ].filter((date): date is string => date != null))).sort(), [weeklyPoints, servedDailyPoints]);
+  const byCadence = useMemo(() => {
+    const index = (points: ScoreHistoryPoint[], cadence: Cadence) => {
+      const values = new Map<string, ScoreHistoryPoint>();
+      for (const point of points) {
+        const date = cadence === "weekly" ? point.week : point.delivery_date;
+        if (date != null) values.set(`${date}|${point.series_id}`, point);
+      }
+      return values;
+    };
+    return { weekly: index(weeklyPoints, "weekly"), daily: index(servedDailyPoints, "daily") };
+  }, [weeklyPoints, servedDailyPoints]);
 
   const meta = METRICS[metric];
-  const valueAt = (i: number, seriesId: string): number | null => {
-    const p = byKey.get(`${dates[i]}|${seriesId}`);
-    const v = p ? (p[metric] as number | null) : null;
-    return v == null ? null : v;
-  };
-
-  const seriesVals = useMemo(
-    () =>
-      SERIES.map((s) => ({
-        ...s,
-        vals: dates.map((_, i) => valueAt(i, s.seriesId)),
-      })),
-    [dates, byKey, metric] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
-  const allVals = seriesVals.flatMap((s) =>
-    s.vals.filter((v): v is number => v != null)
-  );
+  const seriesVals = useMemo(() => {
+    const valuesAt = (cadence: Cadence, seriesId: string) => dates.map((date) => {
+      const point = byCadence[cadence].get(`${date}|${seriesId}`);
+      const value = point ? (point[metric] as number | null) : null;
+      return value == null ? null : value;
+    });
+    return SERIES.map((series) => ({
+      ...series,
+      weekly: valuesAt("weekly", series.seriesId),
+      daily: valuesAt("daily", series.seriesId),
+    }));
+  }, [dates, byCadence, metric]);
+  const allVals = seriesVals.flatMap((series) => [...series.weekly, ...series.daily]
+    .filter((value): value is number => value != null));
   const [dMin, dMax] = meta.domain(allVals);
 
-  // Right margin holds the direct end-labels (Persistence / Climatology ≈ 80px
-  // at the 11px label face) — keep it wide enough that they don't clip.
   const M = { t: 14, r: 116, b: 22, l: 42 };
   const H = 280;
   const n = dates.length;
-  const {
-    wrapRef, width, hover, clearHover, moveHover, setHoverFromCoordinate,
-  } = useScoreboardChart(n);
+  const { wrapRef, width, hover, clearHover, moveHover, setHoverIndex } = useScoreboardChart(n);
   const plotW = Math.max(1, width - M.l - M.r);
   const plotH = H - M.t - M.b;
+  const firstMs = dates.length ? dayMs(dates[0]) : 0;
+  const lastMs = dates.length ? dayMs(dates[dates.length - 1]) : firstMs;
+  const x = (date: string) => M.l + (lastMs === firstMs
+    ? plotW / 2
+    : ((dayMs(date) - firstMs) / (lastMs - firstMs)) * plotW);
+  const y = (value: number) => M.t +
+    (dMax === dMin ? plotH / 2 : (1 - (value - dMin) / (dMax - dMin)) * plotH);
 
-  const x = (i: number) => M.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-  const y = (v: number) =>
-    M.t +
-    (dMax === dMin ? plotH / 2 : (1 - (v - dMin) / (dMax - dMin)) * plotH);
-
-  const linePath = (vals: (number | null)[]): string => {
-    let d = "";
+  const linePath = (values: (number | null)[]) => {
+    let path = "";
     let pen = false;
-    vals.forEach((v, i) => {
-      if (v == null) {
+    values.forEach((value, i) => {
+      if (value == null) {
         pen = false;
         return;
       }
-      d += `${pen ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)} `;
+      path += `${pen ? "L" : "M"}${x(dates[i]).toFixed(1)} ${y(value).toFixed(1)} `;
       pen = true;
     });
-    return d.trim();
+    return path.trim();
   };
 
-  // last non-null point per series → the direct end-label (identity, not
-  // color-alone), with a small vertical de-collision.
   type EndLabel = { color: string; label: string; y: number };
   const endLabels: EndLabel[] = [];
-  for (const s of seriesVals) {
-    for (let i = s.vals.length - 1; i >= 0; i--) {
-      const v = s.vals[i];
-      if (v != null) {
-        endLabels.push({ color: s.color, label: CHART_LABELS[s.seriesId], y: y(v) });
+  for (const series of seriesVals) {
+    for (let i = dates.length - 1; i >= 0; i--) {
+      const value = series.daily[i] ?? series.weekly[i];
+      if (value != null) {
+        endLabels.push({ color: series.color, label: CHART_LABELS[series.seriesId], y: y(value) });
         break;
       }
     }
   }
   endLabels.sort((a, b) => a.y - b.y);
   for (let i = 1; i < endLabels.length; i++) {
-    if (endLabels[i].y - endLabels[i - 1].y < 12)
-      endLabels[i].y = endLabels[i - 1].y + 12;
+    if (endLabels[i].y - endLabels[i - 1].y < 12) endLabels[i].y = endLabels[i - 1].y + 12;
   }
 
-  const cutIdx = cutover == null ? -1 : dates.findIndex((d) => d >= cutover);
+  const closestDateIndex = (targetMs: number) => dates.reduce((closest, date, index) =>
+    Math.abs(dayMs(date) - targetMs) < Math.abs(dayMs(dates[closest]) - targetMs)
+      ? index : closest, 0);
+  const tickIdx = n <= 1 ? [0] : Array.from(new Set(
+    [0, 0.25, 0.5, 0.75, 1].map((fraction) =>
+      closestDateIndex(firstMs + fraction * (lastMs - firstMs)))
+  ));
+  const cutIdx = dates.findIndex((date) => date >= cutover);
+  const firstServedDate = servedDailyPoints.map((point) => point.delivery_date)
+    .filter((date): date is string => date != null).sort()[0];
   const zeroInDomain = dMin < 0 && dMax > 0;
 
-  // x tick indices: a handful across the span.
-  const tickIdx =
-    n <= 1
-      ? [0]
-      : [
-          0,
-          Math.floor(n / 4),
-          Math.floor(n / 2),
-          Math.floor((3 * n) / 4),
-          n - 1,
-        ];
-
-  const onMove = (e: React.MouseEvent<SVGRectElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    setHoverFromCoordinate(mx, plotW);
+  const onMove = (event: React.MouseEvent<SVGRectElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const targetMs = firstMs + ((event.clientX - rect.left) / plotW) * (lastMs - firstMs);
+    setHoverIndex(closestDateIndex(targetMs));
   };
 
   return (
     <div ref={wrapRef} className="sb-chart" style={{ position: "relative" }}>
-      <svg
-        width={width}
-        height={H}
-        role="img"
-        aria-label={`${meta.label} by ${cadence}`}
-      >
-        {/* y gridlines + labels */}
-        {[dMin, (dMin + dMax) / 2, dMax].map((v, k) => (
-          <g key={k}>
-            <line
-              x1={M.l}
-              x2={M.l + plotW}
-              y1={y(v)}
-              y2={y(v)}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
-            <text x={M.l - 6} y={y(v) + 3} textAnchor="end" className="sb-axis">
-              {meta.fmt(v)}
-            </text>
+      <svg width={width} height={H} role="img" aria-label={`${meta.label} over time`}>
+        {[dMin, (dMin + dMax) / 2, dMax].map((value, key) => (
+          <g key={key}>
+            <line x1={M.l} x2={M.l + plotW} y1={y(value)} y2={y(value)} stroke="var(--border)" strokeWidth={1} />
+            <text x={M.l - 6} y={y(value) + 3} textAnchor="end" className="sb-axis">{meta.fmt(value)}</text>
           </g>
         ))}
-        {zeroInDomain && (
-          <line
-            x1={M.l}
-            x2={M.l + plotW}
-            y1={y(0)}
-            y2={y(0)}
-            stroke="var(--text-muted)"
-            strokeWidth={1}
-            strokeDasharray="2 2"
-          />
-        )}
+        {zeroInDomain && <line x1={M.l} x2={M.l + plotW} y1={y(0)} y2={y(0)} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="2 2" />}
 
-        {/* x ticks */}
-        {tickIdx.map((i) => (
-          <text
-            key={i}
-            x={x(i)}
-            y={H - 6}
-            textAnchor="middle"
-            className="sb-axis"
-          >
-            {cadence === "weekly" ? fmtWeek(dates[i]) : fmtDay(dates[i])}
-          </text>
+        {tickIdx.map((index) => (
+          <text key={index} x={x(dates[index])} y={H - 6} textAnchor="middle" className="sb-axis">{fmtWeek(dates[index])}</text>
         ))}
 
-        {/* RTC+B cutover marker */}
         {cutIdx > 0 && (
           <g>
-            <line
-              x1={x(cutIdx)}
-              x2={x(cutIdx)}
-              y1={M.t}
-              y2={M.t + plotH}
-              stroke="var(--text-secondary)"
-              strokeWidth={1}
-              strokeDasharray="3 3"
-            />
-            <text
-              x={x(cutIdx) + 3}
-              y={M.t + 9}
-              className="sb-axis sb-axis--mark"
-            >
-              RTC+B
-            </text>
+            <line x1={x(dates[cutIdx])} x2={x(dates[cutIdx])} y1={M.t} y2={M.t + plotH} stroke="var(--text-secondary)" strokeWidth={1} strokeDasharray="3 3" />
+            <text x={x(dates[cutIdx]) + 3} y={M.t + 9} className="sb-axis sb-axis--mark">RTC+B</text>
+          </g>
+        )}
+        {firstServedDate != null && (
+          <g>
+            <line x1={x(firstServedDate)} x2={x(firstServedDate)} y1={M.t} y2={M.t + plotH} stroke="var(--accent)" strokeWidth={1} strokeDasharray="5 3" />
+            <text x={x(firstServedDate) + 3} y={M.t + 21} className="sb-axis sb-axis--mark">Served grades</text>
           </g>
         )}
 
-        {/* series lines */}
-        {seriesVals.map((s) => (
-          <path
-            key={s.seriesId}
-            d={linePath(s.vals)}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={2}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+        {seriesVals.flatMap((series) => (["weekly", "daily"] as Cadence[]).map((cadence) => (
+          <path key={`${series.seriesId}-${cadence}`} d={linePath(series[cadence])} fill="none" stroke={series.color}
+            strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" strokeDasharray={cadence === "daily" ? "4 2" : undefined} />
+        )))}
+
+        {endLabels.map((label, key) => (
+          <text key={key} x={M.l + plotW + 5} y={label.y + 3} className="sb-endlabel" fill={label.color}>{label.label}</text>
         ))}
 
-        {/* direct end-labels (secondary encoding for the CVD floor) */}
-        {endLabels.map((e, k) => (
-          <text
-            key={k}
-            x={M.l + plotW + 5}
-            y={e.y + 3}
-            className="sb-endlabel"
-            fill={e.color}
-          >
-            {e.label}
-          </text>
-        ))}
-
-        {/* hover guide + markers */}
         {hover != null && (
           <g>
-            <line
-              x1={x(hover)}
-              x2={x(hover)}
-              y1={M.t}
-              y2={M.t + plotH}
-              stroke="var(--border-bright)"
-              strokeWidth={1}
-            />
-            {seriesVals.map((s) => {
-              const v = s.vals[hover];
-              return v == null ? null : (
-                <circle
-                  key={s.seriesId}
-                  cx={x(hover)}
-                  cy={y(v)}
-                  r={3.5}
-                  fill={s.color}
-                  stroke="var(--bg-panel)"
-                  strokeWidth={1.5}
-                />
-              );
-            })}
+            <line x1={x(dates[hover])} x2={x(dates[hover])} y1={M.t} y2={M.t + plotH} stroke="var(--border-bright)" strokeWidth={1} />
+            {seriesVals.flatMap((series) => (["weekly", "daily"] as Cadence[]).map((cadence) => {
+              const value = series[cadence][hover];
+              return value == null ? null : <circle key={`${series.seriesId}-${cadence}`} cx={x(dates[hover])} cy={y(value)} r={3.5} fill={series.color} stroke="var(--bg-panel)" strokeWidth={1.5} />;
+            }))}
           </g>
         )}
 
-        {/* hover capture */}
-        <rect
-          x={M.l}
-          y={M.t}
-          width={plotW}
-          height={plotH}
-          fill="transparent"
-          onMouseMove={onMove}
-          onMouseLeave={clearHover}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") moveHover(-1);
-            if (event.key === "ArrowRight") moveHover(1);
-          }}
-          tabIndex={0}
-          aria-label={`Use left and right arrow keys to inspect ${cadence} Scoreboard values`}
-        />
+        <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="transparent" onMouseMove={onMove} onMouseLeave={clearHover}
+          onKeyDown={(event) => { if (event.key === "ArrowLeft") moveHover(-1); if (event.key === "ArrowRight") moveHover(1); }}
+          tabIndex={0} aria-label="Use left and right arrow keys to inspect Scoreboard values" />
       </svg>
 
       {hover != null && (
-        <div
-          className="sb-tip"
-          style={{ left: Math.min(x(hover) + 8, width - 140), top: M.t }}
-        >
-          <div className="sb-tip__wk">
-            {cadence === "daily"
-              ? `Served daily grade · ${fmtDay(dates[hover])}`
-              : `Walk-forward backtest week · ${fmtWeek(dates[hover])}`}
-          </div>
-          {seriesVals.map((s) => {
-            const v = s.vals[hover];
-            return (
-              <div key={s.seriesId} className="sb-tip__row">
-                <span className="sb-tip__dot" style={{ background: s.color }} />
-                <span className="sb-tip__lbl">{CHART_LABELS[s.seriesId]}</span>
-                <span className="sb-tip__val">
-                  {v == null ? "—" : meta.fmt(v)}
-                </span>
-              </div>
-            );
+        <div className="sb-tip" style={{ left: Math.min(x(dates[hover]) + 8, width - 140), top: M.t }}>
+          {(["weekly", "daily"] as Cadence[]).map((cadence) => {
+            const values = seriesVals.map((series) => series[cadence]);
+            if (values.every((value) => value[hover] == null)) return null;
+            return <div key={cadence}>
+              <div className="sb-tip__wk">{cadence === "daily" ? `Served daily grade · ${fmtDay(dates[hover])}` : `Walk-forward backtest week · ${fmtWeek(dates[hover])}`}</div>
+              {SERIES.map((series, index) => (
+                <div key={series.seriesId} className="sb-tip__row">
+                  <span className="sb-tip__dot" style={{ background: series.color }} />
+                  <span className="sb-tip__lbl">{CHART_LABELS[series.seriesId]}</span>
+                  <span className="sb-tip__val">{values[index][hover] == null ? "—" : meta.fmt(values[index][hover]!)}</span>
+                </div>
+              ))}
+            </div>;
           })}
         </div>
       )}
