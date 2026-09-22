@@ -62,8 +62,8 @@ export default function ConstraintPanel({
               aria-pressed={basis === b}
               tip={
                 b === "predicted"
-                  ? "Rank constraints by the model's forecast — what it expected to bind before the day."
-                  : "Rank constraints by ERCOT's actual published results for the day — what really bound."
+                  ? "Rank constraints by the model's forecast."
+                  : "Rank constraints by ERCOT's actual published results for the day."
               }
               onClick={() => onBasis(b)}
             >
