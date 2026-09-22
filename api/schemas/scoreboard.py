@@ -1,8 +1,6 @@
 """Schemas served by the Scoreboard summary."""
 
 from datetime import date
-from typing import Literal
-
 from pydantic import BaseModel, Field
 from api.schemas.common import BootstrapSectionStatus, SourceDescriptor
 
@@ -130,11 +128,10 @@ class ScoreboardDaily(BaseModel):
 
 
 class ScoreHistoryPoint(BaseModel):
-    """One chart point from the weekly backtest or a served final grade."""
+    """One chart point from either separately returned Scoreboard cadence."""
 
     source_id: str
     series_id: str
-    cadence: Literal["backtest_weekly", "served_daily"]
     week: date | None = None
     delivery_date: date | None = None
     rank_spearman: float | None = None
@@ -147,13 +144,13 @@ class ScoreHistoryPoint(BaseModel):
 
 
 class ScoreboardHistory(BaseModel):
-    """Weekly walk-forward history followed by final served-day grades."""
+    """Distinct weekly walk-forward and final served-day chart histories."""
 
     primary_source_id: str
     weekly_run_id: str
     daily_run_id: str | None = None
-    boundary_date: date | None = None
-    points: list[ScoreHistoryPoint]
+    weekly_points: list[ScoreHistoryPoint]
+    served_daily_points: list[ScoreHistoryPoint] = Field(default_factory=list)
     sources: list[SourceDescriptor] = Field(default_factory=list)
 
 

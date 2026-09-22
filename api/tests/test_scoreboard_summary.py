@@ -16,7 +16,9 @@ WEEKLY = ScoreboardWeekly(run_id="r", primary_source_id="scoreboard_model_backte
                           rtc_b_cutover=date(2025, 12, 5), points=[], splits=[])
 DAILY = ScoreboardDaily(run_id="r", primary_source_id="scoreboard_model_served_nodal", horizon=1,
                         selected_delivery_date=date(2026, 7, 18), points=[])
-HISTORY = ScoreboardHistory(primary_source_id="scoreboard_model_backtest_nodal", weekly_run_id="r", points=[])
+HISTORY = ScoreboardHistory(
+    primary_source_id="scoreboard_model_backtest_nodal", weekly_run_id="r", weekly_points=[]
+)
 
 
 def test_summary_calls_each_internal_section(monkeypatch):
