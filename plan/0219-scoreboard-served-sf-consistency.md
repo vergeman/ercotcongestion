@@ -56,12 +56,12 @@ Branch: fix/0219-scoreboard-served-sf-consistency
 
 ## Acceptance
 
-* [ ] Future live grading performs no SF fit and uses the exact keyed `forecast_sf_artifact.SF` for model-universe selection, coverage, ESSP, Oracle, persistence, climatology, and null.
-* [ ] A missing or invalid served SF artifact fails the grade before deleting or writing `scoreboard_daily`; there is no silent weekly-map load or daily-refit fallback.
-* [ ] H1 and h2 grading load independent artifacts, while all sources within one `(run_id, delivery_date, horizon)` share the same hours, nodes, target, and SF matrix.
-* [ ] `sf_coverage` and `n_nodes` on the model row describe the served artifact rather than the retired grader-local fit.
-* [ ] The new range backfill supports dry-run and write modes, explicitly scopes one horizon, atomically replaces five rows per successful key, continues safely after a failed key, and is idempotent on rerun.
-* [ ] Running the repair for both horizons changes only `scoreboard_daily`; `forecast_nodal`, `forecast_sf_artifact`, `forecast_current`, `scoreboard_weekly`, map state, and Brief data remain unchanged.
-* [ ] Historical artifact holes are reported and retain their prior grade rows for operator review rather than being silently refit, deleted, or partially rewritten.
-* [ ] Scoreboard API/web copy calls Oracle a settled-μ benchmark conditional on the selected map and no longer promises an unattainable mathematical ceiling.
-* [ ] Focused compute and API tests, web typecheck/lint, and the documented production dry-run/reconciliation checks pass.
+* [x] Future live grading performs no SF fit and uses the exact keyed `forecast_sf_artifact.SF` for model-universe selection, coverage, ESSP, Oracle, persistence, climatology, and null.
+* [x] A missing or invalid served SF artifact fails the grade before deleting or writing `scoreboard_daily`; there is no silent weekly-map load or daily-refit fallback.
+* [x] H1 and h2 grading load independent artifacts, while all sources within one `(run_id, delivery_date, horizon)` share the same hours, nodes, target, and SF matrix.
+* [x] `sf_coverage` and `n_nodes` on the model row describe the served artifact rather than the retired grader-local fit.
+* [x] The new range backfill supports dry-run and write modes, explicitly scopes one horizon, atomically replaces five rows per successful key, continues safely after a failed key, and is idempotent on rerun.
+* [ ] Running the repair for both horizons changes only `scoreboard_daily`; requires the production repair and reconciliation.
+* [x] Historical artifact holes are reported and retain their prior grade rows for operator review rather than being silently refit, deleted, or partially rewritten.
+* [x] Scoreboard API/web copy calls Oracle a settled-μ benchmark conditional on the selected map and no longer promises an unattainable mathematical ceiling.
+* [ ] Focused compute and API tests plus web typecheck/lint pass; the production dry-run and reconciliation remain operator work.
