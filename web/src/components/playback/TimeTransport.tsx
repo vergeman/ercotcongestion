@@ -1,4 +1,10 @@
-import { type ReactNode, useState, useEffect, useCallback, useMemo } from "react";
+import {
+  type ReactNode,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import TimelineSparkline, {
   TimelineSparklineLegend,
   type SparkPoint,
@@ -63,7 +69,12 @@ export default function TimeTransport({
   const dayMarkers = useMemo(
     () =>
       frames.flatMap((frame, i) =>
-        i > 0 && formatCT(frame, "yyyy-MM-dd") !== formatCT(frames[i - 1], "yyyy-MM-dd")
+        // day indicators: set daily marker (e.g 'Jan 30' no time)
+        // as timeline label unless it's the last day: avoids last label bleeding into
+        // start/end date range markers (with hours)
+        i > 0 &&
+        i < frames.length - 1 &&
+        formatCT(frame, "yyyy-MM-dd") !== formatCT(frames[i - 1], "yyyy-MM-dd")
           ? [{ index: i, label: formatCT(frame, "MMM d") }]
           : []
       ),
@@ -136,7 +147,9 @@ export default function TimeTransport({
               }}
             >
               <span className="playbtn__icon">{playing ? "⏸" : "▶"}</span>
-              <span className="playbtn__label">{playing ? "Pause" : "Play"}</span>
+              <span className="playbtn__label">
+                {playing ? "Pause" : "Play"}
+              </span>
             </button>
           )}
 
