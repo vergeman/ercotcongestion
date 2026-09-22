@@ -4,7 +4,6 @@ import type {
   RankedConstraints,
   MapFitMetadata,
   ConditionsEntry,
-  MapView,
 } from "../../api/types";
 import ConstraintPanel from "./ConstraintPanel";
 import Tooltip from "../ui/Tooltip";
@@ -23,9 +22,8 @@ export interface NetworkStats {
 
 interface Props {
   network: NetworkStats;
-  // ERCOT load, wind, solar, and outage data for the cursor hour.
+  // DAM-close load, wind, solar, and outage conditions for the cursor hour.
   conditions: ConditionsEntry | null;
-  mapView: MapView;
   scorecard: MapScorecard | null;
   fitMeta: MapFitMetadata | null;
   // ── Constraints tab ─────────────────────────────────────────────────────
@@ -140,43 +138,10 @@ function regionLabel(key: string): string {
     .join(" ");
 }
 
-type ConditionValue = {
-  mw: number | null;
-  isForecast: boolean;
-};
-
-// Market and Compare use actuals when published, otherwise forecast values.
-function conditionValue(
-  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
-  mapView: MapView
-): ConditionValue {
-  if (!row) return { mw: null, isForecast: false };
-  if (mapView === "forecast" || mapView === "error") {
-    return { mw: row.forecast_mw, isForecast: false };
-  }
-  if (row.actual_mw != null) return { mw: row.actual_mw, isForecast: false };
-  return { mw: row.forecast_mw, isForecast: row.forecast_mw != null };
-}
-
-// Outages do not fall back to forecast values in Market and Compare.
-function regionMw(
-  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
-  mapView: MapView
+function conditionMw(
+  row: { dam_close_mw: number | null } | undefined
 ): number | null {
-  if (!row) return null;
-  return mapView === "forecast" || mapView === "error"
-    ? row.forecast_mw
-    : row.actual_mw;
-}
-
-function conditionLabel(
-  label: string,
-  row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
-  mapView: MapView
-): string {
-  return `${label}${
-    conditionValue(row, mapView).isForecast ? " (Forecast)" : ""
-  }`;
+  return row?.dam_close_mw ?? null;
 }
 
 function Stat({
@@ -240,7 +205,6 @@ function ExpandableGroup({
 export default function SidePanel({
   network,
   conditions,
-  mapView,
   scorecard,
   fitMeta,
   ranked,
@@ -346,26 +310,25 @@ export default function SidePanel({
               offline vs. MW produced) but stays a peer row here; the label
               text carries that distinction, not a sub-grouping. */}
           <section className="np-section">
-            <div className="np-section__header label">Conditions</div>
+            <Tooltip
+              className="np-section__header label"
+              tip="Load and generation forecasts plus reported outage expectations available before the D-1 10:00 CT DAM close. Shared across Map views; not delivered actuals."
+            >
+              Conditions
+            </Tooltip>
             <ExpandableGroup
-              label={conditionLabel(
-                "Load by Region",
-                conditions?.load.find((z) => z.zone === "system"),
-                mapView
-              )}
+              label="Load by Region"
               systemValue={(() => {
-                const { mw } = conditionValue(
-                  conditions?.load.find((z) => z.zone === "system"),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.load.find((z) => z.zone === "system")
                 );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.load}
               onToggle={() => toggleRegions("load")}
               rows={WEATHER_ZONES.map((zone) => {
-                const { mw } = conditionValue(
-                  conditions?.load.find((z) => z.zone === zone),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.load.find((z) => z.zone === zone)
                 );
                 return {
                   key: zone,
@@ -375,24 +338,18 @@ export default function SidePanel({
               })}
             />
             <ExpandableGroup
-              label={conditionLabel(
-                "Wind Generation",
-                conditions?.wind.find((r) => r.region === "system"),
-                mapView
-              )}
+              label="Wind Generation"
               systemValue={(() => {
-                const { mw } = conditionValue(
-                  conditions?.wind.find((r) => r.region === "system"),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.wind.find((r) => r.region === "system")
                 );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.wind}
               onToggle={() => toggleRegions("wind")}
               rows={WIND_REGIONS.map((region) => {
-                const { mw } = conditionValue(
-                  conditions?.wind.find((r) => r.region === region),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.wind.find((r) => r.region === region)
                 );
                 return {
                   key: region,
@@ -402,24 +359,18 @@ export default function SidePanel({
               })}
             />
             <ExpandableGroup
-              label={conditionLabel(
-                "Solar Generation",
-                conditions?.solar.find((r) => r.region === "system"),
-                mapView
-              )}
+              label="Solar Generation"
               systemValue={(() => {
-                const { mw } = conditionValue(
-                  conditions?.solar.find((r) => r.region === "system"),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.solar.find((r) => r.region === "system")
                 );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.solar}
               onToggle={() => toggleRegions("solar")}
               rows={SOLAR_REGIONS.map((region) => {
-                const { mw } = conditionValue(
-                  conditions?.solar.find((r) => r.region === region),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.solar.find((r) => r.region === region)
                 );
                 return {
                   key: region,
@@ -431,18 +382,16 @@ export default function SidePanel({
             <ExpandableGroup
               label="Outages by Fuel"
               systemValue={(() => {
-                const mw = regionMw(
-                  conditions?.outages.find((f) => f.fuel === "total"),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.outages.find((f) => f.fuel === "total")
                 );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.outages}
               onToggle={() => toggleRegions("outages")}
               rows={OUTAGE_FUELS.map((fuel) => {
-                const mw = regionMw(
-                  conditions?.outages.find((f) => f.fuel === fuel),
-                  mapView
+                const mw = conditionMw(
+                  conditions?.outages.find((f) => f.fuel === fuel)
                 );
                 return {
                   key: fuel,

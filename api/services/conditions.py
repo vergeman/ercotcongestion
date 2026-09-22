@@ -1,14 +1,4 @@
-"""Conditions panel query service.
-
-The response merges the map panel's Load, Wind, Solar, and Outages views.
-Load and generation pair actuals with the latest forecast vintage posted no
-later than each interval, preventing lookahead.  Outages use daily snapshots:
-the forecast side is D-1 admissible while the actual side uses the newest
-vintage available through the delivery day.
-
-Every interval in the inclusive window is emitted.  Individual sources may be
-missing for an hour; 503 is reserved for a window with no rows from any source.
-"""
+"""DAM-close Conditions query service for the Map sidebar."""
 
 from __future__ import annotations
 
@@ -27,35 +17,18 @@ from api.schemas.conditions import (
     ZoneLoad,
 )
 from api.services.time import CENTRAL, coerce_utc
+from compute.mu_forecast.panel.availability import dam_close_expr
 
 WEATHER_ZONES = (
-    "coast",
-    "east",
-    "far_west",
-    "north",
-    "north_central",
-    "south_central",
-    "southern",
-    "west",
+    "coast", "east", "far_west", "north", "north_central", "south_central", "southern", "west",
 )
 WIND_REGIONS = ("panhandle", "coastal", "south", "west", "north")
 SOLAR_REGIONS = (
-    "centerwest",
-    "northwest",
-    "farwest",
-    "fareast",
-    "southeast",
-    "centereast",
+    "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
 )
 FUEL_BUCKETS = {
-    "Natural Gas": "gas",
-    "Blast-Furnace Gas": "gas",
-    "Wind": "wind",
-    "Solar": "solar",
-    "Bituminous Coal": "coal",
-    "Subbituminous Coal": "coal",
-    "Lignite": "coal",
-    "Water": "hydro",
+    "Natural Gas": "gas", "Blast-Furnace Gas": "gas", "Wind": "wind", "Solar": "solar",
+    "Bituminous Coal": "coal", "Subbituminous Coal": "coal", "Lignite": "coal", "Water": "hydro",
 }
 FUEL_ORDER = ("gas", "wind", "solar", "coal", "other", "hydro")
 
@@ -69,164 +42,91 @@ def _vintage_on_or_before(posted: list[date], target: date) -> date | None:
     return posted[index] if index >= 0 else None
 
 
-# --------------------------------------------------------------------------
-# Load by weather zone
-# --------------------------------------------------------------------------
+def _forecast_rows(cur, start: datetime, end: datetime, table: str, columns: str):
+    cur.execute(
+        f"""SELECT DISTINCT ON (interval_ts, dst_flag) interval_ts, {columns}
+        FROM {table}
+        WHERE interval_ts >= %s AND interval_ts <= %s
+          AND posted_datetime <= {dam_close_expr("interval_ts")}
+        ORDER BY interval_ts, dst_flag, posted_datetime DESC""",
+        (start, end),
+    )
+    return cur.fetchall()
 
 
 def _load_rows(cur, start: datetime, end: datetime):
-    # Load forecasts use the latest vintage knowable at the interval.
-    zone_cols = ", ".join(WEATHER_ZONES)
-    cur.execute(
-        f"""SELECT DISTINCT ON (interval_ts) interval_ts, {zone_cols}, total
-        FROM load_by_zone WHERE interval_ts >= %s AND interval_ts <= %s
-        ORDER BY interval_ts, dst_flag ASC""",
-        (start, end),
+    return _forecast_rows(
+        cur, start, end, "load_forecast_zonal", ", ".join((*WEATHER_ZONES, "system_total"))
     )
-    actual = cur.fetchall()
-    cur.execute(
-        f"""SELECT DISTINCT ON (interval_ts) interval_ts, {zone_cols}, system_total
-        FROM load_forecast_zonal
-        WHERE interval_ts >= %s AND interval_ts <= %s AND posted_datetime <= interval_ts
-        ORDER BY interval_ts, dst_flag ASC, posted_datetime DESC""",
-        (start, end),
-    )
-    return actual, cur.fetchall()
 
 
-def _load_by_ts(actual_rows, forecast_rows) -> dict[datetime, list[ZoneLoad]]:
-    actual = {coerce_utc(row["interval_ts"]): row for row in actual_rows}
-    forecast = {coerce_utc(row["interval_ts"]): row for row in forecast_rows}
+def _load_by_ts(rows) -> dict[datetime, list[ZoneLoad]]:
     out = {}
-    for ts in set(actual) | set(forecast):
-        a, f = actual.get(ts), forecast.get(ts)
-        rows = [
-            ZoneLoad(
-                zone=zone,
-                actual_mw=None if a is None or a[zone] is None else float(a[zone]),
-                forecast_mw=None if f is None or f[zone] is None else float(f[zone]),
-            )
+    for row in rows:
+        ts = coerce_utc(row["interval_ts"])
+        values = [
+            ZoneLoad(zone=zone, dam_close_mw=None if row[zone] is None else float(row[zone]))
             for zone in WEATHER_ZONES
         ]
-        rows.append(
+        values.append(
             ZoneLoad(
                 zone="system",
-                actual_mw=(
-                    None if a is None or a["total"] is None else float(a["total"])
-                ),
-                forecast_mw=(
-                    None
-                    if f is None or f["system_total"] is None
-                    else float(f["system_total"])
+                dam_close_mw=(
+                    None if row["system_total"] is None else float(row["system_total"])
                 ),
             )
         )
-        out[ts] = rows
+        out[ts] = values
     return out
 
 
-# --------------------------------------------------------------------------
-# Wind / solar by region
-# --------------------------------------------------------------------------
+def _region_rows(cur, start, end, table, prefix, regions):
+    columns = ", ".join([*(f"{prefix}_{region}" for region in regions), f"{prefix}_system_wide"])
+    return _forecast_rows(cur, start, end, table, columns)
 
 
-def _region_rows(cur, start, end, actual_table, forecast_table, regions):
-    """Read actual and no-lookahead forecast rows for wind or solar."""
-    region_cols = ", ".join(f"gen_{region}" for region in regions)
-    cur.execute(
-        f"""SELECT DISTINCT ON (interval_ts) interval_ts, {region_cols}, gen_system_wide
-        FROM {actual_table} WHERE interval_ts >= %s AND interval_ts <= %s
-        ORDER BY interval_ts, dst_flag ASC""",
-        (start, end),
-    )
-    actual = cur.fetchall()
-    prefix = "stwpf" if actual_table == "wind_hourly_regional" else "stppf"
-    forecast_cols = ", ".join(f"{prefix}_{region}" for region in regions)
-    cur.execute(
-        f"""SELECT DISTINCT ON (interval_ts) interval_ts, {forecast_cols}, {prefix}_system_wide
-        FROM {forecast_table}
-        WHERE interval_ts >= %s AND interval_ts <= %s AND posted_datetime <= interval_ts
-        ORDER BY interval_ts, dst_flag ASC, posted_datetime DESC""",
-        (start, end),
-    )
-    return actual, cur.fetchall(), prefix
-
-
-def _region_by_ts(
-    actual_rows, forecast_rows, prefix, regions
-) -> dict[datetime, list[RegionGen]]:
-    actual = {coerce_utc(row["interval_ts"]): row for row in actual_rows}
-    forecast = {coerce_utc(row["interval_ts"]): row for row in forecast_rows}
+def _region_by_ts(rows, prefix, regions) -> dict[datetime, list[RegionGen]]:
     out = {}
-    for ts in set(actual) | set(forecast):
-        a, f = actual.get(ts), forecast.get(ts)
-        rows = [
+    for row in rows:
+        ts = coerce_utc(row["interval_ts"])
+        values = [
             RegionGen(
                 region=region,
-                actual_mw=(
-                    None
-                    if a is None or a[f"gen_{region}"] is None
-                    else float(a[f"gen_{region}"])
-                ),
-                forecast_mw=(
-                    None
-                    if f is None or f[f"{prefix}_{region}"] is None
-                    else float(f[f"{prefix}_{region}"])
+                dam_close_mw=(
+                    None if row[f"{prefix}_{region}"] is None else float(row[f"{prefix}_{region}"])
                 ),
             )
             for region in regions
         ]
-        rows.append(
+        values.append(
             RegionGen(
                 region="system",
-                actual_mw=(
+                dam_close_mw=(
                     None
-                    if a is None or a["gen_system_wide"] is None
-                    else float(a["gen_system_wide"])
-                ),
-                forecast_mw=(
-                    None
-                    if f is None or f[f"{prefix}_system_wide"] is None
-                    else float(f[f"{prefix}_system_wide"])
+                    if row[f"{prefix}_system_wide"] is None
+                    else float(row[f"{prefix}_system_wide"])
                 ),
             )
         )
-        out[ts] = rows
+        out[ts] = values
     return out
-
-
-# --------------------------------------------------------------------------
-# Outages by fuel
-# --------------------------------------------------------------------------
 
 
 def _outage_rows(cur, lo_day: date, hi_day: date):
     cur.execute(
-        """SELECT posted_date, fuel_type, effective_mw_reduction, actual_outage_start,
-        actual_end_date, planned_end_date FROM resource_outages
-        WHERE posted_date >= %s AND posted_date <= %s""",
+        """SELECT posted_date, fuel_type, effective_mw_reduction, planned_end_date
+        FROM resource_outages WHERE posted_date >= %s AND posted_date <= %s""",
         (lo_day, hi_day),
     )
     return cur.fetchall()
 
 
-def _outage_sums(rows: list[dict], ts: datetime, *, actual: bool) -> dict[str, float]:
-    """Sum outage reductions by fuel bucket for events counted at ``ts``.
-
-    Actuals are genuinely active (start <= ts < end, or no end); forecasts are
-    still expected out according to ``planned_end_date``.
-    """
+def _outage_sums(rows: list[dict], ts: datetime) -> dict[str, float]:
+    """Sum MW expected out at delivery, from a DAM-close-eligible snapshot."""
     sums: dict[str, float] = {}
     for row in rows:
         mw = row["effective_mw_reduction"]
-        if mw is None:
-            continue
-        if actual:
-            if row["actual_outage_start"] is None or row["actual_outage_start"] > ts:
-                continue
-            if row["actual_end_date"] is not None and row["actual_end_date"] <= ts:
-                continue
-        elif row["planned_end_date"] is None or row["planned_end_date"] < ts:
+        if mw is None or row["planned_end_date"] is None or row["planned_end_date"] < ts:
             continue
         bucket = FUEL_BUCKETS.get(row["fuel_type"] or "", "other")
         sums[bucket] = sums.get(bucket, 0.0) + float(mw)
@@ -236,79 +136,41 @@ def _outage_sums(rows: list[dict], ts: datetime, *, actual: bool) -> dict[str, f
 def _outage_fuels_at(
     snaps: dict[date, list[dict]], posted: list[date], ts: datetime
 ) -> list[FuelOutage]:
-    day = _ct_date(ts)
-    actual_vintage = _vintage_on_or_before(posted, day)
-    forecast_vintage = _vintage_on_or_before(posted, day - timedelta(days=1))
-    actual = (
-        _outage_sums(snaps[actual_vintage], ts, actual=True) if actual_vintage else None
-    )
-    forecast = (
-        _outage_sums(snaps[forecast_vintage], ts, actual=False)
-        if forecast_vintage
-        else None
-    )
+    vintage = _vintage_on_or_before(posted, _ct_date(ts) - timedelta(days=1))
+    expected = _outage_sums(snaps[vintage], ts) if vintage else None
     fuels = [
         FuelOutage(
             fuel=fuel,
-            forecast_mw=None if forecast is None else forecast.get(fuel, 0.0),
-            actual_mw=None if actual is None else actual.get(fuel, 0.0),
+            dam_close_mw=None if expected is None else expected.get(fuel, 0.0),
         )
         for fuel in FUEL_ORDER
     ]
     fuels.append(
         FuelOutage(
-            fuel="total",
-            forecast_mw=None if forecast is None else sum(forecast.values()),
-            actual_mw=None if actual is None else sum(actual.values()),
+            fuel="total", dam_close_mw=None if expected is None else sum(expected.values())
         )
     )
     return fuels
 
 
 def conditions_range(start: datetime, end: datetime) -> ConditionsRangeResponse:
-    """Return all Conditions sources for a normalized inclusive interval."""
-    # Headroom resolves the D-1 outage forecast vintage through posting gaps.
-    lo_day, hi_day = _ct_date(start) - timedelta(days=3), _ct_date(end)
+    """Return a normalized inclusive grid of DAM-close Conditions."""
+    lo_day, hi_day = _ct_date(start) - timedelta(days=3), _ct_date(end) - timedelta(days=1)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        load_actual, load_forecast = _load_rows(cur, start, end)
-        wind_actual, wind_forecast, wind_prefix = _region_rows(
-            cur,
-            start,
-            end,
-            "wind_hourly_regional",
-            "wind_forecast_regional",
-            WIND_REGIONS,
-        )
-        solar_actual, solar_forecast, solar_prefix = _region_rows(
-            cur,
-            start,
-            end,
-            "solar_hourly_regional",
-            "solar_forecast_regional",
-            SOLAR_REGIONS,
-        )
+        load_rows = _load_rows(cur, start, end)
+        wind_rows = _region_rows(cur, start, end, "wind_forecast_regional", "stwpf", WIND_REGIONS)
+        solar_rows = _region_rows(cur, start, end, "solar_forecast_regional", "stppf", SOLAR_REGIONS)
         outages = _outage_rows(cur, lo_day, hi_day)
 
-    if not any(
-        (
-            load_actual,
-            load_forecast,
-            wind_actual,
-            wind_forecast,
-            solar_actual,
-            solar_forecast,
-            outages,
-        )
-    ):
+    if not any((load_rows, wind_rows, solar_rows, outages)):
         raise HTTPException(
             status_code=503,
-            detail=f"no load/wind/solar/outages rows in window {start} .. {end}.",
+            detail=f"no DAM-close load/wind/solar/outages rows in window {start} .. {end}.",
         )
 
-    load = _load_by_ts(load_actual, load_forecast)
-    wind = _region_by_ts(wind_actual, wind_forecast, wind_prefix, WIND_REGIONS)
-    solar = _region_by_ts(solar_actual, solar_forecast, solar_prefix, SOLAR_REGIONS)
-    # Preserve daily snapshot vintages for the per-hour outage policy.
+    load = _load_by_ts(load_rows)
+    wind = _region_by_ts(wind_rows, "stwpf", WIND_REGIONS)
+    solar = _region_by_ts(solar_rows, "stppf", SOLAR_REGIONS)
     snapshots: dict[date, list[dict]] = {}
     for row in outages:
         snapshots.setdefault(row["posted_date"], []).append(row)
@@ -326,6 +188,4 @@ def conditions_range(start: datetime, end: datetime) -> ConditionsRangeResponse:
             )
         )
         ts += timedelta(hours=1)
-    return ConditionsRangeResponse(
-        start=start, end=end, count=len(entries), entries=entries
-    )
+    return ConditionsRangeResponse(start=start, end=end, count=len(entries), entries=entries)

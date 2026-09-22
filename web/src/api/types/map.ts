@@ -59,20 +59,17 @@ export interface ForecastRangeResponse {
 // Outages are offline capacity from ERCOT NP1-346, not generation.
 export interface ZoneLoad {
   zone: string;
-  forecast_mw: number | null;
-  actual_mw: number | null;
+  dam_close_mw: number | null;
 }
 
 export interface RegionGen {
   region: string;
-  forecast_mw: number | null;
-  actual_mw: number | null;
+  dam_close_mw: number | null;
 }
 
 export interface FuelOutage {
   fuel: string;
-  forecast_mw: number | null;
-  actual_mw: number | null;
+  dam_close_mw: number | null;
 }
 
 export interface ConditionsEntry {
