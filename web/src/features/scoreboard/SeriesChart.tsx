@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ScoreHistoryPoint } from "../../api/types";
 import { METRICS, type MetricKey } from "./scoreboardControlsState";
 import { useScoreboardChart } from "./useScoreboardChart";
@@ -8,8 +8,9 @@ import { fmtWeek, fmtDay } from "./format";
 type Cadence = "weekly" | "daily";
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
+const DAY_WIDTH = 18;
 
-// One time-scaled chart with separately sourced weekly and served-daily paths.
+// One scrollable chart with fixed spacing for each calendar day.
 export function SeriesChart({
   weeklyPoints,
   servedDailyPoints,
@@ -58,13 +59,12 @@ export function SeriesChart({
   const H = 280;
   const n = dates.length;
   const { wrapRef, width, hover, clearHover, moveHover, setHoverIndex } = useScoreboardChart(n);
-  const plotW = Math.max(1, width - M.l - M.r);
-  const plotH = H - M.t - M.b;
   const firstMs = dates.length ? dayMs(dates[0]) : 0;
   const lastMs = dates.length ? dayMs(dates[dates.length - 1]) : firstMs;
-  const x = (date: string) => M.l + (lastMs === firstMs
-    ? plotW / 2
-    : ((dayMs(date) - firstMs) / (lastMs - firstMs)) * plotW);
+  const chartWidth = Math.max(width - 32, M.l + M.r + ((lastMs - firstMs) / 86_400_000) * DAY_WIDTH);
+  const plotW = Math.max(1, chartWidth - M.l - M.r);
+  const plotH = H - M.t - M.b;
+  const x = (date: string) => M.l + ((dayMs(date) - firstMs) / 86_400_000) * DAY_WIDTH;
   const y = (value: number) => M.t +
     (dMax === dMin ? plotH / 2 : (1 - (value - dMin) / (dMax - dMin)) * plotH);
 
@@ -101,24 +101,35 @@ export function SeriesChart({
   const closestDateIndex = (targetMs: number) => dates.reduce((closest, date, index) =>
     Math.abs(dayMs(date) - targetMs) < Math.abs(dayMs(dates[closest]) - targetMs)
       ? index : closest, 0);
-  const tickIdx = n <= 1 ? [0] : Array.from(new Set(
-    [0, 0.25, 0.5, 0.75, 1].map((fraction) =>
-      closestDateIndex(firstMs + fraction * (lastMs - firstMs)))
-  ));
   const cutIdx = dates.findIndex((date) => date >= cutover);
   const firstServedDate = servedDailyPoints.map((point) => point.delivery_date)
     .filter((date): date is string => date != null).sort()[0];
+  const tickIdx = dates.reduce<number[]>((ticks, date, index) => {
+    const interval = firstServedDate != null && date >= firstServedDate ? 7 : 28;
+    const previous = ticks.length ? dates[ticks[ticks.length - 1]] : null;
+    if (previous == null || dayMs(date) - dayMs(previous) >= interval * 86_400_000) ticks.push(index);
+    return ticks;
+  }, []);
+  if (n > 1 && tickIdx[tickIdx.length - 1] !== n - 1) tickIdx.push(n - 1);
   const zeroInDomain = dMin < 0 && dMax > 0;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, [chartWidth, firstMs, lastMs]);
 
   const onMove = (event: React.MouseEvent<SVGRectElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const targetMs = firstMs + ((event.clientX - rect.left) / plotW) * (lastMs - firstMs);
+    const targetMs = firstMs + ((event.clientX - rect.left - M.l) / DAY_WIDTH) * 86_400_000;
     setHoverIndex(closestDateIndex(targetMs));
   };
 
   return (
-    <div ref={wrapRef} className="sb-chart" style={{ position: "relative" }}>
-      <svg width={width} height={H} role="img" aria-label={`${meta.label} over time`}>
+    <div ref={wrapRef} className="sb-chart">
+      <div ref={scrollRef} className="sb-chart__scroll">
+      <div className="sb-chart__canvas" style={{ width: chartWidth }}>
+      <svg width={chartWidth} height={H} role="img" aria-label={`${meta.label} over time`}>
         {[dMin, (dMin + dMax) / 2, dMax].map((value, key) => (
           <g key={key}>
             <line x1={M.l} x2={M.l + plotW} y1={y(value)} y2={y(value)} stroke="var(--border)" strokeWidth={1} />
@@ -169,7 +180,7 @@ export function SeriesChart({
       </svg>
 
       {hover != null && (
-        <div className="sb-tip" style={{ left: Math.min(x(dates[hover]) + 8, width - 140), top: M.t }}>
+        <div className="sb-tip" style={{ left: Math.min(x(dates[hover]) + 8, chartWidth - 140), top: M.t }}>
           {(["weekly", "daily"] as Cadence[]).map((cadence) => {
             const values = seriesVals.map((series) => series[cadence]);
             if (values.every((value) => value[hover] == null)) return null;
@@ -186,6 +197,8 @@ export function SeriesChart({
           })}
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }
