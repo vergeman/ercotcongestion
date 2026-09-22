@@ -32,7 +32,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 
 * Work in: `web/src/api/types/scoreboard.ts`, `web/src/features/scoreboard/SeriesChart.tsx`, `web/src/pages/ScoreboardPage.tsx`, `web/src/features/scoreboard/LiveGradePanel.tsx`, relevant Scoreboard CSS, and focused web tests if the project has coverage for these components.
 * Entry point / primary change: pass `history.weekly_points` and `history.served_daily_points` separately to one chart rather than flattening them into one source sequence.
-* Make `SeriesChart` accept both cadence collections and render their paths separately on a fixed-per-day chronological x-axis. Open the horizontal scroll position at the newest data; do not draw a connector across the weekly/served boundary.
+* Make `SeriesChart` accept both cadence collections and render their paths separately on a fixed-per-day chronological x-axis. Size the newest viewport to roughly four weeks, open at the newest data, and use a visibly dashed bridge between the last weekly and first served observation without manufacturing daily values.
 * Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
 * Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
 * In `LiveGradePanel`, retain the model, persistence, and Oracle values but display an explicit signed `Δ vs persistence` value (for example, `−0.14`) alongside the direction indicator so it cannot be read as a negative persistence score.
@@ -51,6 +51,6 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * [x] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
 * [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
 * [x] A Scoreboard with only weekly rows renders the fixed-per-day scrollable chart without failure.
-* [x] With both datasets present, the UI renders one chart with separate paths, no line joining the final weekly observation to the first daily grade, and fixed daily spacing for both cadences.
+* [x] With both datasets present, the UI renders one chart with separate paths, a visibly dashed weekly-to-served transition, and fixed daily spacing for both cadences.
 * [x] The latest live card explicitly labels model-minus-persistence as a signed delta, while displaying persistence's own score separately.
 * [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.

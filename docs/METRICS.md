@@ -152,8 +152,8 @@ and repeats with a newly shifted 240-day window.
 `daily_run_id`. The Scoreboard renders them as separate paths in one scrollable
 chart with fixed spacing per calendar day: weekly points are walk-forward
 observations and served points are final per-delivery-day grades. The chart opens
-at the newest served grades and does not interpolate or join one cadence to the
-other.
+at a four-week recent view and uses a dashed transition between the last weekly
+and first served observation; it does not create missing daily grades.
 
 Pooled split cells are a separate summary: they combine their eligible weekly
 and served rows by scored hours, as described above.

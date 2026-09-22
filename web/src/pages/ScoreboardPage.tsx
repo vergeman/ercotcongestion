@@ -94,7 +94,7 @@ export default function ScoreboardPage() {
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                The chart uses separate weekly and served-daily paths on one time scale; pooled cells combine them by scored hours.
+                Served days open in focus; scroll left for weekly context. Pooled cells combine them by scored hours.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>

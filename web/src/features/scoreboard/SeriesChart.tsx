@@ -8,7 +8,7 @@ import { fmtWeek, fmtDay } from "./format";
 type Cadence = "weekly" | "daily";
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
-const DAY_WIDTH = 18;
+const FOCUS_DAYS = 28;
 
 // One scrollable chart with fixed spacing for each calendar day.
 export function SeriesChart({
@@ -61,10 +61,11 @@ export function SeriesChart({
   const { wrapRef, width, hover, clearHover, moveHover, setHoverIndex } = useScoreboardChart(n);
   const firstMs = dates.length ? dayMs(dates[0]) : 0;
   const lastMs = dates.length ? dayMs(dates[dates.length - 1]) : firstMs;
-  const chartWidth = Math.max(width - 32, M.l + M.r + ((lastMs - firstMs) / 86_400_000) * DAY_WIDTH);
+  const dayWidth = Math.max(18, (width - 32 - M.l - M.r) / FOCUS_DAYS);
+  const chartWidth = Math.max(width - 32, M.l + M.r + ((lastMs - firstMs) / 86_400_000) * dayWidth);
   const plotW = Math.max(1, chartWidth - M.l - M.r);
   const plotH = H - M.t - M.b;
-  const x = (date: string) => M.l + ((dayMs(date) - firstMs) / 86_400_000) * DAY_WIDTH;
+  const x = (date: string) => M.l + ((dayMs(date) - firstMs) / 86_400_000) * dayWidth;
   const y = (value: number) => M.t +
     (dMax === dMin ? plotH / 2 : (1 - (value - dMin) / (dMax - dMin)) * plotH);
 
@@ -80,6 +81,13 @@ export function SeriesChart({
       pen = true;
     });
     return path.trim();
+  };
+  const transitionPath = (weekly: (number | null)[], daily: (number | null)[]) => {
+    const lastWeekly = weekly.findLastIndex((value) => value != null);
+    const firstDaily = daily.findIndex((value) => value != null);
+    if (lastWeekly < 0 || firstDaily < 0) return "";
+    return `M${x(dates[lastWeekly]).toFixed(1)} ${y(weekly[lastWeekly]!).toFixed(1)} ` +
+      `L${x(dates[firstDaily]).toFixed(1)} ${y(daily[firstDaily]!).toFixed(1)}`;
   };
 
   type EndLabel = { color: string; label: string; y: number };
@@ -121,7 +129,7 @@ export function SeriesChart({
 
   const onMove = (event: React.MouseEvent<SVGRectElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const targetMs = firstMs + ((event.clientX - rect.left - M.l) / DAY_WIDTH) * 86_400_000;
+    const targetMs = firstMs + ((event.clientX - rect.left - M.l) / dayWidth) * 86_400_000;
     setHoverIndex(closestDateIndex(targetMs));
   };
 
@@ -159,6 +167,10 @@ export function SeriesChart({
           <path key={`${series.seriesId}-${cadence}`} d={linePath(series[cadence])} fill="none" stroke={series.color}
             strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" strokeDasharray={cadence === "daily" ? "4 2" : undefined} />
         )))}
+        {seriesVals.map((series) => (
+          <path key={`${series.seriesId}-transition`} d={transitionPath(series.weekly, series.daily)} fill="none"
+            stroke={series.color} strokeWidth={2} strokeLinecap="round" strokeDasharray="2 4" opacity={0.7} />
+        ))}
 
         {endLabels.map((label, key) => (
           <text key={key} x={M.l + plotW + 5} y={label.y + 3} className="sb-endlabel" fill={label.color}>{label.label}</text>
