@@ -86,7 +86,18 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const [ranked, setRanked] = useState<RankedConstraints | null>(null);
   const [rankedLoading, setRankedLoading] = useState(false);
   const [constraintBasis, setConstraintBasis] =
-    useState<"predicted" | "realized">("predicted");
+    useState<"predicted" | "realized">(
+      view === "market" ? "realized" : "predicted"
+    );
+
+  // A single-source map defaults the constraint ranking to that same source.
+  // Compare and Error intentionally retain the user's last basis: both sources
+  // are relevant in those views.
+  useEffect(() => {
+    if (view === "forecast") setConstraintBasis("predicted");
+    else if (view === "market") setConstraintBasis("realized");
+  }, [view]);
+
   // Hover temporarily overrides the selected constraint.
   const [hoveredConstraintId, setHoveredConstraintId] =
     useState<string | null>(null);
