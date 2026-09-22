@@ -50,6 +50,31 @@ def test_coalesced_range_reports_per_day_horizon_provenance(client, fake_pool):
     assert body["run_id"] == "m"
 
 
+def test_compact_range_keeps_missing_sps_at_the_shared_index(client, fake_pool):
+    """A point entering or leaving service never shifts another point's value."""
+    t0 = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 8, 1, 1, 0, tzinfo=timezone.utc)
+    d0 = date(2026, 8, 1)
+    fake_pool.cursor.queue([
+        _frow(t0, "SP_A", d0, 1, 1.0),
+        _frow(t0, "SP_B", d0, 1, 2.0),
+        _frow(t1, "SP_B", d0, 1, 3.0),
+        _frow(t1, "SP_C", d0, 1, 4.0),
+    ])
+    fake_pool.cursor.queue([
+        {"interval_ts": t0, "system_lambda": 10.0},
+        {"interval_ts": t1, "system_lambda": 10.0},
+    ])
+
+    response = client.get(f"/forecast_range?{_WINDOW}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["sp_ids"] == ["SP_A", "SP_B", "SP_C"]
+    assert body["entries"][0]["congestion"] == [1.0, 2.0, None]
+    assert body["entries"][1]["congestion"] == [None, 3.0, 4.0]
+
+
 def test_explicit_horizon_serves_only_that_track(client, fake_pool):
     """`?horizon=2` reads the preserved preview; provenance reflects horizon 2."""
     t0 = datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)

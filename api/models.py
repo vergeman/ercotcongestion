@@ -54,7 +54,6 @@ from api.schemas.forecast import (
     ErcotRangeResponse,
     ForecastRangeEntry,
     ForecastRangeResponse,
-    ForecastSpState,
 )
 from api.schemas.map import (
     ConstraintReach,
