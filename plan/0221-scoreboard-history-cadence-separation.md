@@ -48,9 +48,9 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 
 ## Acceptance
 
-* [ ] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
-* [ ] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
-* [ ] A Scoreboard with only weekly rows renders the weekly chart and a clear unavailable/empty served-daily section without failure.
-* [ ] With both datasets present, the UI renders two charts with no line joining the final weekly observation to the first daily grade and no equal-spacing mix of weeks and days.
-* [ ] The latest live card explicitly labels model-minus-persistence as a signed delta, while displaying persistence's own score separately.
-* [ ] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.
+* [x] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
+* [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
+* [x] A Scoreboard with only weekly rows renders the weekly chart and a clear unavailable/empty served-daily section without failure.
+* [x] With both datasets present, the UI renders two charts with no line joining the final weekly observation to the first daily grade and no equal-spacing mix of weeks and days.
+* [x] The latest live card explicitly labels model-minus-persistence as a signed delta, while displaying persistence's own score separately.
+* [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.

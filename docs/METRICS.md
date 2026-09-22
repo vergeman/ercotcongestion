@@ -15,12 +15,12 @@ constraint-to-node shift factor.
 
 | Dataset | What it measures | Written by | How Scoreboard uses it |
 | --- | --- | --- | --- |
-| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Rolling headline, weekly track record, and lifetime splits |
-| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and final-grade portion of the history chart |
+| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Weekly chart and lifetime splits |
+| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and separate served-daily chart |
 
 The only Scoreboard HTTP read endpoint is `/scoreboard/summary`. It bundles the
-weekly backtest, its rolling headline, the latest final live grade, and the
-combined history. The older `/scoreboard/headline`, `/scoreboard/weekly`, and
+weekly backtest, the latest final live grade, and separate weekly and served-daily
+history collections. The older `/scoreboard/headline`, `/scoreboard/weekly`, and
 `/scoreboard/daily` routes no longer exist.
 
 Each bundled section can be unavailable independently. A `null` section and its
@@ -94,8 +94,8 @@ predicts forward, and scores the resulting out-of-sample forecasts.
 into the database. The loader does not measure forecasts or create new metrics.
 
 The backtest was a one-time catch-up to build a track record before daily
-forecasts ran reliably; it is not maintained. Once daily grades are current they
-take over past the last backtest week (see the pooled splits below).
+forecasts ran reliably; it is not maintained. Weekly and served-daily chart
+histories remain separate even once daily grades are current.
 
 #### Track record: pooled splits (All / Pre-RTC+B / Post-RTC+B)
 
@@ -145,16 +145,16 @@ the preceding 240 days, then infers the roughly `168 × constraints` rows for
 all seven days together as one weekly result. The next fold advances seven days
 and repeats with a newly shifted 240-day window.
 
-### History boundary and overlapping dates
+### History cadence
 
-`/scoreboard/summary` returns `history.boundary_date`: the first final served
-daily grade. The client passes it to `SeriesChart` in
-`web/src/pages/ScoreboardPage.tsx`, which draws the dashed **Served grades**
-marker at that date; it is a visual handoff, not a toggle or a server-side trim
-of the weekly series.
+`/scoreboard/summary` returns `history.weekly_points` and
+`history.served_daily_points` separately, with independent `weekly_run_id` and
+`daily_run_id`. The Scoreboard renders them in separate charts: weekly points
+are walk-forward observations and served points are final per-delivery-day
+grades. The chart does not interpolate or join one cadence to the other.
 
-If a weekly point and a daily point have the same date and source, the chart's
-later daily value replaces the weekly value for plotting.
+Pooled split cells are a separate summary: they combine their eligible weekly
+and served rows by scored hours, as described above.
 
 ### Forecast horizons
 

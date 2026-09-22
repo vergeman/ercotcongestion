@@ -101,13 +101,13 @@ export default function ScoreboardPage() {
                 as="div"
                 className="sb-section-h label"
                 placement="bottom"
-                tip="Each cell is an independent hours-weighted weekly pool. All weeks spans the full record, not an average of the two RTC+B cells."
+                tip="Each cell is an independent hours-weighted pool. Post-RTC+B includes final served grades; All weeks spans the full record."
               >
                 Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Weekly walk-forward scores are pooled separately from final served-daily grades.
+                Charts keep weekly walk-forward and served-daily grades separate; pooled cells combine them by scored hours.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>
