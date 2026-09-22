@@ -7,14 +7,14 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 
 * Return weekly walk-forward and final served-daily Scoreboard histories as distinct API series.
 * Render the two cadences as separate paths in one horizontally scrollable chart with fixed spacing per calendar day.
-* Make the latest served-grade comparison show its signed model-minus-persistence delta explicitly.
+* Keep the latest served-grade card's model, persistence, and Oracle values clear and separate.
 
 ## Context
 
 * The 0219 backfill correctly replaces only `scoreboard_daily` metric values using each forecast's immutable served SF artifact; it does not modify forecasts, SF artifacts, weekly scores, API code, or web code.
 * `ScoreboardHistory` currently flattens `scoreboard_weekly` and every final `scoreboard_daily` row into `points`, while `SeriesChart` ignores `cadence`, gives each point equal x-spacing, and joins a source across the weekly/daily boundary.
 * More repaired daily rows made this pre-existing presentation defect visible; daily grades are not weekly walk-forward observations and must not be presented as one continuous track.
-* A negative value in the live comparison is a model-minus-persistence delta, not a negative persistence metric; rank Spearman may mathematically be negative, but current stored persistence values are non-negative.
+* Rank Spearman may mathematically be negative, while Sign Agreement and Top-Decile Hit are non-negative proportions; current stored persistence values are non-negative.
 
 ## Approach
 
@@ -35,7 +35,7 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * Make `SeriesChart` accept both cadence collections and render their paths separately on a fixed-per-day chronological x-axis. Size the newest viewport to roughly four weeks, open at the newest data, and use a visibly dashed bridge between the last weekly and first served observation without manufacturing daily values.
 * Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
 * Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
-* In `LiveGradePanel`, retain the model, persistence, and Oracle values but display an explicit signed `Δ vs persistence` value (for example, `−0.14`) alongside the direction indicator so it cannot be read as a negative persistence score.
+* In `LiveGradePanel`, retain the model, persistence, and Oracle values as independently labeled scores; do not add a derived model-minus-persistence delta.
 * Ensure each chart has a metric-appropriate y-domain. Do not claim rank Spearman is constrained to `[0, 1]`; support its valid `[-1, 1]` range or a domain that includes all returned values.
 * Do NOT alter the API's score values in the browser, coerce negative rank values, aggregate daily grades into weekly values, or re-run/backfill any data as part of this presentation fix.
 
@@ -52,5 +52,5 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
 * [x] A Scoreboard with only weekly rows renders the fixed-per-day scrollable chart without failure.
 * [x] With both datasets present, the UI renders one chart with separate paths, a visibly dashed weekly-to-served transition, and fixed daily spacing for both cadences.
-* [x] The latest live card explicitly labels model-minus-persistence as a signed delta, while displaying persistence's own score separately.
+* [x] The latest live card displays model, persistence, and Oracle scores separately without a derived delta.
 * [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.

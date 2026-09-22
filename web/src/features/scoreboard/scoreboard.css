@@ -35,7 +35,7 @@
 .sb-tile { flex: 1; min-width: 150px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; }
 .sb-tile__model { font-size: 28px; font-weight: 700; line-height: 1.1; margin: 2px 0 4px; }
 .sb-tile__cmp { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
-.sb-delta { font-weight: 600; }.sb-delta[data-good="true"] { color: var(--ok); }.sb-delta[data-good="false"] { color: var(--danger); }.sb-ceiling { color: var(--text-secondary); }
+.sb-persistence, .sb-ceiling { color: var(--text-secondary); }
 .sb-controls { display: flex; align-items: center; gap: 14px; padding: 10px 16px 6px; flex-wrap: wrap; }
 .sb-metric-group { display: flex; gap: 4px; }.sb-metric-group button, .sb-group-toggle { font-size: 12px; padding: 4px 10px; }.sb-group-toggle { color: var(--text-secondary); }
 .sb-chart { padding: 0 16px; }.sb-chart__scroll { overflow-x: auto; }.sb-chart__canvas { position: relative; }.sb-chart svg { display: block; }
