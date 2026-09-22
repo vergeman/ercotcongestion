@@ -15,8 +15,8 @@ constraint-to-node shift factor.
 
 | Dataset | What it measures | Written by | How Scoreboard uses it |
 | --- | --- | --- | --- |
-| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Weekly chart and lifetime splits |
-| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and separate served-daily chart |
+| `scoreboard_weekly` | Offline walk-forward backtest | `compute.jobs.backfill_scoreboard` | Chart fallback and lifetime splits |
+| `scoreboard_daily` | Forecasts actually served and later settled | `compute.jobs.grade_forecast_day` | Latest final-grade tiles and authoritative chart history |
 
 The only Scoreboard HTTP read endpoint is `/scoreboard/summary`. It bundles the
 weekly backtest, the latest final live grade, and separate weekly and served-daily
@@ -94,8 +94,8 @@ predicts forward, and scores the resulting out-of-sample forecasts.
 into the database. The loader does not measure forecasts or create new metrics.
 
 The backtest was a one-time catch-up to build a track record before daily
-forecasts ran reliably; it is not maintained. Weekly and served-daily chart
-histories remain separate even once daily grades are current.
+forecasts ran reliably; it is not maintained. Served daily grades take
+precedence in the chart, with weekly points retained only as fallback.
 
 #### Track record: pooled splits (All / Pre-RTC+B / Post-RTC+B)
 
@@ -149,11 +149,10 @@ and repeats with a newly shifted 240-day window.
 
 `/scoreboard/summary` returns `history.weekly_points` and
 `history.served_daily_points` separately, with independent `weekly_run_id` and
-`daily_run_id`. The Scoreboard renders them as separate paths in one scrollable
-chart with fixed spacing per calendar day: weekly points are walk-forward
-observations and served points are final per-delivery-day grades. The chart opens
-at a four-week recent view and uses a dashed transition between the last weekly
-and first served observation; it does not create missing daily grades.
+`daily_run_id`. For a date and series covered by a served grade, the API excludes
+the corresponding weekly point; weekly walk-forward observations are retained only as fallback. The
+Scoreboard renders that resolved history as one scrollable chart with fixed
+spacing per calendar day and opens at a four-week recent view.
 
 Pooled split cells are a separate summary: they combine their eligible weekly
 and served rows by scored hours, as described above.

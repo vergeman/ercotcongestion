@@ -144,7 +144,7 @@ class ScoreHistoryPoint(BaseModel):
 
 
 class ScoreboardHistory(BaseModel):
-    """Distinct weekly walk-forward and final served-day chart histories."""
+    """Final served-day history with weekly walk-forward fallback points."""
 
     primary_source_id: str
     weekly_run_id: str

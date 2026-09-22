@@ -58,7 +58,7 @@ export default function ScoreboardPage() {
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Track record · walk-forward weekly and served daily grades ({METRICS[controls.metric].label})
+                Track record · served daily grades with weekly fallback ({METRICS[controls.metric].label})
               </div>
               {history ? (
                 <SeriesChart

@@ -53,21 +53,22 @@ export function SeriesChart({
 
   const meta = METRICS[metric];
   const seriesVals = useMemo(() => {
-    const valuesAt = (cadence: Cadence, seriesId: string) =>
+    const valuesAt = (seriesId: string) =>
       dates.map((date) => {
-        const point = byCadence[cadence].get(`${date}|${seriesId}`);
+        const point =
+          byCadence.daily.get(`${date}|${seriesId}`) ??
+          byCadence.weekly.get(`${date}|${seriesId}`);
         const value = point ? (point[metric] as number | null) : null;
         return value == null ? null : value;
       });
 
     return SERIES.map((series) => ({
       ...series,
-      weekly: valuesAt("weekly", series.seriesId),
-      daily: valuesAt("daily", series.seriesId),
+      values: valuesAt(series.seriesId),
     }));
   }, [dates, byCadence, metric]);
   const allVals = seriesVals.flatMap((series) =>
-    [...series.weekly, ...series.daily].filter(
+    series.values.filter(
       (value): value is number => value != null
     )
   );
@@ -104,21 +105,11 @@ export function SeriesChart({
     });
     return path.trim();
   };
-  const transitionPath = (weekly: (number | null)[], daily: (number | null)[]) => {
-    const lastWeekly = weekly.findLastIndex((value) => value != null);
-    const firstDaily = daily.findIndex((value) => value != null);
-    if (lastWeekly < 0 || firstDaily < 0) return "";
-    return (
-      `M${x(dates[lastWeekly]).toFixed(1)} ${y(weekly[lastWeekly]!).toFixed(1)} ` +
-      `L${x(dates[firstDaily]).toFixed(1)} ${y(daily[firstDaily]!).toFixed(1)}`
-    );
-  };
-
   type EndLabel = { color: string; label: string; y: number };
   const endLabels: EndLabel[] = [];
   for (const series of seriesVals) {
     for (let i = dates.length - 1; i >= 0; i--) {
-      const value = series.daily[i] ?? series.weekly[i];
+      const value = series.values[i];
       if (value != null) {
         endLabels.push({
           color: series.color,
@@ -149,6 +140,10 @@ export function SeriesChart({
     .map((point) => point.delivery_date)
     .filter((date): date is string => date != null)
     .sort()[0];
+  const servedDates = useMemo(
+    () => new Set(servedDailyPoints.map((point) => point.delivery_date)),
+    [servedDailyPoints]
+  );
   const tickIdx = dates.reduce<number[]>((ticks, date, index) => {
     const interval = firstServedDate != null && date >= firstServedDate ? 7 : 28;
     const previous = ticks.length ? dates[ticks[ticks.length - 1]] : null;
@@ -268,30 +263,15 @@ export function SeriesChart({
               </g>
             )}
 
-            {seriesVals.flatMap((series) =>
-              (["weekly", "daily"] as Cadence[]).map((cadence) => (
-                <path
-                  key={`${series.seriesId}-${cadence}`}
-                  d={linePath(series[cadence])}
-                  fill="none"
-                  stroke={series.color}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  strokeDasharray={cadence === "daily" ? "4 2" : undefined}
-                />
-              ))
-            )}
             {seriesVals.map((series) => (
               <path
-                key={`${series.seriesId}-transition`}
-                d={transitionPath(series.weekly, series.daily)}
+                key={series.seriesId}
+                d={linePath(series.values)}
                 fill="none"
                 stroke={series.color}
                 strokeWidth={2}
+                strokeLinejoin="round"
                 strokeLinecap="round"
-                strokeDasharray="2 4"
-                opacity={0.7}
               />
             ))}
 
@@ -317,22 +297,20 @@ export function SeriesChart({
                   stroke="var(--border-bright)"
                   strokeWidth={1}
                 />
-                {seriesVals.flatMap((series) =>
-                  (["weekly", "daily"] as Cadence[]).map((cadence) => {
-                    const value = series[cadence][hover];
-                    return value == null ? null : (
-                      <circle
-                        key={`${series.seriesId}-${cadence}`}
-                        cx={x(dates[hover])}
-                        cy={y(value)}
-                        r={3.5}
-                        fill={series.color}
-                        stroke="var(--bg-panel)"
-                        strokeWidth={1.5}
-                      />
-                    );
-                  })
-                )}
+                {seriesVals.map((series) => {
+                  const value = series.values[hover];
+                  return value == null ? null : (
+                    <circle
+                      key={series.seriesId}
+                      cx={x(dates[hover])}
+                      cy={y(value)}
+                      r={3.5}
+                      fill={series.color}
+                      stroke="var(--bg-panel)"
+                      strokeWidth={1.5}
+                    />
+                  );
+                })}
               </g>
             )}
 
@@ -361,36 +339,27 @@ export function SeriesChart({
                 top: M.t,
               }}
             >
-              {(["weekly", "daily"] as Cadence[]).map((cadence) => {
-                const values = seriesVals.map((series) => series[cadence]);
-                if (values.every((value) => value[hover] == null)) return null;
-
-                return (
-                  <div key={cadence}>
-                    <div className="sb-tip__wk">
-                      {cadence === "daily"
-                        ? `Served daily grade · ${fmtDay(dates[hover])}`
-                        : `Walk-forward backtest week · ${fmtWeek(dates[hover])}`}
-                    </div>
-                    {SERIES.map((series, index) => (
-                      <div key={series.seriesId} className="sb-tip__row">
-                        <span
-                          className="sb-tip__dot"
-                          style={{ background: series.color }}
-                        />
-                        <span className="sb-tip__lbl">
-                          {CHART_LABELS[series.seriesId]}
-                        </span>
-                        <span className="sb-tip__val">
-                          {values[index][hover] == null
-                            ? "—"
-                            : meta.fmt(values[index][hover]!)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
+              <div className="sb-tip__wk">
+                {servedDates.has(dates[hover])
+                  ? `Served daily grade · ${fmtDay(dates[hover])}`
+                  : `Walk-forward fallback · ${fmtWeek(dates[hover])}`}
+              </div>
+              {SERIES.map((series, index) => (
+                <div key={series.seriesId} className="sb-tip__row">
+                  <span
+                    className="sb-tip__dot"
+                    style={{ background: series.color }}
+                  />
+                  <span className="sb-tip__lbl">
+                    {CHART_LABELS[series.seriesId]}
+                  </span>
+                  <span className="sb-tip__val">
+                    {seriesVals[index].values[hover] == null
+                      ? "—"
+                      : meta.fmt(seriesVals[index].values[hover]!)}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>

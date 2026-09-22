@@ -60,3 +60,8 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * [x] With both datasets present, the UI renders one chart with separate paths, a visibly dashed weekly-to-served transition, and fixed daily spacing for both cadences.
 * [x] The latest live card colors the model-versus-persistence direction and displays the persistence score without a derived delta.
 * [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.
+
+## Follow-up — served history precedence
+
+* [x] Make served-daily grades authoritative for chart history and retain weekly points only where a served grade is absent for that date and series.
+* [x] Render the resolved values as one path per source, and identify fallback observations in the tooltip.

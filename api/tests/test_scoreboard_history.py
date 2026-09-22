@@ -25,7 +25,7 @@ def _board(*points):
     )
 
 
-def test_history_returns_weekly_and_final_served_points_separately(fake_pool):
+def test_history_returns_weekly_fallback_and_final_served_points(fake_pool):
     fake_pool.cursor.queue([
         {"run_id": "served-v2"},
     ])
@@ -52,6 +52,25 @@ def test_history_returns_weekly_and_final_served_points_separately(fake_pool):
     assert [(p.week, p.delivery_date) for p in history.served_daily_points] == [
         (None, date(2026, 7, 18)),
         (None, date(2026, 7, 19)),
+    ]
+
+
+def test_history_prefers_served_points_over_same_day_weekly_points(fake_pool):
+    fake_pool.cursor.queue([{"run_id": "served-v2"}])
+    fake_pool.cursor.queue([_daily(date(2026, 7, 11), rank_spearman=0.5)])
+
+    history = scoreboard_service.build_history(_board(
+        _weekly(date(2026, 7, 4), rank_spearman=0.2),
+        _weekly(date(2026, 7, 11), rank_spearman=0.3),
+        _weekly(date(2026, 7, 11), source="persistence", rank_spearman=0.4),
+    ))
+
+    assert [(point.week, point.series_id) for point in history.weekly_points] == [
+        (date(2026, 7, 4), "model"),
+        (date(2026, 7, 11), "persistence"),
+    ]
+    assert [point.delivery_date for point in history.served_daily_points] == [
+        date(2026, 7, 11)
     ]
 
 

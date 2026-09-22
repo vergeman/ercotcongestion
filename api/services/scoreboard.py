@@ -351,14 +351,10 @@ def build_latest_final_daily() -> ScoreboardDaily:
 
 
 def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
-    """Build distinct weekly walk-forward and final served-day histories."""
+    """Build served-day history with weekly points only where daily is absent."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         daily_run_id, daily_rows = _latest_final_daily_rows(cur)
 
-    weekly_points = [
-        ScoreHistoryPoint(**point.model_dump())
-        for point in weekly.points
-    ]
     served_daily_points = [
         ScoreHistoryPoint(
             **{
@@ -368,6 +364,16 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
             },
         )
         for row in daily_rows
+    ]
+    served_keys = {
+        (point.delivery_date, point.series_id)
+        for point in served_daily_points
+        if point.delivery_date is not None
+    }
+    weekly_points = [
+        ScoreHistoryPoint(**point.model_dump())
+        for point in weekly.points
+        if (point.week, point.series_id) not in served_keys
     ]
     return ScoreboardHistory(
         primary_source_id=weekly.primary_source_id,
