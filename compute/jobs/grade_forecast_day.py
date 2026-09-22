@@ -15,18 +15,16 @@ day behind, once realized DAM prices publish:
 
 Model vs comparators: the `model` source is graded on the served point. The
 comparators (`oracle`, `persistence`, `climatology`, `null`) are recomputed on
-D "for context": an SF map fit on the trailing window ending at D, each
-baseline μ projected through it and scored against the same realized C
-(congestion panel).
+D "for context" through the exact SF artifact that accompanied the served
+forecast, then scored against the same realized C (congestion panel).
 
 Same node set for every source. All sources are scored on the intersection of
 the map's nodes, the served forecast's nodes, and the nodes with realized C; so
 the model's Yh and each baseline's Yh sit on the identical (hours x nodes)
 matrix as realized Y.
 
-No refit. Grading reads the served panel; it does not re-run the model. The one
-fit here is the cheap trailing-window SF solve for the baselines (the same
-`implied_shift_factors` the backtest and the map use).
+No refit. Grading reads the served panel and its keyed SF artifact; it does not
+re-run the model or fit a substitute map.
 
 This job calculates scoreboard grades only; Brief grades are calculated by
 `materialize_brief_grade.py`.
@@ -42,17 +40,11 @@ import numpy as np
 import pandas as pd
 
 from compute.time import ERCOT_TZ, ct_day_bounds, normalize_ct_day
-from compute.evaluation.mu import (
-    STD_FLOOR,
-    mu_climatology,
-    mu_null,
-    mu_persistence,
-)
+from compute.evaluation.mu import mu_climatology, mu_null, mu_persistence
 from compute.metrics import screening_metrics
-from compute.sf_map.config import MIN_HOURS, RIDGE_LAMBDA as LAM, WINDOW_DAYS
+from compute.sf_map.config import WINDOW_DAYS
 from compute.evaluation.sf import predict
 from compute.evaluation.essp import score_final_essp
-from compute.sf_map.model.fit import implied_shift_factors
 from compute.inputs.dam import load_congestion_panel, load_shadow_prices
 from compute.projection.codecs import load_sf_mu
 
@@ -76,11 +68,11 @@ SOURCE_DEFINITIONS = (
     SourceDefinition("scoreboard_model_served_nodal", "model", "Model",
                          "Served deterministic nodal forecast.", "model"),
     SourceDefinition("scoreboard_persistence_prior_day_nodal", "persistence", "Persistence",
-                         "Prior-day μ projected through the trailing map.", "persistence"),
+                         "Prior-day μ projected through the served forecast SF artifact.", "persistence"),
     SourceDefinition("scoreboard_climatology_trailing_window_nodal", "climatology", "Climatology",
-                         "Trailing-window μ climatology projected through the map.", "climatology"),
+                         "Trailing-window μ climatology projected through the served forecast SF artifact.", "climatology"),
     SourceDefinition("scoreboard_oracle_settled_mu_nodal", "oracle", "Oracle",
-                         "Settled-day μ projected through the trailing map.", "oracle"),
+                         "Settled-day μ projected through the served forecast SF artifact.", "oracle"),
     SourceDefinition("scoreboard_null_flat_nodal", "null", "Null",
                          "Flat nodal congestion tripwire.", "null"),
 )
@@ -146,12 +138,8 @@ def load_served_forecast(conn, run_id: str, D: pd.Timestamp,
     return {"point": point}
 
 
-def score_served_essp(conn, run_id: str, D: pd.Timestamp,
-                       horizon: int) -> dict[str, float | None]:
-    """Validate the persisted SF artifact actually served for ``D`` against
-    ESSP.
-
-    """
+def load_served_sf(conn, run_id: str, D: pd.Timestamp, horizon: int) -> pd.DataFrame:
+    """Load and validate the exact SF matrix served alongside this forecast."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT sf_npz FROM forecast_sf_artifact "
@@ -160,9 +148,30 @@ def score_served_essp(conn, run_id: str, D: pd.Timestamp,
         )
         row = cur.fetchone()
     if row is None:
-        return {"essp_precision": None, "essp_recall": None}
+        raise RuntimeError(
+            f"no served SF artifact for run_id={run_id} delivery_date={D.date()} "
+            f"horizon={horizon} — cannot grade against a substitute map")
     blob = row["sf_npz"] if isinstance(row, dict) else row[0]
-    return score_final_essp(conn, D, load_sf_mu(bytes(blob)).SF)
+    try:
+        SF = load_sf_mu(bytes(blob)).SF
+    except Exception as exc:
+        raise RuntimeError(
+            f"invalid served SF artifact for run_id={run_id} delivery_date={D.date()} "
+            f"horizon={horizon}") from exc
+    if (SF.empty or not SF.index.is_unique or not SF.columns.is_unique
+            or not np.isfinite(SF.to_numpy(dtype=float)).all()
+            or any(not str(label) for label in SF.index)
+            or any(not str(label) for label in SF.columns)):
+        raise RuntimeError(
+            f"invalid served SF artifact for run_id={run_id} delivery_date={D.date()} "
+            f"horizon={horizon}")
+    return SF
+
+
+def score_served_essp(conn, D: pd.Timestamp,
+                      SF: pd.DataFrame) -> dict[str, float | None]:
+    """Validate the already-loaded served SF artifact against ESSP."""
+    return score_final_essp(conn, D, SF)
 
 
 def grade_day(
@@ -172,8 +181,6 @@ def grade_day(
     run_id: str,
     horizon: int = 1,
     window_days: int = WINDOW_DAYS,
-    lam: float = LAM,
-    min_hours: int = MIN_HOURS,
 ) -> list[dict]:
     """Grade the served forecast for CT delivery day D; return one row per source.
 
@@ -195,33 +202,30 @@ def grade_day(
             f"{D.date()} horizon={horizon} — nothing to grade (run daily_forecast "
             f"for D first).")
 
-    # --- realized congestion + shadow prices over the fit+score window ------
+    # The artifact is a hard prerequisite. Load it before any potentially
+    # expensive input reads so a missing/corrupt artifact cannot lead to writes.
+    SF = load_served_sf(conn, run_id, D, horizon)
+
+    # --- realized congestion + shadow prices over history + score day --------
     #
     # `hi` is D's next CT midnight, so the score block is D's CT calendar day
     # (23/24/25 hours across a DST transition), not necessarily a flat `D + 1
     # day`, which would land an hour off on a spring-forward/fall-back day.
     #
-    # The fit window is [D − window_days, D). M reaches back for the SF fit AND
-    # the persistence lag (yesterday's μ), C for the fit and D's realized Y.
+    # The history window [D − window_days, D) provides climatology and
+    # persistence; only D's realized congestion is needed for scoring.
     #
 
     lo = D - pd.Timedelta(days=window_days)
     _, hi = ct_day_bounds(D)
     M = load_shadow_prices(conn, lo, hi)
-    C = load_congestion_panel(conn, lo, hi)
+    C = load_congestion_panel(conn, D, hi)
     if M.empty or C.empty:
         raise RuntimeError(
             f"no shadow-price / congestion panel over [{lo.date()}, {hi.date()}) "
             f"for {D.date()} — realized DAM has not published (fail, do not grade).")
 
-    M_fit = M.loc[(M.index >= lo) & (M.index < D)]
-    C_fit = C.loc[(C.index >= lo) & (C.index < D)]
-    if M_fit.empty:
-        raise RuntimeError(f"empty SF fit window for {D.date()} — no binding history")
-    SF = implied_shift_factors(M_fit, C_fit, lam=lam, min_hours=min_hours,
-                               standardize=True, std_floor=STD_FLOOR)
-    if SF.empty:
-        raise RuntimeError(f"degenerate SF fit for {D.date()} — no constraint kept")
+    M_history = M.loc[(M.index >= lo) & (M.index < D)]
 
     # D's score block, on the SAME grid the backtest uses: hours with both a
     # shadow-price row and realized congestion.
@@ -235,7 +239,7 @@ def grade_day(
     M_score, C_score = M_score.loc[hours], C_score.loc[hours]
     cols = M_score.columns
 
-    # Common node set: nodes the map located AND the forecast served AND that
+    # Common node set: nodes the served map located AND the forecast served AND that
     # have realized C, so every source is scored on the identical (hours ×
     # nodes) matrix. Ordered by the SF columns for determinism.
     served_sps = set(fc["point"].columns)
@@ -252,7 +256,7 @@ def grade_day(
     # Realized Y on the common grid — the target for every source.
     Y = C_score.reindex(columns=N).to_numpy(float)
 
-    # SF coverage: the scored day's |μ|-mass the map has a column.
+    # SF coverage: the scored day's |μ|-mass represented by served SF rows.
     mass_all = float(M_score.abs().to_numpy(float).sum())
     in_cols = cols.intersection(SF.index)
     sf_coverage = (float(M_score[in_cols].abs().to_numpy(float).sum()) / mass_all
@@ -273,13 +277,13 @@ def grade_day(
     Yh_model = fc["point"].reindex(index=hours, columns=N).to_numpy(float)
     rows.append(_row(SOURCE_BY_CONSTRUCTOR["model"].id,
                      screening_metrics(Y, Yh_model)))
-    rows[0].update(score_served_essp(conn, run_id, D, horizon))
+    rows[0].update(score_served_essp(conn, D, SF))
 
-    # --- comparators: recomputed on D, projected through the trailing-window SF -
+    # --- comparators: recomputed on D, projected through the served SF ------
     srcs = {
-        "oracle": M_score,                                    # realized μ (ceiling)
+        "oracle": M_score,                                    # settled μ benchmark
         "persistence": mu_persistence(M, hours, cols),        # same hour, prev day
-        "climatology": mu_climatology(M_fit, hours, cols),    # P(bind)·E[μ|bind]
+        "climatology": mu_climatology(M_history, hours, cols), # P(bind)·E[μ|bind]
         "null": mu_null(hours, cols),                         # flat map (tripwire)
     }
 
@@ -400,7 +404,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="persist the grades; omit for a dry run (compute + report "
                         "only, nothing written)")
     p.add_argument("--window-days", type=int, default=WINDOW_DAYS)
-    p.add_argument("--lam", type=float, default=LAM)
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -420,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             D = _as_ct_day(args.delivery_date)
 
         rows = grade_day(conn, D, run_id=args.run_id, horizon=args.horizon,
-                         window_days=args.window_days, lam=args.lam)
+                         window_days=args.window_days)
         if args.to_db:
             n = persist_grades(conn, args.run_id, D, rows, args.horizon)
             conn.commit()
