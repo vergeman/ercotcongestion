@@ -650,7 +650,6 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const sidePanelProps = {
     network: networkStats,
     conditions: conditionsStats,
-    mapView: renderedView,
     scorecard,
     fitMeta: scorecard?.fit_metadata ?? null,
     ranked,
