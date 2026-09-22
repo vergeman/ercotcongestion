@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Iterable, Mapping
 
+import numpy as np
 import pandas as pd
 
 from compute.projection.codecs import build_sf_window_artifact
