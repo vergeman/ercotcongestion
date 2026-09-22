@@ -112,12 +112,12 @@ async function loadForecastValues(
     range?.entries.find(
       (e) => new Date(e.interval_ts).getTime() === t.getTime()
     ) ?? range?.entries[0];
-  if (entry?.system_lambda != null) {
+  if (range && entry?.system_lambda != null) {
     const lam = entry.system_lambda;
-    for (const sp of entry.sps) {
-      if (sp.forecast_congestion != null)
-        values.set(sp.sp_id, sp.forecast_congestion + lam);
-    }
+    range.sp_ids.forEach((spId, i) => {
+      const congestion = entry.congestion[i];
+      if (congestion != null) values.set(spId, congestion + lam);
+    });
   }
   return values;
 }
