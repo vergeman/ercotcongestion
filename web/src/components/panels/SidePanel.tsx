@@ -430,7 +430,7 @@ export default function SidePanel({
                 <span className="sc-h sc-h--cat" />
                 <span className="sc-h">Model</span>
                 <span className="sc-h">Persist</span>
-                <span className="sc-h">Ceiling</span>
+                <span className="sc-h">Benchmark</span>
 
                 {CURRENCY_ORDER.map((name) => {
                   const metric = name as "rank_spearman" | "sign_agree" | "topdecile_hit";
@@ -460,7 +460,7 @@ export default function SidePanel({
                       </span>
                       <Tooltip
                         className="sc-v sc-v--ceiling mono"
-                        tip="Oracle ceiling — the best any forecast could do on these weeks."
+                        tip="Settled-μ benchmark through the selected SF map; it is not a mathematical ceiling."
                       >
                         {fmtScore(oracle)}
                       </Tooltip>

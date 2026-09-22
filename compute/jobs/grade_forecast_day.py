@@ -51,7 +51,7 @@ from compute.projection.codecs import load_sf_mu
 log = logging.getLogger(__name__)
 
 # The comparators recomputed on D alongside the served model. `null` is the
-# flat-map tripwire; `oracle` is the ceiling. Model is graded on the served
+# flat-map tripwire; `oracle` is a settled-μ benchmark. Model is graded on the served
 # point, so it is not built from an mu source here.
 @dataclass(frozen=True)
 class SourceDefinition:

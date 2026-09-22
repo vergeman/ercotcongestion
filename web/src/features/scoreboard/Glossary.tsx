@@ -83,8 +83,8 @@ export function Glossary() {
           <dd>The forecast; using SF to project nodal congestion.</dd>
           <dt>Prior-day (Persistence)</dt>
           <dd>
-            Naive baseline: tomorrow repeats yesterday. Each node's congestion
-            is set to its actual value at the same hour on the prior day.
+            Naive baseline: prior-day same-hour μ, projected through the served
+            forecast's SF artifact.
           </dd>
           <dt>Trailing-window Average (Baseline)</dt>
           <dd>
@@ -93,11 +93,11 @@ export function Glossary() {
             Example: a node that binds at 8pm on 6 of the past 100 days,
             averaging $150 when it does, gets an 8pm climatology of 0.06 x $150 = $9.
           </dd>
-          <dt>Settled-μ Ceiling (Oracle)</dt>
+          <dt>Settled-μ Benchmark (Oracle)</dt>
           <dd>
-            If you were given the answer: when ranking nodes by their realized congestion
-            the SF matrix would be the only source of variation, so the settled-μ is
-            the ceiling to measure against.
+            Realized μ projected through the selected SF map. It is a diagnostic
+            benchmark, not a mathematical ceiling: a regularized or incomplete map
+            can still lose a rank metric.
           </dd>
         </dl>
       </div>

@@ -69,17 +69,18 @@ interpreted alongside its other sources, rather than as a lone number:
 | `scoreboard_model_backtest_nodal` | `model` | Model Forecast | Offline deployable forecast construction. |
 | `scoreboard_model_served_nodal` | `model` | Model Forecast | Forecast actually published for a delivery day; deployable. |
 | `scoreboard_persistence_backtest_nodal` | `persistence` | Prior-day (Persistence) | Backtest baseline, using the fold’s map. |
-| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day (Persistence) | Served-grade baseline, using the trailing map. |
+| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day (Persistence) | Served-grade baseline, projected through the served forecast’s SF artifact. |
 | `scoreboard_climatology_backtest_nodal` | `climatology` | Trailing-window Average (Baseline) | Backtest historical baseline. |
 | `scoreboard_climatology_trailing_window_nodal` | `climatology` | Trailing-window Average (Baseline) | Served-grade historical baseline. |
-| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ Ceiling (Oracle) | Non-deployable realized-μ ceiling. |
-| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ Ceiling (Oracle) | Non-deployable settled-day ceiling. |
+| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ Benchmark (Oracle) | Non-deployable realized μ through the held-out fold map. |
+| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ Benchmark (Oracle) | Non-deployable settled μ through the served forecast’s SF artifact. |
 | `scoreboard_null_flat_nodal` | `null` | Flat nodal control | Non-deployable flat control; ranking metrics are usually undefined. |
 
 For a live day, every source is scored on the same intersection of forecast,
-map, and realized settlement points. This makes model-versus-persistence
-comparisons like-for-like. `sf_coverage`, `n_hours`, and `n_nodes` travel with
-the rows as context for interpreting a score.
+map, and realized settlement points. Weekly folds hold their fold SF fixed for
+every source; live grades hold the served artifact SF fixed for every source.
+Both isolate μ-source differences within their own cadence. `sf_coverage`,
+`n_hours`, and `n_nodes` travel with the rows as context for interpreting a score.
 
 ### Backtest and daily forecast (live) grades
 
@@ -308,8 +309,8 @@ scorecard. It is not a rolling summary of the SF-map diagnostics, but a rehash
 of the daily scoreboard metrics seen in `/scoreboard`. It prints the daily value,
 so will change each day, but not hourly.
 
-Each scorecard row compares the model forecast with persistence and the oracle
-ceiling. All three metrics are higher-is-better and are calculated on the
+Each scorecard row compares the model forecast with persistence and the Oracle
+settled-μ benchmark. All three metrics are higher-is-better and are calculated on the
 predicted and realized nodal-congestion for each hour:
 
 
@@ -341,8 +342,8 @@ attempts a separate eligible settled-day Scoreboard grade through `grade_day()`
 and `persist_grades()`, then materializes the separate Brief grade. Those are
 settlement-time product grades, not training-time μ-head diagnostics.
 
-* `grade_day()`: creates linear reconstruction of each `M` baseline (oracle,
-  persistence, climatology, null) with `SF`, to get `Yh`.
+* `grade_day()`: projects each `M` baseline (oracle, persistence, climatology,
+  null) through the exact SF artifact served with that forecast, to get `Yh`.
   `/compute/evaluation/mu.py:screening_metrics_for_scoreboard(Y, Yh)`, a wrapper
   for `compute/metrics.py:screening_metrics(Y, Yh)` where the actual metrics for each baseline are
   calculated.
@@ -384,7 +385,7 @@ screening helpers.
 The sources are realized μ (oracle), the model’s `p_bind × mu_gbm`, trailing
 hourly climatology, prior-day same-hour persistence, and a null (zero) control.
 
-This path held the map fixed within a week and compared μ inputs; it produces
+This path holds the map fixed within a week and compares μ inputs; it produces
 rank Spearman, sign agreement, top-decile hit, SF coverage, and model-key
 coverage.
 

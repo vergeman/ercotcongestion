@@ -46,11 +46,13 @@ python -m compute.jobs.backfill_scoreboard_daily --run-id <id> --horizon 2 --sta
 Before writing, omit `--to-db` for a dry run. Reconcile each horizon afterward:
 
 ```sql
-SELECT d.horizon, count(*) AS score_rows, count(a.*) AS artifact_rows
+SELECT d.delivery_date, d.horizon, count(*) AS score_rows,
+       bool_or(a.run_id IS NOT NULL) AS has_artifact
 FROM scoreboard_daily d
 LEFT JOIN forecast_sf_artifact a USING (run_id, delivery_date, horizon)
 WHERE d.run_id = '<id>' AND d.delivery_date BETWEEN '<start>' AND '<end>'
-GROUP BY d.horizon;
+GROUP BY d.delivery_date, d.horizon
+HAVING count(*) <> 5 OR bool_or(a.run_id IS NULL);
 
 SELECT f.delivery_date, f.horizon
 FROM forecast_nodal f
