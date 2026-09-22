@@ -94,8 +94,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   // Compare and Error intentionally retain the user's last basis: both sources
   // are relevant in those views.
   useEffect(() => {
-    if (view === "forecast") setConstraintBasis("predicted");
-    else if (view === "market") setConstraintBasis("realized");
+    if (view === "forecast") queueMicrotask(() => setConstraintBasis("predicted"));
+    else if (view === "market") queueMicrotask(() => setConstraintBasis("realized"));
   }, [view]);
 
   // Hover temporarily overrides the selected constraint.
