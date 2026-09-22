@@ -15,6 +15,7 @@ import {
 } from "../lib/colors";
 import type { CuratedEvent } from "../lib/events";
 import type { SparkPoint } from "../components/playback/TimelineSparkline";
+import { validateExplorerWindow } from "../lib/explorerWindow";
 
 export type ConnectionState = "ok" | "error" | "loading";
 
@@ -93,6 +94,10 @@ export function useExplorerSession(opts?: {
   }, [loadWindow]);
 
   const loadCustomWindow = useCallback((start: Date, end: Date) => {
+    if (validateExplorerWindow(start, end)) {
+      setConnectionState("error");
+      return;
+    }
     setActiveEventId(null);
     void loadWindow(start, end);
   }, [loadWindow]);
@@ -108,6 +113,10 @@ export function useExplorerSession(opts?: {
   const initialWindow = opts?.initialWindow ?? null;
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      if (initialWindow && validateExplorerWindow(initialWindow.start, initialWindow.end)) {
+        setConnectionState("error");
+        return;
+      }
       const inWindow =
         initialWindow &&
         initialCursor &&
