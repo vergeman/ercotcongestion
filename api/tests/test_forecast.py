@@ -22,6 +22,9 @@ def _frow(ts, sp, dd, horizon, forecast_congestion=1.0):
 
 
 _WINDOW = "start=2026-08-01T00:00:00Z&end=2026-08-02T23:00:00Z"
+_RANGE_START = "2026-01-01T00:00:00Z"
+_RANGE_END_336H = "2026-01-15T00:00:00Z"
+_RANGE_END_337H = "2026-01-15T01:00:00Z"
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +32,26 @@ def published_run(client):
     client.app.dependency_overrides[forecast_module._server_selected_run] = lambda: "m"
     yield
     client.app.dependency_overrides.pop(forecast_module._server_selected_run, None)
+
+
+def test_forecast_range_accepts_a_336_hour_window(client, fake_pool):
+    response = client.get(f"/forecast_range?start={_RANGE_START}&end={_RANGE_END_336H}")
+
+    assert response.status_code == 503
+    assert len(fake_pool.cursor.queries) == 2
+
+
+def test_forecast_range_rejects_invalid_bounds_before_queries(client, fake_pool):
+    for query in (
+        f"start={_RANGE_START}&end={_RANGE_END_337H}",
+        f"start={_RANGE_START}&end=2025-12-31T23:00:00Z",
+        f"start={_RANGE_START}",
+        f"end={_RANGE_END_336H}",
+    ):
+        response = client.get(f"/forecast_range?{query}")
+        assert response.status_code == 422
+
+    assert fake_pool.cursor.queries == []
 
 
 def test_coalesced_range_reports_per_day_horizon_provenance(client, fake_pool):

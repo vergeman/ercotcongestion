@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 
 START = "2026-03-25T18:00:00Z"  # 2026-03-25 13:00 CT
 END = "2026-03-25T19:00:00Z"    # 2026-03-25 14:00 CT
+RANGE_START = "2026-01-01T00:00:00Z"
+RANGE_END_336H = "2026-01-15T00:00:00Z"
+RANGE_END_337H = "2026-01-15T01:00:00Z"
 T0 = datetime(2026, 3, 25, 18, tzinfo=timezone.utc)
 T1 = datetime(2026, 3, 25, 19, tzinfo=timezone.utc)
 
@@ -60,6 +63,21 @@ def _queue_all(fake_pool, *, load_actual=None, load_forecast=None,
     fake_pool.cursor.queue(solar_actual or [])
     fake_pool.cursor.queue(solar_forecast or [])
     fake_pool.cursor.queue(outages or [])
+
+
+def test_conditions_range_accepts_a_336_hour_window(client, fake_pool):
+    response = client.get("/conditions_range", params={"start": RANGE_START, "end": RANGE_END_336H})
+
+    assert response.status_code == 503
+    assert len(fake_pool.cursor.queries) == 7
+
+
+def test_conditions_range_rejects_invalid_windows_before_queries(client, fake_pool):
+    for end in (RANGE_END_337H, "2025-12-31T23:00:00Z"):
+        response = client.get("/conditions_range", params={"start": RANGE_START, "end": end})
+        assert response.status_code == 422
+
+    assert fake_pool.cursor.queries == []
 
 
 def test_conditions_range_merges_all_four_sources(client, fake_pool):

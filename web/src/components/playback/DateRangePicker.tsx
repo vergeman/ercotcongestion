@@ -2,6 +2,7 @@ import { useState } from "react";
 import { subDays, subHours } from "date-fns";
 import type { CuratedEvent } from "../../lib/events";
 import { ctInputToUtc, utcToCTInputString } from "../../lib/time";
+import { validateExplorerWindow } from "../../lib/explorerWindow";
 
 interface Props {
   onLoad?: (start: Date, end: Date) => void;
@@ -81,18 +82,28 @@ export default function DateRangePicker({
   const [dateStr, setDateStr] = useState(
     () => selectedDate ?? utcToCTInputString(new Date()).slice(0, 10)
   );
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const handlePreset = (start: () => Date, end: () => Date) => {
     const s = floorToHour(start());
     const e = floorToHour(end());
     setStartStr(utcToCTHourInputString(s));
     setEndStr(utcToCTHourInputString(e));
+    setRangeError(null);
     onLoad?.(s, e);
     setOpen(false);
   };
 
   const handleCustomLoad = () => {
-    onLoad?.(ctInputToUtc(startStr), ctInputToUtc(endStr));
+    const start = ctInputToUtc(startStr);
+    const end = ctInputToUtc(endStr);
+    const error = validateExplorerWindow(start, end);
+    if (error) {
+      setRangeError(error);
+      return;
+    }
+    setRangeError(null);
+    onLoad?.(start, end);
     setOpen(false);
   };
 
@@ -178,8 +189,8 @@ export default function DateRangePicker({
               <div className="drp__row">
                 <span className="label">Start (CT)</span>
                 <div className="drp__hour-input">
-                  <input type="date" value={startStr.slice(0, 10)} onChange={(e) => setStartStr(`${e.target.value}T${startStr.slice(11, 13)}:00`)} />
-                  <select aria-label="Start hour (CT)" value={startStr.slice(11, 13)} onChange={(e) => setStartStr(`${startStr.slice(0, 10)}T${e.target.value}:00`)}>
+                  <input type="date" value={startStr.slice(0, 10)} onChange={(e) => { setStartStr(`${e.target.value}T${startStr.slice(11, 13)}:00`); setRangeError(null); }} />
+                  <select aria-label="Start hour (CT)" value={startStr.slice(11, 13)} onChange={(e) => { setStartStr(`${startStr.slice(0, 10)}T${e.target.value}:00`); setRangeError(null); }}>
                     {HOURS.map((hour) => <option key={hour} value={hour}>{hour}:00</option>)}
                   </select>
                 </div>
@@ -187,13 +198,14 @@ export default function DateRangePicker({
               <div className="drp__row">
                 <span className="label">End (CT)</span>
                 <div className="drp__hour-input">
-                  <input type="date" value={endStr.slice(0, 10)} onChange={(e) => setEndStr(`${e.target.value}T${endStr.slice(11, 13)}:00`)} />
-                  <select aria-label="End hour (CT)" value={endStr.slice(11, 13)} onChange={(e) => setEndStr(`${endStr.slice(0, 10)}T${e.target.value}:00`)}>
+                  <input type="date" value={endStr.slice(0, 10)} onChange={(e) => { setEndStr(`${e.target.value}T${endStr.slice(11, 13)}:00`); setRangeError(null); }} />
+                  <select aria-label="End hour (CT)" value={endStr.slice(11, 13)} onChange={(e) => { setEndStr(`${endStr.slice(0, 10)}T${e.target.value}:00`); setRangeError(null); }}>
                     {HOURS.map((hour) => <option key={hour} value={hour}>{hour}:00</option>)}
                   </select>
                 </div>
               </div>
             </>}
+            {!singleDate && rangeError && <p className="drp__error" role="alert">{rangeError}</p>}
             <button
               onClick={singleDate ? handleDateLoad : handleCustomLoad}
               disabled={disabled}
@@ -326,6 +338,7 @@ export default function DateRangePicker({
           color: var(--accent);
           font-weight: 600;
         }
+        .drp__error { margin: 0; color: var(--danger); font-size: 12px; }
         .drp--inline .drp__dropdown {
           position: static;
           width: 100%;

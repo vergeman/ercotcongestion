@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 
 from api.schemas.conditions import ConditionsRangeResponse
 from api.services.conditions import conditions_range
-from api.services.time import coerce_utc
+from api.services.time import validate_utc_range
 
 router = APIRouter()
 
@@ -20,4 +20,5 @@ def get_conditions_range(
     start: datetime = Query(..., description="ISO-8601 UTC start (inclusive)"),
     end: datetime = Query(..., description="ISO-8601 UTC end (inclusive)"),
 ) -> ConditionsRangeResponse:
-    return conditions_range(coerce_utc(start), coerce_utc(end))
+    start_utc, end_utc = validate_utc_range(start, end)
+    return conditions_range(start_utc, end_utc)
