@@ -5,27 +5,35 @@ import { useScoreboardChart } from "./useScoreboardChart";
 import { SERIES, CHART_LABELS } from "./seriesMeta";
 import { fmtWeek, fmtDay } from "./format";
 
-// The backtest + served-grade series chart (hand-rolled SVG).
+type Cadence = "weekly" | "daily";
+const dateOf = (point: ScoreHistoryPoint, cadence: Cadence) =>
+  cadence === "weekly" ? point.week : point.delivery_date;
+
+// One cadence's series chart (hand-rolled SVG).
 export function SeriesChart({
   points,
   metric,
+  cadence,
   cutover,
-  boundaryDate,
 }: {
   points: ScoreHistoryPoint[];
   metric: MetricKey;
-  cutover: string;
-  boundaryDate: string | null;
+  cadence: Cadence;
+  cutover?: string;
 }) {
   const dates = useMemo(
-    () => Array.from(new Set(points.map((p) => p.week ?? p.delivery_date ?? ""))).sort(),
-    [points]
+    () => Array.from(new Set(points.map((point) => dateOf(point, cadence))
+      .filter((date): date is string => date != null))).sort(),
+    [points, cadence]
   );
   const byKey = useMemo(() => {
     const m = new Map<string, ScoreHistoryPoint>();
-    for (const p of points) m.set(`${p.week ?? p.delivery_date}|${p.series_id}`, p);
+    for (const p of points) {
+      const date = dateOf(p, cadence);
+      if (date != null) m.set(`${date}|${p.series_id}`, p);
+    }
     return m;
-  }, [points]);
+  }, [points, cadence]);
 
   const meta = METRICS[metric];
   const valueAt = (i: number, seriesId: string): number | null => {
@@ -97,8 +105,7 @@ export function SeriesChart({
       endLabels[i].y = endLabels[i - 1].y + 12;
   }
 
-  const cutIdx = dates.findIndex((d) => d >= cutover);
-  const boundaryIdx = boundaryDate == null ? -1 : dates.findIndex((d) => d >= boundaryDate);
+  const cutIdx = cutover == null ? -1 : dates.findIndex((d) => d >= cutover);
   const zeroInDomain = dMin < 0 && dMax > 0;
 
   // x tick indices: a handful across the span.
@@ -125,7 +132,7 @@ export function SeriesChart({
         width={width}
         height={H}
         role="img"
-        aria-label={`${meta.label} by week`}
+        aria-label={`${meta.label} by ${cadence}`}
       >
         {/* y gridlines + labels */}
         {[dMin, (dMin + dMax) / 2, dMax].map((v, k) => (
@@ -164,7 +171,7 @@ export function SeriesChart({
             textAnchor="middle"
             className="sb-axis"
           >
-            {fmtWeek(dates[i])}
+            {cadence === "weekly" ? fmtWeek(dates[i]) : fmtDay(dates[i])}
           </text>
         ))}
 
@@ -186,23 +193,6 @@ export function SeriesChart({
               className="sb-axis sb-axis--mark"
             >
               RTC+B
-            </text>
-          </g>
-        )}
-
-        {boundaryIdx > 0 && (
-          <g>
-            <line
-              x1={x(boundaryIdx)}
-              x2={x(boundaryIdx)}
-              y1={M.t}
-              y2={M.t + plotH}
-              stroke="var(--accent)"
-              strokeWidth={1}
-              strokeDasharray="5 3"
-            />
-            <text x={x(boundaryIdx) + 3} y={M.t + 21} className="sb-axis sb-axis--mark">
-              Served grades
             </text>
           </g>
         )}
@@ -275,7 +265,7 @@ export function SeriesChart({
             if (event.key === "ArrowRight") moveHover(1);
           }}
           tabIndex={0}
-          aria-label="Use left and right arrow keys to inspect backtest and served-grade values"
+          aria-label={`Use left and right arrow keys to inspect ${cadence} Scoreboard values`}
         />
       </svg>
 
@@ -285,7 +275,7 @@ export function SeriesChart({
           style={{ left: Math.min(x(hover) + 8, width - 140), top: M.t }}
         >
           <div className="sb-tip__wk">
-            {points.find((p) => (p.week ?? p.delivery_date) === dates[hover])?.cadence === "served_daily"
+            {cadence === "daily"
               ? `Served daily grade · ${fmtDay(dates[hover])}`
               : `Walk-forward backtest week · ${fmtWeek(dates[hover])}`}
           </div>

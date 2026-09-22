@@ -58,17 +58,17 @@ export default function ScoreboardPage() {
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Track record · weekly backtest and served daily grades ({METRICS[controls.metric].label})
+                Walk-forward weekly backtest ({METRICS[controls.metric].label})
               </div>
               {history ? (
                 <SeriesChart
-                  points={history.points}
+                  points={history.weekly_points}
                   metric={controls.metric}
+                  cadence="weekly"
                   cutover={weekly.rtc_b_cutover}
-                  boundaryDate={history.boundary_date}
                 />
               ) : (
-                <div className="sb-empty label">track history could not be loaded.</div>
+                <div className="sb-empty label">weekly history could not be loaded.</div>
               )}
 
               {/* legend */}
@@ -84,18 +84,30 @@ export default function ScoreboardPage() {
                 ))}
               </div>
 
+              <div className="sb-section-h label">
+                Final served daily grades ({METRICS[controls.metric].label})
+              </div>
+              {history?.served_daily_points.length ? (
+                <SeriesChart
+                  points={history.served_daily_points}
+                  metric={controls.metric}
+                  cadence="daily"
+                />
+              ) : (
+                <div className="sb-section-copy">no final served grades available.</div>
+              )}
+
               <Tooltip
                 as="div"
                 className="sb-section-h label"
                 placement="bottom"
-                tip="Each cell is an independent hours-weighted pool. All weeks spans the full record, not an average of the two RTC+B cells."
+                tip="Each cell is an independent hours-weighted weekly pool. All weeks spans the full record, not an average of the two RTC+B cells."
               >
                 Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Combines hour-weighted historical weekly (w) backtest scores
-                with daily (d) forecast grades.
+                Weekly walk-forward scores are pooled separately from final served-daily grades.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>

@@ -9,7 +9,7 @@ export const METRICS: Record<MetricKey, {
   higher: boolean;
 }> = {
   topdecile_hit: { label: "Top-Decile Hit", fmt: (value) => value.toFixed(2), domain: () => [0, 1], higher: true },
-  rank_spearman: { label: "Rank ρ", fmt: (value) => value.toFixed(2), domain: () => [0, 1], higher: true },
+  rank_spearman: { label: "Rank ρ", fmt: (value) => value.toFixed(2), domain: () => [-1, 1], higher: true },
   sign_agree: { label: "Sign Agreement", fmt: (value) => value.toFixed(2), domain: () => [0, 1], higher: true },
 };
 

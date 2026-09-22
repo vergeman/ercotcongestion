@@ -65,8 +65,8 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
-                    {p == null ? "—" : p.toFixed(2)}
+                    {good ? "▲" : "▼"} Δ vs Persistence {delta! >= 0 ? "+" : ""}
+                    {delta!.toFixed(2)} · Persistence {p!.toFixed(2)}
                   </span>
                 )}
                 <span className="sb-ceiling">
