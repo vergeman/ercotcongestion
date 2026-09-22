@@ -70,7 +70,7 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
                   </span>
                 )}
                 <span className="sb-ceiling">
-                  Settled-μ Ceiling (Oracle) {o == null ? "—" : o.toFixed(2)}
+                  Settled-μ Benchmark (Oracle) {o == null ? "—" : o.toFixed(2)}
                 </span>
               </div>
             </div>

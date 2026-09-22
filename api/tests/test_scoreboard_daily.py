@@ -41,6 +41,11 @@ def test_latest_final_selects_newest_final_grade_in_sql(fake_pool):
         "scoreboard_climatology_trailing_window_nodal", "scoreboard_oracle_settled_mu_nodal",
         "scoreboard_null_flat_nodal",
     }
+    oracle = next(source for source in daily.sources if source.series_id == "oracle")
+    persistence = next(source for source in daily.sources if source.series_id == "persistence")
+    assert oracle.label == "Settled-μ Benchmark (Oracle)"
+    assert "served forecast SF artifact" in oracle.definition
+    assert "served forecast SF artifact" in persistence.definition
     sql, params = fake_pool.cursor.queries[-1]
     assert "SELECT max(delivery_date)" in sql
     assert "horizon = 1" in sql

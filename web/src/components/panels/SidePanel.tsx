@@ -42,7 +42,6 @@ interface Props {
   loadWindow?: ReactNode;
 }
 
-
 const CURRENCY_ORDER = [
   "rank_spearman",
   "sign_agree",
@@ -88,15 +87,39 @@ function scorecardLabel(scorecard: MapScorecard): string {
 
 // ERCOT load weather zones and wind/solar generation regions.
 const WEATHER_ZONES = [
-  "coast", "east", "far_west", "north",
-  "north_central", "south_central", "southern", "west",
+  "coast",
+  "east",
+  "far_west",
+  "north",
+  "north_central",
+  "south_central",
+  "southern",
+  "west",
 ] as const;
-const WIND_REGIONS = ["panhandle", "coastal", "south", "west", "north"] as const;
+const WIND_REGIONS = [
+  "panhandle",
+  "coastal",
+  "south",
+  "west",
+  "north",
+] as const;
 const SOLAR_REGIONS = [
-  "centerwest", "northwest", "farwest", "fareast", "southeast", "centereast",
+  "centerwest",
+  "northwest",
+  "farwest",
+  "fareast",
+  "southeast",
+  "centereast",
 ] as const;
 // ERCOT NP1-346 outage capacity by fuel.
-const OUTAGE_FUELS = ["gas", "wind", "solar", "coal", "other", "hydro"] as const;
+const OUTAGE_FUELS = [
+  "gas",
+  "wind",
+  "solar",
+  "coal",
+  "other",
+  "hydro",
+] as const;
 
 const REGION_PRETTY: Record<string, string> = {
   far_west: "Far West",
@@ -151,7 +174,9 @@ function conditionLabel(
   row: { forecast_mw: number | null; actual_mw: number | null } | undefined,
   mapView: MapView
 ): string {
-  return `${label}${conditionValue(row, mapView).isForecast ? " (Forecast)" : ""}`;
+  return `${label}${
+    conditionValue(row, mapView).isForecast ? " (Forecast)" : ""
+  }`;
 }
 
 function Stat({
@@ -196,7 +221,10 @@ function ExpandableGroup({
         aria-expanded={expanded}
       >
         <span className="label">
-          <span className={`np-caret${expanded ? " open" : ""}`} aria-hidden="true">
+          <span
+            className={`np-caret${expanded ? " open" : ""}`}
+            aria-hidden="true"
+          >
             ▸
           </span>
           {label}
@@ -204,9 +232,7 @@ function ExpandableGroup({
         <span className="np-stat__val mono">{systemValue ?? "—"}</span>
       </button>
       {expanded &&
-        rows.map((r) => (
-          <Stat key={r.key} label={r.label} value={r.value} />
-        ))}
+        rows.map((r) => <Stat key={r.key} label={r.label} value={r.value} />)}
     </div>
   );
 }
@@ -232,11 +258,16 @@ export default function SidePanel({
   // Load-by-region / Generation panels (plan/0141): each System row discloses
   // its own regions independently — collapsed by default, one flag per group.
   const [regionsOpen, setRegionsOpen] = useState({
-    load: false, wind: false, solar: false, outages: false,
+    load: false,
+    wind: false,
+    solar: false,
+    outages: false,
   });
   const toggleRegions = (group: keyof typeof regionsOpen) =>
     setRegionsOpen((cur) => ({ ...cur, [group]: !cur[group] }));
-  const bySeries = new Map(scorecard?.sources.map((source) => [source.series_id, source]) ?? []);
+  const bySeries = new Map(
+    scorecard?.sources.map((source) => [source.series_id, source]) ?? []
+  );
   const tabs = loadWindow
     ? (["stats", "constraints", "window"] as const)
     : (["stats", "constraints"] as const);
@@ -256,8 +287,8 @@ export default function SidePanel({
             {t === "stats"
               ? "Stats"
               : t === "constraints"
-                ? "Constraints"
-                : "Load window"}
+              ? "Constraints"
+              : "Load window"}
           </button>
         ))}
       </div>
@@ -400,13 +431,19 @@ export default function SidePanel({
             <ExpandableGroup
               label="Outages by Fuel"
               systemValue={(() => {
-                const mw = regionMw(conditions?.outages.find((f) => f.fuel === "total"), mapView);
+                const mw = regionMw(
+                  conditions?.outages.find((f) => f.fuel === "total"),
+                  mapView
+                );
                 return mw != null ? `${fmtNum(mw, 0)} MW` : null;
               })()}
               expanded={regionsOpen.outages}
               onToggle={() => toggleRegions("outages")}
               rows={OUTAGE_FUELS.map((fuel) => {
-                const mw = regionMw(conditions?.outages.find((f) => f.fuel === fuel), mapView);
+                const mw = regionMw(
+                  conditions?.outages.find((f) => f.fuel === fuel),
+                  mapView
+                );
                 return {
                   key: fuel,
                   label: regionLabel(fuel),
@@ -422,28 +459,26 @@ export default function SidePanel({
               <div className="np-section__header sc-header">
                 <span className="label">Scorecard</span>
               </div>
-              <div className="sc-meta label">
-                {scorecardLabel(scorecard)}
-              </div>
+              <div className="sc-meta label">{scorecardLabel(scorecard)}</div>
 
               <div className="sc-table">
                 <span className="sc-h sc-h--cat" />
                 <span className="sc-h">Model</span>
                 <span className="sc-h">Persist</span>
-                <span className="sc-h">Ceiling</span>
+                <span className="sc-h">Benchmark</span>
 
                 {CURRENCY_ORDER.map((name) => {
-                  const metric = name as "rank_spearman" | "sign_agree" | "topdecile_hit";
+                  const metric = name as
+                    | "rank_spearman"
+                    | "sign_agree"
+                    | "topdecile_hit";
                   const meta = CURRENCY_META[name];
                   if (!meta) return null;
                   const model = bySeries.get("model")?.[metric] ?? null;
-                  const persistence = bySeries.get("persistence")?.[metric] ?? null;
+                  const persistence =
+                    bySeries.get("persistence")?.[metric] ?? null;
                   const oracle = bySeries.get("oracle")?.[metric] ?? null;
-                  const lead = leaderOf(
-                    model,
-                    persistence,
-                    true
-                  );
+                  const lead = leaderOf(model, persistence, true);
                   return (
                     <Fragment key={name}>
                       <Tooltip className="sc-cat label" tip={meta.hint}>
@@ -460,7 +495,7 @@ export default function SidePanel({
                       </span>
                       <Tooltip
                         className="sc-v sc-v--ceiling mono"
-                        tip="Oracle ceiling — the best any forecast could do on these weeks."
+                        tip="Settled-μ benchmark through the selected SF map; it is not a mathematical ceiling."
                       >
                         {fmtScore(oracle)}
                       </Tooltip>
@@ -472,18 +507,27 @@ export default function SidePanel({
               {fitMeta && (
                 <div className="sc-fit">
                   <div className="sc-fit__header label">
-                    SF Window{fitMeta.window_start && fitMeta.window_end
-                      ? ` · ${formatCT(new Date(fitMeta.window_start), "MMM d, yyyy")} – ${formatCT(new Date(fitMeta.window_end), "MMM d, yyyy")}`
+                    SF Window
+                    {fitMeta.window_start && fitMeta.window_end
+                      ? ` · ${formatCT(
+                          new Date(fitMeta.window_start),
+                          "MMM d, yyyy"
+                        )} – ${formatCT(
+                          new Date(fitMeta.window_end),
+                          "MMM d, yyyy"
+                        )}`
                       : " · unavailable"}
                   </div>
-                  {fitMeta.basis === "nearest_past" && fitMeta.artifact_delivery_date && (
-                    <div className="sc-fit__note">
-                      Fallback artifact from {fitMeta.artifact_delivery_date}; diagnostics use its SF window.
-                    </div>
-                  )}
+                  {fitMeta.basis === "nearest_past" &&
+                    fitMeta.artifact_delivery_date && (
+                      <div className="sc-fit__note">
+                        Fallback artifact from {fitMeta.artifact_delivery_date};
+                        diagnostics use its SF window.
+                      </div>
+                    )}
                   <Stat
                     label="SF Out-of-sample Accuracy"
-                    hint="How well the shift factors (SF) reproduce congestion prices they did not train on. Higher is better. μ is set to each hour's actual shadow price, so any remaining error belongs to the SF map."
+                    hint="R² explains % variation of this week's (held out) nodal congestion, and evaluates the Shift Factor matrix accuracy: the SF fit uses ERCOT's realized shadow prices (μ) to calculate implied congestion, compared with realized (ERCOT-settled) nodal congestion. Higher is better; 0 is an average-only baseline, and negative is worse. A new or rarely binding constraint with large μ can drastically lower this value because it has no fitted SF row."
                     value={fmtScore(fitMeta.sf_oos_r2)}
                   />
                   <Stat

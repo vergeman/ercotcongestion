@@ -1,7 +1,7 @@
 """Tests for the `grade_forecast_day` live-grading job (plan 0102 / 0003-live-grading).
 
-Deterministic and DB-free: every DB seam of `grade_forecast_day` (the served-forecast read,
-the shadow-price / congestion loaders, the SF fit) is stubbed so the ORCHESTRATION
+Deterministic and DB-free: every DB seam of `grade_forecast_day` (the served forecast,
+its SF artifact, and the shadow-price / congestion loaders) is stubbed so the ORCHESTRATION
 — the score grid, the common-node intersection, and which quantity each source is
 scored on — is exercised against the shared screening helper in
 milliseconds. The reconciliation guarantee (spec §7) is proven structurally here:
@@ -58,9 +58,10 @@ def _install(monkeypatch, M, C, SF, fc):
                         lambda conn, run_id, D_, horizon=1: fc)
     monkeypatch.setattr(gd, "load_shadow_prices", lambda conn, lo, hi: M)
     monkeypatch.setattr(gd, "load_congestion_panel", lambda conn, lo, hi: C)
-    monkeypatch.setattr(gd, "implied_shift_factors", lambda *a, **k: SF)
+    monkeypatch.setattr(gd, "load_served_sf",
+                        lambda conn, run_id, D_, horizon: SF)
     monkeypatch.setattr(gd, "score_served_essp",
-                        lambda conn, run_id, D_, horizon: {
+                        lambda conn, D_, SF_: {
                             "essp_precision": None, "essp_recall": None})
 
 
@@ -182,6 +183,15 @@ def test_raises_when_nothing_was_served(monkeypatch):
         gd.grade_day(None, D, run_id="t")
 
 
+def test_raises_when_served_sf_artifact_is_missing(monkeypatch):
+    M, C, SF, fc, _ = _scenario()
+    _install(monkeypatch, M, C, SF, fc)
+    monkeypatch.setattr(gd, "load_served_sf", lambda *args: (_ for _ in ()).throw(
+        RuntimeError("no served SF artifact")))
+    with pytest.raises(RuntimeError, match="no served SF artifact"):
+        gd.grade_day(None, D, run_id="t")
+
+
 def test_raises_when_realized_has_not_published(monkeypatch):
     M, C, SF, fc, _ = _scenario()
     _install(monkeypatch, M, C, SF, fc)
@@ -251,6 +261,20 @@ def test_horizon_scopes_the_read_and_stamps_every_row(monkeypatch):
     rows = gd.grade_day(None, D, run_id="t", horizon=2)
     assert seen["horizon"] == 2
     assert all(r["horizon"] == 2 for r in rows)
+
+
+def test_horizons_use_their_own_served_sf_artifacts(monkeypatch):
+    M, C, SF, fc, _ = _scenario()
+    _install(monkeypatch, M, C, SF, fc)
+    seen = []
+    def _sf(conn, run_id, D_, horizon):
+        seen.append(horizon)
+        return SF if horizon == 1 else -SF
+    monkeypatch.setattr(gd, "load_served_sf", _sf)
+    h1 = gd.grade_day(None, D, run_id="t", horizon=1)
+    h2 = gd.grade_day(None, D, run_id="t", horizon=2)
+    assert seen == [1, 2]
+    assert h1[1]["rank_spearman"] != h2[1]["rank_spearman"]
 
 
 def test_resolve_gradeable_date_scopes_to_horizon():

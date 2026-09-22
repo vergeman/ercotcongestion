@@ -69,17 +69,18 @@ interpreted alongside its other sources, rather than as a lone number:
 | `scoreboard_model_backtest_nodal` | `model` | Model Forecast | Offline deployable forecast construction. |
 | `scoreboard_model_served_nodal` | `model` | Model Forecast | Forecast actually published for a delivery day; deployable. |
 | `scoreboard_persistence_backtest_nodal` | `persistence` | Prior-day (Persistence) | Backtest baseline, using the fold’s map. |
-| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day (Persistence) | Served-grade baseline, using the trailing map. |
+| `scoreboard_persistence_prior_day_nodal` | `persistence` | Prior-day (Persistence) | Served-grade baseline, projected through the served forecast’s SF artifact. |
 | `scoreboard_climatology_backtest_nodal` | `climatology` | Trailing-window Average (Baseline) | Backtest historical baseline. |
 | `scoreboard_climatology_trailing_window_nodal` | `climatology` | Trailing-window Average (Baseline) | Served-grade historical baseline. |
-| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ Ceiling (Oracle) | Non-deployable realized-μ ceiling. |
-| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ Ceiling (Oracle) | Non-deployable settled-day ceiling. |
+| `scoreboard_oracle_backtest_nodal` | `oracle` | Settled-μ Benchmark (Oracle) | Non-deployable realized μ through the held-out fold map. |
+| `scoreboard_oracle_settled_mu_nodal` | `oracle` | Settled-μ Benchmark (Oracle) | Non-deployable settled μ through the served forecast’s SF artifact. |
 | `scoreboard_null_flat_nodal` | `null` | Flat nodal control | Non-deployable flat control; ranking metrics are usually undefined. |
 
 For a live day, every source is scored on the same intersection of forecast,
-map, and realized settlement points. This makes model-versus-persistence
-comparisons like-for-like. `sf_coverage`, `n_hours`, and `n_nodes` travel with
-the rows as context for interpreting a score.
+map, and realized settlement points. Weekly folds hold their fold SF fixed for
+every source; live grades hold the served artifact SF fixed for every source.
+Both isolate μ-source differences within their own cadence. `sf_coverage`,
+`n_hours`, and `n_nodes` travel with the rows as context for interpreting a score.
 
 ### Backtest and daily forecast (live) grades
 
@@ -270,36 +271,52 @@ How well did the fitted shift factors reproduce congestion prices on data the
 fit never saw.
 
 Methodology:
-* Fit the SF map on the 60-day window ending **strictly before** the scored
+* Fit the SF map on the 240-day window ending **strictly before** the scored
   week.
-* Predict the next 7 days as `C_hat = −M · SFᵀ` from **realized** μ (shadow
-  prices).
+* Use ERCOT's **realized** constraint shadow prices (μ) with that fitted SF
+  matrix to calculate *implied* congestion for the next 7 days:
+  `C_hat = −M · SFᵀ`.
+* Compare that implied congestion with **realized nodal congestion** for the
+  same settlement-point-hours (DAM SPP minus ERCOT's system lambda).
 * Score pooled across all settlement points x hours:
   `R² = 1 − Σ(y − ŷ)² / Σ(y − ȳ)²`.
 
 The fit window does not touch the scored week (no leakage), and scoring uses
-oracle μ (perfect foresight of shadow prices), so the number isolates SF-map
-quality from any bind-forecasting skill.
+realized μ rather than forecast μ, so the number isolates the SF map's ability
+to turn ERCOT shadow prices into realized congestion from any μ/bind-forecasting
+skill. It is a reconstruction diagnostic, not a forecast score: `1` is a
+perfect reconstruction, `0` is no better than predicting the scored week's
+pooled average congestion, and a negative value is worse than that baseline.
+
+This pooled level R² can move sharply in a single week. A newly or rarely
+binding constraint may have no admitted SF row because it did not reach the
+25-hour history threshold in the fit window; if it then carries a large share
+of that week's shadow-price mass, its missing congestion footprint can dominate
+the squared error. That is a map-coverage/regime-change warning, not evidence
+that μ was forecast poorly.
+
+The Scoreboard's settled-μ **Oracle** is related but reports rank correlation,
+sign agreement, and top-decile hit rather than pooled R². When it uses the
+same served causal SF artifact, it evaluates the same realized-μ projection
+with different, pattern-oriented metrics.
 
 ### SF Stability (`sf_stability`)
 
 Pearson correlation of the flattened SF matrix between two **adjacent,
-non-overlapping** 60-day fit windows. How much of the map's structure survives
+non-overlapping** 240-day fit windows. How much of the map's structure survives
 from one window to the next.
 
-* `SF` is fit on `[s − 60d, s)`.
-* `SF_older` is fit on `[s − 120d, s − 60d)` — touching at the edge, zero
+* `SF` is fit on `[s − 240d, s)`.
+* `SF_older` is fit on `[s − 480d, s − 240d)` — touching at the edge, zero
   overlap.
 * Correlate the two matrices over their shared constraint rows (requires ≥ 5).
 
-Consecutive refits overlap 53/60 days, (weekly fit) giving a flattering ≈ 0.90
+Consecutive refits overlap 233/240 days (weekly fit), giving a flattering ≈ 0.90
 that mostly measures shared training data.
 
-On disjoint windows the map retains under half its structure (≈ 0.47). That gap
-is the documented cause of the spread between in-sample R² (≈ 0.99) and OOS R²
-(≈ 0.75). The map genuinely drifts, so both numbers sit in the sidebar as a
-caveat on the signed SF detail. `sf_stability` is NULL for early windows that
-lack the 120 days of history.
+The map can genuinely drift, so both numbers sit in the sidebar as a caveat on
+the signed SF detail. `sf_stability` is NULL for early windows that lack the
+480 days of history.
 
 ### Forecast Scorecard in the Map SidePanel
 
@@ -308,8 +325,8 @@ scorecard. It is not a rolling summary of the SF-map diagnostics, but a rehash
 of the daily scoreboard metrics seen in `/scoreboard`. It prints the daily value,
 so will change each day, but not hourly.
 
-Each scorecard row compares the model forecast with persistence and the oracle
-ceiling. All three metrics are higher-is-better and are calculated on the
+Each scorecard row compares the model forecast with persistence and the Oracle
+settled-μ benchmark. All three metrics are higher-is-better and are calculated on the
 predicted and realized nodal-congestion for each hour:
 
 
@@ -341,8 +358,8 @@ attempts a separate eligible settled-day Scoreboard grade through `grade_day()`
 and `persist_grades()`, then materializes the separate Brief grade. Those are
 settlement-time product grades, not training-time μ-head diagnostics.
 
-* `grade_day()`: creates linear reconstruction of each `M` baseline (oracle,
-  persistence, climatology, null) with `SF`, to get `Yh`.
+* `grade_day()`: projects each `M` baseline (oracle, persistence, climatology,
+  null) through the exact SF artifact served with that forecast, to get `Yh`.
   `/compute/evaluation/mu.py:screening_metrics_for_scoreboard(Y, Yh)`, a wrapper
   for `compute/metrics.py:screening_metrics(Y, Yh)` where the actual metrics for each baseline are
   calculated.
@@ -384,7 +401,7 @@ screening helpers.
 The sources are realized μ (oracle), the model’s `p_bind × mu_gbm`, trailing
 hourly climatology, prior-day same-hour persistence, and a null (zero) control.
 
-This path held the map fixed within a week and compared μ inputs; it produces
+This path holds the map fixed within a week and compares μ inputs; it produces
 rank Spearman, sign agreement, top-decile hit, SF coverage, and model-key
 coverage.
 

@@ -34,7 +34,9 @@ export function Glossary() {
           .
         </p>
         <p className="sb-guide__where">
-          <b>SF:</b> the shift factor represents how much flow travels along a constraint when 1 MW is injected at that node. (Recovered by ridge regression.)
+          <b>SF:</b> the shift factor represents how much flow travels along a
+          constraint when 1 MW is injected at that node. (Recovered by ridge
+          regression.)
         </p>
         <br />
         <p className="sb-guide__p">
@@ -63,15 +65,27 @@ export function Glossary() {
         </dl>
         <p className="sb-guide__p">
           Splitting matters: a single head (“regressor”) over all hours would
-          learn to say "about zero", which is generally correct, but not when it diverges.
+          learn to say "about zero", which is generally correct, but not when it
+          diverges.
         </p>
         <div className="sb-guide__eg">
           <b>Example.</b> At 5pm:
           <ol>
-            <li>Head 1 estimates a 10% binding chance: <code>P(bind) = 0.10</code>.</li>
-            <li>Head 2 estimates a $200 shadow price if it binds: <code>E[μ | bind] = $200</code>.</li>
-            <li>Multiply them: <code>E[μ] = 0.10 × $200 = $20</code>.</li>
-            <li>A node with <code>SF = −0.3</code> carries <code>−SF · μ = −(−0.3) × $20 = +$6</code> of congestion.</li>
+            <li>
+              Head 1 estimates a 10% binding chance: <code>P(bind) = 0.10</code>
+              .
+            </li>
+            <li>
+              Head 2 estimates a $200 shadow price if it binds:{" "}
+              <code>E[μ | bind] = $200</code>.
+            </li>
+            <li>
+              Multiply them: <code>E[μ] = 0.10 × $200 = $20</code>.
+            </li>
+            <li>
+              A node with <code>SF = −0.3</code> carries{" "}
+              <code>−SF · μ = −(−0.3) × $20 = +$6</code> of congestion.
+            </li>
           </ol>
         </div>
       </div>
@@ -83,21 +97,20 @@ export function Glossary() {
           <dd>The forecast; using SF to project nodal congestion.</dd>
           <dt>Prior-day (Persistence)</dt>
           <dd>
-            Naive baseline: tomorrow repeats yesterday. Each node's congestion
-            is set to its actual value at the same hour on the prior day.
+            Naive baseline: prior-day same-hour μ, projected through the served
+            forecast's SF artifact.
           </dd>
           <dt>Trailing-window Average (Baseline)</dt>
           <dd>
-            Historical-average baseline, computed per hour: how often a
-            node has congested at this hour x the severity when it does.
-            Example: a node that binds at 8pm on 6 of the past 100 days,
-            averaging $150 when it does, gets an 8pm climatology of 0.06 x $150 = $9.
+            Historical-average baseline, computed per hour: how often a node has
+            congested at this hour x the severity when it does. Example: a node
+            that binds at 8pm on 6 of the past 100 days, averaging $150 when it
+            does, gets an 8pm climatology of 0.06 x $150 = $9.
           </dd>
-          <dt>Settled-μ Ceiling (Oracle)</dt>
+          <dt>Settled-μ Benchmark (Oracle)</dt>
           <dd>
-            If you were given the answer: when ranking nodes by their realized congestion
-            the SF matrix would be the only source of variation, so the settled-μ is
-            the ceiling to measure against.
+            Realized μ projected through the selected SF map. It is a diagnostic
+            benchmark, not a mathematical ceiling.
           </dd>
         </dl>
       </div>
@@ -106,8 +119,8 @@ export function Glossary() {
         <div className="sb-guide__h">Pre / Post-RTC+B</div>
         <p className="sb-guide__p">
           RTC+B was ERCOT's real-time co-optimization + batteries market change
-          on 2025-12-11. The record splits to measure the model through the redesign;
-          post-RTC+B includes live final grades.
+          on 2025-12-11. The record splits to measure the model through the
+          redesign; post-RTC+B includes live final grades.
         </p>
       </div>
 
@@ -127,10 +140,9 @@ export function Glossary() {
           </dd>
           <dt>Top-Decile Hit</dt>
           <dd>
-            Of the nodes predicted to be in the most-congested 10%, the fraction that
-            were actually in the realized most-congested 10%.
+            Of the nodes predicted to be in the most-congested 10%, the fraction
+            that were actually in the realized most-congested 10%.
           </dd>
-
         </dl>
       </div>
     </aside>

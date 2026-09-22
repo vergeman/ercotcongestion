@@ -32,6 +32,35 @@ review tools are run manually.
 | `backfill_forecast_history.py` | Builds queryable per-constraint daily forecast history from existing SF+μ artifacts, without refitting forecasts. | Manual |
 | `backfill_brief_grade_prod.sh` | Runs `materialize_brief_grade` in resumable 30-day production batches, starting from the latest settled day. | Manual, production compute shell |
 | `backfill_scoreboard.py` | Runs the historical μ walk and evaluation, then writes weekly scores to `scoreboard_weekly`. | Manual |
+| `backfill_scoreboard_daily.py` | Regrades existing served forecasts through their stored SF artifacts; dry-run by default and replaces one daily key atomically with `--to-db`. | Manual |
+
+### Daily Scoreboard SF repair
+
+Run each horizon explicitly; this never rewrites forecasts or artifacts:
+
+```sh
+python -m compute.jobs.backfill_scoreboard_daily --run-id <id> --horizon 1 --start YYYY-MM-DD --end YYYY-MM-DD --to-db
+python -m compute.jobs.backfill_scoreboard_daily --run-id <id> --horizon 2 --start YYYY-MM-DD --end YYYY-MM-DD --to-db
+```
+
+Before writing, omit `--to-db` for a dry run. Reconcile each horizon afterward:
+
+```sql
+SELECT d.delivery_date, d.horizon, count(*) AS score_rows,
+       bool_or(a.run_id IS NOT NULL) AS has_artifact
+FROM scoreboard_daily d
+LEFT JOIN forecast_sf_artifact a USING (run_id, delivery_date, horizon)
+WHERE d.run_id = '<id>' AND d.delivery_date BETWEEN '<start>' AND '<end>'
+GROUP BY d.delivery_date, d.horizon
+HAVING count(*) <> 5 OR bool_or(a.run_id IS NULL);
+
+SELECT f.delivery_date, f.horizon
+FROM forecast_nodal f
+LEFT JOIN forecast_sf_artifact a USING (run_id, delivery_date, horizon)
+WHERE f.run_id = '<id>' AND f.delivery_date BETWEEN '<start>' AND '<end>'
+  AND a.run_id IS NULL
+GROUP BY f.delivery_date, f.horizon;
+```
 
 ## Review and package support — on demand
 

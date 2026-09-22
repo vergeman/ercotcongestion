@@ -57,7 +57,7 @@ WEEKLY_SOURCE_DEFINITIONS = (
     SourceDefinition(
         "scoreboard_oracle_backtest_nodal",
         "oracle",
-        "Settled-μ Ceiling (Oracle)",
+        "Settled-μ Benchmark (Oracle)",
         "Realized μ projected by the held-out backtest map.",
     ),
     SourceDefinition(
@@ -78,19 +78,19 @@ DAILY_SOURCE_DEFINITIONS = (
         "scoreboard_persistence_prior_day_nodal",
         "persistence",
         "Prior-day (Persistence)",
-        "Prior-day μ projected through the trailing map.",
+        "Prior-day μ projected through the served forecast SF artifact.",
     ),
     SourceDefinition(
         "scoreboard_climatology_trailing_window_nodal",
         "climatology",
         "Trailing-window Average (Baseline)",
-        "Trailing-window μ climatology projected through the map.",
+        "Trailing-window μ climatology projected through the served forecast SF artifact.",
     ),
     SourceDefinition(
         "scoreboard_oracle_settled_mu_nodal",
         "oracle",
-        "Settled-μ Ceiling (Oracle)",
-        "Settled-day μ projected through the trailing map.",
+        "Settled-μ Benchmark (Oracle)",
+        "Settled-day μ projected through the served forecast SF artifact.",
     ),
     SourceDefinition(
         "scoreboard_null_flat_nodal",
