@@ -35,6 +35,6 @@ Branch: fix/0218-range-window-guardrails
 
 ## Acceptance
 
-* [ ] The picker rejects reversed and over-14-day custom windows without sending requests, and a direct oversized `ws`/`we` URL leaves the explorer in a clear error state without fetching.
-* [ ] Every explicit range endpoint returns 422 before database access for reversed, partial, or over-336-hour input; an exactly 336-hour range remains accepted.
-* [ ] Focused API tests and the web typecheck/lint pass.
+* [x] The picker rejects reversed and over-14-day custom windows without sending requests, and a direct oversized `ws`/`we` URL leaves the explorer in a clear error state without fetching.
+* [x] Every explicit range endpoint returns 422 before database access for reversed, partial, or over-336-hour input; an exactly 336-hour range remains accepted.
+* [x] Focused API tests and the web typecheck/lint pass.
