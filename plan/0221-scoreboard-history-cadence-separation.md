@@ -46,6 +46,12 @@ Branch: fix/0221-scoreboard-history-cadence-separation
 * Confirm the 0219 served-SF explanation remains unchanged: daily source rows are projected through their exact stored served artifact, while weekly rows retain their walk-forward map contract.
 * Exercise the bundled `/scoreboard/summary` endpoint against a fixture or local board containing both cadences and inspect that each chart receives only its own date grain.
 
+### Commit 4 — Reformat the chart implementation
+
+* Work in: `web/src/features/scoreboard/SeriesChart.tsx`.
+* Reflow long expressions and JSX into the project's readable multi-line style without changing chart data, geometry, interactions, or labels.
+* Verify lint and the production build; do NOT change the rendered output.
+
 ## Acceptance
 
 * [x] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
