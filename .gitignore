@@ -11,6 +11,10 @@ __pycache__/
 *.dump
 *.dump.sha256
 
+# AI dirs
+.claude
+.codex
+
 # Data
 data/raw/TIGER/*
 !data/raw/TIGER/README.md

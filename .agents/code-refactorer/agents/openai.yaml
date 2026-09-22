@@ -1,0 +1,3 @@
+interface:
+  display_name: "Code Refactorer"
+  short_description: "Refactor scoped code without behavior changes"
