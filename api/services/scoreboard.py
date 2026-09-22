@@ -351,17 +351,16 @@ def build_latest_final_daily() -> ScoreboardDaily:
 
 
 def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
-    """Append final served grades to an already-resolved weekly board."""
+    """Build distinct weekly walk-forward and final served-day histories."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         daily_run_id, daily_rows = _latest_final_daily_rows(cur)
 
-    points = [
-        ScoreHistoryPoint(cadence="backtest_weekly", **point.model_dump())
+    weekly_points = [
+        ScoreHistoryPoint(**point.model_dump())
         for point in weekly.points
     ]
-    points.extend(
+    served_daily_points = [
         ScoreHistoryPoint(
-            cadence="served_daily",
             **{
                 **row,
                 "source_id": row["source"],
@@ -369,13 +368,13 @@ def build_history(weekly: ScoreboardWeekly) -> ScoreboardHistory:
             },
         )
         for row in daily_rows
-    )
+    ]
     return ScoreboardHistory(
         primary_source_id=weekly.primary_source_id,
         weekly_run_id=weekly.run_id,
         daily_run_id=daily_run_id,
-        boundary_date=min((row["delivery_date"] for row in daily_rows), default=None),
-        points=points,
+        weekly_points=weekly_points,
+        served_daily_points=served_daily_points,
         sources=[
             SourceDescriptor(**source.__dict__)
             for source in WEEKLY_SOURCE_DEFINITIONS + DAILY_SOURCE_DEFINITIONS

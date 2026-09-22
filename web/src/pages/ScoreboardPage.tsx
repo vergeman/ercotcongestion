@@ -58,14 +58,14 @@ export default function ScoreboardPage() {
               <ScoreboardControls state={controls} dispatch={dispatchControls} />
 
               <div className="sb-section-h label">
-                Track record · weekly backtest and served daily grades ({METRICS[controls.metric].label})
+                Track record · walk-forward weekly and served daily grades ({METRICS[controls.metric].label})
               </div>
               {history ? (
                 <SeriesChart
-                  points={history.points}
+                  weeklyPoints={history.weekly_points}
+                  servedDailyPoints={history.served_daily_points}
                   metric={controls.metric}
                   cutover={weekly.rtc_b_cutover}
-                  boundaryDate={history.boundary_date}
                 />
               ) : (
                 <div className="sb-empty label">track history could not be loaded.</div>
@@ -88,14 +88,13 @@ export default function ScoreboardPage() {
                 as="div"
                 className="sb-section-h label"
                 placement="bottom"
-                tip="Each cell is an independent hours-weighted pool. All weeks spans the full record, not an average of the two RTC+B cells."
+                tip="Each cell is an independent hours-weighted pool. Post-RTC+B includes final served grades; All weeks spans the full record."
               >
                 Track record · pooled pre/post-RTC+B (
                 {METRICS[controls.metric].label})
               </Tooltip>
               <div className="sb-section-copy">
-                Combines hour-weighted historical weekly (w) backtest scores
-                with daily (d) forecast grades.
+                Served days open in focus; scroll left for weekly context. Pooled cells combine them by scored hours.
               </div>
               <SplitTable weekly={weekly} metric={controls.metric} />
             </>

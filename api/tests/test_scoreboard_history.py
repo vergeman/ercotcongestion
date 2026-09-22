@@ -25,7 +25,7 @@ def _board(*points):
     )
 
 
-def test_history_orders_weekly_points_before_final_served_points(fake_pool):
+def test_history_returns_weekly_and_final_served_points_separately(fake_pool):
     fake_pool.cursor.queue([
         {"run_id": "served-v2"},
     ])
@@ -41,14 +41,17 @@ def test_history_orders_weekly_points_before_final_served_points(fake_pool):
 
     assert history.weekly_run_id == "walk-v1"
     assert history.daily_run_id == "served-v2"
-    assert history.boundary_date == date(2026, 7, 18)
-    assert all("source" not in point.model_dump() for point in history.points)
+    assert all("source" not in point.model_dump() for point in history.weekly_points)
+    assert all("source" not in point.model_dump() for point in history.served_daily_points)
     assert "primary_source" not in history.model_dump()
-    assert [(p.cadence, p.week, p.delivery_date) for p in history.points] == [
-        ("backtest_weekly", date(2026, 7, 4), None),
-        ("backtest_weekly", date(2026, 7, 11), None),
-        ("served_daily", None, date(2026, 7, 18)),
-        ("served_daily", None, date(2026, 7, 19)),
+    assert "points" not in history.model_dump()
+    assert [(p.week, p.delivery_date) for p in history.weekly_points] == [
+        (date(2026, 7, 4), None),
+        (date(2026, 7, 11), None),
+    ]
+    assert [(p.week, p.delivery_date) for p in history.served_daily_points] == [
+        (None, date(2026, 7, 18)),
+        (None, date(2026, 7, 19)),
     ]
 
 
@@ -68,8 +71,8 @@ def test_history_keeps_backtest_when_no_final_grade_exists(fake_pool):
     history = scoreboard_service.build_history(_board(_weekly(date(2026, 7, 11))))
 
     assert history.daily_run_id is None
-    assert history.boundary_date is None
-    assert [p.cadence for p in history.points] == ["backtest_weekly"]
+    assert history.served_daily_points == []
+    assert [p.week for p in history.weekly_points] == [date(2026, 7, 11)]
 
 
 def test_history_preserves_independent_weekly_and_daily_run_provenance(fake_pool):

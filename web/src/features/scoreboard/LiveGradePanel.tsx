@@ -6,7 +6,6 @@ import { fmtDay } from "./format";
 // grade and its comparator rows.
 
 // The graded currencies foregrounded for the latest final day. All
-// higher-is-better, so a positive model−persistence delta is the model winning.
 const LIVE_METRICS: { name: keyof DailyPoint; label: string }[] = [
   { name: "rank_spearman", label: "Rank ρ" },
   { name: "sign_agree", label: "Sign Agreement" },
@@ -54,7 +53,6 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
           const p = val(persistence, mk.name);
           const o = val(oracle, mk.name);
           const delta = m != null && p != null ? m - p : null;
-          // All LIVE_METRICS are higher-is-better; a non-negative delta wins.
           const good = delta == null ? null : delta >= 0;
           return (
             <div key={mk.name} className="sb-tile">
@@ -65,8 +63,7 @@ export function LiveGradePanel({ daily }: { daily: ScoreboardDaily }) {
               <div className="sb-tile__cmp">
                 {good != null && (
                   <span className="sb-delta" data-good={good}>
-                    {good ? "▲" : "▼"} vs Prior-day (Persistence){" "}
-                    {p == null ? "—" : p.toFixed(2)}
+                    {good ? "▲" : "▼"} vs Prior-day (Persistence) {p!.toFixed(2)}
                   </span>
                 )}
                 <span className="sb-ceiling">

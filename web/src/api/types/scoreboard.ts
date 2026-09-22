@@ -93,15 +93,10 @@ export interface ScoreboardDaily {
   sources: SourceDescriptor[];
 }
 
-// The `/scoreboard/summary` chart sequence. Weekly backtest and daily served
-// grades retain distinct date fields and provenance; the final track is the
-// only live cadence included.
-export type ScoreCadence = "backtest_weekly" | "served_daily";
-
+// One point in either separately returned Scoreboard history cadence.
 export interface ScoreHistoryPoint {
   source_id: string;
   series_id: string;
-  cadence: ScoreCadence;
   week: string | null;
   delivery_date: string | null;
   rank_spearman: number | null;
@@ -117,8 +112,8 @@ export interface ScoreboardHistory {
   primary_source_id: string;
   weekly_run_id: string;
   daily_run_id: string | null;
-  boundary_date: string | null;
-  points: ScoreHistoryPoint[];
+  weekly_points: ScoreHistoryPoint[];
+  served_daily_points: ScoreHistoryPoint[];
   sources: SourceDescriptor[];
 }
 

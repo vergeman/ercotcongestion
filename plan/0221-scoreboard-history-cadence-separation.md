@@ -1,0 +1,62 @@
+# 0221 - scoreboard-history-cadence-separation
+
+Type: fix
+Branch: fix/0221-scoreboard-history-cadence-separation
+
+## Goal
+
+* Return weekly walk-forward and final served-daily Scoreboard histories as distinct API series.
+* Render the two cadences as separate paths in one horizontally scrollable chart with fixed spacing per calendar day.
+* Keep the latest served-grade card's model, persistence, and Oracle values clear and separate.
+
+## Context
+
+* The 0219 backfill correctly replaces only `scoreboard_daily` metric values using each forecast's immutable served SF artifact; it does not modify forecasts, SF artifacts, weekly scores, API code, or web code.
+* `ScoreboardHistory` currently flattens `scoreboard_weekly` and every final `scoreboard_daily` row into `points`, while `SeriesChart` ignores `cadence`, gives each point equal x-spacing, and joins a source across the weekly/daily boundary.
+* More repaired daily rows made this pre-existing presentation defect visible; daily grades are not weekly walk-forward observations and must not be presented as one continuous track.
+* Rank Spearman may mathematically be negative, while Sign Agreement and Top-Decile Hit are non-negative proportions; current stored persistence values are non-negative.
+
+## Approach
+
+### Commit 1 — Make history cadence explicit in the API contract
+
+* Work in: `api/schemas/scoreboard.py`, `api/services/scoreboard.py`, `api/tests/test_scoreboard_history.py`, and `api/tests/test_scoreboard_summary.py`.
+* Entry point / primary change: replace the flattened `ScoreboardHistory.points` response field with distinct `weekly_points` and `served_daily_points` collections, retaining `weekly_run_id`, `daily_run_id`, and source descriptors.
+* Build `weekly_points` exclusively from the already-resolved `ScoreboardWeekly.points`; build `served_daily_points` exclusively from horizon-1 rows for the independently selected latest daily run, ordered by delivery date and source.
+* Remove `cadence` and `boundary_date` when the separate collections make them redundant. Preserve each point's native date field (`week` or `delivery_date`) and source/series identity.
+* Preserve the existing availability behavior: a weekly board still returns history when there are no final daily grades, with an empty served-daily collection and `daily_run_id=None`.
+* Update API tests to assert no flattened history field exists, no H2 rows leak into served history, separate run provenance is retained, and weekly-only history remains valid.
+* Do NOT touch: `scoreboard_daily` values, the 0219 backfill, `grade_forecast_day`, `forecast_nodal`, `forecast_sf_artifact`, `scoreboard_weekly`, or score formulas.
+
+### Commit 2 — Render weekly and served history as separate Scoreboard sections
+
+* Work in: `web/src/api/types/scoreboard.ts`, `web/src/features/scoreboard/SeriesChart.tsx`, `web/src/pages/ScoreboardPage.tsx`, `web/src/features/scoreboard/LiveGradePanel.tsx`, relevant Scoreboard CSS, and focused web tests if the project has coverage for these components.
+* Entry point / primary change: pass `history.weekly_points` and `history.served_daily_points` separately to one chart rather than flattening them into one source sequence.
+* Make `SeriesChart` accept both cadence collections and render their paths separately on a fixed-per-day chronological x-axis. Size the newest viewport to roughly four weeks, open at the newest data, and use a visibly dashed bridge between the last weekly and first served observation without manufacturing daily values.
+* Keep source colors, metric controls, tooltips, and direct labels consistent across both paths. With no served grades, retain the weekly chart and omit the served marker/path.
+* Update page copy to describe one track-record chart with weekly walk-forward and served-daily paths.
+* In `LiveGradePanel`, retain the model, persistence, and Oracle values; color and arrow the model-versus-persistence direction without displaying the derived difference.
+* Use the Scoreboard's `[0, 1]` display range for all three screening metrics.
+* Do NOT alter the API's score values in the browser, coerce negative rank values, aggregate daily grades into weekly values, or re-run/backfill any data as part of this presentation fix.
+
+### Commit 3 — Verify the boundary and communicate the data contract
+
+* Work in: `docs/METRICS.md` and any Scoreboard copy that describes the chart history.
+* Document that weekly walk-forward scores and daily served grades are independent cadences and may use different run IDs; they are comparable only within their own score definitions and are deliberately displayed separately.
+* Confirm the 0219 served-SF explanation remains unchanged: daily source rows are projected through their exact stored served artifact, while weekly rows retain their walk-forward map contract.
+* Exercise the bundled `/scoreboard/summary` endpoint against a fixture or local board containing both cadences and inspect that each chart receives only its own date grain.
+
+### Commit 4 — Reformat the chart implementation
+
+* Work in: `web/src/features/scoreboard/SeriesChart.tsx`.
+* Reflow long expressions and JSX into the project's readable multi-line style without changing chart data, geometry, interactions, or labels.
+* Verify lint and the production build; do NOT change the rendered output.
+
+## Acceptance
+
+* [x] `/scoreboard/summary` returns separate weekly and served-daily history collections with independent run IDs; it no longer returns a cadence-mixed flat point sequence.
+* [x] Horizon-2 and non-selected daily-run rows never appear in the served-daily chart collection.
+* [x] A Scoreboard with only weekly rows renders the fixed-per-day scrollable chart without failure.
+* [x] With both datasets present, the UI renders one chart with separate paths, a visibly dashed weekly-to-served transition, and fixed daily spacing for both cadences.
+* [x] The latest live card colors the model-versus-persistence direction and displays the persistence score without a derived delta.
+* [x] Focused API tests and web lint/typecheck/build pass; database tables and values are unchanged by this work.
