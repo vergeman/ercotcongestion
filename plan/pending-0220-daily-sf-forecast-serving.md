@@ -19,6 +19,11 @@ Status: Preserved for possible future implementation; not currently scheduled
 * A daily SF fit is small relative to the full μ forecast: observed grading-time fits are roughly tens of seconds, while a full historical μ forecast replay is roughly 8–9 minutes per day/horizon. Map-only history should take hours serially; a faithful full forecast backfill can take days.
 * Stored model `E_mu` is restricted to the SF vocabulary served at the time. It cannot faithfully reconstruct daily-SF forecasts for constraints omitted by the old weekly matrix, so any complete counterfactual forecast history must rerun the μ forecast rather than merely multiply old `E_mu` by a new SF.
 * The existing weekly `map-v1` job also maintains Explorer geography and full map evaluation. This migration changes forecast-serving SF cadence only; it does not make that heavier Explorer pipeline daily or change the μ model's weekly geography-derived input features.
+* Sep. 14–20, 2026 is a material counterexample to treating daily cadence as an automatic fix: OOS SF R² was −0.139 while stability remained 0.680, because only 61.8% of realized absolute μ mass was represented by the prior fit. The largest omitted key, `215T215_1 | SGIDLIN8`, had zero positive-shadow-price hours in the preceding 240 days, then bound for 58 hours in the scored week. A daily refit could admit it only after it accumulated 25 prior binding hours; it cannot explain its first binding hours.
+
+### Decision gate — resolve before implementation
+
+Daily refits reduce the wait *after* a constraint crosses the 25-hour screen, but do not solve a genuinely novel or abruptly active constraint. They also repeatedly refit on nearly the same 240-day sample, which may add coefficient churn/noise without improving the first-day response. Before starting Commit 1, explicitly choose whether the objective remains daily cadence, or whether it should instead be a targeted novelty/admission policy (for example, an expedited but strongly regularized path for material new keys) while retaining weekly serving. The shadow evaluation must compare those options on: first-appearance/first-25-hour coverage, OOS reconstruction, coefficient stability, and downstream Scoreboard impact; do not promote daily cadence merely because it reduces scheduled-refresh latency.
 
 ## Approach
 
