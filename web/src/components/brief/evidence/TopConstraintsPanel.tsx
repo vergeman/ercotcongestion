@@ -41,7 +41,7 @@ export default function TopConstraintsPanel({
               <col className="an-col-constraint" />
               <col className="an-col-zone" />
               <col className="an-col-kv" />
-              <col className="an-col-rank" />
+              <col className="an-col-rank an-col-forecast-rank" />
               <col className="an-col-money" />
               <col className="an-col-money" />
               {settled && (
@@ -52,10 +52,10 @@ export default function TopConstraintsPanel({
                 </>
               )}
               <col className="an-col-history" />
-              <col className="an-col-history" />
+              <col className="an-col-history an-col-history-bars" />
             </colgroup>
             <thead>
-              <tr className="an-table__groups">
+              <tr className="an-table__groups an-table__desktop-groups">
                 <th colSpan={4} />
                 <th className="an-table__forecast" colSpan={3}>
                   Forecast
@@ -67,12 +67,24 @@ export default function TopConstraintsPanel({
                 )}
                 <th colSpan={2}>30-day history</th>
               </tr>
+              <tr className="an-table__groups an-table__mobile-groups">
+                <th colSpan={2} />
+                <th className="an-table__forecast" colSpan={2}>
+                  Forecast
+                </th>
+                {settled && (
+                  <th className="an-table__split an-table__settled" colSpan={3}>
+                    DAM settled
+                  </th>
+                )}
+                <th>30-day history</th>
+              </tr>
               <tr>
                 <th>#</th>
                 <th>Constraint</th>
-                <th>Zone</th>
-                <th>kV</th>
-                <th>Rank</th>
+                <th className="an-table__zone">Zone</th>
+                <th className="an-table__kv">kV</th>
+                <th className="an-table__forecast-rank">Rank</th>
                 <th>
                   <span className="an-table__mu">μ</span> peak
                 </th>
@@ -93,7 +105,7 @@ export default function TopConstraintsPanel({
                 <th>
                   Σ<span className="an-table__mu">μ</span> p10–p90
                 </th>
-                <th>
+                <th className="an-table__history-bars">
                   Σ<span className="an-table__mu">μ</span> each day
                 </th>
               </tr>
@@ -119,9 +131,13 @@ export default function TopConstraintsPanel({
                       {row.constraint_key}
                     </button>
                   </td>
-                  <td>{zoneLabel(row.zone)}</td>
-                  <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
-                  <td>{row.forecast_rank ?? "—"}</td>
+                  <td className="an-table__zone">{zoneLabel(row.zone)}</td>
+                  <td className="an-table__kv">
+                    {row.kv_max == null ? "—" : Math.round(row.kv_max)}
+                  </td>
+                  <td className="an-table__forecast-rank">
+                    {row.forecast_rank ?? "—"}
+                  </td>
                   <td>{usd(row.forecast_peak, 2)}</td>
                   <td>{usd(row.forecast_total, 2)}</td>
                   {settled && (
@@ -151,7 +167,7 @@ export default function TopConstraintsPanel({
                       mark={settled ? row.settled_total : row.forecast_total}
                     />
                   </td>
-                  <td>
+                  <td className="an-table__history-bars">
                     <HistoryBars values={row.settled_history} />
                   </td>
                 </tr>

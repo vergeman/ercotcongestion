@@ -205,6 +205,7 @@
 .an-empty { margin: 40px 0; color: var(--text-secondary); font-family: var(--font-label); }
 @keyframes an-facts-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .an-loading-indicator, .an-facts { animation: none; } }
+.an-table__mobile-groups { display: none; }
 @media (max-width: 700px) {
   .an-hero__frame { min-height: 0; border: 0; background: transparent; }
   .an-hero__frame::after { content: none; }
@@ -216,4 +217,38 @@
   .an-grade__cards { grid-template-columns: 1fr; }
   .an-grade-card { min-height: 0; }
 }
-@media (max-width: 640px) { .an-date-picker { align-items: flex-start; flex-direction: column; } .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; } .an-main { width: min(100% - 24px, 960px); padding-top: 28px; } .an-brief-loader { min-height: calc(100dvh - var(--header-h) - 56px); } .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; } }
+@media (max-width: 640px) {
+  .an-date-picker { align-items: flex-start; flex-direction: column; }
+  .an-day-controls { width: 100%; grid-template-columns: 28px minmax(0, 1fr) 28px 28px; column-gap: 8px; }
+  .an-main { width: min(100% - 24px, 960px); padding-top: 28px; }
+  .an-brief-loader { min-height: calc(100dvh - var(--header-h) - 56px); }
+  .an-table-wrap:has(.an-table--standouts-nodes) { overflow-x: auto; }
+  .an-table--nodes { width: 100%; min-width: 100%; }
+  .an-table--nodes--settled .an-col-rank { width: 5%; }
+  .an-table--nodes--settled .an-col-node { width: 23%; }
+  .an-table--nodes--settled .an-col-driver { width: 22%; }
+  .an-table--nodes--settled .an-col-share { width: 9%; }
+  .an-table--nodes--settled .an-col-money { width: 9%; }
+  .an-table--nodes--settled .an-col-history { width: 9%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-rank { width: 5%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-node { width: 30%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-driver { width: 28%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-share { width: 14%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-money { width: 15%; }
+  .an-table--nodes:not(.an-table--nodes--settled) .an-col-history { width: 8%; }
+
+  .an-table__mobile-groups { display: table-row; }
+  .an-table__desktop-groups,
+  .an-table__zone,
+  .an-table__kv,
+  .an-table__coverage,
+  .an-table__forecast-rank,
+  .an-table__hours,
+  .an-col-zone,
+  .an-col-kv,
+  .an-col-coverage,
+  .an-col-forecast-rank,
+  .an-col-hours,
+  .an-table__history-bars,
+  .an-col-history-bars { display: none; }
+}

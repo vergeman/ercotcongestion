@@ -46,25 +46,25 @@ export default function StandoutsPanel({
             <table className="an-table an-table--standouts">
               <colgroup>
                 <col className="an-standouts__constraint" />
-                <col className="an-standouts__zone" />
-                <col className="an-standouts__kv" />
-                <col className="an-standouts__rank" />
+                <col className="an-standouts__zone an-col-zone" />
+                <col className="an-standouts__kv an-col-kv" />
+                <col className="an-standouts__rank an-col-forecast-rank" />
                 <col className="an-standouts__peak" />
-                <col className="an-standouts__hours" />
+                <col className="an-standouts__hours an-col-hours" />
                 <col className="an-standouts__sum" />
                 {settled && (
                   <>
                     <col className="an-standouts__rank" />
                     <col className="an-standouts__peak" />
-                    <col className="an-standouts__hours" />
+                    <col className="an-standouts__hours an-col-hours" />
                     <col className="an-standouts__sum" />
                   </>
                 )}
                 <col className="an-standouts__whisker" />
-                <col className="an-standouts__bars" />
+                <col className="an-standouts__bars an-col-history-bars" />
               </colgroup>
               <thead>
-                <tr className="an-table__groups">
+                <tr className="an-table__groups an-table__desktop-groups">
                   <th colSpan={3} />
                   <th className="an-table__forecast" colSpan={4}>
                     Forecast
@@ -79,15 +79,27 @@ export default function StandoutsPanel({
                   )}
                   <th colSpan={2}>Settled vs its own 30 days</th>
                 </tr>
+                <tr className="an-table__groups an-table__mobile-groups">
+                  <th />
+                  <th className="an-table__forecast" colSpan={2}>
+                    Forecast
+                  </th>
+                  {settled && (
+                    <th className="an-table__split an-table__settled" colSpan={3}>
+                      DAM settled
+                    </th>
+                  )}
+                  <th>Settled vs its own 30 days</th>
+                </tr>
                 <tr>
                   <th>Constraint</th>
-                  <th>Zone</th>
-                  <th>kV</th>
-                  <th>Rank</th>
+                  <th className="an-table__zone">Zone</th>
+                  <th className="an-table__kv">kV</th>
+                  <th className="an-table__forecast-rank">Rank</th>
                   <th>
                     <span className="an-table__mu">μ</span> peak
                   </th>
-                  <th>Hrs bind</th>
+                  <th className="an-table__hours">Hrs bind</th>
                   <th>
                     Σ<span className="an-table__mu">μ</span> $/MW
                   </th>
@@ -97,7 +109,7 @@ export default function StandoutsPanel({
                       <th>
                         <span className="an-table__mu">μ</span> peak
                       </th>
-                      <th>Hrs bind</th>
+                      <th className="an-table__hours">Hrs bind</th>
                       <th>
                         Σ<span className="an-table__mu">μ</span> $/MW
                       </th>
@@ -106,7 +118,7 @@ export default function StandoutsPanel({
                   <th>
                     Σ<span className="an-table__mu">μ</span> p10–p90, 30 d
                   </th>
-                  <th>
+                  <th className="an-table__history-bars">
                     Σ<span className="an-table__mu">μ</span> each of 30 days
                   </th>
                 </tr>
@@ -135,15 +147,21 @@ export default function StandoutsPanel({
                         {constraintName(row.constraint_key)}
                       </button>
                     </td>
-                    <td>{zoneLabel(row.zone)}</td>
-                    <td>{row.kv_max == null ? "—" : Math.round(row.kv_max)}</td>
-                    <td>{row.forecast_rank ?? "—"}</td>
+                    <td className="an-table__zone">{zoneLabel(row.zone)}</td>
+                    <td className="an-table__kv">
+                      {row.kv_max == null ? "—" : Math.round(row.kv_max)}
+                    </td>
+                    <td className="an-table__forecast-rank">
+                      {row.forecast_rank ?? "—"}
+                    </td>
                     <td>
                       {row.forecast_peak == null
                         ? "—"
                         : usd(row.forecast_peak, 2)}
                     </td>
-                    <td>{row.forecast_hours ?? "—"}</td>
+                    <td className="an-table__hours">
+                      {row.forecast_hours ?? "—"}
+                    </td>
                     <td>{usd(row.forecast_total, 2)}</td>
                     {settled && (
                       <>
@@ -155,7 +173,9 @@ export default function StandoutsPanel({
                             ? "—"
                             : usd(row.settled_peak, 2)}
                         </td>
-                        <td>{row.settled_hours ?? "—"}</td>
+                        <td className="an-table__hours">
+                          {row.settled_hours ?? "—"}
+                        </td>
                         <td>
                           {row.settled_total == null
                             ? "—"
@@ -173,7 +193,7 @@ export default function StandoutsPanel({
                         mark={settled ? row.settled_total : row.forecast_total}
                       />
                     </td>
-                    <td>
+                    <td className="an-table__history-bars">
                       <HistoryBars values={row.settled_history} />
                     </td>
                   </tr>
@@ -190,9 +210,9 @@ export default function StandoutsPanel({
             <table className="an-table an-table--standouts an-table--standouts-nodes">
               <colgroup>
                 <col className="an-standouts__node" />
-                <col className="an-standouts__zone" />
+                <col className="an-standouts__zone an-col-zone" />
                 <col className="an-standouts__driver" />
-                <col className="an-standouts__rank" />
+                <col className="an-standouts__rank an-col-forecast-rank" />
                 <col className="an-standouts__node-value" />
                 {settled && (
                   <>
@@ -201,10 +221,10 @@ export default function StandoutsPanel({
                   </>
                 )}
                 <col className="an-standouts__whisker" />
-                <col className="an-standouts__bars" />
+                <col className="an-standouts__bars an-col-history-bars" />
               </colgroup>
               <thead>
-                <tr className="an-table__groups">
+                <tr className="an-table__groups an-table__desktop-groups">
                   <th colSpan={3} />
                   <th className="an-table__forecast" colSpan={2}>
                     Forecast
@@ -219,11 +239,23 @@ export default function StandoutsPanel({
                   )}
                   <th colSpan={2}>Settled vs its own 30 days</th>
                 </tr>
+                <tr className="an-table__groups an-table__mobile-groups">
+                  <th colSpan={2} />
+                  <th className="an-table__forecast">
+                    Forecast
+                  </th>
+                  {settled && (
+                    <th className="an-table__split an-table__settled" colSpan={2}>
+                      DAM settled
+                    </th>
+                  )}
+                  <th>Settled vs its own 30 days</th>
+                </tr>
                 <tr>
                   <th>Node</th>
-                  <th>Zone</th>
+                  <th className="an-table__zone">Zone</th>
                   <th>Dominant driver</th>
-                  <th>Rank</th>
+                  <th className="an-table__forecast-rank">Rank</th>
                   <th>7×16 $/MWh</th>
                   {settled && (
                     <>
@@ -232,7 +264,7 @@ export default function StandoutsPanel({
                     </>
                   )}
                   <th>$/MWh p10–p90, 30 d</th>
-                  <th>$/MWh each of 30 days</th>
+                  <th className="an-table__history-bars">$/MWh each of 30 days</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,7 +292,7 @@ export default function StandoutsPanel({
                         )}
                       </button>
                     </td>
-                    <td>{zoneLabel(row.zone)}</td>
+                    <td className="an-table__zone">{zoneLabel(row.zone)}</td>
                     <td
                       className="an-table__driver"
                       title={row.dominant_driver ?? undefined}
@@ -270,7 +302,9 @@ export default function StandoutsPanel({
                         <small>{percent(row.driver_share)}</small>
                       )}
                     </td>
-                    <td>{row.forecast_rank ?? "—"}</td>
+                    <td className="an-table__forecast-rank">
+                      {row.forecast_rank ?? "—"}
+                    </td>
                     <td
                       className={
                         row.forecast_total >= 0
@@ -310,7 +344,7 @@ export default function StandoutsPanel({
                         mark={settled ? row.settled_total : row.forecast_total}
                       />
                     </td>
-                    <td>
+                    <td className="an-table__history-bars">
                       <HistoryBars values={row.settled_history} />
                     </td>
                   </tr>
@@ -323,4 +357,3 @@ export default function StandoutsPanel({
     </section>
   );
 }
-

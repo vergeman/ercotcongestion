@@ -41,15 +41,17 @@ export default function TopNodesPanel({
       )}
       {!loading && data?.available && !!data.rows?.length && (
         <div className="an-table-wrap">
-          <table className="an-table an-table--nodes">
+          <table
+            className={`an-table an-table--nodes${settled ? " an-table--nodes--settled" : ""}`}
+          >
             <colgroup>
               <col className="an-col-rank" />
               <col className="an-col-node" />
               <col className="an-col-zone" />
               <col className="an-col-driver" />
               <col className="an-col-share" />
-              <col className="an-col-share" />
-              <col className="an-col-rank" />
+              <col className="an-col-share an-col-coverage" />
+              <col className="an-col-rank an-col-forecast-rank" />
               <col className="an-col-money" />
               {settled && (
                 <>
@@ -59,10 +61,10 @@ export default function TopNodesPanel({
                 </>
               )}
               <col className="an-col-history" />
-              <col className="an-col-history" />
+              <col className="an-col-history an-col-history-bars" />
             </colgroup>
             <thead>
-              <tr className="an-table__groups">
+              <tr className="an-table__groups an-table__desktop-groups">
                 <th colSpan={6} />
                 <th className="an-table__forecast" colSpan={2}>
                   Forecast
@@ -74,14 +76,26 @@ export default function TopNodesPanel({
                 )}
                 <th colSpan={2}>30-day history</th>
               </tr>
+              <tr className="an-table__groups an-table__mobile-groups">
+                <th colSpan={4} />
+                <th className="an-table__forecast">
+                  Forecast
+                </th>
+                {settled && (
+                  <th className="an-table__split an-table__settled" colSpan={3}>
+                    DAM settled
+                  </th>
+                )}
+                <th>30-day history</th>
+              </tr>
               <tr>
                 <th>#</th>
                 <th>Node</th>
-                <th>Zone</th>
+                <th className="an-table__zone">Zone</th>
                 <th>Dominant driver</th>
                 <th>Share</th>
-                <th>Cov</th>
-                <th>Rank</th>
+                <th className="an-table__coverage">Cov</th>
+                <th className="an-table__forecast-rank">Rank</th>
                 <th>Peak</th>
                 {settled && (
                   <>
@@ -91,7 +105,7 @@ export default function TopNodesPanel({
                   </>
                 )}
                 <th>$/MWh p10–p90</th>
-                <th>$/MWh each day</th>
+                <th className="an-table__history-bars">$/MWh each day</th>
               </tr>
             </thead>
             <tbody>
@@ -118,7 +132,7 @@ export default function TopNodesPanel({
                       )}
                     </button>
                   </td>
-                  <td>{zoneLabel(row.zone)}</td>
+                  <td className="an-table__zone">{zoneLabel(row.zone)}</td>
                   <td
                     className="an-table__driver"
                     title={row.dominant_driver ?? undefined}
@@ -126,8 +140,10 @@ export default function TopNodesPanel({
                     {constraintName(row.dominant_driver)}
                   </td>
                   <td>{percent(row.driver_share)}</td>
-                  <td>{percent(row.coverage)}</td>
-                  <td>{row.forecast_rank ?? "—"}</td>
+                  <td className="an-table__coverage">{percent(row.coverage)}</td>
+                  <td className="an-table__forecast-rank">
+                    {row.forecast_rank ?? "—"}
+                  </td>
                   <td
                     className={
                       row.forecast_total >= 0
@@ -178,7 +194,7 @@ export default function TopNodesPanel({
                       mark={settled ? row.settled_total : row.forecast_total}
                     />
                   </td>
-                  <td>
+                  <td className="an-table__history-bars">
                     <HistoryBars values={row.settled_history} />
                   </td>
                 </tr>
