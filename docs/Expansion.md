@@ -11,7 +11,7 @@ links the market result to the protected condition:
 - monitored element, contingency, limit, modeled value, headroom/violation,
   shadow price, market, and timestamp;
 - implied SF, predicted `μ`, predicted contribution (`-SF × μ`), and the
-  strongest import/export settlement points; and
+  strongest negative/positive SF settlement points; and
 - a plain-language statement that SCED/DAM enforces a post-contingency flow
   inequality through changes in injections, rather than treating the constraint
   as a controllable line setting.

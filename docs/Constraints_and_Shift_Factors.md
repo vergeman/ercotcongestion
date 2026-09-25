@@ -21,7 +21,7 @@
 - [Congestion and Shift Factors](#congestion-and-shift-factors)
   - [Constraints and Shadow Prices](#constraints-and-shadow-prices)
   - [Shift Factors](#shift-factors)
-    - [Shift Factor Interpretation: sign, import/export, color](#shift-factor-interpretation-sign-importexport-color)
+    - [Shift Factor Interpretation: sign and color](#shift-factor-interpretation-sign-and-color)
     - [Worked example](#worked-example)
     - [The mixture](#the-mixture)
     - [Real example: WESTEX | BASE CASE](#real-example-westex--base-case)
@@ -217,8 +217,9 @@ ignore its map position. (And even a trustworthy SF still gets an untrustworthy
 
 ## 5. Reading one node across constraints
 
-**A shift factor is per-constraint. A node has no absolute "import/export"
-identity — only a sign relative to a specific element.** The same node reads
+**A shift factor is per-constraint. Its sign does not identify a node as an
+importer or exporter; it only gives sensitivity relative to a specific element
+and reference convention.** The same node reads
 differently on two constraints because each is a different electrical cut:
 
 | node | on `VALEXP\|BASE CASE` | on `HAINE__LA_PAL1_1\|MHARNED5` |
@@ -367,7 +368,7 @@ where:
 
 This gives the tool three complementary lenses:
 
-- The **map** supplies geographic orientation and communicates import/export lobes.
+- The **map** supplies geographic orientation and communicates negative/positive SF groups.
 - The **matrix** exposes the recovered coefficients and exact congestion arithmetic.
 - The **scorecard and playback history** show whether the model worked out of sample
   and how the result changed over time.
@@ -406,7 +407,7 @@ The project uses its own documented sign convention. Users should compare formul
 not informal labels such as “import” or “export,” when reconciling another source's
 convention.
 
-### Shift Factor Interpretation: sign, import/export, color
+### Shift Factor Interpretation: sign and color
 
 These are **implied shift factors (SF)** — recovered by ridge regression from the
 price identity `congestion = −Σ_c SF[c, sp] · μ[c]` (see `compute/sf_map/model/fit.py`),
@@ -421,15 +422,14 @@ out of the ridge solve are treated as numerical artifacts.
 
 For a single binding constraint (`μ > 0`), a node's congestion price is `−SF·μ`:
 
-| SF sign | Congestion price | Side | Physical meaning | Color |
-|---------|-----------------|------|------------------|-------|
-| **SF < 0** | **↑ high** (positive) | **import** | receiving end — *relieves* the constraint, but the pocket is still a **net importer** of power | 🔴 red |
-| **SF > 0** | **↓ low / negative** | **export** | sending end — *aggravates* the constraint; generation is trapped behind the limit | 🔵 blue |
+| SF sign | Congestion contribution when μ > 0 | Meaning | Color |
+|---------|-------------------------------------|---------|-------|
+| **SF < 0** | **positive** (`−SF·μ > 0`) | the modeled transfer changes monitored flow in the negative direction | magenta |
+| **SF > 0** | **negative** (`−SF·μ < 0`) | the modeled transfer changes monitored flow in the positive direction | teal |
 
-The key subtlety: **"relieves the constraint" and "net importer" are the same
-fact, seen at two different moments.** The shift factor is a *marginal*
-(derivative) quantity — what the *next* MW does. "Importing" describes the node's
-*current* state.
+The SF sign alone does not reveal actual power flow, net interchange, or whether
+a node or area is importing or exporting. Those require an operating point and
+flow or injection data beyond the SF matrix.
 
 ### Worked example
 
@@ -440,64 +440,41 @@ Node A has `SF = −0.5`.
 constraint drops by 0.5 MW. (Only half of that transfer routes through this
 element — topology sets the magnitude; the sign says it *relieves* the element.)
 
-**Why A relieves it:** picture A inside a load pocket fed by an import line that's
-the binding constraint.
-
-- 100 MW load, 40 MW local generation → the pocket **imports 60 MW** across the
-  line, which is at its 60 MW limit → binding.
-- Inject 1 MW of local generation at A → 41 MW local, **59 MW imported**. The
-  line carries less → flow drops → `SF_A < 0`.
-
-**Why A is still "importing":** after the injection the pocket still imports
-59 MW. A did **not** become an exporter — it imports *slightly less*. Local
-generation at A **substitutes for imported energy** that would otherwise have to
-cross the constraint; that's *why* it's valuable there, and it's only valuable
-because A was short (import-constrained) to begin with.
-
-> `SF < 0` at A  ⟺  injecting relieves the line  ⟺  A is a net importer  ⟺  A's
-> congestion price is high. All one fact.
-
-A would only flip to export (`SF > 0`) if you piled in enough local generation to
-exceed local load and push power *out* across the line.
+With `μ > 0`, this coefficient contributes `−(−0.5)·μ = +0.5μ` to the node's
+congestion price. It does not establish the node's load-generation balance or
+the direction of the pre-existing flow.
 
 ### The mixture
 
-A real constraint has two sides, so the physically typical signature is a
-**mixture**: some member nodes `SF < 0` (import, red) and some `SF > 0` (export,
-blue) — the constraint is the seam between a load pocket and a generation pocket.
-An all-one-sign constraint usually means the opposite lobe's nodes fell below the
-display floor or weren't geolocated, not that it doesn't exist. The meaningful
-signal is the **split**, because sign is measured against a reference.
+A constraint row commonly contains a **mixture** of negative and positive SFs.
+An all-one-sign display may mean the opposite-sign values fell below the display
+floor or were not geolocated. The meaningful signal is the sign split relative
+to the reference, without assigning either group an import/export state.
 
 ### Real example: WESTEX | BASE CASE
 
-A West Texas export interface (base-case / N-0 limit). At a glance the panel shows
-*only export* nodes — but the full SF row (1,043 nodes) has both lobes:
+A named West Texas export interface (base-case / N-0 limit). Its name describes
+the monitored interface, while the SF row itself contains both signs:
 
 | Lobe | count | peak \|SF\| | \|SF\|-weighted centroid |
 |------|-------|-------------|--------------------------|
-| export (SF>0) | 743 | **0.82** | 32.2, **−101.0** (West Texas wind/solar) |
-| import (SF<0) | 300 | **0.17** | 30.2, **−96.6** (central-east load) |
+| positive (SF>0) | 743 | **0.82** | 32.2, **−101.0** (West Texas wind/solar) |
+| negative (SF<0) | 300 | **0.17** | 30.2, **−96.6** (central-east load) |
 
-The export lobe is a tight cluster of West Texas renewables (`BAIRDWND`, `ANSON`,
-`RRC_WIND`, `*_SLR`) all at ~0.8; the import lobe is real but **~5× weaker and
-diffuse**, so no import node cracks the top-20-by-|SF| panel view. Hence "all
-constituents export" is a *display artifact*, not physics.
-
-Reading: this constrains **exports out of West Texas** (= imports into the east
-*from* the west) — the west is the trapped-generation **sending** end, not an
-importer. A constraint that limited imports *into* the west would put the strong
-lobe on the import (SF<0, red) side instead.
+The positive group is a tight cluster of West Texas renewables (`BAIRDWND`,
+`ANSON`, `RRC_WIND`, `*_SLR`) all at ~0.8; the negative group is **~5× weaker
+and diffuse**, so no negative node cracks the top-20-by-|SF| panel view. That
+display does not establish the operating flow direction.
 
 ### The SF is flat; the shadow price is the switch
 
-Injecting at an export node (SF>0) loads the constraint — that's what *makes* it a
-constraint (the limit caps that flow). But the SF itself does **not** decline to
+At a positive-SF node, the modeled transfer changes monitored flow in the
+positive direction. But the SF itself does **not** decline to
 zero or flip as you inject: it's a property of the wires (topology + reactances),
 constant regardless of loading. Flow rises linearly (slope = SF) until it hits the
 limit; at that instant the **shadow price μ jumps from 0 to positive**.
 
-| State | SF (export node) | μ | congestion = −SF·μ |
+| State | SF | μ | congestion = −SF·μ |
 |-------|------------------|---|--------------------|
 | below limit | +0.8 (flat) | 0 | 0 — costless |
 | binding | +0.8 (flat) | >0 | −0.8·μ < 0 — priced down |
@@ -508,13 +485,9 @@ trips), which is why constraints are `MonitoredElement + Contingency` pairs.
 
 ### Color convention
 
-**Import = red, export = blue**, everywhere in the app (map fill, legend, reach
-glow, constraint panel, node popover, detail card). This matches ISO price-map
-convention (high LMP = red/hot, low = blue/cool): import is scarce and expensive
-(red), export is trapped and cheap (blue). Note this is the *opposite* of a raw
-diverging colormap of the SF value itself (where positive would be red) — we
-color by the **import/export price meaning**, i.e. by the sign of `−SF`, so the
-SF-sign layers agree with the congestion fill by construction.
+Shift-factor views label and color the two groups by sign. Congestion views may
+use their own price-oriented palette because `congestion = −SF·μ`; the legend
+states which quantity is being colored.
 
 
 ## Constraint contribution and nodal congestion
