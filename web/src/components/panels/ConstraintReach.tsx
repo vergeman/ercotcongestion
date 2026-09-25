@@ -39,9 +39,11 @@ export function SignSplit({ negative, positive }: { negative: number; positive: 
 export function MemberList({
   reach,
   onMemberHover,
+  showSignLabel = true,
 }: {
   reach: ConstraintReach | null;
   onMemberHover?: (sp: string | null) => void;
+  showSignLabel?: boolean;
 }) {
   if (!reach || reach.sps.length === 0)
     return <div className="cr-mem-msg">no located members</div>;
@@ -65,7 +67,8 @@ export function MemberList({
               className="cr-mem-sf mono"
               style={{ color: shiftFactorColor(s.sf) }}
             >
-              {negative ? "negative" : "positive"} {s.sf.toFixed(3)}
+              {showSignLabel && (negative ? "negative " : "positive ")}
+              {s.sf.toFixed(3)}
             </span>
           </li>
         );
@@ -88,7 +91,13 @@ export function Membership({
 }) {
   const { reach, loading } = useConstraintReach(id);
   if (loading) return <div className="cr-mem-msg">loading members…</div>;
-  return <MemberList reach={reach} onMemberHover={onMemberHover} />;
+  return (
+    <MemberList
+      reach={reach}
+      onMemberHover={onMemberHover}
+      showSignLabel={false}
+    />
+  );
 }
 
 // The SF-sign key (docs/SF.md), inline so it reads next to the dipole/members it

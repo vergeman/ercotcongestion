@@ -63,7 +63,7 @@ export default function MatrixReadDetail({
     setNodeSort((cur) =>
       cur.key === key
         ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: nodeDefaultDir(key) }
+        : { key, dir: nodeDefaultDir() }
     );
 
   if (!selection) {
@@ -151,7 +151,6 @@ export default function MatrixReadDetail({
         .mrd-drv th { color: var(--text-muted); font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
         .mrd-drv th:first-child, .mrd-drv td:first-child { text-align: left; }
         .mrd-drv__key { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .mrd-drv__side { color: var(--text-muted); }
         .mrd-drv__clip { color: var(--text-muted); padding-left: 1px; }
         /* Clickable sort headers keep the header look, gaining a pointer and an
            accent when active. */

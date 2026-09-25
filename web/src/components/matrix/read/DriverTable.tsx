@@ -11,7 +11,6 @@ import {
 } from "./sort";
 
 function DriverRow({ term }: { term: AnalysisContributionTerm }) {
-  const side = term.shift_factor >= 0 ? "positive" : "negative";
   const mu = termMu(term);
   return (
     <tr>
@@ -19,7 +18,6 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
         {constraintName(term.constraint_key)}
       </td>
       <td className="mono">{term.binding_hours}h</td>
-      <td className="mrd-drv__side">{side}</td>
       <td
         className="mono"
         style={{ color: shiftFactorColor(term.shift_factor) }}

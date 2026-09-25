@@ -64,7 +64,6 @@ export default function OverviewPopover({
       </div>
       {meta && <div className="ov-pop-meta">{meta}</div>}
       {shown.map((m) => {
-        const negative = m.sf < 0;
         return (
           <div
             key={m.key}
@@ -75,7 +74,7 @@ export default function OverviewPopover({
             <span className="ov-chip" style={{ background: colors.byType[m.type] ?? colors.untyped }} />
             <span className="ov-ck">{m.key}</span>
             <span className="ov-role" style={{ color: shiftFactorColor(m.sf) }}>
-              {negative ? "negative" : "positive"} {m.sf.toFixed(2)}
+              {m.sf.toFixed(2)}
             </span>
             <span className="ov-bh">{m.bh ?? "—"}h</span>
           </div>

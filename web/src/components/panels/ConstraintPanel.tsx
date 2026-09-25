@@ -6,7 +6,6 @@ import {
   ConstraintReachStyles,
   SignSplit,
   Membership,
-  SfDipoleLegend,
 } from "./ConstraintReach";
 
 // Daily constraint ranking shared by the map and Brief detail views.
@@ -83,7 +82,6 @@ export default function ConstraintPanel({
       <div className="cp-caption">
         Ranked by <b>contribution</b> = shadow-price mass × SF reach (how much a
         constraint drives the day's congestion).
-        <SfDipoleLegend />
       </div>
 
       {!loading && !ranked && (
@@ -103,7 +101,7 @@ export default function ConstraintPanel({
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day shadow-price mass: Σ |μ| across its hours. Predicted hourly E[μ] = P(bind) × E[μ | bind]; Realized μ is ERCOT's published DAM shadow price.">μ mass</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day SF reach: Σ |SF| across all settlement points. It comes from the fitted structural shift-factor map.">SF reach</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
-          <Tooltip className="cp-ch" tabIndex={-1} tip="Negative SF (soft magenta) and positive SF (teal), split by node share">SF sign</Tooltip>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="Node share split by SF sign">Split</Tooltip>
           <span />
         </div>
       )}
