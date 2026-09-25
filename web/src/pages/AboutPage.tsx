@@ -216,14 +216,12 @@ export default function AboutPage() {
           </p>
           <ul>
             <li>
-              <code>SF &lt; 0</code>: the red, import side: a receiving load
-              pocket, where congestion increases the price to attract
-              generation.
+              <code>SF &lt; 0</code>: the negative side. With a positive shadow
+              price, this sign contributes positive congestion.
             </li>
             <li>
-              <code>SF &gt; 0</code>: the blue, export side: generation is
-              trapped behind a limit, so congestion lowers price, sometimes
-              below zero.
+              <code>SF &gt; 0</code>: the positive side. With a positive shadow
+              price, this sign contributes negative congestion.
             </li>
           </ul>
           <p>

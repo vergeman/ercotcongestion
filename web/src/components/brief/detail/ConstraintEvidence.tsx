@@ -1,7 +1,7 @@
 import type { StandoutRow, TopConstraintRow } from "../../../api/types";
 import { rankMovement, usd, zoneLabel } from "../../../lib/format";
 import {
-  Dipole,
+  SignSplit,
   MemberList,
   SfDipoleLegend,
 } from "../../panels/ConstraintReach";
@@ -35,10 +35,10 @@ export function ConstraintEvidence({
   t?: Date;
 }) {
   // The constraint's SF reach — the located member nodes it drives and the
-  // import↔export dipole they form — is the same evidence the map's Constraints
+  // negative/positive split they form — is the same evidence the map's Constraints
   // sidebar shows; both read it through the shared reach hook/cache.
   const { reach, loading } = useConstraintReach(row.constraint_key, REACH_K, t);
-  const { imp, exp } = dipoleCounts(reach);
+  const { negative, positive } = dipoleCounts(reach);
   return (
     <>
       <div className="bdp-kv">
@@ -115,11 +115,11 @@ export function ConstraintEvidence({
       />
       <div className="bdp-reach">
         <span className="bdp-section-title">
-          Grid reach · import ↔ export{" "}
+          Grid reach · negative ↔ positive{" "}
           {reach && !loading && <em>{reach.sps.length} located</em>}
         </span>
         <div className="bdp-reach__dipole">
-          <Dipole imp={imp} exp={exp} />
+          <SignSplit negative={negative} positive={positive} />
         </div>
         {loading ? (
           <div className="cr-mem-msg">loading members…</div>

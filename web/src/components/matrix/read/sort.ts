@@ -17,14 +17,14 @@ export interface NodeSort {
 
 export const NODE_COLUMNS: Array<{ key: NodeSortKey; label: string; title: string }> = [
   { key: "binding", label: "bind", title: "Hours the constraint bound on the delivery day." },
-  { key: "side", label: "side", title: "Import (SF<0) or export (SF≥0)." },
+  { key: "side", label: "sign", title: "Negative (SF<0) or positive (SF≥0)." },
   { key: "sf", label: "SF", title: "Implied shift factor; sorts by |SF|. * = pinned at the fit's clip." },
   { key: "mu", label: "μ", title: "Constraint shadow price this hour ($/MWh)." },
   { key: "contribution", label: "$/MWh", title: "This node's congestion from the constraint (−SF·μ); sorts by magnitude." },
 ];
 
 // Bigger sorts first under descending. SF and $/MWh key off magnitude (the
-// driver/exposure strength); side keys off the SF sign so imports and exports
+// driver/exposure strength); side keys off the SF sign so negative and positive values
 // group together.
 export function nodeSortValue(term: AnalysisContributionTerm, key: NodeSortKey): number {
   switch (key) {

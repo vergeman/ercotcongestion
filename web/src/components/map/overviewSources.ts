@@ -160,11 +160,11 @@ export function buildOverviewSources(overview: MapOverview | null): OverviewSour
     const props = { constraint_key: c.constraint_key };
 
     if (c.ctype === "gtc") {
-      const importPole = pole(nodes, -1);
-      const exportPole = pole(nodes, 1);
+      const negativePole = pole(nodes, -1);
+      const positivePole = pole(nodes, 1);
       const axis =
-        importPole && exportPole
-          ? { a: importPole, b: exportPole }
+        negativePole && positivePole
+          ? { a: negativePole, b: positivePole }
           : oneSidedAxis(nodes);
       if (axis) {
         gtcAxis.push({

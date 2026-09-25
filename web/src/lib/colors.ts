@@ -148,12 +148,12 @@ export function congestionColor(
   return rgbMix(mid, t > 0 ? pos : neg, Math.abs(t));
 }
 
-// Shift-factor roles use a separate import/export palette.
-export const SF_IMPORT_COLOR = "#d382ae";
-export const SF_EXPORT_COLOR = "#4aa892";
+// Shift-factor signs use a separate negative/positive palette.
+export const SF_NEGATIVE_COLOR = "#d382ae";
+export const SF_POSITIVE_COLOR = "#4aa892";
 
 export function shiftFactorColor(sf: number): string {
-  return sf < 0 ? SF_IMPORT_COLOR : SF_EXPORT_COLOR;
+  return sf < 0 ? SF_NEGATIVE_COLOR : SF_POSITIVE_COLOR;
 }
 
 // Forecast error is forecast minus realized congestion.

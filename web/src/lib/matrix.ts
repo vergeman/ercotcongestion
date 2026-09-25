@@ -51,8 +51,7 @@ export function matrixContribution(sf: number | null, mu: number | null): number
 
 export function matrixValueColor(value: number | null, maxAbs: number): string {
   if (value == null || maxAbs <= 0) return "var(--bg-surface)";
-  // The Matrix's SF convention is export/+ → blue and import/− → red, the
-  // inverse of the congestion map's import/+ convention.
+  // The Matrix's SF convention is positive → blue and negative → red.
   return congestionColor(-value / maxAbs);
 }
 

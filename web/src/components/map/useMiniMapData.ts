@@ -50,7 +50,7 @@ export type MiniMapProps =
       basis: "forecast" | "settled";
     }
   | (FootprintCommon & {
-      // A constraint's SF-reach members, coloured by import/export pole.
+      // A constraint's SF-reach members, coloured by sign.
       mode: "constraint";
       // Matrix passes its already-fetched reach; Brief omits it and this fetches.
       reach?: ConstraintReach | null;

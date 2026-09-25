@@ -11,7 +11,7 @@ import {
 } from "./sort";
 
 function DriverRow({ term }: { term: AnalysisContributionTerm }) {
-  const side = term.shift_factor >= 0 ? "export" : "import";
+  const side = term.shift_factor >= 0 ? "positive" : "negative";
   const mu = termMu(term);
   return (
     <tr>

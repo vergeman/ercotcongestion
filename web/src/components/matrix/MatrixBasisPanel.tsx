@@ -1,11 +1,11 @@
 import { constraintName, usd } from "../../lib/format";
 import type { BasisResult, BasisRow } from "../../lib/basis";
 
-// Vivid import/export hues for the shift-factor columns. The app's soft SF role
+// Vivid negative/positive hues for the shift-factor columns. The app's soft SF
 // palette (lib/colors.ts) read as washed-out here, so this table uses fully
-// saturated versions of the same import-magenta / export-teal identity.
-const SF_IMPORT_STRONG = "#e0308f"; // SF < 0 — import (price ↑)
-const SF_EXPORT_STRONG = "#0fa588"; // SF ≥ 0 — export (price ↓)
+// saturated versions of the same magenta/teal identity.
+const SF_NEGATIVE_STRONG = "#e0308f";
+const SF_POSITIVE_STRONG = "#0fa588";
 
 // 0139/0006 — the Basis lens: a full-screen, two-node congestion basis, driven
 // by the sidebar node search. Slot A and slot B are each filled by a single
@@ -34,7 +34,7 @@ interface Props {
 
 function sfCell(value: number | null) {
   if (value == null) return <td className="mbp-drv__sf mbp-drv__sf--absent">·</td>;
-  return <td className="mbp-drv__sf mono" style={{ color: value < 0 ? SF_IMPORT_STRONG : SF_EXPORT_STRONG }}>{value.toFixed(3)}</td>;
+  return <td className="mbp-drv__sf mono" style={{ color: value < 0 ? SF_NEGATIVE_STRONG : SF_POSITIVE_STRONG }}>{value.toFixed(3)}</td>;
 }
 
 function DecompRow({ row }: { row: BasisRow }) {

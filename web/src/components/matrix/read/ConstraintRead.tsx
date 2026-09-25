@@ -4,7 +4,7 @@ import type {
   ConstraintReach,
 } from "../../../api/types";
 import {
-  Dipole,
+  SignSplit,
 } from "../../panels/ConstraintReach";
 import {
   dipoleCounts,
@@ -50,7 +50,7 @@ export function ConstraintRead({
   // reach (0144) — the same day the rest of the Read pane describes.
   const cursorTs = timestamp ?? undefined;
   const { reach, loading } = useFullConstraintReach(selectionKey, cursorTs);
-  const { imp, exp } = dipoleCounts(reach);
+  const { negative, positive } = dipoleCounts(reach);
   const name = constraintName(selectionKey);
   const contingency = selectionKey.includes("|")
     ? selectionKey.split("|")[1]
@@ -62,10 +62,10 @@ export function ConstraintRead({
 
   const sps = reach?.sps ?? [];
   const mapReach = useMemo(() => footprintReach(reach), [reach]);
-  const importLobe = [...sps]
+  const negativeLobe = [...sps]
     .filter((sp) => sp.sf < 0)
     .sort((a, b) => a.sf - b.sf);
-  const exportLobe = [...sps]
+  const positiveLobe = [...sps]
     .filter((sp) => sp.sf >= 0)
     .sort((a, b) => b.sf - a.sf);
 
@@ -128,11 +128,11 @@ export function ConstraintRead({
                 numeric
               />
               <Fact
-                label="Import / export"
+                label="Negative / positive"
                 value={
                   reach
-                    ? `${reach.import_members ?? imp} / ${
-                        reach.export_members ?? exp
+                    ? `${reach.negative_members ?? negative} / ${
+                        reach.positive_members ?? positive
                       }`
                     : "—"
                 }
@@ -150,7 +150,7 @@ export function ConstraintRead({
 
         <div className="mrd-reach">
           <span className="mrd-section-title">
-            Grid reach · import ↔ export{" "}
+            Grid reach · negative ↔ positive{" "}
             {reach && !loading && (
               <em>
                 {reach.sps.length} located
@@ -159,14 +159,14 @@ export function ConstraintRead({
             )}
           </span>
           <div className="mrd-reach__dipole">
-            <Dipole imp={imp} exp={exp} />
+            <SignSplit negative={negative} positive={positive} />
           </div>
           {loading ? (
             <div className="cr-mem-msg">loading members…</div>
           ) : (
             <div className="mrd-lobes">
-              <MemberLobe title="Import · SF < 0" members={importLobe} />
-              <MemberLobe title="Export · SF ≥ 0" members={exportLobe} />
+              <MemberLobe title="Negative · SF < 0" members={negativeLobe} />
+              <MemberLobe title="Positive · SF ≥ 0" members={positiveLobe} />
             </div>
           )}
         </div>
