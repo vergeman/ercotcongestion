@@ -8,8 +8,7 @@ import { NodeChip, SfSign } from "./chips";
 // (the map still glows the full footprint). 0147.
 const REACH_ROW_CAP = 20;
 
-// Which nodes this constraint drives, split into the import (SF<0) and export
-// (SF>0) ends (docs/SF.md).
+// Which nodes this constraint drives, split by SF sign.
 export function ReachBody({
   reach,
   onHoverMember,
@@ -21,8 +20,8 @@ export function ReachBody({
   onSelectMember?: (sp: string) => void;
   valueMode?: "forecast" | "ercot";
 }) {
-  const importEnd = reach.sps.filter((s) => s.sf < 0).length;
-  const exportEnd = reach.sps.filter((s) => s.sf >= 0).length;
+  const negativeCount = reach.sps.filter((s) => s.sf < 0).length;
+  const positiveCount = reach.sps.filter((s) => s.sf >= 0).length;
   const shadowPrice = valueMode === "ercot" ? reach.dam_mu : reach.shadow_price;
   const shadowPriceLabel =
     valueMode === "ercot" ? "ERCOT DAM Shadow Price" : "Forecast Shadow Price";
@@ -39,8 +38,8 @@ export function ReachBody({
         value={reach.binding_hours != null ? `${reach.binding_hours} h` : null}
       />
       <Row label={shadowPriceLabel} value={fmtCong(shadowPrice)} />
-      <Row label="Import nodes" value={importEnd} />
-      <Row label="Export nodes" value={exportEnd} />
+      <Row label="Negative SF nodes" value={negativeCount} />
+      <Row label="Positive SF nodes" value={positiveCount} />
       <div
         className="dc-drivers dc-drivers--reach"
         onMouseLeave={() => onHoverMember?.(null)}

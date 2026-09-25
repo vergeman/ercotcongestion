@@ -241,7 +241,7 @@ export default function BriefDetailPanel({
         .bdp-whisker__bottom .bdp-whisker__tick { top: 0; }
         .bdp-whisker__tick em { font-style: normal; color: var(--text-muted); font-family: var(--font-sans); font-size: 9px; letter-spacing: .02em; text-transform: uppercase; }
         .bdp-whisker__tick--mark { color: var(--danger, #d94444); font-weight: 700; }
-        /* Signed daily bars — up (positive/export) / down (negative/import) from
+        /* Signed daily bars — up (positive) / down (negative) from
            a zero baseline, with a left y-axis and today highlighted. */
         .bdp-sbars { display: flex; align-items: stretch; gap: 8px; }
         .bdp-sbars__axis { position: relative; width: 42px; height: 56px; flex: 0 0 auto; border-right: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-mono); font-size: 9px; }

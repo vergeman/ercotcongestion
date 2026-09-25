@@ -68,11 +68,11 @@ export function useFullConstraintReach(id: string | null, t?: Date) {
 }
 
 export function dipoleCounts(reach: ConstraintReach | null) {
-  let imp = 0;
-  let exp = 0;
+  let negative = 0;
+  let positive = 0;
   for (const member of reach?.sps ?? []) {
-    if (member.sf < 0) imp += 1;
-    else exp += 1;
+    if (member.sf < 0) negative += 1;
+    else positive += 1;
   }
-  return { imp, exp };
+  return { negative, positive };
 }

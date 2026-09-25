@@ -60,7 +60,7 @@ export function HistoryWhisker({
 }
 
 // A compact diverging bar chart of the prior settled days: each bar grows up
-// (positive) or down (negative) from a zero baseline, so import nodes' negative
+// (positive) or down (negative) from a zero baseline, so negative
 // days render as real bars instead of collapsing to the floor. (The panel uses
 // its own larger SignedBars; this is the tiny inline table form.)
 export function HistoryBars({ values }: { values: number[] }) {

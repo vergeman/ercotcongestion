@@ -33,8 +33,8 @@ mu mass = sum over delivery-day hours of |hourly mu|
 SF reach = sum over all settlement points of |SF[constraint, node]|
 ```
 
-SF is the fitted shift-factor map. The absolute sum means import- and
-export-side effects do not cancel. SF reach is structural, so it is the same
+SF is the fitted shift-factor map. The absolute sum means negative- and
+positive-SF effects do not cancel. SF reach is structural, so it is the same
 for Predicted and Realized.
 
 ```text

@@ -1,7 +1,7 @@
 import type { ConstraintReach } from "../../api/types";
 import {
-  SF_EXPORT_COLOR,
-  SF_IMPORT_COLOR,
+  SF_NEGATIVE_COLOR,
+  SF_POSITIVE_COLOR,
   shiftFactorColor,
 } from "../../lib/colors";
 import { REACH_ROW_CAP, useConstraintReach } from "./constraintReachData";
@@ -9,34 +9,31 @@ import { REACH_ROW_CAP, useConstraintReach } from "./constraintReachData";
 // Shared constraint-structure primitives, used by BOTH the map's ranked
 // Constraints sidebar (ConstraintPanel, plan/0103) and the Brief's detail panel
 // (BriefDetailPanel, plan/0135). A constraint's "evidence" is the same on either
-// surface — the located member nodes it drives (/map/reach) and the import↔export
-// dipole those members form — so the fetch/cache, the two glyphs, and the SF
+// surface — the located member nodes it drives (/map/reach) and the negative/positive
+// split those members form — so the fetch/cache, the two glyphs, and the SF
 // legend live here once rather than being re-implemented per page.
 //
-// Colour: import/export is a structural polarity (docs/SF.md). Import (SF<0,
-// receiving/expensive) is soft magenta; export (SF>0, trapped/cheap) is teal.
+// Colour: negative SF is soft magenta; positive SF is teal.
 
-// The import↔export dipole as a compact bicolor gauge: soft magenta (import,
-// SF<0) vs teal (export, SF>0), split by located-node share, so a constraint
-// shows at a glance which way it pushes congestion.
-export function Dipole({ imp, exp }: { imp: number; exp: number }) {
-  const tot = imp + exp || 1;
+// The sign split as a compact bicolor gauge, divided by located-node share.
+export function SignSplit({ negative, positive }: { negative: number; positive: number }) {
+  const tot = negative + positive || 1;
   return (
     <span className="cr-dip">
       <span
         className="cr-dip-seg"
-        style={{ width: `${(imp / tot) * 100}%`, background: SF_IMPORT_COLOR }}
+        style={{ width: `${(negative / tot) * 100}%`, background: SF_NEGATIVE_COLOR }}
       />
       <span
         className="cr-dip-seg"
-        style={{ width: `${(exp / tot) * 100}%`, background: SF_EXPORT_COLOR }}
+        style={{ width: `${(positive / tot) * 100}%`, background: SF_POSITIVE_COLOR }}
       />
     </span>
   );
 }
 
 // The located member nodes of an already-fetched reach — the signed reach,
-// import ends (SF<0) then export ends (SF>0), each coloured by its pole. Pure:
+// negative values (SF<0) then positive values (SF>0), each coloured by sign. Pure:
 // the caller owns the fetch (via useConstraintReach), so this renders the same
 // list on either surface.
 export function MemberList({
@@ -52,7 +49,7 @@ export function MemberList({
   return (
     <ul className="cr-mem" role="list" onMouseLeave={() => onMemberHover?.(null)}>
       {reach.sps.slice(0, REACH_ROW_CAP).map((s) => {
-        const imp = s.sf < 0;
+        const negative = s.sf < 0;
         return (
           <li
             key={s.settlement_point}
@@ -68,7 +65,7 @@ export function MemberList({
               className="cr-mem-sf mono"
               style={{ color: shiftFactorColor(s.sf) }}
             >
-              {imp ? "import" : "export"} {s.sf.toFixed(3)}
+              {negative ? "negative" : "positive"} {s.sf.toFixed(3)}
             </span>
           </li>
         );
@@ -100,12 +97,12 @@ export function SfDipoleLegend() {
   return (
     <span className="cr-legend">
       <span className="cr-legend-item">
-        <span className="cr-dot" style={{ background: SF_IMPORT_COLOR }} />
-        SF&nbsp;&lt;&nbsp;0 · import (price ↑)
+        <span className="cr-dot" style={{ background: SF_NEGATIVE_COLOR }} />
+        SF&nbsp;&lt;&nbsp;0 · negative
       </span>
       <span className="cr-legend-item">
-        <span className="cr-dot" style={{ background: SF_EXPORT_COLOR }} />
-        SF&nbsp;&gt;&nbsp;0 · export (price ↓)
+        <span className="cr-dot" style={{ background: SF_POSITIVE_COLOR }} />
+        SF&nbsp;&gt;&nbsp;0 · positive
       </span>
     </span>
   );

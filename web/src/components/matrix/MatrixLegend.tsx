@@ -1,4 +1,4 @@
-import { SF_EXPORT_COLOR, SF_IMPORT_COLOR, congestionColor } from "../../lib/colors";
+import { SF_NEGATIVE_COLOR, SF_POSITIVE_COLOR, congestionColor } from "../../lib/colors";
 import type { MatrixValueMode } from "../../lib/matrix";
 
 interface Props {
@@ -12,25 +12,25 @@ function label(value: number, mode: MatrixValueMode): string {
 
 // The Detail (Read) lens's legend. Occupies the same header slot and the same
 // `.matrix-legend` footprint as MatrixLegend so toggling Detail↔SF never
-// resizes the sub-header, but keys the import/export shift-factor role palette
+// resizes the sub-header, but keys the negative/positive shift-factor palette
 // (magenta ↔ teal, docs/SF.md) the Read pane's reach lobes and driver column
 // are coloured by — a different axis from the SF grid's blue↔red congestion
 // scale, hence its own title/colours rather than reusing MatrixLegend.
 export function MatrixReachLegend() {
   return (
-    <div className="matrix-legend" aria-label="Shift-factor import/export legend">
+    <div className="matrix-legend" aria-label="Shift-factor sign legend">
       <div className="matrix-legend__title label">Grid reach</div>
       <div
         className="matrix-legend__bar"
         aria-hidden="true"
         style={{
-          background: `linear-gradient(to right, ${SF_IMPORT_COLOR}, var(--bg-surface), ${SF_EXPORT_COLOR})`,
+          background: `linear-gradient(to right, ${SF_NEGATIVE_COLOR}, var(--bg-surface), ${SF_POSITIVE_COLOR})`,
         }}
       />
       <div className="matrix-legend__ticks mono">
-        <span>import</span>
+        <span>negative</span>
         <span>0</span>
-        <span>export</span>
+        <span>positive</span>
       </div>
       <div className="matrix-legend__signs label">
         <span>SF &lt; 0 · price ↑</span>
@@ -58,8 +58,8 @@ export default function MatrixLegend({ mode, maxAbs }: Props) {
         <span>−{label(maxAbs, mode)}</span>
       </div>
       <div className="matrix-legend__signs label">
-        <span>Export / positive</span>
-        <span>Import / negative</span>
+        <span>Positive</span>
+        <span>Negative</span>
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 
 // A diverging bar chart for the trailing daily series: each bar grows up
-// (positive / export) or down (negative / import) from a zero baseline, so an
-// import node's negative days render as real bars instead of collapsing to the
+// positive or down for negative from a zero baseline, so negative days render
+// as real bars instead of collapsing to the
 // floor. Today's value is appended as a highlighted final bar; the y-axis shows
 // the true min/max and marks zero when the range crosses it.
 export function SignedBars({

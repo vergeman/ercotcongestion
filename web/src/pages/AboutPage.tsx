@@ -1,8 +1,24 @@
 import { Link } from "react-router-dom";
 import HeaderNav from "../components/layout/HeaderNav";
+import { CURATED_EVENTS } from "../lib/events";
+import { buildMapLink } from "../lib/mapLinks";
 import "./about-page.css";
 
 const introVideo = "/screenshots/ercot-congestion-intro.mp4";
+
+const caseStudyLinks = Object.fromEntries(
+  CURATED_EVENTS.map((event) => [
+    event.id,
+    buildMapLink({
+      view: "market",
+      data: event.suggested_view ?? "congestion",
+      t: new Date(event.cursor_ts),
+      ws: new Date(event.window_start),
+      we: new Date(event.window_end),
+      autoPlay: true,
+    }),
+  ]),
+);
 
 function Formula({ children }: { children: string }) {
   return (
@@ -216,14 +232,12 @@ export default function AboutPage() {
           </p>
           <ul>
             <li>
-              <code>SF &lt; 0</code>: the red, import side: a receiving load
-              pocket, where congestion increases the price to attract
-              generation.
+              <code>SF &lt; 0</code>: the negative side. With a positive shadow
+              price, this sign contributes positive congestion.
             </li>
             <li>
-              <code>SF &gt; 0</code>: the blue, export side: generation is
-              trapped behind a limit, so congestion lowers price, sometimes
-              below zero.
+              <code>SF &gt; 0</code>: the positive side. With a positive shadow
+              price, this sign contributes negative congestion.
             </li>
           </ul>
           <p>
@@ -350,7 +364,11 @@ export default function AboutPage() {
             in ERCOT history.
           </p>
           <article>
-            <h3>Far West Sign Flip: June 20–21, 2025</h3>
+            <h3>
+              <Link to={caseStudyLinks.farwest_diurnal_2025_jun20}>
+                Far West Sign Flip: June 20–21, 2025
+              </Link>
+            </h3>
             <p>
               Overnight, the Permian imported power, with congestion around{" "}
               <strong>+$34/MWh</strong>. By midday, <strong>5.6 GW</strong> of
@@ -371,7 +389,11 @@ export default function AboutPage() {
             </div>
           </article>
           <article>
-            <h3>Rabbit Hill: February 19–21, 2025</h3>
+            <h3>
+              <Link to={caseStudyLinks.rabbit_hill_2025_feb20}>
+                Rabbit Hill: February 19–21, 2025
+              </Link>
+            </h3>
             <p>
               A winter morning radial overload in an Austin suburb pushed local
               congestion to <strong>+$5,832/MWh</strong> at 7 a.m. on February
@@ -400,7 +422,11 @@ export default function AboutPage() {
             </div>
           </article>
           <article>
-            <h3>Winter Storm Fern: January 24–26, 2026</h3>
+            <h3>
+              <Link to={caseStudyLinks.winter_storm_fern_2026_jan24}>
+                Winter Storm Fern: January 24–26, 2026
+              </Link>
+            </h3>
             <p>
               A winter storm created system-wide extremes in which scarcity and
               congestion coincided. The widest congestion spread was{" "}

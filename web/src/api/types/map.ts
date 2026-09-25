@@ -177,8 +177,8 @@ export interface ConstraintReach {
   forecast_error: number | null;
   daily_mu_rank: number | null;
   daily_mu_sum: number | null;
-  import_members: number | null;
-  export_members: number | null;
+  negative_members: number | null;
+  positive_members: number | null;
   available: boolean;
   // `artifact_missing` means no daily artifact; `constraint_not_in_artifact`
   // means the day's fit does not contain this constraint.
@@ -220,8 +220,8 @@ export interface RankedConstraint {
   reach: number;
   n_members: number;
   ctype: string | null; // 'gtc' | 'transmission' | 'radial'
-  n_import: number;
-  n_export: number;
+  n_negative: number;
+  n_positive: number;
 }
 
 export interface RankedConstraints {

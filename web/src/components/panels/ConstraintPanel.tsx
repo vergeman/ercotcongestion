@@ -4,7 +4,7 @@ import Tooltip from "../ui/Tooltip";
 import { fmtMag, fmtNum } from "../../lib/format";
 import {
   ConstraintReachStyles,
-  Dipole,
+  SignSplit,
   Membership,
   SfDipoleLegend,
 } from "./ConstraintReach";
@@ -103,7 +103,7 @@ export default function ConstraintPanel({
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day shadow-price mass: Σ |μ| across its hours. Predicted hourly E[μ] = P(bind) × E[μ | bind]; Realized μ is ERCOT's published DAM shadow price.">μ mass</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Delivery-day SF reach: Σ |SF| across all settlement points. It comes from the fitted structural shift-factor map.">SF reach</Tooltip>
           <Tooltip className="cp-ch cp-ch-r" tabIndex={-1} tip="Member nodes above the |SF| floor">Nodes</Tooltip>
-          <Tooltip className="cp-ch" tabIndex={-1} tip="Import (SF<0, soft magenta) ↔ export (SF>0, teal) split by node share">Dipole</Tooltip>
+          <Tooltip className="cp-ch" tabIndex={-1} tip="Negative SF (soft magenta) and positive SF (teal), split by node share">SF sign</Tooltip>
           <span />
         </div>
       )}
@@ -138,7 +138,7 @@ export default function ConstraintPanel({
                   <span className="cp-daily-value mono">{fmtNum(c.mu_mass, 1)}</span>
                   <span className="cp-daily-value mono">{fmtNum(c.reach, 1)}</span>
                   <span className="cp-n mono">{c.n_members}</span>
-                  <Dipole imp={c.n_import} exp={c.n_export} />
+                  <SignSplit negative={c.n_negative} positive={c.n_positive} />
                 </button>
                 <button
                   type="button"

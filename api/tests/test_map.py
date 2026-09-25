@@ -327,7 +327,7 @@ def test_reach_signed_with_coords(client, fake_pool, monkeypatch):
     assert body["dam_mu"] == pytest.approx(12.0)
     assert body["forecast_error"] == pytest.approx(5.25)
     assert body["daily_mu_rank"] == 1 and body["daily_mu_sum"] == pytest.approx(18.25)
-    assert body["import_members"] == 1 and body["export_members"] == 1
+    assert body["negative_members"] == 1 and body["positive_members"] == 1
     assert body["ctype"] == "gtc" and body["n_rail"] == 4   # structural, from geo
     assert body["sf_oos_r2"] is None
     sps = body["sps"]
@@ -515,8 +515,8 @@ def test_ranked_predicted_orders_and_dipole(client, fake_pool, configured_run,
     assert aaa["n_members"] == 2
     assert aaa["ctype"] == "gtc"
     # dipole: one +SF node (N1) on the export side, one −SF node (N2) on the import
-    assert aaa["n_export"] == 1
-    assert aaa["n_import"] == 1
+    assert aaa["n_positive"] == 1
+    assert aaa["n_negative"] == 1
     # BBB unmatched in constraint_geo → null type, still ranked
     assert cs[1]["ctype"] is None
 
