@@ -238,8 +238,8 @@ def ranked(
             and sf != 0.0
             and coords.get(str(point)) is not None
         ]
-        imports = sum(sf < 0 for sf, _ in members)
-        exports = sum(sf > 0 for sf, _ in members)
+        negatives = sum(sf < 0 for sf, _ in members)
+        positives = sum(sf > 0 for sf, _ in members)
         rows.append(
             RankedConstraint(
                 constraint_id=key,
@@ -250,8 +250,8 @@ def ranked(
                 reach=float(reach.loc[key]),
                 n_members=len(members),
                 ctype=geo.get(key, {}).get("ctype"),
-                n_import=imports,
-                n_export=exports,
+                n_negative=negatives,
+                n_positive=positives,
             )
         )
     return RankedConstraints(

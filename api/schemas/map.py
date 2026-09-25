@@ -37,13 +37,10 @@ class MapFitMetadata(BaseModel):
 class SpExposure(BaseModel):
     """One constraint driving the queried node (a ``/map/exposures`` row).
 
-    ``sf`` is the signed exposure ($/MWh per $ of μ) — caveated, read it
-    against the response's window confidence.
+    ``sf`` is the signed exposure ($/MWh per $ of μ).
 
     ``contribution`` = ``-sf * mu`` is the constraint's actual $/MWh of this
-    node's congestion at the requested interval, and is what ``rank=contribution``
-    orders by; both it and ``mu`` are ``None`` under ``rank=sf``, which describes
-    structure and has no hour attached.
+    node's congestion at the requested interval
 
     ``sf_clipped`` marks a cell the ridge fit pinned at its ``SF_ABS_CAP`` of
     1.0 (``compute/sf/fit.py``). It is a bound, not a measurement.
@@ -62,21 +59,11 @@ class SpExposure(BaseModel):
 class ExposuresResponse(BaseModel):
     """Top-k constraints driving one node — the node-explorer click.
 
-    ``node_max_abs_sf`` = ``max_c |SF[sp,c]|`` is the stable, unsigned headline
-    (spec §6); the per-constraint signed exposures follow.
+    ``node_max_abs_sf`` = ``max_c |SF[sp,c]|``
 
-    ``rank`` names the basis the list is ordered on
+    ``contribution`` (default): ordered by ``|-SF * mu|`` with ``mu = 0``
 
-    ``contribution`` (default): what actually drove the node at ``t``, ordered
-      by ``|-SF * mu|`` with ``mu = 0`` rows dropped. Matches
-      ``/analysis/node``'s ``terms``. ``node_gross_total`` is the sum of all
-      absolute contributions; it is the denominator for a bounded
-      driver-magnitude share, so opposing signs do not turn a near-zero net
-      into an arbitrary percentage.
-
-    ``sf``: structural exposure, ordered by ``|SF|`` over every constraint in
-      the day's fit including those that never bound. ``node_gross_total`` is
-      ``None``.
+    ``sf``: structural exposure, ordered by ``|SF|``
 
     """
 
@@ -102,9 +89,6 @@ class ExposuresResponse(BaseModel):
 
 class ReachSp(BaseModel):
     """One node a constraint drives (a ``/map/reach`` row).
-
-    Signed ``sf`` splits the driven nodes into the constraint's import and
-    export ends (the congestion dipole); ``lat``/``lon`` place the node.
     """
 
     settlement_point: str
@@ -117,18 +101,6 @@ class ReachSp(BaseModel):
 
 class ConstraintReach(BaseModel):
     """Top-k nodes one constraint drives — the constraint click.
-
-    ``sps`` carries the signed reach so the client can glow the positive- and
-    negative-SF ends opposite , placing each end from the per-node coords.
-
-    Served from the requested day's SF artifact — see ``ExposuresResponse`` for
-    what that means for ``window_start``/``window_end`` and
-    ``sf_oos_r2``/``sf_stability``.
-
-    ``full=True`` switches the query to the unbounded reach (bounded only
-    by ``min_frac``) instead of a display top-k;
-
-
     """
 
     constraint_key: str
@@ -152,11 +124,11 @@ class ConstraintReach(BaseModel):
     dam_mu: float | None = None
     forecast_error: float | None = None
     # Daily forecast-μ magnitude and rank from the served artifact's complete
-    # constraint vocabulary, plus the unfiltered nonzero-SF dipole counts.
+    # constraint vocabulary, plus the unfiltered nonzero-SF sign counts.
     daily_mu_rank: int | None = None
     daily_mu_sum: float | None = None
-    import_members: int | None = None
-    export_members: int | None = None
+    negative_members: int | None = None
+    positive_members: int | None = None
     # False means the requested key has no represented SF reach on the requested
     # day (or the day has no artifact); callers can distinguish it from an empty
     # visual selection.
@@ -230,9 +202,8 @@ class RankedConstraint(BaseModel):
 
     ``congestion_contribution = mu_mass · reach`` is the sort key (descending);
 
-    ``rank`` is its 1-based position. ``n_import``/``n_export`` carry the congestion
-    dipole — located nodes above the floor on the import (SF<0) and export (SF>0)
-    sides, which the panel's dipole gauge is split by; ``n_members`` is their total.
+    ``rank`` is its 1-based position. ``n_negative``/``n_positive`` count located
+    nodes above the floor by SF sign; ``n_members`` is their total.
 
     ``ctype`` mirrors the /map/overview marker (same ``constraint_id`` key), so a
     panel row highlights the same overlay mark. The daily μ fields
@@ -248,8 +219,8 @@ class RankedConstraint(BaseModel):
     reach: float
     n_members: int
     ctype: str | None = None
-    n_import: int = 0
-    n_export: int = 0
+    n_negative: int = 0
+    n_positive: int = 0
 
 
 class RankedConstraints(BaseModel):
