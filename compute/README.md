@@ -2,20 +2,16 @@
 
 ## Directory guide
 
-Most work belongs to the production surface below. You can ignore `experiments/`
-and `probes/` unless you are reproducing a historical model decision or evaluating
-a new input source.
-
-| Area | Use it for | Main entry points |
-|---|---|---|
-| `jobs/` | Scheduled forecasts, map refreshes, historical backfills, and grades | `weekly_map`, `daily_forecast`, `backfill_forecasts`, `backfill_scoreboard`, `grade_forecast_day` |
-| `inputs/` | Shared DAM panel readers and data-availability boundaries | imported by model stages |
-| `sf_map/` | Production shift-factor fit, map reads, storage, and map geography | imported by jobs |
-| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs |
-| `projection/` | μ sampling, SF projection, nodal panels, and forecast artifacts | imported by forecast/backfill/API paths |
-| `evaluation/` | SF/μ OOS measures and ESSP validation | imported by map/grade jobs |
-| `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses | optional, never called by cronjobs |
-| `probes/` | External-data feasibility gates | optional, never called by cronjobs |
+| Area           | Use it for                                                                | Main entry points                                                                                 |
+|----------------|---------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `jobs/`        | Scheduled forecasts, map refreshes, historical backfills, and grades      | `weekly_map`, `daily_forecast`, `backfill_forecasts`, `backfill_scoreboard`, `grade_forecast_day` |
+| `inputs/`      | Shared DAM panel readers and data-availability boundaries                 | imported by model stages                                                                          |
+| `sf_map/`      | Production shift-factor fit, map reads, storage, and map geography        | imported by jobs                                                                                  |
+| `mu_forecast/` | Production feature panel, μ heads, scheduling, and outage feature library | imported by jobs                                                                                  |
+| `projection/`  | μ sampling, SF projection, nodal panels, and forecast artifacts           | imported by forecast/backfill/API paths                                                           |
+| `evaluation/`  | SF/μ OOS measures and ESSP validation                                     | imported by map/grade jobs                                                                        |
+| `experiments/` | Reproducible sweeps, ablations, and post-hoc analyses                     | optional, never called by cronjobs                                                                |
+| `probes/`      | External-data feasibility gates                                           | optional, never called by cronjobs                                                                |
 
 The old `compute.sf/` and `compute.mu/` packages have been removed. New library
 imports and CLI commands use the stage packages above.
@@ -23,9 +19,10 @@ imports and CLI commands use the stage packages above.
 ### Stage internals
 
 `sf_map/` separates the rolling estimator (`model/`), persisted-map reads and
-writes (`storage/`), and derived constraint geography (`geography/`). `weekly_map`
-fits and persists maps; projection loads them through `storage/maps.py`; the
-post-map geography materialization is `python -m compute.sf_map.geography.persist`.
+writes (`storage/`), and derived constraint geography (`geography/`).
+`weekly_map` fits and persists maps; projection loads them through
+`storage/maps.py`; the post-map geography materialization is `python -m
+compute.sf_map.geography.persist`.
 
 `mu_forecast/` separates causal panel construction (`panel/`), optional
 model-facing predictor families (`covariates/`), and head fitting/prediction
@@ -54,109 +51,61 @@ docker compose run --rm --no-deps compute python -m pytest /compute/mu_forecast/
 ## Runbook — build & deploy the μ forecast
 
 Two pipelines run over the shared ERCOT DAM ingest (`ercot_dam_shadow_prices`,
-`ercot_dam_spp`, `dam_system_lambda`, forecast vintages), coupled in one direction: the
-forecast projects its μ prediction through the map's persisted shift factors, so **the
-map must be built and fresh before the forecast runs** — a missing or stale map fails the
-forecast loud and leaves the prior served day intact.
+`ercot_dam_spp`, `dam_system_lambda`, forecast vintages): the forecast projects
+its μ prediction through the map's persisted shift factors so the map must be
+built before the forecast runs. A missing or stale map fails the forecast loud
+and leaves the prior served day intact.
 
-| | SF map (`map-v1`) | Forecast (`mu-all-v1`) |
-|---|---|---|
-| What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: deterministic per-SP congestion forecast |
-| Cadence | weekly, Sun 18:00 UTC | daily ×2: final 17:00 UTC (h1) + preview 19:45 UTC (h2) |
-| Cron | `ops/deploy/jobs/map_refresh_cronjob.yml` | `forecast_cronjob.yml` (final), `forecast_preview_cronjob.yml` (preview) |
-| Entry | `weekly_map` → `geo_persist` → `eval` | `daily_forecast` |
-| Writes | `sf_window_artifact`, `sf_window_meta`, `constraint_geo` | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
-
-**μ vs SF — why they are separate.** The two are orthogonal and multiply. μ is the
-*temporal* signal: per constraint, per hour, does it bind and how hard — driven by load,
-weather, and outages, so it is refit **daily**. SF is the *spatial* map: constraint
-shadow price → nodal congestion — grid geography that moves slowly, so it is fit
-**weekly** on a 240-day window. Nodal congestion = SF · μ. The map is the sole SF fitter;
-the forecast reuses its SF rather than refitting, so one weekly fit serves every daily
-forecast.
-
-> **Serving from a date `X`? Two shifts.** `X` can only be served once the week before
-> it is built — μ needs that week as a residual seed, and the map needs a persisted SF
-> window ending `≤ X`. So:
->
-> * **Origin — one week back.** `weekly_map` takes `--start = X − 7d` when it
->   needs an unserved pre-roll week. `backfill_forecasts`, the daily job, and
->   `backfill_scoreboard` start at the first delivery or score date they publish.
-> * **Data — two weeks past the window.** Ingest every feed to
->   `origin − (train_days + 14) = origin − 254d` — 14 days (2 weeks) earlier than the
->   bare 240-day window (7 for μ's panel front-edge drop, 7 of step-3 alignment margin).
->
-> Worked example, `target X = 2025-01-01`: **origin `2024-12-25`** for **steps
-> 1–3**, for first served output `2025-01-01`, and ingest data floor
-> **`2024-04-15`**. The unshifted commands below pass `X` directly as the
-> origin, which instead serves from `X + 7d`.
->
-> * The map may start one week before the first served date; forecast and scoreboard
->   backfills start at their requested publication date.
-> * Data prior is − (240 + 14). (~ 2024-04-15)
-
+|            | SF map (`map-v1`)                                                  | Forecast (`mu-all-v1`)                                                      |
+|------------|--------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| What it is | the spatial geography: constraint shadow price → per-SP congestion | the μ product: deterministic per-SP congestion forecast                     |
+| Cadence    | weekly, Sun 18:00 UTC                                              | daily ×2: final 17:00 UTC (h1) + preview 19:45 UTC (h2)                     |
+| Cron       | `ops/deploy/jobs/map_refresh_cronjob.yml`                          | `forecast_cronjob.yml` (final), `forecast_preview_cronjob.yml` (preview)    |
+| Entry      | `weekly_map` → `geo_persist` → `eval`                              | `daily_forecast`                                                            |
+| Writes     | `sf_window_artifact`, `sf_window_meta`, `constraint_geo`           | `forecast_nodal`, `forecast_sf_artifact`, pointer `forecast_current[ercot]` |
 
 
 ## Prediction data — the 240-day window
 
-Both stages fit on a **trailing 240-day window**, single-sourced as `WINDOW_DAYS`
-in `compute/sf_map/config.py` (the SF map) and `DEFAULT_TRAIN_DAYS` in
-`compute/mu_forecast/model/runner.py` (μ). **Every feed obeys that same window** — the DAM
-inputs (`ercot_dam_shadow_prices`, `ercot_dam_spp`, `dam_system_lambda`) and the
-forecast vintages the μ weather feature correlates against (zonal load, regional
-wind/solar) are all read over the same `[D − 240d, D)` span. No feed has a
-separate, longer lookback.
+Both stages fit on a trailing 240-day window, single-sourced as `WINDOW_DAYS` in
+`compute/sf_map/config.py` (the SF map) and `DEFAULT_TRAIN_DAYS` in
+`compute/mu_forecast/model/runner.py` (μ).
 
-The consequence: **a prediction for delivery day `D` needs every feed populated
-back to `D − 240d`.** To serve predictions from **2025-01-01**, the ingest must
-reach **2024-05-06** (= 2025-01-01 − 240 days). The first 240 days are consumed as
-warm-up and are never themselves scored — scoring begins where the first full
-window closes.
-
-> **Ingest `train_days + 14` back, not exactly `train_days`.** μ's covariate
-> panel drops its first day(s) to DAM/tz edges, so aim the ingest floor at
-> `origin − 247d` (`2024-04-25` for a 2025-01-01 origin). And then additional 7
-> for the panel's front-edge margin. The jobs derive their required read floor.
+The DAM inputs (`ercot_dam_shadow_prices`, `ercot_dam_spp`, `dam_system_lambda`)
+and the forecast vintages the μ weather feature correlates against (zonal load,
+regional wind/solar) are all read over the same `[D − 240d, D)` span.
 
 Build and deploy in this order.
 
 ### Step 0 — Preflight
 
 Apply the DB migrations (including `forecast_nodal`, `forecast_current`, and
-`forecast_sf_artifact`) and ensure the shared DAM ingest is populated through the
-historical end date selected below. The live daily job additionally needs D−1 DAM data
-and D's forecast vintages available after DAM close. Run the following compute commands
-in an environment with the production DB credentials.
+`forecast_sf_artifact`) and ensure the shared DAM ingest is populated through
+the historical end date selected below.
+
+The live daily job additionally needs D−1 DAM data and D's forecast vintages
+available after DAM close. Run the following compute commands in an environment
+with the production DB credentials.
 
 ### Dates in the runbook — what each flag controls
 
-The stages take dates literally (they never read `now()` or the DB max). `--start`
-now means the **same thing** in all three — the *series origin* — so one date
-(**2025-01-01**, the product origin) drives the whole run:
+The stages take dates literally. `--start`:
 
-* **`--start`** (`weekly_map`, `backfill_scoreboard`) — the *series origin*: the
-  first day you want scored, **not** the data floor. Each stage extends the read back on
-  its own (`weekly_map`: `read_start = start − window_days`; `backfill_scoreboard`:
-  `start − train_days − leadin`), so `--start 2025-01-01` scores from 2025-01-01
-  while reading whatever history it needs behind that. Leave it at the product
-  origin; you never hand-compute a data floor.
-* **`--score-from`** (`backfill_scoreboard`, optional) — overrides *only* the scored-grid phase
-  and defaults to `--start`. Rarely needed — set it only to pin a phase different
-  from the origin (e.g. an ablation on a specific sf week).
-* **`--end`** — a *fixed* completed date, deliberately not "today," so a rebuild is
-  reproducible. Use a recent settled date. The map's `--end <tomorrow>` is the one
-  exception: it is incremental and exclusive-ended, so it just reads through the
-  latest DAM and advances one week per cron run.
+* **`--start`** (`weekly_map`, `backfill_scoreboard`): the first day you want
+  scored. Each stage extends the read back on its own (`weekly_map`: `read_start
+  = start − window_days`; `backfill_scoreboard`: `start − train_days − leadin`),
+  so `--start 2025-01-01` scores from 2025-01-01.
+* **`--score-from`** (`backfill_scoreboard`, optional) overrides only the
+  scored-grid phase and defaults to `--start`.
+* **`--end`** — a fixed completed date, deliberately not "today," so a rebuild is
+  reproducible.
 
 ### Step 1 — SF map (build the geography first)
 
-**Needs:** the DAM ingest populated.
-**Does:** fits SF for each refit-week boundary on a trailing 240-day window (7-day
+**Inputs:** the DAM ingest populated.
+**Outputs:** fits SF for each refit-week boundary on a trailing 240-day window (7-day
 cadence), then persists the shift factors, constraint centroids (`geo_persist`), and
-stability metrics (`eval`). Runs incrementally: it fits and writes only the complete
-refit windows not already present, so a later `--end` appends just the new week(s) and a
-repeated `--end` is a no-op. Only complete windows persist (the partial terminal week is
-skipped), so the served map is the newest complete week.
+stability metrics (`eval`).
 
 ```
 python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomorrow> \
@@ -164,14 +113,11 @@ python -m compute.jobs.weekly_map --run-id map-v1 --start 2025-01-01 --end <tomo
     --rebuild
 ```
 
-* `compute.jobs.weekly_map`: `--start` is the series origin. Add `--rebuild` to
-wipe the run and refit from scratch; omit it for the
-normal cheap append. **Extending the ingest floor backward** — the initial
-2024-05-06 build that fills the 2025-01-01 → 2025-08 windows — is a from-scratch
-case: pass `--rebuild`, since a plain append only fits *forward* boundaries it
-does not already have.
+* `compute.jobs.weekly_map`: Add `--rebuild` to wipe the run and refit from
+scratch.
 
-* `--persist-sf`: one full dense float32 NPZ in `sf_window_artifact` per weekly window:
+* `--persist-sf`: one full dense float32 NPZ in `sf_window_artifact` per weekly
+  window:
 
 ```
 MAP_RUN_ID=map-v1
@@ -188,8 +134,8 @@ python -m compute.evaluation.sf --run-id map-v1 --start 2025-01-01 --end <tomorr
 
 ### Step 2 — Historical weekly scoreboard backfill
 
-**Needs:** settled DAM data and the historical range to score.
-**Does:** runs the μ walk-forward and SF evaluation in one job, then writes the
+**Inputs:** settled DAM data and the historical range to score.
+**Outputs:** runs the μ walk-forward and SF evaluation in one job, then writes the
 computed weekly rows to `scoreboard_weekly`. `--run-id` identifies the durable
 model provenance; it is required and does not name a filesystem path.
 
@@ -206,10 +152,10 @@ chunks and model spills, then removes it after completion or failure.
 
 ### Step 3 — Production-equivalent historical forecast backfill
 
-`backfill_forecasts` loops the daily job's exact path over a date range: for each CT
-delivery date it refits the daily μ model, **replaces that date's nodal rows** with the
-production-equivalent per-day fit, and writes its `forecast_sf_artifact`. It is much more
-expensive (~16 GiB per day), so it is intentionally resource-intensive.
+`backfill_forecasts` loops the daily job's exact path over a date range: for
+each CT delivery date it refits the daily μ model, and writes its
+`forecast_sf_artifact`. It is much more expensive (~16 GiB per day), so it is
+intentionally resource-intensive.
 
 ```
 set -o pipefail
@@ -222,74 +168,34 @@ python -m compute.jobs.backfill_forecasts --run-id "${RUN_ID}" --map-run-id "${M
     2>&1 | tee -a "$RUN_ID/backfill_forecasts.log"
 ```
 
-* **Resumable** — skips dates already in `forecast_sf_artifact` (pass `--no-skip-existing`
-  to rewrite), so an interrupted run continues where it stopped.
-* **Fail-soft** — a date without complete DAM-close inputs or a causal map window is logged
-  and skipped (`--stop-on-error` aborts instead). Early dates with no causal window are the
-  common expected skip, so start `--start` at/after the first served week.
-* **Pointer** — like the daily job, each day flips `forecast_current[ercot]` to `--run-id`;
-  the tool warns loudly at startup if that is not the promoted run. **Do not mix a different
-  run ID into one range. Forecast publication writes durable state only to Postgres.
-
 For a single date, `--start`/`--end` may be the same day (equivalent to one
 `daily_forecast --delivery-date` run).
 
 ### Step 4 — Daily forecast (append each new day)
 
-**Needs:** a fresh map (step 1) and settled DAM inputs through the fit window.
-**Does:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
+**Inputs:** a fresh map (step 1) and settled DAM inputs through the fit window.
+**Outputs:** builds the panel at DAM-close vintage, refits the μ heads on the trailing
 window and predicts D's 24 h, loads the map's latest causal SF window, projects μ through
 it to a point forecast, writes `forecast_nodal` + `forecast_sf_artifact`, then flips
-`forecast_current[ercot]` **last**. The SF loader is guarded: it takes the latest window
-with `window_end ≤ D` and fails loud (prior pointer intact) if that window is missing,
-stale (`D − window_end > 14d`), or covers `< 50%` of D's predicted binding mass — it
-never serves stale geography. Peak ~16 GiB (the pod limit).
-
-**When you run it does not change what it produces.** Don't start before 10:00 CT on D-1
-(DAM close) — the covariates aren't there yet and the job fails loud. After that, any
-time is fine. Running at 16:00 CT gives the same panel as running at 12:00 CT, and a
-backfill of an old day gives what that day would have produced live.
-
-This surprises people, because ERCOT publishes D's own DAM prices at 13:30 CT on D-1, so
-a late run *looks* like it could peek. It can't: the reads are bounded by the data, not
-by the clock. Covariates filter on `posted_datetime` against DAM close (`features.py`),
-and prices are read with `interval_ts < D` (`panels.py`), which is what keeps D's own
-prices out. Neither depends on when the job fires.
-(`test_reads_and_propagation_touch_no_interval_at_or_after_D` pins this.)
-
-A late run is still worth noticing — it usually means the schedule or ingest has drifted
-— but it is not a correctness problem, so the job doesn't refuse.
-
-The cron fires at 17:00 UTC = 12:00 CDT / 11:00 CST, past DAM close in both DST states.
-`tomorrow` means the next **CT** date. The run logs the delivery date it resolved along
-with its CT hour span — 19:00 → 18:00 CT in summer, because the delivery day is a UTC
-calendar day — plus its `horizon`, `map_run_id`, and the SF `window_end` it projected
-through (so a preview-vs-final diff contaminated by a weekly map refit is identifiable).
+`forecast_current[ercot]`.
 
 ```
 python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v1 \
     --map-run-id map-v1 --to-db
 ```
 
-**Two horizons — final and preview (0123).** The forecast runs *twice* a day, same
-model version (`--run-id` unchanged — it scopes MODEL VERSION only, not the day or the
-horizon). `--horizon` is the only difference; horizon is a persistence/labeling
-property, so the fit is byte-identical at both — only the vintaged forecast covariates
-on the prediction row differ.
+**Two horizons — final and preview** The forecast runs *twice* a day, same model
+version (`--run-id` unchanged). `--horizon` is a persistence/labeling property,
+only the vintaged forecast covariates on the prediction row differ.
 
-| | Final (h1) | Preview (h2) |
-|---|---|---|
-| Tick | 17:00 UTC (`forecast_cronjob.yml`) | 19:45 UTC (`forecast_preview_cronjob.yml`) |
-| `tomorrow` resolves to | T+1 (next CT date) | T+2 (two CT dates out) |
-| Timing vs D's DAM | ~2h AFTER D's DAM closed — verification-only | inside D's decision window, ~20h before D's DAM closes |
-| DAM-publication gate | none (D−1 closed hours ago) | asserts D−1's `ercot_dam_shadow_prices` exist BEFORE the fit; missing → fail loud, nothing written |
-| Immutability | replace-in-place per re-run | **never overwritten by the final** — `final − preview` is a preserved audit trail |
-| Scoreboard | its own track | its own independent track (graded per horizon) |
-
-Serving coalesces the two into one continuous series (prefer final, fall back to
-preview) with zero web changes; `/forecast_range` reports per-day `horizons`
-provenance and accepts `?horizon=` to read one track explicitly (the "what changed"
-view). See `plan/0123-forecast-horizon-preview.md`.
+|                        | Final (h1)                                   | Preview (h2)                                                                                       |
+|------------------------|----------------------------------------------|----------------------------------------------------------------------------------------------------|
+| Tick                   | 17:00 UTC (`forecast_cronjob.yml`)           | 19:45 UTC (`forecast_preview_cronjob.yml`)                                                         |
+| `tomorrow` resolves to | T+1 (next CT date)                           | T+2 (two CT dates out)                                                                             |
+| Timing vs D's DAM      | ~2h AFTER D's DAM closed — verification-only | inside D's decision window, ~20h before D's DAM closes                                             |
+| DAM-publication gate   | none (D−1 closed hours ago)                  | asserts D−1's `ercot_dam_shadow_prices` exist BEFORE the fit; missing → fail loud, nothing written |
+| Immutability           | replace-in-place per re-run                  | **never overwritten by the final** — `final − preview` is a preserved audit trail                  |
+| Scoreboard             | its own track                                | its own independent track (graded per horizon)                                                     |
 
 ```
 # the preview tick — identical path, add --horizon 2
@@ -297,58 +203,26 @@ python -m compute.jobs.daily_forecast --delivery-date tomorrow --run-id mu-all-v
     --horizon 2 --map-run-id map-v1 --to-db
 ```
 
-**Grading is embedded — not a separate step.** After a successful publish and pointer
-flip, `daily_forecast` calls `grade_forecast_day` itself to grade the most recent
-fully-realized served day **on its own horizon's track** — the final tick grades the
-h1 scoreboard, the preview tick the h2 scoreboard, two independent tracks per run_id
-(0123). Run `grade_forecast_day` standalone **only** to retry a day whose grade failed or was
-skipped (never as a duplicate routine step); `--horizon` selects the track (default 1):
+Grading is embedded. After a successful publish, `daily_forecast` calls
+`grade_forecast_day` itself to grade the most recent fully-realized served day
+on its own horizon's track.
 
 ```
 python -m compute.jobs.grade_forecast_day --delivery-date auto --run-id mu-all-v1 --to-db
 python -m compute.jobs.grade_forecast_day --delivery-date auto --run-id mu-all-v1 --horizon 2 --to-db
 ```
 
-Gap-fill a single historic day — identical path, only the date changes (drop `--to-db`
-for a dry run). Old days need no special flag; see "When you run it does not change what
-it produces" above. Add `--force` to overwrite a day already published under this
-`--run-id` — without it the job stops before doing any work. The pod **must mount the
-`compute-runs` PVC** at `/compute/runs` so the
-job can read the residual pool; because the override supplies `volumes`, it also has to
-specify the container fully (image, command, env), so the top-level `--image` /
-`--env-from-*` flags no longer drive it:
-```
-kubectl -n ercotstress run forecast-backfill-<DATE> --rm -it --restart=Never \
-  --image="${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}" \
-  --overrides='{
-    "spec":{
-      "imagePullSecrets":[{"name":"regcred"}],
-      "volumes":[{"name":"runs","persistentVolumeClaim":{"claimName":"compute-runs"}}],
-      "containers":[{
-        "name":"forecast-backfill",
-        "image":"'"${IMAGE_REPO}"'/ercotstress/api-compute:'"${IMAGE_TAG}"'",
-        "envFrom":[{"configMapRef":{"name":"api-config"}},{"secretRef":{"name":"postgres-credentials"}}],
-        "volumeMounts":[{"name":"runs","mountPath":"/compute/runs","readOnly":true}],
-        "command":["python","-m","compute.jobs.daily_forecast",
-                   "--delivery-date","2026-05-01","--run-id","mu-all-v1",
-                   "--map-run-id","map-v1","--to-db"]
-      }]
-    }
-  }'
-```
 Simpler alternative: `exec` into the `compute-shell` pod (`ops/deploy/compute_shell.sh`),
-which already mounts the PVC, and run the `python -m compute.jobs.daily_forecast …`
+which already mounts the PVC, and run the `python -m compute.jobs.daily_forecast`
 command there.
 
 ### Step 7 — Build and deploy
 
-Build and deploy the image, then deploy every cronjob (`map_refresh_cronjob.yml`,
-`forecast_cronjob.yml`, `forecast_preview_cronjob.yml`) and the `compute-runs` PVC
-(`ops/deploy/base/compute/runs-pvc.yml`) if not already applied — `./model_cronjobs.sh
-all` applies all three. The weekly map append (step 1) and the two daily forecast ticks
-(step 6) then keep everything current. The residual pool now lives on the PVC (step 2),
-so refreshing it is a file drop on `/compute/runs` — **no image rebuild required**; only
-a code or dependency change needs a new image.
+Build and deploy the image, then deploy every cronjob
+(`map_refresh_cronjob.yml`, `forecast_cronjob.yml`,
+`forecast_preview_cronjob.yml`) and the `compute-runs` PVC
+(`ops/deploy/base/compute/runs-pvc.yml`) if not already applied,
+`./model_cronjobs.sh all` applies all three.
 
 Hand-run the deployed cronjobs on the identical path:
 ```
@@ -357,16 +231,6 @@ kubectl -n ercotstress create job --from=cronjob/ercot-map-refresh
 kubectl -n ercotstress create job --from=cronjob/ercot-forecast
 kubectl -n ercotstress create job --from=cronjob/ercot-forecast-preview
 ```
-
-
-### Good to know
-
-* **Historic vs live cadence.** `backfill_forecasts` replays the daily fit and
-  publication path for each requested date, including its causal fire time. A
-  historical row is therefore produced by the same per-day path as a live row.
-
----
-
 
 ## Durable forecast state
 
@@ -627,49 +491,3 @@ For evaluation purposes (`/compute/evaluation/sf.py`) [`score_start`,
       * groups constraints by membership; summing mu and returning condensed `M_fit`
    * `SF = fit.py:implied_shift_factors`: calculate SF.
    * return `RefitWindow`.
-
----
-
-ABLATION FULL RUN
-
-```
-docker compose run --rm compute python -m compute.experiments.mu.feature_ablation \
-    --score-from 2025-08-14 --preds-dir /compute/runs/experiments/mu/ablation \
-    --out /compute/runs/experiments/mu/ablation.csv
-
-python -m compute.experiments.mu.outage_ablation --score-from 2025-08-14 --score \
-    --preds-dir /compute/runs/outage_ablation \
-    --out /compute/runs/outage_ablation.csv
-
-```
-
-
-Need to clean out memory
-
-```
-kubectl -n default scale \
-    deploy/prometheus-kube-prometheus-operator --replicas=0
-kubectl -n default scale \
-    statefulset/prometheus-prometheus-kube-prometheus-prometheus --replicas=0
-kubectl -n default scale \
-    statefulset/alertmanager-prometheus-kube-prometheus-alertmanager --replicas=0
-kubectl -n default scale \
-    deploy/prometheus-grafana --replicas=0
-```
-
-Restart
-
-```
-kubectl -n default scale \
-    deploy/prometheus-kube-prometheus-operator --replicas=1
-kubectl -n default scale \
-    deploy/prometheus-grafana --replicas=1
-```
-
----
-
-
-* `config.py`: config object that pulls from `/shared/settings.py`; kept to
-  reduce changes during development.
-
-* `constants.py`: carrers, regions, and `DEFAULT_P_MAX_PU` availability ceilings.
