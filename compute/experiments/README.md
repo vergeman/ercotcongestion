@@ -2,7 +2,7 @@
 
 Model-selection and diagnostic runs.
 
-1. **`sf_out_of_window/`** — the foundation. Is the SF map worth what the
+1. **`sf_out_of_window/`**: the foundation. Is the SF map worth what the
    pipeline claims out-of-window? Fits production SF unmodified, moving only the
    window boundary, and finds the honest OOS R² (0.746 vs in-sample 0.986) is
    limited by *drift*, not coverage.
@@ -13,7 +13,7 @@ Model-selection and diagnostic runs.
      coverage-vs-drift split.
    * `sf_stability.py`: how fast the SF map actually moves (disjoint windows).
 
-2. **`sf/`** — given the map is worth measuring, select its operating point
+2. **`sf/`**: given the map is worth measuring, select its operating point
    `(window=240, refit=7, λ=1)`: the sweep, the coverage-gap decomposition, and
    the collinear-grouping verdict.
    * `sweep.py`: grid-search the three knobs (window, refit, λ); picks the
@@ -23,7 +23,7 @@ Model-selection and diagnostic runs.
    * `coverage.py`: how much congestion lands on unseen constraints, and is it
      worth chasing (no).
 
-3. **`mu/`** — the forecast layer. Holds the SF operating point fixed and varies
+3. **`mu/`**: the forecast layer. Holds the SF operating point fixed and varies
    only the feature set: the 5-arm ablation harness and its diagnostics.
    * `feature_ablation.py`: the 5-arm ablation (base/lag/geo/wx/all); which
      inputs help.

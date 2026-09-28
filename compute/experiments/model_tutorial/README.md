@@ -21,10 +21,10 @@ Every row is one delivery hour.
 `M` is a wide table of DAM constraint shadow prices. Its rows are hours and its
 columns are constraints. A zero means that constraint did not bind.
 
-| hour | north_line | west_line | coast_line |
-| --- | ---: | ---: | ---: |
-| 14:00 | 42 | 0 | 10 |
-| 15:00 | 67 | 18 | 26 |
+| hour  | north_line | west_line | coast_line |
+|-------|-----------:|----------:|-----------:|
+| 14:00 |         42 |         0 |         10 |
+| 15:00 |         67 |        18 |         26 |
 
 `C` is a second wide table over the same hours. It is congestion at each
 settlement point:
