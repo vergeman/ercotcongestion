@@ -3,7 +3,6 @@ import { rankMovement, usd, zoneLabel } from "../../../lib/format";
 import {
   SignSplit,
   MemberList,
-  SfDipoleLegend,
 } from "../../panels/ConstraintReach";
 import {
   dipoleCounts,
@@ -115,7 +114,7 @@ export function ConstraintEvidence({
       />
       <div className="bdp-reach">
         <span className="bdp-section-title">
-          Grid reach · negative ↔ positive{" "}
+          Grid reach{" "}
           {reach && !loading && <em>{reach.sps.length} located</em>}
         </span>
         <div className="bdp-reach__dipole">
@@ -124,9 +123,8 @@ export function ConstraintEvidence({
         {loading ? (
           <div className="cr-mem-msg">loading members…</div>
         ) : (
-          <MemberList reach={reach} />
+          <MemberList reach={reach} showSignLabel={false} />
         )}
-        <SfDipoleLegend />
       </div>
     </>
   );
