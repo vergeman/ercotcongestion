@@ -145,8 +145,8 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
   const scorecard = useMapScorecard(deliveryDay, forecastRunId);
 
   const focusReachKey = useCallback(
-    (id: string) => `${deliveryDay ?? "latest"}|${id}`,
-    [deliveryDay]
+    (id: string) => `${cursorTs?.toISOString() ?? "latest"}|${id}`,
+    [cursorTs]
   );
 
   // Cancel stale ranking requests when the day or basis changes.
@@ -372,6 +372,24 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
     reachReqRef.current++;
   }, []);
 
+  // The card contains hourly prices, so refresh an open card with the cursor.
+  const reachConstraintKey = reach?.constraint_key;
+  useEffect(() => {
+    if (!reachConstraintKey || !cursorTs) return;
+    let live = true;
+    const token = ++reachReqRef.current;
+    loadReach(reachConstraintKey, cursorTs)
+      .then((nextReach) => {
+        if (live && reachReqRef.current === token) setReach(nextReach);
+      })
+      .catch(() => {
+        if (live && reachReqRef.current === token) setReach(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [reachConstraintKey, cursorTs, loadReach]);
+
   // Load the active constraint footprint for map highlighting.
   useEffect(() => {
     const id = effectiveConstraintId;
@@ -380,12 +398,12 @@ export default function MapWorkspace({ session, onNavigate, routeSearch, onSelec
       queueMicrotask(() => setFocusReach(null));
       return;
     }
+    const token = ++focusReqRef.current;
     const cached = focusReachCache.current.get(focusReachKey(id));
     if (cached) {
       setFocusReach(cached);
       return;
     }
-    const token = ++focusReqRef.current;
     loadReach(id, cursorTs)
       .then((r) => {
         if (r) focusReachCache.current.set(focusReachKey(id), r);

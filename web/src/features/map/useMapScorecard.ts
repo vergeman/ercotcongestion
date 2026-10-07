@@ -23,7 +23,11 @@ export function useMapScorecard(
         if (!controller.signal.aborted) setScorecard(result);
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setScorecard(null);
+        if (
+          !controller.signal.aborted &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        )
+          setScorecard(null);
       });
     return () => controller.abort();
   }, [deliveryDay, forecastRunId]);

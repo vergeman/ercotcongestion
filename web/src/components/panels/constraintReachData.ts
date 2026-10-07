@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import type { ConstraintReach } from "../../api/types";
 import { fetchMapReach, REACH_THRESHOLD_OPTS } from "../../api/client";
-import { deliveryDateCT } from "../../lib/time";
 
 const reachCache = new Map<string, ConstraintReach | null>();
 const fullReachCache = new Map<string, ConstraintReach | null>();
 
 function reachKey(id: string, t?: Date): string {
-  return `${t ? deliveryDateCT(t) : "latest"}|${id}`;
+  // Reach includes hourly μ, DAM μ, and forecast error alongside daily shape.
+  return `${t ? t.toISOString() : "latest"}|${id}`;
 }
 
 export const REACH_K = 20;

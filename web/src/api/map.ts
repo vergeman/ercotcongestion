@@ -19,8 +19,8 @@ export interface MapReachOptions {
 
 export const REACH_THRESHOLD_OPTS: MapReachOptions = {
   full: true,
-  minFrac: 0.15,
-  absFloor: 0.03,
+  minFrac: 0.15, // must exceed at least 15% of constraints max SF to be visible
+  absFloor: 0.03, // peak SF can still be low, so SF must also exceed a floor
 };
 
 export function fetchMapSummary(signal?: AbortSignal): Promise<MapSummary> {
@@ -30,12 +30,13 @@ export function fetchMapSummary(signal?: AbortSignal): Promise<MapSummary> {
 export function fetchMapScorecard(
   day: string,
   runId?: string | null,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<MapScorecard | null> {
   const query = new URLSearchParams({ day });
   if (runId) query.set("run_id", runId);
   return requestJson("/map/scorecard", {
-    query, signal,
+    query,
+    signal,
   });
 }
 
@@ -44,7 +45,7 @@ export function fetchMapExposures(
   k = 15,
   t?: Date,
   rank?: ExposureRank,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<ExposuresResponse | null> {
   const query = new URLSearchParams({ sp, k: String(k) });
   if (t) query.set("t", t.toISOString());
@@ -54,7 +55,7 @@ export function fetchMapExposures(
 
 export function fetchMapReach(
   constraint: string,
-  options: MapReachOptions = {},
+  options: MapReachOptions = {}
 ): Promise<ConstraintReach | null> {
   const { k = 15, minFrac, absFloor, full, t, signal } = options;
   const query = new URLSearchParams({ constraint });
@@ -70,7 +71,7 @@ export function fetchMapConstraintsRanked(
   basis: "predicted" | "realized" = "predicted",
   day?: string,
   k = 30,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<RankedConstraints | null> {
   const query = new URLSearchParams({ basis, k: String(k) });
   if (day) query.set("day", day);
