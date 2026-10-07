@@ -76,6 +76,7 @@ export default function MatrixStage({
       }:${state.val}`
     : "empty";
   const [detailLoading, setDetailLoading] = useState(true);
+
   useLayoutEffect(() => {
     setDetailLoading(true);
     const timer = window.setTimeout(() => setDetailLoading(false), 220);

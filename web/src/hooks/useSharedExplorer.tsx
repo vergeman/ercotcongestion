@@ -1,20 +1,12 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Outlet } from "react-router-dom";
 import { useExplorerSession } from "./useExplorerSession";
 import { useTimeCursor, snapToFrames } from "./useTimeCursor";
 import { ExplorerContext } from "./sharedExplorerContext";
 
-// One explorer instance, mounted once by ExplorerLayout above the Map / Matrix /
-// Analysis routes. Because a layout route element stays mounted while you
-// navigate among its child routes, the live session — window, timestamps,
-// cursor — SURVIVES the hop between pages: no refetch, no wiped data, no loading
-// flash. (Scoreboard is a sibling route, deliberately outside this provider.)
-// It also binds the session to the URL time coordinate with two-way sync.
+// ExplorerLayout mounted once on the Map / Matrix /routes.
+// Enables navigation among its child routes, and the live session — window, timestamps,
+// cursor — data survives across pages.
 export function ExplorerProvider({ children }: { children: ReactNode }) {
   const cursor = useTimeCursor();
   const session = useExplorerSession({
@@ -62,7 +54,9 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ session, cursor }), [session, cursor]);
   return (
-    <ExplorerContext.Provider value={value}>{children}</ExplorerContext.Provider>
+    <ExplorerContext.Provider value={value}>
+      {children}
+    </ExplorerContext.Provider>
   );
 }
 
