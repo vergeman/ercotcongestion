@@ -1,4 +1,5 @@
 import { QueryCache } from "./cache";
+import { ApiError } from "./http";
 import { fetchAnalysisNode } from "./matrix";
 import type { AnalysisBasis, AnalysisNodeResponse } from "./types";
 
@@ -19,6 +20,16 @@ function cacheKey(
   return [point, deliveryDate, hour, basis, includeDetail].join("|");
 }
 
+export function getCachedAnalysisNode(
+  point: string,
+  deliveryDate: string,
+  hour: string,
+  basis: AnalysisBasis,
+  includeDetail = false,
+): AnalysisNodeResponse | undefined {
+  return cache.get(cacheKey(point, deliveryDate, hour, basis, includeDetail));
+}
+
 export async function getAnalysisNode(
   point: string,
   deliveryDate: string,
@@ -27,21 +38,24 @@ export async function getAnalysisNode(
   signal?: AbortSignal,
   includeDetail = false,
 ): Promise<AnalysisNodeResponse> {
+  if (signal?.aborted) throw new ApiError("/analysis/node request aborted", "abort");
   const key = cacheKey(point, deliveryDate, hour, basis, includeDetail);
   const cached = cache.get(key);
   if (cached) return cached;
   // Caller-owned cancellation remains caller-owned; the cache only aborts an
   // in-flight request when it is explicitly invalidated or evicted.
-  return cache.load(key, () =>
+  const response = await cache.load(key, (cacheSignal) =>
     fetchAnalysisNode(point, {
       deliveryDate,
       basis,
       includeDetail,
       hours: [hour],
-      signal,
+      signal: cacheSignal,
     }).then((response) => {
       if (!response) throw new Error("analysis/node unavailable");
       return response;
     }),
   );
+  if (signal?.aborted) throw new ApiError("/analysis/node request aborted", "abort");
+  return response;
 }

@@ -42,7 +42,11 @@ function useReach(
       publish(cache.get(key) ?? null, false);
       return () => { live = false; };
     }
-    publish(null, true);
+    queueMicrotask(() => {
+      if (!live) return;
+      setReach((current) => current?.constraint_key === id ? current : null);
+      setLoading(true);
+    });
     fetchMapReach(id, full ? { full: true, minFrac: 0, t } : { k, t, ...REACH_THRESHOLD_OPTS })
       .then((result) => {
         cache.set(key, result);

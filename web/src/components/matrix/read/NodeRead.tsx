@@ -5,7 +5,7 @@ import type {
   AnalysisNodeResponse,
   MatrixDamStatus,
 } from "../../../api/types";
-import { getAnalysisNode } from "../../../api/analysisNode";
+import { getAnalysisNode, getCachedAnalysisNode } from "../../../api/analysisNode";
 import MiniMap from "../../map/MiniMap";
 import { mapLinkTo } from "../../../lib/mapLinks";
 import { marketValue, percent, zoneLabel } from "../../../lib/format";
@@ -48,6 +48,7 @@ export function NodeRead({
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
 
+
   useEffect(() => {
     if (!timestamp || !deliveryDate) {
       setNode(null);
@@ -56,7 +57,20 @@ export function NodeRead({
     }
     const controller = new AbortController();
     const id = ++requestId.current;
-    setNode(null);
+    const cached = getCachedAnalysisNode(
+      point, deliveryDate, timestamp.toISOString(), basis, true
+    );
+    if (cached) {
+      setNode(cached);
+      setLoading(false);
+      return () => controller.abort();
+    }
+    setNode((current) =>
+      current?.available && current.settlement_point === point &&
+      current.delivery_date === deliveryDate && current.basis === basis
+        ? current
+        : null
+    );
     setLoading(true);
     getAnalysisNode(
       point,
@@ -67,7 +81,7 @@ export function NodeRead({
       true
     )
       .then((response) => {
-        if (id === requestId.current) setNode(response);
+        if (!controller.signal.aborted && id === requestId.current) setNode(response);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -91,12 +105,13 @@ export function NodeRead({
 
   return (
     <>
-      <div className="mrd__main">
+      <div className="mrd__main" aria-busy={loading}>
         <header className="mrd__head">
           <span className="mrd__eyebrow">Settlement point</span>
           <h2 className="mrd__title">{point}</h2>
         </header>
         {node?.available && (
+          <div style={{ opacity: loading ? 0.55 : 1 }}>
           <DetailSummary
             hourly={
               <>
@@ -169,6 +184,7 @@ export function NodeRead({
               </>
             }
           />
+          </div>
         )}
 
         {basis === "realized" && node?.available && market?.dam_lmp == null && (

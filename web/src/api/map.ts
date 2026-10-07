@@ -1,4 +1,5 @@
 import { requestJson, requestRequiredJson } from "./http";
+import { QueryCache } from "./cache";
 import type {
   ConstraintReach,
   ExposureRank,
@@ -16,6 +17,11 @@ export interface MapReachOptions {
   full?: boolean;
   signal?: AbortSignal;
 }
+
+const reachResponses = new QueryCache<ConstraintReach | null>({
+  maxSize: 96,
+  ttlMs: 5 * 60 * 1000,
+});
 
 export const REACH_THRESHOLD_OPTS: MapReachOptions = {
   full: true,
@@ -64,7 +70,10 @@ export function fetchMapReach(
   if (minFrac != null) query.set("min_frac", String(minFrac));
   if (absFloor != null) query.set("abs_floor", String(absFloor));
   if (t) query.set("t", t.toISOString());
-  return requestJson("/map/reach", { query, signal });
+  if (signal) return requestJson("/map/reach", { query, signal });
+  return reachResponses.load(query.toString(), (cacheSignal) =>
+    requestJson("/map/reach", { query, signal: cacheSignal })
+  );
 }
 
 export function fetchMapConstraintsRanked(
