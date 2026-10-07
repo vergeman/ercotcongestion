@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import type { MatrixTab } from "../../lib/matrix";
 
 // One row in the sidebar list — already filtered/sorted by MatrixWorkspace,
@@ -44,6 +44,57 @@ function typeTag(type: string | null): string {
   return type.toUpperCase().slice(0, 4);
 }
 
+const SidebarRow = memo(function SidebarRow({
+  id, label, sub, type, zone, sizeLabel, pinned,
+  tab, selected, slot, selectedRef, onSelect, onTogglePin,
+}: MatrixSidebarItem & {
+  tab: MatrixTab;
+  selected: boolean;
+  slot: string | null;
+  selectedRef?: RefObject<HTMLDivElement | null>;
+  onSelect: (id: string) => void;
+  onTogglePin: (id: string) => void;
+}) {
+  const subline = tab === "constraints"
+    ? [zone, sub].filter(Boolean).join(" · ")
+    : "";
+  const value = tab === "constraints" ? sizeLabel : zone;
+  return (
+    <div
+      ref={selectedRef}
+      role="option"
+      aria-selected={selected}
+      className={`matrix-sidebar__row${selected ? " is-selected" : ""}${slot ? " has-slot" : ""}`}
+      tabIndex={0}
+      onClick={() => onSelect(id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(id); }
+      }}
+    >
+      <button
+        type="button"
+        className={`matrix-sidebar__pin${pinned ? " is-pinned" : ""}`}
+        aria-label={pinned ? `Unpin ${id}` : `Pin ${id}`}
+        title={pinned ? "Unpin" : "Pin"}
+        onClick={(event) => { event.stopPropagation(); onTogglePin(id); }}
+      >
+        {pinned ? "★" : "☆"}
+      </button>
+      <span className="matrix-sidebar__namecell">
+        <span className="matrix-sidebar__name">
+          {slot && <span className={`matrix-sidebar__slot matrix-sidebar__slot--${slot.toLowerCase()}`}>{slot}</span>}
+          {label}
+        </span>
+        {subline && <span className="matrix-sidebar__sub">{subline}</span>}
+      </span>
+      <span className="matrix-sidebar__tag-col">
+        {type && <span className="matrix-sidebar__tag">{typeTag(type)}</span>}
+      </span>
+      <span className="matrix-sidebar__value">{value ?? "—"}</span>
+    </div>
+  );
+});
+
 export default function MatrixSidebar({
   tab, items, totalCount, selectedId, basisSlots, onSelect, onTab,
   query, onQuery, onSearchFocus, fType, fZone, typeOptions, zoneOptions, onFilter,
@@ -54,6 +105,13 @@ export default function MatrixSidebar({
   // concrete cure for "the matrix row isn't in the sidebar": choosing a grid
   // row/column now reveals it here. Guarded to the selection, not keystrokes or
   // filters, so typing in search never yanks the list around.
+  // Keep row callbacks stable while forwarding to the latest route handlers.
+  const handlers = useRef({ onSelect, onTogglePin });
+  useLayoutEffect(() => {
+    handlers.current = { onSelect, onTogglePin };
+  }, [onSelect, onTogglePin]);
+  const selectRow = useCallback((id: string) => handlers.current.onSelect(id), []);
+  const toggleRowPin = useCallback((id: string) => handlers.current.onTogglePin(id), []);
   const selectedRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!selectedId) return;
@@ -100,52 +158,18 @@ export default function MatrixSidebar({
       </div>
       <div className="matrix-sidebar__list" role="listbox" aria-label={tab === "constraints" ? "Constraints" : "Settlement points"}>
         {items.length === 0 && <p className="matrix-sidebar__empty">No {tab} match this search.</p>}
-        {items.map((item) => {
-          // Constraints: the contingency (item.sub) differentiates otherwise
-          // duplicate monitored-element names — shown as a grey subline under
-          // the name, with the zone. The Σμ size sits in the aligned value
-          // column. Nodes carry no contingency; their zone fills that column.
-          const subline = tab === "constraints"
-            ? [item.zone, item.sub].filter(Boolean).join(" · ")
-            : "";
-          const value = tab === "constraints" ? item.sizeLabel : item.zone;
-          const slot = basisSlots?.a === item.id ? "A" : basisSlots?.b === item.id ? "B" : null;
-          return (
-            <div
-              key={item.id}
-              ref={item.id === selectedId ? selectedRef : undefined}
-              role="option"
-              aria-selected={item.id === selectedId}
-              className={`matrix-sidebar__row${item.id === selectedId ? " is-selected" : ""}${slot ? " has-slot" : ""}`}
-              tabIndex={0}
-              onClick={() => onSelect(item.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(item.id); }
-              }}
-            >
-              <button
-                type="button"
-                className={`matrix-sidebar__pin${item.pinned ? " is-pinned" : ""}`}
-                aria-label={item.pinned ? `Unpin ${item.id}` : `Pin ${item.id}`}
-                title={item.pinned ? "Unpin" : "Pin"}
-                onClick={(event) => { event.stopPropagation(); onTogglePin(item.id); }}
-              >
-                {item.pinned ? "★" : "☆"}
-              </button>
-              <span className="matrix-sidebar__namecell">
-                <span className="matrix-sidebar__name">
-                  {slot && <span className={`matrix-sidebar__slot matrix-sidebar__slot--${slot.toLowerCase()}`}>{slot}</span>}
-                  {item.label}
-                </span>
-                {subline && <span className="matrix-sidebar__sub">{subline}</span>}
-              </span>
-              <span className="matrix-sidebar__tag-col">
-                {item.type && <span className="matrix-sidebar__tag">{typeTag(item.type)}</span>}
-              </span>
-              <span className="matrix-sidebar__value">{value ?? "—"}</span>
-            </div>
-          );
-        })}
+        {items.map((item) => (
+          <SidebarRow
+            key={item.id}
+            {...item}
+            tab={tab}
+            selected={item.id === selectedId}
+            slot={basisSlots?.a === item.id ? "A" : basisSlots?.b === item.id ? "B" : null}
+            selectedRef={item.id === selectedId ? selectedRef : undefined}
+            onSelect={selectRow}
+            onTogglePin={toggleRowPin}
+          />
+        ))}
       </div>
       <style>{`
         .matrix-sidebar { display: flex; flex-direction: column; min-height: 0; width: 340px; flex: 0 0 340px; background: var(--bg-panel); border: 1px solid var(--border); border-right: 0; }

@@ -71,7 +71,7 @@ export function ConstraintRead({
 
   return (
     <>
-      <div className="mrd__main">
+      <div className="mrd__main" aria-busy={loading}>
         <header className="mrd__head">
           <span className="mrd__eyebrow">Constraint</span>
           <h2 className="mrd__title">
@@ -161,7 +161,7 @@ export function ConstraintRead({
           <div className="mrd-reach__dipole">
             <SignSplit negative={negative} positive={positive} />
           </div>
-          {loading ? (
+          {loading && !reach ? (
             <div className="cr-mem-msg">loading members…</div>
           ) : (
             <div className="mrd-lobes">

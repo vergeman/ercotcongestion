@@ -1,11 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalysisBasis,
   AnalysisNodeResponse,
   MatrixDamStatus,
 } from "../../../api/types";
-import { getAnalysisNode } from "../../../api/analysisNode";
+import { getAnalysisNode, getCachedAnalysisNode } from "../../../api/analysisNode";
 import MiniMap from "../../map/MiniMap";
 import { mapLinkTo } from "../../../lib/mapLinks";
 import { marketValue, percent, zoneLabel } from "../../../lib/format";
@@ -47,6 +47,14 @@ export function NodeRead({
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
+  const nodeLat = meta?.lat;
+  const nodeLon = meta?.lon;
+  const nodeLocation = useMemo(() =>
+    nodeLat != null && nodeLon != null
+      ? { lat: nodeLat, lng: nodeLon }
+      : null,
+    [nodeLat, nodeLon]
+  );
 
   useEffect(() => {
     if (!timestamp || !deliveryDate) {
@@ -56,7 +64,20 @@ export function NodeRead({
     }
     const controller = new AbortController();
     const id = ++requestId.current;
-    setNode(null);
+    const cached = getCachedAnalysisNode(
+      point, deliveryDate, timestamp.toISOString(), basis, true
+    );
+    if (cached) {
+      setNode(cached);
+      setLoading(false);
+      return () => controller.abort();
+    }
+    setNode((current) =>
+      current?.available && current.settlement_point === point &&
+      current.delivery_date === deliveryDate && current.basis === basis
+        ? current
+        : null
+    );
     setLoading(true);
     getAnalysisNode(
       point,
@@ -67,7 +88,7 @@ export function NodeRead({
       true
     )
       .then((response) => {
-        if (id === requestId.current) setNode(response);
+        if (!controller.signal.aborted && id === requestId.current) setNode(response);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -91,12 +112,13 @@ export function NodeRead({
 
   return (
     <>
-      <div className="mrd__main">
+      <div className="mrd__main" aria-busy={loading}>
         <header className="mrd__head">
           <span className="mrd__eyebrow">Settlement point</span>
           <h2 className="mrd__title">{point}</h2>
         </header>
         {node?.available && (
+          <div style={{ opacity: loading ? 0.55 : 1 }}>
           <DetailSummary
             hourly={
               <>
@@ -135,6 +157,18 @@ export function NodeRead({
                   tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
                   numeric
                 />
+                <Fact
+                  label="SF coverage"
+                  value={node.coverage == null ? "—" : percent(node.coverage)}
+                  tooltip="Σ(−model SF × realized DAM μ) / realized congestion"
+                  numeric
+                />
+                <Fact
+                  label="No. Current Drivers"
+                  value={`${node.n_terms ?? terms.length}`}
+                  tooltip="constraint counts where |−SF × μ| > 0"
+                  numeric
+                />
               </>
             }
             structural={
@@ -154,19 +188,10 @@ export function NodeRead({
                   }
                   numeric
                 />
-                <Fact
-                  label="SF coverage"
-                  value={node.coverage == null ? "—" : percent(node.coverage)}
-                  numeric
-                />
-                <Fact
-                  label="Current drivers"
-                  value={`${node.n_terms ?? terms.length}`}
-                  numeric
-                />
               </>
             }
           />
+          </div>
         )}
 
         {basis === "realized" && node?.available && market?.dam_lmp == null && (
@@ -208,11 +233,7 @@ export function NodeRead({
           mapHref={mapHref}
           onNavigate={onNavigateToMap}
           showTitle={false}
-          nodeLocation={
-            meta?.lat != null && meta.lon != null
-              ? { lat: meta.lat, lng: meta.lon }
-              : null
-          }
+          nodeLocation={nodeLocation}
         />
       </div>
     </>

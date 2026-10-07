@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   AnalysisConstraintRow,
   MatrixDamStatus,
@@ -59,12 +59,12 @@ export default function MatrixReadDetail({
     key: "contribution",
     dir: "desc",
   });
-  const toggleNodeSort = (key: NodeSortKey) =>
+  const toggleNodeSort = useCallback((key: NodeSortKey) =>
     setNodeSort((cur) =>
       cur.key === key
         ? { key, dir: cur.dir === "asc" ? "desc" : "asc" }
         : { key, dir: nodeDefaultDir() }
-    );
+    ), []);
 
   if (!selection) {
     return (

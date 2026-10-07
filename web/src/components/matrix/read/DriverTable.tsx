@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { AnalysisContributionTerm } from "../../../api/types";
 import { shiftFactorColor } from "../../../lib/colors";
 import { constraintName, usd } from "../../../lib/format";
@@ -10,7 +10,7 @@ import {
   type NodeSortKey,
 } from "./sort";
 
-function DriverRow({ term }: { term: AnalysisContributionTerm }) {
+const DriverRow = memo(function DriverRow({ term }: { term: AnalysisContributionTerm }) {
   const mu = termMu(term);
   return (
     <tr>
@@ -35,13 +35,19 @@ function DriverRow({ term }: { term: AnalysisContributionTerm }) {
       </td>
     </tr>
   );
-}
+}, (previous, next) =>
+  previous.term.constraint_key === next.term.constraint_key &&
+  previous.term.contribution === next.term.contribution &&
+  previous.term.shift_factor === next.term.shift_factor &&
+  previous.term.binding_hours === next.term.binding_hours &&
+  previous.term.sf_clipped === next.term.sf_clipped
+);
 
 // One sortable table over the node's full nonzero-SF set — it replaces the old
 // drivers table plus the separate structural-exposure disclosure. Sort by $/MWh
 // (default) for the drivers, by SF for structural exposure, by bind/clip to spot
 // what is not structurally sound.
-export function DriverTable({
+export const DriverTable = memo(function DriverTable({
   terms,
   sort,
   onToggleSort,
@@ -100,4 +106,4 @@ export function DriverTable({
       )}
     </>
   );
-}
+});

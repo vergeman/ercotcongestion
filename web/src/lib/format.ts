@@ -3,11 +3,18 @@
 // ── Money & currency ────────────────────────────────────────────────────────
 
 // Signed dollars with grouping, e.g. "$1,234" / "−$5". `fractionDigits` places.
-export const usd = (value: number, fractionDigits = 0) =>
-  `${value < 0 ? "−" : ""}$${Math.abs(value).toLocaleString(undefined, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  })}`;
+const dollarFormatters = new Map<number, Intl.NumberFormat>();
+export const usd = (value: number, fractionDigits = 0) => {
+  let formatter = dollarFormatters.get(fractionDigits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    });
+    dollarFormatters.set(fractionDigits, formatter);
+  }
+  return `${value < 0 ? "−" : ""}$${formatter.format(Math.abs(value))}`;
+};
 
 // A market value with its per-MWh unit, e.g. "$3.20/MWh". Null → "—".
 export const marketValue = (value: number | null | undefined): string =>
