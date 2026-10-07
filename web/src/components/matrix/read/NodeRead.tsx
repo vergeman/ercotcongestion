@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalysisBasis,
   AnalysisNodeResponse,
@@ -47,7 +47,14 @@ export function NodeRead({
   const [node, setNode] = useState<AnalysisNodeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
-
+  const nodeLat = meta?.lat;
+  const nodeLon = meta?.lon;
+  const nodeLocation = useMemo(() =>
+    nodeLat != null && nodeLon != null
+      ? { lat: nodeLat, lng: nodeLon }
+      : null,
+    [nodeLat, nodeLon]
+  );
 
   useEffect(() => {
     if (!timestamp || !deliveryDate) {
@@ -226,11 +233,7 @@ export function NodeRead({
           mapHref={mapHref}
           onNavigate={onNavigateToMap}
           showTitle={false}
-          nodeLocation={
-            meta?.lat != null && meta.lon != null
-              ? { lat: meta.lat, lng: meta.lon }
-              : null
-          }
+          nodeLocation={nodeLocation}
         />
       </div>
     </>

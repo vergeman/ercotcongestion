@@ -30,7 +30,7 @@ Branch: `fix/matrix-display-and-load`
 
 * Work in: `MatrixStage.tsx`, `MatrixSidebar.tsx`, `MatrixReadDetail.tsx`, `DriverTable.tsx`, `NodeRead.tsx`, `lib/format.ts`.
 * Remove the artificial 220 ms loading overlay.
-* Render visible sidebar rows with overscan, preserving selection scrolling and total counts.
+* Render the full sidebar with memoized rows and stable callbacks; compare row values to skip unchanged entries.
 * Memoize driver tables/unchanged rows, stabilize sort callbacks and map coordinates, and reuse currency formatters.
 
 ## Acceptance
@@ -39,4 +39,7 @@ Branch: `fix/matrix-display-and-load`
 * [x] Cache/cancellation checks preserve distinct hourly values and share duplicate requests.
 * [x] Browser checks confirm hourly coverage updates and scrolling reaches the final sidebar entry.
 * [x] TypeScript, focused lint, and currency-format equivalence checks pass.
-* [ ] Verify search, pinning, keyboard navigation, and mobile sidebar behavior before merging.
+* [x] The full sidebar uses memoized rows without size observation or hardcoded virtualization dimensions.
+* [x] Browser checks confirm selection, pinning, and keyboard activation use the latest handlers.
+* [x] Browser checks confirm search filtering, empty results, and clearing the query restore the full list.
+* [x] Mobile sidebar expansion, search, selection, automatic collapse, and horizontal overflow checks pass.
