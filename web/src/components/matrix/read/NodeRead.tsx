@@ -135,6 +135,18 @@ export function NodeRead({
                   tone={(node.total ?? 0) >= 0 ? "pos" : "neg"}
                   numeric
                 />
+                <Fact
+                  label="SF coverage"
+                  value={node.coverage == null ? "—" : percent(node.coverage)}
+                  tooltip="Σ(−model SF × realized DAM μ) / realized congestion"
+                  numeric
+                />
+                <Fact
+                  label="No. Current Drivers"
+                  value={`${node.n_terms ?? terms.length}`}
+                  tooltip="constraint counts where |−SF × μ| > 0"
+                  numeric
+                />
               </>
             }
             structural={
@@ -152,16 +164,6 @@ export function NodeRead({
                       ? `≈${node.essp_member_count}`
                       : "—"
                   }
-                  numeric
-                />
-                <Fact
-                  label="SF coverage"
-                  value={node.coverage == null ? "—" : percent(node.coverage)}
-                  numeric
-                />
-                <Fact
-                  label="Current drivers"
-                  value={`${node.n_terms ?? terms.length}`}
                   numeric
                 />
               </>

@@ -10,15 +10,17 @@ export function Fact({
   value,
   tone,
   numeric = false,
+  tooltip,
 }: {
   label: string;
   value: ReactNode;
   tone?: "pos" | "neg";
   numeric?: boolean;
+  tooltip?: string;
 }) {
   return (
     <div className="kv__row">
-      <span className="kv__label">{label}</span>
+      <span className="kv__label" title={tooltip}>{label}</span>
       <span
         className={`kv__value${tone ? ` kv__value--${tone}` : ""}${
           numeric ? " kv__value--numeric" : ""
