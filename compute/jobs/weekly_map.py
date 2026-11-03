@@ -136,12 +136,22 @@ def main(argv: list[str] | None = None) -> int:
                    help="Load and fit this many refit windows at a time "
                         "(default 32). Bounds dense M/C pivots during rebuilds; "
                         "an incremental run loads only its new fit window.")
+    p.add_argument("--preflight-dry-run", action="store_true")
     args = p.parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+
+    from ops.monitoring.preflight import check
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    with psycopg.connect(settings.pg_dsn) as conn:
+        healthy = check(conn, datetime.now(ZoneInfo("America/Chicago")).date(),
+                        dry_run=args.preflight_dry_run)
+    if args.preflight_dry_run or not healthy:
+        return 0 if healthy else 1
 
     run_dir = RUNS_ROOT / args.run_id
     out_dir = run_dir / "sf"

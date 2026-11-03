@@ -547,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                         "D−2, the live cron's own schedule) for a vintage-faithful "
                         "single-day preview backfill — see backfill_forecasts.py, "
                         "which computes this automatically for a date range")
+    p.add_argument("--preflight-dry-run", action="store_true")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
@@ -569,6 +570,11 @@ def main(argv: list[str] | None = None) -> int:
            f"user={os.environ['PG_USER']} password={os.environ['PG_PASSWORD']}")
 
     with psycopg.connect(dsn) as conn:
+        from ops.monitoring.preflight import check
+        through = D.tz_convert(ERCOT_TZ).date() - timedelta(days=1)
+        healthy = check(conn, through, dry_run=args.preflight_dry_run)
+        if args.preflight_dry_run or not healthy:
+            return 0 if healthy else 1
         # Before the fit, not after: a re-run that would clobber a published day
         # should cost a query, not 20 minutes of compute and the day it replaces.
         if args.to_db and not args.force and _day_already_published(
