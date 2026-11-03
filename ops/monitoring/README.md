@@ -41,7 +41,7 @@ for key in ("CF_ACCOUNT_ID", "CF_EMAIL_API_TOKEN", "CF_EMAIL_FROM", "CF_EMAIL_TO
     os.environ[key] = base64.b64decode(config[key]).decode()
 sys.path.insert(0, "/tmp/email-test")
 from email_helper import send_email
-print(send_email("ercotstress: email delivery test", "Confirm receipt in Gmail before enabling monitoring."))
+print(send_email("ERCOT Congestion Explorer: email delivery test", "Confirm receipt in Gmail before enabling monitoring."))
 '
 ```
 
@@ -59,4 +59,7 @@ Run focused tests with:
 python -m pytest ops/monitoring/test_email_helper.py -q
 ```
 
-Preflight and watchdog implementation follows after confirmed email delivery.
+Production cluster email test passed on November 3, 2026: Cloudflare returned
+`delivered` and Gmail receipt was confirmed.
+
+Use “ERCOT Congestion Explorer” in monitoring email subjects and bodies.

@@ -6,8 +6,8 @@ from ops.monitoring.email_helper import EmailError, send_email
 def main():
     try:
         status = send_email(
-            "ercotstress: email delivery test",
-            "Cloudflare email delivery test from ercotstress. Confirm receipt in Gmail before enabling monitoring.",
+            "ERCOT Congestion Explorer: email delivery test",
+            "Email delivery test from ERCOT Congestion Explorer. Confirm receipt in Gmail before enabling monitoring.",
         )
     except EmailError as exc:
         print(str(exc))
