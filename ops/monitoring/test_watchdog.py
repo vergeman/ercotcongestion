@@ -1,9 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from ops.monitoring.pipeline_watchdog import expected_run, inspect_run, forecast_output
-from ops.monitoring.test_preflight import connection
 
 TICK = datetime(2026, 11, 3, 17, tzinfo=timezone.utc)
 
