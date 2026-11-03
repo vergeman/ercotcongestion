@@ -33,6 +33,8 @@ COPY --chown=shifty:shifty api/           /api/
 COPY --chown=shifty:shifty compute/       /compute/
 COPY --chown=shifty:shifty ercot_ingest/  /ercot_ingest/
 
+COPY --chown=shifty:shifty ops/monitoring/ /ops/monitoring/
+
 # Preprocessing artifacts (CSVs + netCDF).
 # Phase 2: still baked in. Move to S3 init container or PVC if these start
 # changing more frequently than the code.

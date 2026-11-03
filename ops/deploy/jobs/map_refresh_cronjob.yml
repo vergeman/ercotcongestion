@@ -121,6 +121,8 @@ spec:
                     name: api-config
                 - secretRef:
                     name: postgres-credentials
+                - secretRef:
+                    name: monitoring-email
               resources:
                 # The full-history SF persist ran within ~8Gi on compute-shell in
                 # 0003 (incremental still loads the full panel to walk windows).

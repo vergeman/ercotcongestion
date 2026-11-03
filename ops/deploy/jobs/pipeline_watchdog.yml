@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pipeline-watchdog
+  namespace: ercotstress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeline-watchdog
+  namespace: ercotstress
+rules:
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-watchdog
+  namespace: ercotstress
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-watchdog
+    namespace: ercotstress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeline-watchdog
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pipeline-watchdog
+  namespace: ercotstress
+spec:
+  schedule: '0 18,21 * * *'
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          serviceAccountName: pipeline-watchdog
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: regcred
+          containers:
+            - name: watchdog
+              image: ${IMAGE_REPO}/ercotstress/api-compute:${IMAGE_TAG}
+              command: [python, -m, ops.monitoring.pipeline_watchdog]
+              envFrom:
+                - configMapRef:
+                    name: api-config
+                - secretRef:
+                    name: postgres-credentials
+                - secretRef:
+                    name: monitoring-email
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: '1'
+                  memory: 512Mi

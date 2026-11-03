@@ -1,65 +1,44 @@
 # Pipeline monitoring
 
-## Email delivery test
+The preflight checks seven delivery days of DAM settlement prices and system
+lambda for missing hours. Forecast and weekly SF jobs run it before fitting.
+Missing inputs stop the fit and send an email.
 
-Configure Cloudflare Email Sending for your sender domain and verify the Gmail
-recipient in Email Routing. Create an account API token with email sending
-permission for that account. The live test establishes whether the account is
-eligible to send; HTTP 403 can indicate missing permission or entitlement.
+The watchdog runs at 18:00 and 21:00 UTC. It checks final, preview, and weekly SF
+Jobs for failures, OOMs, missed runs, overdue runs, and missing outputs. Problems
+send one summary email; healthy scans send nothing. Retained failed Jobs may
+still alert after a manual repair until the next scheduled success.
 
-API reference: https://developers.cloudflare.com/email-service/api/send-emails/rest-api/
-Recipient setup: https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/
+## Configuration
 
-Create a local, private env file outside the repository containing:
-
-```text
-CF_ACCOUNT_ID=your-account-id
-CF_EMAIL_API_TOKEN=your-token
-CF_EMAIL_FROM=alerts@your-domain
-CF_EMAIL_TO=your-verified-address@gmail.com
-```
-
-Create the cluster Secret without putting credentials in command arguments:
+Copy `.env.email.stub` to `.env.email` and fill in the values. Create the Secret:
 
 ```sh
 kubectl -n ercotstress create secret generic monitoring-email \
-  --from-env-file=/path/to/private-email.env
+  --from-env-file=.env.email
 ```
 
-Run the test in an existing compute-shell pod. This copies only the two test
-modules, so no image release is needed. Substitute the pod name if necessary.
-The shell must have Python and requests installed.
+Build and deploy an image containing the monitoring code, then apply the CronJobs:
 
 ```sh
-kubectl -n ercotstress exec compute-shell -- mkdir -p /tmp/email-test
-kubectl -n ercotstress cp ops/monitoring/email_helper.py compute-shell:/tmp/email-test/email_helper.py
-kubectl -n ercotstress get secret monitoring-email -o json |
-  kubectl -n ercotstress exec -i compute-shell -- python -c '
-import base64, json, os, sys
-config = json.load(sys.stdin)["data"]
-for key in ("CF_ACCOUNT_ID", "CF_EMAIL_API_TOKEN", "CF_EMAIL_FROM", "CF_EMAIL_TO"):
-    os.environ[key] = base64.b64decode(config[key]).decode()
-sys.path.insert(0, "/tmp/email-test")
-from email_helper import send_email
-print(send_email("ERCOT Congestion Explorer: email delivery test", "Confirm receipt in Gmail before enabling monitoring."))
-'
+ops/deploy/model_cronjobs.sh all
 ```
 
-Alternatively, in an image containing this directory with the Secret mounted as
-environment variables, run `python -m ops.monitoring.test_email`.
+## Manual checks
 
-Confirm actual receipt in Gmail, including checking spam. A queued API response
-alone does not establish inbox delivery. If the API rejects the request, inspect
-Cloudflare account permissions, sender configuration, recipient verification, and
-Email Sending entitlement before retrying. Do not paste tokens into logs or chat.
-
-Run focused tests with:
+Run inside a compute pod with database configuration. For preflight, use D−1 for
+forecasts or the current CT date for weekly SF:
 
 ```sh
-python -m pytest ops/monitoring/test_email_helper.py -q
+python -m ops.monitoring.preflight --through 2026-11-03 --dry-run
 ```
 
-Production cluster email test passed on November 3, 2026: Cloudflare returned
-`delivered` and Gmail receipt was confirmed.
+Run the watchdog inside a pod using the `pipeline-watchdog` service account:
 
-Use “ERCOT Congestion Explorer” in monitoring email subjects and bodies.
+```sh
+python -m ops.monitoring.pipeline_watchdog --dry-run
+```
+
+Dry runs print findings without sending email. Remove `--dry-run` to enable email.
+Both commands exit 1 for problems or dependency errors. The model entry points
+also accept `--preflight-dry-run` to check inputs and exit before fitting.

@@ -4,6 +4,7 @@ from pathlib import Path
 import argparse
 import logging
 import os
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -79,11 +80,11 @@ def inspect_run(name, tick, now, jobs, pods, suspended):
     # An unfinished run beyond its allowance is overdue.
     if not complete and not problems:
         problems.append('run past deadline')
-    return problems, job if complete else None
+    return list(dict.fromkeys(problems)), job if complete else None
 
 
 def forecast_output(conn, tick, horizon, run_id):
-    day = tick.astimezone(__import__('zoneinfo').ZoneInfo('America/Chicago')).date() + timedelta(days=horizon)
+    day = tick.astimezone(ZoneInfo('America/Chicago')).date() + timedelta(days=horizon)
     with conn.cursor() as cur:
         cur.execute('SELECT DISTINCT ts FROM forecast_nodal WHERE run_id=%s AND delivery_date=%s AND horizon=%s',
                     (run_id, day, horizon))

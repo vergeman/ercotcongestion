@@ -3,7 +3,7 @@
 # Apply the scheduled forecast and map-refresh CronJobs.
 #
 # Usage:
-#   ./model_cronjobs.sh [forecast|forecast-preview|map-refresh|all]
+#   ./model_cronjobs.sh [forecast|forecast-preview|map-refresh|watchdog|all]
 #
 # `forecast` is the 17:00 UTC final (horizon 1) tick; `forecast-preview` is the
 # 19:45 UTC preview (horizon 2, t+2) tick. `all` applies every cronjob.
@@ -37,13 +37,17 @@ case "${1:-all}" in
   map-refresh)
     apply_cronjob map_refresh_cronjob.yml
     ;;
+  watchdog)
+    apply_cronjob pipeline_watchdog.yml
+    ;;
   all)
+    apply_cronjob pipeline_watchdog.yml
     apply_cronjob forecast_cronjob.yml
     apply_cronjob forecast_preview_cronjob.yml
     apply_cronjob map_refresh_cronjob.yml
     ;;
   *)
-    echo "Usage: $0 [forecast|forecast-preview|map-refresh|all]" >&2
+    echo "Usage: $0 [forecast|forecast-preview|map-refresh|watchdog|all]" >&2
     exit 1
     ;;
 esac
