@@ -1,6 +1,7 @@
 plan/
 preprocess/
-ops/
+ops/*
+!ops/monitoring/
 docs/
 db/*.tar.gz
 
