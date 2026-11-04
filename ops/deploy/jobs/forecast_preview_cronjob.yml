@@ -104,6 +104,8 @@ spec:
                     name: api-config
                 - secretRef:
                     name: postgres-credentials
+                - secretRef:
+                    name: monitoring-email
               resources:
                 # Memory-heavy: the panel-slice fit peaks ~16Gi on prod (0013), the
                 # same fit as the final tick (horizon is persistence/labeling only).

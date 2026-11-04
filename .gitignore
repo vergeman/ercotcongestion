@@ -3,6 +3,7 @@ __pycache__/
 .wrangler
 .env
 .env.dev
+.env.email
 
 *.gz
 

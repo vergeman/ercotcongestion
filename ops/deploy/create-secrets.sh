@@ -2,6 +2,12 @@
 
 source ../../.env
 
+# Monitoring email configuration is required by the model jobs and watchdog.
+if [[ ! -f ../../.env.email ]]; then
+        echo "Missing .env.email; copy .env.email.stub and fill in the values." >&2
+        exit 1
+fi
+
 # Initial Namespaces
 kubectl apply -f ./base/namespace.yml
 
@@ -47,6 +53,12 @@ kubectl create secret generic cloudflare-api-token-secrets \
         --from-literal=api-token=$CLOUDFLARE_CERT_API_TOKEN
 
 # API: configmap
+
+# Monitoring email
+kubectl create secret generic monitoring-email \
+        -n ercotstress \
+        --from-env-file=../../.env.email \
+        --dry-run=client -o yaml | kubectl apply -f -
 
 # WEB
 # VITE_API_BASE set on Cloudflare Pages
