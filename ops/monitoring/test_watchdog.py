@@ -51,3 +51,16 @@ def test_forecast_missing_output():
     cur.fetchall.return_value = []
     cur.fetchone.return_value = None
     assert len(forecast_output(conn, TICK, 1, 'mu-all-v1')) == 2
+
+
+def test_outputs_decide_whether_failed_jobs_alert():
+    from unittest.mock import patch
+    from ops.monitoring.pipeline_watchdog import output_issues
+    now = TICK + timedelta(hours=1)
+    for name, reader in [('ercot-forecast', 'forecast_output'), ('ercot-map-refresh', 'sf_output')]:
+        with patch('ops.monitoring.pipeline_watchdog.' + reader, return_value=[]):
+            assert output_issues(None, name, TICK, now, [job('Failed')], []) == []
+        with patch('ops.monitoring.pipeline_watchdog.' + reader, return_value=['missing output']):
+            issues = output_issues(None, name, TICK, now, [job('Failed')], [])
+            assert issues[0] == 'missing output'
+            assert len(issues) > 1

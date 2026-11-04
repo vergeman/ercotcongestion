@@ -123,6 +123,15 @@ def sf_output(conn, tick):
     return [] if exists else [f'missing SF metadata/artifact window {window_start} through {window_end}']
 
 
+def output_issues(conn, name, tick, now, jobs, pods, suspended=False):
+    horizon = SCHEDULES[name][3]
+    issues = forecast_output(conn, tick, horizon, 'mu-all-v1') if horizon else sf_output(conn, tick)
+    if issues:
+        context, _ = inspect_run(name, tick, now, jobs, pods, suspended)
+        issues += context
+    return issues
+
+
 def kube_resources():
     root = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     headers = {'Authorization': 'Bearer ' + (root / 'token').read_text().strip()}
@@ -147,17 +156,18 @@ def main():
         cronjobs, jobs, pods = kube_resources()
         now = datetime.now(timezone.utc)
         problems = []
-        # Check each expected run, then its outputs if it completed.
+        # Check expected outputs after each run’s allowed runtime.
         with psycopg.connect(settings.pg_dsn) as conn:
             for name, (_, _, _, horizon) in SCHEDULES.items():
                 cron = next((c for c in cronjobs if c['metadata']['name'] == name), None)
-                if cron is None:
-                    problems.append(name + ': CronJob missing')
-                    continue
                 tick = expected_run(name, now)
-                issues, completed = inspect_run(name, tick, now, jobs, pods, cron['spec'].get('suspend', False))
-                if completed:
-                    issues += forecast_output(conn, tick, horizon, 'mu-all-v1') if horizon else sf_output(conn, tick)
+                if now < tick + timedelta(minutes=SCHEDULES[name][2]):
+                    continue
+                # Missing outputs trigger alerts; Job status only adds context.
+                issues = output_issues(conn, name, tick, now, jobs, pods,
+                                       cron['spec'].get('suspend', False) if cron else False)
+                if issues and cron is None:
+                    issues.append('CronJob missing')
                 problems.extend(f'{name} expected {tick.isoformat()}: {issue}' for issue in issues)
         # Send one summary for the scan; healthy scans stay quiet.
         if problems:

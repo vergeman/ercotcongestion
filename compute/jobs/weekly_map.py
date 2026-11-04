@@ -144,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    if args.chunk_weeks < 1:
+        p.error("--chunk-weeks must be positive")
+
     from ops.monitoring.preflight import check
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -164,8 +167,6 @@ def main(argv: list[str] | None = None) -> int:
     # get truncated fits.
     read_start = start - timedelta(days=args.window_days)
 
-    if args.chunk_weeks < 1:
-        p.error("--chunk-weeks must be positive")
 
     # SF persistence streams each refit window to the DB as it's fit, inside
     # one transaction opened before the fit loop and committed after. This
