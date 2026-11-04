@@ -83,46 +83,6 @@ def inspect_run(name, tick, now, jobs, pods, suspended):
     return list(dict.fromkeys(problems)), job if complete else None
 
 
-def repaired_run(name, tick, jobs, cron):
-    """Find a successful replacement for this run, using its actual inputs."""
-    horizon = SCHEDULES[name][3]
-    day = tick.astimezone(ZoneInfo('America/Chicago')).date()
-    expected = day + timedelta(days=horizon or 0)
-    template = cron['spec']['jobTemplate']['spec']['template']['spec']['containers']
-    for job in jobs:
-        if not owned(job, 'CronJob', name):
-            continue
-        if instant(job['metadata']['creationTimestamp']) < tick:
-            continue
-        if not any(c['type'] == 'Complete' and c['status'] == 'True'
-                   for c in job.get('status', {}).get('conditions', [])):
-            continue
-        containers = job['spec']['template']['spec']['containers']
-        if horizon is None:
-            # The full SF shell chain must match the scheduled refresh.
-            same = [(c.get('command'), c.get('args')) for c in containers] == [
-                (c.get('command'), c.get('args')) for c in template]
-            started = instant(job['status']['startTime'])
-            if same and started.date() == tick.date():
-                return job
-            continue
-        for container in containers:
-            args = container.get('command', []) + container.get('args', [])
-            def option(key, default=None):
-                return args[args.index(key) + 1] if key in args and args.index(key) + 1 < len(args) else default
-            if ('compute.jobs.daily_forecast' not in args or '--to-db' not in args
-                    or option('--run-id') != 'mu-all-v1' or option('--horizon', '1') != str(horizon)):
-                continue
-            delivery = option('--delivery-date')
-            if delivery == 'tomorrow':
-                started = instant(job['status']['startTime'])
-                delivery = (started.astimezone(ZoneInfo('America/Chicago')).date()
-                            + timedelta(days=horizon)).isoformat()
-            if delivery == expected.isoformat():
-                return job
-    return None
-
-
 def forecast_output(conn, tick, horizon, run_id):
     day = tick.astimezone(ZoneInfo('America/Chicago')).date() + timedelta(days=horizon)
     with conn.cursor() as cur:
@@ -163,6 +123,15 @@ def sf_output(conn, tick):
     return [] if exists else [f'missing SF metadata/artifact window {window_start} through {window_end}']
 
 
+def output_issues(conn, name, tick, now, jobs, pods, suspended=False):
+    horizon = SCHEDULES[name][3]
+    issues = forecast_output(conn, tick, horizon, 'mu-all-v1') if horizon else sf_output(conn, tick)
+    if issues:
+        context, _ = inspect_run(name, tick, now, jobs, pods, suspended)
+        issues += context
+    return issues
+
+
 def kube_resources():
     root = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     headers = {'Authorization': 'Bearer ' + (root / 'token').read_text().strip()}
@@ -187,22 +156,18 @@ def main():
         cronjobs, jobs, pods = kube_resources()
         now = datetime.now(timezone.utc)
         problems = []
-        # Check each expected run, then its outputs if it completed.
+        # Check expected outputs after each run’s allowed runtime.
         with psycopg.connect(settings.pg_dsn) as conn:
             for name, (_, _, _, horizon) in SCHEDULES.items():
                 cron = next((c for c in cronjobs if c['metadata']['name'] == name), None)
-                if cron is None:
-                    problems.append(name + ': CronJob missing')
-                    continue
                 tick = expected_run(name, now)
-                issues, completed = inspect_run(name, tick, now, jobs, pods, cron['spec'].get('suspend', False))
-                # A successful replacement clears the old failure only with valid outputs.
-                if issues:
-                    completed = repaired_run(name, tick, jobs, cron)
-                    if completed:
-                        issues = []
-                if completed:
-                    issues += forecast_output(conn, tick, horizon, 'mu-all-v1') if horizon else sf_output(conn, tick)
+                if now < tick + timedelta(minutes=SCHEDULES[name][2]):
+                    continue
+                # Missing outputs trigger alerts; Job status only adds context.
+                issues = output_issues(conn, name, tick, now, jobs, pods,
+                                       cron['spec'].get('suspend', False) if cron else False)
+                if issues and cron is None:
+                    issues.append('CronJob missing')
                 problems.extend(f'{name} expected {tick.isoformat()}: {issue}' for issue in issues)
         # Send one summary for the scan; healthy scans stay quiet.
         if problems:
