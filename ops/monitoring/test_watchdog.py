@@ -51,3 +51,20 @@ def test_forecast_missing_output():
     cur.fetchall.return_value = []
     cur.fetchone.return_value = None
     assert len(forecast_output(conn, TICK, 1, 'mu-all-v1')) == 2
+
+
+def test_repair_matches_delivery_date_and_requires_success():
+    from ops.monitoring.pipeline_watchdog import repaired_run
+    repair = job()
+    repair['spec'] = {'template': {'spec': {'containers': [{
+        'command': ['python', '-m', 'compute.jobs.daily_forecast', '--delivery-date',
+                    '2026-11-04', '--horizon', '1', '--run-id', 'mu-all-v1', '--to-db']
+    }]}}}
+    cron = {'spec': {'jobTemplate': {'spec': repair['spec']}}}
+    assert repaired_run('ercot-forecast', TICK, [repair], cron) is repair
+    args = repair['spec']['template']['spec']['containers'][0]['command']
+    args[args.index('2026-11-04')] = '2026-11-03'
+    assert repaired_run('ercot-forecast', TICK, [repair], cron) is None
+    args[args.index('2026-11-03')] = '2026-11-04'
+    repair['status'] = {}
+    assert repaired_run('ercot-forecast', TICK, [repair], cron) is None
